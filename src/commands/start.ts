@@ -32,7 +32,14 @@ export async function startCommand(prompt: string): Promise<void> {
   try {
     await execa(
       "claude",
-      [trimmed, "--append-system-prompt", systemPrompt],
+      [
+        trimmed,
+        "--append-system-prompt", systemPrompt,
+        // Triage's only side effect is writing one task.md; the system
+        // prompt forbids code edits. acceptEdits keeps the Write tool from
+        // gating the user behind plan-mode approval every invocation.
+        "--permission-mode", "acceptEdits",
+      ],
       { cwd: repoRoot, stdio: "inherit" },
     );
   } catch (err) {

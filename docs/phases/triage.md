@@ -40,18 +40,27 @@ sufficiently structured contract to run scripted.
 ## How the system prompt gets in
 
 ```sh
-claude "<prompt>" --append-system-prompt "$(cat templates/triage-system-prompt.md)"
+claude "<prompt>" \
+  --append-system-prompt "$(cat templates/triage-system-prompt.md)" \
+  --permission-mode acceptEdits
 ```
 
 The CLI does the equivalent in `src/commands/start.ts` via `execa`.
-`--append-system-prompt` is the documented way to add instructions
-without modifying the user's working directory or installing a skill
-into the target repo. The triage rules travel with the flow CLI; the
-target repo stays untouched.
+
+- `--append-system-prompt` is the documented way to add instructions
+  without modifying the user's working directory or installing a skill
+  into the target repo. The triage rules travel with the flow CLI; the
+  target repo stays untouched.
+- `--permission-mode acceptEdits` skips plan-mode approval for the
+  single Write tool call that produces task.md. Without it, users
+  whose Claude Code defaults to plan mode have to ExitPlanMode every
+  invocation. Triage's only side effect is writing one metadata file;
+  the system prompt forbids code edits, so auto-accepting writes is
+  safe in scope.
 
 If a future phase wants to reuse this pattern (e.g., to inject phase-
-specific guardrails on top of an existing skill), the same flag
-applies.
+specific guardrails on top of an existing skill), the same flags
+apply.
 
 ## Classification heuristics
 
