@@ -91,11 +91,6 @@ The verbatim text the user passed to `flow start`. Never rewritten.
 - summary: <one-line reading hook for downstream phases>
 ```
 
-(There used to be a `type` field whose only legal value was `change`.
-Removed: a no-change request never writes a task file, so the field
-was uninformative and bait for prompt drift — agents would set
-`type: <intent>` instead.)
-
 ### `## Clarifications`
 
 Bulleted Q/A pairs in short form, or a brief prose summary of what
