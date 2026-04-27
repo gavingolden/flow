@@ -57,6 +57,7 @@ worktree: /Users/gavin/code/me/econ-data-add-portfolio-chart
 branch: gavin/add-portfolio-chart
 pr: 184
 manual_validation: false
+merge_commit: null
 ---
 ```
 
@@ -71,9 +72,34 @@ manual_validation: false
 | `branch` | string \| `null` | worktree phase | Branch name created in the target repo. |
 | `pr` | integer \| `null` | implement phase | GitHub PR number. Null until phase 3 opens it. |
 | `manual_validation` | bool \| `null` | gate phase | True if the PR's "Manual validation" section is non-empty. Null before the gate runs. |
+| `merge_commit` | string \| `null` | merge phase | SHA of the squash-merge commit on the base branch. Hard to recover after the fact (branch deleted, PR squashed) so we capture it explicitly. Null until M4's merge phase runs. |
 
 Add new fields freely as later phases need them, but keep the schema
 backward-compatible: existing readers must not crash on missing fields.
+
+## Discoverability — where to look for what
+
+The frontmatter holds **structured pointers** an agent can grep
+without parsing prose. The body holds **rich content** that varies
+per phase. Agents looking for information should consult them in this
+order:
+
+| Looking for | Look here |
+|---|---|
+| PR number | `frontmatter.pr` |
+| Merge commit SHA | `frontmatter.merge_commit` |
+| Branch / worktree path | `frontmatter.branch`, `frontmatter.worktree` |
+| Current state in pipeline | `frontmatter.status` (machine) or `## Progress` (visual) |
+| State transition history | `## Phase log` (timestamped audit) |
+| Files changed, tests added | `## Phase outputs > implement` |
+| Test results, lint state | `## Phase outputs > verify` |
+| CI run IDs and outcomes | `## Phase outputs > ci` |
+| Review findings / replies | `## Phase outputs > review` |
+| PRD, task breakdown, PR draft path | `## Phase outputs > plan` |
+
+GitHub URLs are deliberately not stored — they're derivable from
+`frontmatter.pr` plus the target repo's remote (one `gh repo view --json
+nameWithOwner` call) and storing both numbers and URLs invites drift.
 
 ## Status state machine
 

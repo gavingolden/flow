@@ -96,6 +96,7 @@ worktree: null
 branch: null
 pr: null
 manual_validation: null
+merge_commit: null
 ---
 
 ## User prompt
