@@ -35,14 +35,14 @@ export async function startCommand(prompt: string): Promise<void> {
       [
         trimmed,
         "--append-system-prompt", systemPrompt,
-        // Triage's only side effect is writing one task.md; the system
-        // prompt forbids code edits. acceptEdits keeps the Write tool from
-        // gating the user behind plan-mode approval every invocation.
-        "--permission-mode", "acceptEdits",
-        // Hard guardrail: triage cannot modify existing files. The system
-        // prompt instructs Claude not to, but plan mode has been observed
-        // to override that and dispatch Edit/MultiEdit anyway. Removing
-        // those tools makes the rule structural, not advisory.
+        // `default` opts out of plan-mode auto-entry (which previously
+        // hijacked triage into implementation) while still surfacing each
+        // tool call for the user to confirm. Auto-accepting writes was
+        // smoother UX but hid actions the user should see.
+        "--permission-mode", "default",
+        // Structural guardrail: triage cannot modify existing files even
+        // if the system prompt is misread. Write stays available so
+        // task.md still gets created.
         "--disallowed-tools", "Edit,MultiEdit,NotebookEdit",
       ],
       { cwd: repoRoot, stdio: "inherit" },

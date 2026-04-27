@@ -42,7 +42,7 @@ sufficiently structured contract to run scripted.
 ```sh
 claude "<prompt>" \
   --append-system-prompt "$(cat templates/triage-system-prompt.md)" \
-  --permission-mode acceptEdits \
+  --permission-mode default \
   --disallowed-tools "Edit,MultiEdit,NotebookEdit"
 ```
 
@@ -52,11 +52,12 @@ The CLI does the equivalent in `src/commands/start.ts` via `execa`.
   without modifying the user's working directory or installing a skill
   into the target repo. The triage rules travel with the flow CLI; the
   target repo stays untouched.
-- `--permission-mode acceptEdits` skips plan-mode approval for the
-  single Write tool call that produces task.md. Without it, users
-  whose Claude Code defaults to plan mode have to ExitPlanMode every
-  invocation. Plan mode is also where triage breaks down most badly
-  (see "Past failures" below).
+- `--permission-mode default` opts out of plan-mode auto-entry (the
+  failure mode in "Past failures" below) while keeping the per-call
+  permission prompt. The user sees the single Write to task.md and
+  approves it; any unexpected tool use surfaces visibly. We tried
+  `acceptEdits` first for smoother UX, but auto-accepting writes hid
+  actions the user should see.
 - `--disallowed-tools "Edit,MultiEdit,NotebookEdit"` is the structural
   guardrail. Even if Claude misreads the system prompt and tries to
   implement the feature itself, it cannot — the modify-existing-file
