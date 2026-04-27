@@ -21,8 +21,7 @@ merge) ship in M2–M4.
 ## Install (dev)
 
 ```sh
-npm install
-npm run build
+npm install     # `prepare` builds dist/ automatically
 npm link        # makes `flow` available on PATH
 ```
 
@@ -50,4 +49,13 @@ its outputs back, and exits.
 
 ## Design
 
-See `~/.claude/plans/this-is-a-brand-velvet-parnas.md` for the full plan.
+| You want | Read |
+|---|---|
+| The architectural rationale | [`docs/architecture.md`](docs/architecture.md) |
+| The cross-phase data contract (`task.md`) | [`docs/task-schema.md`](docs/task-schema.md) |
+| Milestone status + what's next | [`docs/roadmap.md`](docs/roadmap.md) |
+| A specific phase's contract | `docs/phases/<phase>.md` |
+| Project rules for agents working on flow | [`AGENTS.md`](AGENTS.md) |
+
+If you're picking up the next milestone, start with
+[`docs/phases/m2-plan.md`](docs/phases/m2-plan.md).
