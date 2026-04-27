@@ -1,0 +1,105 @@
+# Manual Test Rubric
+
+A PR description's "How to test" section is the reviewer's verification hook. Automated
+tests catch regressions; manual tests catch things the automated suite was never written
+to check — integrations, failure-mode UX, config gates, anything that only surfaces when
+the feature actually runs.
+
+When AI writes both the code and the test plan, the risk is a plan that looks plausible
+but only exercises the happy path. This rubric gives Step 11b a depth-aware definition
+of "testable" so shallow plans get flagged.
+
+## The scaffold
+
+Manual test plans are built from three scenario categories. Which categories a specific
+change needs is decided by the materiality table below — not every material change needs
+all three.
+
+1. **Happy path** — one concrete, reproducible scenario where everything works. The
+   check names a specific input and a specific expected observable (rendered value,
+   HTTP 200 with payload X, toast with text Y). "Verify it works" is a wish, not a test.
+
+2. **Unhappy / failure paths** — at least one scenario where something goes wrong:
+   missing input, upstream error, unauthorized access, allowlist rejection, rate-limit
+   response. The check is the _user-facing outcome_, not just the status code.
+   "Allowlist-blocked request surfaces a friendly error, not a raw 403" beats
+   "request returns 403."
+
+3. **Edge cases** — boundary conditions specific to the change: empty results,
+   concurrent access, TTL expiry, feature-flag disabled, very large or very small
+   inputs. These are the scenarios automated tests often stub past.
+
+## Materiality
+
+Not every change needs every category. Apply proportionally — over-prescribing on trivial
+changes is noise:
+
+| Change type                              | Happy | Unhappy |  Edges   |
+| ---------------------------------------- | :---: | :-----: | :------: |
+| New integration (provider, upstream API) |   ✓   |    ✓    |    ✓     |
+| Schema migration                         |   ✓   |    ✓    |    ✓     |
+| New user-facing feature                  |   ✓   |    ✓    | If clear |
+| Bug fix in error-handling                |   ✓   |    ✓    |    —     |
+| Bug fix in pure logic                    |   ✓   |    —    |    —     |
+| Internal refactor (no behavior change)   |   —   |    —    |    —     |
+| Config / env var                         |   ✓   |    ✓    |    —     |
+
+"Material" = anything reaching a user-observable boundary (UI, HTTP endpoint, CLI,
+data output) OR touching error handling OR gated by config. Pure internal refactors
+that pass the existing test suite unchanged do not need a manual plan.
+
+## PR-type scenario menus
+
+Use these as a baseline. Not every entry applies to every PR — pick the ones that match
+the actual change surface.
+
+### New data provider integration
+
+- Happy: fetch a known symbol, chart renders with expected data
+- Missing API key: backend either skips route registration or fails loudly at startup
+- Allowlist rejection: request to an unlisted path returns 403 and the UI shows a
+  friendly error (not a stack trace)
+- Auth missing: request without a token returns 401 and the UI handles it
+- Empty result: a valid identifier with no data shows an empty state, not a crash
+- Rate-limit response (if plan-relevant): user-facing message, no silent failure
+
+### Schema migration
+
+- Migration up produces the expected schema (columns, indexes, constraints)
+- Existing rows unaffected — spot-check 1-2 rows
+- RLS: authorized user reads the new column, unauthorized user is blocked
+- Reversibility (if the migration is reversible): `down` actually reverts
+
+### New user-facing feature
+
+- Primary action works end-to-end from the user's entry point
+- Loading state visible during async work
+- Error state shown on failure (network, validation, server error)
+- Empty state shown when there's no data
+- Keyboard and ARIA correct for any new interactive widget
+
+### Backend infra / config
+
+- Default configuration works with no env changes
+- Env-var override takes effect (e.g., `FOO_MAX_MB=16` actually caps at 16)
+- Missing env var either falls back to a documented default or fails loudly at startup
+
+## Shallow smells
+
+If any of these appear, the test plan probably needs tightening:
+
+- "Verify it works" / "check the UI" — no concrete observable
+- Restates automated tests (`npm run test`, `go test` are not manual steps)
+- Only happy path on a change that clearly has failure modes
+- Implementation language ("the `useFoo` hook returns `bar`") instead of user-observable
+  language
+- One-liner on a large PR with new external integrations or error-handling changes
+
+## Proportionality
+
+The rubric exists because AI-generated code needs a verification hook that's hard to
+fake. It does NOT exist to bureaucratize trivial work. A typo fix, a pure comment edit,
+or a three-line internal refactor does not need a manual plan.
+
+When in doubt, ask: "if this PR merges and silently breaks, what's the scenario a human
+should have tried to catch it?" If you can name one, that scenario belongs in the plan.

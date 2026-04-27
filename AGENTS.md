@@ -1,10 +1,14 @@
 # flow — agent guide
 
-`flow` is a multi-phase AI dev orchestrator. One prompt classifies into a
-no-change flow (Q&A, brainstorm) or a change flow (triage → plan → worktree
-→ implement → verify → CI → review → gate → merge). It targets any git
-repository and drives that repo's existing Claude Code skills via headless
-subprocess invocations.
+`flow` has two responsibilities in one repo:
+
+1. A **multi-phase AI dev orchestrator**. One prompt classifies into a
+   no-change flow (Q&A, brainstorm) or a change flow (triage → plan → worktree
+   → implement → verify → CI → review → gate → merge). It targets any git
+   repository and drives Claude Code skills via headless subprocess invocations.
+2. A **curated skill library** at `skills/`, distributed via `flow install-skills`
+   into target repos and `~/.claude/skills/`. Skills are usable independent of
+   the orchestrator; the CLI is just one consumer.
 
 This file is the entry point for any agent (human or AI) working on flow.
 Read it once at the start of a session.
@@ -13,11 +17,13 @@ Read it once at the start of a session.
 
 | You want | Read |
 |---|---|
-| The design and *why* behind it | `docs/architecture.md` |
+| The design and *why* behind the orchestrator | `docs/architecture.md` |
 | The cross-phase data contract (`task.md`) | `docs/task-schema.md` |
 | Milestone status + what's next | `docs/roadmap.md` |
 | A specific phase's contract | `docs/phases/<phase>.md` |
 | The detailed plan for the next milestone | `docs/phases/m<N>-plan.md` |
+| The skill library structure | `skills/` (categorized: `pipeline/`, `universal/`, `stacks/`) |
+| Generic engineering rules to copy into a new repo | `templates/AGENTS.md.template` |
 
 If you're picking up a milestone, the order is: `architecture.md` →
 `task-schema.md` → `roadmap.md` → the phase doc(s) you're implementing.
@@ -97,9 +103,10 @@ The build script chmods `dist/cli.js` so direct invocation works locally
 
 ## What flow is *not*
 
-- It is not a re-implementation of Claude Code skills. Existing skills in a
-  target project's `.claude/skills/` are reused as-is, invoked by name from
-  inside headless `claude -p ...` calls.
+- The orchestrator does not re-implement Claude Code skills inside its own
+  process. It hosts a skill library at `skills/` and distributes it via symlink
+  (`flow install-skills`); the CLI itself only invokes skills via headless
+  `claude -p ...` calls in subprocesses.
 - It is not a full SDLC tool. It does not host a web UI, post to Slack,
   open Jira tickets, or manage permissions.
 - It is not a long-running daemon. Each `flow` invocation does one thing

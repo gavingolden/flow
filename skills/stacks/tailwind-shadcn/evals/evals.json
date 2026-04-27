@@ -1,0 +1,48 @@
+{
+  "skill_name": "ui",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create a reusable StatCard component that shows an economic indicator name, current value, percent change, and a sparkline chart area. It should accept a custom className. Add a tooltip on the percent change showing the previous value.",
+      "expected_output": "A StatCard.svelte component using Card, Tooltip from shadcn-svelte, cn() for class composition, semantic color tokens including text-positive/text-negative for percent change, and lucide-svelte for any icons.",
+      "files": [],
+      "expectations": [
+        "Uses cn() from $lib/utils for class merging with the className prop",
+        "Imports Card with compound pattern: import * as Card from '$lib/components/ui/card'",
+        "Imports Tooltip with compound pattern: import * as Tooltip from '$lib/components/ui/tooltip'",
+        "Uses text-positive or text-negative for the percent change color",
+        "Uses semantic color tokens (bg-card, text-foreground, etc.) not hardcoded colors",
+        "Imports icons from lucide-svelte if any icons are used",
+        "Component accepts a class prop that gets merged via cn()"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "The delete button on dashboard cards should only show on hover for desktop but always be visible on mobile. Also show a success toast after deletion.",
+      "expected_output": "Modified DashboardCard.svelte using opacity transition pattern for responsive show/hide and svelte-sonner toast for feedback.",
+      "files": [],
+      "expectations": [
+        "Uses opacity-based responsive pattern (opacity-0/opacity-100 with group-hover) not hidden/block",
+        "Uses md: breakpoint for the hover behavior",
+        "Parent element has the group class",
+        "Imports toast from svelte-sonner",
+        "Calls toast.success() or similar after deletion",
+        "Does not add a new <Toaster> component"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Create a settings page with a form to edit the user's display name. Put a save button in the header bar. Include a theme switcher.",
+      "expected_output": "A settings page using AuthenticatedLayout with navBarActions snippet for the save button, a form with Label+Input, and the existing ThemeSelector component.",
+      "files": [],
+      "expectations": [
+        "Uses AuthenticatedLayout from $lib/components/layout/AuthenticatedLayout.svelte",
+        "Defines a navBarActions snippet for the save button in the header",
+        "Uses native <form onsubmit> pattern not on:submit",
+        "Pairs Label for= with Input id= for accessibility",
+        "Reuses existing ThemeSelector.svelte rather than building a new theme toggle",
+        "Uses Dialog or inline form pattern consistent with project conventions"
+      ]
+    }
+  ]
+}

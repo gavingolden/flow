@@ -1,0 +1,50 @@
+---
+name: {{SKILL_NAME}}
+description: >-
+  {{WHAT the skill does}} + {{WHEN to use it — specific trigger phrases}}.
+  Under 1024 chars. No XML angle brackets.
+---
+
+# Goal
+
+{{1-2 sentence high-level objective}}
+
+# When to Use
+
+- {{Specific scenario 1}}
+- {{Specific scenario 2}}
+
+# When NOT to Use
+
+- {{Boundary 1 — which skill to defer to}}
+- {{Boundary 2}}
+
+# Context
+
+- {{Key project path or convention}}
+- {{Reference file: `path/to/file.ts`}}
+
+# Instructions
+
+## 1. {{Step Name}}
+
+- {{Specific, deterministic action}}
+- {{Expected output or success criteria}}
+
+## 2. {{Step Name}}
+
+- {{Action with exact command or file path}}
+
+# Anti-Patterns
+
+{{Optional — document common mistakes and their fixes if the skill domain has known pitfalls}}
+
+# Verification
+
+- {{Concrete check: command to run, output to inspect}}
+- {{e.g., `npm run check` passes}}
+
+# Constraints
+
+- NEVER {{negative rule}}.
+- {{Another constraint}}.
