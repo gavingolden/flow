@@ -7,13 +7,33 @@ same file. There is no other state.
 ## Location
 
 ```
-<target-repo>/.orchestrator/tasks/<id>.md
+<target-repo>/.orchestrator/
+├── tasks/
+│   ├── <id>.md          ← active tasks live here
+│   └── archive/
+│       └── <id>.md      ← terminal tasks (merged, aborted) move here
 ```
 
 `<target-repo>` is the git repo the user is working in (the value of
 `git rev-parse --show-toplevel` at the time `flow start` was run).
 `.orchestrator/` is created lazily and should be added to that repo's
 `.gitignore`.
+
+**Filenames never change.** A task's `<id>` is fixed at creation and
+keeps its `.md` filename through the entire lifecycle. Completion is
+expressed by:
+
+1. The `status` frontmatter field reaching a terminal value (`merged`
+   or `aborted`).
+2. The file moving from `tasks/` to `tasks/archive/`.
+
+The directory move is an index optimisation — `glob("tasks/*.md")`
+gives "active tasks" without filtering, and `tasks/archive/*.md` gives
+history. Read helpers should look up `<id>` in both directories so
+`flow status <id>` keeps working after archival.
+
+The merge phase (M4) performs the move when it sets `status: merged`.
+`flow abort` (M5+) does the same when setting `status: aborted`.
 
 ## Filename / id
 
@@ -108,6 +128,40 @@ to fight scope creep during implementation. If none, the section says
 Anything still unresolved that downstream phases will need to decide.
 The plan phase converts these into ADRs or carries them into the PRD
 as Open Questions. If none, `none`.
+
+### `## Progress`
+
+A visual mirror of the `status` field, rendered as GitHub-flavoured
+markdown checkboxes. Generated deterministically from `status` plus
+the canonical phase order:
+
+```
+## Progress
+
+- [x] triage
+- [ ] plan
+- [ ] worktree
+- [ ] implement
+- [ ] verify
+- [ ] ci
+- [ ] review
+- [ ] gate
+- [ ] merge
+```
+
+Rules:
+
+- A phase is `[x]` if its target status (or any later status) has been
+  reached. Examples: status `planned` → triage and plan are checked;
+  status `pr-open` → triage, plan, worktree, implement are checked.
+- The runner regenerates this section on every `writeTask()` from
+  `status`; agents should not edit it by hand. The frontmatter
+  `status` is the source of truth — drift between the two is a bug
+  in the writer, not a state to be reconciled.
+- The triage agent writes the initial state (only triage checked) when
+  it creates the file.
+- Sub-phase progress (e.g., "implement is 3/5 files in") is not
+  captured here. Phases are atomic from the orchestrator's perspective.
 
 ### `## Phase log`
 

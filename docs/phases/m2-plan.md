@@ -327,7 +327,29 @@ export async function updateTaskFrontmatter(task: Task, patch: Partial<TaskFront
 export async function appendPhaseOutput(task: Task, phase: string, content: string): Promise<void> { ... }
 ```
 
-`writeTask` always sets `frontmatter.updated` to `new Date().toISOString()`.
+`writeTask` always sets `frontmatter.updated` to `new Date().toISOString()`
+and regenerates the `## Progress` section from `frontmatter.status`
+plus the canonical phase order (see `docs/task-schema.md`). Phase
+implementations don't touch `## Progress` directly — they update
+`status` and `writeTask` keeps the visual mirror in sync.
+
+Define the canonical phase order in one place — e.g.:
+
+```ts
+// src/state/phases.ts
+export const PHASE_ORDER = [
+  "triage", "plan", "worktree", "implement",
+  "verify", "ci", "review", "gate", "merge",
+] as const;
+export type PhaseName = (typeof PHASE_ORDER)[number];
+
+// Map status → "checked through which phase".
+// e.g. "planned" → triage + plan checked; "pr-open" → through implement.
+export function checkedThrough(status: TaskStatus): PhaseName { ... }
+```
+
+`writeTask` reads `checkedThrough(status)` and emits the checkbox
+list. Reuse the same constant from the runner's pipeline scheduler.
 
 ## Headless wrapper
 

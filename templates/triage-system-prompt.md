@@ -121,6 +121,18 @@ manual_validation: null
 - <anything still unresolved that the planning phase will need to decide>
 - <if none, write: none>
 
+## Progress
+
+- [x] triage
+- [ ] plan
+- [ ] worktree
+- [ ] implement
+- [ ] verify
+- [ ] ci
+- [ ] review
+- [ ] gate
+- [ ] merge
+
 ## Phase log
 
 - <created timestamp> triage → ready
