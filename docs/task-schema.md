@@ -191,14 +191,18 @@ Rules:
 
 ### `## Phase log`
 
-Append-only audit trail of phase transitions. Each line:
+Append-only audit trail of phase events. Each line is either a
+transition or a single-phase event:
 
 ```
-- <ISO-8601 UTC> <from> → <to> (<note>)
+- <ISO-8601 UTC> <from> → <to> (<note>)     # transition between phases
+- <ISO-8601 UTC> <phase> <event> (<note>)   # event inside one phase
 ```
 
 The note is optional — useful for retry attempts (`(retry 2/3)`) or
-failure messages.
+failure messages. The very first entry is typically `triage complete`,
+written by the triage agent when it finishes the file. Transitions
+start appearing once the runner takes over.
 
 ### `## Phase outputs`
 

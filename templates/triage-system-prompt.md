@@ -136,7 +136,7 @@ merge_commit: null
 
 ## Phase log
 
-- <created timestamp> triage → ready
+- <created timestamp> triage complete
 
 ## Phase outputs
 
