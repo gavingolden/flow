@@ -104,7 +104,6 @@ manual_validation: null
 
 ## Triage
 
-- type: change
 - intent: <feature | bug | refactor | docs | infra | chore>
 - summary: <one sentence the implementer can read first>
 
