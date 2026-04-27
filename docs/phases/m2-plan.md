@@ -438,6 +438,14 @@ pipeline list in M3 (verify, ci, review).
 - Re-running on a partially-completed task (e.g., `worktree-ready`)
   resumes from the correct phase without redoing earlier work.
 
+**Verification methodology**: end-to-end manual run against econ-data
+per the Verification section below. Automated tests for phase logic
+(`runPlanPhase`, `runWorktreePhase`, `runImplementPhase`, the
+`writeTask` Progress regeneration, status state-machine transitions)
+land in M3 alongside the verify phase that exercises them. Until then,
+acceptance is a human running `flow start` then `flow run` and
+inspecting the resulting PR.
+
 ## Verification
 
 Use econ-data as the target repo. Pick a small, low-risk feature.
