@@ -21,8 +21,7 @@ merge) ship in M2–M4.
 ## Install (dev)
 
 ```sh
-npm install
-npm run build
+npm install     # `prepare` builds dist/ automatically
 npm link        # makes `flow` available on PATH
 ```
 
