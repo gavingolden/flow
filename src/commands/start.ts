@@ -39,6 +39,11 @@ export async function startCommand(prompt: string): Promise<void> {
         // prompt forbids code edits. acceptEdits keeps the Write tool from
         // gating the user behind plan-mode approval every invocation.
         "--permission-mode", "acceptEdits",
+        // Hard guardrail: triage cannot modify existing files. The system
+        // prompt instructs Claude not to, but plan mode has been observed
+        // to override that and dispatch Edit/MultiEdit anyway. Removing
+        // those tools makes the rule structural, not advisory.
+        "--disallowed-tools", "Edit,MultiEdit,NotebookEdit",
       ],
       { cwd: repoRoot, stdio: "inherit" },
     );

@@ -42,7 +42,8 @@ sufficiently structured contract to run scripted.
 ```sh
 claude "<prompt>" \
   --append-system-prompt "$(cat templates/triage-system-prompt.md)" \
-  --permission-mode acceptEdits
+  --permission-mode acceptEdits \
+  --disallowed-tools "Edit,MultiEdit,NotebookEdit"
 ```
 
 The CLI does the equivalent in `src/commands/start.ts` via `execa`.
@@ -54,13 +55,40 @@ The CLI does the equivalent in `src/commands/start.ts` via `execa`.
 - `--permission-mode acceptEdits` skips plan-mode approval for the
   single Write tool call that produces task.md. Without it, users
   whose Claude Code defaults to plan mode have to ExitPlanMode every
-  invocation. Triage's only side effect is writing one metadata file;
-  the system prompt forbids code edits, so auto-accepting writes is
-  safe in scope.
+  invocation. Plan mode is also where triage breaks down most badly
+  (see "Past failures" below).
+- `--disallowed-tools "Edit,MultiEdit,NotebookEdit"` is the structural
+  guardrail. Even if Claude misreads the system prompt and tries to
+  implement the feature itself, it cannot — the modify-existing-file
+  tools are unavailable. The Write tool stays available so it can
+  create the task.md. Bash is unrestricted; the system prompt asks
+  Claude not to use it for in-place edits, but if reliability problems
+  surface later, scope Bash to read-only patterns (`Bash(git log)`,
+  `Bash(ls *)`, etc.).
 
 If a future phase wants to reuse this pattern (e.g., to inject phase-
 specific guardrails on top of an existing skill), the same flags
 apply.
+
+## Past failures (for the next agent's context)
+
+These already happened in M1 verification — they're documented so
+future tweaks to the system prompt don't regress.
+
+- **Plan mode hijacked triage entirely.** The user invoked
+  `flow start "add a small read-only badge…"`, Claude entered plan
+  mode (the user's default), drafted an *implementation* plan,
+  the user approved, and Claude proceeded to modify `AppHeader.svelte`
+  directly. No task.md was written. Root cause: the original system
+  prompt buried "do not modify code" in a "What NOT to do" section
+  near the bottom, easy for plan mode's flow to override. Fixed by
+  (a) `--permission-mode acceptEdits` to sidestep plan mode, (b)
+  `--disallowed-tools` to make code edits structurally impossible,
+  (c) moving the load-bearing instruction to the very top of the
+  system prompt with explicit "if you find yourself drafting an
+  implementation plan, stop" language.
+
+If new failures emerge during M2 verification, append them here.
 
 ## Classification heuristics
 
