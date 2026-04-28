@@ -1,44 +1,47 @@
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
-import { findGitRoot } from "../util/git.js";
 import { updateGitignoreBlock } from "../util/gitignore.js";
 
-interface InstallOptions {
-  global?: boolean;
+export interface InstallSkillsOptions {
   stack?: string;
   skipPipeline?: boolean;
 }
 
-export async function installSkillsCommand(options: InstallOptions): Promise<void> {
-  const skillsRoot = resolveSkillsRoot();
+export interface InstallSkillsResult {
+  created: number;
+  updated: number;
+  skipped: number;
+}
 
+export async function installSkills(
+  repoRoot: string,
+  options: InstallSkillsOptions,
+): Promise<InstallSkillsResult> {
+  const skillsRoot = resolveSkillsRoot();
   const tiers = await readTiers(skillsRoot);
   const requestedStacks = parseStacks(options.stack);
   validateStacks(requestedStacks, tiers.stacks);
 
-  const target = await resolveTarget(options.global ?? false);
+  const targetDir = path.join(repoRoot, ".claude", "skills");
   const skillsToInstall = selectSkills({
     tiers,
-    global: options.global ?? false,
     skipPipeline: options.skipPipeline ?? false,
     requestedStacks,
   });
 
-  await fs.mkdir(target.dir, { recursive: true });
+  await fs.mkdir(targetDir, { recursive: true });
 
-  console.error(pc.dim(`flow: source     ${skillsRoot}`));
-  console.error(pc.dim(`flow: target     ${target.dir}`));
-  console.error(pc.dim(`flow: scope      ${target.label}`));
-  console.error("");
+  console.error(pc.bold("flow: installing skills"));
+  console.error(pc.dim(`      source ${skillsRoot}`));
+  console.error(pc.dim(`      target ${targetDir}`));
 
   let created = 0;
   let updated = 0;
   let skipped = 0;
   for (const { name, sourceDir } of skillsToInstall) {
-    const linkPath = path.join(target.dir, name);
+    const linkPath = path.join(targetDir, name);
     const result = await ensureSymlink(linkPath, sourceDir);
     if (result === "created") {
       console.error(pc.green(`  + ${name}`));
@@ -57,28 +60,20 @@ export async function installSkillsCommand(options: InstallOptions): Promise<voi
     }
   }
 
-  console.error("");
-  console.error(
-    pc.bold(
-      `flow: ${created} created, ${updated} relinked, ${skipped} unchanged.`,
-    ),
-  );
-
   // Skill symlinks resolve to absolute paths under the user's home and aren't
-  // portable, so the repo's .gitignore must list them. Skip for --global —
-  // ~/.claude/skills/ isn't inside any tracked repo. The block reflects every
+  // portable, so the repo's .gitignore must list them. The block reflects every
   // skill the install actually emitted (pipeline / universal / stacks honor
   // the user's flags), so deselected skills get their entries pruned.
-  if (target.repoRoot) {
-    const gitignoreResult = await updateGitignoreBlock(target.repoRoot, {
-      tag: "install-skills",
-      comment: "(symlinks resolve to absolute paths and aren't portable)",
-      paths: skillsToInstall.map((s) => `/.claude/skills/${s.name}`).sort(),
-    });
-    if (gitignoreResult !== "unchanged") {
-      console.error(pc.dim(`flow: .gitignore ${gitignoreResult}`));
-    }
+  const gitignoreResult = await updateGitignoreBlock(repoRoot, {
+    tag: "install-skills",
+    comment: "(symlinks resolve to absolute paths and aren't portable)",
+    paths: skillsToInstall.map((s) => `/.claude/skills/${s.name}`).sort(),
+  });
+  if (gitignoreResult !== "unchanged") {
+    console.error(pc.dim(`      .gitignore ${gitignoreResult}`));
   }
+
+  return { created, updated, skipped };
 }
 
 function resolveSkillsRoot(): string {
@@ -128,61 +123,23 @@ function validateStacks(requested: Set<string>, available: SkillRef[]): void {
   if (unknown.length > 0) {
     const list = [...availableNames].sort().join(", ");
     console.error(
-      pc.red(
-        `error: unknown stack(s): ${unknown.join(", ")}. Available: ${list}`,
-      ),
+      pc.red(`error: unknown stack(s): ${unknown.join(", ")}. Available: ${list}`),
     );
     process.exit(1);
   }
-}
-
-interface Target {
-  dir: string;
-  label: string;
-  repoRoot: string | null;
-}
-
-async function resolveTarget(global: boolean): Promise<Target> {
-  if (global) {
-    return {
-      dir: path.join(os.homedir(), ".claude", "skills"),
-      label: "global (~/.claude/skills/)",
-      repoRoot: null,
-    };
-  }
-  const repoRoot = await findGitRoot();
-  if (!repoRoot) {
-    console.error(
-      pc.red(
-        "error: must be run from inside a git repository (or use --global)",
-      ),
-    );
-    process.exit(1);
-  }
-  return {
-    dir: path.join(repoRoot, ".claude", "skills"),
-    label: `repo (${repoRoot}/.claude/skills/)`,
-    repoRoot,
-  };
 }
 
 interface SelectArgs {
   tiers: Tiers;
-  global: boolean;
   skipPipeline: boolean;
   requestedStacks: Set<string>;
 }
 
 function selectSkills({
   tiers,
-  global,
   skipPipeline,
   requestedStacks,
 }: SelectArgs): SkillRef[] {
-  // Global install never includes pipeline (those skills only make sense inside
-  // a flow-using target repo) and never includes stacks (each repo opts in).
-  if (global) return tiers.universal;
-
   const out: SkillRef[] = [];
   if (!skipPipeline) out.push(...tiers.pipeline);
   out.push(...tiers.universal);

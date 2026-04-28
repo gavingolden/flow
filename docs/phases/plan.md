@@ -11,7 +11,7 @@ plan to execute against.
 - A task file at `<target-repo>/.orchestrator/tasks/<id>.md` with
   `status: triaged`.
 - The target repo's `.claude/skills/product-planning/` skill (installed
-  via `flow install-skills` or symlinked manually).
+  via `flow install` or symlinked manually).
 
 ## Outputs
 

@@ -243,7 +243,7 @@ function main(): void {
 
 // Only run main when executed directly (not when imported for testing).
 // Uses import.meta.main (symlink-aware) so the script runs correctly when
-// invoked through a symlink — flow install-scripts symlinks this file from
+// invoked through a symlink — flow install symlinks this file from
 // templates/scripts/ into the target repo's scripts/.
 if (import.meta.main) {
   try {

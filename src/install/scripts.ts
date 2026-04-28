@@ -2,31 +2,29 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
-import { findGitRoot } from "../util/git.js";
 import { updateGitignoreBlock } from "../util/gitignore.js";
 
-interface InstallOptions {
+export interface InstallScriptsOptions {
   force?: boolean;
 }
 
-interface ScriptRef {
-  name: string;
-  sourceFile: string;
+export interface InstallScriptsResult {
+  created: number;
+  updated: number;
+  skipped: number;
+  blocked: number;
 }
 
-export async function installScriptsCommand(options: InstallOptions): Promise<void> {
+export async function installScripts(
+  repoRoot: string,
+  options: InstallScriptsOptions,
+): Promise<InstallScriptsResult> {
   const scriptsRoot = resolveScriptsRoot();
-  const repoRoot = await findGitRoot();
-  if (!repoRoot) {
-    console.error(pc.red("error: must be run from inside a git repository"));
-    process.exit(1);
-  }
-
   const targetDir = path.join(repoRoot, "scripts");
 
   // Source-equals-target safety: refuse to install over the source. This only
-  // happens when the user runs `flow install-scripts` inside the flow repo
-  // *and* templates/scripts/ has somehow been pointed at scripts/. The whole
+  // happens when the user runs install inside the flow repo *and*
+  // templates/scripts/ has somehow been pointed at scripts/. The whole
   // architecture (templates/scripts/ as source) is designed to make source ≠
   // target, but check anyway — getting this wrong unlinks the source files.
   if (path.resolve(scriptsRoot) === path.resolve(targetDir)) {
@@ -43,9 +41,9 @@ export async function installScriptsCommand(options: InstallOptions): Promise<vo
 
   await fs.mkdir(targetDir, { recursive: true });
 
-  console.error(pc.dim(`flow: source     ${scriptsRoot}`));
-  console.error(pc.dim(`flow: target     ${targetDir}`));
-  console.error("");
+  console.error(pc.bold("flow: installing scripts"));
+  console.error(pc.dim(`      source ${scriptsRoot}`));
+  console.error(pc.dim(`      target ${targetDir}`));
 
   let created = 0;
   let updated = 0;
@@ -71,13 +69,6 @@ export async function installScriptsCommand(options: InstallOptions): Promise<vo
     }
   }
 
-  console.error("");
-  console.error(
-    pc.bold(
-      `flow: ${created} created, ${updated} relinked, ${skipped} unchanged, ${blocked} blocked.`,
-    ),
-  );
-
   // Symlinks resolve to absolute paths on the user's machine, so they must be
   // ignored. The block lists every script the source tree currently exposes
   // (not just newly linked ones), so deletions in templates/scripts/ flow
@@ -88,13 +79,20 @@ export async function installScriptsCommand(options: InstallOptions): Promise<vo
     paths: scripts.map((s) => `/scripts/${s.name}`).sort(),
   });
   if (gitignoreResult !== "unchanged") {
-    console.error(pc.dim(`flow: .gitignore ${gitignoreResult}`));
+    console.error(pc.dim(`      .gitignore ${gitignoreResult}`));
   }
+
+  return { created, updated, skipped, blocked };
+}
+
+interface ScriptRef {
+  name: string;
+  sourceFile: string;
 }
 
 function resolveScriptsRoot(): string {
-  // From dist/commands/install-scripts.js → ../../templates/scripts
-  // From src/commands/install-scripts.ts (dev mode) → ../../templates/scripts
+  // From dist/install/scripts.js → ../../templates/scripts
+  // From src/install/scripts.ts (dev mode) → ../../templates/scripts
   const here = path.dirname(fileURLToPath(import.meta.url));
   return path.resolve(here, "..", "..", "templates", "scripts");
 }

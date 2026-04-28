@@ -6,9 +6,10 @@
    no-change flow (Q&A, brainstorm) or a change flow (triage → plan → worktree
    → implement → verify → CI → review → gate → merge). It targets any git
    repository and drives Claude Code skills via headless subprocess invocations.
-2. A **curated skill library** at `skills/`, distributed via `flow install-skills`
-   into target repos and `~/.claude/skills/`. Skills are usable independent of
-   the orchestrator; the CLI is just one consumer.
+2. A **curated skill library** at `skills/` plus the helper scripts at
+   `templates/scripts/` they shell out to. Both are distributed by `flow install`,
+   which symlinks them into a target repo. Skills are usable independent of the
+   orchestrator; the CLI is just one consumer.
 
 This file is the entry point for any agent (human or AI) working on flow.
 Read it once at the start of a session.
@@ -55,11 +56,11 @@ See `docs/roadmap.md`. As of now:
 
 Source for all bundled scripts lives in **`templates/scripts/`** — that's
 the canonical location, edited and tested in flow's repo. Target repos
-(including flow itself) get them via `flow install-scripts`, which
-symlinks each `templates/scripts/<name>.ts` into the repo's `scripts/`
-directory. The symlinks are listed in `.gitignore` so they don't get
-tracked in target repos — same pattern as `flow install-skills` for
-skills under `.claude/skills/`.
+(including flow itself) get them via `flow install`, which symlinks each
+`templates/scripts/<name>.ts` into the repo's `scripts/` directory and
+records the symlinks in a `# managed by flow install-scripts` block in
+`.gitignore`. The same command also installs skills under
+`.claude/skills/` with an analogous gitignore block.
 
 Conventions for any script under `templates/scripts/`:
 
@@ -69,10 +70,10 @@ Conventions for any script under `templates/scripts/`:
   `import.meta.url` to `process.argv[1]` — that comparison breaks
   when the script is invoked through a symlink.
 - Tests live next door as `<name>.test.ts` and run via vitest
-  (`npm run test`). Test files are excluded from `flow install-scripts`
-  by extension.
+  (`npm run test`). Test files are excluded from the install by
+  extension.
 - Source ≠ install target by design (`templates/scripts/` vs `scripts/`).
-  Don't move scripts back to a single `scripts/` dir — `install-scripts`
+  Don't move scripts back to a single `scripts/` dir — `flow install`
   refuses to run when source equals target, but the architectural
   separation is what makes the install safe.
 
@@ -132,7 +133,7 @@ npm run build              # tsc + chmod +x dist/cli.js
 npm run typecheck          # tsc --noEmit (src/ only)
 npm run typecheck:scripts  # tsc -p tsconfig.scripts.json (templates/scripts/ only)
 npm run test               # vitest run (templates/scripts/ + src/)
-npm run dev install-scripts  # symlink templates/scripts/* into ./scripts/
+npm run dev install        # symlink skills + scripts into the current repo
 npm link                   # makes `flow` available on PATH globally
 ```
 
@@ -143,7 +144,7 @@ The build script chmods `dist/cli.js` so direct invocation works locally
 
 - The orchestrator does not re-implement Claude Code skills inside its own
   process. It hosts a skill library at `skills/` and distributes it via symlink
-  (`flow install-skills`); the CLI itself only invokes skills via headless
+  (`flow install`); the CLI itself only invokes skills via headless
   `claude -p ...` calls in subprocesses.
 - It is not a full SDLC tool. It does not host a web UI, post to Slack,
   open Jira tickets, or manage permissions.

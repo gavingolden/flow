@@ -200,14 +200,6 @@ Done when:
 
 Smaller items that aren't milestone-blocking but should land when convenient:
 
-- **`flow install-skills` manages `.gitignore` for the symlinks it creates.**
-  The symlinks resolve to absolute paths under the user's home and aren't
-  portable across machines, so they shouldn't be committed. The command
-  should append (and idempotently rewrite) a marked block to the target
-  repo's `.gitignore` — e.g. `# managed by flow install-skills` … `# end
-  flow` — listing each symlinked skill name. Hand-rolled skills sitting
-  alongside under different names stay tracked.
-
 - **Unit-test the worktree script's git interactions.** `templates/scripts/new-agent-worktree.ts`
   currently has tests only for `toDirSuffix` and `SYMLINK_FILES`. The interesting
   logic — `detectDefaultBranch`, `getPrimaryDir`, `preflight`'s validation flow —

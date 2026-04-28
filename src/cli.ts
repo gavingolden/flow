@@ -2,8 +2,7 @@
 import { Command } from "commander";
 import { startCommand } from "./commands/start.js";
 import { runCommand } from "./commands/run.js";
-import { installSkillsCommand } from "./commands/install-skills.js";
-import { installScriptsCommand } from "./commands/install-scripts.js";
+import { installCommand } from "./commands/install.js";
 
 const program = new Command();
 
@@ -29,21 +28,15 @@ program
   });
 
 program
-  .command("install-skills")
-  .description("Symlink flow's bundled skills into a target repo or ~/.claude/skills")
-  .option("--global", "install universal skills into ~/.claude/skills (skips pipeline + stacks)")
+  .command("install")
+  .description("Install flow's skills and scripts into the current repo (symlinked)")
   .option("--stack <names>", "comma-separated stack skills to include (e.g. svelte,supabase)")
+  .option("--force", "replace existing real files in scripts/ (default: skip with a warning)")
   .option("--skip-pipeline", "omit pipeline skills (use for repos that aren't flow consumers)")
-  .action(async (options: { global?: boolean; stack?: string; skipPipeline?: boolean }) => {
-    await installSkillsCommand(options);
-  });
-
-program
-  .command("install-scripts")
-  .description("Symlink flow's bundled scripts into the current repo's scripts/ directory")
-  .option("--force", "replace existing real files (default: skip with a warning)")
-  .action(async (options: { force?: boolean }) => {
-    await installScriptsCommand(options);
-  });
+  .action(
+    async (options: { stack?: string; force?: boolean; skipPipeline?: boolean }) => {
+      await installCommand(options);
+    },
+  );
 
 await program.parseAsync();

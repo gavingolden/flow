@@ -9,8 +9,9 @@ two responsibilities:
    → merge. Inspired by WAVE, minus the enterprise integrations. Markdown plan
    files act as the cross-phase state store.
 2. **Skill library** — `flow/skills/` bundles a curated set of skills (pipeline,
-   universal, stacks). `flow install-skills` symlinks them into target repos or
-   `~/.claude/skills/`, so every project shares one source of truth.
+   universal, stacks) along with the helper scripts they shell out to. `flow
+   install` symlinks both into target repos, so every project shares one source
+   of truth.
 
 ## Status
 
@@ -43,21 +44,27 @@ answers in-line and exits with no file written.
 
 Add `.orchestrator/` to your project's `.gitignore`.
 
-## Install skills
+## Install skills + scripts
+
+From inside the target repo:
 
 ```sh
-# Universal skills only, available in any directory:
-flow install-skills --global
+# Pipeline + universal skills, plus all bundled scripts:
+flow install
 
-# From inside a target repo: pipeline + universal skills, plus opt-in stacks:
-flow install-skills --stack svelte,supabase
+# Add opt-in stacks:
+flow install --stack svelte,supabase
 
-# Universal-only inside a repo (for repos that don't use flow's pipeline):
-flow install-skills --skip-pipeline
+# Skip pipeline skills (for repos that don't use flow's pipeline):
+flow install --skip-pipeline
+
+# Replace existing real files in scripts/ (otherwise they're left alone):
+flow install --force
 ```
 
-Each invocation creates symlinks from the consuming location into `flow/skills/`.
-Idempotent — re-run any time to heal broken links or pick up new skills.
+Each invocation symlinks skills into `<repo>/.claude/skills/` and scripts into
+`<repo>/scripts/`, then updates `.gitignore` so the symlinks don't get tracked.
+Idempotent — re-run any time to heal broken links or pick up new skills/scripts.
 
 Three categories of skills:
 
