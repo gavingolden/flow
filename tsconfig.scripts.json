@@ -8,5 +8,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["scripts/**/*.ts"]
+  "include": ["templates/scripts/**/*.ts"]
 }

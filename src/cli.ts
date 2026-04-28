@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { startCommand } from "./commands/start.js";
 import { runCommand } from "./commands/run.js";
 import { installSkillsCommand } from "./commands/install-skills.js";
+import { installScriptsCommand } from "./commands/install-scripts.js";
 
 const program = new Command();
 
@@ -35,6 +36,14 @@ program
   .option("--skip-pipeline", "omit pipeline skills (use for repos that aren't flow consumers)")
   .action(async (options: { global?: boolean; stack?: string; skipPipeline?: boolean }) => {
     await installSkillsCommand(options);
+  });
+
+program
+  .command("install-scripts")
+  .description("Symlink flow's bundled scripts into the current repo's scripts/ directory")
+  .option("--force", "replace existing real files (default: skip with a warning)")
+  .action(async (options: { force?: boolean }) => {
+    await installScriptsCommand(options);
   });
 
 await program.parseAsync();

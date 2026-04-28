@@ -51,11 +51,30 @@ See `docs/roadmap.md`. As of now:
   justify it.
 - **No backwards-compat shims.** flow has no users yet. Refactor freely.
 
-## Scripts: Bun runtime
+## Scripts: Bun runtime, distributed via symlinks
 
-Every executable script under `scripts/` uses `#!/usr/bin/env bun` and
-must be `chmod +x`. Tests live alongside as `*.test.ts` and run via
-vitest (`npm run test`).
+Source for all bundled scripts lives in **`templates/scripts/`** — that's
+the canonical location, edited and tested in flow's repo. Target repos
+(including flow itself) get them via `flow install-scripts`, which
+symlinks each `templates/scripts/<name>.ts` into the repo's `scripts/`
+directory. The symlinks are listed in `.gitignore` so they don't get
+tracked in target repos — same pattern as `flow install-skills` for
+skills under `.claude/skills/`.
+
+Conventions for any script under `templates/scripts/`:
+
+- `#!/usr/bin/env bun` shebang and `chmod +x`.
+- Use `import.meta.main` (Bun's symlink-aware "is this the entry
+  point?" check) to gate the `main()` call. Do **not** compare
+  `import.meta.url` to `process.argv[1]` — that comparison breaks
+  when the script is invoked through a symlink.
+- Tests live next door as `<name>.test.ts` and run via vitest
+  (`npm run test`). Test files are excluded from `flow install-scripts`
+  by extension.
+- Source ≠ install target by design (`templates/scripts/` vs `scripts/`).
+  Don't move scripts back to a single `scripts/` dir — `install-scripts`
+  refuses to run when source equals target, but the architectural
+  separation is what makes the install safe.
 
 The CLI itself (`src/`) is Node + tsx — see "Code conventions" above.
 The two runtimes are independent: the orchestrator invokes target-repo
@@ -111,8 +130,9 @@ npm install                # one-time
 npm run dev -- <args>      # tsx, no build
 npm run build              # tsc + chmod +x dist/cli.js
 npm run typecheck          # tsc --noEmit (src/ only)
-npm run typecheck:scripts  # tsc -p tsconfig.scripts.json (scripts/ only)
-npm run test               # vitest run (scripts/ + src/)
+npm run typecheck:scripts  # tsc -p tsconfig.scripts.json (templates/scripts/ only)
+npm run test               # vitest run (templates/scripts/ + src/)
+npm run dev install-scripts  # symlink templates/scripts/* into ./scripts/
 npm link                   # makes `flow` available on PATH globally
 ```
 

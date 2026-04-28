@@ -18,3 +18,11 @@ dist/
 /.claude/skills/testing
 /.claude/skills/verify
 # end flow
+
+# managed by flow install-scripts
+/scripts/fetch-pr-review.ts
+/scripts/new-agent-worktree.ts
+/scripts/pre-commit-checks.ts
+/scripts/remove-agent-worktree.ts
+/scripts/reply-pr-comments.ts
+# end flow install-scripts
