@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   checksForScope,
   detectScopesFromFiles,
+  filterDefinedChecks,
   formatReport,
   getChangedFilesForPush,
   parsePrePushInput,
@@ -120,6 +121,32 @@ describe(checksForScope, () => {
     const checks = checksForScope("scripts");
     expect(checks).toHaveLength(2);
     expect(checks.map((c) => c.name)).toEqual(["npm run typecheck:scripts", "npm run test"]);
+  });
+});
+
+describe(filterDefinedChecks, () => {
+  it("keeps checks whose npm script is defined in package.json", () => {
+    const checks = checksForScope("src");
+    const defined = new Set(["typecheck", "test"]);
+    expect(filterDefinedChecks(checks, defined)).toEqual(checks);
+  });
+
+  it("drops checks whose npm script is missing", () => {
+    const checks = checksForScope("scripts");
+    const defined = new Set(["test"]);
+    const filtered = filterDefinedChecks(checks, defined);
+    expect(filtered.map((c) => c.name)).toEqual(["npm run test"]);
+  });
+
+  it("drops everything when no relevant npm scripts are defined", () => {
+    const checks = checksForScope("scripts");
+    const defined = new Set<string>();
+    expect(filterDefinedChecks(checks, defined)).toEqual([]);
+  });
+
+  it("passes through non-npm checks untouched", () => {
+    const custom = [{ name: "eslint", argv: ["eslint", "."] }];
+    expect(filterDefinedChecks(custom, new Set())).toEqual(custom);
   });
 });
 

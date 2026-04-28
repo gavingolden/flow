@@ -12,6 +12,8 @@
  *   ./scripts/pre-commit-checks.ts --pre-push         # read refs from stdin (git hook)
  */
 
+import { readFileSync } from "node:fs";
+
 // --- Types ---
 
 export type Scope = "src" | "scripts";
@@ -131,6 +133,22 @@ export function checksForScope(scope: Scope): CheckDef[] {
   }
 }
 
+/**
+ * Filters a list of checks to only those whose npm run script is defined in
+ * the consumer repo's package.json. Non-npm checks (if any are added later)
+ * pass through untouched. Letting undefined npm scripts run anyway produces
+ * a confusing "Missing script" failure that's really a configuration gap.
+ */
+export function filterDefinedChecks(
+  checks: CheckDef[],
+  definedScripts: Set<string>,
+): CheckDef[] {
+  return checks.filter((c) => {
+    if (c.argv[0] !== "npm" || c.argv[1] !== "run") return true;
+    return definedScripts.has(c.argv[2]);
+  });
+}
+
 // --- Check Runners ---
 
 function runCheck(name: string, argv: string[], scope: Scope): CheckResult {
@@ -151,6 +169,17 @@ function getChangedFiles(): string[] {
   const { stdout } = run(["git", "diff", "--name-only", "HEAD"]);
   if (!stdout) return [];
   return stdout.split("\n").filter(Boolean);
+}
+
+/** Reads package.json from cwd and returns the set of defined npm script names. */
+function loadDefinedNpmScripts(): Set<string> {
+  try {
+    const text = readFileSync("package.json", "utf8");
+    const pkg = JSON.parse(text) as { scripts?: Record<string, string> };
+    return new Set(Object.keys(pkg.scripts ?? {}));
+  } catch {
+    return new Set();
+  }
 }
 
 function getChangedFilesForPr(prNumber: number): string[] {
@@ -373,9 +402,16 @@ async function main(): Promise<void> {
     scopes = detectScopesFromFiles(files);
   }
 
+  const definedScripts = loadDefinedNpmScripts();
   const results: CheckResult[] = [];
   for (const scope of scopes) {
-    const checks = checksForScope(scope);
+    const checks = filterDefinedChecks(checksForScope(scope), definedScripts);
+    if (checks.length === 0) {
+      console.log(
+        `Scope '${scope}': no matching npm scripts defined in package.json — skipping.`,
+      );
+      continue;
+    }
     for (const check of checks) {
       const result = runCheck(check.name, check.argv, scope);
       results.push(result);

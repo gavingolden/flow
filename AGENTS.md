@@ -70,9 +70,12 @@ Conventions for any script under `templates/scripts/`:
   `import.meta.url` to `process.argv[1]` — that comparison breaks
   when the script is invoked through a symlink.
 - Tests live next door as `<name>.test.ts` and run via vitest
-  (`npm run test`). They're symlinked into target repos alongside
-  their scripts — the test is the contract, not flow-internal. A
-  target repo without vitest just ends up with inert symlinks.
+  (`npm run test`). They're flow-internal: the install excludes
+  `*.test.ts` because consumer vitest configs typically refuse to load
+  files outside the workspace root, and the test imports use Bun-only
+  APIs that wouldn't run anyway. `flow install --force` deletes any
+  stale companion `*.test.ts` files left behind by a prior pre-flow
+  setup (and untracks them from git).
 - Source ≠ install target by design (`templates/scripts/` vs `scripts/`).
   Don't move scripts back to a single `scripts/` dir — `flow install`
   refuses to run when source equals target, but the architectural

@@ -83,13 +83,23 @@ export async function installScripts(
     console.error(pc.dim(`      .gitignore ${gitignoreResult}`));
   }
 
-  // When --force replaces a tracked real file with a symlink, the .gitignore
-  // entry doesn't help: git keeps following the path and would commit the
-  // symlink as new content. Detect that state via --diff-filter=T (typechange)
-  // and untrack the originals from the index. Idempotent — second run finds
-  // nothing because the prior run already removed the index entries.
+  // --force completes the file→symlink transition by:
+  //   (a) Deleting any stale companion <name>.test.ts files. The install
+  //       doesn't symlink test files (they're flow-internal — Bun-only
+  //       imports, won't load through a consumer's vitest), so a target
+  //       repo with old tracked tests for replaced scripts is left with
+  //       tests that assert against a now-gone implementation. Delete them.
+  //   (b) Untracking the originals from git's index. Without this, the
+  //       .gitignore entry doesn't help: git keeps following the path and
+  //       would commit the symlink as new content. The same git rm --cached
+  //       sweep also catches the deletions from (a).
+  // Idempotent: second run finds no typechanges or deletions to clean up.
   if (options.force) {
-    const untracked = await untrackTypechanged(repoRoot, targetDir);
+    const deletedTests = await deleteStaleCompanionTests(targetDir, scripts);
+    const untracked = await untrackChangedScripts(repoRoot, targetDir);
+    if (deletedTests.length > 0) {
+      console.error(pc.dim(`      deleted ${deletedTests.length} stale companion test file(s)`));
+    }
     if (untracked.length > 0) {
       console.error(pc.dim(`      untracked ${untracked.length} previously-tracked file(s):`));
       for (const p of untracked) {
@@ -101,14 +111,34 @@ export async function installScripts(
   return { created, updated, skipped, blocked };
 }
 
-async function untrackTypechanged(
+async function deleteStaleCompanionTests(
+  targetDir: string,
+  scripts: ScriptRef[],
+): Promise<string[]> {
+  const deleted: string[] = [];
+  for (const { name } of scripts) {
+    const testName = name.replace(/\.ts$/, ".test.ts");
+    const testPath = path.join(targetDir, testName);
+    const stat = await fs.lstat(testPath).catch(() => null);
+    if (stat && !stat.isSymbolicLink() && stat.isFile()) {
+      await fs.unlink(testPath);
+      deleted.push(testPath);
+    }
+  }
+  return deleted;
+}
+
+async function untrackChangedScripts(
   repoRoot: string,
   targetDir: string,
 ): Promise<string[]> {
   const relTarget = path.relative(repoRoot, targetDir);
+  // D = deleted (from stale-test cleanup); T = typechange (file→symlink).
+  // Both leave a tracked path that's no longer a real script in the working
+  // tree, so the index entry should go.
   const { stdout } = await execa(
     "git",
-    ["diff", "--diff-filter=T", "--name-only", "--", relTarget],
+    ["diff", "--diff-filter=DT", "--name-only", "--", relTarget],
     { cwd: repoRoot },
   );
   const paths = stdout.split("\n").filter(Boolean);
@@ -131,11 +161,13 @@ function resolveScriptsRoot(): string {
 
 async function readScripts(scriptsRoot: string): Promise<ScriptRef[]> {
   const entries = await fs.readdir(scriptsRoot, { withFileTypes: true });
-  // Tests travel with their scripts — they're the contract, not flow-internal.
-  // Target repos that don't run vitest end up with inert symlinks; harmless.
+  // Tests stay flow-internal: their imports use Bun-only APIs and target
+  // repos' vitest configs typically refuse to load files outside the
+  // workspace root, so symlinking *.test.ts breaks consumer test runs.
   return entries
     .filter((e) => e.isFile())
     .filter((e) => e.name.endsWith(".ts"))
+    .filter((e) => !e.name.endsWith(".test.ts"))
     .map((e) => ({ name: e.name, sourceFile: path.join(scriptsRoot, e.name) }));
 }
 
