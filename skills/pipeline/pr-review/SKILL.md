@@ -2,10 +2,11 @@
 name: pr-review
 description: >-
   Perform multi-agent code review on pull requests and address existing review comments,
-  using confidence-scored findings with conventional comment labels. Use when user says
-  "review PR", "address PR comments", "PR feedback", "fix review comments", "code review",
-  "review this PR", "check this PR", or provides a PR number/URL. Handles both standalone
-  independent reviews and addressing existing review feedback from humans or bots.
+  surfacing confidence-scored findings with conventional comment labels and either fixing
+  each finding now or deferring it to a tracker entry. Use when user says "review PR",
+  "address PR comments", "PR feedback", "fix review comments", "code review", "review this
+  PR", "check this PR", or provides a PR number/URL. Handles both standalone independent
+  reviews and addressing existing review feedback from humans or bots.
 context: fork
 argument-hint: "PR-number-or-URL"
 ---
@@ -313,7 +314,7 @@ have to read commit-by-commit to reconstruct intent. Conversely, if commit bodie
 uniformly one-liners on a non-trivial PR, note it as a `suggestion` that future commits
 should capture rationale inline (per `AGENTS.md` Committing rules).
 
-### 11a. Structure Check
+### 12a. Structure Check
 
 Check whether the PR description follows the standardized format with these sections:
 
@@ -326,9 +327,9 @@ Check whether the PR description follows the standardized format with these sect
 format above. This is the highest-priority fix in this step.
 
 **If the description exists but doesn't follow the format**: Do NOT restructure it. Instead,
-evaluate it against the criteria in 11b using its existing structure.
+evaluate it against the criteria in 12b using its existing structure.
 
-### 11b. Intent Clarity Evaluation
+### 12b. Intent Clarity Evaluation
 
 Evaluate the description (regardless of format) against these criteria:
 
@@ -355,7 +356,7 @@ When scoring Testability, consult `references/manual-test-rubric.md` — it defi
 UI features, config changes). For non-material changes (pure internal refactors, typo
 fixes), happy-path only is acceptable; do not over-prescribe.
 
-### 11c. Deployment Follow-Up Check
+### 12c. Deployment Follow-Up Check
 
 Scan the diff for changes that require manual follow-up outside the codebase. For each item
 found, include exact commands (with `<PLACEHOLDER>` values matching `DEPLOYING.md` conventions)
@@ -363,17 +364,23 @@ so the deployer can copy-paste rather than hunt for syntax.
 
 - **New environment variables** (`.env.example` additions):
   - Local: `<VAR>=<value>` in `.env`
-  - Production: create secret + grant access + redeploy:
+  - Production: create secret + grant access + redeploy. Read the secret via `read -s`
+    (keeps it out of shell history) and bind a dedicated runtime service account rather
+    than the default Compute SA (which is shared and Editor-by-default):
     ```bash
-    echo -n "VALUE" | gcloud secrets create <VAR> --data-file=-
-    PROJECT_NUMBER=$(gcloud projects describe <PROJECT_ID> --format='value(projectNumber)')
+    read -s SECRET_VALUE && printf '%s' "$SECRET_VALUE" \
+      | gcloud secrets create <VAR> --data-file=-
+    unset SECRET_VALUE
     gcloud secrets add-iam-policy-binding <VAR> \
-      --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+      --member="serviceAccount:<SERVICE_NAME>-runtime@<PROJECT_ID>.iam.gserviceaccount.com" \
       --role="roles/secretmanager.secretAccessor"
     gcloud run deploy <SERVICE_NAME> --region us-central1 \
       --image <ARTIFACT_REGISTRY_PATH>/proxy:latest \
+      --service-account="<SERVICE_NAME>-runtime@<PROJECT_ID>.iam.gserviceaccount.com" \
       --set-secrets "...,<VAR>=<VAR>:latest"
     ```
+    Create the runtime SA once with `gcloud iam service-accounts create <SERVICE_NAME>-runtime`
+    if it doesn't already exist.
 - **New frontend build vars** (`VITE_*`): Set in Cloudflare Pages dashboard → Settings →
   Environment variables (both Production and Preview).
 - **New allowlist files**: Verify `backend/Dockerfile` COPYs them into the image.
@@ -383,7 +390,7 @@ If any follow-up items are found, include a **Deployment follow-up** section in 
 description (Step 12e) listing each action with the exact commands. This prevents "works
 locally, breaks in prod" gaps.
 
-### 11d. Accuracy Sync
+### 12d. Accuracy Sync
 
 Compare the current implementation (diff + any changes from Steps 7–8) against the description:
 
@@ -394,9 +401,9 @@ Compare the current implementation (diff + any changes from Steps 7–8) against
 - Architectural approach that differs from what was described (e.g., description says
   "client-side only" but implementation adds a server endpoint)
 
-### 11e. Resolution
+### 12e. Resolution
 
-Based on 11a-11d:
+Based on 12a-12d:
 
 **If the description is empty/missing**: Draft a complete description from the diff using
 the standardized format. Show the user and ask for confirmation before applying.

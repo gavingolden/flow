@@ -41,7 +41,7 @@ If no findings above threshold: "No significant issues found."
 Immediately after the Findings section, include a one-glance tally:
 
 - **Addressed**: <N> (list file:line refs)
-- **Deferred**: <N> (list file:line refs with 1-word reason code and tracker anchor)
+- **Deferred**: <N> (list file:line refs with short reason + tracker anchor)
 - **Praise**: <N> (informational, no action required)
 
 If Deferred is >0, this is the section the author scans to decide what to follow up on.

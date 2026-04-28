@@ -6,7 +6,7 @@ to check — integrations, failure-mode UX, config gates, anything that only sur
 the feature actually runs.
 
 When AI writes both the code and the test plan, the risk is a plan that looks plausible
-but only exercises the happy path. This rubric gives Step 11b a depth-aware definition
+but only exercises the happy path. This rubric gives Step 12b a depth-aware definition
 of "testable" so shallow plans get flagged.
 
 ## The scaffold
