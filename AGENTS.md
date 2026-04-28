@@ -51,6 +51,22 @@ See `docs/roadmap.md`. As of now:
   justify it.
 - **No backwards-compat shims.** flow has no users yet. Refactor freely.
 
+## Scripts: Bun runtime
+
+Every executable script under `scripts/` uses `#!/usr/bin/env bun` and
+must be `chmod +x`. Tests live alongside as `*.test.ts` and run via
+vitest (`npm run test`).
+
+The CLI itself (`src/`) is Node + tsx — see "Code conventions" above.
+The two runtimes are independent: the orchestrator invokes target-repo
+scripts directly via their shebang, so a script's runtime choice
+doesn't leak into the CLI's dependency graph. Bun is *only* a script
+runtime, never a CLI runtime.
+
+When adding a new script, default to Bun. If you need to deviate (e.g.
+a target-repo install needs Node-only), confirm with the user first
+and document the exception inline.
+
 ## The orchestrator carries no LLM context
 
 This is the load-bearing constraint. The CLI is plain Node — Claude only
@@ -94,7 +110,9 @@ EOF
 npm install                # one-time
 npm run dev -- <args>      # tsx, no build
 npm run build              # tsc + chmod +x dist/cli.js
-npm run typecheck          # tsc --noEmit
+npm run typecheck          # tsc --noEmit (src/ only)
+npm run typecheck:scripts  # tsc -p tsconfig.scripts.json (scripts/ only)
+npm run test               # vitest run (scripts/ + src/)
 npm link                   # makes `flow` available on PATH globally
 ```
 
