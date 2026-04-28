@@ -2,8 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { execa } from "execa";
 import pc from "picocolors";
+import { findGitRoot } from "../util/git.js";
 
 interface InstallOptions {
   global?: boolean;
@@ -144,15 +144,6 @@ async function resolveTarget(global: boolean): Promise<Target> {
     dir: path.join(repoRoot, ".claude", "skills"),
     label: `repo (${repoRoot}/.claude/skills/)`,
   };
-}
-
-async function findGitRoot(): Promise<string | null> {
-  try {
-    const { stdout } = await execa("git", ["rev-parse", "--show-toplevel"]);
-    return stdout.trim();
-  } catch {
-    return null;
-  }
 }
 
 interface SelectArgs {

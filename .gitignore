@@ -5,3 +5,16 @@ dist/
 .DS_Store
 .env
 .env.local
+
+# managed by flow install-skills
+# (symlinks resolve to absolute paths under the user's home and aren't portable)
+/.claude/skills/add-worktree
+/.claude/skills/new-feature
+/.claude/skills/pr-review
+/.claude/skills/product-planning
+/.claude/skills/refactoring
+/.claude/skills/remove-worktree
+/.claude/skills/skill-creator
+/.claude/skills/testing
+/.claude/skills/verify
+# end flow

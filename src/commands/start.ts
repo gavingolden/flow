@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import pc from "picocolors";
+import { findGitRoot } from "../util/git.js";
 
 export async function startCommand(prompt: string): Promise<void> {
   const trimmed = prompt.trim();
@@ -51,15 +52,6 @@ export async function startCommand(prompt: string): Promise<void> {
     const exitCode = (err as { exitCode?: number }).exitCode;
     if (typeof exitCode === "number") process.exit(exitCode);
     throw err;
-  }
-}
-
-async function findGitRoot(): Promise<string | null> {
-  try {
-    const { stdout } = await execa("git", ["rev-parse", "--show-toplevel"]);
-    return stdout.trim();
-  } catch {
-    return null;
   }
 }
 

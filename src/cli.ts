@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { startCommand } from "./commands/start.js";
+import { runCommand } from "./commands/run.js";
 import { installSkillsCommand } from "./commands/install-skills.js";
 
 const program = new Command();
@@ -16,6 +17,14 @@ program
   .argument("<prompt...>", "the user's request (will be joined with spaces)")
   .action(async (promptParts: string[]) => {
     await startCommand(promptParts.join(" "));
+  });
+
+program
+  .command("run")
+  .description("Run the pipeline on a triaged task: plan → worktree → implement")
+  .argument("<task-id>", "the task id (filename without .md)")
+  .action(async (taskId: string) => {
+    await runCommand(taskId);
   });
 
 program
