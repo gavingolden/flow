@@ -10,7 +10,7 @@ abstractions ahead of the milestone that needs them.
 |---|---|---|---|
 | **M1** | Phase 0 (triage) + CLI scaffold | **shipped** | `phases/triage.md` |
 | **M2** | Phases 1–3 (plan, worktree, implement), single task | **shipped** | `phases/m2-plan.md`, `phases/{plan,worktree,implement}.md` |
-| **M3** | Phases 4–6 (verify, ci, review) with bounded retry loops | **next** | `phases/m3-plan.md` (TBD) |
+| **M3** | Phases 4–6 (verify, ci, review) with bounded retry loops | **next** | `phases/m3-plan.md` |
 | **M4** | Phases 7–8 (gate, merge) + manual-validation parser | planned | `phases/m4-plan.md` (TBD) |
 | **M5** | Multi-task queue + `--all --max N` parallelism | planned | — |
 | **M6** | Beads adapter behind the state interface (stretch) | planned | — |
