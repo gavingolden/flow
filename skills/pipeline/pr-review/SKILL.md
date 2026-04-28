@@ -2,10 +2,11 @@
 name: pr-review
 description: >-
   Perform multi-agent code review on pull requests and address existing review comments,
-  using confidence-scored findings with conventional comment labels. Use when user says
-  "review PR", "address PR comments", "PR feedback", "fix review comments", "code review",
-  "review this PR", "check this PR", or provides a PR number/URL. Handles both standalone
-  independent reviews and addressing existing review feedback from humans or bots.
+  surfacing confidence-scored findings with conventional comment labels and either fixing
+  each finding now or deferring it to a tracker entry. Use when user says "review PR",
+  "address PR comments", "PR feedback", "fix review comments", "code review", "review this
+  PR", "check this PR", or provides a PR number/URL. Handles both standalone independent
+  reviews and addressing existing review feedback from humans or bots.
 context: fork
 argument-hint: "PR-number-or-URL"
 ---
@@ -58,9 +59,9 @@ Reference files (read on demand, not upfront):
 - `references/agent-prompts.md` — prompt templates for the 4 specialized review agents.
   Read at Step 4 when spawning agents.
 - `references/manual-test-rubric.md` — depth rubric for the "How to test" criterion
-  (happy/unhappy/edges + PR-type scenario menus). Read at Step 11 when evaluating
+  (happy/unhappy/edges + PR-type scenario menus). Read at Step 12 when evaluating
   description Testability.
-- `references/report-template.md` — output format for the final report. Read at Step 12.
+- `references/report-template.md` — output format for the final report. Read at Step 13.
 
 # Instructions
 
@@ -118,7 +119,7 @@ than any single reviewer could.
    Per `AGENTS.md`, commit bodies are expected to capture the **why**, non-obvious design
    choices, and approaches that were tried and rejected. Use these as primary context for
    the review — they explain intent that the diff alone cannot convey. If a commit body
-   is missing or only restates the diff, flag it in Step 11 as a `suggestion` so the
+   is missing or only restates the diff, flag it in Step 12 as a `suggestion` so the
    author can backfill context in the PR description.
 4. Read `references/agent-prompts.md` for the prompt templates.
 
@@ -177,7 +178,64 @@ NOW read the review comments from Step 2's fetch output. This is the self-improv
    template at the bottom of the checklist. Include the PR number for traceability.
 5. Record coverage stats for the report: "X of Y reviewer findings independently caught."
 
-## 7. Address Each Review Comment (Address mode only)
+## 7. Address Agent Findings (Both modes)
+
+The multi-agent review exists to catch real issues — not to produce a report. For every
+finding in the filtered set (Step 5), you must either fix it now or escalate it to a
+durable tracker. Silently listing findings in the report without action is a failure mode.
+
+**Default is fix-now.** Per `AGENTS.md` Hardening: "Fix security, reliability, and
+correctness issues immediately — don't defer them. If a fix is complex enough to warrant
+separate work, add a concrete task to the project's tracker (e.g., `ROADMAP.md`, GitHub
+Issues, Linear) with enough detail to act on it immediately." Deferral that lives only in
+the review report is a disappearing-task failure mode — review reports are ephemeral, the
+tracker is durable.
+
+**For each finding**, classify it into one of:
+
+- **Auto-fix (default)** — fix it in this skill run. This is the expected path for almost
+  all findings: dead imports/deps, unused files, trivially wrong names, missing guards,
+  stale comments, adding a unit test, small bug fixes, error-toast additions, etc. If you
+  can ship it in <30 lines of clear changes, fix it.
+- **Defer + log** — only when the fix legitimately warrants a separate standalone agent
+  session (see bar below). When you defer, you MUST log the item in the project's tracker
+  (e.g., a `ROADMAP.md` "Followups" entry, a GitHub Issue, a Linear ticket) in the same
+  commit that addresses the rest of the review. The deferral is not complete until the
+  tracker entry exists. The review report alone is not a tracker.
+
+**Do not silently skip findings.** Every finding must end in either a commit-with-fix or a
+commit-with-tracker-entry. Praise findings are informational only — they do not need action.
+
+**Bar for deferral — ALL must be true (otherwise fix it now):**
+
+1. Fix requires meaningful design decisions or research that exceed the scope of "address
+   this review" (e.g., picks an architectural direction, needs user input on intent).
+2. Fix would expand the PR materially (touches >3 files as a cross-cutting refactor, OR
+   requires new test infrastructure / harnesses, OR rewrites a non-trivial component).
+3. The work is coherent enough to brief a future agent session in 1–2 sentences with a
+   concrete trigger ("when X is next touched", "before Phase N starts", etc.).
+
+Cosmetic edge cases, small bugs, and mechanical refactors do **not** clear this bar — fix
+them now. "I don't want to expand the PR" is also not sufficient: a 5-line guard is not a
+PR-expansion concern.
+
+When deferring, the tracker entry must include:
+
+- File/area + what the issue is (1 line)
+- Why it was deferred (1 line — the bar criterion that applies)
+- Concrete revisit trigger (e.g., "address opportunistically next time AppHeader is touched",
+  "delete if no use materializes before the next layout-touching PR", "open an issue if
+  the design call needs broader input")
+
+After addressing, record for the report:
+
+- **Addressed**: list of file:line refs with 1-line summary of the change.
+- **Deferred**: list of file:line refs with the reason **and a link/anchor to the tracker
+  entry** (e.g., `ROADMAP.md` section anchor, issue #, Linear ticket URL). A deferral
+  without a tracker reference is a verification failure — go back and add the entry before
+  producing the report.
+
+## 8. Address Each Review Comment (Address mode only)
 
 For each inline comment from the fetch output:
 
@@ -190,7 +248,7 @@ For each inline comment from the fetch output:
 Push back on comments that are incorrect or would degrade code quality. Blindly accepting
 every suggestion is worse than thoughtfully declining some.
 
-## 8. Run Pre-Commit Checks (Both modes)
+## 9. Run Pre-Commit Checks (Both modes)
 
 Run the pre-commit checks with the PR number:
 
@@ -205,7 +263,7 @@ A non-zero exit code means a check failed. Do not explain it away — investigat
 issue, and re-run. Repeat until all checks pass. Run each check individually; never chain
 with `&&`.
 
-## 9. Reply to PR Comments (Address mode only)
+## 10. Reply to PR Comments (Address mode only)
 
 Construct a JSON array of replies and pipe it to the reply script:
 
@@ -223,7 +281,7 @@ Use a leading emoji for scannability:
 
 Keep replies to 1-2 sentences. Don't repeat the comment back.
 
-## 10. Post Findings to PR (Review mode only)
+## 11. Post Findings to PR (Review mode only)
 
 Post the filtered findings as a PR review. Group all comments into a single review
 submission using `gh api`:
@@ -242,7 +300,7 @@ gh api repos/{owner}/{repo}/pulls/<number>/reviews \
   below 80 confidence were suppressed, and a link to the conventional comments spec for
   readers unfamiliar with the format.
 
-## 11. PR Description Quality Check (Both modes)
+## 12. PR Description Quality Check (Both modes)
 
 Evaluate the PR description for both accuracy and intent clarity. The description is the
 first thing a reviewer reads — if it's missing, vague, or misleading, the review starts
@@ -256,7 +314,7 @@ have to read commit-by-commit to reconstruct intent. Conversely, if commit bodie
 uniformly one-liners on a non-trivial PR, note it as a `suggestion` that future commits
 should capture rationale inline (per `AGENTS.md` Committing rules).
 
-### 11a. Structure Check
+### 12a. Structure Check
 
 Check whether the PR description follows the standardized format with these sections:
 
@@ -269,9 +327,9 @@ Check whether the PR description follows the standardized format with these sect
 format above. This is the highest-priority fix in this step.
 
 **If the description exists but doesn't follow the format**: Do NOT restructure it. Instead,
-evaluate it against the criteria in 11b using its existing structure.
+evaluate it against the criteria in 12b using its existing structure.
 
-### 11b. Intent Clarity Evaluation
+### 12b. Intent Clarity Evaluation
 
 Evaluate the description (regardless of format) against these criteria:
 
@@ -298,7 +356,7 @@ When scoring Testability, consult `references/manual-test-rubric.md` — it defi
 UI features, config changes). For non-material changes (pure internal refactors, typo
 fixes), happy-path only is acceptable; do not over-prescribe.
 
-### 11c. Deployment Follow-Up Check
+### 12c. Deployment Follow-Up Check
 
 Scan the diff for changes that require manual follow-up outside the codebase. For each item
 found, include exact commands (with `<PLACEHOLDER>` values matching `DEPLOYING.md` conventions)
@@ -306,29 +364,35 @@ so the deployer can copy-paste rather than hunt for syntax.
 
 - **New environment variables** (`.env.example` additions):
   - Local: `<VAR>=<value>` in `.env`
-  - Production: create secret + grant access + redeploy:
+  - Production: create secret + grant access + redeploy. Read the secret via `read -s`
+    (keeps it out of shell history) and bind a dedicated runtime service account rather
+    than the default Compute SA (which is shared and Editor-by-default):
     ```bash
-    echo -n "VALUE" | gcloud secrets create <VAR> --data-file=-
-    PROJECT_NUMBER=$(gcloud projects describe <PROJECT_ID> --format='value(projectNumber)')
+    read -s SECRET_VALUE && printf '%s' "$SECRET_VALUE" \
+      | gcloud secrets create <VAR> --data-file=-
+    unset SECRET_VALUE
     gcloud secrets add-iam-policy-binding <VAR> \
-      --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+      --member="serviceAccount:<SERVICE_NAME>-runtime@<PROJECT_ID>.iam.gserviceaccount.com" \
       --role="roles/secretmanager.secretAccessor"
     gcloud run deploy <SERVICE_NAME> --region us-central1 \
-      --image us-central1-docker.pkg.dev/<PROJECT_ID>/stax-data/proxy:latest \
+      --image <ARTIFACT_REGISTRY_PATH>/proxy:latest \
+      --service-account="<SERVICE_NAME>-runtime@<PROJECT_ID>.iam.gserviceaccount.com" \
       --set-secrets "...,<VAR>=<VAR>:latest"
     ```
+    Create the runtime SA once with `gcloud iam service-accounts create <SERVICE_NAME>-runtime`
+    if it doesn't already exist.
 - **New frontend build vars** (`VITE_*`): Set in Cloudflare Pages dashboard → Settings →
   Environment variables (both Production and Preview).
 - **New allowlist files**: Verify `backend/Dockerfile` COPYs them into the image.
 - **Database migrations**: `supabase db push` against the linked remote project.
 
 If any follow-up items are found, include a **Deployment follow-up** section in the PR
-description (Step 11e) listing each action with the exact commands. This prevents "works
+description (Step 12e) listing each action with the exact commands. This prevents "works
 locally, breaks in prod" gaps.
 
-### 11d. Accuracy Sync
+### 12d. Accuracy Sync
 
-Compare the current implementation (diff + any changes from Step 7) against the description:
+Compare the current implementation (diff + any changes from Steps 7–8) against the description:
 
 - Files or modules added that the description doesn't mention (only flag if they represent
   significant new capabilities, not supporting files)
@@ -337,9 +401,9 @@ Compare the current implementation (diff + any changes from Step 7) against the 
 - Architectural approach that differs from what was described (e.g., description says
   "client-side only" but implementation adds a server endpoint)
 
-### 11e. Resolution
+### 12e. Resolution
 
-Based on 11a-11d:
+Based on 12a-12d:
 
 **If the description is empty/missing**: Draft a complete description from the diff using
 the standardized format. Show the user and ask for confirmation before applying.
@@ -395,14 +459,20 @@ changing (focused on just the affected section is fine) and getting confirmation
 description is the author's voice — edits should improve clarity, not impose a rigid
 template.
 
-## 12. Structured Report (Both modes)
+## 13. Structured Report (Both modes)
 
 Read `references/report-template.md` and produce the full report. This is the most
 important output — the user needs a clear, at-a-glance summary of everything that happened.
 
 Always produce this report, even when there are no findings or comments. The report format
-covers: summary, findings (with confidence scores), review comments addressed, pre-commit
-check results, PR description quality, and retrospective (address mode).
+covers: summary, findings (each annotated as **Addressed** or **Deferred with reason**),
+review comments addressed, pre-commit check results, PR description quality, and
+retrospective (address mode).
+
+**The report MUST explicitly separate addressed vs deferred findings.** Never leave the
+reader guessing which findings were silently skipped — every finding surfaced in Step 5
+must appear in one of the two buckets. If no findings were deferred, say so explicitly
+("No findings deferred").
 
 Commit any changes with a clear message referencing the PR number, then present the report.
 
@@ -427,6 +497,10 @@ Commit any changes with a clear message referencing the PR number, then present 
 - All agent findings filtered to confidence >= 80 (praise exempt)
 - At least one praise finding in the output
 - Conventional comment format (label + decoration) used for all findings
+- **Every surfaced finding ends in either a code change (addressed) or a deferral with a
+  concrete reason (no silent skips)**
+- **Every deferred finding has a corresponding entry in a durable tracker (`ROADMAP.md`,
+  GitHub Issue, Linear, etc.) committed in this run — the review report is not a tracker**
 - (Address mode) Retrospective in report comparing agent vs. reviewer findings
 - (Address mode) Review checklist updated if gaps identified
 - (Address mode) All review comments addressed or explicitly skipped with reason
@@ -435,6 +509,8 @@ Commit any changes with a clear message referencing the PR number, then present 
 - Pre-commit checks pass (run individually, not chained)
 - PR description quality check completed
 - Structured report produced using the template format
+- **Report clearly labels each finding as Addressed or Deferred (+ reason) — no finding is
+  silently dropped between Step 5 and the report**
 
 # Constraints
 
@@ -454,3 +530,9 @@ Commit any changes with a clear message referencing the PR number, then present 
 - NEVER commit without running pre-commit checks first.
 - NEVER update the PR description without showing the user the before/after diff and getting
   confirmation.
+- NEVER end a run by "just reporting" findings — every surfaced finding must either be fixed
+  in this run or explicitly deferred with a reason. The report must make that split visible.
+- NEVER defer a finding without writing a corresponding tracker entry (`ROADMAP.md`, GitHub
+  Issue, Linear ticket, etc.) in the same run. Default to fix-now; deferral is reserved for
+  work that legitimately warrants a separate standalone agent session per the bar in Step 7.
+  A deferral that lives only in the review report will be lost when the PR merges.

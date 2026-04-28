@@ -119,6 +119,23 @@ project conventions that cannot be inferred from pattern-matching.
 
 Read each skill **once per conversation**. Skip only for trivially mechanical changes (typo fixes).
 
+## Tooling: Prefer Bun
+
+Prefer `bun` for executing scripts and running package.json commands — it's faster than
+`node`/`npx`/`npm run` and runs TypeScript natively.
+
+| Use this           | Instead of                         |
+| ------------------ | ---------------------------------- |
+| `bun file.ts`      | `npx tsx file.ts` / `node file.ts` |
+| `bun run <script>` | `npm run <script>`                 |
+
+**Keep `npm install` for dependencies** unless you've migrated the project fully off npm.
+`package-lock.json` and `bun.lock` should not coexist — mixing creates drift. Migrating
+fully off npm is a deliberate change, not something to do incidentally.
+
+**Workspace flags differ** — bun uses `--cwd <pkg>` or `--filter <pkg>`, not npm's
+`-w <pkg>`. Translate carefully when swapping.
+
 ## Agent Behavior
 
 - Be extremely concise. Target an experienced developer.

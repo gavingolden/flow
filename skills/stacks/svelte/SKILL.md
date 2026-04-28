@@ -31,9 +31,9 @@ this project's established architecture patterns.
 # Context
 
 - Framework: Svelte 5 with SvelteKit 2
-- Components: `src/lib/components/`
-- Domain state: `src/lib/domain/` (`.svelte.ts` files for reactive state)
-- Base UI primitives: `src/lib/components/ui/` (shadcn-svelte / bits-ui)
+- Components: `src/lib/components/` (adjust to this project's layout)
+- Domain state: `src/lib/domain/` or equivalent (`.svelte.ts` files for reactive state)
+- Base UI primitives: `src/lib/components/ui/` (shadcn-svelte / bits-ui, if used)
 - Extended rune patterns: `references/svelte5-patterns.md`
 - SvelteKit patterns: `references/sveltekit-patterns.md`
 - Store architecture: `references/store-architecture.md`
@@ -82,11 +82,11 @@ When passing `$state` proxy objects to external APIs (structuredClone, JSON
 serialization, library functions), use `$state.snapshot()` to get a plain copy:
 
 ```typescript
-clone(newGraph: Graph): Expression {
-  const cloned = new QueryExpression(
-    newGraph,
+clone(newParent: Parent): Item {
+  const cloned = new Item(
+    newParent,
     $state.snapshot(this.id),
-    $state.snapshot(this.symbol),
+    $state.snapshot(this.name),
   );
   return cloned;
 }

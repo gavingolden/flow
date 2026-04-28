@@ -38,6 +38,22 @@
         {
           "name": "independent_review_performed",
           "check": "Report shows independent review was performed"
+        },
+        {
+          "name": "disposition_summary_present",
+          "check": "report.md contains '### Disposition Summary' with Addressed and Deferred counts"
+        },
+        {
+          "name": "status_line_per_finding",
+          "check": "Every non-praise finding entry in report.md contains a 'Status:' line beginning with 'Addressed' or 'Deferred'"
+        },
+        {
+          "name": "deferred_findings_have_tracker",
+          "check": "For each Deferred finding in report.md, a tracker entry (ROADMAP.md anchor, GH issue, or Linear URL) is referenced and was committed in this run — or 'No findings deferred' / 'All findings addressed in this run' is stated"
+        },
+        {
+          "name": "no_silent_skips",
+          "check": "Count of non-praise findings in findings.json equals count of Status-annotated finding entries in report.md"
         }
       ]
     },
@@ -76,7 +92,23 @@
           "name": "independent_before_comments",
           "check": "Transcript shows independent review completed before reading comments"
         },
-        { "name": "multi_agent_coverage", "check": "agent-findings/ contains 4 agent JSON files" }
+        { "name": "multi_agent_coverage", "check": "agent-findings/ contains 4 agent JSON files" },
+        {
+          "name": "disposition_summary_present",
+          "check": "report.md contains '### Disposition Summary' with Addressed and Deferred counts"
+        },
+        {
+          "name": "status_line_per_finding",
+          "check": "Every non-praise finding entry in report.md contains a 'Status:' line beginning with 'Addressed' or 'Deferred'"
+        },
+        {
+          "name": "deferred_findings_have_tracker",
+          "check": "For each Deferred finding in report.md, a tracker entry (ROADMAP.md anchor, GH issue, or Linear URL) is referenced and was committed in this run — or 'No findings deferred' / 'All findings addressed in this run' is stated"
+        },
+        {
+          "name": "no_silent_skips",
+          "check": "Count of non-praise findings in findings.json equals count of Status-annotated finding entries in report.md"
+        }
       ]
     },
     {
@@ -107,6 +139,18 @@
         {
           "name": "independent_before_comments",
           "check": "Independent review before reading comments"
+        },
+        {
+          "name": "disposition_summary_present",
+          "check": "report.md contains '### Disposition Summary' with Addressed and Deferred counts"
+        },
+        {
+          "name": "status_line_per_finding",
+          "check": "Every non-praise finding entry in report.md contains a 'Status:' line beginning with 'Addressed' or 'Deferred'"
+        },
+        {
+          "name": "manual_test_rubric_applied",
+          "check": "If PR introduces UI changes, report's PR Description Quality section references dark-mode and/or empty/error/loading-state coverage when the description omits them; if PR introduces a data provider, 'Upstream shape drift' coverage is referenced when missing"
         }
       ]
     }

@@ -17,7 +17,9 @@ with a mode apply only to that mode — include all unmarked sections in both mo
 
 ### Findings
 
-Group findings by file. Within each file, order by line number.
+Group findings by file. Within each file, order by line number. Each finding MUST include
+a **Status** line recording whether it was addressed in this run or deferred. Silent skips
+are forbidden — every finding above the confidence threshold (or praise) appears here.
 
 #### `path/to/file.ts`
 
@@ -25,9 +27,25 @@ Group findings by file. Within each file, order by line number.
 - **Line(s)**: L<start>–L<end>
 - **Agent**: <Bug Detection | Security | Pattern/Consistency | Test Coverage>
 - **Confidence**: <score>/100
-- **Details**: <explanation and suggestion>
+- **Status**: ✅ **Addressed** — <1-line summary of the change, e.g. "renamed to findFromIndex"> · commit `<sha>`
+  — OR —
+- **Status**: ⏭️ **Deferred** — <1-sentence reason; bar criterion that applies (design decision needed; cross-cutting refactor; needs new test infrastructure)> · tracker entry: <link/anchor>
+- **Details**: <explanation and suggestion, retained even after deferral so a future run can pick it up>
 
 If no findings above threshold: "No significant issues found."
+
+---
+
+### Disposition Summary
+
+Immediately after the Findings section, include a one-glance tally:
+
+- **Addressed**: <N> (list file:line refs)
+- **Deferred**: <N> (list file:line refs with short reason + tracker anchor)
+- **Praise**: <N> (informational, no action required)
+
+If Deferred is >0, this is the section the author scans to decide what to follow up on.
+If Deferred is 0, say so explicitly: "All findings addressed in this run."
 
 ---
 

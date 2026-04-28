@@ -36,20 +36,22 @@ task breakdown where each task maps to a specific skill and has clear acceptance
 
 # Context
 
-- **Project architecture:** Read `README.md` for the full tech stack, architecture diagram,
-  expression system, and project structure
+- **Project architecture:** Read `README.md` if present for the tech stack, architecture,
+  and project structure. If no README exists, note missing architecture docs as a PRD
+  constraint.
 - **Coding standards:** `AGENTS.md` contains project-wide rules (never restate them)
 - **Available skills:** `.claude/skills/` — list the directory to discover current skills
   before making recommendations
-- **Domain models:** `src/lib/domain/` contains business logic organized by domain area
-  (dashboard, data-source, expression, feedback, graph, keybinds, profile, share, shared)
-- **Database schema:** `supabase/migrations/` has the current schema
-- **Architecture patterns:** `references/architecture-patterns.md` — load when deciding
-  which layers a feature touches and how tasks should be ordered
+- **Domain models:** locate business logic in the project's source tree (e.g., `src/lib/`,
+  `src/domain/`, or wherever the project organizes entity + service code)
+- **Database schema:** if a schema exists (e.g., `supabase/migrations/`, `prisma/schema.prisma`,
+  or equivalent), reference it when a feature involves persistence
+- **Architecture patterns:** if `references/architecture-patterns.md` exists, load it to
+  verify which pattern applies. Otherwise derive patterns from the codebase as you discover them.
 - **Discovery techniques:** `references/discovery-playbook.md` — load when you need to go
   deeper on a vague or complex idea
-- **Example PRD:** `references/example-prd.md` — load when drafting the PRD to see what
-  "good" looks like for this project
+- **Example PRD:** if `references/example-prd.md` exists, load it to see what "good" looks
+  like for this project. Save your first strong PRD as this reference for future plans.
 
 # Instructions
 
@@ -57,9 +59,9 @@ task breakdown where each task maps to a specific skill and has clear acceptance
 
 Before asking questions, load background context so your questions are informed:
 
-- Read `README.md` for architecture, tech stack, and existing capabilities
-- Scan `src/lib/domain/` to understand existing domain models
-- Check `supabase/migrations/` for the current database schema (if relevant)
+- Read `README.md` (if present) for architecture, tech stack, and existing capabilities
+- Scan the project's source tree to understand existing modules and domain models
+- Check the database schema location (if one exists) when the feature involves persistence
 
 Do this silently — do not dump file contents to the user.
 
@@ -101,7 +103,7 @@ but don't ask more than you need.
 | **Scope**             | "Is this a new page, a modification, or a backend-only change?"                 |
 | **UI/UX**             | "What should the user see/interact with?", "Any existing UI to reference?"      |
 | **Data**              | "What data does this need?", "New DB tables or existing ones?", "External API?" |
-| **Architecture**      | "Does this need the Go proxy?", "New domain module or extend an existing one?"  |
+| **Architecture**      | "What layer does this touch?", "New module or extend an existing one?"          |
 | **Edge cases**        | "What happens when X is empty?", "How should errors display?"                   |
 | **Trade-offs**        | "Would Y be an acceptable simplification for v1?"                               |
 | **Existing patterns** | "This is similar to [existing feature] — should it follow the same pattern?"    |
@@ -131,7 +133,7 @@ but don't ask more than you need.
   ask them to pick
 - Answer implies a new DB table → ask about ownership (user_id scope), relationships to
   existing tables, and whether RLS is needed
-- Answer implies a new data source → ask whether it needs the Go proxy pattern
+- Answer implies a new external API → ask whether it needs a backend proxy (for auth/secrets)
 
 For deeper techniques, load `references/discovery-playbook.md`.
 
@@ -140,7 +142,7 @@ For deeper techniques, load `references/discovery-playbook.md`.
 Before writing the PRD, state these decisions (one line each). This forces intentional choices
 about structure before getting into details:
 
-- **Layers touched:** Which layers does this feature span? (DB / Go proxy / Domain model / UI)
+- **Layers touched:** Which layers does this feature span? (data / domain / UI / integration — adapt to your stack)
 - **Domain modules:** Which existing modules are involved? Any new ones needed?
 - **Data flow:** Where does data originate, how does it transform, where does it render?
 - **New patterns vs. existing:** Does this follow an existing pattern (name it) or introduce
