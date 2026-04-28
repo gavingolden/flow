@@ -40,6 +40,7 @@ export type PrePushRef = {
 export type GitOps = {
   mergeBase: (ref1: string, ref2: string) => string | null;
   diffFiles: (range: string) => string[];
+  defaultBranch: () => string;
 };
 
 type CheckDef = {
@@ -52,9 +53,12 @@ type CheckDef = {
 const VALID_SCOPES: Scope[] = ["src", "scripts"];
 const ZERO_SHA = "0000000000000000000000000000000000000000";
 
+// `scripts/` is the install location in target repos; `templates/scripts/` is
+// the canonical source location in flow itself. Both should trip the scripts
+// scope so flow's own pre-commit run picks up edits to the source files.
 const SCOPE_PREFIXES: Record<Scope, string[]> = {
   src: ["src/"],
-  scripts: ["scripts/"],
+  scripts: ["scripts/", "templates/scripts/"],
 };
 
 // --- Helpers ---
@@ -171,6 +175,24 @@ const defaultGitOps: GitOps = {
     if (!stdout) return [];
     return stdout.split("\n").filter(Boolean);
   },
+  // Resolve the remote's default branch via origin/HEAD, then conventional
+  // fallbacks. Hardcoding "main" would mis-detect changes in repos that
+  // default to "master" or anything else.
+  defaultBranch(): string {
+    const { stdout: head, exitCode: headExit } = run([
+      "git",
+      "symbolic-ref",
+      "refs/remotes/origin/HEAD",
+    ]);
+    if (headExit === 0 && head) {
+      return head.replace("refs/remotes/origin/", "");
+    }
+    for (const candidate of ["main", "master"]) {
+      const { exitCode } = run(["git", "rev-parse", "--verify", `refs/remotes/origin/${candidate}`]);
+      if (exitCode === 0) return candidate;
+    }
+    return "main";
+  },
 };
 
 /** Parses the stdin lines git passes to a pre-push hook. */
@@ -202,8 +224,10 @@ export function getChangedFilesForPush(refs: PrePushRef[], git: GitOps = default
 
     let range: string;
     if (ref.remoteSha === ZERO_SHA) {
-      // New branch — compare against merge-base with main
-      const base = git.mergeBase("main", ref.localSha);
+      // New branch — compare against merge-base with the remote's default
+      // branch. Detect it dynamically rather than hardcoding "main" (some
+      // repos still use "master" or other conventions).
+      const base = git.mergeBase(git.defaultBranch(), ref.localSha);
       if (!base) continue;
       range = `${base}..${ref.localSha}`;
     } else {

@@ -83,14 +83,31 @@ export function getPrimaryDir(repoDir: string): string {
   return firstLine.slice("worktree ".length);
 }
 
-/** Auto-detects the default branch from origin/HEAD, falls back to HEAD. */
+/**
+ * Auto-detects the default branch. Tries origin/HEAD first, then conventional
+ * defaults (main, master) verified against the remote. Throws if none work —
+ * "HEAD" is not a valid branch name and would fail downstream validation.
+ */
 function detectDefaultBranch(repoDir: string): string {
   try {
     const ref = git(["symbolic-ref", "refs/remotes/origin/HEAD"], repoDir);
     return ref.replace("refs/remotes/origin/", "");
   } catch {
-    return "HEAD";
+    // origin/HEAD not set — fall through to conventional defaults
   }
+
+  for (const candidate of ["main", "master"]) {
+    try {
+      git(["rev-parse", "--verify", `refs/remotes/origin/${candidate}`], repoDir);
+      return candidate;
+    } catch {
+      // try next
+    }
+  }
+
+  throw new Error(
+    "Could not auto-detect the default branch. Pass it explicitly as the second argument.",
+  );
 }
 
 // --- CLI ---

@@ -50,6 +50,10 @@ describe(detectScopesFromFiles, () => {
     expect(detectScopesFromFiles(["scripts/fetch-pr-review.ts"])).toEqual(["scripts"]);
   });
 
+  it("should detect scripts scope from templates/scripts/ files (flow's source location)", () => {
+    expect(detectScopesFromFiles(["templates/scripts/pre-commit-checks.ts"])).toEqual(["scripts"]);
+  });
+
   it("should detect multiple scopes from mixed files", () => {
     const files = ["src/index.ts", "scripts/build.ts"];
     expect(detectScopesFromFiles(files)).toEqual(["src", "scripts"]);
@@ -140,6 +144,7 @@ function createMockGit(
   return {
     mergeBase: overrides.mergeBase ?? (() => "base000"),
     diffFiles: overrides.diffFiles ?? ((range: string) => files[range] ?? []),
+    defaultBranch: overrides.defaultBranch ?? (() => "main"),
   };
 }
 
@@ -189,7 +194,7 @@ describe(getChangedFilesForPush, () => {
     expect(getChangedFilesForPush(refs, git)).toEqual(["src/a.ts", "src/b.ts"]);
   });
 
-  it("should use merge-base with main for new branches", () => {
+  it("should use merge-base with the detected default branch for new branches", () => {
     const refs = [createRef({ remoteSha: ZERO_SHA, localSha: "new222" })];
     const mergeBase = vi.fn().mockReturnValue("base000");
     const git = createMockGit({
@@ -199,6 +204,21 @@ describe(getChangedFilesForPush, () => {
 
     expect(getChangedFilesForPush(refs, git)).toEqual(["src/new-file.ts"]);
     expect(mergeBase).toHaveBeenCalledWith("main", "new222");
+  });
+
+  it("should honor a non-main default branch when computing new-branch diffs", () => {
+    const refs = [createRef({ remoteSha: ZERO_SHA, localSha: "new222" })];
+    const mergeBase = vi.fn().mockReturnValue("base000");
+    const defaultBranch = vi.fn().mockReturnValue("master");
+    const git = createMockGit({
+      mergeBase,
+      defaultBranch,
+      files: { "base000..new222": ["src/new-file.ts"] },
+    });
+
+    expect(getChangedFilesForPush(refs, git)).toEqual(["src/new-file.ts"]);
+    expect(defaultBranch).toHaveBeenCalled();
+    expect(mergeBase).toHaveBeenCalledWith("master", "new222");
   });
 
   it("should skip delete refs where local sha is all zeros", () => {

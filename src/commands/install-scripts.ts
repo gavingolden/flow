@@ -113,9 +113,11 @@ async function ensureSymlink(
   if (existing === null) {
     const stat = await statIfExists(linkPath);
     if (stat) {
-      // A real file lives there. Without --force, leave it alone — could be
-      // the user's own customised version. With --force, replace it.
-      if (!force) return "blocked";
+      // A real path lives here. Without --force, leave it alone — could be
+      // the user's own customised version. With --force, replace it — but
+      // only if it's a regular file. A directory at the install target is
+      // unusual and we shouldn't recursively delete it; treat it as blocked.
+      if (!force || stat.isDirectory()) return "blocked";
       await fs.unlink(linkPath);
       await fs.symlink(sourceFile, linkPath);
       return "updated";
