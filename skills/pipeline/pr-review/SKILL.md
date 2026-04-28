@@ -248,7 +248,7 @@ For each inline comment from the fetch output:
 Push back on comments that are incorrect or would degrade code quality. Blindly accepting
 every suggestion is worse than thoughtfully declining some.
 
-## 9. Run Pre-Commit Checks (Both modes)
+## 9. Run Pre-Commit Checks and Commit (Both modes)
 
 Run the pre-commit checks with the PR number:
 
@@ -262,6 +262,27 @@ first, then each check separately with structured pass/fail output.
 A non-zero exit code means a check failed. Do not explain it away — investigate, fix the
 issue, and re-run. Repeat until all checks pass. Run each check individually; never chain
 with `&&`.
+
+### 9b. Commit changes — auto, do not ask
+
+Once checks are green, **commit any uncommitted changes from Steps 7/8 immediately**.
+Do not leave the working tree dirty for the user to clean up. This is an explicit
+override of the project `AGENTS.md` "don't auto-commit without explicit instruction"
+default — invoking `/pr-review` *is* the explicit instruction.
+
+- One commit per logical fix is fine, but a single batched commit is also fine — match
+  what's clearest for the diff.
+- Commit message: conventional-commits prefix (`fix:`, `chore:`, `refactor:`) +
+  `(pr-review #<N>)` suffix in the subject, body explains the *why* (what the finding
+  was), referencing the agent's category (e.g. "Bug-Detection", "Pattern-Consistency").
+- If the PR is **still open**: commit on the PR's branch and push — the inline comments
+  in Step 11 will then anchor to a head SHA the new commit doesn't invalidate (use the
+  pre-commit head SHA captured at Step 2).
+- If the PR is **already merged**: switch to `main`, pull, commit there, and push. Do
+  not leave fixes stranded on a merged branch.
+- Push is part of the auto-commit contract — uncommitted local fixes that reference a
+  PR are dead weight. The only exception: if push to `main` fails CI or branch
+  protection, stop and surface the error to the user.
 
 ## 10. Reply to PR Comments (Address mode only)
 
@@ -283,22 +304,45 @@ Keep replies to 1-2 sentences. Don't repeat the comment back.
 
 ## 11. Post Findings to PR (Review mode only)
 
-Post the filtered findings as a PR review. Group all comments into a single review
-submission using `gh api`:
+Post each finding as an **individual inline review comment**, not as a batched formal
+review with an event wrapper. The formal-review wrapper creates a heavier-weight
+"X reviewed your PR" entry with an Approved / Requested-changes / Commented banner that
+is overkill for self-review and looks odd when findings are already addressed in the
+same run.
+
+For each per-line finding, POST to the **comments** endpoint (not the **reviews**
+endpoint):
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/<number>/reviews \
-  -f event="COMMENT" \
-  -f body="<review-summary>" \
-  --raw-field comments='[{"path":"file.ts","line":42,"body":"..."}]'
+gh api repos/{owner}/{repo}/pulls/<number>/comments \
+  -f commit_id="<head-sha>" \
+  -f path="file.ts" \
+  -F line=42 \
+  -f side="RIGHT" \
+  -f body="<conventional-comment-body>"
 ```
 
-- If there are any `blocking` findings: use `event="REQUEST_CHANGES"` instead of `"COMMENT"`.
-- Format each comment body using the conventional comments format (label + decoration +
-  subject + body). Do NOT include the confidence score in PR comments — it's internal.
-- The review summary body should include: count of findings by label, a note that findings
-  below 80 confidence were suppressed, and a link to the conventional comments spec for
-  readers unfamiliar with the format.
+- `commit_id` is the PR head SHA (`gh pr view <n> --json headRefOid -q .headRefOid`).
+- `line` is the post-fix line number (the line as it appears in the PR's "after" view).
+- `side="RIGHT"` anchors to the new file; use `"LEFT"` only when commenting on a
+  removed line.
+- For multi-line ranges, add `-F start_line=<n>` and `-f start_side="RIGHT"`.
+- Format each body using the conventional comments format (label + decoration + subject
+  + body). Do NOT include the confidence score in PR comments — it's internal.
+
+For the top-level review summary (counts by label, suppression note, conventional-comments
+link), use a regular issue comment:
+
+```bash
+gh pr comment <number> --body-file <(cat <<'EOF'
+<summary-body>
+EOF
+)
+```
+
+If there are any `blocking` findings, say so explicitly in the summary body — the
+inline-comments approach has no equivalent of `event="REQUEST_CHANGES"`, so the user
+needs to see the blocking flag in the summary itself.
 
 ## 12. PR Description Quality Check (Both modes)
 
