@@ -27,7 +27,7 @@ export async function installCommand(options: InstallOptions): Promise<void> {
   console.error(
     pc.bold(
       `flow: skills ${skills.created} created, ${skills.updated} relinked, ` +
-        `${skills.skipped} unchanged.`,
+        `${skills.skipped} unchanged, ${skills.blocked} blocked.`,
     ),
   );
   console.error(

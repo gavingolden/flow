@@ -206,7 +206,10 @@ const defaultGitOps: GitOps = {
   },
   // Resolve the remote's default branch via origin/HEAD, then conventional
   // fallbacks. Hardcoding "main" would mis-detect changes in repos that
-  // default to "master" or anything else.
+  // default to "master" or anything else. If nothing resolves, warn and
+  // return "main" — the downstream merge-base will return null and
+  // getChangedFilesForPush will skip silently, but the warning makes the
+  // skip visible instead of mysterious.
   defaultBranch(): string {
     const { stdout: head, exitCode: headExit } = run([
       "git",
@@ -220,6 +223,10 @@ const defaultGitOps: GitOps = {
       const { exitCode } = run(["git", "rev-parse", "--verify", `refs/remotes/origin/${candidate}`]);
       if (exitCode === 0) return candidate;
     }
+    console.warn(
+      "warning: could not resolve a default remote branch (origin/HEAD unset, neither origin/main nor origin/master exists). " +
+        "Falling back to 'main' — merge-base may fail and skip change detection.",
+    );
     return "main";
   },
 };

@@ -210,6 +210,17 @@ Smaller items that aren't milestone-blocking but should land when convenient:
   warrants its own session (touches the worktree script's structure, not just
   the bug).
 
+- **Unit-test the install commands.** `src/install/scripts.ts` and
+  `src/install/skills.ts` (added in PR #6) carry the symlink, gitignore, stale-test
+  cleanup, and `git rm --cached` logic but have no automated tests — only the
+  `applyManagedBlock` pure helper does. Coverage today is via manual synthetic-repo
+  walk-throughs documented in PR #6's How-to-test. Real bugs the tests would catch:
+  the `--force`-blocks-on-directory regression, the stale-companion-test deletion,
+  the `--diff-filter=DT` untrack sweep, and the symlink replacement loop. Needs an
+  `FsOps`/`GitCmd` injection point so tests can run without spawning real `git`.
+  Deferred from PR #6 review because the refactor warrants its own session
+  (introduces new abstractions to two install modules and their tests).
+
 ## What's deliberately not on the roadmap
 
 - A web UI, dashboard, or status server.

@@ -13,6 +13,7 @@ export interface InstallSkillsResult {
   created: number;
   updated: number;
   skipped: number;
+  blocked: number;
 }
 
 export async function installSkills(
@@ -40,6 +41,7 @@ export async function installSkills(
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  let blocked = 0;
   for (const { name, sourceDir } of skillsToInstall) {
     const linkPath = path.join(targetDir, name);
     const result = await ensureSymlink(linkPath, sourceDir);
@@ -54,9 +56,9 @@ export async function installSkills(
       skipped++;
     } else {
       console.error(
-        pc.red(`  ! ${name}  (skipped — exists as a real directory or wrong symlink)`),
+        pc.red(`  ! ${name}  (blocked — exists as a real directory or wrong symlink)`),
       );
-      skipped++;
+      blocked++;
     }
   }
 
@@ -73,7 +75,7 @@ export async function installSkills(
     console.error(pc.dim(`      .gitignore ${gitignoreResult}`));
   }
 
-  return { created, updated, skipped };
+  return { created, updated, skipped, blocked };
 }
 
 function resolveSkillsRoot(): string {
