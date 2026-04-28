@@ -14,6 +14,9 @@
     "build": "tsc && node -e \"require('fs').chmodSync('dist/cli.js', 0o755)\"",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepare": "npm run build"
   },
   "dependencies": {
@@ -24,8 +27,10 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "bun-types": "^1.1.38",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.5"
   },
   "engines": {
     "node": ">=20"

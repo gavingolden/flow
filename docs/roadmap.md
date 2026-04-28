@@ -200,13 +200,15 @@ Done when:
 
 Smaller items that aren't milestone-blocking but should land when convenient:
 
-- **`flow install-skills` manages `.gitignore` for the symlinks it creates.**
-  The symlinks resolve to absolute paths under the user's home and aren't
-  portable across machines, so they shouldn't be committed. The command
-  should append (and idempotently rewrite) a marked block to the target
-  repo's `.gitignore` — e.g. `# managed by flow install-skills` … `# end
-  flow` — listing each symlinked skill name. Hand-rolled skills sitting
-  alongside under different names stay tracked.
+- **Unit-test the worktree script's git interactions.** `templates/scripts/new-agent-worktree.ts`
+  currently has tests only for `toDirSuffix` and `SYMLINK_FILES`. The interesting
+  logic — `detectDefaultBranch`, `getPrimaryDir`, `preflight`'s validation flow —
+  isn't covered. Two real bugs in this area (the `"HEAD"` fallback and the
+  `validateRefName(baseBranch)` mismatch, fixed in PR #6) would have been caught
+  by tests. Refactor to a `GitOps` injection point matching `pre-commit-checks.ts`'s
+  pattern, then add coverage. Deferred from PR #6 review because the refactor
+  warrants its own session (touches the worktree script's structure, not just
+  the bug).
 
 ## What's deliberately not on the roadmap
 

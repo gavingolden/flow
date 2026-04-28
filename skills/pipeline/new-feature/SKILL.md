@@ -32,7 +32,7 @@ acceptance criteria as `it.todo()` test specs, and mandatory test implementation
 - Skill consultation: before writing `.svelte` files, read the `svelte` skill. Before writing
   tests, read the `testing` skill. Before UI/layout work, read the `tailwind-shadcn` skill.
   Before database/migrations, read the `supabase` skill. (Names assume the canonical stack
-  skills installed by `flow install-skills`; substitute whatever your project uses.)
+  skills installed by `flow install`; substitute whatever your project uses.)
 
 # Instructions
 

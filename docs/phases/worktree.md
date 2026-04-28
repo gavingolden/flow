@@ -71,7 +71,7 @@ the target repo.
 
 | Symptom | Reason | Fix |
 |---|---|---|
-| `target repo missing scripts/new-agent-worktree.ts` | Script not present in the target | Install one (templates/ ships an example for new repos) — flow does not auto-install |
+| `target repo missing scripts/new-agent-worktree.ts` | Script not present in the target | Run `flow install` from inside the target repo to symlink it from flow's bundled `templates/scripts/`. flow does not auto-install — it has to be opt-in per repo |
 | `worktree script exit <N>` | Script ran but failed (branch already exists, dirty index, etc.) | Investigate target repo state; do not `git worktree remove --force` blindly |
 | `script success but branch not found in 'git worktree list'` | Script printed success but didn't actually register a worktree (rare) | Open an issue against the target repo's script |
 

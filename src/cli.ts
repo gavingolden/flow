@@ -2,7 +2,7 @@
 import { Command } from "commander";
 import { startCommand } from "./commands/start.js";
 import { runCommand } from "./commands/run.js";
-import { installSkillsCommand } from "./commands/install-skills.js";
+import { installCommand } from "./commands/install.js";
 
 const program = new Command();
 
@@ -28,13 +28,15 @@ program
   });
 
 program
-  .command("install-skills")
-  .description("Symlink flow's bundled skills into a target repo or ~/.claude/skills")
-  .option("--global", "install universal skills into ~/.claude/skills (skips pipeline + stacks)")
+  .command("install")
+  .description("Install flow's skills and scripts into the current repo (symlinked)")
   .option("--stack <names>", "comma-separated stack skills to include (e.g. svelte,supabase)")
+  .option("--force", "replace tracked or real files in scripts/ with symlinks (also untracks the originals from git's index)")
   .option("--skip-pipeline", "omit pipeline skills (use for repos that aren't flow consumers)")
-  .action(async (options: { global?: boolean; stack?: string; skipPipeline?: boolean }) => {
-    await installSkillsCommand(options);
-  });
+  .action(
+    async (options: { stack?: string; force?: boolean; skipPipeline?: boolean }) => {
+      await installCommand(options);
+    },
+  );
 
 await program.parseAsync();
