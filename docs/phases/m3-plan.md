@@ -127,7 +127,7 @@ Updated transitions:
 | ci | `verified` | `ci` | `ci-passed` | red → `implementing` (loop-back, mode:"fix"); cap exhaustion → `needs-human`; timeout → `needs-human` |
 | review | `ci-passed` | `reviewing` | `gated` | critical → `implementing` (loop-back, mode:"fix"); cap exhaustion → `needs-human` |
 
-`STATUS_TO_LAST_CHECKED` map updates: `verifying → implement`, `verified → verify`, `ci → verify`, `ci-passed → ci`, `reviewing → ci`, `gated → review`.
+`STATUS_TO_LAST_CHECKED` map: only two entries are new — `verified → verify` and `ci-passed → ci`. The other transient/terminal mappings (`verifying → implement`, `ci → verify`, `reviewing → ci`, `gated → review`) already exist in `src/state/phases.ts` from the M2 scaffold and are unchanged.
 
 The runner's `unfinishedStatuses` arrays for the new phases:
 
@@ -228,11 +228,23 @@ Per `feedback_pr_review_comment_style` (user memory): findings post as **individ
 
 ### Critical detection
 
-After the skill exits, parse `## Phase outputs > review` JSON output and count findings matching:
+After the skill exits, parse `## Phase outputs > review` for a fenced JSON block listing the run's findings, and count those matching:
 
 ```
 (label == "issue" || label == "todo") && decoration == "blocking" && confidence >= 80
 ```
+
+The `/pr-review` skill itself produces a markdown report — not a parseable JSON sidecar. To bridge this gap, the phase 6 wrapping prompt explicitly instructs the skill to also emit a JSON block under `## Phase outputs > review` with shape:
+
+```json
+[
+  {"file": "path", "line": 42, "label": "issue", "decoration": "blocking", "confidence": 90, "subject": "...", "addressed": false}
+]
+```
+
+This mirrors how `implement.ts` injects the Manual validation rule via prompt suffix. The contract is owned by `runReviewPhase` (it builds the prompt and parses the result); if the skill's report format ever evolves to natively emit JSON, the wrapping prompt becomes a no-op.
+
+If the JSON block is missing or unparseable, the phase fails with `failed` (not `needs-human`) — the runner's retry budget for review covers a one-attempt re-prompt before escalating.
 
 If count > 0: loop back. Truncate the critical findings (full body, not truncated by line count — they're already short by skill convention) into the implement-fix prompt under a `CRITICAL REVIEW FINDINGS` heading.
 
@@ -350,6 +362,17 @@ skills/pipeline/
 └── fix/                                    # NEW skill, lands separately (prereq for PR 6)
     ├── SKILL.md
     └── references/...
+
+docs/
+├── task-schema.md                          # extend: document `phase_counts` +
+│                                           # `paused_at_phase` frontmatter;
+│                                           # add `verified` and `ci-passed`
+│                                           # to the status state machine
+│                                           # (lands in PR 2)
+└── roadmap.md                              # M3 row + done-criteria sync
+                                            # (CI hard timeout 30 min, not 60;
+                                            # any other deltas vs the plan)
+                                            # (touch up alongside PR 6)
 ```
 
 ## PR sequence
@@ -384,7 +407,7 @@ Out-of-band, in parallel: **`/fix` skill in `skills/pipeline/fix/`.** Must exist
 After all 8 PRs merge:
 
 - A `flow run <id>` on a `triaged` task whose code change passes verify and CI cleanly with no critical review findings reaches status `gated` with no human intervention. M4 takes over from there.
-- A `flow run <id>` with a deliberately broken local test that does **not** also break CI (rare but possible — a flaky local check) escalates to `needs-human` after `phase_counts.verify == 6` with the final failure log surfaced.
+- A `flow run <id>` with a deliberately broken local test that does **not** also break CI (rare but possible — a flaky local check) escalates to `needs-human` after the 3-attempt in-place retry cap exhausts (`phase_counts.verify == 1`, in-cycle attempts == 3) with the final failure log surfaced. The lifetime cap of 6 only binds when verify is re-entered across multiple outer loop-back cycles (CI/review fix-mode pushes re-firing verify).
 - A `flow run <id>` with a CI-only failure that the `/fix` skill cannot resolve escalates to `needs-human` after 3 ci→implement cycles, with the failing CI logs surfaced and `phase_counts.implement` showing the loop count.
 - A `flow run <id>` whose review yields critical findings the `/fix` skill cannot resolve escalates to `needs-human` after 2 review→implement cycles.
 - `flow resume <id>` on a `needs-human` task transitions status back to the auto-detected phase's entry status, resets `phase_counts`, and clears `paused_at_phase`. A subsequent `flow run <id>` resumes cleanly.
