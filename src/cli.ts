@@ -31,7 +31,7 @@ program
   .command("install")
   .description("Install flow's skills and scripts into the current repo (symlinked)")
   .option("--stack <names>", "comma-separated stack skills to include (e.g. svelte,supabase)")
-  .option("--force", "replace existing real files in scripts/ (default: skip with a warning)")
+  .option("--force", "replace tracked or real files in scripts/ with symlinks (also untracks the originals from git's index)")
   .option("--skip-pipeline", "omit pipeline skills (use for repos that aren't flow consumers)")
   .action(
     async (options: { stack?: string; force?: boolean; skipPipeline?: boolean }) => {

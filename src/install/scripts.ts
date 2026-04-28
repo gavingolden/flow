@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execa } from "execa";
 import pc from "picocolors";
 import { updateGitignoreBlock } from "../util/gitignore.js";
 
@@ -82,7 +83,38 @@ export async function installScripts(
     console.error(pc.dim(`      .gitignore ${gitignoreResult}`));
   }
 
+  // When --force replaces a tracked real file with a symlink, the .gitignore
+  // entry doesn't help: git keeps following the path and would commit the
+  // symlink as new content. Detect that state via --diff-filter=T (typechange)
+  // and untrack the originals from the index. Idempotent — second run finds
+  // nothing because the prior run already removed the index entries.
+  if (options.force) {
+    const untracked = await untrackTypechanged(repoRoot, targetDir);
+    if (untracked.length > 0) {
+      console.error(pc.dim(`      untracked ${untracked.length} previously-tracked file(s):`));
+      for (const p of untracked) {
+        console.error(pc.dim(`        ${p}`));
+      }
+    }
+  }
+
   return { created, updated, skipped, blocked };
+}
+
+async function untrackTypechanged(
+  repoRoot: string,
+  targetDir: string,
+): Promise<string[]> {
+  const relTarget = path.relative(repoRoot, targetDir);
+  const { stdout } = await execa(
+    "git",
+    ["diff", "--diff-filter=T", "--name-only", "--", relTarget],
+    { cwd: repoRoot },
+  );
+  const paths = stdout.split("\n").filter(Boolean);
+  if (paths.length === 0) return [];
+  await execa("git", ["rm", "--cached", "--quiet", ...paths], { cwd: repoRoot });
+  return paths;
 }
 
 interface ScriptRef {
@@ -99,10 +131,11 @@ function resolveScriptsRoot(): string {
 
 async function readScripts(scriptsRoot: string): Promise<ScriptRef[]> {
   const entries = await fs.readdir(scriptsRoot, { withFileTypes: true });
+  // Tests travel with their scripts — they're the contract, not flow-internal.
+  // Target repos that don't run vitest end up with inert symlinks; harmless.
   return entries
     .filter((e) => e.isFile())
     .filter((e) => e.name.endsWith(".ts"))
-    .filter((e) => !e.name.endsWith(".test.ts"))
     .map((e) => ({ name: e.name, sourceFile: path.join(scriptsRoot, e.name) }));
 }
 
