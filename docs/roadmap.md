@@ -28,7 +28,7 @@ Done when:
 - For a change request, the session writes `.orchestrator/tasks/<id>.md`
   conforming to `docs/task-schema.md` and exits.
 
-### M2 — plan / worktree / implement (next)
+### M2 — plan / worktree / implement (shipped)
 
 Done when:
 
@@ -59,6 +59,12 @@ Done when:
 - After phase 6 (review), the `pr-review` skill has run against the PR
   and replied to comments. Critical findings loop back to implement,
   capped at 2 cycles.
+- Phase 6 polls `gh api repos/:o/:r/pulls/<n>/reviews` for a review by
+  GitHub Copilot before invoking `/pr-review`, with a configurable
+  timeout (default 5 min). If Copilot finishes in time, its findings
+  are visible to our review as a second-opinion artefact; if not, we
+  proceed without them. Today's behaviour ("review races whatever
+  Copilot has finished") is too dependent on wall-clock luck.
 
 ### M4 — gate / merge
 
@@ -82,6 +88,14 @@ Done when:
 - `flow run --all` picks up every `triaged` task in `.orchestrator/tasks/`
   and runs them.
 - `--max N` bounds concurrency; tasks beyond N wait in queue.
+- A `flow run next` (or `flow run --next`) shorthand picks up the
+  oldest `triaged` task and runs it — equivalent to `--all --max 1`
+  but ergonomic for sequential workflows.
+- The runner has a cross-process claim primitive (compare-and-set on
+  frontmatter `status: triaged → planning`, or rename-based file lock)
+  so two concurrent invocations cannot pick up the same task. The
+  in-memory lock in `runner.ts` only protects within one process —
+  M5 must extend it across processes before queue mode is safe.
 - Each running task uses its own worktree → no file conflicts.
 - Two unrelated `flow start` invocations followed by `flow run --all --max 2`
   results in two PRs both reaching merge concurrently.
@@ -94,6 +108,18 @@ Done when:
   implemented by a Beads adapter.
 - A config flag selects which backend to use.
 - Existing tasks readable on either backend (round-trip via `bd import`).
+
+## DX / cross-cutting backlog
+
+Smaller items that aren't milestone-blocking but should land when convenient:
+
+- **`flow install-skills` manages `.gitignore` for the symlinks it creates.**
+  The symlinks resolve to absolute paths under the user's home and aren't
+  portable across machines, so they shouldn't be committed. The command
+  should append (and idempotently rewrite) a marked block to the target
+  repo's `.gitignore` — e.g. `# managed by flow install-skills` … `# end
+  flow` — listing each symlinked skill name. Hand-rolled skills sitting
+  alongside under different names stay tracked.
 
 ## What's deliberately not on the roadmap
 
