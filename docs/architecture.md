@@ -103,7 +103,7 @@ to read.
 | 2 | worktree | script (no LLM) | `scripts/new-agent-worktree.ts` (target repo) | abort |
 | 3 | implement | headless (in worktree) | `/new-feature` | retry once |
 | 4 | verify | headless (in worktree) | `/verify` | retry up to 3x; then `needs-human` |
-| 5 | ci | script | `gh pr checks --watch` | on red, loop back to verify with the failure log; cap 3 |
+| 5 | ci | script | poll `gh pr checks` until terminal; collect auto-reviewer findings | on red, loop back to implement with the failure log; cap 3 |
 | 6 | review | headless | `/pr-review` | on critical findings, loop back to implement; cap 2 |
 | 7 | gate | script | parse PR body's "Manual validation" section | n/a — outcome is the decision |
 | 8 | merge | script | `gh pr merge --squash --delete-branch` + remove worktree | abort with clear status |

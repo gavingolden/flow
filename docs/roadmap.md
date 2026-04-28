@@ -49,22 +49,109 @@ The exit status of `flow run` is non-zero on any phase failure or
 
 ### M3 — verify / ci / review
 
+**Pipeline shape:**
+
+```
+pr-open → verifying → ci → reviewing → (gated | needs-human | loop-back)
+```
+
+Two cross-phase loops: red CI → implement, and review critical → implement.
+Both target `implement`, not `verify` — verify only knows whether the local
+test command exits 0, so looping it on red CI or critical review can never
+fix the underlying problem; only the LLM that wrote the code can.
+
+**Phase 3 amendment carried into M3.** The implement phase should run
+`/verify` locally and confirm it exits 0 *before* `gh pr create`, so PRs
+open already-green. As shipped in M2, phase 3 opens the PR before any
+verify happens; every phase-4 retry then pushes commits that re-fire CI
+and partly burn phase 5's budget before phase 5 formally starts. Move the
+local-verify gate inside phase 3. `pr-open` still means "PR exists" — the
+new invariant is "and the local test suite passed against the pushed SHA".
+
 Done when:
 
-- After phase 4 (verify), tests run in the worktree and the task carries
-  pass/fail status. On failure, retry up to 3x; on exhaustion, escalate
-  to `needs-human`.
-- After phase 5 (ci), `flow` watches `gh pr checks` until terminal.
-  On red CI, loop back to verify with the failure log appended; cap 3.
-- After phase 6 (review), the `pr-review` skill has run against the PR
-  and replied to comments. Critical findings loop back to implement,
-  capped at 2 cycles.
-- Phase 6 polls `gh api repos/:o/:r/pulls/<n>/reviews` for a review by
-  GitHub Copilot before invoking `/pr-review`, with a configurable
-  timeout (default 5 min). If Copilot finishes in time, its findings
-  are visible to our review as a second-opinion artefact; if not, we
-  proceed without them. Today's behaviour ("review races whatever
-  Copilot has finished") is too dependent on wall-clock luck.
+- **Phase 4 (verify)** runs `/verify` in the worktree. On failure, in-place
+  retry up to 3x with the failure log appended to the next attempt's
+  prompt (truncated to the last ~200 lines plus lines matching
+  `error|fail|panic`, to bound prompt growth). On exhaustion, escalate to
+  `needs-human` with the final failure log surfaced.
+
+- **Phase 5 (ci)** polls `gh pr checks` until every check reaches terminal
+  state (`success` | `failure` | `cancelled` | `skipped` | `neutral`;
+  `failure` and `cancelled` count as red). Polling is custom (not
+  `gh pr checks --watch`) so it survives `flow run` crashes — re-querying
+  is idempotent. Cadence 30s; hard timeout 60 min; status `ci` persists
+  across invocations. On red, loop back to **implement** (not verify) with
+  the failing checks' logs appended to the implement prompt. Cap 3
+  ci→implement cycles.
+
+- **Phase 5 also absorbs the auto-reviewer wait.** Before declaring CI
+  terminal, wait up to a configurable timeout (default 5 min) for reviews
+  from a configurable list of bot logins (default `["Copilot"]`; users can
+  add Codecov, SonarCloud, custom apps). Their findings enter phase 6 as
+  second-opinion artefacts. This replaces the earlier sketch where the
+  poll lived in phase 6 hard-coded to Copilot — the wait is a CI-adjacent
+  external signal and belongs alongside the rest of the GitHub-state
+  collection. Today's behaviour ("review races whatever Copilot has
+  finished") is too dependent on wall-clock luck.
+
+- **Phase 6 (review)** invokes `/pr-review` against the PR. Findings post
+  as **inline review comments**, not formal GitHub reviews (see the user's
+  `feedback_pr_review_comment_style` rule). "Critical" = `/pr-review`'s
+  top-tier confidence label; the exact mapping is fixed in
+  `phases/m3-plan.md`. Critical findings loop back to **implement**, cap
+  2 cycles. Authentication uses the user's `gh` auth — bot-identity
+  separation is out of scope for M3.
+
+- **Implement re-entry on loop-back.** `runImplementPhase`'s
+  `task.pr != null` short-circuit (`src/pipeline/phases/implement.ts`)
+  must be relaxed when entering from a ci or review loop. Pass an explicit
+  `mode: "create" | "fix"` to the phase rather than inferring from status
+  — `mode: "fix"` re-runs the LLM with the failure context against the
+  existing PR's branch.
+
+- **Retry helper generalised.** `src/pipeline/retry.ts`'s `retryOnce` is
+  hard-coded to two attempts. M3 needs three for verify and configurable
+  caps for the loops. Replace with `retryN(fn, n)` and migrate phase 3.
+
+- **Cross-phase retry budgets are explicit.** Every phase records its
+  total invocation count on the task file. Inner counters reset per outer
+  cycle (so `review → implement → verify` gets a fresh verify budget),
+  but per-task hard ceilings cap total work — verify ≤ 6, implement ≤ 4,
+  ci ≤ 6 across the whole task lifetime. `needs-human` reasons print the
+  per-phase counts so it's obvious why we stopped.
+
+- **Flake recording.** When verify or CI passes after one or more retries,
+  the task file logs e.g. `verify: 2/3 passed (1 retry — suspected flake)`.
+  No automated remediation; just visibility for follow-up.
+
+- **M2 deferred tests land here.** Unit tests for `runner.ts`'s
+  state-machine dispatch, `task-file.ts`'s `## Progress` regeneration,
+  the `retryN` helper, and the new ci/review loop accounting. M2
+  explicitly deferred these (`docs/phases/m2-plan.md`); M3 is the catch-up.
+
+- **End-to-end criteria.** A flow run on a `triaged` task with a clean
+  change reaches `gated` (M4 takes over). A flow run with a deliberately
+  broken local test escalates to `needs-human` after verify exhausts. A
+  flow run with a CI-only failure escalates after ci→implement cap with
+  the CI log surfaced.
+
+**Open questions to resolve in `phases/m3-plan.md` before implementation:**
+
+- Exact mapping of `/pr-review` confidence labels → "critical".
+- `needs-human` resume semantics: does the user edit `status:` and rerun,
+  or does flow grow a `flow resume <id>` command? Issue exists in M2 but
+  becomes more frequent in M3.
+- Rebase policy. Between phase 3 and phase 5 `main` may move; CI runs
+  against the merge base captured at push. Default `auto_rebase: false`
+  for M3, revisit if it bites.
+
+**Deliberately out of scope for M3:**
+
+- Bot-identity / separate `gh` auth for review comments (use the user's).
+- LLM-driven CI-log summarisation (start with truncation; promote if
+  truncation proves insufficient).
+- Cross-task retry-budget sharing (budgets are per-task only).
 
 ### M4 — gate / merge
 
