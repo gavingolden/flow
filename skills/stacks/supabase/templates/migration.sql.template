@@ -1,0 +1,43 @@
+-- {{Description of the migration}}
+-- {{Additional context about why this change is needed}}
+
+-- =============================================================================
+-- Table Creation
+-- =============================================================================
+
+CREATE TABLE {{table_name}} (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    -- Add columns here
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- =============================================================================
+-- Indexes
+-- =============================================================================
+
+-- Foreign key index (required for JOIN performance)
+CREATE INDEX idx_{{table_name}}_user_id ON {{table_name}}(user_id);
+
+-- =============================================================================
+-- Row Level Security
+-- =============================================================================
+
+ALTER TABLE {{table_name}} ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can view own {{table_name}}"
+    ON {{table_name}} FOR SELECT
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own {{table_name}}"
+    ON {{table_name}} FOR INSERT
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own {{table_name}}"
+    ON {{table_name}} FOR UPDATE
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own {{table_name}}"
+    ON {{table_name}} FOR DELETE
+    USING (auth.uid() = user_id);

@@ -1,0 +1,79 @@
+# Discovery Playbook
+
+Techniques for running a productive discovery conversation. Load this when you need to go
+deeper on a vague or complex feature idea.
+
+## Conversational Techniques
+
+### Ladder Up (Solution → Problem)
+
+When the user describes a solution ("I want a share button"), ask what problem it solves.
+The real need may be broader or different than the proposed solution.
+
+- "What would someone do with this feature that they can't do today?"
+- "What's the situation that makes you want this?"
+
+### Ladder Down (Problem → Scenario)
+
+When the user describes a problem ("collaboration is hard"), ask for a concrete scenario.
+Abstract problems lead to abstract plans.
+
+- "Can you walk me through a specific time this was painful?"
+- "Who exactly is trying to do what, and where do they get stuck?"
+
+### Fork (Vague → Two Options)
+
+When the user gives a vague answer ("it should be flexible"), offer two concrete alternatives
+and ask them to pick. This collapses ambiguity fast.
+
+- "Would you rather it works like A (simpler, covers 80% of cases) or B (more powerful,
+  but takes longer to build)?"
+- "Two ways to do this: option A stores it in the URL, option B stores it in the database.
+  Which feels closer to what you want?"
+
+### Challenge (Simpler Alternative)
+
+When the user proposes something complex, suggest a simpler version and ask why it's
+insufficient. This surfaces hidden requirements — or confirms the feature can be smaller.
+
+- "What if we skipped X for now and just did Y — would that still be useful?"
+- "The simplest version of this would be [description]. What's missing?"
+
+### Connect (Relate to Existing)
+
+When the user describes something, relate it to an existing feature in the project. This
+anchors the conversation in shared context and surfaces pattern reuse opportunities.
+
+- "This sounds similar to how [existing feature] works. Should it follow the same pattern,
+  or does something need to be different?"
+- "We already have [existing capability]. Could this build on that, or is it fundamentally
+  different?"
+
+## Red Flags to Probe
+
+These signals usually mean there's missing information. Don't let them pass without follow-up.
+
+| Signal                                  | What's likely missing                      | Follow-up                                                                           |
+| --------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------- |
+| User says "simple" or "just"            | Hidden complexity                          | "What could make this complicated? What edge cases come to mind?"                   |
+| User says "like X"                      | Differences from X                         | "What specifically about X do you want, and what should be different?"              |
+| No mention of persistence               | Whether state survives page refresh        | "Should this survive a page refresh, or is it session-only?"                        |
+| No mention of other users               | Multi-user / sharing implications          | "Does anyone besides the creator need to see or interact with this?"                |
+| No mention of error states              | How failures should look                   | "What should happen when [data source is down / network fails / input is invalid]?" |
+| No mention of empty states              | First-run or no-data experience            | "What does this look like before the user has any [data/items/config]?"             |
+| Skips directly to implementation        | Unvalidated assumptions about architecture | "Before we jump to building — what's the core thing this needs to get right?"       |
+| Feature touches multiple domain modules | Unclear boundaries                         | "Which part is the most important to get right first?"                              |
+
+## When to Stop Asking
+
+You have enough information to draft the PRD when all of these are true:
+
+- You can write all four PRD sections (Problem, Stories, Constraints, Open Questions) without
+  inserting placeholder text
+- You know which existing domain modules are involved and whether new ones are needed
+- You know whether a new database table is needed (and roughly what it holds)
+- You know whether the Go proxy is involved
+- You can sketch the task ordering without ambiguity about dependencies
+- You've asked about at least one edge case (empty state, error state, or authorization)
+
+If any of these are still fuzzy, ask one more targeted question before proceeding.

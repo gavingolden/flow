@@ -1,0 +1,114 @@
+{
+  "skill_name": "pr-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review PR #146 — I want a fresh code review before asking anyone to look at it",
+      "expected_output": "Standalone review mode: spawns 4 agents, produces findings with conventional comments, posts review to PR, runs pre-commit checks, produces structured report.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "produced_structured_report",
+          "check": "report.md contains '## PR Review Report' and '### Summary' and '### Findings' and '### Pre-Commit Checks'"
+        },
+        {
+          "name": "conventional_comments_used",
+          "check": "findings.json entries use label field with values from: praise, nitpick, suggestion, issue, todo, question"
+        },
+        {
+          "name": "confidence_threshold_respected",
+          "check": "No entry in findings.json has confidence < 80 unless label is 'praise'"
+        },
+        {
+          "name": "at_least_one_praise",
+          "check": "findings.json contains at least one entry with label 'praise'"
+        },
+        {
+          "name": "review_mode_detected",
+          "check": "report.md contains 'Mode: Review' or similar indication of review mode"
+        },
+        {
+          "name": "pr_review_body_generated",
+          "check": "pr-review-body.md file exists and is non-empty"
+        },
+        {
+          "name": "multi_agent_coverage",
+          "check": "agent-findings/ directory contains 4 JSON files for the 4 agent types"
+        },
+        {
+          "name": "independent_review_performed",
+          "check": "Report shows independent review was performed"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Address the review comments on PR #145",
+      "expected_output": "Address mode: independent review first, retrospective, addresses each comment, replies, structured report.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "produced_structured_report",
+          "check": "report.md contains '## PR Review Report' and '### Review Comments' and '### Retrospective'"
+        },
+        {
+          "name": "conventional_comments_used",
+          "check": "findings.json entries use conventional comment labels"
+        },
+        {
+          "name": "at_least_one_praise",
+          "check": "findings.json contains at least one praise entry"
+        },
+        { "name": "address_mode_detected", "check": "report.md indicates address mode" },
+        {
+          "name": "retrospective_included",
+          "check": "report.md contains '### Retrospective' with agent coverage stats"
+        },
+        {
+          "name": "all_comments_addressed",
+          "check": "comment-actions.md has an entry for each of the 7 review comments"
+        },
+        {
+          "name": "replies_generated",
+          "check": "replies.json exists with entries matching review comment IDs"
+        },
+        {
+          "name": "independent_before_comments",
+          "check": "Transcript shows independent review completed before reading comments"
+        },
+        { "name": "multi_agent_coverage", "check": "agent-findings/ contains 4 agent JSON files" }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review PR #144 and address any comments",
+      "expected_output": "Address mode on very large PR. Size warning, handles 30 comments, full workflow.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "produced_structured_report",
+          "check": "report.md contains structured report sections"
+        },
+        {
+          "name": "conventional_comments_used",
+          "check": "Findings use conventional comment format"
+        },
+        { "name": "at_least_one_praise", "check": "At least one praise finding present" },
+        {
+          "name": "size_warning_present",
+          "check": "Report or size-assessment.md flags PR as oversized (1000+ lines)"
+        },
+        {
+          "name": "ambiguous_prompt_handled",
+          "check": "Either asked for clarification or defaulted to address mode given existing comments"
+        },
+        { "name": "retrospective_included", "check": "Report contains retrospective section" },
+        { "name": "multi_agent_coverage", "check": "4 agent perspectives represented" },
+        {
+          "name": "independent_before_comments",
+          "check": "Independent review before reading comments"
+        }
+      ]
+    }
+  ]
+}
