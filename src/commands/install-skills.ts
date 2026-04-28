@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
 import { findGitRoot } from "../util/git.js";
+import { updateGitignoreBlock } from "../util/gitignore.js";
 
 interface InstallOptions {
   global?: boolean;
@@ -62,6 +63,22 @@ export async function installSkillsCommand(options: InstallOptions): Promise<voi
       `flow: ${created} created, ${updated} relinked, ${skipped} unchanged.`,
     ),
   );
+
+  // Skill symlinks resolve to absolute paths under the user's home and aren't
+  // portable, so the repo's .gitignore must list them. Skip for --global —
+  // ~/.claude/skills/ isn't inside any tracked repo. The block reflects every
+  // skill the install actually emitted (pipeline / universal / stacks honor
+  // the user's flags), so deselected skills get their entries pruned.
+  if (target.repoRoot) {
+    const gitignoreResult = await updateGitignoreBlock(target.repoRoot, {
+      tag: "install-skills",
+      comment: "(symlinks resolve to absolute paths and aren't portable)",
+      paths: skillsToInstall.map((s) => `/.claude/skills/${s.name}`).sort(),
+    });
+    if (gitignoreResult !== "unchanged") {
+      console.error(pc.dim(`flow: .gitignore ${gitignoreResult}`));
+    }
+  }
 }
 
 function resolveSkillsRoot(): string {
@@ -122,6 +139,7 @@ function validateStacks(requested: Set<string>, available: SkillRef[]): void {
 interface Target {
   dir: string;
   label: string;
+  repoRoot: string | null;
 }
 
 async function resolveTarget(global: boolean): Promise<Target> {
@@ -129,6 +147,7 @@ async function resolveTarget(global: boolean): Promise<Target> {
     return {
       dir: path.join(os.homedir(), ".claude", "skills"),
       label: "global (~/.claude/skills/)",
+      repoRoot: null,
     };
   }
   const repoRoot = await findGitRoot();
@@ -143,6 +162,7 @@ async function resolveTarget(global: boolean): Promise<Target> {
   return {
     dir: path.join(repoRoot, ".claude", "skills"),
     label: `repo (${repoRoot}/.claude/skills/)`,
+    repoRoot,
   };
 }
 

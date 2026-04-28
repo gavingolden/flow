@@ -7,7 +7,7 @@ dist/
 .env.local
 
 # managed by flow install-skills
-# (symlinks resolve to absolute paths under the user's home and aren't portable)
+# (symlinks resolve to absolute paths and aren't portable)
 /.claude/skills/add-worktree
 /.claude/skills/new-feature
 /.claude/skills/pr-review
@@ -17,9 +17,10 @@ dist/
 /.claude/skills/skill-creator
 /.claude/skills/testing
 /.claude/skills/verify
-# end flow
+# end flow install-skills
 
 # managed by flow install-scripts
+# (symlinks resolve to absolute paths and aren't portable)
 /scripts/fetch-pr-review.ts
 /scripts/new-agent-worktree.ts
 /scripts/pre-commit-checks.ts

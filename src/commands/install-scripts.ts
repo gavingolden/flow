@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
 import { findGitRoot } from "../util/git.js";
+import { updateGitignoreBlock } from "../util/gitignore.js";
 
 interface InstallOptions {
   force?: boolean;
@@ -77,12 +78,17 @@ export async function installScriptsCommand(options: InstallOptions): Promise<vo
     ),
   );
 
-  if (created > 0 || updated > 0) {
-    console.error("");
-    console.error(pc.dim("Add these to your .gitignore so the symlinks don't get tracked:"));
-    for (const { name } of scripts) {
-      console.error(pc.dim(`  /scripts/${name}`));
-    }
+  // Symlinks resolve to absolute paths on the user's machine, so they must be
+  // ignored. The block lists every script the source tree currently exposes
+  // (not just newly linked ones), so deletions in templates/scripts/ flow
+  // through on the next install.
+  const gitignoreResult = await updateGitignoreBlock(repoRoot, {
+    tag: "install-scripts",
+    comment: "(symlinks resolve to absolute paths and aren't portable)",
+    paths: scripts.map((s) => `/scripts/${s.name}`).sort(),
+  });
+  if (gitignoreResult !== "unchanged") {
+    console.error(pc.dim(`flow: .gitignore ${gitignoreResult}`));
   }
 }
 
