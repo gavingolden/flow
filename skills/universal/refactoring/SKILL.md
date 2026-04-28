@@ -28,6 +28,7 @@ existing business logic or external behavior.
 
 # Context
 
+- Source tree: adapt paths to this project's layout (e.g., `src/`, `src/lib/`, `backend/`)
 - Coding standards: `AGENTS.md` — all refactored code must comply (comment rules, logging,
   function length, naming, one-liner avoidance, etc.)
 - After refactoring, the `testing` skill should be invoked if tests need updating

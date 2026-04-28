@@ -62,6 +62,8 @@ the actual change surface.
 - Auth missing: request without a token returns 401 and the UI handles it
 - Empty result: a valid identifier with no data shows an empty state, not a crash
 - Rate-limit response (if plan-relevant): user-facing message, no silent failure
+- Upstream shape drift: malformed response is caught by the DTO mapper and surfaces a
+  clear error
 
 ### Schema migration
 
@@ -77,6 +79,7 @@ the actual change surface.
 - Error state shown on failure (network, validation, server error)
 - Empty state shown when there's no data
 - Keyboard and ARIA correct for any new interactive widget
+- Dark mode rendered correctly
 
 ### Backend infra / config
 

@@ -33,7 +33,7 @@ output another AI would produce.
 - Base UI components (shadcn-svelte): `src/lib/components/ui/`
 - Layout shell: `src/lib/components/layout/` (e.g., `AuthenticatedLayout.svelte`)
 - Design tokens and CSS variables: `src/app.css` (`:root` and `.dark` blocks)
-- Icons: `lucide-svelte` (import individually: `import { ChevronDown } from "lucide-svelte"`)
+- Icons: `@lucide/svelte` (the maintained scoped package; import individually: `import { ChevronDown } from "@lucide/svelte"`). Older projects may still use `lucide-svelte` — both work but `@lucide/svelte` is the current package.
 - Toasts: `svelte-sonner` (import `toast` from `"svelte-sonner"` — `<Toaster>` is already mounted in the root layout)
 - Class utility: `cn()` from `$lib/utils` (wraps `clsx` + `tailwind-merge`)
 - Tailwind v4 configuration: CSS-first via `@theme inline` in `src/app.css` (minimal `tailwind.config.js` for content globs and font family)

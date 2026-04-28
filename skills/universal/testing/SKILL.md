@@ -26,7 +26,7 @@ details.
 
 # Context
 
-- Testing stack: Vitest + `@testing-library/svelte`
+- Testing stack: Vitest + `@testing-library/svelte` + `@testing-library/user-event`
 - MSW is configured globally via the project's vitest setup (commonly `vitest-setup.ts`) for API mocking
 - Mock handlers live in the project's mocks directory (commonly `src/mocks/handlers.ts`)
 - Test naming and `describe()` conventions: see `AGENTS.md` Testing section
