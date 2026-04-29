@@ -55,7 +55,18 @@ describe("runVerifyGate — .flow/verify contract", () => {
 
   it("diagnostic contains no tool-specific terms", async () => {
     const result = await runVerifyGate(tmp);
-    expect(result.output).not.toMatch(/npm|package\.json|node\b/i);
+    // Normalize the interpolated tmpdir before scanning so a CI runner whose
+    // tmpdir happens to contain "node" (e.g. nvm-style paths) doesn't fail
+    // the assertion on path text rather than diagnostic content.
+    const normalized = result.output.replace(tmp, "<cwd>");
+    expect(normalized).not.toMatch(/npm|package\.json|node\b/i);
+  });
+
+  it("returns the same diagnostic when .flow/verify is a directory", async () => {
+    await fs.mkdir(path.join(tmp, ".flow", "verify"), { recursive: true });
+    const result = await runVerifyGate(tmp);
+    expect(result.ok).toBe(false);
+    expect(result.output).toBe(DIAGNOSTIC(tmp));
   });
 
   it("returns ok:true when an executable .flow/verify exits 0", async () => {

@@ -20,7 +20,16 @@ export async function runVerifyGateWithTimeout(
   timeoutMs: number,
 ): Promise<VerifyGateResult> {
   const scriptPath = path.join(cwd, ".flow", "verify");
+  // Stat first so a directory at `.flow/verify` collapses to the same
+  // diagnostic as missing/non-executable. `fs.access(X_OK)` alone would
+  // succeed on a directory with search permission and the spawn would
+  // then throw with a platform-dependent message instead of the canonical
+  // contract diagnostic.
   try {
+    const stat = await fs.stat(scriptPath);
+    if (!stat.isFile()) {
+      throw new Error("not a file");
+    }
     await fs.access(scriptPath, fs.constants.X_OK);
   } catch {
     return {
