@@ -103,7 +103,7 @@ Re-running `flow run <id>` on a `pr-open` task is a no-op end-to-end
 | File | Role |
 |---|---|
 | `src/pipeline/phases/implement.ts` | Phase entry, wrapping prompt, PR detection, status transitions |
-| `src/pipeline/phases/verify-gate.ts` | `runVerifyGate` (npm-run-verify shell-out) and `surfaceVerifyFailureOnPr` |
+| `src/pipeline/phases/verify-gate.ts` | `runVerifyGate` (`.flow/verify` shell-out) and `surfaceVerifyFailureOnPr` |
 | `src/pipeline/headless.ts` | Generic `claude -p` wrapper |
 | `src/pipeline/retry.ts` | `retryOnce` |
 
@@ -112,7 +112,7 @@ Re-running `flow run <id>` on a `pr-open` task is a no-op end-to-end
 The M2 design let `/new-feature` commit, push, *and* open the PR — meaning a
 PR could land on GitHub before any deterministic check ran against the
 pushed SHA. M3 PR 0 splits responsibilities so the orchestrator can gate
-`gh pr create` on a fresh `npm run verify` subprocess.
+`gh pr create` on a fresh `.flow/verify` subprocess.
 
 ### Responsibility split
 
@@ -141,18 +141,32 @@ exists, so the fallback is always available.
 
 ### The verify gate
 
-`runVerifyGate(cwd)` lives in `verify-gate.ts` and shells out via
-`execa("npm", ["run", "verify"], { cwd, reject: false, all: true,
-timeout: 10 * 60 * 1000 })`. It precondition-checks that the target
-repo's `package.json` has a `verify` script — if not, the gate fails
-fast with a clear reason rather than hitting an opaque npm error.
-Architecture has long listed `npm run verify` as a target-repo
-precondition; this enforces it at gate-entry. The `execa` call is
-wrapped in try/catch — execa 9.x throws on timeout and on spawn
-failure (e.g. `npm` missing), and the orchestrator depends on a
-deterministic `{ ok, output }` return rather than an exception.
+`runVerifyGate(cwd)` lives in `verify-gate.ts` and resolves
+`<cwd>/.flow/verify` (literal — no walk-up), checks it's executable
+via `fs.access(p, fs.constants.X_OK)`, then spawns it directly via
+`execa(scriptPath, [], { cwd, reject: false, all: true, timeout: 10 *
+60 * 1000 })`. The contract surface is intentionally minimal: a
+single executable file at a known path. No config-file format, no
+language probes, no auto-discovery — any repo can satisfy the
+contract with a one-line shell wrapper around its own validation
+suite.
 
-Why `npm run verify` and not `claude -p "/verify"`: cheaper, fully
+A missing-or-non-executable script fails the gate with a single
+target-repo-generic diagnostic:
+
+> `.flow/verify is missing or not executable in <cwd>; create an
+> executable script that runs this repository's required pre-PR
+> validation checks`
+
+Both stat-fails (ENOENT) and access-fails (EACCES, missing X_OK bit)
+collapse to the same diagnostic — leaking permission-bit minutiae
+into the gate's failure surface buys nothing. The `execa` call is
+wrapped in try/catch — execa 9.x throws on timeout and on spawn
+failure (e.g. a bad shebang interpreter), and the orchestrator
+depends on a deterministic `{ ok, output }` return rather than an
+exception.
+
+Why `.flow/verify` and not `claude -p "/verify"`: cheaper, fully
 deterministic, no LLM context to muddy. Phase 4 (M3 PR 4) will run
 the skill route — the divergence is intentional. PR 0's gate is the
 deterministic gate at PR-open time; phase 4 is the fresh-LLM-window

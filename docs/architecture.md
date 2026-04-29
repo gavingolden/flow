@@ -198,8 +198,10 @@ If we ever want phases that don't map to existing skills (e.g. a custom
 - Skills in `.claude/skills/`: `product-planning`, `new-feature`,
   `verify`, `pr-review`, plus the worktree scripts.
 - The `gh` CLI authenticated for the repo's GitHub remote.
-- A pre-commit / pre-push setup such that `npm run verify`-style
-  commands return clean when the working tree is clean.
+- An executable `.flow/verify` script at the repo root that runs the
+  repository's required pre-PR validation checks (typecheck, tests,
+  linters — whatever the repo's ecosystem provides) and exits 0 on
+  success.
 
 If a target repo lacks one of these, the relevant phase fails with a
 clear message. The orchestrator does not auto-install anything in the
