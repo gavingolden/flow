@@ -472,6 +472,27 @@ Smaller items that aren't phase-blocking but should land when convenient:
   Deferred from PR #6 review because the refactor warrants its own session
   (introduces new abstractions to two install modules and their tests).
 
+- **Customize the `mode: "fix"` prompt for fix semantics.** PR #16 ships
+  `runImplementPhase`'s `mode: "fix"` reusing the create-mode prompt
+  unchanged via `buildImplementPrompt` — so a fix invocation tells the LLM
+  to invoke `/new-feature`, "implement the feature, write tests", "use
+  `pr-description-draft.md` as the starting point for the PR body", and
+  "write the final PR body … to `${bodyFilePath}`". None of those make
+  sense when the LLM's job is to address a verify-gate or review failure
+  against an already-open PR. No production caller of `mode: "fix"` ships
+  in PR #16, so the misalignment is latent — but PR 5 (verify retry) and
+  PR 7 (review loop-back) will hit it the moment they wire the caller. The
+  fix is design-level: split `buildImplementPrompt` (or add a
+  `buildFixPrompt` sibling) so fix mode invokes the appropriate skill
+  (likely `/pr-review` or a focused fix prompt) and drops the PR-body
+  write instruction. Deferred from PR #16 review because picking the
+  right skill / prompt shape is intrinsically tied to PR 5 and PR 7's
+  caller contracts (bar criterion 1: design decision exceeds "address
+  this review"; bar criterion 2: rewrites a non-trivial component shared
+  with create mode). Trigger: address as part of PR 5 when the first
+  `mode: "fix"` caller lands — do not ship that PR with the create-mode
+  prompt still being used for fix mode.
+
 ## What's deliberately not on the roadmap
 
 - A web UI, dashboard, or status server. (`flow tui` in PR 19 is a
