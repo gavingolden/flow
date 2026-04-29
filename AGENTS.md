@@ -124,8 +124,8 @@ reads/writes files.
   `refactor:`, `test:`). Imperative summary ≤ 50 chars. Body explains
   *why* — motivation, non-obvious choices, what was tried and didn't work.
   Trivial changes (typo, dep bump) may omit the body.
-- **PRs:** Why / What / Key decisions / How to test, in that order. The
-  Why must read as a problem statement, not a feature spec.
+- **PRs:** Why / What / Key decisions / User-facing changes / How to test,
+  in that order. The Why must read as a problem statement, not a feature spec.
 - **Never amend pushed commits.** Make a new commit instead.
 - **Never force-push** without explicit user request.
 
