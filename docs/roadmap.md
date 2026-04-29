@@ -61,12 +61,14 @@ test command exits 0, so looping it on red CI or critical review can never
 fix the underlying problem; only the LLM that wrote the code can.
 
 **Phase 3 amendment carried into M3.** The implement phase should run
-`/verify` locally and confirm it exits 0 *before* `gh pr create`, so PRs
-open already-green. As shipped in M2, phase 3 opens the PR before any
+`npm run verify` locally and confirm it exits 0 *before* `gh pr create`, so
+PRs open already-green. As shipped in M2, phase 3 opens the PR before any
 verify happens; every phase-4 retry then pushes commits that re-fire CI
-and partly burn phase 5's budget before phase 5 formally starts. Move the
-local-verify gate inside phase 3. `pr-open` still means "PR exists" — the
-new invariant is "and the local test suite passed against the pushed SHA".
+and partly burn phase 5's budget before phase 5 formally starts. The
+local-verify gate moves inside phase 3. Lands as **M3 PR 0** (see
+`docs/phases/m3-plan.md` PR sequence). `pr-open` still means "PR exists"
+— the new invariant is "and the local test suite passed against the
+pushed SHA".
 
 Done when:
 
