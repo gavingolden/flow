@@ -5,13 +5,18 @@ import { execa } from "execa";
 import pc from "picocolors";
 import { findCanonicalRoot } from "../util/git.js";
 import { readTask } from "../state/task-file.js";
+import { resolvePromptSource } from "./resolve-prompt.js";
 
-export async function startCommand(prompt: string): Promise<void> {
-  const trimmed = prompt.trim();
-  if (!trimmed) {
-    console.error(pc.red("error: a prompt is required"));
-    process.exit(1);
+export async function startCommand(argvParts: string[]): Promise<void> {
+  const resolved = await resolvePromptSource(argvParts, {
+    stdin: process.stdin,
+    stderr: process.stderr,
+  });
+  if (!resolved.ok) {
+    console.error(pc.red(resolved.message));
+    process.exit(resolved.exitCode);
   }
+  const trimmed = resolved.prompt;
 
   // Canonicalise to the primary worktree so a `flow start` invoked from
   // inside a child worktree still anchors the new task to the main repo's

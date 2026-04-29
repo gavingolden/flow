@@ -14,10 +14,16 @@ program
 
 program
   .command("start")
-  .description("Start a new task: opens an interactive Claude Code session for triage")
-  .argument("<prompt...>", "the user's request (will be joined with spaces)")
-  .action(async (promptParts: string[]) => {
-    await startCommand(promptParts.join(" "));
+  .description(
+    "Start a new task: opens an interactive Claude Code session for triage. " +
+      "If no prompt is given as arguments, reads it from stdin (e.g. `flow start <<EOF … EOF`).",
+  )
+  .argument(
+    "[prompt...]",
+    "the user's request (joined with spaces); omit to read from piped stdin",
+  )
+  .action(async (promptParts: string[] = []) => {
+    await startCommand(promptParts);
   });
 
 program
