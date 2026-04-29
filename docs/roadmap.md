@@ -34,10 +34,12 @@ Done when:
 
 - `flow run [<task-id>]` reads a `triaged` task and runs phases 1–3
   sequentially.
-- After phase 1 (plan), the task file has populated `plan` outputs
-  (PRD, breakdown, PR draft path).
-- After phase 2 (worktree), the task file has `worktree` and `branch`
-  populated and the worktree exists on disk.
+- After phase 1 (worktree), the task file has `worktree` and `branch`
+  populated, the worktree exists on disk, and `<worktree>/.orchestrator`
+  is a symlink to the main repo's `.orchestrator/`.
+- After phase 2 (plan), the task file has populated `plan` outputs
+  (PRD, breakdown, PR draft path) — written from inside the worktree
+  via the symlink.
 - After phase 3 (implement), the task has `pr` populated (number) and
   the PR exists on GitHub with the implementation committed and the
   `Manual validation` section in the body.
@@ -181,10 +183,14 @@ Done when:
   oldest `triaged` task and runs it — equivalent to `--all --max 1`
   but ergonomic for sequential workflows.
 - The runner has a cross-process claim primitive (compare-and-set on
-  frontmatter `status: triaged → planning`, or rename-based file lock)
-  so two concurrent invocations cannot pick up the same task. The
-  in-memory lock in `runner.ts` only protects within one process —
-  M5 must extend it across processes before queue mode is safe.
+  frontmatter `status: triaged → creating-worktree`, or rename-based
+  file lock) so two concurrent invocations cannot pick up the same
+  task. The in-memory lock in `runner.ts` only protects within one
+  process — M5 must extend it across processes before queue mode is
+  safe. The worktree-first ordering shipped as part of M2 already
+  enables parallel runs against *different* tasks in the same target
+  repo (different worktrees, different working trees); the claim
+  primitive closes the same-task-id race.
 - Each running task uses its own worktree → no file conflicts.
 - Two unrelated `flow start` invocations followed by `flow run --all --max 2`
   results in two PRs both reaching merge concurrently.
