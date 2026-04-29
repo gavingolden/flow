@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { startCommand } from "./commands/start.js";
 import { runCommand } from "./commands/run.js";
 import { installCommand } from "./commands/install.js";
+import { logCommand } from "./commands/log.js";
 
 const program = new Command();
 
@@ -27,6 +28,23 @@ program
   .action(async (taskId: string, opts: { detach?: boolean }) => {
     await runCommand(taskId, { detach: opts.detach });
   });
+
+program
+  .command("log")
+  .description("Pretty-print phase logs for a task (jsonl viewer)")
+  .argument("[id]", "the task id (omit to list available task ids)")
+  .option("--phase <name>", "filter to log files whose phase matches <name>")
+  .option("--follow", "tail the most recent phase log file")
+  .option("--raw", "emit the original jsonl bytes verbatim (suitable for jq)")
+  .action(
+    async (
+      id: string | undefined,
+      opts: { phase?: string; follow?: boolean; raw?: boolean },
+    ) => {
+      const code = await logCommand(id, opts);
+      if (code !== 0) process.exit(code);
+    },
+  );
 
 program
   .command("install")
