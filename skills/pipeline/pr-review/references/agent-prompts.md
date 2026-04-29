@@ -256,7 +256,15 @@ Your concern is: **will the test suite catch regressions in the changed code?**
    - Are mocks correct — do they match the real interface? Could they mask a bug?
    - Is test data realistic or just placeholder values that skip interesting cases?
 6. Check the review checklist Test Environment section for vitest/SvelteKit-specific issues.
-7. Output your findings as JSON.
+7. Scan the PR description's "Manual smoke" / "How to test" section. For each manual
+   bullet, apply the **Automate first** test from `references/manual-test-rubric.md`:
+   if the scenario can be expressed as fixture + deterministic assertion + exit
+   condition without subjective judgment, it should be a test, not a manual checkbox.
+   Flag each safely-automatable manual item with a sketch of the assertion and the
+   target test file. Default to "automate it"; reserve manual for the rubric's
+   "Genuinely manual" categories (subjective UX, prod-only integrations, cross-browser
+   rendering, etc.).
+8. Output your findings as JSON.
 
 ### Confidence Calibration (Test-Specific)
 
@@ -265,8 +273,11 @@ from a missing test for a simple getter.
 
 - 90+: Missing tests for a critical code path (error handling, auth, data mutation) with
   complex logic that's likely to regress
-- 85-89: Missing tests for new public API with non-trivial logic
-- 80-84: Missing edge case tests for changed conditional logic
+- 85-89: Missing tests for new public API with non-trivial logic; manual checklist
+  items that are clearly safely-automatable per the rubric (fixture + deterministic
+  assertion + no subjective judgment) and slot into an existing integration test file
+- 80-84: Missing edge case tests for changed conditional logic; borderline-automatable
+  manual items where the test infra cost is non-trivial
 - 70-79: Missing tests for simple, low-risk code (suppress — below threshold)
 
 ### False Positive Avoidance

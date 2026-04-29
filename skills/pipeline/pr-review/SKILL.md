@@ -397,18 +397,26 @@ Evaluate the description (regardless of format) against these criteria:
 
 Score each criterion as Pass/Fail. If 2+ criteria fail, the description needs an update.
 
-**Testability has two fail subtypes** — record which one applies so the report reflects it:
+**Testability has three fail subtypes** — record which one applies so the report reflects it:
 
 - `Fail (missing)` — no "How to test" section at all, or a section with no concrete steps
 - `Fail (shallow — happy-path only)` — steps exist but only cover the happy path on a
   material change that warrants unhappy/edge scenarios per the rubric
+- `Fail (automatable — manual items should be tests)` — the manual section contains
+  scenarios that pass the rubric's automation test (named fixture + deterministic
+  assertion + exit condition, no subjective judgment). Manual is the fallback; default
+  is automation. Apply this when you can sketch the test in one or two sentences
+  ("a `RUN_INTEGRATION=1` test that spawns the CLI, asserts the file exists and `jq`
+  parses every line, then SIGTERMs the child").
 
-Both subtypes count as one failed criterion for the 2+ failures threshold.
+Multiple subtypes can apply simultaneously (e.g. shallow *and* automatable). Record each.
+The criterion fails for the 2+ threshold even if only one subtype applies.
 
 When scoring Testability, consult `references/manual-test-rubric.md` — it defines
-"material change" and provides PR-type scenario menus (new data providers, migrations,
-UI features, config changes). For non-material changes (pure internal refactors, typo
-fixes), happy-path only is acceptable; do not over-prescribe.
+"material change", provides PR-type scenario menus (new data providers, migrations,
+UI features, config changes), and includes the **Automate first** section listing what's
+safely automatable vs genuinely manual. For non-material changes (pure internal refactors,
+typo fixes), happy-path only is acceptable; do not over-prescribe.
 
 **Format note (advisory, not a rubric criterion):** "How to test" should be a markdown
 checklist (`- [ ]` items) so reviewers can tick steps off as they verify. If the section
@@ -519,6 +527,27 @@ on the fail subtype:
   <original description with minimal test section added>
   EOF
   ```
+
+- **Fail (automatable)**: Do NOT just edit the description. The fix is a **code change**:
+  add automated tests that subsume the flagged manual items. List each automatable
+  manual item with (a) the existing test file it should slot into (or the new file
+  path) and (b) a one-or-two-sentence sketch of the assertions. Example:
+
+  > - "verify `runner.pid` exists and matches printed PID" → add `it(...)` to
+  >   `src/commands/run.detach.smoke.test.ts` reading `runner.pid` and asserting it
+  >   equals the PID parsed from stdout (existing fixture suffices).
+  > - "verify task ends `needs-human (runner-crashed)` after a phase throws" → new
+  >   `it(...)` in the same file using a non-git `target_repo` + stub script;
+  >   `findWorktreePath` throws, runner catch should rewrite status.
+
+  Show the user the list with a one-sentence explanation. On confirmation, write the
+  tests, run them (`npm test` / `RUN_INTEGRATION=1 npm test` as appropriate), and
+  remove the now-automated bullets from the manual section of the PR description.
+  Leave only items that genuinely require human judgment (per the rubric's
+  "Genuinely manual" list).
+
+  If the user declines or defers, surface the proposal as a `suggestion` finding in
+  the report instead of silently dropping it.
 
 **If 0 criteria fail, or 1 non-Testability criterion fails, and no accuracy issues**: Note
 "PR description is accurate and communicates intent clearly" in the report.

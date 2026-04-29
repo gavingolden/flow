@@ -9,6 +9,68 @@ When AI writes both the code and the test plan, the risk is a plan that looks pl
 but only exercises the happy path. This rubric gives Step 12b a depth-aware definition
 of "testable" so shallow plans get flagged.
 
+## Automate first
+
+Manual is the fallback, not the default. Every checkbox in a manual test plan is recurring
+human cost — for the author, the reviewer, and every future contributor who runs the smoke
+before merging a related change. When a scenario can be expressed as "run command X, assert
+condition Y," it should be an automated test, not a manual checklist item.
+
+Apply the **automation test** to every entry in the proposed manual section:
+
+> Can I name (a) a fixture / setup, (b) one or more deterministic assertions, and (c) an
+> exit condition — all without subjective human judgment? If yes, it's a test, not a
+> manual step.
+
+### Safely automatable (move to a test, do not leave manual)
+
+- **Process behavior** — exit codes, stdout/stderr substrings, signal handling
+  (`kill -TERM`, `SIGINT`), PID liveness via `process.kill(pid, 0)`, parent-exit
+  reparenting (`PPID==1`), wall-clock budgets ("parent exits in < 8s")
+- **Filesystem state** — file existence/absence, file contents (regex/JSON/JSONL shape
+  via `jq`), permissions, atomic-rename absence of `.tmp` siblings
+- **Subprocess + IPC** — spawn → exit lifecycle, PID files written before / unlinked
+  after, file-descriptor inheritance, env-var propagation
+- **CLI output** — argparse / commander surfaces, help text, exit codes per flag
+- **Pure data transforms** — given input X, output is exactly Y
+- **Schema / migration shape** — table columns, indexes, constraints (assert via
+  `pg_dump --schema-only` or equivalent)
+- **Anything reproducible in a tmp-dir fixture** without external services, with a
+  bounded wall-clock cost (the project's existing integration-test budget defines the bar)
+
+### Genuinely manual (leave in the checklist)
+
+- **Subjective UX** — "the error message reads naturally", "the toast feels right",
+  "the spacing balances", animations, dark-mode aesthetics — anything where the
+  assertion is "a human would judge it acceptable"
+- **Production-only integrations** — third-party APIs without a sandbox, prod-scoped
+  secrets, real billing flows
+- **Cross-browser / cross-device rendering** — Safari quirks, mobile viewport, screen
+  readers (until the project invests in those harnesses)
+- **Performance under realistic load** — when local-fixture timing isn't representative
+  of prod
+- **Cost-prohibitive infra** — when wiring up the test costs more than the regression
+  risk it would catch (rare; default to "automate it" unless you can name the cost)
+
+### Decision shortcut
+
+If you find yourself writing "verify the file appears at...", "check the process is
+still running", "confirm the status is `<X>`", or "ensure stdout contains `<Y>`" —
+**stop**. That's a test. Write the test instead. The fact that an integration test
+already covers the same area (e.g. `*.smoke.test.ts`) means the new scenario almost
+always slots in alongside as another `it(...)` — not a parallel manual checklist.
+
+### Caveat: don't trade a working test for a flaky one
+
+Automation precedence does not mean "automate at any cost." If the automated form would
+be flaky (real network, real LLM, timing-dependent without a determinism shim), or
+require a heavy harness disproportionate to the risk, prefer either:
+1. A focused unit test of the logic, with the integration check left as a one-time
+   manual smoke documented in the PR; or
+2. A `RUN_INTEGRATION=1`-style gated test that doesn't run by default but is callable.
+
+The bar is "safely automatable," not "automatable in principle."
+
 ## The scaffold
 
 Manual test plans are built from three scenario categories. Which categories a specific
