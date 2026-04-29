@@ -43,7 +43,18 @@ export async function runPipeline(
     if (!spec.unfinishedStatuses.includes(task.frontmatter.status)) continue;
     logger.phaseStart(spec.name);
     const start = Date.now();
-    const result = await spec.phase(task, logger);
+    // Wrap so a phase that throws still emits a `phaseEnd` line with the
+    // duration and a `threw` outcome. Without this, the persistent log
+    // file ends with an unterminated `▶ <phase>` line on a crash, which
+    // is the case post-mortems most depend on.
+    let result: PhaseResult;
+    try {
+      result = await spec.phase(task, logger);
+    } catch (err) {
+      const durationMs = Date.now() - start;
+      logger.phaseEnd(spec.name, durationMs, "threw");
+      throw err;
+    }
     const durationMs = Date.now() - start;
     const outcome = result.status === "ok" ? "ok" : result.status;
     logger.phaseEnd(spec.name, durationMs, outcome);

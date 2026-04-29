@@ -53,6 +53,18 @@ export async function runCommand(taskId: string): Promise<void> {
 
     logger.error(`pipeline ${result.status} — ${result.reason}`);
     exitCode = 1;
+  } catch (err) {
+    // An uncaught throw from runPipeline (a phase that threw past the
+    // PhaseResult contract, an FS error, etc.) would otherwise bypass
+    // the persistent log entirely — finally closes the stream but no
+    // ERROR line was ever written. Surface it through the logger so
+    // the run's log file actually records why we died, then re-raise
+    // so Node still exits non-zero.
+    const e = err as { message?: string; stack?: string };
+    logger.error(`pipeline crashed: ${e.message ?? String(err)}`);
+    if (e.stack) logger.error(e.stack);
+    exitCode = 1;
+    throw err;
   } finally {
     await logger.close();
     if (exitCode !== 0) process.exit(exitCode);

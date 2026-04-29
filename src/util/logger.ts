@@ -88,11 +88,19 @@ export async function createLogger(opts: CreateLoggerOptions): Promise<Logger> {
     // separately so the file sink keeps its per-line invariant: every line
     // begins with an ISO-8601 timestamp and contains no ANSI codes. This
     // matters for `tail -f` and for grep-by-timestamp on the log file.
-    const styledLines = styled.split("\n");
+    //
+    // A trailing newline in the payload would split into a final empty
+    // string; writing that as `\n` produces a spurious blank line (and a
+    // bare-timestamp line in the file sink). Trim a single trailing
+    // newline first so the caller's choice to terminate (or not) doesn't
+    // alter the line count.
+    const trim = (s: string): string =>
+      s.endsWith("\n") ? s.slice(0, -1) : s;
+    const styledLines = trim(styled).split("\n");
     for (const line of styledLines) {
       stdout.write(`${line}\n`);
     }
-    const plainLines = plain.split("\n");
+    const plainLines = trim(plain).split("\n");
     for (const line of plainLines) {
       const ts = now().toISOString();
       stream.write(`${ts} ${line.replace(ANSI_RE, "")}\n`);

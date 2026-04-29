@@ -250,6 +250,41 @@ describe("createLogger", () => {
     await expect(fs.access(expected)).resolves.toBeUndefined();
   });
 
+  it("does not emit a spurious blank line when the payload ends with a newline", async () => {
+    // Multi-line payloads from teed subprocess output may or may not
+    // include a trailing newline. The line-splitting writer must
+    // produce the same line count either way — otherwise the file
+    // sink ends up with a bare-timestamp line and stdout shows a blank
+    // line, both of which break grep / tail expectations.
+    const sink = new StringSink();
+    const fixed = new Date("2026-04-29T00:00:00.000Z");
+    const logger = await createLogger({
+      runsDir: path.join(tmp, "runs"),
+      taskId: "t",
+      now: () => fixed,
+      stdout: sink,
+    });
+    sink.buffer = "";
+    logger.warn("only line\n");
+    await logger.close();
+    const file = await fs.readFile(logger.filePath, "utf8");
+    const matchedLines = file
+      .trimEnd()
+      .split("\n")
+      .filter((l) => l.includes("only line"));
+    expect(matchedLines).toHaveLength(1);
+    // No bare-timestamp line either — every file line carries content.
+    for (const line of file.trimEnd().split("\n")) {
+      expect(line).not.toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z $/);
+    }
+    // And stdout shouldn't have an empty trailing line for the warn.
+    const stdoutWarnLines = sink.buffer
+      .trimEnd()
+      .split("\n")
+      .filter((l) => l.includes("only line"));
+    expect(stdoutWarnLines).toHaveLength(1);
+  });
+
   it("event renders with and without details", async () => {
     const sink = new StringSink();
     const logger = await createLogger({
