@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { execa } from "execa";
 
@@ -64,4 +65,111 @@ export async function findTaskFile(
     }
   }
   return null;
+}
+
+export type ResolvedTaskInput =
+  | { kind: "ok"; path: string }
+  | { kind: "not-found"; input: string }
+  | { kind: "ambiguous"; candidates: string[] }
+  | { kind: "invalid"; reason: string };
+
+// Classifies `input` and resolves it to a canonical task `.md` path under
+// `<repoRoot>/.orchestrator/tasks/`. The four-case discriminated union lets
+// the CLI surface distinct error wording for each failure mode without
+// re-running the path classification itself.
+//
+// Path normalization uses `path.resolve` only; we deliberately do not
+// `realpath` the input so a symlinked task tree does not produce a
+// surprising "outside the tasks dir" failure when `findGitRoot` itself
+// did not realpath the repo root.
+export async function resolveTaskInput(
+  input: string,
+  repoRoot: string,
+  cwd?: string,
+): Promise<ResolvedTaskInput> {
+  const tasksDir = path.join(repoRoot, ".orchestrator", "tasks");
+  const isPathLike =
+    path.isAbsolute(input) ||
+    input.startsWith("~") ||
+    input.startsWith(".") ||
+    input.includes("/");
+
+  if (!isPathLike) {
+    const found = await findTaskFile(input, repoRoot);
+    return found ? { kind: "ok", path: found } : { kind: "not-found", input };
+  }
+
+  const expanded =
+    input === "~" || input.startsWith("~/")
+      ? path.join(os.homedir(), input.slice(1))
+      : input;
+  const abs = path.resolve(cwd ?? process.cwd(), expanded);
+
+  let stat;
+  try {
+    stat = await fs.stat(abs);
+  } catch {
+    return { kind: "not-found", input };
+  }
+
+  if (stat.isFile()) {
+    if (path.extname(abs) !== ".md") {
+      return { kind: "invalid", reason: `expected a .md task file: ${abs}` };
+    }
+    const rel = path.relative(tasksDir, abs);
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+      return {
+        kind: "invalid",
+        reason: `task file must live under ${tasksDir}: ${abs}`,
+      };
+    }
+    const segments = rel.split(path.sep);
+    const inTopLevel = segments.length === 1;
+    const inArchive = segments.length === 2 && segments[0] === "archive";
+    if (!inTopLevel && !inArchive) {
+      return {
+        kind: "invalid",
+        reason:
+          "only top-level task .md files in tasks/ or tasks/archive/ are accepted",
+      };
+    }
+    return { kind: "ok", path: abs };
+  }
+
+  if (stat.isDirectory()) {
+    const rel = path.relative(tasksDir, abs);
+    if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+      return {
+        kind: "invalid",
+        reason: `directory must be under ${tasksDir}: ${abs}`,
+      };
+    }
+    const segments = rel.split(path.sep);
+    if (segments.length !== 1) {
+      return {
+        kind: "invalid",
+        reason: "directory must be a direct child of .orchestrator/tasks/",
+      };
+    }
+    const basename = segments[0]!;
+    let entries: string[];
+    try {
+      entries = await fs.readdir(tasksDir);
+    } catch {
+      return { kind: "not-found", input };
+    }
+    const candidates: string[] = [];
+    for (const entry of entries) {
+      if (!entry.endsWith(".md")) continue;
+      const stem = entry.slice(0, -3);
+      if (stem === basename || basename.startsWith(`${stem}-`)) {
+        candidates.push(path.join(tasksDir, entry));
+      }
+    }
+    if (candidates.length === 0) return { kind: "not-found", input };
+    if (candidates.length === 1) return { kind: "ok", path: candidates[0]! };
+    return { kind: "ambiguous", candidates };
+  }
+
+  return { kind: "invalid", reason: `unsupported file type: ${abs}` };
 }
