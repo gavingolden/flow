@@ -7,37 +7,37 @@ export interface VerifyGateResult {
   output: string;
 }
 
+export const VERIFY_TIMEOUT_MS = 10 * 60 * 1000;
+
 export async function runVerifyGate(cwd: string): Promise<VerifyGateResult> {
-  const pkgJsonPath = path.join(cwd, "package.json");
-  let raw: string;
+  return runVerifyGateWithTimeout(cwd, VERIFY_TIMEOUT_MS);
+}
+
+// Exposed so tests can exercise the timeout branch without sleeping for 10
+// minutes. `runVerifyGate` is the only production caller.
+export async function runVerifyGateWithTimeout(
+  cwd: string,
+  timeoutMs: number,
+): Promise<VerifyGateResult> {
+  const scriptPath = path.join(cwd, ".flow", "verify");
   try {
-    raw = await fs.readFile(pkgJsonPath, "utf8");
-  } catch (err) {
-    return { ok: false, output: `cannot read package.json at ${pkgJsonPath}: ${err}` };
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    return { ok: false, output: `package.json at ${pkgJsonPath} is not valid JSON: ${err}` };
-  }
-  const scripts = (parsed as { scripts?: Record<string, string> }).scripts ?? {};
-  if (!scripts.verify) {
+    await fs.access(scriptPath, fs.constants.X_OK);
+  } catch {
     return {
       ok: false,
-      output: `package.json at ${pkgJsonPath} has no 'verify' npm script; add a 'verify' script that runs this repository's required validation checks (typecheck, tests, etc.)`,
+      output: `.flow/verify is missing or not executable in ${cwd}; create an executable script that runs this repository's required pre-PR validation checks`,
     };
   }
 
-  // execa 9.x throws on timeout and spawn failure (e.g. npm not on PATH).
+  // execa 9.x throws on timeout and spawn failure (e.g. bad shebang).
   // Convert those into the deterministic { ok, output } contract — the
   // orchestrator relies on a non-throwing return for retry/surface logic.
   try {
-    const result = await execa("npm", ["run", "verify"], {
+    const result = await execa(scriptPath, [], {
       cwd,
       reject: false,
       all: true,
-      timeout: 10 * 60 * 1000,
+      timeout: timeoutMs,
     });
     return {
       ok: result.exitCode === 0,
