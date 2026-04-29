@@ -143,11 +143,15 @@ export async function runImplementPhase(
   let prNumber = await detectOpenedPr(worktree, branch);
   if (prNumber == null) {
     const bodyPath = await resolveBodyPath(task, bodyFilePath, logger);
-    logger.event("subprocess.spawn", `gh pr create --body-file ${bodyPath}`);
-    const create = await execa("gh", ["pr", "create", "--body-file", bodyPath], {
-      cwd: worktree,
-      reject: false,
-    });
+    logger.event(
+      "subprocess.spawn",
+      `gh pr create --fill-first --body-file ${bodyPath}`,
+    );
+    const create = await execa(
+      "gh",
+      ["pr", "create", "--fill-first", "--body-file", bodyPath],
+      { cwd: worktree, reject: false },
+    );
     logger.event("subprocess.exit", `gh pr create exit=${create.exitCode}`);
     if (create.exitCode !== 0) {
       const reason = `gh pr create failed: ${create.stderr || create.stdout || `exit ${create.exitCode}`}`;
