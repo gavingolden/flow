@@ -64,8 +64,13 @@ Confidence: 0-100 (only findings >= 80 will be surfaced)
 
 If you find nothing noteworthy, return an empty array: []
 
-Include at least one `praise` finding if you observe anything done well. Praise is
-exempt from the confidence threshold.
+Include a `praise` finding only when you can name the specific behaviour,
+file:line, or pattern being praised — e.g. "the X path correctly handles the Y
+edge case", "the new pure helper at foo.ts:42 is straightforward to test". Do
+NOT emit content-free openers/closers ("great work!", "nice refactor!", "looks
+great overall!"). Test: if removing the praise sentence removes no information
+a reviewer would act on, omit it. Zero praise is better than filler praise.
+Praise is exempt from the confidence threshold but not from the specificity bar.
 
 ## Confidence Calibration
 
