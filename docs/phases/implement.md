@@ -147,7 +147,10 @@ timeout: 10 * 60 * 1000 })`. It precondition-checks that the target
 repo's `package.json` has a `verify` script — if not, the gate fails
 fast with a clear reason rather than hitting an opaque npm error.
 Architecture has long listed `npm run verify` as a target-repo
-precondition; this enforces it at gate-entry.
+precondition; this enforces it at gate-entry. The `execa` call is
+wrapped in try/catch — execa 9.x throws on timeout and on spawn
+failure (e.g. `npm` missing), and the orchestrator depends on a
+deterministic `{ ok, output }` return rather than an exception.
 
 Why `npm run verify` and not `claude -p "/verify"`: cheaper, fully
 deterministic, no LLM context to muddy. Phase 4 (M3 PR 4) will run
@@ -157,33 +160,40 @@ re-check after fix-mode pushes.
 
 ### Failure modes
 
-The retry callback wraps both the LLM run *and* the gate:
+The orchestrator detects whether a PR already exists for the branch
+*before* invoking the LLM, then chooses between a one-shot attempt and
+a retry-once cycle:
 
-- **Gate fails, no PR yet.** Append the failure log (truncated to 4 KB)
-  to `## Phase outputs > implement` under a `### verify-gate failure`
-  subsection, return a retry-able error so `retryOnce` re-invokes
-  `/new-feature` with the failure context. If the second attempt's gate
-  also fails, the phase returns `failed` with no PR created.
-- **Gate fails, PR already exists in this run.** Crash recovery (the
-  LLM ignored the "do not open a PR" instruction, or a partial prior
-  invocation left a PR open). Surface the failure in the PR's
-  `## Manual validation` section as a `> [!CAUTION]` block via
-  `surfaceVerifyFailureOnPr`. Idempotent: a prior caution block from a
-  previous gate failure is replaced, not stacked. Phase returns
-  `failed` — a PR with red local verify is in a needs-human state.
-- **`/new-feature` itself fails.** Existing M2 retry behaviour. Gate
-  doesn't run.
+- **No PR yet (the M2 happy path).** A single `attempt` (LLM run + gate)
+  is wrapped in `retryOnce`. If the LLM run succeeds but the gate fails,
+  the failure log is appended to `## Phase outputs > implement` under a
+  `### verify-gate failure` subsection and the callback returns a
+  retry-able error. `retryOnce` re-invokes `/new-feature` with the
+  failure context. If the second attempt's gate also fails, the phase
+  returns `failed` with no PR created.
+- **PR already exists at phase entry (crash recovery).** The orchestrator
+  runs `attempt` exactly once — no `retryOnce` wrapper. Re-invoking the
+  LLM on a branch with an open PR would mutate the PR a second time,
+  which is exactly what crash recovery should *not* do. On gate failure
+  the failure is surfaced on the PR's `## Manual validation` section as
+  a `> [!CAUTION]` block via `surfaceVerifyFailureOnPr`. Idempotent: a
+  prior caution block from a previous gate failure is replaced, not
+  stacked. Phase returns `failed` — a PR with red local verify is in a
+  needs-human state.
+- **`/new-feature` itself fails.** Existing M2 retry behaviour applies
+  on the no-PR path; the gate doesn't run. On the PR-already-exists
+  path, the LLM failure is reported once with no retry.
 
 ### Idempotency / resume — strengthened
 
 The top-of-phase short-circuit narrows: it now requires *both*
 `pr != null` *and* `status === "pr-open"`. A task with `pr != null` but
 `status: implementing` is crash recovery — the phase falls through,
-re-invokes the LLM, runs the gate, and either skips `gh pr create`
-(idempotent — `detectOpenedPr` finds the existing PR) on gate-pass or
-surfaces the failure on the PR on gate-fail. Legacy `pr-open` tasks
-created before PR 0 short-circuit unchanged; we do not retroactively
-gate them.
+detects the existing PR, runs the LLM+gate exactly once (no retry), and
+either skips `gh pr create` (idempotent — `detectOpenedPr` finds the
+existing PR) on gate-pass or surfaces the failure on the PR on
+gate-fail. Legacy `pr-open` tasks created before PR 0 short-circuit
+unchanged; we do not retroactively gate them.
 
 ### Strengthened `pr-open` invariant
 

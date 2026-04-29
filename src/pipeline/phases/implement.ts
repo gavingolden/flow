@@ -60,7 +60,13 @@ export async function runImplementPhase(task: Task): Promise<PhaseResult> {
   const bodyFilePath = path.join(bodyDir, "pr-body.md");
   await fs.mkdir(bodyDir, { recursive: true });
 
-  const result = await retryOnce(async (_attempt, lastFailure) => {
+  // Crash recovery: if a PR already exists for this branch, do not retry
+  // the LLM on gate failure — a second `/new-feature` invocation would
+  // mutate the existing PR. Run one attempt, surface gate failures on the
+  // PR, and let the user decide.
+  const preexistingPr = await detectOpenedPr(worktree, branch);
+
+  const attempt = async (lastFailure?: string) => {
     const prompt = buildImplementPrompt(task, bodyFilePath, lastFailure);
     const r = await runHeadless({
       cwd: worktree,
@@ -102,7 +108,11 @@ export async function runImplementPhase(task: Task): Promise<PhaseResult> {
       ok: false as const,
       error: `verify gate failed:\n${truncate(gate.output, 1500)}`,
     };
-  });
+  };
+
+  const result = preexistingPr != null
+    ? await attempt()
+    : await retryOnce((_attempt, lastFailure) => attempt(lastFailure));
 
   if (!result.ok) {
     return { status: "failed", reason: `implement phase failed: ${result.error}` };

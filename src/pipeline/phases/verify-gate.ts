@@ -25,20 +25,38 @@ export async function runVerifyGate(cwd: string): Promise<VerifyGateResult> {
   if (!scripts.verify) {
     return {
       ok: false,
-      output: `package.json at ${pkgJsonPath} has no 'verify' npm script; add one or wire ./scripts/pre-commit-checks.ts`,
+      output: `package.json at ${pkgJsonPath} has no 'verify' npm script; add a 'verify' script that runs this repository's required validation checks (typecheck, tests, etc.)`,
     };
   }
 
-  const result = await execa("npm", ["run", "verify"], {
-    cwd,
-    reject: false,
-    all: true,
-    timeout: 10 * 60 * 1000,
-  });
-  return {
-    ok: result.exitCode === 0,
-    output: result.all ?? result.stdout ?? "",
-  };
+  // execa 9.x throws on timeout and spawn failure (e.g. npm not on PATH).
+  // Convert those into the deterministic { ok, output } contract — the
+  // orchestrator relies on a non-throwing return for retry/surface logic.
+  try {
+    const result = await execa("npm", ["run", "verify"], {
+      cwd,
+      reject: false,
+      all: true,
+      timeout: 10 * 60 * 1000,
+    });
+    return {
+      ok: result.exitCode === 0,
+      output: result.all ?? result.stdout ?? "",
+    };
+  } catch (err) {
+    const e = err as {
+      all?: string;
+      stdout?: string;
+      stderr?: string;
+      shortMessage?: string;
+      message?: string;
+    };
+    return {
+      ok: false,
+      output:
+        e.all ?? e.stdout ?? e.stderr ?? e.shortMessage ?? e.message ?? String(err),
+    };
+  }
 }
 
 const CAUTION_HEADER = "Pre-PR verify failed against pushed SHA — needs human review";
@@ -81,11 +99,12 @@ export function upsertCautionBlock(body: string, failureLog: string): string {
     return `${trimmed}\n\n## Manual validation\n\n${block}\n`;
   }
   const matched = match[0];
-  // Strip any prior caution block we wrote (idempotency). The header text is
-  // unique enough to anchor on; we delete from the `> [!CAUTION]` line that
-  // immediately precedes our header through the closing ``` fence.
+  // Strip any prior caution block we wrote (idempotency). Match the exact
+  // shape emitted in `block` above — the opening ` ```text ` fence is
+  // anchored explicitly so removal runs through the closing fence rather
+  // than stopping at the opening one.
   const priorRe = new RegExp(
-    `\\n*> \\[!CAUTION\\]\\n> ${escapeRegex(CAUTION_HEADER)}\\n[\\s\\S]*?\\n\`\`\`(\\n|$)`,
+    `\\n*> \\[!CAUTION\\]\\n> ${escapeRegex(CAUTION_HEADER)}\\n\\n\`\`\`text\\n[\\s\\S]*?\\n\`\`\`(?=\\n|$)`,
   );
   const cleaned = matched.replace(priorRe, "\n").replace(/\s+$/, "");
   return body.replace(matched, `${cleaned}\n\n${block}\n`);
