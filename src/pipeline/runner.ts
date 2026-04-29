@@ -41,7 +41,12 @@ const M2_PIPELINE: readonly PhaseSpec[] = [
   {
     name: "implement",
     unfinishedStatuses: ["planned", "implementing"],
-    phase: runImplementPhase,
+    // The pipeline only ever creates fresh PRs — `mode: "fix"` is reserved
+    // for future callers (PR 5 verify retry, PR 7 review loop-back) that
+    // re-invoke the phase against an existing PR. Adapter scopes that
+    // awkwardness to one line so `PhaseFn` can stay generic.
+    phase: (task, logger, jsonl) =>
+      runImplementPhase(task, { mode: "create" }, logger, jsonl),
   },
 ];
 
