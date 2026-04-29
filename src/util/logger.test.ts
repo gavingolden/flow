@@ -300,6 +300,35 @@ describe("createLogger", () => {
     expect(sink.buffer).toContain("[pr.opened]");
     expect(sink.buffer).toContain("[subprocess.exit] claude exit=0 dur=4s");
   });
+
+  it("suppresses stdout mirror when caller passes filePath (detached-child contract)", async () => {
+    // The detach path opens the plaintext log file in the parent and
+    // inherits stdio fds pointing at it into the child. If the logger
+    // also mirrored styled lines to its stdout sink, every entry would
+    // land in the same file twice — once timestamped+plain via the
+    // logger's stream, again styled via the inherited stdout fd. The
+    // contract: when filePath is explicitly set, the file stream is the
+    // sole sink.
+    const sink = new StringSink();
+    const fixed = new Date("2026-04-29T12:34:56.000Z");
+    const explicitPath = path.join(tmp, "explicit.log");
+    const logger = await createLogger({
+      runsDir: path.join(tmp, "runs"),
+      taskId: "abc",
+      filePath: explicitPath,
+      now: () => fixed,
+      stdout: sink,
+    });
+    logger.info("hello");
+    logger.error("boom");
+    await logger.close();
+    const fileContent = await fs.readFile(explicitPath, "utf8");
+    expect(fileContent).toContain("INFO  flow: hello");
+    expect(fileContent).toContain("ERROR flow: boom");
+    // Stdout sink should have received nothing — not the banner, not
+    // info, not error.
+    expect(sink.buffer).toBe("");
+  });
 });
 
 describe("NoopLogger", () => {

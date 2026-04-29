@@ -19,7 +19,7 @@ const { callLog, advanceStatus } = vi.hoisted(() => {
 });
 
 vi.mock("./phases/plan.js", () => ({
-  runPlanPhase: vi.fn(async (task) => {
+  runPlanPhase: vi.fn(async (task, _logger, _jsonl) => {
     callLog.push("plan");
     await advanceStatus(task.path, "planned");
     return { status: "ok" };
@@ -27,7 +27,7 @@ vi.mock("./phases/plan.js", () => ({
 }));
 
 vi.mock("./phases/worktree.js", () => ({
-  runWorktreePhase: vi.fn(async (task) => {
+  runWorktreePhase: vi.fn(async (task, _logger, _jsonl) => {
     callLog.push("worktree");
     await advanceStatus(task.path, "worktree-ready");
     return { status: "ok" };
@@ -35,7 +35,7 @@ vi.mock("./phases/worktree.js", () => ({
 }));
 
 vi.mock("./phases/implement.js", () => ({
-  runImplementPhase: vi.fn(async (task) => {
+  runImplementPhase: vi.fn(async (task, _logger, _jsonl) => {
     callLog.push("implement");
     await advanceStatus(task.path, "pr-open");
     return { status: "ok" };
@@ -131,6 +131,77 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
     const task = await makeTaskFile(tmp, "pr-open");
     await runPipeline(task);
     expect(callLog).toEqual([]);
+  });
+
+  it("threads a per-phase JsonlSink to each phase and closes it (writing a result line)", async () => {
+    // The runner is the single layer that knows phase identity, so it owns
+    // sink lifecycle. This pins: a) phases receive a real sink when
+    // taskDir is set, b) the runner writes a result line and closes after
+    // the phase returns.
+    const task = await makeTaskFile(tmp, "worktree-ready");
+    let receivedSink: unknown = null;
+    vi.mocked(runPlanPhase).mockImplementationOnce(async (t, _logger, jsonl) => {
+      receivedSink = jsonl;
+      jsonl?.event("info", { msg: "from plan phase" });
+      callLog.push("plan");
+      await advanceStatus(t.path, "planned");
+      return { status: "ok" };
+    });
+
+    await runPipeline(task, NoopLogger, { taskDir: tmp });
+
+    expect(receivedSink).toBeTruthy();
+    expect((receivedSink as { filePath: string }).filePath).toMatch(
+      /\/logs\/plan-.*\.jsonl$/,
+    );
+    const logsDir = path.join(tmp, "logs");
+    const entries = await fs.readdir(logsDir);
+    const planFile = entries.find((e) => e.startsWith("plan-"));
+    expect(planFile).toBeTruthy();
+    const raw = await fs.readFile(path.join(logsDir, planFile!), "utf8");
+    const parsedLines = raw
+      .trimEnd()
+      .split("\n")
+      .map((l) => JSON.parse(l));
+    // Both the phase's own info event and the runner's terminating result
+    // event should be present.
+    expect(parsedLines.some((p) => p.kind === "info" && p.msg === "from plan phase")).toBe(true);
+    expect(parsedLines.some((p) => p.kind === "result" && p.status === "ok")).toBe(true);
+  });
+
+  it("writes a result/failed line to the jsonl file when the phase throws", async () => {
+    const task = await makeTaskFile(tmp, "worktree-ready");
+    vi.mocked(runPlanPhase).mockImplementationOnce(async () => {
+      throw new Error("synthetic plan crash");
+    });
+    await expect(runPipeline(task, NoopLogger, { taskDir: tmp })).rejects.toThrow(
+      "synthetic plan crash",
+    );
+    const entries = await fs.readdir(path.join(tmp, "logs"));
+    const planFile = entries.find((e) => e.startsWith("plan-"));
+    expect(planFile).toBeTruthy();
+    const raw = await fs.readFile(path.join(tmp, "logs", planFile!), "utf8");
+    const parsed = raw.trimEnd().split("\n").map((l) => JSON.parse(l));
+    expect(
+      parsed.some(
+        (p) =>
+          p.kind === "result" &&
+          p.status === "failed" &&
+          typeof p.reason === "string" &&
+          p.reason.includes("synthetic plan crash"),
+      ),
+    ).toBe(true);
+  });
+
+  it("uses NoopJsonlSink when taskDir is omitted (existing test path stays clean)", async () => {
+    // Ensures the pipeline doesn't accidentally write logs into cwd or
+    // throw when callers don't pass taskDir. This is the path
+    // src/pipeline/runner.test.ts has been on for months.
+    const task = await makeTaskFile(tmp, "worktree-ready");
+    await runPipeline(task);
+    // No logs/ subdir created.
+    await expect(fs.access(path.join(tmp, "logs"))).rejects.toThrow();
+    expect(callLog).toEqual(["plan", "implement"]);
   });
 
   it("emits a phaseEnd line even when a phase throws past the PhaseResult contract", async () => {

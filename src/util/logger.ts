@@ -21,6 +21,12 @@ export interface Logger {
 export interface CreateLoggerOptions {
   runsDir: string;
   taskId: string;
+  // When set, the logger appends to this exact path instead of computing
+  // one from `runsDir + taskId + stamp`. The detach path uses this so a
+  // re-exec'd child writes to the same file the parent already opened
+  // and inherited via stdio. `runsDir` is still required (we mkdir it
+  // first) but is not consulted for the file path itself.
+  filePath?: string;
   // Test injection points. Production callers pass nothing.
   now?: () => Date;
   setInterval?: (handler: () => void, ms: number) => NodeJS.Timeout | number;
@@ -42,6 +48,14 @@ export async function createLogger(opts: CreateLoggerOptions): Promise<Logger> {
   const stdout = opts.stdout ?? process.stderr;
   const colors =
     opts.forceColor !== undefined ? pc.createColors(opts.forceColor) : pc;
+  // When a caller hands us an explicit `filePath`, they're coordinating
+  // fd ownership — typically the detach path, where the parent opens the
+  // file and the child inherits its stdio fd pointing at the same file.
+  // In that case, mirroring styled lines to `stdout` would duplicate
+  // every entry into the file (once via `stream.write` here, again via
+  // the inherited fd) and pollute the timestamped/plain format. Suppress
+  // the stdout mirror; the file stream is the only sink we need.
+  const mirrorToStdout = opts.filePath == null;
 
   await fsp.mkdir(opts.runsDir, { recursive: true });
   const stamp = now().toISOString().replace(/[:.]/g, "-");
@@ -52,7 +66,7 @@ export async function createLogger(opts: CreateLoggerOptions): Promise<Logger> {
   // alphabet with `_` so the result is always a single safe filename
   // segment.
   const safeTaskId = opts.taskId.replace(/[^A-Za-z0-9._-]/g, "_");
-  const filePath = path.join(opts.runsDir, `${safeTaskId}-${stamp}.log`);
+  const filePath = opts.filePath ?? path.join(opts.runsDir, `${safeTaskId}-${stamp}.log`);
   const stream = fs.createWriteStream(filePath, { flags: "a", encoding: "utf8" });
   // Stage 1: wait for the file to open. A failure here is fatal — there's
   // no log file to fall back to.
@@ -75,10 +89,15 @@ export async function createLogger(opts: CreateLoggerOptions): Promise<Logger> {
   // to stdout sink so the user notices the persistent log has stopped.
   stream.on("error", (err: Error) => {
     const msg = `[logger] write to ${filePath} failed: ${err.message}`;
-    try {
-      stdout.write(`${colors.red(msg)}\n`);
-    } catch {
-      // stdout itself failed — nothing more we can do.
+    // Only mirror the error to stdout when we'd normally mirror styled
+    // output there — otherwise we'd write into the same fd-redirected
+    // file we just failed to write to, with no surfacing benefit.
+    if (mirrorToStdout) {
+      try {
+        stdout.write(`${colors.red(msg)}\n`);
+      } catch {
+        // stdout itself failed — nothing more we can do.
+      }
     }
   });
 
@@ -96,9 +115,11 @@ export async function createLogger(opts: CreateLoggerOptions): Promise<Logger> {
     // alter the line count.
     const trim = (s: string): string =>
       s.endsWith("\n") ? s.slice(0, -1) : s;
-    const styledLines = trim(styled).split("\n");
-    for (const line of styledLines) {
-      stdout.write(`${line}\n`);
+    if (mirrorToStdout) {
+      const styledLines = trim(styled).split("\n");
+      for (const line of styledLines) {
+        stdout.write(`${line}\n`);
+      }
     }
     const plainLines = trim(plain).split("\n");
     for (const line of plainLines) {
