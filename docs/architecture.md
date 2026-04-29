@@ -1,7 +1,10 @@
 # Architecture
 
 The whole design exists to satisfy three constraints. Everything else
-follows.
+follows. For the rationale, user flows, alternatives considered, and the
+deepest "what is flow for?" framing, see
+[`chat-first-design.md`](./chat-first-design.md). For the PR-by-PR
+implementation plan, see [`roadmap.md`](./roadmap.md).
 
 ## The three constraints
 
@@ -30,42 +33,69 @@ approximates with persona switching inside one session — except we get
 true context isolation by using OS-level processes.
 
 ```
-                  ┌─────────────────────────────────────┐
-   You ─────────► │  flow CLI (TS, no LLM)              │
-                  └────────────┬───────────┬────────────┘
-                               │           │
-                  spawns       │           │  spawns (subprocess per phase)
-              (interactive)    │           │
-                               ▼           ▼
-                    ┌──────────────┐   ┌─────────────────────────┐
-                    │  Triage      │   │  Pipeline runner        │
-                    │  Claude      │──►│  - reads task.md        │
-                    │  session     │   │  - claude -p per phase  │
-                    │  (M1)        │   │  - retries / loops      │
-                    │              │   │  - auto-merge gate      │
-                    └──────────────┘   └────────────┬────────────┘
-                                                    │
-                                                    ▼ writes & reads
-                                       ┌─────────────────────────┐
-                                       │  .orchestrator/tasks/   │
-                                       │   <task-id>.md          │
-                                       └─────────────────────────┘
+   ┌─────────────────────────────────────────────────────────┐
+   │  Claude Code chat session (the front door)              │
+   │                                                         │
+   │  Skills (in .claude/skills/):                           │
+   │    /flow add        — triage + kickoff                  │
+   │    /flow status     — list / drill into tasks           │
+   │    /flow watch      — tail a phase log inline           │
+   │    /flow pause      — drop a flag, runner exits clean   │
+   │    /flow resume     — clear flag, relaunch              │
+   │    /flow abort      — terminal mark + cleanup           │
+   │    /flow approve    — clear plan checkpoint             │
+   │    /flow revise     — send plan back with feedback      │
+   └────────────────────────┬────────────────────────────────┘
+                            │ spawns (detached) via Bash tool
+                            ▼
+   ┌─────────────────────────────────────────────────────────┐
+   │  flow CLI (Node, no LLM context — backend role)         │
+   │    flow run <id> [--detach]                             │
+   │    flow run --all --max N                               │
+   │                                                         │
+   │  State machine: read task.md, pick next phase,          │
+   │  spawn phase subprocess, parse result, write back.      │
+   │  Crashes are safe to re-enter.                          │
+   └────────────────────────┬────────────────────────────────┘
+                            │ one subprocess per phase
+                ┌───────────┴───────────┐
+                ▼                       ▼
+   ┌──────────────────────┐  ┌────────────────────────────┐
+   │ Script phases (Bun)  │  │ LLM phases (claude -p,     │
+   │                      │  │  fresh ctx)                │
+   │ • worktree           │  │ • plan      → /product-…   │
+   │ • ci-wait (poll)     │  │ • implement → /new-feature │
+   │ • gate (parse body)  │  │ • verify    → /verify      │
+   │ • merge              │  │ • review    → /pr-review   │
+   └──────────────────────┘  └────────────────────────────┘
+                            │ all phases read/write
+                            ▼
+                  ┌──────────────────────────────┐
+                  │  .orchestrator/tasks/<id>.md │
+                  │  (single source of truth)    │
+                  └──────────────────────────────┘
 ```
 
-## Hybrid: interactive triage, scripted pipeline
+**Key invariant:** the chat session never hosts a phase. It only spawns
+`flow run --detach` and queries task files. Close the chat, the pipeline
+keeps running.
+
+## Hybrid: chat-first triage, scripted pipeline
 
 The orchestrator has two halves with different runtime profiles.
 
-- **Triage runs as an interactive Claude session.** A real conversation
-  is required — the user is challenged on assumptions, offered
-  alternatives, and asked clarifying questions. Outcome is either an
-  in-line answer (no-change) or a written `task.md` (change). Triage
-  is M1.
+- **Triage runs as a Claude Code skill in the user's existing chat
+  session.** A real conversation is required — the user is challenged
+  on assumptions, offered alternatives, and asked clarifying questions.
+  Outcome is either an in-line answer (no-change) or a written
+  `task.md` (change). The `/flow add` skill is the documented entry
+  point; the legacy `flow start` CLI command remains available during
+  the migration.
 - **The rest of the pipeline runs in the script.** Once a `task.md`
   exists, every subsequent phase is deterministic enough to script:
-  invoke `claude -p` with a focused prompt, parse JSON output, decide
-  retry / proceed / escalate, write outputs back to `task.md`. Phases
-  1–8 are M2–M4.
+  invoke `claude -p` with a focused prompt (or run a Bun script for
+  pure-IO phases), parse JSON output, decide retry / proceed /
+  escalate, write outputs back to `task.md`.
 
 Conversation/judgment lives in the LLM; scheduling, retries, and IO
 live in the script.
@@ -89,24 +119,45 @@ do their work, append to the task file's phase log and outputs, and
 return a status. The next phase reads the same file. If a phase
 crashes, the file persists; rerunning the pipeline is safe.
 
+The implement phase takes an explicit `mode: "create" | "fix"`
+parameter rather than inferring intent from `task.pr != null`.
+`mode: "create"` is the first run: the LLM writes code from the plan,
+runs local verify, opens the PR. `mode: "fix"` is loop-back from a red
+CI or critical review: the LLM reads the failure log, fixes the
+problem against the existing branch, re-runs local verify, pushes
+without opening a new PR.
+
 This is the "anchored summarization" pattern from research: agents
 don't pass conversation between each other, they pass *artifacts*
 (files), and each agent's input is a structured summary it knows how
 to read.
 
+## Logging
+
+Every `claude -p` invocation runs with `--output-format stream-json
+--verbose`; the event stream is redirected to
+`.orchestrator/tasks/<id>/logs/<phase>-<ISO>.jsonl`. Script phases
+emit structured logs to the same directory. The default viewer is
+`flow log <id> --follow`, which pretty-prints tool calls, edits, bash
+invocations, thinking, and results. The `/flow watch` skill is the
+inline-in-chat companion to `flow log --follow`, with PR 11 bounding
+the output (default 30s or N events) so long phases don't burn
+arbitrary chat-session tokens. Cost accounting comes from
+`result.usage` events in the same jsonl stream.
+
 ## The pipeline (full set)
 
 | # | Phase | Type | Skill / action | On failure |
 |---|---|---|---|---|
-| 0 | triage | Claude session (interactive) | `--append-system-prompt` triage rules | n/a — owned by user |
+| 0 | triage | Claude Code skill (`/flow add` or legacy `flow start`) | triage system prompt | n/a — owned by user |
 | 1 | worktree | script (no LLM) | `scripts/new-agent-worktree.ts` (target repo) + symlink `.orchestrator/` from main repo | abort |
 | 2 | plan | headless (in worktree) | `/product-planning` | retry once with error appended |
-| 3 | implement | headless (in worktree) | `/new-feature` | retry once |
+| 3 | implement | headless (in worktree) | `/new-feature` (mode: `create` \| `fix`) | retry once |
 | 4 | verify | headless (in worktree) | `/verify` | retry up to 3x; then `needs-human` |
-| 5 | ci | script | poll `gh pr checks` until terminal; collect auto-reviewer findings | on red, loop back to implement with the failure log; cap 3 |
-| 6 | review | headless | `/pr-review` | on critical findings, loop back to implement; cap 2 |
+| 5 | ci-wait | script | poll `gh pr checks` until terminal; collect bot reviews from a configurable list (default `["Copilot"]`, configurable per repo) | on red, loop back to implement(fix) with the failure log; cap 3 |
+| 6 | review | headless | `/pr-review` in fresh `claude -p` context, with bot reviews from phase 5 passed in as second-opinion artefacts | on critical findings, loop back to implement(fix); cap 2 |
 | 7 | gate | script | parse PR body's "Manual validation" section | n/a — outcome is the decision |
-| 8 | merge | script | `gh pr merge --squash --delete-branch` + remove worktree | abort with clear status |
+| 8 | merge | script | `gh pr merge --squash --delete-branch` + remove worktree + archive task file | abort with clear status |
 
 Phases 2, 3, 4, 6 are headless Claude Code subprocess invocations of
 skills that already exist in the target project (econ-data has them
@@ -121,11 +172,17 @@ from. This is what unblocks running `flow run` against multiple tasks
 in the same target repo concurrently — different worktrees, different
 branches, different working trees, but one shared task store.
 
+The review phase **never** continues from implement. The point of a
+self-review is a second look; an implementer-continued reviewer
+rationalises its own code. `/pr-review` reads the PR diff via `gh pr
+diff` — that's the artifact it needs. Bot reviews collected by ci-wait
+are *also* second opinions and get passed in as additional context.
+
 ## State store: markdown plan files
 
 One file per task at `<target-repo>/.orchestrator/tasks/<id>.md`.
 WAVE-style: YAML frontmatter for indexable fields, markdown sections
-for everything else. Schema is in `docs/task-schema.md`.
+for everything else. Schema is in [`task-schema.md`](./task-schema.md).
 
 Why markdown and not a database:
 
@@ -135,8 +192,9 @@ Why markdown and not a database:
 - Zero deps. No SQLite, no Dolt, no daemon.
 
 When this becomes painful (large queues, multi-machine, dependency
-graphs across tasks) we swap in Steve Yegge's [Beads](https://github.com/steveyegge/beads)
-behind a state-store interface. M6.
+graphs across tasks) we swap in Steve Yegge's
+[Beads](https://github.com/steveyegge/beads) behind a state-store
+interface (see [`roadmap.md`](./roadmap.md#future-stretch-state-store-backend-swap-beads-adapter)).
 
 ## Auto-merge rule
 
@@ -152,8 +210,11 @@ The gate phase reads `gh pr view <pr> --json body`, strips HTML
 comments from the section, and decides:
 
 - Section non-empty ⇒ `needs-human`. The pipeline pauses; the user
-  merges manually after performing the documented validation.
-- Section empty ⇒ proceed to merge.
+  merges manually after performing the documented validation. flow's
+  next run detects the merge commit and finalises the task.
+- Section empty ⇒ proceed to merge. The merge phase runs `gh pr merge
+  --squash --delete-branch`, removes the worktree, and archives the
+  task file under `.orchestrator/tasks/archive/`.
 
 This pushes the human-in-loop decision into the PR description itself
 — exactly where it belongs. Reviewers see it. Future readers see it.
@@ -181,7 +242,8 @@ If we ever want phases that don't map to existing skills (e.g. a custom
 
 | Concern | Choice | Why |
 |---|---|---|
-| Runtime | Node 20+ | ESM, top-level await, `fs/promises`, AbortController. Universal. |
+| Runtime (CLI) | Node 20+ | ESM, top-level await, `fs/promises`, AbortController. Universal. |
+| Runtime (scripts) | Bun | Fast startup, TS-native, symlink-aware `import.meta.main`. |
 | Language | TypeScript strict | Catches phase-output schema errors before subprocess errors do. |
 | CLI | `commander` | Mature, small, no surprises. |
 | Subprocess | `execa` | Cleaner stdio handling than child_process. |
@@ -196,7 +258,9 @@ If we ever want phases that don't map to existing skills (e.g. a custom
 
 - A git repo (so `git rev-parse --show-toplevel` works).
 - Skills in `.claude/skills/`: `product-planning`, `new-feature`,
-  `verify`, `pr-review`, plus the worktree scripts.
+  `verify`, `pr-review`, plus the worktree scripts. flow's
+  `flow install` command symlinks the pipeline-scoped skills
+  (`/flow add`, `/flow status`, etc.) into the same directory.
 - The `gh` CLI authenticated for the repo's GitHub remote.
 - An executable `.flow/verify` script at the repo root that runs the
   repository's required pre-PR validation checks (typecheck, tests,

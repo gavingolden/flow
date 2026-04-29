@@ -33,9 +33,21 @@ If you're picking up a milestone, the order is: `architecture.md` →
 
 See `docs/roadmap.md`. As of now:
 
-- **M1 shipped.** Triage phase + CLI scaffold (`flow start`).
-- **M2 next.** Phases 1–3 (plan, worktree, implement) — see
-  `docs/phases/m2-plan.md`.
+- **Triage + scaffold shipped.** Phase 0 (triage) + CLI scaffold
+  (`flow start`).
+- **Plan / worktree / implement shipped.** Phases 1–3 (plan,
+  worktree, implement) drive a `triaged` task to an open PR via
+  `flow run`.
+- **Phase 1 — foundation next.** PRs 1–3 (jsonl logging + detached
+  subprocesses, cross-process claim primitive, implement create/fix
+  split). See `docs/roadmap.md` for the full PR plan and
+  `docs/chat-first-design.md` for the rationale behind the
+  chat-first migration.
+
+Note: `docs/phases/m2-plan.md` and `docs/phases/m3-plan.md` use the
+legacy `M<N>` syntax — they're historical artefacts kept for
+reference. New work uses the sequential PR / Phase numbering from
+`docs/roadmap.md`.
 
 ## Code conventions
 
@@ -162,8 +174,8 @@ The build script chmods `dist/cli.js` so direct invocation works locally
   ordered for a reason; later milestones depend on the constraints earlier
   ones impose.
 - Don't introduce a database. Markdown plan files are the state store
-  until the queue gets unwieldy (then we swap in Beads via an adapter —
-  M6).
+  until the queue gets unwieldy (then we swap in Beads via an adapter
+  — see `docs/roadmap.md` "Future stretch").
 - Don't auto-commit or auto-push without an explicit user instruction.
   Creating PRs counts as user-visible action — confirm before pushing.
   - **Auto-push exemption: `pr-review`.** The `pr-review` skill is exempt
