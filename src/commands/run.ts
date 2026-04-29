@@ -1,8 +1,10 @@
+import path from "node:path";
 import { execa } from "execa";
 import pc from "picocolors";
 import { findGitRoot, findTaskFile } from "../util/git.js";
 import { readTask } from "../state/task-file.js";
 import { runPipeline } from "../pipeline/runner.js";
+import { createLogger } from "../util/logger.js";
 
 export async function runCommand(taskId: string): Promise<void> {
   const repoRoot = await findGitRoot();
@@ -24,31 +26,37 @@ export async function runCommand(taskId: string): Promise<void> {
   }
 
   const task = await readTask(taskPath);
-  console.error(pc.dim(`flow: task ${task.frontmatter.id}`));
-  console.error(pc.dim(`flow: status ${task.frontmatter.status}`));
-  console.error("");
+  const logger = await createLogger({
+    runsDir: path.join(repoRoot, ".orchestrator", "runs"),
+    taskId: task.frontmatter.id,
+  });
+  let exitCode = 0;
+  try {
+    logger.info(`log → ${logger.filePath}`);
+    logger.info(`task ${task.frontmatter.id}`);
+    logger.info(`status ${task.frontmatter.status}`);
 
-  const result = await runPipeline(task);
+    const result = await runPipeline(task, logger);
 
-  console.error("");
-  if (result.status === "ok") {
-    const { frontmatter } = await readTask(taskPath);
-    console.error(
-      pc.green(`flow: pipeline ok — status now ${frontmatter.status}`),
-    );
-    if (frontmatter.pr) {
-      const url = await fetchPrUrl(
-        frontmatter.pr,
-        frontmatter.worktree ?? repoRoot,
-      );
-      const line = url ?? `PR #${frontmatter.pr} opened`;
-      console.error(pc.green(`flow: ${line}`));
+    if (result.status === "ok") {
+      const { frontmatter } = await readTask(taskPath);
+      logger.success(`pipeline ok — status now ${frontmatter.status}`);
+      if (frontmatter.pr) {
+        const url = await fetchPrUrl(
+          frontmatter.pr,
+          frontmatter.worktree ?? repoRoot,
+        );
+        logger.success(url ?? `PR #${frontmatter.pr} opened`);
+      }
+      return;
     }
-    return;
-  }
 
-  console.error(pc.red(`flow: pipeline ${result.status} — ${result.reason}`));
-  process.exit(1);
+    logger.error(`pipeline ${result.status} — ${result.reason}`);
+    exitCode = 1;
+  } finally {
+    await logger.close();
+    if (exitCode !== 0) process.exit(exitCode);
+  }
 }
 
 async function fetchPrUrl(

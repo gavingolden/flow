@@ -1,13 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { execa } from "execa";
+import type { Logger } from "../../util/logger.js";
 
 export interface VerifyGateResult {
   ok: boolean;
   output: string;
 }
 
-export async function runVerifyGate(cwd: string): Promise<VerifyGateResult> {
+export async function runVerifyGate(
+  cwd: string,
+  logger?: Logger,
+): Promise<VerifyGateResult> {
   const pkgJsonPath = path.join(cwd, "package.json");
   let raw: string;
   try {
@@ -29,18 +33,30 @@ export async function runVerifyGate(cwd: string): Promise<VerifyGateResult> {
     };
   }
 
-  // execa 9.x throws on timeout and spawn failure (e.g. npm not on PATH).
-  // Convert those into the deterministic { ok, output } contract — the
-  // orchestrator relies on a non-throwing return for retry/surface logic.
-  try {
-    const result = await execa("npm", ["run", "verify"], {
+  logger?.event("verify-gate.start", `npm run verify (cwd=${cwd})`);
+  const start = Date.now();
+
+  const exec = () =>
+    execa("npm", ["run", "verify"], {
       cwd,
       reject: false,
       all: true,
       timeout: 10 * 60 * 1000,
     });
+
+  // execa 9.x throws on timeout and spawn failure (e.g. npm not on PATH).
+  // Convert those into the deterministic { ok, output } contract — the
+  // orchestrator relies on a non-throwing return for retry/surface logic.
+  try {
+    const result = logger ? await logger.withHeartbeat("verify", exec) : await exec();
+    const durSec = Math.round((Date.now() - start) / 1000);
+    const ok = result.exitCode === 0;
+    logger?.event(
+      "verify-gate.exit",
+      `exit=${result.exitCode} dur=${durSec}s ok=${ok}`,
+    );
     return {
-      ok: result.exitCode === 0,
+      ok,
       output: result.all ?? result.stdout ?? "",
     };
   } catch (err) {
@@ -51,6 +67,8 @@ export async function runVerifyGate(cwd: string): Promise<VerifyGateResult> {
       shortMessage?: string;
       message?: string;
     };
+    const durSec = Math.round((Date.now() - start) / 1000);
+    logger?.event("verify-gate.exit", `threw dur=${durSec}s ok=false`);
     return {
       ok: false,
       output:
@@ -65,19 +83,32 @@ export async function surfaceVerifyFailureOnPr(
   prNumber: number,
   worktreePath: string,
   failureLog: string,
+  logger?: Logger,
 ): Promise<void> {
   const view = await execa(
     "gh",
     ["pr", "view", String(prNumber), "--json", "body", "--jq", ".body"],
     { cwd: worktreePath, reject: false },
   );
-  if (view.exitCode !== 0) return;
+  if (view.exitCode !== 0) {
+    logger?.warn(
+      `gh pr view #${prNumber} exit ${view.exitCode}; cannot surface verify failure`,
+    );
+    return;
+  }
   const updated = upsertCautionBlock(view.stdout ?? "", failureLog);
-  await execa(
+  const edit = await execa(
     "gh",
     ["pr", "edit", String(prNumber), "--body-file", "-"],
     { cwd: worktreePath, input: updated, reject: false },
   );
+  if (edit.exitCode !== 0) {
+    logger?.warn(
+      `gh pr edit #${prNumber} exit ${edit.exitCode}; verify-failure caution block may not be present`,
+    );
+  } else {
+    logger?.info(`verify failure surfaced on PR #${prNumber}`);
+  }
 }
 
 // Exported for unit-test reach (PR 8). Keep behaviour idempotent: a prior

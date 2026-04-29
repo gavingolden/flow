@@ -8,6 +8,7 @@ import {
 import { runHeadless } from "../headless.js";
 import { retryOnce } from "../retry.js";
 import { PhaseResult } from "../types.js";
+import { NoopLogger, type Logger } from "../../util/logger.js";
 
 const NON_INTERACTIVE_PREAMBLE = `You are running in non-interactive headless mode driven by the flow orchestrator.
 Do not pause for confirmations or ask the user any clarifying questions. Work
@@ -15,9 +16,13 @@ through the entire skill end-to-end with reasonable assumptions, write all
 deliverables to disk, and exit when finished. If a question would normally
 gate a confirmation, answer it yourself and proceed.`;
 
-export async function runPlanPhase(task: Task): Promise<PhaseResult> {
+export async function runPlanPhase(
+  task: Task,
+  logger: Logger = NoopLogger,
+): Promise<PhaseResult> {
   if (task.frontmatter.status === "planned") return { status: "ok" };
   await transitionStatus(task, "planning");
+  logger.event("task.status", "planning");
 
   const planDir = path.join(
     task.frontmatter.target_repo,
@@ -26,9 +31,16 @@ export async function runPlanPhase(task: Task): Promise<PhaseResult> {
     `${task.frontmatter.id}-plan`,
   );
   await fs.mkdir(planDir, { recursive: true });
+  logger.event("plan.dir", planDir);
 
-  const result = await retryOnce(async (_attempt, lastFailure) => {
+  const result = await retryOnce(async (attempt, lastFailure) => {
+    if (attempt > 1) {
+      logger.warn(
+        `plan attempt ${attempt} after failure: ${truncate(lastFailure ?? "", 200)}`,
+      );
+    }
     const prompt = buildPlanPrompt(task, planDir, lastFailure);
+    logger.info(`plan: invoking claude (attempt ${attempt})`);
     const r = await runHeadless({
       cwd: task.frontmatter.target_repo,
       prompt,
@@ -42,6 +54,8 @@ export async function runPlanPhase(task: Task): Promise<PhaseResult> {
         "Bash(cat *)",
       ],
       timeoutMs: 10 * 60 * 1000,
+      logger,
+      label: "claude (plan)",
     });
     return r.ok
       ? { ok: true as const, value: r }
@@ -49,12 +63,15 @@ export async function runPlanPhase(task: Task): Promise<PhaseResult> {
   });
 
   if (!result.ok) {
+    logger.error(`plan: ${result.error}`);
     return { status: "failed", reason: `plan phase failed: ${result.error}` };
   }
 
-  const summary = await summarizePlanOutputs(planDir);
+  const summary = await summarizePlanOutputs(planDir, logger);
   await appendPhaseOutput(task, "plan", summary);
+  logger.event("task.appendPhaseOutput", "plan");
   await transitionStatus(task, "planned");
+  logger.event("task.status", "planned");
   return { status: "ok" };
 }
 
@@ -108,7 +125,10 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[truncated]`;
 }
 
-async function summarizePlanOutputs(planDir: string): Promise<string> {
+async function summarizePlanOutputs(
+  planDir: string,
+  logger: Logger,
+): Promise<string> {
   const expected = ["prd.md", "task-breakdown.md", "pr-description-draft.md"];
   const lines: string[] = [`- Plan directory: ${planDir}`];
   for (const name of expected) {
@@ -116,8 +136,10 @@ async function summarizePlanOutputs(planDir: string): Promise<string> {
     try {
       await fs.access(p);
       lines.push(`- ${name}: present`);
+      logger.info(`plan deliverable present: ${name}`);
     } catch {
       lines.push(`- ${name}: MISSING`);
+      logger.warn(`plan deliverable missing: ${name}`);
     }
   }
   return lines.join("\n");

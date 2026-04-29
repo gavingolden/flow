@@ -9,44 +9,59 @@ import {
 } from "../../state/task-file.js";
 import { deriveBranchName } from "../../state/ids.js";
 import { PhaseResult } from "../types.js";
+import { NoopLogger, type Logger } from "../../util/logger.js";
 
-export async function runWorktreePhase(task: Task): Promise<PhaseResult> {
+export async function runWorktreePhase(
+  task: Task,
+  logger: Logger = NoopLogger,
+): Promise<PhaseResult> {
   // If a prior run already created the worktree (frontmatter populated, dir
   // exists), skip the script. This handles both clean re-invocation and
   // crash-recovery between updateTaskFrontmatter and the final
   // transitionStatus.
   if (task.frontmatter.worktree && existsSync(task.frontmatter.worktree)) {
+    logger.info(
+      `worktree: already present at ${task.frontmatter.worktree}, skipping script`,
+    );
     if (task.frontmatter.status !== "worktree-ready") {
       await transitionStatus(task, "worktree-ready");
+      logger.event("task.status", "worktree-ready");
     }
     return { status: "ok" };
   }
   await transitionStatus(task, "creating-worktree");
+  logger.event("task.status", "creating-worktree");
 
   const branch = deriveBranchName(task.frontmatter.id);
+  logger.event("worktree.branch", branch);
   const scriptPath = path.join(
     task.frontmatter.target_repo,
     "scripts",
     "new-agent-worktree.ts",
   );
   if (!existsSync(scriptPath)) {
-    return {
-      status: "failed",
-      reason: `target repo missing ${scriptPath} — flow requires this script for the worktree phase`,
-    };
+    const reason = `target repo missing ${scriptPath} — flow requires this script for the worktree phase`;
+    logger.error(reason);
+    return { status: "failed", reason };
   }
 
   // The script in econ-data uses a `bun` shebang and is chmod +x. Direct
   // invocation respects the shebang (no need for `npx tsx` or `bun run`).
+  logger.event("subprocess.spawn", `${scriptPath} ${branch}`);
+  const start = Date.now();
   const result = await execa(scriptPath, [branch], {
     cwd: task.frontmatter.target_repo,
     reject: false,
   });
+  const durSec = Math.round((Date.now() - start) / 1000);
+  logger.event(
+    "subprocess.exit",
+    `worktree-script exit=${result.exitCode} dur=${durSec}s`,
+  );
   if (result.exitCode !== 0) {
-    return {
-      status: "failed",
-      reason: `worktree script exit ${result.exitCode}: ${result.stderr || result.stdout}`,
-    };
+    const reason = `worktree script exit ${result.exitCode}: ${result.stderr || result.stdout}`;
+    logger.error(reason);
+    return { status: "failed", reason };
   }
 
   const worktreePath = await findWorktreePath(
@@ -54,19 +69,22 @@ export async function runWorktreePhase(task: Task): Promise<PhaseResult> {
     branch,
   );
   if (!worktreePath) {
-    return {
-      status: "failed",
-      reason: `worktree script reported success but branch ${branch} not found in 'git worktree list --porcelain'`,
-    };
+    const reason = `worktree script reported success but branch ${branch} not found in 'git worktree list --porcelain'`;
+    logger.error(reason);
+    return { status: "failed", reason };
   }
+  logger.event("worktree.path", worktreePath);
 
   await updateTaskFrontmatter(task, { worktree: worktreePath, branch });
+  logger.event("task.frontmatter", `worktree=${worktreePath} branch=${branch}`);
   await appendPhaseOutput(
     task,
     "worktree",
     `- Branch: ${branch}\n- Path: ${worktreePath}`,
   );
+  logger.event("task.appendPhaseOutput", "worktree");
   await transitionStatus(task, "worktree-ready");
+  logger.event("task.status", "worktree-ready");
   return { status: "ok" };
 }
 
