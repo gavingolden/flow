@@ -45,6 +45,19 @@ const M2_PIPELINE: readonly PhaseSpec[] = [
   },
 ];
 
+// Union of `unfinishedStatuses` across the configured pipeline. A task
+// in any of these states still has work to do and is therefore subject
+// to claim acquisition. Terminal/settled statuses (`merged`, `aborted`,
+// `needs-human`, etc.) bypass the claim entirely so the runner's
+// existing no-op behaviour is preserved.
+const CLAIMABLE_STATUSES: ReadonlySet<TaskStatus> = new Set(
+  M2_PIPELINE.flatMap((spec) => spec.unfinishedStatuses),
+);
+
+export function isClaimableStatus(status: TaskStatus): boolean {
+  return CLAIMABLE_STATUSES.has(status);
+}
+
 export interface RunPipelineOptions {
   // Per-task directory for jsonl logs. When set, the runner opens a
   // per-phase sink at <taskDir>/logs/<phase>-<stamp>.jsonl. When unset,
