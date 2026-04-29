@@ -422,6 +422,7 @@ Check whether the PR description follows the standardized format with these sect
 - **Why** — problem statement and motivation
 - **What** — deliverables as capabilities/behaviors
 - **Key decisions** — non-obvious choices with rationale
+- **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs)
 - **How to test** — verification steps for reviewers
 
 **If the description is empty or missing**: Draft one from the diff and PR title using the
