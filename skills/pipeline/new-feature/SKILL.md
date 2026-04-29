@@ -136,6 +136,26 @@ Step 1. Each bullet: decision + why. During implementation, if a non-obvious cho
 or an approach is tried and abandoned, append it here and also capture it in the commit
 body per `AGENTS.md` — so future reviewers and agents don't retrace dead ends.>
 
+## User-facing changes
+
+<Concrete user-observable deltas — phrase in user terms ("you can now run `flow log <id>`"),
+not implementation terms ("added log subcommand to the CLI router"). Consider these
+categories: new CLI commands or subcommands, new flags or changed defaults,
+renamed/removed commands, changed prompts or output formats, new env vars, and changed
+file locations users interact with. Derive each bullet from the matching `it.todo()` spec
+that describes externally observable behaviour — every spec asserting an output, a CLI
+surface, or a side effect users can see should produce a bullet here.
+
+Format: freeform bullets. For renames or removals, use a `Before → After` bullet so the
+delta reads at a glance. Example:
+
+- New command: `flow log <id>` opens the per-phase jsonl log for a task.
+- Before → After: `flow status` (removed) → `flow tasks` (lists all tasks with status column).
+
+If the change is pure-internal (refactor, infra, no user-observable delta), write the literal
+word `none` under the heading. Never delete the heading — `none` is an explicit author
+affirmation, while a missing heading is ambiguous between "no change" and "author forgot".>
+
 ## How to test
 
 <From the it.todo() specs: the acceptance criteria a reviewer needs to confirm, rendered
@@ -158,6 +178,9 @@ for quick confirmation before proceeding to implementation.
   The `pr-review` skill will catch missing descriptions.
 - "Why" must focus on the user's problem, not the implementation approach.
 - Keep it concise — this is a PR description, not a design doc.
+- "User-facing changes" must be phrased in user terms (what someone running the tool will
+  see or do differently), not implementation terms. If the PR has no user-observable
+  delta, write `none` under the heading — never omit the heading itself.
 - Render every "How to test" step as a `- [ ]` markdown checkbox so reviewers can tick
   items off as they verify.
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
