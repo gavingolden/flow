@@ -410,6 +410,11 @@ When scoring Testability, consult `references/manual-test-rubric.md` — it defi
 UI features, config changes). For non-material changes (pure internal refactors, typo
 fixes), happy-path only is acceptable; do not over-prescribe.
 
+**Format note (advisory, not a rubric criterion):** "How to test" should be a markdown
+checklist (`- [ ]` items) so reviewers can tick steps off as they verify. If the section
+is otherwise good but uses plain bullets, do not flag it as a Testability failure — but
+when you draft or edit a "How to test" section in Step 12e, always emit `- [ ]` items.
+
 ### 12c. Deployment Follow-Up Check
 
 Scan the diff for changes that require manual follow-up outside the codebase. For each item
@@ -456,6 +461,16 @@ Compare the current implementation (diff + any changes from Steps 7–8) against
   "client-side only" but implementation adds a server endpoint)
 
 ### 12e. Resolution
+
+**Drafting conventions** (apply to every drafted/edited description in this step):
+
+- Render "How to test" items as `- [ ]` markdown checkboxes.
+- Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
+  and let the renderer wrap it. GitHub renders one long line as one flowing paragraph;
+  hard wraps go ragged the moment a sentence is edited and add no value.
+- If you are editing an existing description that is hard-wrapped, do not reflow it just
+  for formatting — preserve the author's wrapping. The no-hard-wrap rule applies to your
+  own output, not to lines you are leaving untouched.
 
 Based on 12a-12d:
 

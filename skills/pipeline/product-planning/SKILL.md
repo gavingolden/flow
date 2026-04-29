@@ -245,9 +245,15 @@ decision + a brief rationale. Include scope exclusions that a reviewer might won
 
 ## How to test
 
-<Derive from the acceptance criteria in User Stories. List the 2-4 most important verification
-steps a reviewer would follow. Prefer manual steps over "run the tests" — but include the
-test command if tests exist.>
+<Derive from the acceptance criteria in User Stories. The verification steps a reviewer
+would follow, rendered as a markdown checklist. Each item starts with `- [ ]`. Prefer
+manual steps over "run the tests" — but include the test command as one of the items if
+tests exist. Use as many items as the change warrants — don't pad to look thorough and
+don't truncate to look concise. Example:
+
+- [ ] Run `npm run test -- <test-file>` — all specs pass.
+- [ ] Open /portfolio with the seeded user — allocation chart renders.
+- [ ] Switch the time range to 1y — chart updates without a full reload.>
 ```
 
 **Rules:**
@@ -259,6 +265,11 @@ test command if tests exist.>
   "improve the user experience".
 - "Key decisions" should only include decisions where a reasonable alternative existed. Don't
   list obvious choices.
+- Render every "How to test" step as a `- [ ]` markdown checkbox so reviewers can tick
+  items off as they verify.
+- Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
+  and let the renderer wrap it. Hard wraps go ragged the moment a sentence is edited and
+  add no value on GitHub, which renders one long line as one flowing paragraph.
 - Save the draft to `pr-description-draft.md` in the working directory.
 
 ## 8. Present and Iterate
