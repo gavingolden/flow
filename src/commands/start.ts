@@ -87,15 +87,23 @@ async function printNextCommand(
   }
 
   // Multiple new files is unusual but possible if the user re-ran triage
-  // in a tight loop. Prefer one whose id contains today's date prefix.
+  // in a tight loop. Pick deterministically: today-prefixed first, then
+  // lex-max (task ids are date-prefixed so this is the most-recent file).
+  // fs.readdir() ordering is OS-dependent — never rely on created[0].
   const todayPrefix = new Date().toISOString().slice(0, 10);
-  const chosen =
-    created.find((name) => name.startsWith(todayPrefix)) ?? created[0]!;
+  const sorted = [...created].sort().reverse();
+  const chosen = sorted.find((name) => name.startsWith(todayPrefix)) ?? sorted[0]!;
 
   try {
     const task = await readTask(path.join(tasksDir, chosen));
+    const id = task.frontmatter.id;
+    // readTask casts frontmatter without validation; without this guard a
+    // task file missing `id` prints "flow run undefined" instead of warning.
+    if (typeof id !== "string" || id.trim() === "") {
+      throw new Error("task id missing or empty in frontmatter");
+    }
     console.error("");
-    console.error(pc.green(`flow: next — flow run ${task.frontmatter.id}`));
+    console.error(pc.green(`flow: next — flow run ${id}`));
   } catch {
     console.error("");
     console.error(pc.yellow(`flow: created ${chosen} but could not parse id`));

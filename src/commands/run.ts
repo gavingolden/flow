@@ -55,12 +55,20 @@ async function fetchPrUrl(
   prNumber: number,
   cwd: string,
 ): Promise<string | null> {
-  const result = await execa(
-    "gh",
-    ["pr", "view", String(prNumber), "--json", "url", "-q", ".url"],
-    { cwd, reject: false },
-  );
-  if (result.exitCode !== 0) return null;
-  const url = result.stdout.trim();
-  return url.length > 0 ? url : null;
+  // execa with reject:false still throws on spawn-time errors (gh missing,
+  // cwd deleted). The success path of `flow run` must never crash on a
+  // best-effort URL lookup, so swallow any throw and let the caller fall
+  // back to the bare `PR #<n>` line.
+  try {
+    const result = await execa(
+      "gh",
+      ["pr", "view", String(prNumber), "--json", "url", "-q", ".url"],
+      { cwd, reject: false },
+    );
+    if (result.exitCode !== 0) return null;
+    const url = result.stdout.trim();
+    return url.length > 0 ? url : null;
+  } catch {
+    return null;
+  }
 }

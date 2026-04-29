@@ -210,6 +210,19 @@ Smaller items that aren't milestone-blocking but should land when convenient:
   warrants its own session (touches the worktree script's structure, not just
   the bug).
 
+- **Unit-test the new CLI output helpers.** `src/commands/run.ts`'s
+  `fetchPrUrl()` and `src/commands/start.ts`'s `printNextCommand()` /
+  `listTaskMdFilenames()` (added in PR #8) are I/O wrappers with no
+  coverage — the rest of `src/commands/*.ts` has none either. Real bugs
+  tests would catch: the `execa` spawn-error path that crashes `flow run`
+  (fixed in PR #8 review), non-deterministic file selection when multiple
+  task files appear in one run (also fixed in PR #8 review), and frontmatter
+  validation gaps. Deferred because it requires standing up `execa`/`fs`
+  injection points across the commands layer — bar criterion (2): expands
+  cross-cutting test infrastructure. Trigger: address opportunistically
+  next time a `src/commands/*.ts` file is touched, or before the first
+  command grows non-trivial branching logic.
+
 - **Unit-test the install commands.** `src/install/scripts.ts` and
   `src/install/skills.ts` (added in PR #6) carry the symlink, gitignore, stale-test
   cleanup, and `git rm --cached` logic but have no automated tests — only the

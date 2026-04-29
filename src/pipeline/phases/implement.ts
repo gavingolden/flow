@@ -136,13 +136,15 @@ ${MANUAL_VALIDATION_RULE}
 
 When opening the PR, run:
 
-\`gh pr create --title '<title>' --body-file ${planDir}/pr-description-draft.md\`
+\`gh pr create --title "<title>" --body-file "${planDir}/pr-description-draft.md"\`
 
-Do NOT inline the body, do NOT use a heredoc, do NOT pass \`--body\`.
-Pointing \`gh\` directly at the file on disk is what keeps fenced code
-blocks from being re-escaped on github.com. If you need to amend the
-description (e.g. to add the Manual validation section above), edit
-\`pr-description-draft.md\` in place first, then point \`gh\` at it.
+Quote both arguments so paths containing spaces or shell-significant
+characters are passed through correctly. Do NOT inline the body, do NOT
+use a heredoc, do NOT pass \`--body\`. Pointing \`gh\` directly at the
+file on disk is what keeps fenced code blocks from being re-escaped on
+github.com. If you need to amend the description (e.g. to add the
+Manual validation section above), edit \`pr-description-draft.md\` in
+place first, then point \`gh\` at it.
 
 Before exiting, confirm you have: (a) committed and pushed your changes, and
 (b) opened a GitHub PR for branch ${task.frontmatter.branch}.${failureNote}`;
