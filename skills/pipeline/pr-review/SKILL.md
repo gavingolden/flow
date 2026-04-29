@@ -294,6 +294,53 @@ prevent.
   protection, network) — in that case, surface the error to the user. "I wasn't sure
   if I should push" is not a valid reason; the exemption removes the ambiguity.
 
+### 9c. Run "How to test" items and tick the boxes
+
+After 9b's commit + push, run the items in the PR body's **How to test** section so
+the description reflects actual verification, not the author's intent. The format note
+in 12b promises reviewers that checkbox state means something — leaving every box
+unticked after a successful run breaks that contract and forces the next reviewer
+(human or agent) to re-run everything from scratch.
+
+For each `- [ ]` item, classify before running:
+
+- **Runnable**: a shell command, test invocation, build, or script with deterministic
+  pass/fail from exit code. Examples: `npm run test`, `npm run typecheck`,
+  `RUN_INTEGRATION=1 npm run test -- foo`, `./scripts/foo.ts`, `curl localhost:3000/x`
+  paired with a documented assertion.
+- **Not runnable**: requires a browser, a deploy target, real human/UI judgment ("the
+  modal animates smoothly"), production credentials, or external services (Slack post,
+  Stripe redirect, real-LLM judgment). Leave unticked.
+
+For each runnable item:
+
+1. Execute it exactly as written. Same discipline as Step 9 — a non-zero exit means
+   investigate and fix the underlying issue, not explain it away.
+2. If a fix is needed, make a **new commit** (do not amend the pushed commit per
+   `AGENTS.md`) and `git push` before re-running.
+3. On pass, tick `- [ ]` → `- [x]` in your working copy of the body.
+
+After all runnable items are processed, write the body back in a single edit:
+
+```bash
+gh pr edit <number> --body-file /dev/stdin <<'EOF'
+<updated description with ticks applied>
+EOF
+```
+
+Apply the no-hard-wrap and preserve-existing-wrapping rules from 12e — do not reflow
+prose to flip a checkbox. The minimal diff is `[ ]` → `[x]`.
+
+Record unticked items in the report's **How to Test** section with a one-line reason
+("requires browser session", "needs prod creds", "subjective UI judgment"). Do not
+invent excuses for items you should run; the bar is "I literally cannot exec this
+from a terminal in this repo."
+
+If the PR has no "How to test" section or the section has zero items, this step is a
+no-op — the missing-section case is handled by Step 12b/12e. If 12e later drafts new
+items into the section, return here once on user confirmation to attempt to tick the
+new items before producing the final report.
+
 ## 10. Reply to PR Comments (Address mode only)
 
 Construct a JSON array of replies and pipe it to the reply script:
@@ -556,6 +603,11 @@ on the fail subtype:
 changing (focused on just the affected section is fine) and getting confirmation. The
 description is the author's voice — edits should improve clarity, not impose a rigid
 template.
+
+**After any 12e edit that adds `- [ ]` test items** (fail-shallow or fail-missing
+branches), re-run Step 9c against the newly added items to tick the runnable ones
+before producing the final report. fail-automatable runs its own tests inline and
+prunes the bullets, so it does not require re-entry.
 
 ## 13. Structured Report (Both modes)
 

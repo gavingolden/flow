@@ -70,6 +70,19 @@ If there were no review comments: "No review comments were found on this PR."
 
 ---
 
+### How to Test (from PR description)
+
+Mirror the PR body's checklist with verification status. One line per item.
+
+- [x] `<item as written>` — pass
+- [x] `<item as written>` — pass (<count> passed, <count> skipped)
+- [ ] `<item as written>` — not run: <one-line reason: requires browser, needs prod creds, subjective UI judgment, etc.>
+
+If every item was ticked: "All items ticked — PR body updated."
+If the section was missing or empty: "No 'How to test' section to verify; flagged in 12b."
+
+---
+
 ### PR Description Quality
 
 - **Format**: Standardized / Non-standard / Missing
