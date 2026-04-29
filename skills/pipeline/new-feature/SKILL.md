@@ -138,8 +138,15 @@ body per `AGENTS.md` — so future reviewers and agents don't retrace dead ends.
 
 ## How to test
 
-<From the it.todo() specs: list the 2-4 most representative acceptance criteria as manual
-verification steps. Include the test command: `npm run test -- <test-file>`.>
+<From the it.todo() specs: the acceptance criteria a reviewer needs to confirm, rendered
+as a markdown checklist they can tick off. Each item starts with `- [ ]`. Include the
+test command as one of the items. Use as many items as the change warrants — a one-line
+fix may need one or two; a new integration may need a dozen. Don't pad and don't truncate.
+Example:
+
+- [ ] Run `npm run test -- <test-file>` — all specs pass.
+- [ ] Visit /foo with valid input — chart renders within 2s.
+- [ ] Cut the network mid-load — error state appears, no console errors.>
 ```
 
 Save to `pr-description-draft.md` in the working directory. Present the draft to the user
@@ -151,6 +158,11 @@ for quick confirmation before proceeding to implementation.
   The `pr-review` skill will catch missing descriptions.
 - "Why" must focus on the user's problem, not the implementation approach.
 - Keep it concise — this is a PR description, not a design doc.
+- Render every "How to test" step as a `- [ ]` markdown checkbox so reviewers can tick
+  items off as they verify.
+- Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
+  and let the renderer wrap it. Hard wraps go ragged the moment a sentence is edited and
+  add no value on GitHub, which renders one long line as one flowing paragraph.
 
 ## 5. Implement the Feature
 
