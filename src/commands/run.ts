@@ -43,11 +43,14 @@ export async function runCommand(
 
   const resolved = await resolveTaskInput(taskId, repoRoot, process.cwd());
   if (resolved.kind === "not-found") {
-    console.error(
-      pc.red(
-        `error: task '${resolved.input}' not found in .orchestrator/tasks/ or .orchestrator/tasks/archive/`,
-      ),
-    );
+    // Tailor the wording: a bare id failure points the user at the two
+    // task roots they should check, while a path failure should not
+    // suggest the CLI ignored their path.
+    const message =
+      resolved.inputKind === "id"
+        ? `error: task '${resolved.input}' not found in .orchestrator/tasks/ or .orchestrator/tasks/archive/`
+        : `error: path '${resolved.input}' not found`;
+    console.error(pc.red(message));
     process.exit(1);
   }
   if (resolved.kind === "ambiguous") {

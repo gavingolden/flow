@@ -69,14 +69,16 @@ export async function findTaskFile(
 
 export type ResolvedTaskInput =
   | { kind: "ok"; path: string }
-  | { kind: "not-found"; input: string }
+  | { kind: "not-found"; input: string; inputKind: "id" | "path" }
   | { kind: "ambiguous"; candidates: string[] }
   | { kind: "invalid"; reason: string };
 
 // Classifies `input` and resolves it to a canonical task `.md` path under
 // `<repoRoot>/.orchestrator/tasks/`. The four-case discriminated union lets
 // the CLI surface distinct error wording for each failure mode without
-// re-running the path classification itself.
+// re-running the path classification itself. The `not-found` variant carries
+// `inputKind` so callers can distinguish "no task with that id" from
+// "no file at that path" without re-running the path-likeness check.
 //
 // Path normalization uses `path.resolve` only; we deliberately do not
 // `realpath` the input so a symlinked task tree does not produce a
@@ -88,15 +90,23 @@ export async function resolveTaskInput(
   cwd?: string,
 ): Promise<ResolvedTaskInput> {
   const tasksDir = path.join(repoRoot, ".orchestrator", "tasks");
+  // `.md`-suffixed inputs are always path-like — even a bare `foo.md` typed
+  // from inside `.orchestrator/tasks/` is the user pointing at a file, not a
+  // task id (which never carries an extension). Without this, a relative
+  // `.md` filename would fall through to `findTaskFile`, which would append
+  // a second `.md` and report `not-found`.
   const isPathLike =
     path.isAbsolute(input) ||
     input.startsWith("~") ||
     input.startsWith(".") ||
-    input.includes("/");
+    input.includes("/") ||
+    path.extname(input) === ".md";
 
   if (!isPathLike) {
     const found = await findTaskFile(input, repoRoot);
-    return found ? { kind: "ok", path: found } : { kind: "not-found", input };
+    return found
+      ? { kind: "ok", path: found }
+      : { kind: "not-found", input, inputKind: "id" };
   }
 
   const expanded =
@@ -109,7 +119,7 @@ export async function resolveTaskInput(
   try {
     stat = await fs.stat(abs);
   } catch {
-    return { kind: "not-found", input };
+    return { kind: "not-found", input, inputKind: "path" };
   }
 
   if (stat.isFile()) {
@@ -156,7 +166,7 @@ export async function resolveTaskInput(
     try {
       entries = await fs.readdir(tasksDir);
     } catch {
-      return { kind: "not-found", input };
+      return { kind: "not-found", input, inputKind: "path" };
     }
     const candidates: string[] = [];
     for (const entry of entries) {
@@ -166,7 +176,14 @@ export async function resolveTaskInput(
         candidates.push(path.join(tasksDir, entry));
       }
     }
-    if (candidates.length === 0) return { kind: "not-found", input };
+    // Sort the candidate list before returning so the `ambiguous` error
+    // is deterministic regardless of `fs.readdir` ordering (varies by
+    // filesystem on macOS/Linux). Reviewers and users expect the same
+    // output shape across runs.
+    candidates.sort();
+    if (candidates.length === 0) {
+      return { kind: "not-found", input, inputKind: "path" };
+    }
     if (candidates.length === 1) return { kind: "ok", path: candidates[0]! };
     return { kind: "ambiguous", candidates };
   }

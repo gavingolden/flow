@@ -39,7 +39,11 @@ describe("resolveTaskInput", () => {
 
   it("returns not-found for a bare id with no matching .md", async () => {
     const got = await resolveTaskInput("2026-04-29-missing", repoRoot);
-    expect(got).toEqual({ kind: "not-found", input: "2026-04-29-missing" });
+    expect(got).toEqual({
+      kind: "not-found",
+      input: "2026-04-29-missing",
+      inputKind: "id",
+    });
   });
 
   it("resolves an absolute path to a top-level task .md", async () => {
@@ -74,6 +78,21 @@ describe("resolveTaskInput", () => {
     expect(got).toEqual({ kind: "ok", path: expected });
   });
 
+  it("resolves a bare .md filename relative to cwd", async () => {
+    // The user is sitting in `.orchestrator/tasks/` (e.g. tab-completed
+    // `<id>.md`) and types `flow run <id>.md`. The input has no path
+    // separator, no leading `.` or `~`, isn't absolute — but it ends in
+    // `.md`, so the resolver must treat it as a path, not a bare id
+    // (which would look up `<id>.md.md`).
+    const expected = await writeTask("2026-04-29-foo.md");
+    const got = await resolveTaskInput(
+      "2026-04-29-foo.md",
+      repoRoot,
+      tasksDir,
+    );
+    expect(got).toEqual({ kind: "ok", path: expected });
+  });
+
   it("expands ~ against os.homedir()", async () => {
     // Build a fake home with the tasks layout under it so the tilde
     // expansion lands on a real on-disk file. We don't trust the real
@@ -102,7 +121,11 @@ describe("resolveTaskInput", () => {
   it("returns not-found for an absolute path that does not exist", async () => {
     const missing = path.join(tasksDir, "2026-04-29-nope.md");
     const got = await resolveTaskInput(missing, repoRoot);
-    expect(got).toEqual({ kind: "not-found", input: missing });
+    expect(got).toEqual({
+      kind: "not-found",
+      input: missing,
+      inputKind: "path",
+    });
   });
 
   it("returns invalid for a .md outside the tasks dir", async () => {
@@ -166,7 +189,11 @@ describe("resolveTaskInput", () => {
     const orphan = path.join(tasksDir, "2026-04-29-orphan-plan");
     await fs.mkdir(orphan, { recursive: true });
     const got = await resolveTaskInput(orphan, repoRoot);
-    expect(got).toEqual({ kind: "not-found", input: orphan });
+    expect(got).toEqual({
+      kind: "not-found",
+      input: orphan,
+      inputKind: "path",
+    });
   });
 
   it("returns ambiguous when two sibling stems both prefix-match", async () => {
@@ -177,7 +204,9 @@ describe("resolveTaskInput", () => {
     const got = await resolveTaskInput(dir, repoRoot);
     expect(got.kind).toBe("ambiguous");
     if (got.kind === "ambiguous") {
-      expect(got.candidates.sort()).toEqual([fooBarMd, fooMd].sort());
+      // Candidates must be returned sorted so the error output is
+      // deterministic across filesystems / `readdir` orderings.
+      expect(got.candidates).toEqual([fooBarMd, fooMd].sort());
     }
   });
 
