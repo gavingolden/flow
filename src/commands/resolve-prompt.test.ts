@@ -55,8 +55,11 @@ describe("resolvePromptSource", () => {
     expect(result).toEqual({ ok: true, prompt: "argv wins" });
     expect(stderr.buffer).toContain("ignoring stdin");
     expect(stderr.buffer.endsWith("\n")).toBe(true);
-    // stdin must remain unread so the producer's EPIPE behaviour is the
-    // standard Unix outcome, matching `git commit -m "x" <<EOF`.
+    // stdin is intentionally left undrained when argv wins. This matches
+    // `git commit -m "x" <<EOF`, where the producer-shell heredoc is simply
+    // discarded. A piped producer (`producer | flow start "argv"`) will
+    // block on backpressure until flow exits and only then see SIGPIPE —
+    // EPIPE is the *eventual* outcome, not the immediate one.
     expect((stdin as Readable).readableEnded).toBe(false);
   });
 
@@ -73,6 +76,21 @@ describe("resolvePromptSource", () => {
     const stdin = pipe("line one\nline two\n\n\n");
     const result = await resolvePromptSource([], { stdin, stderr });
     expect(result).toEqual({ ok: true, prompt: "line one\nline two" });
+  });
+
+  it("strips trailing CRLF (Windows line endings) without leaving stray \\r", async () => {
+    const stderr = new StringSink();
+    const stdin = pipe("hello\r\n");
+    const result = await resolvePromptSource([], { stdin, stderr });
+    expect(result).toEqual({ ok: true, prompt: "hello" });
+  });
+
+  it("strips mixed trailing CR/LF runs (\\r\\n\\r\\n, \\r\\n\\n, \\n\\r)", async () => {
+    const stderr = new StringSink();
+    const stdin = pipe("line one\r\nline two\r\n\r\n");
+    const result = await resolvePromptSource([], { stdin, stderr });
+    // Interior CRLF is preserved; only the trailing CR/LF run is stripped.
+    expect(result).toEqual({ ok: true, prompt: "line one\r\nline two" });
   });
 
   it("preserves leading whitespace and only trims trailing newlines", async () => {

@@ -16,7 +16,10 @@ export async function startCommand(argvParts: string[]): Promise<void> {
     console.error(pc.red(resolved.message));
     process.exit(resolved.exitCode);
   }
-  const trimmed = resolved.prompt;
+  // Not necessarily trimmed — the stdin path preserves leading whitespace and
+  // only strips trailing newlines. The variable is named `prompt`, not
+  // `trimmed`, to avoid suggesting another `.trim()` is safe to apply later.
+  const prompt = resolved.prompt;
 
   // Canonicalise to the primary worktree so a `flow start` invoked from
   // inside a child worktree still anchors the new task to the main repo's
@@ -47,7 +50,7 @@ export async function startCommand(argvParts: string[]): Promise<void> {
     await execa(
       "claude",
       [
-        trimmed,
+        prompt,
         "--append-system-prompt", systemPrompt,
         // `default` opts out of plan-mode auto-entry (which previously
         // hijacked triage into implementation) while still surfacing each

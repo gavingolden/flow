@@ -37,7 +37,10 @@ export async function resolvePromptSource(
     chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
   }
   const raw = Buffer.concat(chunks).toString("utf8");
-  const prompt = raw.replace(/\n+$/, "");
+  // Strip any mix of trailing CR/LF — handles `\n+`, `\r\n+`, and bare `\r`
+  // tails so prompts piped from CRLF tools (Windows, some terminals) match
+  // the same "single-line at the end" semantics as `$(cat <<EOF …)`.
+  const prompt = raw.replace(/[\r\n]+$/, "");
   if (prompt.length === 0) {
     return {
       ok: false,
