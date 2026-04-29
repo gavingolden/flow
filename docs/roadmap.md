@@ -400,7 +400,7 @@ Smaller items that aren't phase-blocking but should land when convenient:
   them requires standing up a fake-execa harness that streams `data`
   chunks deterministically (bar criterion 2: needs new test
   infrastructure). Trigger: address opportunistically next time
-  `headless.ts` or `verify-gate.ts` is touched, or before M3's verify
+  `headless.ts` or `verify-gate.ts` is touched, or before PR 5's verify
   retry-loop work begins (the new attempt-counting will be hard to verify
   without this harness).
 
