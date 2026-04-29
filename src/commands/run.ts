@@ -4,7 +4,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { execa } from "execa";
 import pc from "picocolors";
-import { findGitRoot, findTaskFile } from "../util/git.js";
+import { findGitRoot, resolveTaskInput } from "../util/git.js";
 import { readTask } from "../state/task-file.js";
 import { isClaimableStatus, runPipeline, taskDirFor } from "../pipeline/runner.js";
 import { createLogger } from "../util/logger.js";
@@ -41,15 +41,28 @@ export async function runCommand(
     process.exit(1);
   }
 
-  const taskPath = await findTaskFile(taskId, repoRoot);
-  if (!taskPath) {
-    console.error(
-      pc.red(
-        `error: task '${taskId}' not found in .orchestrator/tasks/ or .orchestrator/tasks/archive/`,
-      ),
-    );
+  const resolved = await resolveTaskInput(taskId, repoRoot, process.cwd());
+  if (resolved.kind === "not-found") {
+    // Tailor the wording: a bare id failure points the user at the two
+    // task roots they should check, while a path failure should not
+    // suggest the CLI ignored their path.
+    const message =
+      resolved.inputKind === "id"
+        ? `error: task '${resolved.input}' not found in .orchestrator/tasks/ or .orchestrator/tasks/archive/`
+        : `error: path '${resolved.input}' not found`;
+    console.error(pc.red(message));
     process.exit(1);
   }
+  if (resolved.kind === "ambiguous") {
+    console.error(pc.red(`error: input '${taskId}' is ambiguous; candidates:`));
+    for (const c of resolved.candidates) console.error(pc.red(`  ${c}`));
+    process.exit(1);
+  }
+  if (resolved.kind === "invalid") {
+    console.error(pc.red(`error: ${resolved.reason}`));
+    process.exit(1);
+  }
+  const taskPath = resolved.path;
 
   const task = await readTask(taskPath);
   // The task directory is conceptually "owned" by the worktree phase, but
