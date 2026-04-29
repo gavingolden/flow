@@ -13,10 +13,10 @@ export type PhaseName = (typeof PHASE_ORDER)[number];
 
 export const TASK_STATUSES = [
   "triaged",
-  "planning",
-  "planned",
   "creating-worktree",
   "worktree-ready",
+  "planning",
+  "planned",
   "implementing",
   "pr-open",
   "verifying",
@@ -29,12 +29,18 @@ export const TASK_STATUSES = [
 ] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
+// PHASE_ORDER puts `plan` before `worktree` (idx 1 vs 2) for visual continuity
+// with the original architecture diagrams, but the actual execution order is
+// worktree-first. As a result, statuses past `worktree-ready` map to
+// `worktree` (idx 2) — checking through worktree visually ticks triage, plan,
+// and worktree, which matches what has actually completed once the plan phase
+// is in progress or done.
 const STATUS_TO_LAST_CHECKED: Record<TaskStatus, PhaseName> = {
   triaged: "triage",
-  planning: "triage",
-  planned: "plan",
-  "creating-worktree": "plan",
+  "creating-worktree": "triage",
   "worktree-ready": "worktree",
+  planning: "worktree",
+  planned: "worktree",
   implementing: "worktree",
   "pr-open": "implement",
   verifying: "implement",

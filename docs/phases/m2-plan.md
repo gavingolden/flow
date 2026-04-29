@@ -11,16 +11,27 @@ Read first: `architecture.md`, `task-schema.md`, and `phases/triage.md`.
 Add three phases and a `flow run <task-id>` command that drives them.
 
 ```
-triaged ──► planning ──► planned ──► creating-worktree ──► worktree-ready
-                                                              │
-                                                              ▼
-                                                        implementing
-                                                              │
-                                                              ▼
-                                                          pr-open  (terminal for M2)
+triaged ──► creating-worktree ──► worktree-ready ──► planning ──► planned
+                                                                    │
+                                                                    ▼
+                                                              implementing
+                                                                    │
+                                                                    ▼
+                                                                pr-open  (terminal for M2)
 ```
 
 `pr-open` is the M2 terminal status. M3 takes over from there.
+
+> **Post-M2 refinement (worktree-first ordering).** The original M2
+> sketch ran `plan → worktree → implement` so the plan phase could
+> execute in the main checkout. That ordering serialised every
+> `flow run`: a second invocation against the same target repo would
+> race the first one's plan phase on the shared working tree. The
+> shipped M2 reorders to `worktree → plan → implement` and symlinks
+> `.orchestrator/` from each new worktree back to the main repo so
+> task state stays a single source of truth. See `phases/worktree.md`
+> and `phases/plan.md` for the contract details, and the
+> 2026-04-28-worktree-first-for-concurrent-runs PR for the rationale.
 
 ## New CLI surface
 

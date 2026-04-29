@@ -17,6 +17,12 @@ gate a confirmation, answer it yourself and proceed.`;
 
 export async function runPlanPhase(task: Task): Promise<PhaseResult> {
   if (task.frontmatter.status === "planned") return { status: "ok" };
+  if (!task.frontmatter.worktree) {
+    return {
+      status: "failed",
+      reason: "plan phase requires frontmatter.worktree (set by worktree phase)",
+    };
+  }
   await transitionStatus(task, "planning");
 
   const planDir = path.join(
@@ -30,7 +36,7 @@ export async function runPlanPhase(task: Task): Promise<PhaseResult> {
   const result = await retryOnce(async (_attempt, lastFailure) => {
     const prompt = buildPlanPrompt(task, planDir, lastFailure);
     const r = await runHeadless({
-      cwd: task.frontmatter.target_repo,
+      cwd: task.frontmatter.worktree!,
       prompt,
       allowedTools: [
         "Read",

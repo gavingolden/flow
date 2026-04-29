@@ -1,15 +1,18 @@
-# Phase 2 — worktree
+# Phase 1 — worktree
 
-Pure script phase. No LLM involvement. Calls the target repo's
-`scripts/new-agent-worktree.ts` to create a parallel worktree on a new
-feature branch, then records the worktree path and branch name in the
-task frontmatter.
+Pure script phase. No LLM involvement. Runs as the *first* post-triage
+phase so every later phase, including plan, executes inside the per-task
+worktree. Calls the target repo's `scripts/new-agent-worktree.ts` to
+create a parallel worktree on a new feature branch, records the
+worktree path and branch name in the task frontmatter, and creates a
+`.orchestrator` directory symlink so the new worktree shares task state
+with the main repo.
 
 **Status: shipped (M2).**
 
 ## Inputs
 
-- A task file with `status: planned` and a populated
+- A task file with `status: triaged` and a populated
   `target_repo` frontmatter pointing at a git repo that contains
   `scripts/new-agent-worktree.ts`.
 
@@ -18,9 +21,11 @@ task frontmatter.
 - `frontmatter.worktree` — absolute path to the created worktree.
 - `frontmatter.branch` — the new branch name (e.g.
   `agent/add-portfolio-chart`).
+- `<worktree>/.orchestrator` — directory symlink pointing at
+  `<target_repo>/.orchestrator`.
 - `## Phase outputs > worktree` populated with branch + path.
 
-Status transitions: `planned → creating-worktree → worktree-ready`.
+Status transitions: `triaged → creating-worktree → worktree-ready`.
 
 ## Branch naming
 
@@ -67,13 +72,65 @@ line matches the branch we just created, and returns that stanza's
 human-readable output and gives us a stable contract independent of
 the target repo.
 
+## Side effects
+
+After the script returns successfully, the phase creates a
+`.orchestrator` symlink inside the new worktree pointing at the main
+repo's `.orchestrator/` directory:
+
+```
+<worktree>/.orchestrator → <target_repo>/.orchestrator
+```
+
+This is what makes worktree-first ordering work: the plan phase (and
+every later phase) runs inside the worktree, but their writes to
+`.orchestrator/tasks/<id>-plan/` resolve through the symlink to the
+single shared task store on the main repo. Multiple concurrent `flow
+run` invocations against the same repo therefore see consistent task
+state regardless of which worktree they execute from.
+
+The symlink creation is idempotent: a re-run leaves an existing
+correct symlink alone, replaces a wrong-target symlink, and refuses to
+overwrite a regular file or directory at the path (returns `failed`
+rather than destroying user data).
+
+The bundled `templates/scripts/new-agent-worktree.ts` deliberately
+does **not** know about `.orchestrator/`. Keeping that script
+flow-agnostic lets target repos use it for ad-hoc parallel agent
+sessions; flow's worktree phase wrapper owns the flow-specific
+symlink.
+
+## Orphan-branch preflight
+
+Before invoking the script, the phase runs a preflight check for the
+"branch exists ∧ worktree missing" orphan condition (a prior crash
+between `git branch` and `git worktree add`):
+
+- `git show-ref --verify refs/heads/<branch>` reports the branch.
+- `git worktree list --porcelain` does not list a worktree for it.
+
+If both are true, the phase exits with `failed` and a reason that
+includes the exact remediation command:
+
+```
+branch agent/<slug> already exists but has no matching worktree —
+delete the orphan with: git -C <target_repo> branch -D agent/<slug>
+```
+
+The preflight does **not** auto-delete the branch. Auto-`--force` on
+stale branches is a footgun; the user resolves manually and re-runs.
+Status is left at `creating-worktree` so the next run re-enters the
+phase cleanly.
+
 ## Failure modes
 
 | Symptom | Reason | Fix |
 |---|---|---|
 | `target repo missing scripts/new-agent-worktree.ts` | Script not present in the target | Run `flow install` from inside the target repo to symlink it from flow's bundled `templates/scripts/`. flow does not auto-install — it has to be opt-in per repo |
+| `branch <name> already exists but has no matching worktree` | Orphan branch from a prior crash between `git branch` and `git worktree add` | Run the printed `git -C <repo> branch -D <branch>` and re-run `flow run <id>` |
 | `worktree script exit <N>` | Script ran but failed (branch already exists, dirty index, etc.) | Investigate target repo state; do not `git worktree remove --force` blindly |
 | `script success but branch not found in 'git worktree list'` | Script printed success but didn't actually register a worktree (rare) | Open an issue against the target repo's script |
+| `<path>/.orchestrator exists and is not a symlink — refusing to overwrite` | Pre-existing regular file or directory at the symlink target | Inspect the file; remove or rename it, then re-run |
 
 No retry for any of these — the worktree phase aborts (`status: failed`)
 on first error per m2-plan.md §"On failure". Manual investigation is
