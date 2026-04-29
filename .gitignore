@@ -5,6 +5,7 @@ dist/
 .DS_Store
 .env
 .env.local
+.idea/
 
 # managed by flow install-skills
 # (symlinks resolve to absolute paths and aren't portable)
