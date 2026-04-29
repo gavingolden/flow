@@ -45,17 +45,58 @@ export async function createLogger(opts: CreateLoggerOptions): Promise<Logger> {
 
   await fsp.mkdir(opts.runsDir, { recursive: true });
   const stamp = now().toISOString().replace(/[:.]/g, "-");
-  const filePath = path.join(opts.runsDir, `${opts.taskId}-${stamp}.log`);
+  // Sanitize taskId before joining into a path. task.frontmatter.id comes
+  // from on-disk YAML and could in principle contain `/`, `..`, or other
+  // characters that would let the log file escape `runsDir` or create
+  // nested directories. Replace anything outside a conservative filename
+  // alphabet with `_` so the result is always a single safe filename
+  // segment.
+  const safeTaskId = opts.taskId.replace(/[^A-Za-z0-9._-]/g, "_");
+  const filePath = path.join(opts.runsDir, `${safeTaskId}-${stamp}.log`);
   const stream = fs.createWriteStream(filePath, { flags: "a", encoding: "utf8" });
+  // Stage 1: wait for the file to open. A failure here is fatal — there's
+  // no log file to fall back to.
   await new Promise<void>((resolve, reject) => {
-    stream.on("open", () => resolve());
-    stream.on("error", reject);
+    const onOpen = (): void => {
+      stream.off("error", onOpenError);
+      resolve();
+    };
+    const onOpenError = (err: Error): void => {
+      stream.off("open", onOpen);
+      reject(err);
+    };
+    stream.once("open", onOpen);
+    stream.once("error", onOpenError);
+  });
+  // Stage 2: install a long-lived error handler so a later failure (disk
+  // full, permission change) surfaces to stderr instead of being swallowed
+  // by a resolved promise's no-op `reject` (or escalating to an unhandled
+  // 'error' event that crashes the process). Best-effort: write a red line
+  // to stdout sink so the user notices the persistent log has stopped.
+  stream.on("error", (err: Error) => {
+    const msg = `[logger] write to ${filePath} failed: ${err.message}`;
+    try {
+      stdout.write(`${colors.red(msg)}\n`);
+    } catch {
+      // stdout itself failed — nothing more we can do.
+    }
   });
 
   const writeBoth = (styled: string, plain: string): void => {
-    stdout.write(`${styled}\n`);
-    const ts = now().toISOString();
-    stream.write(`${ts} ${plain.replace(ANSI_RE, "")}\n`);
+    // Each call may carry multi-line content (e.g. teed subprocess stderr,
+    // truncated failure logs). Split both sides on '\n' and write each line
+    // separately so the file sink keeps its per-line invariant: every line
+    // begins with an ISO-8601 timestamp and contains no ANSI codes. This
+    // matters for `tail -f` and for grep-by-timestamp on the log file.
+    const styledLines = styled.split("\n");
+    for (const line of styledLines) {
+      stdout.write(`${line}\n`);
+    }
+    const plainLines = plain.split("\n");
+    for (const line of plainLines) {
+      const ts = now().toISOString();
+      stream.write(`${ts} ${line.replace(ANSI_RE, "")}\n`);
+    }
   };
 
   const banner = `flow run ${opts.taskId} — started ${now().toISOString()}`;

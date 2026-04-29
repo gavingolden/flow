@@ -196,6 +196,60 @@ describe("createLogger", () => {
     await logger.close();
   });
 
+  it("prefixes every line of a multi-line message with its own ISO timestamp in the file sink", async () => {
+    const sink = new StringSink();
+    const fixed = new Date("2026-04-29T00:00:00.000Z");
+    const logger = await createLogger({
+      runsDir: path.join(tmp, "runs"),
+      taskId: "t",
+      now: () => fixed,
+      stdout: sink,
+    });
+    sink.buffer = "";
+    // Multi-line content shows up in real call sites (teed subprocess
+    // stderr, truncated failure logs, gate output blocks).
+    logger.warn("line one\nline two\nline three");
+    await logger.close();
+
+    const file = await fs.readFile(logger.filePath, "utf8");
+    // Drop the start banner line so we only assert on the new entries.
+    const lines = file
+      .trimEnd()
+      .split("\n")
+      .filter((l) => l.includes("line "));
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      expect(line).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z /);
+    }
+    expect(lines[0]).toContain("WARN  flow: line one");
+    // Continuation lines are emitted bare — no synthetic "WARN flow:" prefix —
+    // because we want the file sink to reflect the original payload faithfully
+    // while still giving every line a timestamp for tail / grep.
+    expect(lines[1]).toContain("line two");
+    expect(lines[2]).toContain("line three");
+  });
+
+  it("sanitizes unsafe characters in taskId so the log file stays inside runsDir", async () => {
+    const sink = new StringSink();
+    const fixed = new Date("2026-04-29T00:00:00.000Z");
+    const logger = await createLogger({
+      runsDir: path.join(tmp, "runs"),
+      taskId: "../evil/id with spaces",
+      now: () => fixed,
+      stdout: sink,
+    });
+    // Path must stay inside runsDir — no `..` segments, no nested dirs.
+    const expected = path.join(
+      tmp,
+      "runs",
+      ".._evil_id_with_spaces-2026-04-29T00-00-00-000Z.log",
+    );
+    expect(logger.filePath).toBe(expected);
+    await logger.close();
+    // File actually exists at the safe path.
+    await expect(fs.access(expected)).resolves.toBeUndefined();
+  });
+
   it("event renders with and without details", async () => {
     const sink = new StringSink();
     const logger = await createLogger({

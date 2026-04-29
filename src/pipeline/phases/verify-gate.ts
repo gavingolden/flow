@@ -85,29 +85,53 @@ export async function surfaceVerifyFailureOnPr(
   failureLog: string,
   logger?: Logger,
 ): Promise<void> {
-  const view = await execa(
-    "gh",
-    ["pr", "view", String(prNumber), "--json", "body", "--jq", ".body"],
-    { cwd: worktreePath, reject: false },
-  );
-  if (view.exitCode !== 0) {
+  // This is best-effort surfacing — invoked only on the verify-failure path
+  // where the *real* error has already been captured in `failureLog`. A
+  // throw here (gh missing from PATH, worktree deleted, etc.) must not
+  // mask the original failure or crash the orchestrator. `reject: false`
+  // suppresses non-zero exits but does NOT suppress spawn-time errors, so
+  // each execa call needs an explicit try/catch.
+  let body: string;
+  try {
+    const view = await execa(
+      "gh",
+      ["pr", "view", String(prNumber), "--json", "body", "--jq", ".body"],
+      { cwd: worktreePath, reject: false },
+    );
+    if (view.exitCode !== 0) {
+      logger?.warn(
+        `gh pr view #${prNumber} exit ${view.exitCode}; cannot surface verify failure`,
+      );
+      return;
+    }
+    body = view.stdout ?? "";
+  } catch (err) {
+    const e = err as { shortMessage?: string; message?: string };
     logger?.warn(
-      `gh pr view #${prNumber} exit ${view.exitCode}; cannot surface verify failure`,
+      `gh pr view #${prNumber} threw (${e.shortMessage ?? e.message ?? String(err)}); cannot surface verify failure`,
     );
     return;
   }
-  const updated = upsertCautionBlock(view.stdout ?? "", failureLog);
-  const edit = await execa(
-    "gh",
-    ["pr", "edit", String(prNumber), "--body-file", "-"],
-    { cwd: worktreePath, input: updated, reject: false },
-  );
-  if (edit.exitCode !== 0) {
-    logger?.warn(
-      `gh pr edit #${prNumber} exit ${edit.exitCode}; verify-failure caution block may not be present`,
+
+  const updated = upsertCautionBlock(body, failureLog);
+  try {
+    const edit = await execa(
+      "gh",
+      ["pr", "edit", String(prNumber), "--body-file", "-"],
+      { cwd: worktreePath, input: updated, reject: false },
     );
-  } else {
-    logger?.info(`verify failure surfaced on PR #${prNumber}`);
+    if (edit.exitCode !== 0) {
+      logger?.warn(
+        `gh pr edit #${prNumber} exit ${edit.exitCode}; verify-failure caution block may not be present`,
+      );
+    } else {
+      logger?.info(`verify failure surfaced on PR #${prNumber}`);
+    }
+  } catch (err) {
+    const e = err as { shortMessage?: string; message?: string };
+    logger?.warn(
+      `gh pr edit #${prNumber} threw (${e.shortMessage ?? e.message ?? String(err)}); verify-failure caution block not posted`,
+    );
   }
 }
 
