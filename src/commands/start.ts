@@ -4,8 +4,13 @@ import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import pc from "picocolors";
 import { findCanonicalRoot } from "../util/git.js";
-import { readTask } from "../state/task-file.js";
 import { resolvePromptSource } from "./resolve-prompt.js";
+import {
+  TRIAGE_SENTINEL_ENV,
+  cleanupSentinel,
+  createSentinelPath,
+  readSentinelTaskId,
+} from "./triage-sentinel.js";
 
 export async function startCommand(argvParts: string[]): Promise<void> {
   const resolved = await resolvePromptSource(argvParts, {
@@ -42,10 +47,14 @@ export async function startCommand(argvParts: string[]): Promise<void> {
   console.error(pc.dim("flow: launching triage session..."));
   console.error("");
 
-  // Snapshot before triage so we can identify the file it just wrote.
-  // File-diff is more reliable than asking the model to echo the id.
-  const beforeIds = await listTaskMdFilenames(tasksDir);
+  // Session-scoped sentinel: the parent generates a unique scratch path, the
+  // triage subprocess writes the new task id there as its final action, and
+  // we read exactly that file. This replaces a directory-diff that
+  // misattributed sibling sessions' task ids when two `flow start` runs
+  // overlapped.
+  const sentinelPath = createSentinelPath();
 
+  let triageExitCode: number | undefined;
   try {
     await execa(
       "claude",
@@ -62,63 +71,35 @@ export async function startCommand(argvParts: string[]): Promise<void> {
         // task.md still gets created.
         "--disallowed-tools", "Edit,MultiEdit,NotebookEdit",
       ],
-      { cwd: repoRoot, stdio: "inherit" },
+      {
+        cwd: repoRoot,
+        stdio: "inherit",
+        env: { ...process.env, [TRIAGE_SENTINEL_ENV]: sentinelPath },
+      },
     );
   } catch (err) {
-    const exitCode = (err as { exitCode?: number }).exitCode;
-    if (typeof exitCode === "number") process.exit(exitCode);
-    throw err;
-  }
-
-  await printNextCommand(tasksDir, beforeIds);
-}
-
-async function listTaskMdFilenames(tasksDir: string): Promise<Set<string>> {
-  try {
-    const entries = await fs.readdir(tasksDir);
-    return new Set(entries.filter((e) => e.endsWith(".md")));
-  } catch {
-    return new Set();
-  }
-}
-
-async function printNextCommand(
-  tasksDir: string,
-  beforeIds: Set<string>,
-): Promise<void> {
-  const after = await listTaskMdFilenames(tasksDir);
-  const created = [...after].filter((name) => !beforeIds.has(name));
-
-  if (created.length === 0) {
-    console.error("");
-    console.error(
-      pc.yellow("flow: triage exited without creating a task file"),
-    );
-    return;
-  }
-
-  // Multiple new files is unusual but possible if the user re-ran triage
-  // in a tight loop. Pick deterministically: today-prefixed first, then
-  // lex-max (task ids are date-prefixed so this is the most-recent file).
-  // fs.readdir() ordering is OS-dependent — never rely on created[0].
-  const todayPrefix = new Date().toISOString().slice(0, 10);
-  const sorted = [...created].sort().reverse();
-  const chosen = sorted.find((name) => name.startsWith(todayPrefix)) ?? sorted[0]!;
-
-  try {
-    const task = await readTask(path.join(tasksDir, chosen));
-    const id = task.frontmatter.id;
-    // readTask casts frontmatter without validation; without this guard a
-    // task file missing `id` prints "flow run undefined" instead of warning.
-    if (typeof id !== "string" || id.trim() === "") {
-      throw new Error("task id missing or empty in frontmatter");
+    triageExitCode = (err as { exitCode?: number }).exitCode;
+    if (typeof triageExitCode !== "number") {
+      await cleanupSentinel(sentinelPath);
+      throw err;
     }
-    console.error("");
-    console.error(pc.green(`flow: next — flow run ${id}`));
-  } catch {
-    console.error("");
-    console.error(pc.yellow(`flow: created ${chosen} but could not parse id`));
   }
+
+  if (triageExitCode === undefined) {
+    const id = await readSentinelTaskId(sentinelPath);
+    if (id === null) {
+      console.error("");
+      console.error(
+        pc.yellow("flow: triage exited without creating a task file"),
+      );
+    } else {
+      console.error("");
+      console.error(pc.green(`flow: next — flow run ${id}`));
+    }
+  }
+
+  await cleanupSentinel(sentinelPath);
+  if (triageExitCode !== undefined) process.exit(triageExitCode);
 }
 
 async function loadTriageSystemPrompt(repoRoot: string): Promise<string> {
