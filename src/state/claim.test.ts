@@ -59,13 +59,14 @@ describe("acquireClaim", () => {
     expect(readPid(lockPath(tmp))).toBe(process.pid);
   });
 
-  it("concurrent acquires in the same process — exactly one returns non-null", async () => {
-    // Same-process Promise.all: the existing-holder check serialises
-    // candidates 2..N because candidate 1's rename has already deposited
-    // an alive PID (the test process) into the canonical path.
-    const results = await Promise.all(
-      Array.from({ length: 10 }, async () => acquireClaim(tmp, TASK_ID)),
-    );
+  it("repeated same-process acquires — exactly one returns non-null", () => {
+    // `acquireClaim` is synchronous, so this verifies the live-holder
+    // fast-path skip for repeated attempts in the same process: the
+    // first call links our PID into the canonical lock, and every later
+    // call observes a live holder (us) and returns null. True
+    // cross-process EEXIST contention is exercised by
+    // `run.claim.smoke.test.ts`, which spawns real subprocesses.
+    const results = Array.from({ length: 10 }, () => acquireClaim(tmp, TASK_ID));
     const winners = results.filter((c) => c !== null);
     expect(winners).toHaveLength(1);
     expect(readPid(lockPath(tmp))).toBe(process.pid);
@@ -91,12 +92,23 @@ describe("acquireClaim", () => {
   });
 
   it("acquire writes our PID even when a stale temp file from a prior crash exists", () => {
-    // Defence in depth: a previous run could have crashed between
-    // writeFileSync(tmp) and renameSync — leaving a leftover temp. The
-    // next acquire reuses (overwrites) that path and renames, ending
-    // with our PID in the canonical lock.
+    // Defence in depth: a previous run could have crashed after
+    // writeFileSync(tmp) but before linkSync(tmp, canonical), leaving a
+    // leftover per-PID temp. The next acquire overwrites that path and
+    // links it into the canonical lock, ending with our PID recorded.
     const stale = path.join(tmp, `claim-${TASK_ID}-${process.pid}.tmp`);
     fsSync.writeFileSync(stale, "garbage\n", "utf8");
+    const claim = acquireClaim(tmp, TASK_ID);
+    expect(claim).not.toBeNull();
+    expect(readPid(lockPath(tmp))).toBe(process.pid);
+  });
+
+  it("treats unparseable canonical lock contents as stale and recovers", () => {
+    // A previous crash mid-write (or any FS corruption) could leave the
+    // canonical lock with garbage contents. The protocol must clear it
+    // and link our own claim — otherwise the lock wedges on EEXIST
+    // forever and the task becomes permanently unclaimable.
+    fsSync.writeFileSync(lockPath(tmp), "not-a-number\n", "utf8");
     const claim = acquireClaim(tmp, TASK_ID);
     expect(claim).not.toBeNull();
     expect(readPid(lockPath(tmp))).toBe(process.pid);

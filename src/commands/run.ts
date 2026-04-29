@@ -67,6 +67,11 @@ export async function runCommand(
   // against the same task race here; the loser exits cleanly with no
   // work to do. Skipped for terminal statuses so we preserve the
   // runner's existing no-op behaviour for `merged`/`aborted`/etc.
+  //
+  // `acquireClaim` returns `null` only on contention (live holder, lost
+  // EEXIST race). Unexpected I/O failures throw — those are real
+  // problems we don't want to mask as "already claimed", so we let them
+  // propagate to the runner's normal error path.
   let claim: Claim | null = null;
   if (isClaimableStatus(task.frontmatter.status)) {
     claim = acquireClaim(taskDir, task.frontmatter.id);
@@ -77,6 +82,19 @@ export async function runCommand(
       process.exit(0);
     }
   }
+
+  // Install a release-on-exit hook *immediately* after acquiring the
+  // claim, before any further async/sync work that could throw. Without
+  // this, an exception from `createLogger` / `writePidFileSync` /
+  // anything between here and the main `exitHandler` install below
+  // would leave the canonical lock in place until stale-claim recovery
+  // kicked in on the next attempt.
+  const releaseClaimOnExit = (): void => {
+    if (claim) {
+      try { claim.release(); } catch {}
+    }
+  };
+  process.on("exit", releaseClaimOnExit);
 
   const runsDir = path.join(repoRoot, ".orchestrator", "runs");
   // When this process is the detached child, the parent has already
@@ -183,6 +201,7 @@ export async function runCommand(
     // this module across tests and we don't want stale listeners
     // accumulating on the singleton `process`.
     process.removeListener("exit", exitHandler);
+    process.removeListener("exit", releaseClaimOnExit);
     if (exitCode !== 0) process.exit(exitCode);
   }
 }

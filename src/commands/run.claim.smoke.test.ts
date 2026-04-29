@@ -31,7 +31,7 @@ interface SpawnResult {
 }
 
 function runFlow(cwd: string, taskId: string): Promise<SpawnResult> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const child = spawn(TSX, [CLI, "run", taskId], {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
@@ -40,7 +40,13 @@ function runFlow(cwd: string, taskId: string): Promise<SpawnResult> {
     let stderr = "";
     child.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf8"); });
     child.stderr.on("data", (d: Buffer) => { stderr += d.toString("utf8"); });
-    child.on("exit", (code) => {
+    // Resolve on `'close'`, not `'exit'`: `'exit'` can fire before the
+    // child's stdio streams have flushed, which makes the loser's brief
+    // stderr ("already claimed ...") flaky to assert. `'close'` waits
+    // until the streams are drained. Surface spawn failures via
+    // `'error'` so a missing TSX or bad cwd doesn't hang the promise.
+    child.once("error", reject);
+    child.once("close", (code) => {
       resolve({ exitCode: code ?? -1, stdout, stderr });
     });
   });
