@@ -1,12 +1,12 @@
-import pc from "picocolors";
 import { Task, readTask } from "../state/task-file.js";
 import { TaskStatus } from "../state/phases.js";
 import { runPlanPhase } from "./phases/plan.js";
 import { runWorktreePhase } from "./phases/worktree.js";
 import { runImplementPhase } from "./phases/implement.js";
 import { PhaseResult } from "./types.js";
+import { NoopLogger, type Logger } from "../util/logger.js";
 
-type PhaseFn = (task: Task) => Promise<PhaseResult>;
+type PhaseFn = (task: Task, logger: Logger) => Promise<PhaseResult>;
 
 interface PhaseSpec {
   name: string;
@@ -35,11 +35,29 @@ const M2_PIPELINE: readonly PhaseSpec[] = [
   },
 ];
 
-export async function runPipeline(task: Task): Promise<PhaseResult> {
+export async function runPipeline(
+  task: Task,
+  logger: Logger = NoopLogger,
+): Promise<PhaseResult> {
   for (const spec of M2_PIPELINE) {
     if (!spec.unfinishedStatuses.includes(task.frontmatter.status)) continue;
-    console.error(pc.dim(`flow: running phase ${spec.name}...`));
-    const result = await spec.phase(task);
+    logger.phaseStart(spec.name);
+    const start = Date.now();
+    // Wrap so a phase that throws still emits a `phaseEnd` line with the
+    // duration and a `threw` outcome. Without this, the persistent log
+    // file ends with an unterminated `▶ <phase>` line on a crash, which
+    // is the case post-mortems most depend on.
+    let result: PhaseResult;
+    try {
+      result = await spec.phase(task, logger);
+    } catch (err) {
+      const durationMs = Date.now() - start;
+      logger.phaseEnd(spec.name, durationMs, "threw");
+      throw err;
+    }
+    const durationMs = Date.now() - start;
+    const outcome = result.status === "ok" ? "ok" : result.status;
+    logger.phaseEnd(spec.name, durationMs, outcome);
     if (result.status !== "ok") return result;
     // Reload — the phase mutated the task on disk.
     Object.assign(task, await readTask(task.path));
