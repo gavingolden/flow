@@ -43,6 +43,8 @@ true context isolation by using OS-level processes.
    │    /flow pause      — drop a flag, runner exits clean   │
    │    /flow resume     — clear flag, relaunch              │
    │    /flow abort      — terminal mark + cleanup           │
+   │    /flow approve    — clear plan checkpoint             │
+   │    /flow revise     — send plan back with feedback      │
    └────────────────────────┬────────────────────────────────┘
                             │ spawns (detached) via Bash tool
                             ▼
@@ -138,9 +140,10 @@ Every `claude -p` invocation runs with `--output-format stream-json
 emit structured logs to the same directory. The default viewer is
 `flow log <id> --follow`, which pretty-prints tool calls, edits, bash
 invocations, thinking, and results. The `/flow watch` skill is the
-inline-in-chat companion (a thin wrapper around `flow log --follow
---max-lines N`). Cost accounting comes from `result.usage` events in
-the same jsonl stream.
+inline-in-chat companion to `flow log --follow`, with PR 11 bounding
+the output (default 30s or N events) so long phases don't burn
+arbitrary chat-session tokens. Cost accounting comes from
+`result.usage` events in the same jsonl stream.
 
 ## The pipeline (full set)
 
@@ -151,7 +154,7 @@ the same jsonl stream.
 | 2 | plan | headless (in worktree) | `/product-planning` | retry once with error appended |
 | 3 | implement | headless (in worktree) | `/new-feature` (mode: `create` \| `fix`) | retry once |
 | 4 | verify | headless (in worktree) | `/verify` | retry up to 3x; then `needs-human` |
-| 5 | ci | script | poll `gh pr checks` until terminal; collect bot reviews from a configurable list (default `["Copilot"]`, configurable per repo) | on red, loop back to implement(fix) with the failure log; cap 3 |
+| 5 | ci-wait | script | poll `gh pr checks` until terminal; collect bot reviews from a configurable list (default `["Copilot"]`, configurable per repo) | on red, loop back to implement(fix) with the failure log; cap 3 |
 | 6 | review | headless | `/pr-review` in fresh `claude -p` context, with bot reviews from phase 5 passed in as second-opinion artefacts | on critical findings, loop back to implement(fix); cap 2 |
 | 7 | gate | script | parse PR body's "Manual validation" section | n/a — outcome is the decision |
 | 8 | merge | script | `gh pr merge --squash --delete-branch` + remove worktree + archive task file | abort with clear status |

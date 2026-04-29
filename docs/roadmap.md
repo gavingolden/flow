@@ -96,9 +96,12 @@ Done when:
   rather than inferring from `task.pr != null`.
 - `mode: "create"` opens the PR; `mode: "fix"` re-runs against the
   existing branch with a failure log appended to the prompt.
-- Every phase is documented as idempotent on resume — re-running a
-  phase reads the task file fresh and only performs side effects when
-  state demands them (e.g. only opens a PR if `pr` is null).
+- The implement phase is idempotent on resume — re-running it reads
+  the task file fresh and only performs side effects when state
+  demands them (e.g. only opens a PR if `pr` is null).
+- Idempotence audit for the other shipped phases (worktree, plan)
+  is deferred: each phase's resume contract gets its own pass when
+  Phase 2 work touches it. PR 3's scope is the implement phase only.
 
 ## Phase 2 — pipeline buildout (PRs 4–8)
 
@@ -223,10 +226,11 @@ Done when:
 Done when:
 
 - A new skill at `skills/pipeline/flow-watch/SKILL.md` is a thin Bash
-  wrapper around `flow log <id> --follow --max-lines N` (PR 6) and
-  pretty-prints recent events into the chat session.
-- The watch is bounded (default 30s or N events) — long phases don't
-  burn arbitrary chat-session tokens.
+  wrapper around `flow log <id> --follow` (PR 6) and pretty-prints
+  recent events into the chat session.
+- PR 11 adds the bound on watched output (default 30s or N events
+  / lines) so long phases don't burn arbitrary chat-session tokens.
+  The bound lives in the skill wrapper, not in `flow log` itself.
 - Useful for in-chat spot checks; for terminal-focused observation,
   users invoke `flow log` directly.
 

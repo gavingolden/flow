@@ -95,6 +95,8 @@ through the task file on disk.
 │    /flow pause <id>          ← drop a flag file                │
 │    /flow resume <id>         ← clear flag + relaunch           │
 │    /flow abort <id>          ← terminal mark + cleanup         │
+│    /flow approve <id>        ← clear plan checkpoint           │
+│    /flow revise <id>         ← send plan back with feedback    │
 └─────────────────────────┬──────────────────────────────────────┘
                           │ spawns (detached) via Bash tool
                           ▼
@@ -144,6 +146,16 @@ only way to satisfy "send and forget."
 The pipeline is a state machine over the task file's `status` field.
 Phases transition status; loop-backs are explicit edges, not implicit
 retries.
+
+> The diagram below illustrates the *flow* and the loop-back edges.
+> The canonical list of `status` values lives in
+> [`task-schema.md`](./task-schema.md#status-state-machine); the
+> names there are the source of truth (e.g. `verifying`, `ci`,
+> `gated`). The diagram uses descriptive names like `local-verifying`,
+> `ci-wait`, `gating` for readability — when the schema and the
+> diagram disagree on naming, the schema wins. PRs in
+> [`roadmap.md`](./roadmap.md) that introduce new transitions are
+> expected to update both.
 
 ```
                       triaged
@@ -431,8 +443,10 @@ calls, edits, thinking like an interactive session.
 
 ### 7.3 Option 3 (PR 11): inline `/flow watch` chat skill
 
-Skill is a thin Bash wrapper: `flow log <id> --follow --max-lines N`
-invoked from chat. Pretty-prints recent events into the chat session.
+Skill is a thin Bash wrapper around `flow log <id> --follow` invoked
+from chat, with PR 11 bounding the output (default 30s or N events)
+so long phases don't burn arbitrary chat-session tokens. Pretty-prints
+recent events into the chat session.
 
 - **Pro:** convenient spot checks without leaving chat.
 - **Con:** burns chat-session tokens (events become part of chat
@@ -662,37 +676,43 @@ interruption), then the runner stops cleanly.
 
 ### 8.5 Managing parallel tasks
 
-User has three unrelated tasks queued and wants them all to make
-progress.
+User has three unrelated tasks queued and wants to bound concurrency.
 
 ```
 user: /flow add "add dark mode toggle"
    ... triage ...
    ✓ Task: 2026-04-28-dark-mode
+   ✓ Pipeline started (detached).
 
 user: /flow add "fix off-by-one in pagination"
    ... triage ...
    ✓ Task: 2026-04-28-pagination-fix
+   ✓ Pipeline started (detached).
 
 user: /flow add "extract the auth middleware to its own module"
    ... triage ...
    ✓ Task: 2026-04-28-auth-extract
+   ✓ Pipeline started (detached).
+```
 
-user: /flow start-queue --max 2
+Each `/flow add` triages the task and shells out to `flow run <id>
+--detach`, so by default all three tasks run in parallel — one OS
+process tree per task, each in its own worktree. If the user wants
+to bound concurrency (e.g. on a small machine), they pause the
+extras and use the worker-pool flow instead from a terminal:
 
-Claude (in /flow start-queue skill):
-  Starting queue with max 2 concurrent tasks.
+```
+$ flow run --all --max 2
   ✓ Picked up: 2026-04-28-dark-mode (worker 1)
   ✓ Picked up: 2026-04-28-pagination-fix (worker 2)
   - Queued: 2026-04-28-auth-extract (will start when a worker frees up)
-
-  Use /flow status to track all three.
 ```
 
-Each task has its own worktree. Workers run as independent OS process
-trees. When one finishes, the queue picks up the next. The user's chat
-session is free throughout — they can keep working, or ask `/flow
-status` periodically.
+`flow run --all --max N` (PR 15) pulls from `.orchestrator/tasks/`
+where status ∈ {triaged, needs-human-after-resume}, claims via PR 2's
+cross-process primitive, and refills as children exit. The user's
+chat session is free throughout — they can keep working, or ask
+`/flow status` periodically.
 
 ### 8.6 The plan checkpoint (high-leverage pause)
 
@@ -826,8 +846,9 @@ Claude:
 ```
 
 The user does the validation, merges in GitHub. The next `flow run`
-(or the queue daemon) detects `merge_commit` populated and transitions
-the task to `merged`, prunes the worktree, archives the task file.
+(or the next time the worker pool is invoked via `flow run --all
+--max N`) detects `merge_commit` populated and transitions the task
+to `merged`, prunes the worktree, archives the task file.
 
 ### 8.10 Aborting a task
 
@@ -994,8 +1015,8 @@ T+1:11  user: /flow resume 2026-04-28-csv-export
 
 ```
 flow run task-A is running implement; Mac sleeps; OS kills child processes.
-On wake, the user runs `flow run task-A` (or it auto-restarts via the
-queue daemon — PR 15+).
+On wake, the user runs `flow run task-A` again (or reruns
+`flow run --all --max N` if they are using the PR 15+ worker-pool flow).
 Runner reads task.md, sees status=implementing, restarts the implement phase.
 The phase is idempotent on re-entry (re-reads files, re-runs verify, only
 opens a PR if frontmatter.pr is null — otherwise pushes to existing branch).
