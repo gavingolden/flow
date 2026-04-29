@@ -5,7 +5,7 @@
  * to consume.
  *
  * Usage:
- *   ./scripts/ci-wait.ts --pr <number> --task-dir <abs-path> [--config <abs-path>]
+ *   ./scripts/ci-wait.ts --pr <number> [--config <abs-path>]
  *
  * Stdout: a single JSON document describing the final outcome.
  * Stderr: newline-delimited JSON events (`ci-wait.start`, `ci-wait.poll`,
@@ -15,6 +15,11 @@
  * Exit codes:
  *   0 — outcome "ok"
  *   1 — outcome "ci-hang" or "config-invalid"
+ *
+ * The script reads `.flow/ci-wait.json` from cwd by default; pass `--config`
+ * to override. Per-task state is not consulted — invocations are stateless
+ * with respect to the task file, which is what makes the script
+ * standalone-runnable against any open PR.
  */
 
 import { readFileSync } from "node:fs";
@@ -275,6 +280,11 @@ export type PollResult = {
   reviews: GhReview[];
   pendingChecks: string[];
   missingBots: string[];
+  // True when the loop exited at hard cap without ever observing a
+  // successful checks fetch — i.e. a sustained `gh` outage rather than a
+  // legitimately-pending CI run. The renderer distinguishes the two cases
+  // so the user isn't left with a `ci-hang` section that omits the cause.
+  ciHangNoChecksFetched: boolean;
 };
 
 // Per-call retry wrapper. The first failure pauses 5s, then re-invokes; the
@@ -336,6 +346,7 @@ export async function pollUntilTerminal(args: {
         reviews: lastReviews,
         pendingChecks: pending,
         missingBots: missing,
+        ciHangNoChecksFetched: outcome === "ci-hang" && !everFetchedChecks,
       };
     }
 
@@ -383,7 +394,11 @@ export async function pollUntilTerminal(args: {
       },
     });
 
-    if (checksTerm && missing.length === 0) {
+    // Require that we actually saw a successful checks fetch before
+    // declaring "checks terminal" — `isChecksTerminal([])` is true, so a
+    // gh outage that never returned check data must not advance past CI
+    // just because the reviews call succeeded and bots happen to be present.
+    if (everFetchedChecks && checksTerm && missing.length === 0) {
       return {
         outcome: "ok",
         polls,
@@ -392,6 +407,7 @@ export async function pollUntilTerminal(args: {
         reviews: lastReviews,
         pendingChecks: [],
         missingBots: [],
+        ciHangNoChecksFetched: false,
       };
     }
 
@@ -403,18 +419,28 @@ export async function pollUntilTerminal(args: {
 
 export type RenderArgs = {
   reviews: GhReview[];
-  missingBots: string[];
   bots: string[];
   prUrl: string;
   pendingChecks?: string[];
+  // When the hard cap was reached without ever fetching checks (sustained
+  // gh outage), `pendingChecks` is empty by definition — the script never
+  // observed any. Set this flag so the renderer can surface a distinct
+  // "no checks could be fetched" diagnostic instead of falling through
+  // silently and producing a section with no cause.
+  ciHangNoChecksFetched?: boolean;
 };
 
 export function renderCiSection(args: RenderArgs): string {
-  const { reviews, missingBots, bots, prUrl, pendingChecks } = args;
+  const { reviews, bots, prUrl, pendingChecks, ciHangNoChecksFetched } = args;
   const lines: string[] = [];
 
   if (pendingChecks && pendingChecks.length > 0) {
     lines.push(`**Checks still pending at hard cap:** ${pendingChecks.join(", ")}`);
+    lines.push("");
+  } else if (ciHangNoChecksFetched) {
+    lines.push(
+      "**Checks could not be fetched within the hard cap (sustained gh failure).**",
+    );
     lines.push("");
   }
 
@@ -470,11 +496,9 @@ export function renderCiSection(args: RenderArgs): string {
 
 function parseArgs(argv: string[]): {
   pr: number;
-  taskDir: string;
   configPath: string | null;
 } {
   let pr: number | null = null;
-  let taskDir: string | null = null;
   let configPath: string | null = null;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -485,22 +509,17 @@ function parseArgs(argv: string[]): {
         throw new Error(`--pr requires a positive integer (got ${v})`);
       }
       pr = n;
-    } else if (a === "--task-dir") {
-      taskDir = argv[++i] ?? "";
     } else if (a === "--config") {
       configPath = argv[++i] ?? "";
     } else if (a === "--help" || a === "-h") {
-      console.log(
-        "Usage: ./scripts/ci-wait.ts --pr <n> --task-dir <abs> [--config <abs>]",
-      );
+      console.log("Usage: ./scripts/ci-wait.ts --pr <n> [--config <abs>]");
       process.exit(0);
     } else {
       throw new Error(`unknown argument: ${a}`);
     }
   }
   if (pr == null) throw new Error("--pr is required");
-  if (taskDir == null) throw new Error("--task-dir is required");
-  return { pr, taskDir, configPath };
+  return { pr, configPath };
 }
 
 function emitStderrEvent(event: string, payload: Record<string, unknown>): void {
@@ -562,10 +581,10 @@ async function main(): Promise<void> {
 
   const section = renderCiSection({
     reviews: result.reviews,
-    missingBots: result.missingBots,
     bots: config.bots,
     prUrl,
     pendingChecks: result.outcome === "ci-hang" ? result.pendingChecks : undefined,
+    ciHangNoChecksFetched: result.ciHangNoChecksFetched,
   });
 
   emitStderrEvent("ci-wait.exit", {

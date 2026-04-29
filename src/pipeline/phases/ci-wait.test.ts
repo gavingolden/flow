@@ -187,6 +187,53 @@ describe("runCiWaitPhase", () => {
     }
   });
 
+  it("fails with a deterministic diagnostic when scripts/ci-wait.ts is missing", async () => {
+    // Mirrors verify-gate's preflight contract: a partial `flow install`
+    // (or a directory at the symlink path) should produce a phase-level
+    // "missing or not executable" error rather than a platform-dependent
+    // execa spawn failure.
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flow-ci-wait-"));
+    tmpRoot = tmp;
+    const worktree = path.join(tmp, "worktree");
+    await fs.mkdir(path.join(worktree, "scripts"), { recursive: true });
+    // No ci-wait.ts in scripts/ on purpose.
+
+    const taskId = "2026-04-29-test-task";
+    const taskDir = path.join(tmp, ".orchestrator", "tasks", taskId);
+    await fs.mkdir(taskDir, { recursive: true });
+    const taskPath = path.join(tmp, ".orchestrator", "tasks", `${taskId}.md`);
+    const initial: Task = {
+      path: taskPath,
+      frontmatter: {
+        id: taskId,
+        status: "pr-open",
+        created: "2026-04-29T00:00:00.000Z",
+        updated: "2026-04-29T00:00:00.000Z",
+        target_repo: tmp,
+        worktree,
+        branch: "agent/test",
+        pr: 184,
+        manual_validation: null,
+        merge_commit: null,
+      },
+      body: ["## Phase log", "", "## Phase outputs", ""].join("\n"),
+    };
+    await writeTask(initial);
+    const task = await readTask(taskPath);
+
+    const result = await runCiWaitPhase(task, makeLogger(), makeJsonl());
+    expect(result.status).toBe("failed");
+    if (result.status === "failed") {
+      expect(result.reason).toContain("missing or not executable");
+      expect(result.reason).toContain("ci-wait.ts");
+    }
+    // Status should not have transitioned to `ci` — preflight fails before
+    // the transition, leaving the next `flow run` free to retry from
+    // `pr-open` once `flow install` has been run.
+    const reread = await readTask(task.path);
+    expect(reread.frontmatter.status).toBe("pr-open");
+  });
+
   it("happy path: outcome ok → status flips pr-open → ci → reviewing, ci section written", async () => {
     const sectionMd = "| bot | state | submitted_at |\n|---|---|---|\n| Copilot | COMMENTED | 2026-04-29T22:35:00Z |";
     const stdoutPayload = JSON.stringify({
@@ -331,6 +378,37 @@ describe("runCiWaitPhase", () => {
     expect(jsonl.event).toHaveBeenCalledWith("ci-wait.poll", { polls: 1, elapsedMs: 100 });
     const warnedAboutNonJson = logger.warns.some((w) => w.includes("this-is-not-json-just-text"));
     expect(warnedAboutNonJson).toBe(true);
+  });
+
+  it("preserves the script-emitted `ts` field when forwarding stderr events", async () => {
+    // JsonlSink is payload-takes-precedence: when the wrapper passes a `ts`
+    // field through, the recorded event reflects the script's poll-time
+    // rather than the wrapper's read-time. This pins that contract so a
+    // future "strip ts" regression is caught at unit-test time.
+    const stdoutPayload = JSON.stringify({
+      outcome: "ok",
+      section: "section-md",
+      missingBots: [],
+      pendingChecks: [],
+    });
+    const { tmp, task } = await setupRepo({
+      status: "pr-open",
+      pr: 184,
+      fixture: {
+        stderrLines: [
+          '{"ts":"2026-04-29T12:34:56.000Z","event":"ci-wait.poll","polls":1}',
+        ],
+        stdoutPayload,
+        exitCode: 0,
+      },
+    });
+    tmpRoot = tmp;
+    const jsonl = makeJsonl();
+    await runCiWaitPhase(task, makeLogger(), jsonl);
+    expect(jsonl.event).toHaveBeenCalledWith("ci-wait.poll", {
+      ts: "2026-04-29T12:34:56.000Z",
+      polls: 1,
+    });
   });
 
   it("returns failed when the script's stdout is unparseable", async () => {

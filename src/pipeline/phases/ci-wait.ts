@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { execa } from "execa";
 import {
@@ -47,13 +48,23 @@ export async function runCiWaitPhase(
 
   const worktree = task.frontmatter.worktree;
   const pr = task.frontmatter.pr;
-  const taskDir = path.join(
-    task.frontmatter.target_repo,
-    ".orchestrator",
-    "tasks",
-    task.frontmatter.id,
-  );
   const scriptPath = path.join(worktree, "scripts", "ci-wait.ts");
+
+  // Preflight the script symlink before spawning. Mirrors verify-gate.ts:
+  // a directory at scripts/ci-wait.ts (or a missing symlink after a partial
+  // `flow install`) would otherwise surface as a platform-dependent
+  // execa spawn error rather than a deterministic phase diagnostic.
+  try {
+    const stat = await fs.stat(scriptPath);
+    if (!stat.isFile()) {
+      throw new Error("not a file");
+    }
+    await fs.access(scriptPath, fs.constants.X_OK);
+  } catch {
+    const reason = `ci-wait script is missing or not executable at ${scriptPath}; ensure \`flow install\` has linked templates/scripts/ci-wait.ts into the worktree's scripts/ directory`;
+    logger.error(reason);
+    return { status: "failed", reason };
+  }
 
   await transitionStatus(task, "ci");
   logger.event("task.status", "ci");
@@ -66,7 +77,7 @@ export async function runCiWaitPhase(
     stdout: string;
     spawnError?: Error;
   }> => {
-    const subprocess = execa(scriptPath, ["--pr", String(pr), "--task-dir", taskDir], {
+    const subprocess = execa(scriptPath, ["--pr", String(pr)], {
       cwd: worktree,
       reject: false,
       stdio: ["ignore", "pipe", "pipe"],
@@ -178,7 +189,12 @@ function forwardStderrLine(line: string, jsonl: JsonlSink, logger: Logger): void
   try {
     const obj = JSON.parse(trimmed) as Record<string, unknown>;
     if (typeof obj.event === "string") {
-      const { event, ts: _ts, ...rest } = obj;
+      // Preserve the script-emitted `ts` so the jsonl log reflects the
+      // script's poll timing rather than the wrapper's read-time. JsonlSink
+      // is documented as payload-takes-precedence over its synthesized base
+      // (`{ ts, kind }`), so passing `ts` through is the canonical way to
+      // anchor the event to the source moment.
+      const { event, ...rest } = obj;
       jsonl.event(event, rest);
       return;
     }

@@ -314,10 +314,32 @@ describe("pollUntilTerminal", () => {
     });
     const r = await pollUntilTerminal({ pr: 184, config, deps });
     expect(r.outcome).toBe("ci-hang");
+    expect(r.ciHangNoChecksFetched).toBe(true);
     const noProgress = events.filter(
       (e) => e.event === "ci-wait.poll" && e.payload.noProgress === true,
     );
     expect(noProgress.length).toBeGreaterThan(0);
+  });
+
+  it("does not advance past CI when checks fetch never succeeds (reviews ok, bots present)", async () => {
+    // Regression for the early-return that used to read `isChecksTerminal([])`
+    // — true by default — and would advance to outcome=ok if the reviews call
+    // succeeded and bots happened to be present, even though no check data
+    // was ever observed. With the everFetchedChecks guard, the loop must
+    // ride to hard cap and report ci-hang.
+    const { config, deps } = makeDeps({
+      cadenceMs: 50,
+      hardCapMs: 250,
+      gh: makeGhOps({
+        prChecks: () => {
+          throw new Error("checks endpoint down");
+        },
+        prReviews: () => [review("Copilot")],
+      }),
+    });
+    const r = await pollUntilTerminal({ pr: 184, config, deps });
+    expect(r.outcome).toBe("ci-hang");
+    expect(r.ciHangNoChecksFetched).toBe(true);
   });
 });
 
@@ -343,7 +365,6 @@ describe("renderCiSection", () => {
           body: "Coverage 99%",
         }),
       ],
-      missingBots: [],
       prUrl: PR_URL,
     });
     expect(out).toContain("| bot | state | submitted_at |");
@@ -362,7 +383,6 @@ describe("renderCiSection", () => {
     const out = renderCiSection({
       bots: ["Copilot", "SonarCloud"],
       reviews: [review("Copilot", { id: 1 })],
-      missingBots: ["SonarCloud"],
       prUrl: PR_URL,
     });
     expect(out).toContain("| SonarCloud | TIMEOUT | - |");
@@ -373,11 +393,22 @@ describe("renderCiSection", () => {
     const out = renderCiSection({
       bots: ["Copilot"],
       reviews: [],
-      missingBots: ["Copilot"],
       prUrl: PR_URL,
       pendingChecks: ["lint", "build"],
     });
     expect(out).toContain("**Checks still pending at hard cap:** lint, build");
+  });
+
+  it("renders a sustained-outage paragraph when ci-hang fired with no successful checks fetch", () => {
+    const out = renderCiSection({
+      bots: ["Copilot"],
+      reviews: [],
+      prUrl: PR_URL,
+      ciHangNoChecksFetched: true,
+    });
+    expect(out).toContain(
+      "**Checks could not be fetched within the hard cap (sustained gh failure).**",
+    );
   });
 
   it("truncates a 60-line bot review body", () => {
@@ -385,7 +416,6 @@ describe("renderCiSection", () => {
     const out = renderCiSection({
       bots: ["Copilot"],
       reviews: [review("Copilot", { id: 999, body: lines.join("\n") })],
-      missingBots: [],
       prUrl: PR_URL,
     });
     expect(out).toContain(
