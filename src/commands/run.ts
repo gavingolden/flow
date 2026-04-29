@@ -6,7 +6,7 @@ import { execa } from "execa";
 import pc from "picocolors";
 import { findGitRoot, findTaskFile } from "../util/git.js";
 import { readTask } from "../state/task-file.js";
-import { runPipeline, taskDirFor } from "../pipeline/runner.js";
+import { isClaimableStatus, runPipeline, taskDirFor } from "../pipeline/runner.js";
 import { createLogger } from "../util/logger.js";
 import {
   unlinkPidFileSync,
@@ -17,6 +17,7 @@ import {
   reapStatusAsync,
   reapStatusSync,
 } from "../state/reaper.js";
+import { acquireClaim, type Claim } from "../state/claim.js";
 
 export interface RunOptions {
   detach?: boolean;
@@ -62,6 +63,21 @@ export async function runCommand(
     return; // not reached — detachAndExit calls process.exit(0)
   }
 
+  // Cross-process claim acquisition. Two `flow run <id>` invocations
+  // against the same task race here; the loser exits cleanly with no
+  // work to do. Skipped for terminal statuses so we preserve the
+  // runner's existing no-op behaviour for `merged`/`aborted`/etc.
+  let claim: Claim | null = null;
+  if (isClaimableStatus(task.frontmatter.status)) {
+    claim = acquireClaim(taskDir, task.frontmatter.id);
+    if (!claim) {
+      process.stderr.write(
+        `task ${task.frontmatter.id} already claimed by another runner\n`,
+      );
+      process.exit(0);
+    }
+  }
+
   const runsDir = path.join(repoRoot, ".orchestrator", "runs");
   // When this process is the detached child, the parent has already
   // opened the plaintext log file and inherited its fd to us. The env
@@ -94,6 +110,7 @@ export async function runCommand(
     // Sync only — Node tears down the event loop before any async I/O
     // queued from inside `'exit'` can complete.
     try { unlinkPidFileSync(taskDir); } catch {}
+    if (claim) { try { claim.release(); } catch {} }
     if (cleanlyHandled) return;
     // Use the tracked `reapReason` so the recorded reason matches what
     // actually happened: "signaled" set by the SIGTERM/SIGINT handlers,
@@ -159,6 +176,7 @@ export async function runCommand(
       try { await reapStatusAsync(taskPath, reapReason); } catch {}
     }
     try { unlinkPidFileSync(taskDir); } catch {}
+    if (claim) { try { claim.release(); } catch {} }
     await logger.close();
     // Removing the listener before process.exit is cosmetic (process is
     // about to die) but keeps the test harness clean — vitest re-imports
