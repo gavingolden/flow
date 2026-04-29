@@ -1,5 +1,4 @@
 import fs from "node:fs/promises";
-import { lstatSync, readlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -28,19 +27,23 @@ describe("ensureOrchestratorSymlink", () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
-  it("creates the symlink when nothing exists at the path", () => {
-    const result = ensureOrchestratorSymlink(worktree, mainRepo);
+  it("creates the symlink when nothing exists at the path", async () => {
+    const result = await ensureOrchestratorSymlink(worktree, mainRepo);
     expect(result.status).toBe("ok");
-    const stat = lstatSync(linkPath);
+    const stat = await fs.lstat(linkPath);
     expect(stat.isSymbolicLink()).toBe(true);
-    expect(readlinkSync(linkPath)).toBe(target);
+    expect(await fs.readlink(linkPath)).toBe(target);
   });
 
-  it("leaves an existing correct symlink untouched (idempotent)", () => {
-    expect(ensureOrchestratorSymlink(worktree, mainRepo).status).toBe("ok");
-    const firstStat = lstatSync(linkPath);
-    expect(ensureOrchestratorSymlink(worktree, mainRepo).status).toBe("ok");
-    const secondStat = lstatSync(linkPath);
+  it("leaves an existing correct symlink untouched (idempotent)", async () => {
+    expect((await ensureOrchestratorSymlink(worktree, mainRepo)).status).toBe(
+      "ok",
+    );
+    const firstStat = await fs.lstat(linkPath);
+    expect((await ensureOrchestratorSymlink(worktree, mainRepo)).status).toBe(
+      "ok",
+    );
+    const secondStat = await fs.lstat(linkPath);
     expect(secondStat.ino).toBe(firstStat.ino);
   });
 
@@ -49,14 +52,14 @@ describe("ensureOrchestratorSymlink", () => {
     await fs.mkdir(otherTarget, { recursive: true });
     // Pre-existing symlink pointing at the wrong place.
     await fs.symlink(otherTarget, linkPath, "dir");
-    const result = ensureOrchestratorSymlink(worktree, mainRepo);
+    const result = await ensureOrchestratorSymlink(worktree, mainRepo);
     expect(result.status).toBe("ok");
-    expect(readlinkSync(linkPath)).toBe(target);
+    expect(await fs.readlink(linkPath)).toBe(target);
   });
 
-  it("refuses to overwrite a regular file at the symlink path", () => {
-    writeFileSync(linkPath, "preexisting content");
-    const result = ensureOrchestratorSymlink(worktree, mainRepo);
+  it("refuses to overwrite a regular file at the symlink path", async () => {
+    await fs.writeFile(linkPath, "preexisting content");
+    const result = await ensureOrchestratorSymlink(worktree, mainRepo);
     expect(result.status).toBe("failed");
     if (result.status === "failed") {
       expect(result.reason).toContain(linkPath);
@@ -67,10 +70,21 @@ describe("ensureOrchestratorSymlink", () => {
   it("refuses to overwrite a regular directory at the symlink path", async () => {
     await fs.mkdir(linkPath);
     await fs.writeFile(path.join(linkPath, "stash"), "x");
-    const result = ensureOrchestratorSymlink(worktree, mainRepo);
+    const result = await ensureOrchestratorSymlink(worktree, mainRepo);
     expect(result.status).toBe("failed");
     if (result.status === "failed") {
       expect(result.reason).toContain("not a symlink");
+    }
+  });
+
+  it("returns a controlled failure when the worktree directory does not exist", async () => {
+    // Parent dir missing → fs.symlink throws ENOENT. The wrapper must convert
+    // it into a PhaseResult instead of letting it escape.
+    const missingWorktree = path.join(tmp, "does-not-exist");
+    const result = await ensureOrchestratorSymlink(missingWorktree, mainRepo);
+    expect(result.status).toBe("failed");
+    if (result.status === "failed") {
+      expect(result.reason).toContain("orchestrator symlink");
     }
   });
 });
