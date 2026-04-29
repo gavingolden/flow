@@ -463,6 +463,152 @@ each one still mirrors the new shape, not just compiles.
 
 ---
 
+## Retry Wrappers Around Non-Idempotent Operations
+
+A generic retry-on-failure wrapper (`retryOnce`, `withBackoff`, hand-rolled retry loops) is
+safe only when the wrapped operation is idempotent. When the first attempt may have already
+produced an externally visible side effect — opened a PR, posted a comment, charged a card,
+mutated a remote resource — a second attempt can corrupt that state instead of recovering
+from a transient failure.
+
+### What to look for
+
+- Retry wrappers around functions that open PRs, post comments, call non-idempotent APIs,
+  or write to external systems
+- Crash-recovery / resume code paths that re-enter a phase whose side effects may already
+  exist from a prior run (e.g. PR was created, then the process died)
+- Functions that read remote state at the start to decide what to do, but get retried as a
+  black box — the retry's second invocation may hit a different branch than the first
+
+### How to check
+
+1. For each retry wrapper, audit the wrapped function for non-idempotent side effects
+   (network calls beyond GETs, file writes, state mutations).
+2. If any exist, verify either: (a) the operation is genuinely idempotent (checks for
+   existing state and short-circuits) or (b) the retry is conditioned on failure classes
+   that pre-date the side effect (e.g. validation failures only, not mid-write network errors).
+3. On crash-recovery paths, suppress the retry entirely or branch on "did the side effect
+   already happen?" before deciding to retry.
+
+### Example — retry mutating an already-open PR (PR #7)
+
+```typescript
+// BAD: retryOnce wraps the implement LLM call. If the first run created a PR
+// and then crashed, the resumed run hits the "PR already exists" branch — and
+// a second LLM call inside retryOnce can mutate that already-open PR.
+await retryOnce(() => runImplementPhase(ctx));
+
+// GOOD: detect the recovered-from-crash state up front and skip the retry on
+// that path; only retry when the side effect could not yet have happened.
+const existingPr = await findOpenPrForBranch(ctx.branch);
+if (existingPr) return resumeFromCrash(existingPr, ctx);
+await retryOnce(() => runImplementPhase(ctx));
+```
+
+**General rule:** Retry wrappers are for failures that happen *before* side effects, not
+after. Anything that crosses a non-idempotent boundary needs a pre-check or an opt-out.
+
+---
+
+## Subprocess Wrapper Non-Throwing Contracts
+
+A function whose return type encodes both success and failure (`{ ok, output }`,
+`Result<T, E>`, etc.) is making a contract: callers do not need try/catch. Underlying
+primitives — `execa`, `child_process`, `fetch`, `fs/promises` — can still throw on timeout,
+abort, spawn failure, or network error. Those throws must be caught and converted to the
+failure variant, or the contract breaks on the rare path that matters most (the orchestrator
+built around the return value crashes instead of recovering).
+
+### What to look for
+
+- Functions returning `{ ok, ... }` / `Result<T, E>` / any either-like shape whose body
+  calls `execa` / `spawn` / `fetch` / `fs.*` without a top-level try/catch
+- `execa(..., { reject: false })` — the flag suppresses non-zero exit codes but does **not**
+  suppress timeout, EPIPE, abort, or spawn failures (e.g. binary missing from PATH)
+- Adapters built specifically so callers can branch on a value rather than catch
+
+### How to check
+
+1. Read the wrapper's return type — what failure variants does it claim to produce?
+2. Trace each underlying primitive: which conditions still throw despite any quieting flags?
+3. Confirm those throws land in a try/catch that maps onto the failure variant, preserving
+   any captured stdout/stderr in the diagnostic.
+
+### Example — execa throw bypassing the result contract (PR #7)
+
+```typescript
+// BAD: if `npm` is missing on PATH, or the command hits the timeout, execa
+// throws — and the orchestrator's retry/surface logic, built around a
+// returned value, crashes the whole phase.
+const result = await execa("npm", ["run", "verify"], { cwd, reject: false, timeout: 600_000 });
+return { ok: result.exitCode === 0, output: result.all ?? "" };
+
+// GOOD: try/catch converts spawn/timeout throws into the same shape and
+// preserves any partial output captured before the throw.
+try {
+  const result = await execa("npm", ["run", "verify"], { cwd, reject: false, timeout: 600_000 });
+  return { ok: result.exitCode === 0, output: result.all ?? "" };
+} catch (err) {
+  const e = err as { all?: string; shortMessage?: string; message?: string };
+  return { ok: false, output: e.all ?? e.shortMessage ?? e.message ?? String(err) };
+}
+```
+
+**General rule:** If the return type says "this never throws," every primitive inside has
+to be wrapped. `reject: false` is not "won't throw."
+
+---
+
+## Error-Message Portability in Cross-Context Code
+
+Code that ships from one repo and runs against another (a CLI invoked in consumer projects,
+a generic library, a script symlinked into target repos) must produce diagnostics that make
+sense from the target's frame of reference. References to producer-repo file paths, internal
+script names, or internal conventions confuse the end user, who has never seen the producer
+repo.
+
+### What to look for
+
+- Skill/library code that operates on `cwd` (a foreign repo) but emits error messages
+  naming files inside the producer repo
+- Error strings hardcoding internal paths (`templates/scripts/...`, `src/cli.ts`),
+  internal package names, or implementation-detail file names
+- Remediation hints written in producer-repo terms ("re-run `npm run dev install`") when
+  the target user installed via a release artifact and has no such command
+
+### How to check
+
+1. Grep cross-context diagnostics for producer-repo paths, internal script names, and
+   producer-specific jargon.
+2. Rewrite each in target-repo terms — describe the *missing capability*, not the producer's
+   implementation. "repository's `verify` npm script" beats "flow's pre-commit-checks.ts".
+3. Where remediation truly requires producer-repo action, prefix with the producer's name
+   (e.g. `flow:`) so the user knows which tool is asking, instead of dumping a bare path.
+
+### Example — error message naming a producer-repo script (PR #7)
+
+```typescript
+// BAD: shipped to consumer repos, but the message points the user at a file
+// that only exists inside flow.
+if (!scripts.verify) {
+  return { ok: false, output: "package.json has no 'verify' script; run flow's pre-commit-checks.ts" };
+}
+
+// GOOD: describes the missing capability in target-repo terms.
+if (!scripts.verify) {
+  return {
+    ok: false,
+    output: `package.json at ${pkgJsonPath} has no 'verify' npm script; add a 'verify' script that runs this repository's required validation checks (typecheck, tests, etc.)`,
+  };
+}
+```
+
+**General rule:** If your code can run against a repo other than the one it ships from,
+every user-visible diagnostic must read sensibly to someone who has never seen the
+producer repo.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue

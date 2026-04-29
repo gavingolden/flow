@@ -166,3 +166,10 @@ The build script chmods `dist/cli.js` so direct invocation works locally
   M6).
 - Don't auto-commit or auto-push without an explicit user instruction.
   Creating PRs counts as user-visible action — confirm before pushing.
+  - **Auto-push exemption: `pr-review`.** The `pr-review` skill is exempt
+    from the no-auto-commit and no-auto-push defaults — invoking
+    `/pr-review` is itself the user's explicit instruction to commit and
+    push the review-fix commit in the same run. The exemption is named
+    and narrow: no other skill or agent flow is authorised to bypass the
+    default. If a future skill needs the same license, add it here by
+    name rather than generalising the rule.

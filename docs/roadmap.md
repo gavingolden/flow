@@ -63,12 +63,14 @@ test command exits 0, so looping it on red CI or critical review can never
 fix the underlying problem; only the LLM that wrote the code can.
 
 **Phase 3 amendment carried into M3.** The implement phase should run
-`/verify` locally and confirm it exits 0 *before* `gh pr create`, so PRs
-open already-green. As shipped in M2, phase 3 opens the PR before any
+`npm run verify` locally and confirm it exits 0 *before* `gh pr create`, so
+PRs open already-green. As shipped in M2, phase 3 opens the PR before any
 verify happens; every phase-4 retry then pushes commits that re-fire CI
-and partly burn phase 5's budget before phase 5 formally starts. Move the
-local-verify gate inside phase 3. `pr-open` still means "PR exists" — the
-new invariant is "and the local test suite passed against the pushed SHA".
+and partly burn phase 5's budget before phase 5 formally starts. The
+local-verify gate moves inside phase 3. Lands as **M3 PR 0** (see
+`docs/phases/m3-plan.md` PR sequence). `pr-open` still means "PR exists"
+— the new invariant is "and the local test suite passed against the
+pushed SHA".
 
 Done when:
 
@@ -215,6 +217,19 @@ Smaller items that aren't milestone-blocking but should land when convenient:
   pattern, then add coverage. Deferred from PR #6 review because the refactor
   warrants its own session (touches the worktree script's structure, not just
   the bug).
+
+- **Unit-test the new CLI output helpers.** `src/commands/run.ts`'s
+  `fetchPrUrl()` and `src/commands/start.ts`'s `printNextCommand()` /
+  `listTaskMdFilenames()` (added in PR #8) are I/O wrappers with no
+  coverage — the rest of `src/commands/*.ts` has none either. Real bugs
+  tests would catch: the `execa` spawn-error path that crashes `flow run`
+  (fixed in PR #8 review), non-deterministic file selection when multiple
+  task files appear in one run (also fixed in PR #8 review), and frontmatter
+  validation gaps. Deferred because it requires standing up `execa`/`fs`
+  injection points across the commands layer — bar criterion (2): expands
+  cross-cutting test infrastructure. Trigger: address opportunistically
+  next time a `src/commands/*.ts` file is touched, or before the first
+  command grows non-trivial branching logic.
 
 - **Unit-test the install commands.** `src/install/scripts.ts` and
   `src/install/skills.ts` (added in PR #6) carry the symlink, gitignore, stale-test
