@@ -23,7 +23,7 @@ Two cross-phase loops (ci→implement, review→implement) and one in-place loop
 
 ## Prerequisites (not part of M3)
 
-- **Phase 3 amendment** ships separately. By M3 start, `runImplementPhase` (mode `"create"`) runs `/verify` locally and confirms it exits 0 *before* `gh pr create`. M3 assumes this as a precondition. The new invariant for `pr-open` is "PR exists **and** the local test suite passed against the pushed SHA".
+- **Phase 3 amendment** lands as **M3 PR 0** (see PR-sequence table below). `runImplementPhase` (mode `"create"`) runs `npm run verify` locally and confirms it exits 0 *before* `gh pr create`. The new invariant for `pr-open` is "PR exists **and** the local test suite passed against the pushed SHA".
 
 ## Resolved open questions
 
@@ -109,6 +109,8 @@ The triage asked us to investigate whether `/new-feature` could double as a fix-
 - **No it.todo() approval gate.** The trigger is an existing failure; the skill's job is to make it pass.
 
 The `/fix` skill ships in flow's bundled skills directory. It is **not** part of flow's own source PRs but is a prerequisite for PR 6 (the first ci-loop-back caller). It can land in parallel with PRs 1–5; the M3 plan calls it out explicitly so the user can `flow start` a separate task to author it.
+
+The `/fix` skill is authored via a separate `flow start` task — it lives in `skills/pipeline/fix/` once shipped, is written from scratch (not forked from `/new-feature`, whose `it.todo()` user-approval gate would hang in headless mode), and is a prerequisite for PR 6 only.
 
 ## State machine deltas
 
@@ -279,6 +281,33 @@ The runner does not call `runImplementPhase` directly with `mode: "fix"` — pha
 
 `phase_counts.implement` increments on every entry; cap 4 lifetime. Hitting the cap escalates to `needs-human` with the failure context surfaced.
 
+### `pending_implement_mode` frontmatter (introduced by PR 5)
+
+A crash mid-loop-back creates a status-only ambiguity: the task is in
+`implementing` and a PR exists, but was the runner heading into create
+(legacy crash recovery from PR 0) or fix (loop-back from ci/review)?
+Phase log parsing is fragile. PR 5 introduces a dedicated frontmatter
+field:
+
+```yaml
+pending_implement_mode: "fix" | null
+```
+
+- **Set by** ci (phase 5) or review (phase 6) when transitioning the task
+  to `implementing` for a loop-back. Value `"fix"`.
+- **Read by** the runner. Dispatches `runImplementPhase(task, { mode:
+  "fix", failureContext })` when the field is `"fix"`; otherwise
+  defaults to `mode: "create"` (the PR 0 crash-recovery path runs the
+  gate and either skips `gh pr create` or surfaces the failure on the
+  existing PR).
+- **Cleared** after a successful re-entry (set back to `null`).
+
+PR 0 does **not** add this field — it only documents the decision so
+PR 5 implements it consistently. PR 0's crash recovery (status
+`implementing` + `pr != null`) leans on `mode: "create"` semantics: the
+gate runs, `detectOpenedPr` finds the existing PR and skips
+`gh pr create`.
+
 ## Retry helper — `retryN`
 
 Replace `src/pipeline/retry.ts`:
@@ -327,6 +356,8 @@ export const AUTO_REVIEWER_WAIT_MS = 5 * 60 * 1000;
 ```
 
 Centralising these in one file makes the M5 swap to `.orchestrator/config.toml` mechanical.
+
+**Caveat — what binds when both loops fire.** `IMPLEMENT_LIFETIME_CAP = 4` is the binding constraint when both ci and review loops fire on the same task: `CI_LOOPBACK_CAP + REVIEW_LOOPBACK_CAP = 5` is unreachable because each loop-back consumes one implement attempt, and implement caps at 4. The per-loop caps therefore only bind when one of the two loops fires alone.
 
 ## New / changed source files
 
@@ -377,10 +408,11 @@ docs/
 
 ## PR sequence
 
-Eight PRs, each non-breaking with respect to the M2 happy path. PRs 1–3 are pure scaffolding; PRs 4, 6, 7 each extend the pipeline by one phase and shift the M3 terminal status forward; PR 5 introduces fix-mode infrastructure ahead of its first caller; PR 8 is the M2 test catch-up.
+Nine PRs, each non-breaking with respect to the M2 happy path. PR 0 is the Phase 3 amendment (pre-PR verify gate); PRs 1–3 are pure scaffolding; PRs 4, 6, 7 each extend the pipeline by one phase and shift the M3 terminal status forward; PR 5 introduces fix-mode infrastructure ahead of its first caller; PR 8 is the M2 test catch-up.
 
 | # | Title | Pipeline terminal after merge | Skill |
 |---|---|---|---|
+| 0 | Phase 3 amendment: pre-PR verify gate in implement | unchanged (`pr-open`) | `refactoring` |
 | 1 | Vitest setup + `retryN` helper | unchanged (`pr-open`) | `refactoring` (and `testing` for tests) |
 | 2 | `phase_counts` + `paused_at_phase` frontmatter | unchanged (`pr-open`) | `refactoring` |
 | 3 | `flow resume <task-id>` command | unchanged (`pr-open`) | `new-feature` |
@@ -394,6 +426,7 @@ Out-of-band, in parallel: **`/fix` skill in `skills/pipeline/fix/`.** Must exist
 
 ### Why this ordering
 
+- **PR 0 lands first because every later PR depends on the strengthened `pr-open` invariant.** Phase 4 (PR 4) is mostly redundant on the happy path without it — every verify run would inherit a tree the LLM just claimed was green, with no deterministic re-check between the claim and the PR. PR 0 closes that gap before any of the new phases land. Standalone (not folded into PR 1) so "behaviour change in implement.ts" and "test framework setup" stay as separate diffs.
 - **PR 1 lands test infra alongside the first thing worth testing.** A standalone "set up vitest" PR is reviewable but small enough to bundle with `retryN`. They share fate — `retryN`'s correctness is the smoke test for vitest.
 - **PRs 2–3 are pure plumbing.** `phase_counts` is added before any phase reads it (PR 2). `flow resume` lands before any phase can route to `needs-human` (PR 3) — so the user has the recovery tool before they need it.
 - **PR 4 (verify) lands before PR 5 (fix mode)** because verify is callable in the M2 happy path with no fix-mode dependency. Pipeline terminates at `verified` after this PR — that is the new "M2 happy path" until PR 6.

@@ -17,6 +17,7 @@
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "test": "vitest run",
     "test:watch": "vitest",
+    "verify": "npm run typecheck && npm run typecheck:scripts && npm run test",
     "prepare": "npm run build"
   },
   "dependencies": {
