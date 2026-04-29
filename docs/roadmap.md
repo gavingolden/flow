@@ -77,6 +77,11 @@ Done when:
   the pipeline.
 - Closing the terminal that ran `flow run --detach` leaves the pipeline
   running.
+- The detach-but-immediate-exit race is covered: if `flow run --detach`
+  exits before the first phase logs an event, `/flow status` reflects
+  the actual exit state (failure / `needs-human`) rather than reporting
+  the task stuck at `triaged`. PID-file reaping plus a final-status
+  write on every exit path is the contract this PR is responsible for.
 
 ### PR 2 — cross-process claim primitive
 
@@ -167,9 +172,15 @@ Done when:
 - `/pr-review` returns JSON with `critical` and `minor` arrays.
 - Findings post as **inline review comments**, not formal GitHub
   reviews.
-- If `critical.length > 0`, loop back to implement(fix). Cap 2
-  review→implement cycles. After exhaustion, escalate to `needs-human`
-  with the review log surfaced.
+- If `critical.length > 0`, default behaviour is loop back to
+  implement(fix). Cap 2 review→implement cycles. After exhaustion,
+  escalate to `needs-human` with the review log surfaced.
+- Review may escalate immediately to `needs-human` with reason
+  `architectural-concern` (skipping the loop-back) when a finding
+  indicates the **plan**, not the code, is wrong — looping back to
+  implement against a wrong plan just spins. The `/pr-review` JSON
+  contract gains a `kind: "code" | "architectural"` discriminator on
+  each critical finding so review can make this call deterministically.
 
 ### PR 8 — gate + merge phases
 
@@ -216,6 +227,12 @@ Done when:
 - `flow status` (CLI) prints a table of all tasks with id, status,
   current phase, PR number, last-updated, and cost-to-date.
 - Cost is tallied from `result.usage` events in the jsonl logs (PR 1).
+- The parser handles three cases deterministically and documents them
+  as test cases: missing `usage` events (subprocess crash before
+  result), mixed-model invocations within one task (e.g. Opus plan +
+  Haiku verify), and loop-back retry rollups (cost across all attempts
+  of a phase, not just the last). Undercounts and double-counts are
+  bugs, not "expected fuzziness."
 - A new skill at `skills/pipeline/flow-status/SKILL.md` shells out to
   the CLI and renders the table inline in chat with a brief narrative
   summary.
@@ -250,6 +267,18 @@ Done when:
   implement costs tokens-of-implement plus the time to redo.
 - `intent` values other than `feature` (bug fix, docs, refactor) skip
   the checkpoint and flow straight through.
+- The plan phase gains its own escape hatch: when the LLM detects a
+  load-bearing ambiguity it cannot resolve from `task.md` alone, it
+  exits to status `needs-human` with reason `plan-blocked` rather than
+  silently picking a direction. The user resolves via `/flow revise`
+  or by editing `task.md` and re-running `flow run <id>`. Without this,
+  ambiguity is forced through to the checkpoint where the user pays
+  full plan-token cost to discover the question.
+- README and `/flow add` skill output make the wait behaviour explicit:
+  until PR 17 ships notifications, a `plan-pending-review` task waits
+  indefinitely for the user to return. This is intentional (user owns
+  when to spend implement tokens) but must be surfaced — silence in
+  chat shouldn't be confusable with progress.
 
 ## Phase 4 — cutover + parallelism (PRs 13–19)
 
@@ -421,6 +450,17 @@ Smaller items that aren't phase-blocking but should land when convenient:
   reading nicer). Trigger: address opportunistically next time either
   file is touched for behavioural reasons.
 
+- **Harmonize state machine naming across `chat-first-design.md` and
+  `task-schema.md`.** The design doc's section 4 diagram uses
+  descriptive names (`local-verifying`, `ci-wait`, `gating`) for
+  readability; the schema enum uses canonical names (`verifying`,
+  `ci`, `gated`). Pick one set and align both docs. The PR that
+  touches this should also remove the explanatory callout added at
+  the top of section 4 (it exists only to flag the divergence).
+  Trigger: address opportunistically alongside PR 1 (jsonl phase
+  names land) or PR 4 (ci-wait phase enum lands), whichever comes
+  first.
+
 - **Unit-test the install commands.** `src/install/scripts.ts` and
   `src/install/skills.ts` (added in PR #6) carry the symlink, gitignore, stale-test
   cleanup, and `git rm --cached` logic but have no automated tests — only the
@@ -439,6 +479,11 @@ Smaller items that aren't phase-blocking but should land when convenient:
 - Slack / email notifications. (macOS desktop notifications land in
   PR 17, opt-in.)
 - Cross-repo coordination. flow operates on one repo at a time.
+- Cross-machine pipelines. The design assumes the user, chat session,
+  repo, and pipeline live on one machine. There is no path for
+  starting a pipeline on a laptop and checking status from a phone —
+  status is read from the local `.orchestrator/` tree. This is a
+  deliberate consequence of the no-daemon, no-server stance.
 - Custom Claude Code skills bundled into the user's chat session that
   outlive flow's lifecycle. The skills flow ships are pipeline-scoped
   (`/flow add`, `/flow status`, etc.); the underlying domain skills
