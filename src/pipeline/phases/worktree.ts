@@ -10,13 +10,20 @@ import {
 } from "../../state/task-file.js";
 import { deriveBranchName } from "../../state/ids.js";
 import { PhaseResult } from "../types.js";
+import { NoopLogger, type Logger } from "../../util/logger.js";
 
-export async function runWorktreePhase(task: Task): Promise<PhaseResult> {
+export async function runWorktreePhase(
+  task: Task,
+  logger: Logger = NoopLogger,
+): Promise<PhaseResult> {
   // If a prior run already created the worktree (frontmatter populated, dir
   // exists), skip the script. This handles both clean re-invocation and
   // crash-recovery between updateTaskFrontmatter and the final
   // transitionStatus.
   if (task.frontmatter.worktree && existsSync(task.frontmatter.worktree)) {
+    logger.info(
+      `worktree: already present at ${task.frontmatter.worktree}, skipping script`,
+    );
     const symlinkResult = await ensureOrchestratorSymlink(
       task.frontmatter.worktree,
       task.frontmatter.target_repo,
@@ -24,12 +31,15 @@ export async function runWorktreePhase(task: Task): Promise<PhaseResult> {
     if (symlinkResult.status !== "ok") return symlinkResult;
     if (task.frontmatter.status !== "worktree-ready") {
       await transitionStatus(task, "worktree-ready");
+      logger.event("task.status", "worktree-ready");
     }
     return { status: "ok" };
   }
   await transitionStatus(task, "creating-worktree");
+  logger.event("task.status", "creating-worktree");
 
   const branch = deriveBranchName(task.frontmatter.id);
+  logger.event("worktree.branch", branch);
 
   // Pre-flight: branch exists. Two sub-cases:
   //   (a) worktree exists too — prior run crashed *after* worktree creation
@@ -47,12 +57,14 @@ export async function runWorktreePhase(task: Task): Promise<PhaseResult> {
       branch,
     );
     if (existingWorktreePath) {
-      return finalizeWorktree(task, branch, existingWorktreePath);
+      logger.info(
+        `worktree: branch ${branch} + worktree ${existingWorktreePath} already exist — reusing`,
+      );
+      return finalizeWorktree(task, branch, existingWorktreePath, logger);
     }
-    return {
-      status: "failed",
-      reason: `branch ${branch} already exists but has no matching worktree — delete the orphan with: git -C ${shellQuote(task.frontmatter.target_repo)} branch -D ${shellQuote(branch)}`,
-    };
+    const reason = `branch ${branch} already exists but has no matching worktree — delete the orphan with: git -C ${shellQuote(task.frontmatter.target_repo)} branch -D ${shellQuote(branch)}`;
+    logger.error(reason);
+    return { status: "failed", reason };
   }
 
   const scriptPath = path.join(
@@ -61,23 +73,28 @@ export async function runWorktreePhase(task: Task): Promise<PhaseResult> {
     "new-agent-worktree.ts",
   );
   if (!existsSync(scriptPath)) {
-    return {
-      status: "failed",
-      reason: `target repo missing ${scriptPath} — flow requires this script for the worktree phase`,
-    };
+    const reason = `target repo missing ${scriptPath} — flow requires this script for the worktree phase`;
+    logger.error(reason);
+    return { status: "failed", reason };
   }
 
   // The script in econ-data uses a `bun` shebang and is chmod +x. Direct
   // invocation respects the shebang (no need for `npx tsx` or `bun run`).
+  logger.event("subprocess.spawn", `${scriptPath} ${branch}`);
+  const start = Date.now();
   const result = await execa(scriptPath, [branch], {
     cwd: task.frontmatter.target_repo,
     reject: false,
   });
+  const durSec = Math.round((Date.now() - start) / 1000);
+  logger.event(
+    "subprocess.exit",
+    `worktree-script exit=${result.exitCode} dur=${durSec}s`,
+  );
   if (result.exitCode !== 0) {
-    return {
-      status: "failed",
-      reason: `worktree script exit ${result.exitCode}: ${result.stderr || result.stdout}`,
-    };
+    const reason = `worktree script exit ${result.exitCode}: ${result.stderr || result.stdout}`;
+    logger.error(reason);
+    return { status: "failed", reason };
   }
 
   const worktreePath = await findWorktreePath(
@@ -85,13 +102,13 @@ export async function runWorktreePhase(task: Task): Promise<PhaseResult> {
     branch,
   );
   if (!worktreePath) {
-    return {
-      status: "failed",
-      reason: `worktree script reported success but branch ${branch} not found in 'git worktree list --porcelain'`,
-    };
+    const reason = `worktree script reported success but branch ${branch} not found in 'git worktree list --porcelain'`;
+    logger.error(reason);
+    return { status: "failed", reason };
   }
+  logger.event("worktree.path", worktreePath);
 
-  return finalizeWorktree(task, branch, worktreePath);
+  return finalizeWorktree(task, branch, worktreePath, logger);
 }
 
 // Shared "the worktree exists, populate frontmatter and transition" tail used
@@ -101,6 +118,7 @@ async function finalizeWorktree(
   task: Task,
   branch: string,
   worktreePath: string,
+  logger: Logger,
 ): Promise<PhaseResult> {
   const symlinkResult = await ensureOrchestratorSymlink(
     worktreePath,
@@ -109,12 +127,15 @@ async function finalizeWorktree(
   if (symlinkResult.status !== "ok") return symlinkResult;
 
   await updateTaskFrontmatter(task, { worktree: worktreePath, branch });
+  logger.event("task.frontmatter", `worktree=${worktreePath} branch=${branch}`);
   await appendPhaseOutput(
     task,
     "worktree",
     `- Branch: ${branch}\n- Path: ${worktreePath}`,
   );
+  logger.event("task.appendPhaseOutput", "worktree");
   await transitionStatus(task, "worktree-ready");
+  logger.event("task.status", "worktree-ready");
   return { status: "ok" };
 }
 

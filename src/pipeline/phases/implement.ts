@@ -12,6 +12,7 @@ import { runHeadless } from "../headless.js";
 import { retryOnce } from "../retry.js";
 import { PhaseResult } from "../types.js";
 import { runVerifyGate, surfaceVerifyFailureOnPr } from "./verify-gate.js";
+import { NoopLogger, type Logger } from "../../util/logger.js";
 
 const NON_INTERACTIVE_PREAMBLE = `You are running in non-interactive headless mode driven by the flow orchestrator.
 Do not pause for confirmations or ask the user any clarifying questions. Work
@@ -28,7 +29,10 @@ section empty (just the heading and an HTML comment explaining the
 convention). The orchestrator's gate phase reads this section to decide
 whether to auto-merge.`;
 
-export async function runImplementPhase(task: Task): Promise<PhaseResult> {
+export async function runImplementPhase(
+  task: Task,
+  logger: Logger = NoopLogger,
+): Promise<PhaseResult> {
   // Legacy / already-complete: short-circuit only on the canonical
   // success state. `status: implementing` with `pr != null` is crash
   // recovery — fall through and re-run the gate against the open PR.
@@ -36,19 +40,18 @@ export async function runImplementPhase(task: Task): Promise<PhaseResult> {
     return { status: "ok" };
   }
   if (!task.frontmatter.worktree || !existsSync(task.frontmatter.worktree)) {
-    return {
-      status: "failed",
-      reason: `implement phase requires an existing worktree; got ${task.frontmatter.worktree ?? "(null)"}`,
-    };
+    const reason = `implement phase requires an existing worktree; got ${task.frontmatter.worktree ?? "(null)"}`;
+    logger.error(reason);
+    return { status: "failed", reason };
   }
   if (!task.frontmatter.branch) {
-    return {
-      status: "failed",
-      reason: "implement phase requires a branch in frontmatter (set by worktree phase)",
-    };
+    const reason = "implement phase requires a branch in frontmatter (set by worktree phase)";
+    logger.error(reason);
+    return { status: "failed", reason };
   }
 
   await transitionStatus(task, "implementing");
+  logger.event("task.status", "implementing");
 
   const worktree = task.frontmatter.worktree;
   const branch = task.frontmatter.branch;
@@ -66,9 +69,20 @@ export async function runImplementPhase(task: Task): Promise<PhaseResult> {
   // mutate the existing PR. Run one attempt, surface gate failures on the
   // PR, and let the user decide.
   const preexistingPr = await detectOpenedPr(worktree, branch);
+  if (preexistingPr != null) {
+    logger.info(
+      `implement: pre-existing PR #${preexistingPr} detected — single attempt, no retry`,
+    );
+  }
 
-  const attempt = async (lastFailure?: string) => {
+  const attempt = async (attemptNum: number, lastFailure?: string) => {
+    if (attemptNum > 1) {
+      logger.warn(
+        `implement attempt ${attemptNum} after failure: ${truncate(lastFailure ?? "", 200)}`,
+      );
+    }
     const prompt = buildImplementPrompt(task, bodyFilePath, lastFailure);
+    logger.info(`implement: invoking claude (attempt ${attemptNum})`);
     const r = await runHeadless({
       cwd: worktree,
       prompt,
@@ -87,14 +101,20 @@ export async function runImplementPhase(task: Task): Promise<PhaseResult> {
         "Bash(node *)",
       ],
       timeoutMs: 30 * 60 * 1000,
+      logger,
+      label: "claude (implement)",
     });
     if (!r.ok) {
       return { ok: false as const, error: r.error ?? `exit ${r.exitCode}` };
     }
 
-    const gate = await runVerifyGate(worktree);
-    if (gate.ok) return { ok: true as const, value: r };
+    const gate = await runVerifyGate(worktree, logger);
+    if (gate.ok) {
+      logger.info("verify-gate ok");
+      return { ok: true as const, value: r };
+    }
 
+    logger.warn("verify-gate failed — surfacing on PR if one exists");
     const truncated = truncate(gate.output, 4000);
     await appendPhaseOutput(
       task,
@@ -103,7 +123,7 @@ export async function runImplementPhase(task: Task): Promise<PhaseResult> {
     );
     const existingPr = await detectOpenedPr(worktree, branch);
     if (existingPr != null) {
-      await surfaceVerifyFailureOnPr(existingPr, worktree, truncated);
+      await surfaceVerifyFailureOnPr(existingPr, worktree, truncated, logger);
     }
     return {
       ok: false as const,
@@ -112,47 +132,59 @@ export async function runImplementPhase(task: Task): Promise<PhaseResult> {
   };
 
   const result = preexistingPr != null
-    ? await attempt()
-    : await retryOnce((_attempt, lastFailure) => attempt(lastFailure));
+    ? await attempt(1)
+    : await retryOnce((attemptNum, lastFailure) => attempt(attemptNum, lastFailure));
 
   if (!result.ok) {
+    logger.error(`implement: ${result.error}`);
     return { status: "failed", reason: `implement phase failed: ${result.error}` };
   }
 
   let prNumber = await detectOpenedPr(worktree, branch);
   if (prNumber == null) {
-    const bodyPath = await resolveBodyPath(task, bodyFilePath);
-    const create = await execa("gh", ["pr", "create", "--body-file", bodyPath], {
-      cwd: worktree,
-      reject: false,
-    });
+    const bodyPath = await resolveBodyPath(task, bodyFilePath, logger);
+    logger.event(
+      "subprocess.spawn",
+      `gh pr create --fill-first --body-file ${bodyPath}`,
+    );
+    const create = await execa(
+      "gh",
+      ["pr", "create", "--fill-first", "--body-file", bodyPath],
+      { cwd: worktree, reject: false },
+    );
+    logger.event("subprocess.exit", `gh pr create exit=${create.exitCode}`);
     if (create.exitCode !== 0) {
-      return {
-        status: "failed",
-        reason: `gh pr create failed: ${create.stderr || create.stdout || `exit ${create.exitCode}`}`,
-      };
+      const reason = `gh pr create failed: ${create.stderr || create.stdout || `exit ${create.exitCode}`}`;
+      logger.error(reason);
+      return { status: "failed", reason };
     }
     prNumber = await detectOpenedPr(worktree, branch);
   }
 
   if (prNumber == null) {
-    return {
-      status: "failed",
-      reason: "implement phase opened a PR but 'gh pr list --head' returned no match",
-    };
+    const reason = "implement phase opened a PR but 'gh pr list --head' returned no match";
+    logger.error(reason);
+    return { status: "failed", reason };
   }
 
+  logger.event("pr.opened", `#${prNumber}`);
   await updateTaskFrontmatter(task, { pr: prNumber });
+  logger.event("task.frontmatter", `pr=${prNumber}`);
   await appendPhaseOutput(
     task,
     "implement",
     `- PR: #${prNumber}\n- Branch: ${branch}`,
   );
   await transitionStatus(task, "pr-open");
+  logger.event("task.status", "pr-open");
   return { status: "ok" };
 }
 
-async function resolveBodyPath(task: Task, bodyFilePath: string): Promise<string> {
+async function resolveBodyPath(
+  task: Task,
+  bodyFilePath: string,
+  logger: Logger,
+): Promise<string> {
   if (existsSync(bodyFilePath)) return bodyFilePath;
   const fallback = path.join(
     task.frontmatter.target_repo,
@@ -161,6 +193,7 @@ async function resolveBodyPath(task: Task, bodyFilePath: string): Promise<string
     `${task.frontmatter.id}-plan`,
     "pr-description-draft.md",
   );
+  logger.warn(`PR body file missing at ${bodyFilePath}; falling back to ${fallback}`);
   await appendPhaseOutput(
     task,
     "implement",

@@ -388,6 +388,35 @@ Smaller items that aren't phase-blocking but should land when convenient:
   next time a `src/commands/*.ts` file is touched, or before the first
   command grows non-trivial branching logic.
 
+- **Unit-test the new logger integration points in `runHeadless` and
+  verify-gate.** `src/pipeline/headless.ts` ships the live stderr tee, the
+  64 KB rolling tail, and the `buffer: { stderr: false }` execa flag added
+  in PR #11; `src/pipeline/phases/verify-gate.ts` ships the
+  `verify-gate.start` / `verify-gate.exit` event lines and the heartbeat
+  wrapping. None of these are covered by tests today — phases pass
+  `NoopLogger` implicitly. Bug the tests would catch: the tee regressing
+  to silent, the rolling tail growing unbounded, the events not firing on
+  the success or throw paths. Deferred from PR #11 review because adding
+  them requires standing up a fake-execa harness that streams `data`
+  chunks deterministically (bar criterion 2: needs new test
+  infrastructure). Trigger: address opportunistically next time
+  `headless.ts` or `verify-gate.ts` is touched, or before M3's verify
+  retry-loop work begins (the new attempt-counting will be hard to verify
+  without this harness).
+
+- **Default `opts.logger` to `NoopLogger` in `runHeadless` /
+  `runVerifyGate` to remove the `logger?.event(...)` noise.** PR #11
+  threads the logger as `logger?: Logger` in `headless.ts` and
+  `verify-gate.ts` (rather than `logger: Logger = NoopLogger` as in the
+  pipeline runner and phases), which forces every event/heartbeat call
+  to be guarded with `?.`. The two patterns are functionally equivalent
+  but the explicit default reads cleaner and matches the rest of the
+  pipeline. Deferred from PR #11 review because the change is purely
+  cosmetic and touches every `logger?.event` call site across both
+  files (bar criterion 2: cross-cutting refactor whose only payoff is
+  reading nicer). Trigger: address opportunistically next time either
+  file is touched for behavioural reasons.
+
 - **Unit-test the install commands.** `src/install/scripts.ts` and
   `src/install/skills.ts` (added in PR #6) carry the symlink, gitignore, stale-test
   cleanup, and `git rm --cached` logic but have no automated tests — only the

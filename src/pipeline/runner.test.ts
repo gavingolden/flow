@@ -44,6 +44,8 @@ vi.mock("./phases/implement.js", () => ({
 
 import { runPipeline } from "./runner.js";
 import { readTask, writeTask, type Task } from "../state/task-file.js";
+import { runPlanPhase } from "./phases/plan.js";
+import { NoopLogger, type Logger } from "../util/logger.js";
 
 async function makeTaskFile(tmpDir: string, status: TaskStatus): Promise<Task> {
   const taskPath = path.join(tmpDir, "task.md");
@@ -129,5 +131,33 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
     const task = await makeTaskFile(tmp, "pr-open");
     await runPipeline(task);
     expect(callLog).toEqual([]);
+  });
+
+  it("emits a phaseEnd line even when a phase throws past the PhaseResult contract", async () => {
+    // Without the runner's try/catch around `spec.phase`, a thrown phase
+    // leaves the persistent log file ending with an unterminated
+    // `▶ <phase>` line — exactly the post-mortem case that needs the
+    // most visibility. This test pins the boundary-symmetry contract.
+    const task = await makeTaskFile(tmp, "worktree-ready");
+    vi.mocked(runPlanPhase).mockImplementationOnce(async () => {
+      callLog.push("plan");
+      throw new Error("synthetic plan crash");
+    });
+
+    const events: string[] = [];
+    const recorder: Logger = {
+      ...NoopLogger,
+      phaseStart: (name) => events.push(`start:${name}`),
+      phaseEnd: (name, _ms, outcome) => events.push(`end:${name}:${outcome}`),
+    };
+
+    await expect(runPipeline(task, recorder)).rejects.toThrow(
+      "synthetic plan crash",
+    );
+    // worktree was already done (status=worktree-ready), so plan is the
+    // first dispatched phase. We expect a matched start/end pair even on
+    // throw, with the failure outcome `threw`.
+    expect(events).toContain("start:plan");
+    expect(events).toContain("end:plan:threw");
   });
 });
