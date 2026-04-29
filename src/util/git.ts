@@ -13,6 +13,30 @@ export async function findGitRoot(cwd?: string): Promise<string | null> {
   }
 }
 
+// Returns the *primary* (main) worktree path even when called from inside a
+// secondary worktree. `--git-common-dir` resolves to `<main>/.git` (or the
+// `.git/worktrees/<name>` subdir's parent for a child worktree); stripping
+// the trailing `.git` gives us the main worktree.
+export async function findCanonicalRoot(
+  cwd?: string,
+): Promise<string | null> {
+  try {
+    const { stdout } = await execa(
+      "git",
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { cwd },
+    );
+    const commonDir = stdout.trim();
+    if (commonDir.endsWith(`${path.sep}.git`) || commonDir.endsWith("/.git")) {
+      return path.dirname(commonDir);
+    }
+    // Bare repos and other non-standard layouts — fall back to show-toplevel.
+    return findGitRoot(cwd);
+  } catch {
+    return findGitRoot(cwd);
+  }
+}
+
 export async function findTaskFile(
   taskId: string,
   repoRoot: string,

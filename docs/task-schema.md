@@ -67,7 +67,7 @@ merge_commit: null
 | `status` | enum | every phase that transitions | See state machine below. |
 | `created` | ISO-8601 UTC | triage | Immutable after creation. |
 | `updated` | ISO-8601 UTC | every phase | Set on every write. |
-| `target_repo` | absolute path | triage | The git repo `flow start` was run in. |
+| `target_repo` | absolute path | triage | The git repo `flow start` was run in. Canonicalised to the *primary* worktree, so a `flow start` from inside a child worktree still anchors the new task to the main repo's `.orchestrator/`. |
 | `worktree` | absolute path \| `null` | worktree phase | Created in M2. Null until phase 2 runs. |
 | `branch` | string \| `null` | worktree phase | Branch name created in the target repo. |
 | `pr` | integer \| `null` | implement phase | GitHub PR number. Null until phase 3 opens it. |
@@ -104,12 +104,24 @@ nameWithOwner` call) and storing both numbers and URLs invites drift.
 ## Status state machine
 
 ```
-   triaged ──► planning ──► implementing ──► verifying ──► ci
-                                                              │
-                                                              ▼
-                                                          reviewing
-                                                              │
-                                                              ▼
+   triaged ──► creating-worktree ──► worktree-ready ──► planning ──► planned
+                                                                       │
+                                                                       ▼
+                                                                 implementing
+                                                                       │
+                                                                       ▼
+                                                                    pr-open
+                                                                       │
+                                                                       ▼
+                                                                   verifying
+                                                                       │
+                                                                       ▼
+                                                                       ci
+                                                                       │
+                                                                       ▼
+                                                                   reviewing
+                                                                       │
+                                                                       ▼
                           gated  (if manual_validation = true)
                             │
                             ▼
@@ -118,6 +130,11 @@ nameWithOwner` call) and storing both numbers and URLs invites drift.
    any state ──► aborted   (terminal — user-initiated or unrecoverable)
    any state ──► needs-human  (transient — pipeline pauses, user resumes)
 ```
+
+The `triaged → creating-worktree` edge is the post-triage entry: the
+worktree phase runs *before* plan so every later phase can execute
+inside a per-task worktree, enabling concurrent `flow run` invocations
+against the same target repo.
 
 The script's phase scheduler reads `status` to decide where to resume
 when `flow run` is called on an existing task. Phases set the status

@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import pc from "picocolors";
-import { findGitRoot } from "../util/git.js";
+import { findCanonicalRoot } from "../util/git.js";
 
 export async function startCommand(prompt: string): Promise<void> {
   const trimmed = prompt.trim();
@@ -12,7 +12,10 @@ export async function startCommand(prompt: string): Promise<void> {
     process.exit(1);
   }
 
-  const repoRoot = await findGitRoot();
+  // Canonicalise to the primary worktree so a `flow start` invoked from
+  // inside a child worktree still anchors the new task to the main repo's
+  // `.orchestrator/`.
+  const repoRoot = await findCanonicalRoot();
   if (!repoRoot) {
     console.error(
       pc.red("error: flow must be run from inside a git repository"),

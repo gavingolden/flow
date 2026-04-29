@@ -1,15 +1,18 @@
-# Phase 1 — plan
+# Phase 2 — plan
 
-The first headless phase. Reads a `triaged` task and produces a PRD,
-task breakdown, and PR description draft so the implement phase has a
-plan to execute against.
+The first headless phase. Reads a `worktree-ready` task and produces a
+PRD, task breakdown, and PR description draft so the implement phase
+has a plan to execute against. Runs *inside* the per-task worktree
+(not the main repo's checkout) so concurrent `flow run` invocations
+do not race over the same working tree.
 
 **Status: shipped (M2).**
 
 ## Inputs
 
 - A task file at `<target-repo>/.orchestrator/tasks/<id>.md` with
-  `status: triaged`.
+  `status: worktree-ready` and a populated `frontmatter.worktree`
+  pointing at the per-task worktree.
 - The target repo's `.claude/skills/product-planning/` skill (installed
   via `flow install` or symlinked manually).
 
@@ -25,7 +28,15 @@ Three files in `<target-repo>/.orchestrator/tasks/<id>-plan/`:
 
 A summary of which files landed is appended to the task's
 `## Phase outputs > plan` subsection. On exit the task transitions
-`triaged → planning → planned`.
+`worktree-ready → planning → planned`.
+
+The `claude -p` subprocess uses `frontmatter.worktree` as its `cwd`.
+The plan-output absolute path under
+`<target-repo>/.orchestrator/tasks/<id>-plan/` is unchanged — writes
+resolve through the worktree's `.orchestrator` symlink (created by
+the worktree phase) to the main repo's directory, so plan files end
+up in the same shared location regardless of which worktree wrote
+them.
 
 ## Open question 1 — slash commands inside `claude -p`
 

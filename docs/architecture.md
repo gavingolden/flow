@@ -99,8 +99,8 @@ to read.
 | # | Phase | Type | Skill / action | On failure |
 |---|---|---|---|---|
 | 0 | triage | Claude session (interactive) | `--append-system-prompt` triage rules | n/a — owned by user |
-| 1 | plan | headless | `/product-planning` | retry once with error appended |
-| 2 | worktree | script (no LLM) | `scripts/new-agent-worktree.ts` (target repo) | abort |
+| 1 | worktree | script (no LLM) | `scripts/new-agent-worktree.ts` (target repo) + symlink `.orchestrator/` from main repo | abort |
+| 2 | plan | headless (in worktree) | `/product-planning` | retry once with error appended |
 | 3 | implement | headless (in worktree) | `/new-feature` | retry once |
 | 4 | verify | headless (in worktree) | `/verify` | retry up to 3x; then `needs-human` |
 | 5 | ci | script | poll `gh pr checks` until terminal; collect auto-reviewer findings | on red, loop back to implement with the failure log; cap 3 |
@@ -108,9 +108,18 @@ to read.
 | 7 | gate | script | parse PR body's "Manual validation" section | n/a — outcome is the decision |
 | 8 | merge | script | `gh pr merge --squash --delete-branch` + remove worktree | abort with clear status |
 
-Phases 1, 3, 4, 6 are headless Claude Code subprocess invocations of
+Phases 2, 3, 4, 6 are headless Claude Code subprocess invocations of
 skills that already exist in the target project (econ-data has them
-today). Phases 2, 5, 7, 8 are pure script work — no LLM cost.
+today). Phases 1, 5, 7, 8 are pure script work — no LLM cost.
+
+The worktree phase runs first (right after triage) so every subsequent
+headless phase, including plan, executes inside a per-task worktree.
+The new worktree gets a `.orchestrator/` directory symlink pointing at
+the main repo's `.orchestrator/`, so task files and plan dirs remain a
+single source of truth regardless of which worktree the phase runs
+from. This is what unblocks running `flow run` against multiple tasks
+in the same target repo concurrently — different worktrees, different
+branches, different working trees, but one shared task store.
 
 ## State store: markdown plan files
 

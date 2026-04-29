@@ -19,18 +19,18 @@ interface PhaseSpec {
 
 const M2_PIPELINE: readonly PhaseSpec[] = [
   {
-    name: "plan",
-    unfinishedStatuses: ["triaged", "planning"],
-    phase: runPlanPhase,
-  },
-  {
     name: "worktree",
-    unfinishedStatuses: ["planned", "creating-worktree"],
+    unfinishedStatuses: ["triaged", "creating-worktree"],
     phase: runWorktreePhase,
   },
   {
+    name: "plan",
+    unfinishedStatuses: ["worktree-ready", "planning"],
+    phase: runPlanPhase,
+  },
+  {
     name: "implement",
-    unfinishedStatuses: ["worktree-ready", "implementing"],
+    unfinishedStatuses: ["planned", "implementing"],
     phase: runImplementPhase,
   },
 ];
