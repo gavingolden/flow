@@ -103,5 +103,91 @@ Re-running `flow run <id>` on a `pr-open` task is a no-op end-to-end
 | File | Role |
 |---|---|
 | `src/pipeline/phases/implement.ts` | Phase entry, wrapping prompt, PR detection, status transitions |
+| `src/pipeline/phases/verify-gate.ts` | `runVerifyGate` (npm-run-verify shell-out) and `surfaceVerifyFailureOnPr` |
 | `src/pipeline/headless.ts` | Generic `claude -p` wrapper |
 | `src/pipeline/retry.ts` | `retryOnce` |
+
+## Amendment: pre-PR verify gate (M3 PR 0)
+
+The M2 design let `/new-feature` commit, push, *and* open the PR — meaning a
+PR could land on GitHub before any deterministic check ran against the
+pushed SHA. M3 PR 0 splits responsibilities so the orchestrator can gate
+`gh pr create` on a fresh `npm run verify` subprocess.
+
+### Responsibility split
+
+- **`/new-feature` (the skill)** implements the feature, writes tests,
+  commits, pushes the branch, and writes the final PR body to a file the
+  orchestrator supplies. It **does not** call `gh pr create`. The wrapping
+  prompt enforces this; the body file path is interpolated into the
+  prompt as an absolute path.
+- **`runImplementPhase` (the orchestrator)** runs `runVerifyGate` after
+  the skill exits. On gate-pass it reads the body file and runs
+  `gh pr create --body-file <path>` itself, then records the PR number
+  and transitions to `pr-open`.
+
+### Body file path
+
+`<target_repo>/.orchestrator/tasks/<id>-implement/pr-body.md`. The
+parent directory is created by the orchestrator before invoking the LLM
+(parallel to the existing `<id>-plan/` convention). The directory is
+covered by the existing `.orchestrator/` gitignore.
+
+If the body file is missing after the LLM exits (it ignored the
+instruction or crashed before writing), the orchestrator falls back to
+`<plan-dir>/pr-description-draft.md` and surfaces a `WARN:` line in
+`## Phase outputs > implement`. The plan phase guarantees the draft
+exists, so the fallback is always available.
+
+### The verify gate
+
+`runVerifyGate(cwd)` lives in `verify-gate.ts` and shells out via
+`execa("npm", ["run", "verify"], { cwd, reject: false, all: true,
+timeout: 10 * 60 * 1000 })`. It precondition-checks that the target
+repo's `package.json` has a `verify` script — if not, the gate fails
+fast with a clear reason rather than hitting an opaque npm error.
+Architecture has long listed `npm run verify` as a target-repo
+precondition; this enforces it at gate-entry.
+
+Why `npm run verify` and not `claude -p "/verify"`: cheaper, fully
+deterministic, no LLM context to muddy. Phase 4 (M3 PR 4) will run
+the skill route — the divergence is intentional. PR 0's gate is the
+deterministic gate at PR-open time; phase 4 is the fresh-LLM-window
+re-check after fix-mode pushes.
+
+### Failure modes
+
+The retry callback wraps both the LLM run *and* the gate:
+
+- **Gate fails, no PR yet.** Append the failure log (truncated to 4 KB)
+  to `## Phase outputs > implement` under a `### verify-gate failure`
+  subsection, return a retry-able error so `retryOnce` re-invokes
+  `/new-feature` with the failure context. If the second attempt's gate
+  also fails, the phase returns `failed` with no PR created.
+- **Gate fails, PR already exists in this run.** Crash recovery (the
+  LLM ignored the "do not open a PR" instruction, or a partial prior
+  invocation left a PR open). Surface the failure in the PR's
+  `## Manual validation` section as a `> [!CAUTION]` block via
+  `surfaceVerifyFailureOnPr`. Idempotent: a prior caution block from a
+  previous gate failure is replaced, not stacked. Phase returns
+  `failed` — a PR with red local verify is in a needs-human state.
+- **`/new-feature` itself fails.** Existing M2 retry behaviour. Gate
+  doesn't run.
+
+### Idempotency / resume — strengthened
+
+The top-of-phase short-circuit narrows: it now requires *both*
+`pr != null` *and* `status === "pr-open"`. A task with `pr != null` but
+`status: implementing` is crash recovery — the phase falls through,
+re-invokes the LLM, runs the gate, and either skips `gh pr create`
+(idempotent — `detectOpenedPr` finds the existing PR) on gate-pass or
+surfaces the failure on the PR on gate-fail. Legacy `pr-open` tasks
+created before PR 0 short-circuit unchanged; we do not retroactively
+gate them.
+
+### Strengthened `pr-open` invariant
+
+Before PR 0: `pr-open` meant "PR exists." After PR 0: `pr-open` means
+"PR exists **and** the local verify suite exited 0 against the pushed
+SHA." Phase 4 (M3 PR 4), when it lands, gains real signal because every
+`pr-open` it sees has already been gated.
