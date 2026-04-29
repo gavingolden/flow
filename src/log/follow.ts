@@ -55,6 +55,7 @@ export async function follow(opts: FollowOptions): Promise<FollowResult> {
 
   let position = 0;
   let pending = "";
+  let lineNum = 0;
   let idleAccumMs = 0;
   let exitReason: FollowExitReason | null = null;
   let exitStatus: string | undefined;
@@ -67,7 +68,8 @@ export async function follow(opts: FollowOptions): Promise<FollowResult> {
     while (nl >= 0) {
       const line = pending.slice(0, nl);
       pending = pending.slice(nl + 1);
-      const handled = renderOneLine(line, target.path, opts);
+      lineNum++;
+      const handled = renderOneLine(line, target.path, lineNum, opts);
       if (handled.terminal) {
         exitReason = handled.terminal;
         exitStatus = handled.status;
@@ -101,7 +103,8 @@ export async function follow(opts: FollowOptions): Promise<FollowResult> {
   // Flush pending residue (a file ending without `\n`) through the renderer
   // — same contract as the sink's residue flush in jsonl-sink.ts.
   if (pending.length > 0) {
-    renderOneLine(pending, target.path, opts);
+    lineNum++;
+    renderOneLine(pending, target.path, lineNum, opts);
     pending = "";
   }
 
@@ -140,13 +143,14 @@ interface RenderedLine {
 function renderOneLine(
   line: string,
   filePath: string,
+  lineNum: number,
   opts: FollowOptions,
 ): RenderedLine {
   if (line.length === 0) return { terminal: null };
   const out = renderLine(line, opts);
   if ("malformed" in out) {
     opts.stderr.write(
-      `warning: malformed jsonl line in ${filePath}\n`,
+      `warning: malformed jsonl line at ${filePath}:${lineNum}\n`,
     );
     return { terminal: null };
   }
@@ -155,21 +159,20 @@ function renderOneLine(
   }
   // Re-parse to detect terminal events. The renderer threw away the parsed
   // shape; rather than complicate its return type for the one-call site
-  // that needs it, parse the line again here.
-  try {
-    const parsed = JSON.parse(line) as Record<string, unknown>;
-    if (parsed["type"] === "result") {
-      const subtype = typeof parsed["subtype"] === "string" ? parsed["subtype"] : undefined;
-      const status = parsed["is_error"] === true ? "error" : subtype ?? "ok";
-      return { terminal: "stream-json-result", status };
-    }
-    if (parsed["kind"] === "result") {
-      const status =
-        typeof parsed["status"] === "string" ? parsed["status"] : undefined;
-      return { terminal: "flow-result", status };
-    }
-  } catch {
-    // already warned above
+  // that needs it, parse the line again here. We're past the malformed
+  // branch above, so renderLine already accepted this line as valid JSON
+  // and `parsed` will be a record.
+  const parsed = JSON.parse(line) as Record<string, unknown>;
+  if (parsed["type"] === "result") {
+    const subtype =
+      typeof parsed["subtype"] === "string" ? parsed["subtype"] : undefined;
+    const status = parsed["is_error"] === true ? "error" : subtype ?? "ok";
+    return { terminal: "stream-json-result", status };
+  }
+  if (parsed["kind"] === "result") {
+    const status =
+      typeof parsed["status"] === "string" ? parsed["status"] : undefined;
+    return { terminal: "flow-result", status };
   }
   return { terminal: null };
 }
@@ -199,7 +202,10 @@ async function writeFooter(
     );
     return;
   }
-  const next = newer[newer.length - 1]!;
+  // `listLogFiles` returns files stamp-sorted ascending, so the *next*
+  // chronological phase after `target` is the first entry of `newer`,
+  // not the last. The last would jump past any intermediate phases.
+  const next = newer[0]!;
   const hint = `flow log ${opts.taskId} --follow --phase ${next.phase}`;
   opts.stdout.write(`${colors.dim(`hint: ${hint}`)}\n`);
 }

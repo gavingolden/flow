@@ -162,6 +162,85 @@ describe("follow", () => {
     expect(stdout.buffer).toContain("hint: flow log tid --follow --phase implement");
   });
 
+  it("hint points at the *next* newer phase, not the latest, when multiple newer files exist", async () => {
+    const taskDir = path.join(tmp, "task");
+    const logsDir = path.join(taskDir, "logs");
+    await fsp.mkdir(logsDir, { recursive: true });
+    // Tail `plan` (oldest); two newer phases exist on disk. The hint must
+    // surface `implement` (the immediate next), not `verify` (the latest).
+    await writeJsonl(
+      path.join(logsDir, "plan-2026-04-29T10-00-00-000Z.jsonl"),
+      [{ ts: "x", kind: "result", status: "ok" }],
+    );
+    await writeJsonl(
+      path.join(logsDir, "implement-2026-04-29T11-00-00-000Z.jsonl"),
+      [{ ts: "x", kind: "info", msg: "implementing" }],
+    );
+    await writeJsonl(
+      path.join(logsDir, "verify-2026-04-29T12-00-00-000Z.jsonl"),
+      [{ ts: "x", kind: "info", msg: "verifying" }],
+    );
+    const files = await listLogFiles(taskDir);
+    const planOnly = files.filter((f) => f.phase === "plan");
+    const stdout = new StringSink();
+    const stderr = new StringSink();
+    const result = await follow({
+      stdout,
+      stderr,
+      taskDir,
+      taskId: "tid",
+      targetSet: planOnly,
+      pollIntervalMs: 5,
+      idleWindowMs: 50,
+      forceColor: false,
+    });
+    expect(result.reason).toBe("flow-result");
+    expect(stdout.buffer).toContain(
+      "hint: flow log tid --follow --phase implement",
+    );
+    expect(stdout.buffer).not.toContain(
+      "hint: flow log tid --follow --phase verify",
+    );
+  });
+
+  it("warns with file path and line number on a malformed jsonl line, then continues", async () => {
+    const taskDir = path.join(tmp, "task");
+    const logsDir = path.join(taskDir, "logs");
+    await fsp.mkdir(logsDir, { recursive: true });
+    const filePath = path.join(
+      logsDir,
+      "plan-2026-04-29T10-00-00-000Z.jsonl",
+    );
+    const body =
+      JSON.stringify({ ts: "x", kind: "info", msg: "good-1" }) +
+      "\n" +
+      "this-is-not-json\n" +
+      JSON.stringify({ ts: "x", kind: "info", msg: "good-2" }) +
+      "\n" +
+      JSON.stringify({ ts: "x", kind: "result", status: "ok" }) +
+      "\n";
+    await fsp.writeFile(filePath, body, "utf8");
+    const files = await listLogFiles(taskDir);
+    const stdout = new StringSink();
+    const stderr = new StringSink();
+    const result = await follow({
+      stdout,
+      stderr,
+      taskDir,
+      taskId: "tid",
+      targetSet: files,
+      pollIntervalMs: 5,
+      idleWindowMs: 50,
+      forceColor: false,
+    });
+    expect(result.reason).toBe("flow-result");
+    expect(stdout.buffer).toContain("info good-1");
+    expect(stdout.buffer).toContain("info good-2");
+    expect(stderr.buffer).toContain("malformed jsonl line");
+    expect(stderr.buffer).toContain(filePath);
+    expect(stderr.buffer).toContain(":2"); // line number
+  });
+
   it("exits on idle window when no terminal event appears", async () => {
     const taskDir = path.join(tmp, "task");
     const logsDir = path.join(taskDir, "logs");

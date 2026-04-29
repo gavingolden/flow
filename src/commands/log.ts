@@ -51,8 +51,7 @@ export async function logCommand(
     return 0;
   }
 
-  const taskPath = await findTaskFile(taskId, repoRoot);
-  if (!taskPath) {
+  if (!(await findTaskFile(taskId, repoRoot))) {
     stderr.write(
       `${pc.red(`error: task '${taskId}' not found in .orchestrator/tasks/`)}\n`,
     );
