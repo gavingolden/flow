@@ -9,11 +9,18 @@ import {
   updateTaskFrontmatter,
 } from "../../state/task-file.js";
 import { runHeadless } from "../headless.js";
-import { retryOnce } from "../retry.js";
+import { retryOnce, type AttemptResult } from "../retry.js";
 import { PhaseResult } from "../types.js";
 import { runVerifyGate, surfaceVerifyFailureOnPr } from "./verify-gate.js";
 import { NoopLogger, type Logger } from "../../util/logger.js";
 import { NoopJsonlSink, type JsonlSink } from "../../util/jsonl-sink.js";
+
+// Discriminated union: `failureLog` is required exactly when `mode === "fix"`,
+// so TypeScript enforces it at every call site rather than relying on
+// implementer discipline.
+export type ImplementOpts =
+  | { mode: "create" }
+  | { mode: "fix"; failureLog: string };
 
 const NON_INTERACTIVE_PREAMBLE = `You are running in non-interactive headless mode driven by the flow orchestrator.
 Do not pause for confirmations or ask the user any clarifying questions. Work
@@ -30,17 +37,29 @@ section empty (just the heading and an HTML comment explaining the
 convention). The orchestrator's gate phase reads this section to decide
 whether to auto-merge.`;
 
+const ALLOWED_TOOLS = [
+  "Read",
+  "Write",
+  "Edit",
+  "MultiEdit",
+  "Glob",
+  "Grep",
+  "Bash(npm *)",
+  "Bash(git *)",
+  "Bash(gh *)",
+  "Bash(npx *)",
+  "Bash(bun *)",
+  "Bash(node *)",
+];
+
+const HEADLESS_TIMEOUT_MS = 30 * 60 * 1000;
+
 export async function runImplementPhase(
   task: Task,
+  opts: ImplementOpts,
   logger: Logger = NoopLogger,
   jsonl: JsonlSink = NoopJsonlSink,
 ): Promise<PhaseResult> {
-  // Legacy / already-complete: short-circuit only on the canonical
-  // success state. `status: implementing` with `pr != null` is crash
-  // recovery — fall through and re-run the gate against the open PR.
-  if (task.frontmatter.pr != null && task.frontmatter.status === "pr-open") {
-    return { status: "ok" };
-  }
   if (!task.frontmatter.worktree || !existsSync(task.frontmatter.worktree)) {
     const reason = `implement phase requires an existing worktree; got ${task.frontmatter.worktree ?? "(null)"}`;
     logger.error(reason);
@@ -51,9 +70,6 @@ export async function runImplementPhase(
     logger.error(reason);
     return { status: "failed", reason };
   }
-
-  await transitionStatus(task, "implementing");
-  logger.event("task.status", "implementing");
 
   const worktree = task.frontmatter.worktree;
   const branch = task.frontmatter.branch;
@@ -66,83 +82,72 @@ export async function runImplementPhase(
   const bodyFilePath = path.join(bodyDir, "pr-body.md");
   await fs.mkdir(bodyDir, { recursive: true });
 
-  // Crash recovery: if a PR already exists for this branch, do not retry
-  // the LLM on gate failure — a second `/new-feature` invocation would
-  // mutate the existing PR. Run one attempt, surface gate failures on the
-  // PR, and let the user decide.
-  const preexistingPr = await detectOpenedPr(worktree, branch);
-  if (preexistingPr != null) {
-    logger.info(
-      `implement: pre-existing PR #${preexistingPr} detected — single attempt, no retry`,
-    );
+  if (opts.mode === "create") {
+    return runCreate(task, worktree, branch, bodyFilePath, logger, jsonl);
+  }
+  return runFix(
+    task,
+    worktree,
+    branch,
+    bodyFilePath,
+    opts.failureLog,
+    logger,
+    jsonl,
+  );
+}
+
+async function runCreate(
+  task: Task,
+  worktree: string,
+  branch: string,
+  bodyFilePath: string,
+  logger: Logger,
+  jsonl: JsonlSink,
+): Promise<PhaseResult> {
+  // Entry gate: if a PR already exists for this branch — either persisted in
+  // frontmatter (`pr != null`) or live on the remote (`detectOpenedPr` hit) —
+  // the work-product is achieved. Skip the LLM, reconcile any frontmatter /
+  // status drift, and return ok. Covers two distinct crash windows in one
+  // block: status not yet transitioned to pr-open, and pr not yet persisted
+  // in frontmatter despite a branch already carrying an open PR.
+  const preexisting =
+    task.frontmatter.pr ?? (await detectOpenedPr(worktree, branch));
+  if (preexisting != null) {
+    if (task.frontmatter.pr == null) {
+      await updateTaskFrontmatter(task, { pr: preexisting });
+      logger.event("task.frontmatter", `pr=${preexisting}`);
+    }
+    if (task.frontmatter.status !== "pr-open") {
+      await transitionStatus(task, "pr-open");
+      logger.event("task.status", "pr-open");
+    }
+    return { status: "ok" };
   }
 
-  const attempt = async (attemptNum: number, lastFailure?: string) => {
-    if (attemptNum > 1) {
-      logger.warn(
-        `implement attempt ${attemptNum} after failure: ${truncate(lastFailure ?? "", 200)}`,
-      );
-    }
-    const prompt = buildImplementPrompt(task, bodyFilePath, lastFailure);
-    logger.info(`implement: invoking claude (attempt ${attemptNum})`);
-    const r = await runHeadless({
-      cwd: worktree,
-      prompt,
-      allowedTools: [
-        "Read",
-        "Write",
-        "Edit",
-        "MultiEdit",
-        "Glob",
-        "Grep",
-        "Bash(npm *)",
-        "Bash(git *)",
-        "Bash(gh *)",
-        "Bash(npx *)",
-        "Bash(bun *)",
-        "Bash(node *)",
-      ],
-      timeoutMs: 30 * 60 * 1000,
-      logger,
-      label: "claude (implement)",
-      jsonl,
-    });
-    if (!r.ok) {
-      return { ok: false as const, error: r.error ?? `exit ${r.exitCode}` };
-    }
+  await transitionStatus(task, "implementing");
+  logger.event("task.status", "implementing");
 
-    const gate = await runVerifyGate(worktree, logger);
-    if (gate.ok) {
-      logger.info("verify-gate ok");
-      return { ok: true as const, value: r };
-    }
-
-    logger.warn("verify-gate failed — surfacing on PR if one exists");
-    const truncated = truncate(gate.output, 4000);
-    await appendPhaseOutput(
+  const result = await retryOnce((attemptNum, lastFailure) =>
+    runImplementAttempt(
       task,
-      "implement",
-      `### verify-gate failure\n\n\`\`\`text\n${truncated}\n\`\`\``,
-    );
-    const existingPr = await detectOpenedPr(worktree, branch);
-    if (existingPr != null) {
-      await surfaceVerifyFailureOnPr(existingPr, worktree, truncated, logger);
-    }
-    return {
-      ok: false as const,
-      error: `verify gate failed:\n${truncate(gate.output, 1500)}`,
-    };
-  };
-
-  const result = preexistingPr != null
-    ? await attempt(1)
-    : await retryOnce((attemptNum, lastFailure) => attempt(attemptNum, lastFailure));
+      worktree,
+      branch,
+      bodyFilePath,
+      attemptNum,
+      lastFailure,
+      logger,
+      jsonl,
+    ),
+  );
 
   if (!result.ok) {
     logger.error(`implement: ${result.error}`);
     return { status: "failed", reason: `implement phase failed: ${result.error}` };
   }
 
+  // Side-effect gate: re-probe before `gh pr create` in case the LLM pushed
+  // and opened a PR itself. Mitigates the "crash between push and PR-create"
+  // race for the rare path that gets past the entry gate.
   let prNumber = await detectOpenedPr(worktree, branch);
   if (prNumber == null) {
     const bodyPath = await resolveBodyPath(task, bodyFilePath, logger);
@@ -183,6 +188,95 @@ export async function runImplementPhase(
   return { status: "ok" };
 }
 
+// Fix mode: caller invoked deliberately against an existing PR (PR 5 verify
+// retry, PR 7 review loop-back). Single-shot — the caller owns the retry
+// loop, so an inner `retryOnce` would compound non-deterministically. Never
+// calls `gh pr create`, never mutates `task.frontmatter.pr`, never
+// transitions to `"pr-open"` (the caller owns the post-fix transition since
+// the task is already past `"pr-open"` by the time fix is invoked).
+async function runFix(
+  task: Task,
+  worktree: string,
+  branch: string,
+  bodyFilePath: string,
+  failureLog: string,
+  logger: Logger,
+  jsonl: JsonlSink,
+): Promise<PhaseResult> {
+  await transitionStatus(task, "implementing");
+  logger.event("task.status", "implementing");
+
+  const result = await runImplementAttempt(
+    task,
+    worktree,
+    branch,
+    bodyFilePath,
+    1,
+    failureLog,
+    logger,
+    jsonl,
+  );
+
+  if (!result.ok) {
+    logger.error(`implement: ${result.error}`);
+    return { status: "failed", reason: `implement phase failed: ${result.error}` };
+  }
+  return { status: "ok" };
+}
+
+async function runImplementAttempt(
+  task: Task,
+  worktree: string,
+  branch: string,
+  bodyFilePath: string,
+  attemptNum: number,
+  failureNote: string | undefined,
+  logger: Logger,
+  jsonl: JsonlSink,
+): Promise<AttemptResult<void>> {
+  if (attemptNum > 1) {
+    logger.warn(
+      `implement attempt ${attemptNum} after failure: ${truncate(failureNote ?? "", 200)}`,
+    );
+  }
+  const prompt = buildImplementPrompt(task, bodyFilePath, failureNote);
+  logger.info(`implement: invoking claude (attempt ${attemptNum})`);
+  const r = await runHeadless({
+    cwd: worktree,
+    prompt,
+    allowedTools: ALLOWED_TOOLS,
+    timeoutMs: HEADLESS_TIMEOUT_MS,
+    logger,
+    label: "claude (implement)",
+    jsonl,
+  });
+  if (!r.ok) {
+    return { ok: false, error: r.error ?? `exit ${r.exitCode}` };
+  }
+
+  const gate = await runVerifyGate(worktree, logger);
+  if (gate.ok) {
+    logger.info("verify-gate ok");
+    return { ok: true, value: undefined };
+  }
+
+  logger.warn("verify-gate failed — surfacing on PR if one exists");
+  const truncated = truncate(gate.output, 4000);
+  await appendPhaseOutput(
+    task,
+    "implement",
+    `### verify-gate failure\n\n\`\`\`text\n${truncated}\n\`\`\``,
+  );
+  const existingPr = await detectOpenedPr(worktree, branch);
+  if (existingPr != null) {
+    await surfaceVerifyFailureOnPr(existingPr, worktree, truncated, logger);
+  }
+  return {
+    ok: false,
+    error: `verify gate failed:\n${truncate(gate.output, 1500)}`,
+  };
+}
+
 async function resolveBodyPath(
   task: Task,
   bodyFilePath: string,
@@ -208,7 +302,7 @@ async function resolveBodyPath(
 function buildImplementPrompt(
   task: Task,
   bodyFilePath: string,
-  lastFailure?: string,
+  failureNote?: string,
 ): string {
   const planDir = path.join(
     task.frontmatter.target_repo,
@@ -218,8 +312,8 @@ function buildImplementPrompt(
   );
   const taskFile = task.path;
   const userPromptArg = extractUserPrompt(task.body);
-  const failureNote = lastFailure
-    ? `\n\nPRIOR ATTEMPT FAILED — failure log:\n${truncate(lastFailure, 4000)}\n\nReview the failure, adjust your approach, and try again.`
+  const failureBlock = failureNote
+    ? `\n\nPRIOR ATTEMPT FAILED — failure log:\n${truncate(failureNote, 4000)}\n\nReview the failure, adjust your approach, and try again.`
     : "";
 
   return `${NON_INTERACTIVE_PREAMBLE}
@@ -251,7 +345,7 @@ ${MANUAL_VALIDATION_RULE}
 
 Before exiting, confirm you have: (a) committed and pushed your changes on
 branch ${task.frontmatter.branch}, and (b) written the PR body to
-${bodyFilePath}.${failureNote}`;
+${bodyFilePath}.${failureBlock}`;
 }
 
 async function detectOpenedPr(

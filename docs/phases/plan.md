@@ -24,7 +24,7 @@ Three files in `<target-repo>/.orchestrator/tasks/<id>-plan/`:
 |---|---|
 | `prd.md` | Full PRD: problem, scope, stories, architecture decisions, constraints, open questions |
 | `task-breakdown.md` | Ordered task list with skill assignments and acceptance criteria |
-| `pr-description-draft.md` | Why / What / Key decisions / How to test — seeds the PR body in phase 3 |
+| `pr-description-draft.md` | Why / What / Key decisions / User-facing changes / How to test — seeds the PR body in phase 3 |
 
 A summary of which files landed is appended to the task's
 `## Phase outputs > plan` subsection. On exit the task transitions

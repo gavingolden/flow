@@ -243,6 +243,27 @@ as capabilities or behaviors rather than files or modules. Each bullet should be
 <Pull from Architecture Decisions and Scope Boundary's "Out of scope". Each bullet: the
 decision + a brief rationale. Include scope exclusions that a reviewer might wonder about.>
 
+## User-facing changes
+
+<Concrete user-observable deltas — phrase in user terms ("you can now run `flow log <id>`"),
+not implementation terms ("added log subcommand to the CLI router"). Each user story's
+externally observable change becomes a bullet here: walk the Stories section and, for every
+story whose acceptance criteria assert something a user sees or does differently, emit a
+bullet. Categories to consider: new CLI commands or subcommands, new flags or changed
+defaults, renamed/removed commands, changed prompts or output formats, new env vars, and
+changed file locations users interact with.
+
+Format: freeform bullets. For renames or removals, use a `Before → After` bullet so the
+delta reads at a glance. Example:
+
+- New command: `flow log <id>` opens the per-phase jsonl log for a task.
+- Before → After: `flow status` (removed) → `flow tasks` (lists all tasks with status column).
+
+If the PRD describes a pure-internal change (refactor, infra, no user-observable delta),
+write the literal word `none` under the heading. Never delete the heading — `none` is an
+explicit author affirmation, while a missing heading is ambiguous between "no change" and
+"author forgot".>
+
 ## How to test
 
 <Derive from the acceptance criteria in User Stories. The verification steps a reviewer
@@ -265,6 +286,9 @@ don't truncate to look concise. Example:
   "improve the user experience".
 - "Key decisions" should only include decisions where a reasonable alternative existed. Don't
   list obvious choices.
+- "User-facing changes" must be phrased in user terms (what someone running the tool will
+  see or do differently), not implementation terms. If the PRD has no user-observable
+  delta, write `none` under the heading — never omit the heading itself.
 - Render every "How to test" step as a `- [ ]` markdown checkbox so reviewers can tick
   items off as they verify.
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
@@ -307,7 +331,7 @@ Common failure modes during planning:
 - Tasks are ordered by dependency (no task references an output that hasn't been produced yet)
 - No task is too large for a single focused session (if it seems large, split it)
 - Skill recommendations reference skills that actually exist in `.claude/skills/`
-- PR description draft follows the standardized format (Why / What / Key decisions / How to test)
+- PR description draft follows the standardized format (Why / What / Key decisions / User-facing changes / How to test)
 
 # Constraints
 
