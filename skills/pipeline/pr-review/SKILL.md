@@ -157,9 +157,14 @@ Collect all agent findings and apply these filters:
 2. **Deduplication**: If two findings reference the same file + overlapping line range +
    same issue class, keep the one with higher confidence. Two findings at the same location
    about different issues (e.g., null deref vs. injection risk) are NOT duplicates.
-3. **Praise guarantee**: If no agent produced a `praise` finding, add one yourself based
-   on something positive you observed in the PR (good naming, clean structure, thorough
-   tests, etc.). Every review should acknowledge something done well.
+3. **Praise specificity**: A `praise` finding must name the specific behaviour,
+   file:line, or pattern being praised — e.g. "the X path correctly handles the Y
+   edge case", "the new pure helper at foo.ts:42 is straightforward to test".
+   Drop content-free openers/closers ("great work!", "nice refactor!", "looks
+   great overall!") before the report. Test: if removing the praise sentence
+   removes no information a reviewer would act on, drop it. A specific praise of
+   one thing is better than a generic praise of everything; zero praise is fine
+   when no specific positive observation can be made.
 4. **Sort**: Blocking findings first, then by file path, then by line number.
 
 ## 6. Retrospective (Address mode only)
@@ -263,26 +268,31 @@ A non-zero exit code means a check failed. Do not explain it away — investigat
 issue, and re-run. Repeat until all checks pass. Run each check individually; never chain
 with `&&`.
 
-### 9b. Commit changes — auto, do not ask
+### 9b. Commit and push changes — auto, do not ask
 
-Once checks are green, **commit any uncommitted changes from Steps 7/8 immediately**.
-Do not leave the working tree dirty for the user to clean up. This is an explicit
-override of the project `AGENTS.md` "don't auto-commit without explicit instruction"
-default — invoking `/pr-review` *is* the explicit instruction.
+Once checks are green, **commit and push any uncommitted changes from Steps 7/8
+immediately**. Do not leave the working tree dirty for the user to clean up, and
+do not stop after `git commit` waiting for confirmation to push. Both halves are
+explicitly authorised by the `Auto-push exemption: pr-review` clause in `AGENTS.md`
+— invoking `/pr-review` *is* the user's explicit instruction to commit *and* push.
+The global no-auto-push default does not apply here; do not ask the user to
+confirm. Failing to push leaves the inline-comment replies in Step 10 anchored to
+a SHA the GitHub UI no longer has, which is the bug this exemption exists to
+prevent.
 
 - One commit per logical fix is fine, but a single batched commit is also fine — match
   what's clearest for the diff.
 - Commit message: conventional-commits prefix (`fix:`, `chore:`, `refactor:`) +
   `(pr-review #<N>)` suffix in the subject, body explains the *why* (what the finding
   was), referencing the agent's category (e.g. "Bug-Detection", "Pattern-Consistency").
-- If the PR is **still open**: commit on the PR's branch and push — the inline comments
-  in Step 11 will then anchor to a head SHA the new commit doesn't invalidate (use the
-  pre-commit head SHA captured at Step 2).
-- If the PR is **already merged**: switch to `main`, pull, commit there, and push. Do
-  not leave fixes stranded on a merged branch.
-- Push is part of the auto-commit contract — uncommitted local fixes that reference a
-  PR are dead weight. The only exception: if push to `main` fails CI or branch
-  protection, stop and surface the error to the user.
+- If the PR is **still open**: commit on the PR's branch and `git push` to it — the
+  inline comments in Step 11 will then anchor to a head SHA the new commit doesn't
+  invalidate (use the pre-commit head SHA captured at Step 2).
+- If the PR is **already merged**: switch to `main`, pull, commit there, and `git push`.
+  Do not leave fixes stranded on a merged branch.
+- The only acceptable reason to stop short of pushing is a failed push (CI, branch
+  protection, network) — in that case, surface the error to the user. "I wasn't sure
+  if I should push" is not a valid reason; the exemption removes the ambiguity.
 
 ## 10. Reply to PR Comments (Address mode only)
 
@@ -539,7 +549,9 @@ Commit any changes with a clear message referencing the PR number, then present 
 
 - Independent multi-agent review completed BEFORE reading reviewer comments
 - All agent findings filtered to confidence >= 80 (praise exempt)
-- At least one praise finding in the output
+- Any praise findings name a specific behaviour, file:line, or pattern; zero
+  praise is acceptable when no specific positive observation meets the bar.
+  Reviews containing only filler praise are worse than reviews with no praise.
 - Conventional comment format (label + decoration) used for all findings
 - **Every surfaced finding ends in either a code change (addressed) or a deferral with a
   concrete reason (no silent skips)**
@@ -564,8 +576,10 @@ Commit any changes with a clear message referencing the PR number, then present 
   The one exception is `praise`, which is always surfaced.
 - NEVER flag style issues, linter-catchable problems, or pre-existing issues unrelated to
   this PR. Only flag what matters.
-- NEVER post a review without at least one praise observation. Reviews that only criticize
-  feel adversarial and miss the opportunity to reinforce good patterns.
+- NEVER emit content-free praise filler ("great work!", "nice refactor!", "looks great
+  overall!"). Praise findings must name a specific behaviour, file:line, or pattern; if
+  no specific positive observation meets that bar, omit praise entirely. Filler praise
+  wastes tokens for downstream agents reading the review with no informational payoff.
 - NEVER blindly apply every reviewer suggestion. Push back on comments that are incorrect
   or would degrade code quality — explain why.
 - NEVER skip the independent review step, even if the user only asked to "address comments."

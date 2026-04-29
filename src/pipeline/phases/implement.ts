@@ -19,7 +19,8 @@ through the entire skill end-to-end with reasonable assumptions, write all
 deliverables, commit and push the branch, and write the PR body to the file
 the orchestrator supplies — do not call \`gh pr create\` yourself.`;
 
-const MANUAL_VALIDATION_RULE = `When you write the PR description, include a \`## Manual validation\` section.
+const MANUAL_VALIDATION_RULE = `The PR body must include a \`## Manual validation\` section. Edit
+\`pr-description-draft.md\` on disk to add it before opening the PR.
 Populate it with concrete steps if any of these apply: a database migration,
 a new external API integration, a UI change (e.g. \`.svelte\` files in
 \`src/lib/\`), or a behaviour change to a critical path. Otherwise leave the
