@@ -21,6 +21,12 @@ export async function runPlanPhase(
   logger: Logger = NoopLogger,
 ): Promise<PhaseResult> {
   if (task.frontmatter.status === "planned") return { status: "ok" };
+  if (!task.frontmatter.worktree) {
+    return {
+      status: "failed",
+      reason: "plan phase requires frontmatter.worktree (set by worktree phase)",
+    };
+  }
   await transitionStatus(task, "planning");
   logger.event("task.status", "planning");
 
@@ -42,7 +48,7 @@ export async function runPlanPhase(
     const prompt = buildPlanPrompt(task, planDir, lastFailure);
     logger.info(`plan: invoking claude (attempt ${attempt})`);
     const r = await runHeadless({
-      cwd: task.frontmatter.target_repo,
+      cwd: task.frontmatter.worktree!,
       prompt,
       allowedTools: [
         "Read",
