@@ -58,18 +58,24 @@ export async function runCommand(
   await fsp.mkdir(taskDir, { recursive: true });
 
   if (opts.detach) {
-    await detachAndExit(taskId, repoRoot, taskDir);
+    await detachAndExit(taskId, repoRoot);
     return; // not reached — detachAndExit calls process.exit(0)
   }
 
+  const runsDir = path.join(repoRoot, ".orchestrator", "runs");
+  // When this process is the detached child, the parent has already
+  // opened the plaintext log file and inherited its fd to us. The env
+  // var carries the path so our logger appends to the same file rather
+  // than opening a fresh one with a slightly later stamp. Constrain the
+  // path to a child of `runsDir` so a stray external `FLOW_LOG_PATH=...`
+  // (set in a parent shell, an attacker-controlled wrapper, or a buggy
+  // worktree script that re-execs flow) can't redirect logs to an
+  // arbitrary filesystem location.
+  const logFilePath = resolveSafeLogPath(process.env[FLOW_LOG_PATH_ENV], runsDir);
   const logger = await createLogger({
-    runsDir: path.join(repoRoot, ".orchestrator", "runs"),
+    runsDir,
     taskId: task.frontmatter.id,
-    // When this process is the detached child, the parent has already
-    // opened the plaintext log file and inherited its fd to us. The env
-    // var carries the path so our logger appends to the same file rather
-    // than opening a fresh one with a slightly later stamp.
-    filePath: process.env[FLOW_LOG_PATH_ENV],
+    filePath: logFilePath,
   });
 
   // Install reaper / pid file *after* the logger so the very first events
@@ -89,14 +95,23 @@ export async function runCommand(
     // queued from inside `'exit'` can complete.
     try { unlinkPidFileSync(taskDir); } catch {}
     if (cleanlyHandled) return;
-    try { reapStatusSync(taskPath, "signaled"); } catch {}
+    // Use the tracked `reapReason` so the recorded reason matches what
+    // actually happened: "signaled" set by the SIGTERM/SIGINT handlers,
+    // "runner-crashed" set by the catch clause, "immediate-exit" by
+    // default. Hardcoding "signaled" here would mislabel non-signal exits
+    // (e.g. uncaught throws routed through the catch+finally that didn't
+    // get to await the async reaper before process.exit).
+    try { reapStatusSync(taskPath, reapReason); } catch {}
   };
   process.on("exit", exitHandler);
   // Default signal disposition is "kill the process without running 'exit'
   // handlers". Translating to process.exit(<conventional code>) routes
   // through the exit handler and runs our cleanup. Idempotent across
   // re-delivery because process.exit is final.
-  const sigHandler = (code: number) => () => process.exit(code);
+  const sigHandler = (code: number) => () => {
+    reapReason = "signaled";
+    process.exit(code);
+  };
   process.on("SIGTERM", sigHandler(143));
   process.on("SIGINT", sigHandler(130));
 
@@ -157,7 +172,6 @@ export async function runCommand(
 async function detachAndExit(
   taskId: string,
   repoRoot: string,
-  taskDir: string,
 ): Promise<void> {
   // Open the plaintext log file ourselves so the child writes to a
   // pre-known path — that way we can print "log → <path>" to the user
@@ -203,6 +217,33 @@ async function detachAndExit(
   console.log(`flow run ${taskId} detached as pid ${child.pid}`);
   console.log(`log → ${logPath}`);
   process.exit(0);
+}
+
+// Validate `FLOW_LOG_PATH` if set: must resolve to a path inside `runsDir`.
+// Anything else (absent, empty, or pointing outside `runsDir`) returns
+// `undefined` so the logger falls back to its computed path. Symlink
+// traversal isn't a concern because the parent path created the file
+// itself before exec'ing the child; the constraint is defence-in-depth
+// against an environment-variable injection by a wrapper shell.
+function resolveSafeLogPath(
+  envValue: string | undefined,
+  runsDir: string,
+): string | undefined {
+  if (!envValue) return undefined;
+  const resolved = path.resolve(envValue);
+  const runsDirResolved = path.resolve(runsDir);
+  // Use `path.relative` + `..` check — startsWith on raw strings would
+  // accept e.g. `<runsDir>-evil/log` as a sibling.
+  const rel = path.relative(runsDirResolved, resolved);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    console.warn(
+      pc.yellow(
+        `warning: ignoring FLOW_LOG_PATH=${envValue} — path is not under ${runsDirResolved}`,
+      ),
+    );
+    return undefined;
+  }
+  return resolved;
 }
 
 async function fetchPrUrl(

@@ -48,6 +48,14 @@ export async function createLogger(opts: CreateLoggerOptions): Promise<Logger> {
   const stdout = opts.stdout ?? process.stderr;
   const colors =
     opts.forceColor !== undefined ? pc.createColors(opts.forceColor) : pc;
+  // When a caller hands us an explicit `filePath`, they're coordinating
+  // fd ownership — typically the detach path, where the parent opens the
+  // file and the child inherits its stdio fd pointing at the same file.
+  // In that case, mirroring styled lines to `stdout` would duplicate
+  // every entry into the file (once via `stream.write` here, again via
+  // the inherited fd) and pollute the timestamped/plain format. Suppress
+  // the stdout mirror; the file stream is the only sink we need.
+  const mirrorToStdout = opts.filePath == null;
 
   await fsp.mkdir(opts.runsDir, { recursive: true });
   const stamp = now().toISOString().replace(/[:.]/g, "-");
@@ -81,10 +89,15 @@ export async function createLogger(opts: CreateLoggerOptions): Promise<Logger> {
   // to stdout sink so the user notices the persistent log has stopped.
   stream.on("error", (err: Error) => {
     const msg = `[logger] write to ${filePath} failed: ${err.message}`;
-    try {
-      stdout.write(`${colors.red(msg)}\n`);
-    } catch {
-      // stdout itself failed — nothing more we can do.
+    // Only mirror the error to stdout when we'd normally mirror styled
+    // output there — otherwise we'd write into the same fd-redirected
+    // file we just failed to write to, with no surfacing benefit.
+    if (mirrorToStdout) {
+      try {
+        stdout.write(`${colors.red(msg)}\n`);
+      } catch {
+        // stdout itself failed — nothing more we can do.
+      }
     }
   });
 
@@ -102,9 +115,11 @@ export async function createLogger(opts: CreateLoggerOptions): Promise<Logger> {
     // alter the line count.
     const trim = (s: string): string =>
       s.endsWith("\n") ? s.slice(0, -1) : s;
-    const styledLines = trim(styled).split("\n");
-    for (const line of styledLines) {
-      stdout.write(`${line}\n`);
+    if (mirrorToStdout) {
+      const styledLines = trim(styled).split("\n");
+      for (const line of styledLines) {
+        stdout.write(`${line}\n`);
+      }
     }
     const plainLines = trim(plain).split("\n");
     for (const line of plainLines) {

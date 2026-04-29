@@ -71,11 +71,18 @@ export async function runPipeline(
     // duration and a `threw` outcome, *and* closes the sink. Without this,
     // the persistent log file ends with an unterminated `▶ <phase>` line on
     // a crash and the jsonl write stream leaks an open fd.
+    //
+    // Capture `durationMs` immediately after the phase returns/throws,
+    // before any sink finalization. The success and throw branches share
+    // the same measurement so `phaseEnd` durations don't include
+    // sink close/flush overhead on one path but not the other.
     let result: PhaseResult;
+    let durationMs: number;
     try {
       result = await spec.phase(task, logger, jsonl);
+      durationMs = Date.now() - start;
     } catch (err) {
-      const durationMs = Date.now() - start;
+      durationMs = Date.now() - start;
       try { jsonl.event("result", { status: "failed", reason: (err as Error).message ?? String(err) }); } catch {}
       await jsonl.close();
       logger.phaseEnd(spec.name, durationMs, "threw");
@@ -83,7 +90,6 @@ export async function runPipeline(
     }
     try { jsonl.event("result", { status: result.status, ...(result.status !== "ok" ? { reason: result.reason } : {}) }); } catch {}
     await jsonl.close();
-    const durationMs = Date.now() - start;
     const outcome = result.status === "ok" ? "ok" : result.status;
     logger.phaseEnd(spec.name, durationMs, outcome);
     if (result.status !== "ok") return result;

@@ -46,9 +46,12 @@ export function readTaskSync(filePath: string): Task {
   };
 }
 
-// Serialize a task to its on-disk form. Pure — no I/O, no side effects.
-// Both `writeTask` and `writeTaskSync` go through this so the two writers
-// can't drift in formatting (Progress block, frontmatter shape, etc.).
+// Serialize a task to its on-disk form. No I/O, but **mutates the input**
+// in place — bumps `frontmatter.updated` and rewrites the `## Progress`
+// section on `task.body`. Both `writeTask` and `writeTaskSync` go through
+// this so the two writers can't drift in formatting (Progress block,
+// frontmatter shape, etc.). Callers that hold the same `Task` reference
+// across writes will observe the updated timestamp and Progress section.
 function formatTask(task: Task): string {
   task.frontmatter.updated = new Date().toISOString();
   task.body = replaceSection(
