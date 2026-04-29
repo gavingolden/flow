@@ -4,6 +4,7 @@ import { TaskStatus } from "../state/phases.js";
 import { runPlanPhase } from "./phases/plan.js";
 import { runWorktreePhase } from "./phases/worktree.js";
 import { runImplementPhase } from "./phases/implement.js";
+import { runCiWaitPhase } from "./phases/ci-wait.js";
 import { PhaseResult } from "./types.js";
 import { NoopLogger, type Logger } from "../util/logger.js";
 import {
@@ -42,6 +43,11 @@ const M2_PIPELINE: readonly PhaseSpec[] = [
     name: "implement",
     unfinishedStatuses: ["planned", "implementing"],
     phase: runImplementPhase,
+  },
+  {
+    name: "ci-wait",
+    unfinishedStatuses: ["pr-open", "ci"],
+    phase: runCiWaitPhase,
   },
 ];
 
