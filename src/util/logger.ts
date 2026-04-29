@@ -21,6 +21,12 @@ export interface Logger {
 export interface CreateLoggerOptions {
   runsDir: string;
   taskId: string;
+  // When set, the logger appends to this exact path instead of computing
+  // one from `runsDir + taskId + stamp`. The detach path uses this so a
+  // re-exec'd child writes to the same file the parent already opened
+  // and inherited via stdio. `runsDir` is still required (we mkdir it
+  // first) but is not consulted for the file path itself.
+  filePath?: string;
   // Test injection points. Production callers pass nothing.
   now?: () => Date;
   setInterval?: (handler: () => void, ms: number) => NodeJS.Timeout | number;
@@ -52,7 +58,7 @@ export async function createLogger(opts: CreateLoggerOptions): Promise<Logger> {
   // alphabet with `_` so the result is always a single safe filename
   // segment.
   const safeTaskId = opts.taskId.replace(/[^A-Za-z0-9._-]/g, "_");
-  const filePath = path.join(opts.runsDir, `${safeTaskId}-${stamp}.log`);
+  const filePath = opts.filePath ?? path.join(opts.runsDir, `${safeTaskId}-${stamp}.log`);
   const stream = fs.createWriteStream(filePath, { flags: "a", encoding: "utf8" });
   // Stage 1: wait for the file to open. A failure here is fatal — there's
   // no log file to fall back to.

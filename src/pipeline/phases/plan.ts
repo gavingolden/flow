@@ -9,6 +9,7 @@ import { runHeadless } from "../headless.js";
 import { retryOnce } from "../retry.js";
 import { PhaseResult } from "../types.js";
 import { NoopLogger, type Logger } from "../../util/logger.js";
+import { NoopJsonlSink, type JsonlSink } from "../../util/jsonl-sink.js";
 
 const NON_INTERACTIVE_PREAMBLE = `You are running in non-interactive headless mode driven by the flow orchestrator.
 Do not pause for confirmations or ask the user any clarifying questions. Work
@@ -19,6 +20,7 @@ gate a confirmation, answer it yourself and proceed.`;
 export async function runPlanPhase(
   task: Task,
   logger: Logger = NoopLogger,
+  jsonl: JsonlSink = NoopJsonlSink,
 ): Promise<PhaseResult> {
   if (task.frontmatter.status === "planned") return { status: "ok" };
   if (!task.frontmatter.worktree) {
@@ -62,6 +64,7 @@ export async function runPlanPhase(
       timeoutMs: 10 * 60 * 1000,
       logger,
       label: "claude (plan)",
+      jsonl,
     });
     return r.ok
       ? { ok: true as const, value: r }

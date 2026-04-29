@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import matter from "gray-matter";
 import {
   PhaseName,
@@ -35,15 +36,58 @@ export async function readTask(filePath: string): Promise<Task> {
   };
 }
 
-export async function writeTask(task: Task): Promise<void> {
+export function readTaskSync(filePath: string): Task {
+  const raw = fsSync.readFileSync(filePath, "utf8");
+  const parsed = matter(raw);
+  return {
+    path: filePath,
+    frontmatter: parsed.data as TaskFrontmatter,
+    body: parsed.content,
+  };
+}
+
+// Serialize a task to its on-disk form. Pure — no I/O, no side effects.
+// Both `writeTask` and `writeTaskSync` go through this so the two writers
+// can't drift in formatting (Progress block, frontmatter shape, etc.).
+function formatTask(task: Task): string {
   task.frontmatter.updated = new Date().toISOString();
   task.body = replaceSection(
     task.body,
     "## Progress",
     renderProgressSection(task.frontmatter.status),
   );
-  const out = matter.stringify(task.body, task.frontmatter as object);
-  await fs.writeFile(task.path, out, "utf8");
+  return matter.stringify(task.body, task.frontmatter as object);
+}
+
+export async function writeTask(task: Task): Promise<void> {
+  const out = formatTask(task);
+  await writeAtomic(task.path, out);
+}
+
+// Sync variant for use inside Node's `'exit'` event handler — async writes
+// from inside `'exit'` are silently dropped because Node tears down the
+// event loop before the I/O completes. The reaper that handles SIGTERM /
+// uncaught-throw paths needs this.
+export function writeTaskSync(task: Task): void {
+  const out = formatTask(task);
+  writeAtomicSync(task.path, out);
+}
+
+// Atomic write via tmp+rename. `rename` is atomic on POSIX so a crash
+// mid-write (kill -9 between open and write, full disk during write) leaves
+// the original task file intact rather than truncated. Future readers of
+// `.orchestrator/tasks/<id>.md` will rely on this — a partial frontmatter
+// would brick the runner.
+async function writeAtomic(filePath: string, content: string): Promise<void> {
+  const tmp = `${filePath}.tmp`;
+  await fs.writeFile(tmp, content, "utf8");
+  await fs.rename(tmp, filePath);
+}
+
+function writeAtomicSync(filePath: string, content: string): void {
+  const tmp = `${filePath}.tmp`;
+  fsSync.writeFileSync(tmp, content, "utf8");
+  fsSync.renameSync(tmp, filePath);
 }
 
 export async function transitionStatus(
@@ -58,6 +102,23 @@ export async function transitionStatus(
   appendToSectionInPlace(task, "## Phase log", `- ${ts} ${from} → ${next}${suffix}`);
   task.frontmatter.status = next;
   await writeTask(task);
+}
+
+// Sync variant for the exit-handler reaper. Same Phase-log append as the
+// async path so a `signaled`/`runner-crashed`/`immediate-exit` row is
+// recorded exactly once — and visibly to PR 10's `/flow status`.
+export function transitionStatusSync(
+  task: Task,
+  next: TaskStatus,
+  note?: string,
+): void {
+  const from = task.frontmatter.status;
+  if (from === next) return;
+  const ts = new Date().toISOString();
+  const suffix = note ? ` (${note})` : "";
+  appendToSectionInPlace(task, "## Phase log", `- ${ts} ${from} → ${next}${suffix}`);
+  task.frontmatter.status = next;
+  writeTaskSync(task);
 }
 
 export async function updateTaskFrontmatter(

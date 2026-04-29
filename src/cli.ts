@@ -23,8 +23,9 @@ program
   .command("run")
   .description("Run the pipeline on a triaged task: plan → worktree → implement")
   .argument("<task-id>", "the task id (filename without .md)")
-  .action(async (taskId: string) => {
-    await runCommand(taskId);
+  .option("--detach", "fork into a detached process tree and exit the parent immediately")
+  .action(async (taskId: string, opts: { detach?: boolean }) => {
+    await runCommand(taskId, { detach: opts.detach });
   });
 
 program

@@ -13,6 +13,7 @@ import { retryOnce } from "../retry.js";
 import { PhaseResult } from "../types.js";
 import { runVerifyGate, surfaceVerifyFailureOnPr } from "./verify-gate.js";
 import { NoopLogger, type Logger } from "../../util/logger.js";
+import { NoopJsonlSink, type JsonlSink } from "../../util/jsonl-sink.js";
 
 const NON_INTERACTIVE_PREAMBLE = `You are running in non-interactive headless mode driven by the flow orchestrator.
 Do not pause for confirmations or ask the user any clarifying questions. Work
@@ -32,6 +33,7 @@ whether to auto-merge.`;
 export async function runImplementPhase(
   task: Task,
   logger: Logger = NoopLogger,
+  jsonl: JsonlSink = NoopJsonlSink,
 ): Promise<PhaseResult> {
   // Legacy / already-complete: short-circuit only on the canonical
   // success state. `status: implementing` with `pr != null` is crash
@@ -103,6 +105,7 @@ export async function runImplementPhase(
       timeoutMs: 30 * 60 * 1000,
       logger,
       label: "claude (implement)",
+      jsonl,
     });
     if (!r.ok) {
       return { ok: false as const, error: r.error ?? `exit ${r.exitCode}` };
