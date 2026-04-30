@@ -301,13 +301,20 @@ Done when:
 Done when:
 
 - A single command per target repo idempotently re-symlinks every
-  skill and script, removes orphans, creates `.orchestrator/logs/`,
-  and refreshes the managed `.gitignore` blocks.
+  skill and script, removes orphans (paths previously listed in the
+  managed `.gitignore` block but absent from the current source
+  tree), and refreshes the managed `.gitignore` blocks.
 - Running `flow install --upgrade` against a repo that has flow
   installed before this PR brings it fully forward to chat-first
   without manual intervention.
 - Old in-flight tasks keep working — task.md schema is additive
   through Phase 1-3.
+
+> Note: this PR does **not** pre-create `.orchestrator/logs/`. PR 1 ships
+> per-task logs under `.orchestrator/tasks/<id>/logs/` and detached-run
+> artifacts under `.orchestrator/runs/`, both created on demand. There
+> is no consumer of a top-level `.orchestrator/logs/`. If a future
+> consumer needs it, that consumer creates the directory itself.
 
 ### PR 15 — `flow run --all --max N` parallelism
 

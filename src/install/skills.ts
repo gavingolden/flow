@@ -1,8 +1,13 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execa } from "execa";
 import pc from "picocolors";
-import { updateGitignoreBlock } from "../util/gitignore.js";
+import {
+  readManagedBlockPaths,
+  updateGitignoreBlock,
+} from "../util/gitignore.js";
+import { removeOrphanIfManaged } from "./orphan.js";
 import {
   INCLUDE_MARKER,
   renderWithTriageContract,
@@ -11,12 +16,14 @@ import {
 export interface InstallSkillsOptions {
   stack?: string;
   skipPipeline?: boolean;
+  upgrade?: boolean;
 }
 
 export interface InstallSkillsResult {
   created: number;
   updated: number;
   skipped: number;
+  removed: number;
   blocked: number;
 }
 
@@ -45,6 +52,7 @@ export async function installSkills(
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  let removed = 0;
   let blocked = 0;
   for (const { name, sourceDir } of skillsToInstall) {
     const installPath = path.join(targetDir, name);
@@ -78,22 +86,76 @@ export async function installSkills(
     }
   }
 
+  // --upgrade: orphan-removal sweep. See scripts.ts for the rationale —
+  // gitignore-driven detection only ever cleans up things flow definitely
+  // managed (real dirs and user-pointed symlinks are left alone).
+  //
+  // Orphan detection is anchored to the *whole* source tree, not the
+  // currently-selected subset: an "orphan" is a path absent from source,
+  // not a path the user happened to deselect with --skip-pipeline / --stack.
+  // Otherwise `flow install --upgrade --skip-pipeline` would delete every
+  // pipeline skill the previous install put down. The gitignore block still
+  // reflects the selected subset (existing behavior — deselected skills
+  // drop out of the block on the rewrite below).
+  const currentPaths = skillsToInstall.map((s) => `/.claude/skills/${s.name}`);
+  const allSourcePaths = [
+    ...tiers.pipeline,
+    ...tiers.universal,
+    ...tiers.stacks,
+  ].map((s) => `/.claude/skills/${s.name}`);
+  const removedOrphans: string[] = [];
+  if (options.upgrade) {
+    const previousPaths = await readManagedBlockPaths(repoRoot, "install-skills");
+    const sourceSet = new Set(allSourcePaths);
+    const orphans = previousPaths.filter((p) => !sourceSet.has(p));
+    for (const orphan of orphans) {
+      const name = path.basename(orphan);
+      const removedNow = await removeOrphanIfManaged({
+        repoRoot,
+        gitignorePath: orphan,
+        sourceRoot: skillsRoot,
+        expectedPrefix: "/.claude/skills/",
+      });
+      if (removedNow) {
+        console.error(pc.magenta(`  - ${name}  (removed)`));
+        removedOrphans.push(orphan);
+        removed++;
+      }
+    }
+    if (removedOrphans.length > 0) {
+      await execa(
+        "git",
+        [
+          "rm",
+          "--cached",
+          "--quiet",
+          "--ignore-unmatch",
+          "--",
+          ...removedOrphans.map((p) => p.replace(/^\//, "")),
+        ],
+        { cwd: repoRoot },
+      );
+    }
+  }
+
   // Skill symlinks resolve to absolute paths under the user's home, and
   // rendered skills embed user-machine-specific paths in their bodies — both
   // are non-portable across checkouts, so the repo's .gitignore must list
   // them. They share the same managed block because they share the same
-  // install dir.
+  // install dir. The block reflects every skill the install actually emitted
+  // (pipeline / universal / stacks honor the user's flags), so deselected
+  // skills get their entries pruned.
   const gitignoreResult = await updateGitignoreBlock(repoRoot, {
     tag: "install-skills",
     comment:
       "(symlinks resolve to absolute paths and rendered skills embed machine-local paths — neither is portable)",
-    paths: skillsToInstall.map((s) => `/.claude/skills/${s.name}`).sort(),
+    paths: [...currentPaths].sort(),
   });
   if (gitignoreResult !== "unchanged") {
     console.error(pc.dim(`      .gitignore ${gitignoreResult}`));
   }
 
-  return { created, updated, skipped, blocked };
+  return { created, updated, skipped, removed, blocked };
 }
 
 function resolveSkillsRoot(): string {

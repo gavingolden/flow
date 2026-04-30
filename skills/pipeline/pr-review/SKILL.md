@@ -296,23 +296,44 @@ prevent.
   protection, network) — in that case, surface the error to the user. "I wasn't sure
   if I should push" is not a valid reason; the exemption removes the ambiguity.
 
-### 9c. Run "How to test" items and tick the boxes
+### 9c. Run every runnable verification item and tick the boxes
 
-After 9b's commit + push, run the items in the PR body's **How to test** section so
-the description reflects actual verification, not the author's intent. The format note
+After 9b's commit + push, run every runnable `- [ ]` item in the PR body, **regardless
+of which section it lives under** — `How to test`, `Manual validation`, or any other
+heading. The classification below is per-item, not per-section. The format note
 in 12b promises reviewers that checkbox state means something — leaving every box
 unticked after a successful run breaks that contract and forces the next reviewer
 (human or agent) to re-run everything from scratch.
 
+> **Headings do not exempt items.** A section called "Manual validation" does not
+> mean its items are off-limits to automation. The author's choice of heading
+> reflects intent ("a human should sanity-check this end-to-end"), not
+> impossibility. The architectural reason `## Manual validation` exists in flow PRs
+> is that the gate phase parses it for risky-change heuristics — the heading is
+> load-bearing for the orchestrator, **not** a hands-off signal for the reviewer.
+> Apply the runnable test below to every checkbox in the body. If an item is
+> deterministic and exec'able from a terminal in this repo, you must run it, even
+> when the heading says "Manual".
+
 For each `- [ ]` item, classify before running:
 
 - **Runnable**: a shell command, test invocation, build, or script with deterministic
-  pass/fail from exit code. Examples: `npm run test`, `npm run typecheck`,
-  `RUN_INTEGRATION=1 npm run test -- foo`, `./scripts/foo.ts`, `curl localhost:3000/x`
-  paired with a documented assertion.
+  pass/fail from exit code, **including** items that involve scripted filesystem
+  setup (`ln -s`, hand-editing a tracked file, `git add -f`) followed by a CLI
+  invocation and an assertion on disk state, exit code, or stdout/stderr. Examples:
+  `npm run test`, `npm run typecheck`, `RUN_INTEGRATION=1 npm run test -- foo`,
+  `./scripts/foo.ts`, `curl localhost:3000/x` paired with a documented assertion,
+  "edit `.gitignore`, create symlink, run `flow install --upgrade`, confirm `1
+  removed` and the symlink is gone."
 - **Not runnable**: requires a browser, a deploy target, real human/UI judgment ("the
   modal animates smoothly"), production credentials, or external services (Slack post,
   Stripe redirect, real-LLM judgment). Leave unticked.
+
+**Self-check before classifying anything as not-runnable**: am I about to invoke
+phrases like "out of scope for an automated agent run", "the harness flagged this
+as manual", or "this is the author's deliberate human sanity check"? If so, stop —
+those are post-hoc excuses, not real signals. The bar is literal: can I exec this
+from a terminal in this repo? If yes, run it.
 
 For each runnable item:
 
@@ -333,15 +354,15 @@ EOF
 Apply the no-hard-wrap and preserve-existing-wrapping rules from 12e — do not reflow
 prose to flip a checkbox. The minimal diff is `[ ]` → `[x]`.
 
-Record unticked items in the report's **How to Test** section with a one-line reason
+Record unticked items in the report with a one-line reason
 ("requires browser session", "needs prod creds", "subjective UI judgment"). Do not
 invent excuses for items you should run; the bar is "I literally cannot exec this
 from a terminal in this repo."
 
-If the PR has no "How to test" section or the section has zero items, this step is a
-no-op — the missing-section case is handled by Step 12b/12e. If 12e later drafts new
-items into the section, return here once on user confirmation to attempt to tick the
-new items before producing the final report.
+If the PR has no checklist items in any section, this step is a no-op — the
+missing-section case is handled by Step 12b/12e. If 12e later drafts new
+items into either section, return here once on user confirmation to attempt to tick
+the new items before producing the final report.
 
 ## 10. Reply to PR Comments (Address mode only)
 
@@ -452,12 +473,15 @@ Score each criterion as Pass/Fail. If 2+ criteria fail, the description needs an
 - `Fail (missing)` — no "How to test" section at all, or a section with no concrete steps
 - `Fail (shallow — happy-path only)` — steps exist but only cover the happy path on a
   material change that warrants unhappy/edge scenarios per the rubric
-- `Fail (automatable — manual items should be tests)` — the manual section contains
-  scenarios that pass the rubric's automation test (named fixture + deterministic
-  assertion + exit condition, no subjective judgment). Manual is the fallback; default
-  is automation. Apply this when you can sketch the test in one or two sentences
-  ("a `RUN_INTEGRATION=1` test that spawns the CLI, asserts the file exists and `jq`
-  parses every line, then SIGTERMs the child").
+- `Fail (automatable — manual items should be tests)` — the **How to test**
+  section, or **any other section in the body** (typically `## Manual validation`),
+  contains scenarios that pass the rubric's automation test (named fixture +
+  deterministic assertion + exit condition, no subjective judgment). Manual is the
+  fallback; default is automation. Scan every checkbox in the body — section
+  heading is irrelevant; the rubric is per-item. Apply this when you can sketch
+  the test in one or two sentences ("a `RUN_INTEGRATION=1` test that spawns the
+  CLI, asserts the file exists and `jq` parses every line, then SIGTERMs the
+  child").
 
 Multiple subtypes can apply simultaneously (e.g. shallow *and* automatable). Record each.
 The criterion fails for the 2+ threshold even if only one subtype applies.

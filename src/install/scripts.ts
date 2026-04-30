@@ -3,16 +3,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import pc from "picocolors";
-import { updateGitignoreBlock } from "../util/gitignore.js";
+import {
+  readManagedBlockPaths,
+  updateGitignoreBlock,
+} from "../util/gitignore.js";
+import { removeOrphanIfManaged } from "./orphan.js";
 
 export interface InstallScriptsOptions {
   force?: boolean;
+  upgrade?: boolean;
 }
 
 export interface InstallScriptsResult {
   created: number;
   updated: number;
   skipped: number;
+  removed: number;
   blocked: number;
 }
 
@@ -49,6 +55,7 @@ export async function installScripts(
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  let removed = 0;
   let blocked = 0;
   for (const { name, sourceFile } of scripts) {
     const linkPath = path.join(targetDir, name);
@@ -70,6 +77,50 @@ export async function installScripts(
     }
   }
 
+  // --upgrade: remove orphan symlinks (paths previously listed in the
+  // managed gitignore block but no longer present in the source tree).
+  // Detection is gitignore-driven, not symlink-scan: the managed block is
+  // the canonical record of what flow installed, so its diff vs. the
+  // current source is the only safe definition of an orphan. A scan of
+  // scripts/ would risk deleting user-pointed symlinks.
+  const currentPaths = scripts.map((s) => `/scripts/${s.name}`);
+  const removedOrphans: string[] = [];
+  if (options.upgrade) {
+    const previousPaths = await readManagedBlockPaths(repoRoot, "install-scripts");
+    const currentSet = new Set(currentPaths);
+    const orphans = previousPaths.filter((p) => !currentSet.has(p));
+    for (const orphan of orphans) {
+      const name = path.basename(orphan);
+      const removedNow = await removeOrphanIfManaged({
+        repoRoot,
+        gitignorePath: orphan,
+        sourceRoot: scriptsRoot,
+        expectedPrefix: "/scripts/",
+      });
+      if (removedNow) {
+        console.error(pc.magenta(`  - ${name}  (removed)`));
+        removedOrphans.push(orphan);
+        removed++;
+      }
+    }
+    if (removedOrphans.length > 0) {
+      // Idempotent: --ignore-unmatch keeps the call safe when the path was
+      // never tracked in git's index (e.g. user wrote it ignored from day one).
+      await execa(
+        "git",
+        [
+          "rm",
+          "--cached",
+          "--quiet",
+          "--ignore-unmatch",
+          "--",
+          ...removedOrphans.map((p) => p.replace(/^\//, "")),
+        ],
+        { cwd: repoRoot },
+      );
+    }
+  }
+
   // Symlinks resolve to absolute paths on the user's machine, so they must be
   // ignored. The block lists every script the source tree currently exposes
   // (not just newly linked ones), so deletions in templates/scripts/ flow
@@ -77,7 +128,7 @@ export async function installScripts(
   const gitignoreResult = await updateGitignoreBlock(repoRoot, {
     tag: "install-scripts",
     comment: "(symlinks resolve to absolute paths and aren't portable)",
-    paths: scripts.map((s) => `/scripts/${s.name}`).sort(),
+    paths: [...currentPaths].sort(),
   });
   if (gitignoreResult !== "unchanged") {
     console.error(pc.dim(`      .gitignore ${gitignoreResult}`));
@@ -108,7 +159,7 @@ export async function installScripts(
     }
   }
 
-  return { created, updated, skipped, blocked };
+  return { created, updated, skipped, removed, blocked };
 }
 
 async function deleteStaleCompanionTests(

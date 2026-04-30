@@ -116,3 +116,38 @@ async function readIfExists(p: string): Promise<string | null> {
     throw err;
   }
 }
+
+/**
+ * Read-side counterpart to `updateGitignoreBlock`. Returns the path lines
+ * between the begin/end markers for `<tag>`, excluding the optional
+ * `# <comment>` line that may sit just under the begin marker. Returns `[]`
+ * if `.gitignore` is missing, the block is absent, or the block is empty.
+ *
+ * Used by `flow install --upgrade` to compute orphans (paths previously
+ * managed by flow but no longer present in the source tree).
+ */
+export async function readManagedBlockPaths(
+  repoRoot: string,
+  tag: string,
+): Promise<string[]> {
+  const gitignorePath = path.join(repoRoot, ".gitignore");
+  const existing = await readIfExists(gitignorePath);
+  if (existing === null) return [];
+  return parseManagedBlockPaths(existing, tag);
+}
+
+export function parseManagedBlockPaths(input: string, tag: string): string[] {
+  const beginMarker = `# managed by flow ${tag}`;
+  const endMarker = `# end flow ${tag}`;
+  const lines = input.split("\n");
+  const beginIdx = lines.indexOf(beginMarker);
+  if (beginIdx < 0) return [];
+  const endIdx = lines.indexOf(endMarker, beginIdx + 1);
+  if (endIdx < 0) return [];
+  const body = lines.slice(beginIdx + 1, endIdx);
+  // Drop the optional comment line directly under the begin marker. The block
+  // body otherwise contains only path entries — applyManagedBlock writes
+  // exactly one comment line, so this is sufficient.
+  if (body.length > 0 && body[0]!.startsWith("# ")) body.shift();
+  return body.filter((l) => l.length > 0);
+}
