@@ -164,6 +164,20 @@ describe("buildReviewPrompt", () => {
     expect(prompt).toContain("never the reviews endpoint");
   });
 
+  it("forbids auto-fix, commits, pushes, and formal gh pr review submissions", () => {
+    // These directives are load-bearing: without them, the review subprocess
+    // could race the implement(fix) phase by committing on its own, or post
+    // a heavyweight Approved/Requested-changes banner instead of inline
+    // comments. Pin them in the prompt so a refactor of the prompt body
+    // can't silently drop the constraints.
+    const task = makeTask();
+    const prompt = buildReviewPrompt({ ...baseArgs, task, ciExcerpts: null });
+    expect(prompt).toContain("Do NOT auto-fix");
+    expect(prompt).toContain("do NOT commit");
+    expect(prompt).toContain("do NOT push");
+    expect(prompt).toContain("gh pr review");
+  });
+
   it("includes the kind discriminator rubric", () => {
     const task = makeTask();
     const prompt = buildReviewPrompt({ ...baseArgs, task, ciExcerpts: null });

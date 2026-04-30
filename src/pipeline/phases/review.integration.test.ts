@@ -297,15 +297,32 @@ describe("runReviewPhase — end-to-end loop scenarios", () => {
     expect(reloaded.body).toContain("decision: clean — advancing");
   });
 
-  it("escalates to failed when frontmatter.worktree is null or missing on disk", async () => {
-    // The defensive worktree check fires before the LLM is spawned. Pin
-    // both modes (null and a non-existent path) so a future refactor that
-    // collapses the branches can't silently let the runner spawn claude
-    // against an invalid cwd.
+  it("escalates to needs-human (worktree-missing) when frontmatter.worktree points at a non-existent path", async () => {
+    // The defensive worktree check fires before the LLM is spawned. Routes
+    // to needs-human (not `failed`) so a runner re-entry doesn't silently
+    // re-attempt the same broken state — recovery requires the user to
+    // recreate the worktree, same shape as the pr-missing branch below.
     const task = await makeTaskFile(tmp, { worktree: "/tmp/does-not-exist-flow-review" });
     const r = await runReviewPhase(task);
-    expect(r.status).toBe("failed");
+    expect(r).toEqual({ status: "needs-human", reason: "worktree-missing" });
     expect(vi.mocked(runHeadless)).not.toHaveBeenCalled();
+    const reloaded = await readTask(task.path);
+    expect(reloaded.frontmatter.status).toBe("needs-human");
+    // Phase output captures why the phase bailed for post-mortem readers.
+    expect(reloaded.body).toContain("decision: needs-human (worktree-missing)");
+  });
+
+  it("escalates to needs-human (worktree-missing) when frontmatter.worktree is null", async () => {
+    // Cover the null-worktree mode separately from the non-existent-path
+    // mode above. A future refactor that collapses the two checks must
+    // keep both branches reaching the same needs-human transition.
+    const task = await makeTaskFile(tmp, { worktree: null });
+    const r = await runReviewPhase(task);
+    expect(r).toEqual({ status: "needs-human", reason: "worktree-missing" });
+    expect(vi.mocked(runHeadless)).not.toHaveBeenCalled();
+    const reloaded = await readTask(task.path);
+    expect(reloaded.frontmatter.status).toBe("needs-human");
+    expect(reloaded.body).toContain("decision: needs-human (worktree-missing)");
   });
 
   it("escalates to needs-human (pr-missing) when frontmatter.pr is null", async () => {
@@ -318,6 +335,8 @@ describe("runReviewPhase — end-to-end loop scenarios", () => {
     expect(vi.mocked(runHeadless)).not.toHaveBeenCalled();
     const reloaded = await readTask(task.path);
     expect(reloaded.frontmatter.status).toBe("needs-human");
+    // Phase output captures why the phase bailed for post-mortem readers.
+    expect(reloaded.body).toContain("decision: needs-human (pr-missing)");
   });
 
   it("surfaces implement(fix) failed: review returns failed and renders the inner reason", async () => {
@@ -361,6 +380,54 @@ describe("runReviewPhase — end-to-end loop scenarios", () => {
     expect(reloaded.body).toContain(
       "decision: needs-human (implement-fix:synthetic-implement-fix-escalation)",
     );
+  });
+
+  it("clears any stale result-<i>.json before each cycle so a no-op subprocess can't read pre-crash content", async () => {
+    // Resume scenario: a prior crash left review_cycles=1 (the cycle 1 fix
+    // landed) and a pre-crash cycle 2 result-1.json on disk that was never
+    // consumed because the runner died before the parse. On resume, the
+    // current cycle's resultJsonPath is result-1.json again. Without the
+    // pre-spawn unlink, a subprocess that exits 0 without writing the file
+    // would leave readFile happily returning the stale content as if it
+    // were the new cycle's output. The unlink turns that into an
+    // unambiguous "review JSON missing" failure instead.
+    const task = await makeTaskFile(tmp, { review_cycles: 1 });
+    const reviewDir = path.join(
+      task.frontmatter.target_repo,
+      ".orchestrator",
+      "tasks",
+      task.frontmatter.id,
+      "review",
+    );
+    await fs.mkdir(reviewDir, { recursive: true });
+    // Seed cycle 1 (rehydratable) and a stale cycle 2 result.
+    await fs.writeFile(
+      path.join(reviewDir, "result-0.json"),
+      JSON.stringify(criticalCode),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(reviewDir, "result-1.json"),
+      JSON.stringify({ summary: "STALE — should not be read", critical: [], minor: [] }),
+      "utf8",
+    );
+    // Subprocess "succeeds" but doesn't write a fresh result-1.json. The
+    // unlink should turn this into a missing-file failure, not a stale-
+    // content success.
+    vi.mocked(runHeadless).mockImplementationOnce(async () => ({
+      ok: true,
+      output: "",
+      exitCode: 0,
+    }));
+    const r = await runReviewPhase(task);
+    expect(r.status).toBe("failed");
+    if (r.status === "failed") {
+      expect(r.reason).toContain("review JSON missing");
+    }
+    const reloaded = await readTask(task.path);
+    // The stale STALE-summary text must NOT have been picked up as the
+    // current cycle's result.
+    expect(reloaded.body).not.toContain("STALE");
   });
 
   it("truncates the ci excerpt when it exceeds the prompt budget (~4 KB)", async () => {

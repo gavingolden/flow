@@ -297,17 +297,34 @@ export async function runReviewPhase(
 ): Promise<PhaseResult> {
   // Defensive fail-fast: reviewing a missing PR is incoherent. Mirrors
   // ci-wait's pr-missing handling so resume-from-bad-state lands in the
-  // same needs-human branch consistently.
+  // same needs-human branch consistently. Both early-exit paths render
+  // a `### review` subsection so a post-mortem reader of the task file
+  // sees *why* the phase bailed without having to chase the runner log.
   if (task.frontmatter.pr == null) {
     const reason = "review phase requires task.frontmatter.pr (set by implement); got null";
     logger.error(reason);
+    await appendPhaseOutput(
+      task,
+      "review",
+      renderReviewSubsection([], { kind: "needs-human", reason: "pr-missing" }),
+    );
     await transitionStatus(task, "needs-human", "pr-missing");
     return { status: "needs-human", reason: "pr-missing" };
   }
+  // Worktree-missing is an unrecoverable-without-user-action case (someone
+  // would have to recreate the worktree on disk); the pr-missing path above
+  // takes the same view, so route to needs-human for consistency rather
+  // than `failed` which a runner would treat as transient and re-enter.
   if (!task.frontmatter.worktree || !existsSync(task.frontmatter.worktree)) {
     const reason = `review phase requires an existing worktree; got ${task.frontmatter.worktree ?? "(null)"}`;
     logger.error(reason);
-    return { status: "failed", reason };
+    await appendPhaseOutput(
+      task,
+      "review",
+      renderReviewSubsection([], { kind: "needs-human", reason: "worktree-missing" }),
+    );
+    await transitionStatus(task, "needs-human", "worktree-missing");
+    return { status: "needs-human", reason: "worktree-missing" };
   }
 
   const taskDir = path.join(
@@ -350,6 +367,19 @@ export async function runReviewPhase(
     const resultJsonPath = path.join(reviewDir, `result-${cycleIdx}.json`);
 
     logger.info(`review: starting cycle ${cycleNum} (cap ${REVIEW_CYCLE_CAP + 1}); result=${resultJsonPath}`);
+
+    // Pre-spawn cleanup: remove any stale result file at the deterministic
+    // path before the subprocess runs. Crash-resume re-uses the same path
+    // (review_cycles only increments on a *successful* fix, so a crash
+    // before that lands replays this cycle index), and a subprocess that
+    // exits 0 without writing the file would otherwise let us read the
+    // pre-crash content as if it were fresh. ENOENT is the expected
+    // first-cycle case and is not an error.
+    try {
+      await fs.unlink(resultJsonPath);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
 
     const prompt = buildReviewPrompt({
       task,
