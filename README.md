@@ -112,6 +112,34 @@ git remote, one install ritual, one place to evolve a skill. If flow as an
 orchestrator ever falls out of favor, the skills survive: delete `src/`, keep
 `skills/`.
 
+## Notifications (macOS, opt-in)
+
+flow can fire a desktop notification when a pipeline reaches an
+attention-worthy state (`needs-human`, `gated`, `merged`, `aborted`) so you
+can walk away from a long run.
+
+Enable per-shell:
+
+```sh
+export FLOW_NOTIFY=1
+```
+
+Default is silent — leaving the variable unset (or set to anything other
+than `1`) disables notifications entirely. Non-macOS platforms silently
+no-op even with `FLOW_NOTIFY=1`.
+
+flow uses [`terminal-notifier`](https://github.com/julienXX/terminal-notifier)
+when it is on `PATH` (richer payload, click the notification to open the
+PR in your browser) and falls back to the built-in `osascript display
+notification` otherwise. To enable click-to-open-PR:
+
+```sh
+brew install terminal-notifier
+```
+
+Routine transitions (`triaged → planning → implementing → ...`) do not
+fire notifications.
+
 ## Design
 
 | You want | Read |

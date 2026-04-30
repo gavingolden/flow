@@ -6,6 +6,23 @@ import {
   TaskStatus,
   renderProgressSection,
 } from "./phases.js";
+import { createNotifier, type Notifier } from "../util/notify.js";
+
+let __notifier: Notifier | null = null;
+function getNotifier(): Notifier {
+  if (__notifier) return __notifier;
+  __notifier = createNotifier();
+  return __notifier;
+}
+
+// Test seam: swap in a recording fake (or `null` to reset to a freshly
+// re-resolved default on the next call). Production code must not call
+// this — the underscore prefix flags it. Tests use this instead of
+// monkeypatching `process.env.FLOW_NOTIFY` mid-suite because the env-var
+// read is cached across `transitionStatus` calls within a process.
+export function __setNotifierForTests(n: Notifier | null): void {
+  __notifier = n;
+}
 
 export interface TaskFrontmatter {
   id: string;
@@ -113,6 +130,13 @@ export async function transitionStatus(
   appendToSectionInPlace(task, "## Phase log", `- ${ts} ${from} → ${next}${suffix}`);
   task.frontmatter.status = next;
   await writeTask(task);
+  try {
+    await getNotifier().notify({ task, status: next, reason: note });
+  } catch {
+    // Swallow: a failing notification (missing backend, sandbox, gh
+    // outage) must never poison a status transition. The disk write
+    // already succeeded; the user has the truth in the task file.
+  }
 }
 
 // Sync variant for the exit-handler reaper. Same Phase-log append as the
@@ -130,6 +154,21 @@ export function transitionStatusSync(
   appendToSectionInPlace(task, "## Phase log", `- ${ts} ${from} → ${next}${suffix}`);
   task.frontmatter.status = next;
   writeTaskSync(task);
+  try {
+    // `notifySync`, not the async `notify`. This path runs inside
+    // Node's `'exit'` event handler where the event loop is already
+    // torn down — any `await` after this point would silently drop its
+    // continuation, so a `void notify(...)` would never reach
+    // `spawn()`. `notifySync` reaches `spawn` synchronously, then
+    // relies on `detached + unref` to keep the OS banner alive after
+    // the orchestrator exits.
+    getNotifier().notifySync({ task, status: next, reason: note });
+  } catch {
+    // Swallow synchronous throws from the notifier (rare — argv
+    // validation in `spawn`, or a sync throw inside an injected fake
+    // notifier in tests). The disk write already succeeded; a missing
+    // banner must never poison a status transition.
+  }
 }
 
 export async function updateTaskFrontmatter(

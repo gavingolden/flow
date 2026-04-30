@@ -1,14 +1,18 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  __setNotifierForTests,
   readTask,
   readTaskSync,
+  transitionStatus,
+  transitionStatusSync,
   writeTask,
   writeTaskSync,
   type Task,
 } from "./task-file.js";
+import type { Notifier, NotifyArgs } from "../util/notify.js";
 
 async function makeTask(tmp: string): Promise<Task> {
   const taskPath = path.join(tmp, "task.md");
@@ -78,6 +82,153 @@ describe("readTaskSync", () => {
     const sync = readTaskSync(t.path);
     expect(sync.frontmatter).toEqual(t.frontmatter);
     expect(sync.body).toEqual(t.body);
+  });
+});
+
+describe("transitionStatus — notifier dispatch", () => {
+  let tmp: string;
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flow-tf-notify-"));
+  });
+  afterEach(async () => {
+    __setNotifierForTests(null);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  function recordingNotifier(): { notifier: Notifier; calls: NotifyArgs[] } {
+    const calls: NotifyArgs[] = [];
+    return {
+      calls,
+      notifier: {
+        async notify(args) {
+          calls.push(args);
+        },
+        notifySync(args) {
+          calls.push(args);
+        },
+      },
+    };
+  }
+
+  it("invokes the notifier on every transition (membership filter lives in the notifier)", async () => {
+    const { notifier, calls } = recordingNotifier();
+    __setNotifierForTests(notifier);
+    const t = await makeTask(tmp);
+    await transitionStatus(t, "planning");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.status).toBe("planning");
+  });
+
+  it("invokes the notifier with task ref, status, and reason on attention transitions", async () => {
+    const { notifier, calls } = recordingNotifier();
+    __setNotifierForTests(notifier);
+    const t = await makeTask(tmp);
+    await transitionStatus(t, "needs-human", "verify-exhausted");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.task).toBe(t);
+    expect(calls[0]?.status).toBe("needs-human");
+    expect(calls[0]?.reason).toBe("verify-exhausted");
+  });
+
+  it("transition still succeeds when the notifier rejects", async () => {
+    __setNotifierForTests({
+      async notify() {
+        throw new Error("boom");
+      },
+      notifySync() {},
+    });
+    const t = await makeTask(tmp);
+    await expect(
+      transitionStatus(t, "needs-human", "verify-exhausted"),
+    ).resolves.toBeUndefined();
+    expect(t.frontmatter.status).toBe("needs-human");
+    const reread = await readTask(t.path);
+    expect(reread.frontmatter.status).toBe("needs-human");
+    expect(reread.body).toContain("→ needs-human (verify-exhausted)");
+  });
+
+  it("same-status transition skips both write and notifier", async () => {
+    const { notifier, calls } = recordingNotifier();
+    __setNotifierForTests(notifier);
+    const t = await makeTask(tmp);
+    const before = t.frontmatter.updated;
+    await transitionStatus(t, t.frontmatter.status);
+    expect(calls).toHaveLength(0);
+    expect(t.frontmatter.updated).toBe(before);
+  });
+});
+
+describe("transitionStatusSync — notifier dispatch", () => {
+  let tmp: string;
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flow-tf-notify-sync-"));
+  });
+  afterEach(async () => {
+    __setNotifierForTests(null);
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("calls notifySync (not notify) so the spawn happens before the exit handler returns", async () => {
+    const asyncCalls: NotifyArgs[] = [];
+    const syncCalls: NotifyArgs[] = [];
+    __setNotifierForTests({
+      async notify(args) {
+        asyncCalls.push(args);
+      },
+      notifySync(args) {
+        syncCalls.push(args);
+      },
+    });
+    const t = await makeTask(tmp);
+    transitionStatusSync(t, "needs-human", "signaled");
+    // The sync path must dispatch via notifySync — observable
+    // synchronously without awaiting any Promise. Using `notify`
+    // (async) from inside Node's `'exit'` would silently drop the
+    // spawn after the first await. This test pins the contract.
+    expect(syncCalls).toHaveLength(1);
+    expect(syncCalls[0]?.status).toBe("needs-human");
+    expect(syncCalls[0]?.reason).toBe("signaled");
+    expect(asyncCalls).toHaveLength(0);
+  });
+
+  it("swallows synchronous throws from notifySync; on-disk file is updated", async () => {
+    const throwSpy = vi.fn(() => {
+      throw new Error("sync-boom");
+    });
+    __setNotifierForTests({
+      async notify() {},
+      // Synchronous throw — must be caught by transitionStatusSync's
+      // try/catch, never propagated past the disk write.
+      notifySync: throwSpy as unknown as Notifier["notifySync"],
+    });
+    const t = await makeTask(tmp);
+    expect(() =>
+      transitionStatusSync(t, "needs-human", "signaled"),
+    ).not.toThrow();
+    expect(throwSpy).toHaveBeenCalledTimes(1);
+    expect(t.frontmatter.status).toBe("needs-human");
+    const reread = await readTask(t.path);
+    expect(reread.frontmatter.status).toBe("needs-human");
+  });
+
+  it("__setNotifierForTests(null) resets so the next call re-resolves the default", async () => {
+    const calls: NotifyArgs[] = [];
+    __setNotifierForTests({
+      async notify(args) {
+        calls.push(args);
+      },
+      notifySync(args) {
+        calls.push(args);
+      },
+    });
+    const t = await makeTask(tmp);
+    await transitionStatus(t, "planning");
+    expect(calls).toHaveLength(1);
+    __setNotifierForTests(null);
+    // After reset, the lazy default (which is NoopNotifier in the test
+    // env where FLOW_NOTIFY is unset) takes over — recording stops.
+    await transitionStatus(t, "implementing");
+    expect(calls).toHaveLength(1);
   });
 });
 
