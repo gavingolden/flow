@@ -237,8 +237,14 @@ function appendToSectionInPlace(task: Task, heading: string, line: string): void
   }
   const block = match[0];
   // Strip trailing whitespace inside the section, then append the line.
+  // Use a function replacer so `$&`/`$1`/`$$` etc. inside `line` (which
+  // can carry user-supplied text via `flow revise`'s `--message`) are not
+  // interpreted as String.prototype.replace replacement-string patterns —
+  // a verbatim `$&` in a revise message would otherwise be expanded to
+  // the entire matched block, corrupting `task.md`.
   const trimmedBlock = block.replace(/\s+$/, "");
-  task.body = task.body.replace(block, `${trimmedBlock}\n${line}\n`);
+  const replacement = `${trimmedBlock}\n${line}\n`;
+  task.body = task.body.replace(block, () => replacement);
 }
 
 function upsertPhaseOutputSubsection(
