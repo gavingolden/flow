@@ -664,6 +664,92 @@ read it line-by-line. Slurp + split is fine for config files, not for append-onl
 
 ---
 
+## Single Error Message Hiding Two Root Causes
+
+When a CLI helper short-circuits on a generic `null` / "not found" return value that
+collapses several distinct failure modes — typically "tool missing from PATH" vs. "tool
+ran but wrong context" — the user gets an error message that's unactionable for the
+case the message wasn't written for. Often paired with a try/catch around the spawn
+that's actually dead code: `spawnSync` doesn't throw when the binary is missing — it
+returns with `r.error.code === "ENOENT"`. The catch never fires, the missing-binary
+case silently funnels into the same `null` return as the wrong-cwd case, and only
+one error message ships.
+
+### What to look for
+
+- A helper that returns `string | null` (or `T | null`) where `null` covers ≥2 distinct
+  failure causes a user could plausibly hit
+- `try { spawnSync(...) } catch { /* tool not on PATH */ }` — the catch is dead; check
+  `r.error.code` instead
+- A single error string at the call site that names only one of the failure modes,
+  even though the return-null branch is reached by more
+
+### How to check
+
+1. For each `string | null` / `T | null` returning helper invoked behind a single error
+   message, enumerate the distinct ways `null` is reached. If there are 2+ user-actionable
+   classes, the call site message will be wrong for at least one of them.
+2. Audit `spawnSync` callers: the catch block is dead for ENOENT (and a few others). The
+   real signal is `r.error?.code` — check that, not `try/catch`.
+3. Replace the boolean `null` with a discriminated union (`{ kind: "ok" | "tool-missing"
+   | "wrong-cwd" }`) and let the call site branch on the cause. Keep a string-or-null
+   adapter for tests that don't need the granularity.
+
+### Example — `findCanonicalRoot` collapsing git-missing into "not a repo" (PR #29)
+
+```typescript
+// BAD: try/catch is dead code for ENOENT, and null collapses two failure modes
+// into one error message. A user without git installed sees "must be run from
+// inside a git repository" and tries to cd into one — which won't help.
+export function findCanonicalRoot(cwd: string): string | null {
+  try {
+    const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" });
+    if (r.status === 0 && r.stdout) return r.stdout.trim();
+  } catch {
+    // git not on PATH — but spawnSync doesn't throw on ENOENT, so this never fires.
+  }
+  return null;
+}
+// at the call site:
+if (!findCanonicalRoot(cwd)) {
+  stderr.write("error: must be run from inside a git repository\n");
+  return 3;
+}
+
+// GOOD: discriminated union surfaces the cause; call site emits a message tailored
+// to the actual failure. Read r.error.code for ENOENT — that's where it actually lives.
+type RootResult =
+  | { kind: "ok"; path: string }
+  | { kind: "git-missing" }
+  | { kind: "not-a-repo" };
+
+export function findCanonicalRootResult(cwd: string): RootResult {
+  const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" });
+  if ((r.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+    return { kind: "git-missing" };
+  }
+  if (r.status === 0 && r.stdout) return { kind: "ok", path: r.stdout.trim() };
+  return { kind: "not-a-repo" };
+}
+// at the call site:
+const root = findCanonicalRootResult(cwd);
+if (root.kind === "git-missing") {
+  stderr.write("error: git not found on PATH; install git and try again\n");
+  return 3;
+}
+if (root.kind === "not-a-repo") {
+  stderr.write("error: must be run from inside a git repository\n");
+  return 3;
+}
+```
+
+**General rule:** If a helper's `null` return reaches the call site through more than
+one user-actionable cause, the caller's single error message is wrong for at least one
+of them. Use a discriminated union and let the cause survive to the message. Audit
+`spawnSync` callers separately — `try/catch` around them is dead code for ENOENT.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue
