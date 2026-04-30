@@ -1,7 +1,7 @@
 /**
  * Drift guard between the two triage front doors.
  *
- * `flow start` (CLI) and `/flow add` (skill) must produce byte-identical
+ * `flow start` (CLI) and `/flow-add` (skill) must produce byte-identical
  * triage rules — that's the whole point of pulling the contract into
  * `templates/triage-contract.md`. This test renders both consumers from
  * source and asserts the bytes between `<!-- start: shared -->` and

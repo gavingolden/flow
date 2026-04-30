@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Bootstrap helper for the `/flow add` skill.
+ * Bootstrap helper for the `/flow-add` skill.
  *
  * Writes `.orchestrator/tasks/<id>.md` from the triage results gathered in
  * the user's chat session, then spawns `flow run <id> --detach` so the
@@ -458,8 +458,8 @@ logs: ${args.logsDir}
 export function formatPipelineStartedBlock(args: { id: string }): string {
   return `
 Pipeline started (detached). Next:
-  /flow status ${args.id}
-  /flow watch ${args.id}
+  /flow-status ${args.id}
+  /flow-watch ${args.id}
 `;
 }
 

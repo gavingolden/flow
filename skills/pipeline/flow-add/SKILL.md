@@ -4,7 +4,7 @@ description: >-
   Triage a new flow task in chat — classify the request, ask up to a few
   pressure-testing questions, then write .orchestrator/tasks/<id>.md and
   start the detached pipeline. Use ONLY when the user explicitly invokes
-  `/flow add` or says "kick off a flow task" / "create a flow pipeline
+  `/flow-add` or says "kick off a flow task" / "create a flow pipeline
   task" / equivalent. Do NOT auto-trigger on broad feature-request
   phrasing like "add X" / "implement Y" — that hijacks unrelated chats.
 argument-hint: '"<prompt>"'
@@ -21,14 +21,14 @@ is freed immediately; the pipeline runs as a detached process tree.
 
 # When to Use
 
-- The user explicitly invokes `/flow add "<prompt>"`.
+- The user explicitly invokes `/flow-add "<prompt>"`.
 - The user says "kick off a flow task", "create a flow pipeline task",
   "start a flow run for X", or unambiguous direct synonyms.
 
 # When NOT to Use
 
 - The user said "add X" / "implement Y" / "build Z" *without* the word
-  "flow" or `/flow add`. Those phrases occur constantly in non-flow
+  "flow" or `/flow-add`. Those phrases occur constantly in non-flow
   contexts. Hijacking them would be worse than missing an offer.
 - The user wants the pipeline to run in the foreground (no detach) or
   wants to step through phases manually — that's `flow start` from a
@@ -47,7 +47,7 @@ is freed immediately; the pipeline runs as a detached process tree.
 
 Refusal copy to use verbatim when the user pivots:
 
-> I can't skip triage from the `/flow add` skill — my job is to record
+> I can't skip triage from the `/flow-add` skill — my job is to record
 > task.md so the implement phase (which runs later, in a detached
 > process) has a spec to work from. Let me get the one or two pieces I
 > actually need, then we'll kick the pipeline off.
@@ -148,7 +148,7 @@ error per line). Print stderr verbatim and stop. Common failure modes:
 
 - The helper exited 0.
 - The chat received the success block, including `task:`, `task-md:`,
-  `logs:`, and the `/flow status` / `/flow watch` lines.
+  `logs:`, and the `/flow-status` / `/flow-watch` lines.
 - The path printed in `task-md:` is an absolute path under the user's
   primary worktree's `.orchestrator/tasks/` (not a child worktree's
   path).

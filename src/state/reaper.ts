@@ -10,7 +10,7 @@ import type { TaskStatus } from "./phases.js";
 // Statuses the runner considers "transient" — i.e. the pipeline was
 // supposed to push past them. If the runner exits with the task still in
 // one of these states, the reaper rewrites the status to `needs-human` so
-// PR 10's `/flow status` doesn't lie about what's in flight.
+// PR 10's `/flow-status` doesn't lie about what's in flight.
 //
 // `triaged` is included because a runner that exited before doing anything
 // (immediate-exit race after `--detach`) leaves the task at `triaged` and

@@ -340,8 +340,8 @@ task-md: /Users/me/code/repo/.orchestrator/tasks/2026-04-29-add-csv-export.md
 logs: /Users/me/code/repo/.orchestrator/tasks/2026-04-29-add-csv-export
 
 Pipeline started (detached). Next:
-  /flow status 2026-04-29-add-csv-export
-  /flow watch 2026-04-29-add-csv-export
+  /flow-status 2026-04-29-add-csv-export
+  /flow-watch 2026-04-29-add-csv-export
 `);
   });
 });
@@ -499,8 +499,8 @@ describe(main, () => {
     expect(stderr.text).toBe("");
     expect(stdout.text).toContain("task: 2026-04-29-add-csv-export");
     expect(stdout.text).toContain("Pipeline started (detached)");
-    expect(stdout.text).toContain("/flow status 2026-04-29-add-csv-export");
-    expect(stdout.text).toContain("/flow watch 2026-04-29-add-csv-export");
+    expect(stdout.text).toContain("/flow-status 2026-04-29-add-csv-export");
+    expect(stdout.text).toContain("/flow-watch 2026-04-29-add-csv-export");
     // Regression: the success block must come *after* the spawn returns ok.
     // Earlier versions emitted the whole block before the spawn, which lied
     // about pipeline state when the spawn later failed.

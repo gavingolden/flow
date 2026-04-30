@@ -109,7 +109,7 @@ export async function transitionStatus(
 
 // Sync variant for the exit-handler reaper. Same Phase-log append as the
 // async path so a `signaled`/`runner-crashed`/`immediate-exit` row is
-// recorded exactly once — and visibly to PR 10's `/flow status`.
+// recorded exactly once — and visibly to PR 10's `/flow-status`.
 export function transitionStatusSync(
   task: Task,
   next: TaskStatus,
