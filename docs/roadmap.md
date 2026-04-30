@@ -20,10 +20,12 @@ not introduced ahead of the PR that needs them.
 |---|---|---|
 | **Triage + scaffold** | Phase 0 (triage) + CLI scaffold | **shipped** |
 | **Plan / worktree / implement** | Phases 1–3 (plan, worktree, implement), single task | **shipped** |
-| **Phase 1 — foundation** | jsonl logging, detached subprocesses, cross-process claim primitive, implement create/fix split | **next** |
-| **Phase 2 — pipeline buildout** | ci-wait, verify retry loop, `flow log` viewer, review + critical loop-back, gate + merge | planned |
-| **Phase 3 — entry point + UX** | `/flow add`, `/flow status`, `/flow watch`, plan checkpoint | planned |
-| **Phase 4 — cutover + parallelism** | deprecate `flow start`, `flow install --upgrade`, parallelism, pause/resume/abort, notifications, `flow tui` | planned |
+| **Phase 1 — foundation** | jsonl logging, detached subprocesses, cross-process claim primitive, implement create/fix split | **shipped** (PRs 1–3: #13, #14, #16) |
+| **Phase 2 — pipeline buildout** | ci-wait, verify retry loop, `flow log` viewer, review + critical loop-back, gate + merge | **shipped** (PRs 4–8: #17, #24, #15, #25, #33) |
+| **Phase 3 — entry point + UX** | `/flow add`, `/flow status`, `/flow watch`, plan checkpoint | **shipped** (PRs 9–12: #29, #23, #26, #34) |
+| **Phase 4 — cutover + parallelism** | deprecate `flow start`, `flow install --upgrade`, parallelism, pause/resume/abort, notifications, `flow tui` | partial — PRs 13–15, 17 shipped (#31, #27, #32, #28); PR 16 in flight on `agent/pr-16-pause-resume-abort`; PR 18 deferred (adoption gate); PR 19 optional |
+| **Phase 2 follow-up — review phase native skill invocation** | rewrite review phase as single native `/pr-review` (drops machine-mode forcing + `implement(fix)` loop-back) | **next** |
+| **Phase 5 — agent cost + quality optimization** | per-phase model + effort config, `.claude/agents/` tier in `flow install`, verify retry escalation, eval harness | queued (after Phase 2 follow-up) |
 
 ## Shipped work
 
@@ -493,6 +495,92 @@ Done when:
 - Attach to any task's log stream (calls into the same code path as
   `flow log <id> --follow`).
 - Cost / status at a glance.
+
+## Phase 5 — agent cost + quality optimization (PRs 20–21)
+
+flow currently runs every Claude phase on Claude Code's defaults, which
+in 2026 means **Opus 4.7 at `xhigh` effort** for everything that hits an
+LLM. Triage, plan-conformance judging, and the rule-following PR-review
+sub-agents (pattern, test-coverage) don't need that tier — Anthropic's
+own guidance is `low` for classification and `medium` for rubric-based
+judging (higher effort overthinks structured-output tasks). This phase
+sets per-phase model + effort explicitly, promotes the inline sub-agents
+in `pr-review` and `skill-creator` to first-class `.claude/agents/`
+files so the choice is declarative, and adds an eval harness so quality
+claims aren't vibes.
+
+Background: see [`docs/architecture.md`](./architecture.md) for the
+phase shape; the per-phase recommendation table lives in this section's
+PR 20 done-when criteria.
+
+Dependency: PR 20 touches `skills/pipeline/pr-review/SKILL.md` and
+should land **after** the Phase 2 follow-up review-phase rewrite to
+avoid two overlapping rewrites of the same file.
+
+### PR 20 — per-phase model + effort + sub-agent promotion + verify retry escalation
+
+Done when:
+
+- `HeadlessOptions` in `src/pipeline/headless.ts` accepts `model?:
+  string` and `effort?: string` and threads them to `--model` and
+  `--effort` flags on the `claude -p` invocation. No flag is passed
+  when the field is unset — Claude Code's default takes over.
+- A single `DEFAULT_MODELS` + `DEFAULT_EFFORT` named export per phase
+  lives in `src/pipeline/agent-config.ts` (or equivalent). Phase
+  defaults:
+  - Triage → `claude-haiku-4-5` (effort no-op on Haiku)
+  - Plan → `claude-opus-4-7`, `xhigh`
+  - Implement → `claude-sonnet-4-6`, `high`
+  - Verify (judge) → `claude-sonnet-4-6`, `medium`
+- The cost reporter (`src/pipeline/cost.ts`) records the model id
+  alongside `total_cost_usd` per result so `flow status` and the
+  per-task breakdown can attribute spend per model.
+- The four `pr-review` sub-agents are promoted from inline prompts in
+  `skills/pipeline/pr-review/SKILL.md` to first-class files in
+  `.claude/agents/`, each declaring `model:` and `effort:` in
+  frontmatter:
+  - `pr-bug-detection.md` → `opus`, `xhigh`
+  - `pr-security.md` → `opus`, `xhigh`
+  - `pr-pattern.md` → `sonnet`, `high`
+  - `pr-test-coverage.md` → `sonnet`, `medium`
+- The three `skill-creator` sub-agents under
+  `skills/universal/skill-creator/agents/` are promoted to
+  `.claude/agents/` similarly:
+  - `skill-grader.md` → `sonnet`, `medium`
+  - `skill-comparator.md` → `opus`, `medium`
+  - `skill-analyzer.md` → `opus`, `high`
+- `flow install` gains an `agents` tier alongside `skills` and
+  `scripts`, using the same symlink + managed `.gitignore` block
+  pattern. `flow install --upgrade` (PR 14) reaps orphaned agent
+  symlinks.
+- On verify failure, the next implement attempt uses
+  `claude-opus-4-7` at `xhigh` regardless of the implement phase
+  default. Retry-escalation is bounded by the existing PR 5 retry cap.
+- `cost.ts` tests cover the mixed-model case: a single task with
+  Haiku triage + Sonnet implement + Sonnet verify + escalated Opus
+  retry attributes spend per model without double-counting.
+
+### PR 21 — eval harness
+
+Required to validate PR 20's defaults before they're treated as proven.
+Without this, "quality preserved" is vibes.
+
+Done when:
+
+- 5–10 closed tasks live as fixtures under `evals/` with their
+  `task.md`, plan, expected diff, and a small judge rubric.
+- `flow eval` runs each fixture under two configs (current Claude Code
+  defaults, and PR 20's per-phase config), captures pass/fail per
+  fixture and `$/run` per config, and prints a delta table.
+- A pass-rate regression of more than one fixture between configs
+  exits non-zero (CI-friendly).
+- The judge for eval pass/fail is a separate `claude-sonnet-4-6` call
+  at `medium` effort, deliberately distinct from the verify judge so
+  one phase's drift doesn't mask itself.
+- A short writeup in `docs/agent-optimization.md` (or this file)
+  records the measured `$/run` delta and any per-phase quality
+  surprises, so future model-swap decisions have a baseline to argue
+  against.
 
 ## Future stretch: state-store backend swap (Beads adapter)
 
