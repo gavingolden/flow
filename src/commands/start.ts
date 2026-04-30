@@ -13,7 +13,11 @@ import {
   readSentinelTaskId,
 } from "./triage-sentinel.js";
 
+export const FLOW_START_DEPRECATION_WARNING =
+  "flow start is deprecated and will be removed in a future release. Use /flow-add \"<prompt>\" from a Claude Code chat in this repo instead.";
+
 export async function startCommand(argvParts: string[]): Promise<void> {
+  console.error(pc.yellow(FLOW_START_DEPRECATION_WARNING));
   const resolved = await resolvePromptSource(argvParts, {
     stdin: process.stdin,
     stderr: process.stderr,
