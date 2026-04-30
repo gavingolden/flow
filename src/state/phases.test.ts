@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   PHASE_ORDER,
+  STATUS_TO_PHASE_LABEL,
   TASK_STATUSES,
   checkedThrough,
+  phaseLabelFor,
   renderProgressSection,
 } from "./phases.js";
 
@@ -79,5 +81,41 @@ describe("renderProgressSection", () => {
     PHASE_ORDER.forEach((phase, idx) => {
       expect(phaseLines[idx]).toContain(phase);
     });
+  });
+});
+
+describe("STATUS_TO_PHASE_LABEL", () => {
+  it("produces a non-empty label for every TaskStatus", () => {
+    for (const s of TASK_STATUSES) {
+      expect(STATUS_TO_PHASE_LABEL[s]).toBeTruthy();
+    }
+  });
+
+  it("maps pr-open and verifying to user-facing phases", () => {
+    expect(STATUS_TO_PHASE_LABEL["pr-open"]).toBe("implement");
+    expect(STATUS_TO_PHASE_LABEL["verifying"]).toBe("verify");
+    expect(STATUS_TO_PHASE_LABEL["ci"]).toBe("ci-wait");
+  });
+});
+
+describe("phaseLabelFor", () => {
+  it("returns the static map entry for non-needs-human statuses", () => {
+    expect(phaseLabelFor("verifying")).toBe("verify");
+    expect(phaseLabelFor("planned")).toBe("implement");
+    expect(phaseLabelFor("merged")).toBe("merge");
+  });
+
+  it("derives the phase from the supplied prior status when needs-human", () => {
+    expect(phaseLabelFor("needs-human", () => "verifying")).toBe("verify");
+    expect(phaseLabelFor("needs-human", () => "ci")).toBe("ci-wait");
+  });
+
+  it("falls back to needs-human when no prior status is available", () => {
+    expect(phaseLabelFor("needs-human", () => null)).toBe("needs-human");
+    expect(phaseLabelFor("needs-human")).toBe("needs-human");
+  });
+
+  it("doesn't loop when the prior status is itself needs-human", () => {
+    expect(phaseLabelFor("needs-human", () => "needs-human")).toBe("needs-human");
   });
 });
