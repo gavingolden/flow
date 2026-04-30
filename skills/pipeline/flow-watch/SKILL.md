@@ -5,7 +5,7 @@ description: >-
   ~50 events so the assistant can spot-check progress without burning the
   chat-session token budget. Use when the user says "what's it doing?",
   "watch this task", "check on the run", "tail the phase", or invokes
-  `/flow watch`.
+  `/flow-watch`.
 argument-hint: "[id] [--phase <name>] [--seconds <n>] [--events <n>]"
 ---
 
@@ -19,14 +19,14 @@ wrapper enforces a wall-clock budget (default 30s) and an event cap (default
 
 - User asks "what's it doing right now?", "watch the implement phase",
   "tail the run", "check on task X".
-- User explicitly invokes `/flow watch` (with or without an id).
-- A previous `/flow watch` returned a `(stopped after …)` footer and the user
+- User explicitly invokes `/flow-watch` (with or without an id).
+- A previous `/flow-watch` returned a `(stopped after …)` footer and the user
   asks to keep watching — re-invoke; do not raise the bounds.
 
 # When NOT to Use
 
 - Use `flow log <id> --follow` from a terminal when you want unbounded
-  tailing — `/flow watch` is bounded for chat-token safety.
+  tailing — `/flow-watch` is bounded for chat-token safety.
 - Use `flow log <id>` (no `--follow`) when you want the full historical log
   of a finished phase rendered in one go from the terminal.
 - Do not use this skill to write to or modify task state — it is read-only.

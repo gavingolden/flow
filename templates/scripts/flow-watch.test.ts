@@ -484,7 +484,7 @@ describe(runWithBound, () => {
       .filter((l) => l.length === 1 && /[a-e]/.test(l));
     expect(eventLines).toEqual(["a", "b", "c"]);
     expect(out.text).toContain("(stopped after 3 events");
-    expect(out.text).toContain("/flow watch my-task");
+    expect(out.text).toContain("/flow-watch my-task");
     expect(proc.wasKilled()).toBe(true);
   });
 
@@ -733,7 +733,7 @@ describe(main, () => {
   it("resolves an explicit id that lives only in tasks/archive/", async () => {
     // Terminal tasks are moved to archive/ per docs/task-schema.md, but
     // `flow log` still finds them via findTaskFile. The wrapper has to mirror
-    // that or the SKILL.md guarantee for `/flow watch <merged-id>` breaks.
+    // that or the SKILL.md guarantee for `/flow-watch <merged-id>` breaks.
     const tasksDir = join(dir, ".orchestrator", "tasks", "archive");
     require("node:fs").mkdirSync(tasksDir, { recursive: true });
     require("node:fs").writeFileSync(
