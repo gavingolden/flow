@@ -28,6 +28,12 @@ const HEADLESS_TIMEOUT_MS = 30 * 60 * 1000;
 // start writing." Anything else falls through to the generic-failure note.
 const TIMEOUT_MARKER = "TIMEOUT:";
 
+const PLAN_DELIVERABLES = [
+  "prd.md",
+  "task-breakdown.md",
+  "pr-description-draft.md",
+] as const;
+
 export async function runPlanPhase(
   task: Task,
   logger: Logger = NoopLogger,
@@ -78,8 +84,19 @@ export async function runPlanPhase(
       jsonl,
     });
     if (r.ok) return { ok: true as const, value: r };
+    // Subprocess didn't exit cleanly, but if every deliverable is on disk
+    // the skill effectively finished — most often this is a SIGTERM after
+    // the model wrote all three files but kept exploring. Accept the work
+    // instead of burning another attempt redoing it.
+    const missing = await findMissingDeliverables(planDir);
+    if (missing.length === 0) {
+      logger.warn(
+        `plan: subprocess exit=${r.exitCode}${r.timedOut ? " (timeout)" : ""} but all deliverables present — treating as success`,
+      );
+      return { ok: true as const, value: r };
+    }
     const error = r.timedOut
-      ? `${TIMEOUT_MARKER} subprocess killed after ${Math.round(HEADLESS_TIMEOUT_MS / 60_000)} minutes — never wrote the deliverables`
+      ? `${TIMEOUT_MARKER} subprocess killed after ${Math.round(HEADLESS_TIMEOUT_MS / 60_000)} minutes — missing deliverables: ${missing.join(", ")}`
       : (r.error ?? `exit ${r.exitCode}`);
     return { ok: false as const, error };
   }, 2);
@@ -149,21 +166,31 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[truncated]`;
 }
 
+async function findMissingDeliverables(planDir: string): Promise<string[]> {
+  const missing: string[] = [];
+  for (const name of PLAN_DELIVERABLES) {
+    try {
+      await fs.access(path.join(planDir, name));
+    } catch {
+      missing.push(name);
+    }
+  }
+  return missing;
+}
+
 async function summarizePlanOutputs(
   planDir: string,
   logger: Logger,
 ): Promise<string> {
-  const expected = ["prd.md", "task-breakdown.md", "pr-description-draft.md"];
+  const missing = new Set(await findMissingDeliverables(planDir));
   const lines: string[] = [`- Plan directory: ${planDir}`];
-  for (const name of expected) {
-    const p = path.join(planDir, name);
-    try {
-      await fs.access(p);
-      lines.push(`- ${name}: present`);
-      logger.info(`plan deliverable present: ${name}`);
-    } catch {
+  for (const name of PLAN_DELIVERABLES) {
+    if (missing.has(name)) {
       lines.push(`- ${name}: MISSING`);
       logger.warn(`plan deliverable missing: ${name}`);
+    } else {
+      lines.push(`- ${name}: present`);
+      logger.info(`plan deliverable present: ${name}`);
     }
   }
   return lines.join("\n");
