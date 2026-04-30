@@ -240,4 +240,63 @@ describe("runImplementPhase — modes and entry gate", () => {
     expect(reloaded.frontmatter.status).toBe("reviewing");
   });
 
+  it("fix-mode prompt invokes /verify and not /new-feature", async () => {
+    const task = await makeTaskFile(tmp, { status: "pr-open", pr: 42 });
+    await runImplementPhase(task, {
+      mode: "fix",
+      failureLog: "verify failed: typecheck error in foo.ts",
+    });
+    expect(headlessPrompts).toHaveLength(1);
+    const prompt = headlessPrompts[0]!;
+    expect(prompt).toContain("/verify");
+    expect(prompt).not.toContain("/new-feature");
+  });
+
+  it("fix-mode prompt embeds the failure log under a labelled block", async () => {
+    const task = await makeTaskFile(tmp, { status: "pr-open", pr: 42 });
+    await runImplementPhase(task, {
+      mode: "fix",
+      failureLog: "verify failed: typecheck error in foo.ts",
+    });
+    const prompt = headlessPrompts[0]!;
+    expect(prompt).toContain(
+      "PRIOR FAILURE — failure log:\nverify failed: typecheck error in foo.ts",
+    );
+  });
+
+  it("fix-mode prompt omits create-mode artefacts", async () => {
+    // Hard guard against future regressions where someone re-introduces the
+    // create-mode language into the fix-mode builder. Each forbidden string
+    // corresponds to a create-mode invariant that does not apply when a PR
+    // is already open and only the failure needs addressing.
+    const task = await makeTaskFile(tmp, { status: "pr-open", pr: 42 });
+    await runImplementPhase(task, {
+      mode: "fix",
+      failureLog: "verify failed: typecheck error in foo.ts",
+    });
+    const prompt = headlessPrompts[0]!;
+    expect(prompt).not.toContain("/new-feature");
+    expect(prompt).not.toContain("pr-description-draft.md");
+    expect(prompt).not.toContain("## Manual validation");
+    expect(prompt).not.toContain("gh pr create");
+    expect(prompt).not.toContain("pr-body.md");
+  });
+
+  it("fix-mode prompt names the open PR and branch and frames the job as fix-in-place + push", async () => {
+    const task = await makeTaskFile(tmp, {
+      status: "pr-open",
+      pr: 42,
+      branch: "agent/foo",
+    });
+    await runImplementPhase(task, {
+      mode: "fix",
+      failureLog: "verify failed: typecheck error in foo.ts",
+    });
+    const prompt = headlessPrompts[0]!;
+    expect(prompt).toContain("#42");
+    expect(prompt).toContain("agent/foo");
+    expect(prompt).toContain("commit");
+    expect(prompt).toContain("push");
+  });
+
 });
