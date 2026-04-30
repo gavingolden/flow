@@ -201,6 +201,105 @@ Done when:
 - An end-to-end run with no manual validation needed reaches `merged`
   without human intervention.
 
+## Phase 2 follow-up: review phase rewrites to native skill invocation
+
+PR 7 shipped the review phase as a Review-mode-only wrapper around
+`/pr-review`: it sets `RESULT_JSON_PATH` to trip machine-mode in
+`SKILL.md`, which forces Review mode, suppresses auto-fix, suppresses
+Address-mode flows (no comment-by-comment iteration, no replies), and
+routes any critical-code finding into a separate `implement(fix)`
+loop-back. Observed behaviour on a real run (`2026-04-30 PR #33`): four
+minor findings, zero critical → status `reviewing → clean`, no fixes
+written, no replies posted to the inline comments the skill itself
+created, Copilot's review present in `## Phase outputs > ci` but never
+acted on.
+
+This is a design-fit problem, not a bug in PR 7. The user's manual
+workflow was to wait for Copilot then run `/pr-review` once — the skill
+detected inline comments, entered Address mode, and in a single
+invocation did the multi-agent independent review, auto-fixed
+findings, addressed each Copilot comment, replied to each, committed,
+and pushed. PR 7 opted the orchestrator out of all of that.
+
+The replacement is a single native invocation: drop the machine-mode
+forcing, let the skill's own mode detection run, and let the skill do
+the fixing/committing/pushing. Remove the `implement(fix)` loop-back
+from the review path (the machinery still has a home in PR 5's verify
+retry).
+
+Done when:
+
+- The `review` phase invokes `/pr-review <PR>` in native mode — no
+  `RESULT_JSON_PATH` opt-in to the existing machine-mode override
+  block, no "Force Review mode / No auto-fix / No commit / No push"
+  preamble in the wrapper prompt.
+- When ci-wait collected a Copilot review (or any other inline review
+  comments exist on the PR), the skill's Step 3 mode detection picks
+  Address mode and the single invocation addresses each comment,
+  replies, runs the independent multi-agent review, auto-fixes
+  findings, commits, and pushes — exactly as `/pr-review` does
+  interactively today.
+- When no inline comments exist, the skill picks Review mode and still
+  auto-fixes its own findings via Step 7 ("Address Agent Findings —
+  Both modes"), commits, and pushes. The behavioural delta from
+  Address mode is no Step 8/10 (nothing to address, no replies to
+  post).
+- The `implement(fix)` loop-back from PR 7 is removed from the review
+  phase. `REVIEW_CYCLE_CAP`, the `result-<n>.json` rehydration logic,
+  and the cycle counter in frontmatter all retire.
+- The skill writes a small JSON summary at a path the orchestrator
+  supplies (e.g. `<task-dir>/review/summary.json`) containing
+  `{ escalate: bool, reason: string, addressed: [...], deferred: [...] }`.
+  This replaces the current `critical`/`minor` JSON contract. The
+  orchestrator branches on `escalate`: false → advance to gate;
+  true → `needs-human` with the surfaced reason.
+- `kind: "architectural"` is preserved as the escalation signal on
+  *deferred* findings: a deferred finding with architectural scope
+  flips `escalate: true` with `reason: "architectural-concern"`. This
+  is the one piece of PR 7's design that survives — it's the right
+  call for "code-level fix won't help, the plan is wrong."
+- A review-phase commit retriggers CI on the PR. The pipeline runs
+  ci-wait again before gate so gate reads fresh checks state. The
+  back-edge `review → ci-wait → gate` is conditional on whether review
+  actually committed.
+- `SKILL.md`'s "Machine-readable output mode" section is rewritten as
+  "Orchestrator output mode": when `RESULT_JSON_PATH` is set, also
+  write the escalation-summary JSON after Step 13. All other mode
+  overrides (Force Review, No auto-fix, skip Steps 6/8/10/12e) are
+  removed.
+
+Open questions to resolve in planning:
+
+- **Mode-detection paths and what each one actually does.** The skill
+  today picks one of two modes at Step 3 based on "do inline comments
+  exist on the PR." That picks the *path through the rest of the
+  skill*, which steps fire, and which don't. The orchestrator-driven
+  flow needs the path matrix spelled out explicitly so it isn't
+  ambiguous what runs in each branch:
+  - **Copilot posted a review (Address path)**: do we run Step 11
+    ("Post Findings to PR") in addition to Steps 6/8/10? Today Step
+    11 is Review-mode only, so the independent multi-agent findings
+    don't post as new inline comments — they're rolled into the
+    auto-fix commit (Step 7). Is that what we want, or should the
+    Address path *also* post independent findings as inline comments
+    for traceability?
+  - **No Copilot review (Review path)**: today this posts findings
+    inline (Step 11) and skips replies. Is that correct, or should we
+    treat "no comments to address" as a degenerate Address mode that
+    just runs Step 7 + 11 + 12 (fix, post, commit) and skips the
+    no-op Steps 6/8/10?
+  - **Are independent multi-agent findings (Steps 1–5) always run?**
+    They are today, in both modes, but the planning doc should pin
+    that as an explicit invariant for the orchestrator-driven path —
+    otherwise "Address mode" can read as "only address Copilot's
+    points, no independent review."
+  - **What is the deferral contract?** When the skill defers a
+    finding (per the existing "Bar for deferral" rubric in
+    `SKILL.md` § 7), it logs a tracker entry. The orchestrator needs
+    to translate that into the `deferred[]` array of the summary
+    JSON, with the escalation rule "any deferred = escalate" or some
+    threshold.
+
 ## Phase 3 — entry point + UX (PRs 9–12)
 
 The chat-first front door lands. Old `flow start` keeps working in
