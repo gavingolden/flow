@@ -58,6 +58,47 @@ export function checkedThrough(status: TaskStatus): PhaseName {
   return STATUS_TO_LAST_CHECKED[status];
 }
 
+// Friendly "current phase" label for `flow status`. Distinct from
+// `STATUS_TO_LAST_CHECKED`, which says "last completed phase" — this map
+// says "phase the task is currently inside (or terminal label)". The two
+// answer different questions: progress checkboxes vs roster column.
+export const STATUS_TO_PHASE_LABEL: Record<TaskStatus, string> = {
+  triaged: "triage",
+  // `creating-worktree` is the in-progress status for the worktree phase
+  // itself — not "between triage and worktree." Mapping it back to triage
+  // hides the worktree phase from the roster while it's actively running.
+  "creating-worktree": "worktree",
+  "worktree-ready": "plan",
+  planning: "plan",
+  planned: "implement",
+  implementing: "implement",
+  "pr-open": "implement",
+  verifying: "verify",
+  ci: "ci-wait",
+  reviewing: "review",
+  gated: "gate",
+  merged: "merge",
+  aborted: "aborted",
+  "needs-human": "needs-human",
+};
+
+// Phase-label resolver. For most statuses, returns the static map entry.
+// For `needs-human`, the static map is the placeholder string
+// `"needs-human"` — the caller can supply a `fallbackFromLog` callback
+// that returns the most recent non-`needs-human` status from the task's
+// `## Phase log`, which is then mapped through `STATUS_TO_PHASE_LABEL`
+// so the row reads `verify` instead of `needs-human` when verify was
+// the phase that bailed out.
+export function phaseLabelFor(
+  status: TaskStatus,
+  fallbackFromLog?: () => TaskStatus | null,
+): string {
+  if (status !== "needs-human") return STATUS_TO_PHASE_LABEL[status];
+  const prior = fallbackFromLog?.();
+  if (!prior || prior === "needs-human") return "needs-human";
+  return STATUS_TO_PHASE_LABEL[prior];
+}
+
 export function renderProgressSection(status: TaskStatus): string {
   const last = checkedThrough(status);
   const lastIdx = PHASE_ORDER.indexOf(last);

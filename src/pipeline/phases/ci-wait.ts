@@ -11,19 +11,21 @@ import { PhaseResult } from "../types.js";
 import { NoopLogger, type Logger } from "../../util/logger.js";
 import { NoopJsonlSink, type JsonlSink } from "../../util/jsonl-sink.js";
 
-// 5-minute heartbeat. ci-wait can run for up to 60 minutes — verify-gate's
+// 5-minute heartbeat. ci-wait can run for up to 20 minutes — verify-gate's
 // 15s default would dilute the signal, but no heartbeat at all (a single
-// 60-min execa) leaves the user staring at a frozen log.
+// 20-min execa) leaves the user staring at a frozen log.
 const CI_WAIT_HEARTBEAT_MS = 5 * 60 * 1000;
 
 interface CiWaitScriptOutput {
-  outcome: "ok" | "ci-hang" | "config-invalid";
+  outcome: "ok" | "ci-hang" | "config-invalid" | "gh-error";
   polls?: number;
   durMs?: number;
   section?: string;
   missingBots?: string[];
   pendingChecks?: string[];
   reason?: string;
+  ghErrorCall?: string;
+  ghErrorMessage?: string;
 }
 
 export async function runCiWaitPhase(
@@ -72,6 +74,11 @@ export async function runCiWaitPhase(
   logger.event("ci-wait.start", `pr=#${pr} script=${scriptPath}`);
   const start = Date.now();
 
+  // Counters mutated by the stderr forwarder; read by the heartbeat. Living
+  // up here (not inside `exec`) keeps them in scope for the heartbeat
+  // interval set up after `exec` is defined.
+  const errorState = { ghErrors: 0, lastError: "" };
+
   const exec = async (): Promise<{
     exitCode: number;
     stdout: string;
@@ -86,8 +93,9 @@ export async function runCiWaitPhase(
 
     // Tee stderr line-by-line. Each line is expected to be a JSON event from
     // the script (`ci-wait.start`, `ci-wait.poll`, `ci-wait.exit`,
-    // `ci-wait.gh_retry`); non-JSON lines fall back to logger.warn so a
-    // crash inside the script (stack trace) is still surfaced.
+    // `ci-wait.gh_retry`, `ci-wait.gh_retry_exhausted`, `ci-wait.gh_permanent`);
+    // non-JSON lines fall back to logger.warn so a crash inside the script
+    // (stack trace) is still surfaced.
     if (subprocess.stderr) {
       let pending = "";
       subprocess.stderr.setEncoding("utf8");
@@ -96,11 +104,11 @@ export async function runCiWaitPhase(
         const lines = pending.split("\n");
         pending = lines.pop() ?? "";
         for (const line of lines) {
-          forwardStderrLine(line, jsonl, logger);
+          forwardStderrLine(line, jsonl, logger, errorState);
         }
       });
       subprocess.stderr.on("end", () => {
-        if (pending.trim().length > 0) forwardStderrLine(pending, jsonl, logger);
+        if (pending.trim().length > 0) forwardStderrLine(pending, jsonl, logger, errorState);
       });
     }
 
@@ -120,11 +128,19 @@ export async function runCiWaitPhase(
 
   // Local 5-minute heartbeat. We don't reuse `logger.withHeartbeat` because
   // its cadence is a logger-creation-time constant (15s default) and ci-wait
-  // runs up to 60 min — a 15s heartbeat would dump 240 "still running" lines
+  // runs up to 20 min — a 15s heartbeat would dump 80 "still running" lines
   // into the per-task log. Five-minute beats keep liveness without noise.
+  // We append the gh-error counter when non-zero so a sustained gh outage
+  // is visible in the user-facing heartbeat instead of buried in jsonl —
+  // the original silent-loop bug looked like "still running, 300s elapsed"
+  // for an hour while every poll was failing under the hood.
   const heartbeatHandle = setInterval(() => {
     const elapsedSec = Math.round((Date.now() - start) / 1000);
-    logger.heartbeat(`ci-wait: still running, ${elapsedSec}s elapsed…`);
+    const errSuffix =
+      errorState.ghErrors > 0
+        ? ` (${errorState.ghErrors} gh errors; last: ${truncateForLog(errorState.lastError)})`
+        : "";
+    logger.heartbeat(`ci-wait: still running, ${elapsedSec}s elapsed…${errSuffix}`);
   }, CI_WAIT_HEARTBEAT_MS);
   let exitCode: number;
   let stdout: string;
@@ -178,12 +194,36 @@ export async function runCiWaitPhase(
     return { status: "needs-human", reason: "config-invalid" };
   }
 
+  if (parsed.outcome === "gh-error") {
+    // Permanent gh failure (schema drift, auth, missing PR). Skip phase
+    // output — the polling never reached a coherent state. Surface the
+    // call+message so the user can fix the gh CLI / config and re-run
+    // without spelunking jsonl.
+    const detail =
+      parsed.ghErrorCall && parsed.ghErrorMessage
+        ? `${parsed.ghErrorCall}: ${parsed.ghErrorMessage}`
+        : "gh CLI returned a non-recoverable error";
+    logger.error(`ci-wait: ${detail}`);
+    await transitionStatus(task, "needs-human", "gh-error");
+    return { status: "needs-human", reason: "gh-error" };
+  }
+
   const reason = `ci-wait script returned unknown outcome: ${parsed.outcome}`;
   logger.error(reason);
   return { status: "failed", reason };
 }
 
-function forwardStderrLine(line: string, jsonl: JsonlSink, logger: Logger): void {
+interface ErrorState {
+  ghErrors: number;
+  lastError: string;
+}
+
+function forwardStderrLine(
+  line: string,
+  jsonl: JsonlSink,
+  logger: Logger,
+  errorState: ErrorState,
+): void {
   const trimmed = line.trim();
   if (trimmed.length === 0) return;
   try {
@@ -196,10 +236,30 @@ function forwardStderrLine(line: string, jsonl: JsonlSink, logger: Logger): void
       // anchor the event to the source moment.
       const { event, ...rest } = obj;
       jsonl.event(event, rest);
+      // Tally gh failures so the heartbeat can surface them. We count both
+      // first-attempt retries and exhausted retries — either signal is
+      // useful for "is the gh CLI working at all" at a glance.
+      if (
+        event === "ci-wait.gh_retry" ||
+        event === "ci-wait.gh_retry_exhausted" ||
+        event === "ci-wait.gh_permanent"
+      ) {
+        errorState.ghErrors += 1;
+        const errMsg = typeof rest.error === "string" ? rest.error : "";
+        if (errMsg) errorState.lastError = errMsg;
+      }
       return;
     }
   } catch {
     // Fall through — non-JSON line.
   }
   logger.warn(`ci-wait stderr: ${trimmed}`);
+}
+
+// Heartbeat lines render to a single terminal row; a multi-line gh error
+// (the schema-drift one is multi-paragraph) would wrap and obscure the
+// liveness signal. Trim to the first line and a fixed width.
+function truncateForLog(message: string, max = 120): string {
+  const firstLine = message.split("\n", 1)[0] ?? message;
+  return firstLine.length > max ? `${firstLine.slice(0, max - 1)}…` : firstLine;
 }

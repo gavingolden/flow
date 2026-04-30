@@ -142,8 +142,11 @@ emit structured logs to the same directory. The default viewer is
 invocations, thinking, and results. The `/flow watch` skill is the
 inline-in-chat companion to `flow log --follow`, with PR 11 bounding
 the output (default 30s or N events) so long phases don't burn
-arbitrary chat-session tokens. Cost accounting comes from
-`result.usage` events in the same jsonl stream.
+arbitrary chat-session tokens. Cost accounting comes from each Claude
+CLI `type:"result"` event's `total_cost_usd` field; `src/cost.ts`
+sums these per phase (rolling up retry attempts) and `flow status`
+surfaces the running tally. There is no per-model rate table — the
+CLI emits the dollar amount pre-computed.
 
 ## The pipeline (full set)
 
