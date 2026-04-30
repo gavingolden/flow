@@ -9,6 +9,10 @@ export interface WorkerExitInfo {
   id: string;
   exitCode: number | null;
   signal: NodeJS.Signals | null;
+  // Populated when the worker's `'error'` event fired before `'exit'`
+  // (typically a pre-fork EAGAIN/ENOENT/EMFILE). `exitCode` and `signal`
+  // are both null in that case.
+  error?: Error;
 }
 
 export interface WorkerPoolOptions {
@@ -91,19 +95,34 @@ export async function drain(
       opts.onSpawn?.({ id, child });
 
       const promise = new Promise<void>((resolve) => {
+        let settled = false;
+        const settle = (info: WorkerExitInfo): void => {
+          if (settled) return;
+          settled = true;
+          workers.push(info);
+          opts.onExit?.(info);
+          resolve();
+        };
         const onExit = (
           code: number | null,
           signal: NodeJS.Signals | null,
         ): void => {
-          const info: WorkerExitInfo = { id, exitCode: code, signal };
-          workers.push(info);
-          opts.onExit?.(info);
-          resolve();
+          settle({ id, exitCode: code, signal });
+        };
+        // If `spawn(id)` returned a child whose pre-spawn fork failed
+        // (EAGAIN/ENOENT/EMFILE), node fires `'error'` and may never
+        // fire `'exit'`. Without this listener the slot would never
+        // free and `Promise.allSettled(inFlight)` below would hang the
+        // whole scheduler. Synthesise a deterministic exit so the
+        // caller sees the failure as a normal worker outcome.
+        const onError = (err: Error): void => {
+          settle({ id, exitCode: null, signal: null, error: err });
         };
         // `'exit'` fires before stdio streams close — that's fine for
         // the scheduler's bookkeeping; child stdout/stderr is captured
         // by the per-task log files, not piped through the parent.
         child.once("exit", onExit);
+        child.once("error", onError);
       }).finally(() => {
         inFlight.delete(promise);
       });

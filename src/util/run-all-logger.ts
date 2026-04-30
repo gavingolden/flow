@@ -47,6 +47,11 @@ export interface CreateRunAllLoggerOptions {
 }
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
+// Stamp is allowed in via env (FLOW_RUN_ALL_STAMP) when the detached
+// parent re-execs the scheduler, so an attacker-controlled value could
+// otherwise contain `..` or path separators and escape `.orchestrator/runs/`.
+// Anchor to a conservative filename alphabet and reject `.`/`..`.
+const STAMP_RE = /^[A-Za-z0-9._-]+$/;
 
 export async function createRunAllLogger(
   opts: CreateRunAllLoggerOptions,
@@ -54,6 +59,11 @@ export async function createRunAllLogger(
   const now = opts.now ?? (() => new Date());
   await fsp.mkdir(opts.runsDir, { recursive: true });
   const stamp = opts.stamp ?? now().toISOString().replace(/[:.]/g, "-");
+  if (!STAMP_RE.test(stamp) || stamp === "." || stamp === "..") {
+    throw new Error(
+      `createRunAllLogger: invalid stamp ${JSON.stringify(stamp)} — must match ${STAMP_RE.source} and not be . or ..`,
+    );
+  }
   const filePath = path.join(opts.runsDir, `all-${stamp}.log`);
   const jsonlPath = path.join(opts.runsDir, `all-${stamp}.jsonl`);
 
@@ -97,7 +107,10 @@ export async function createRunAllLogger(
     },
     event(name, fields) {
       const ts = now().toISOString();
-      const obj = { ts, name, ...(fields ?? {}) };
+      // Reserved fields (`ts`, `name`) come last so a caller can't
+      // override them via `fields`. Downstream parsers index on these
+      // keys; an event with a custom `name` would silently misroute.
+      const obj = { ...(fields ?? {}), ts, name };
       jsonlStream.write(`${JSON.stringify(obj)}\n`);
       // Mirror a one-line summary to the plaintext log so a human
       // tail-following the .log can see scheduler activity without

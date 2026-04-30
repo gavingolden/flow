@@ -105,6 +105,49 @@ describe("listTriagedTasks", () => {
     expect(out.map((q) => q.id)).toEqual(["live-triaged"]);
   });
 
+  it("skips tasks with missing/invalid 'created' (no FIFO corruption)", async () => {
+    // A missing/invalid `created` previously sorted to the head of the
+    // queue (empty string < every real ISO timestamp), so broken files
+    // jumped the line. Assert they are now skipped and reported.
+    await writeTask(tasksDir, {
+      id: "good",
+      status: "triaged",
+      created: "2026-04-29T00:00:00.000Z",
+    });
+    const noCreatedBody = [
+      "---",
+      "id: no-created",
+      "status: triaged",
+      "updated: 2026-04-29T00:00:00.000Z",
+      "target_repo: /tmp/repo",
+      "worktree: null",
+      "branch: null",
+      "pr: null",
+      "manual_validation: null",
+      "merge_commit: null",
+      "---",
+      "",
+      "## User prompt",
+      "",
+      "stub",
+      "",
+      "## Phase log",
+      "",
+      "## Phase outputs",
+      "",
+    ].join("\n");
+    await fs.writeFile(path.join(tasksDir, "no-created.md"), noCreatedBody, "utf8");
+
+    const skipped: Array<{ filePath: string; err: unknown }> = [];
+    const out = await listTriagedTasks(tmp, {
+      onSkip: (filePath, err) => skipped.push({ filePath, err }),
+    });
+    expect(out.map((q) => q.id)).toEqual(["good"]);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0]!.filePath).toContain("no-created.md");
+    expect((skipped[0]!.err as Error).message).toMatch(/created/);
+  });
+
   it("skips a malformed file but returns the well-formed remainder", async () => {
     await writeTask(tasksDir, { id: "good", status: "triaged" });
     await fs.writeFile(

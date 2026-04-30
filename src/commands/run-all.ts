@@ -185,9 +185,11 @@ export async function runAllCommand(opts: RunAllOptions = {}): Promise<void> {
     while (true) {
       const queue = await listTriagedTasks(repoRoot, {
         onSkip: (filePath, err) => {
-          logger.warn(
-            `skipping malformed task file ${filePath}: ${(err as Error).message ?? err}`,
-          );
+          // `catch` bindings are `unknown`; a non-Error throw (null,
+          // string, etc.) would TypeError on `.message` access and
+          // crash the scheduler before the skip is logged.
+          const msg = err instanceof Error ? err.message : String(err);
+          logger.warn(`skipping malformed task file ${filePath}: ${msg}`);
         },
       });
       logger.event("queue.size", { count: queue.length });
@@ -238,9 +240,14 @@ export async function runAllCommand(opts: RunAllOptions = {}): Promise<void> {
       if (result.aborted) break;
       if (!opts.watch) break;
 
-      // Watch mode with a non-empty drain just completed: fall through
-      // to the top of the loop, which will re-list the queue. New tasks
-      // arriving during the drain are picked up on the next pass.
+      // Watch mode with a non-empty drain just completed. Sleep one
+      // poll interval before re-listing — without this, a fast drain
+      // would tight-loop the readdir/parse path and violate the
+      // documented `--watch-interval` cadence. New tasks created
+      // during the sleep are picked up on the next pass.
+      logger.event("watch.poll", { intervalMs: watchIntervalMs });
+      const stopped = await sleepOrAbort(watchIntervalMs, ac.signal);
+      if (stopped) break;
     }
   } finally {
     let exitCode = 0;
@@ -260,6 +267,14 @@ export async function runAllCommand(opts: RunAllOptions = {}): Promise<void> {
       errored: totalErrored,
       exitCode,
     });
+    // Remove signal handlers BEFORE awaiting logger.close(). A SIGINT
+    // delivered while the streams are mid-flush would invoke
+    // `logger.event()` against an `end()`-ing write stream and trip
+    // ERR_STREAM_WRITE_AFTER_END. Once handlers are gone, signals
+    // restore default behaviour (terminate) which is what the user
+    // expects after the scheduler has decided its exit code.
+    process.removeListener("SIGINT", sigintHandler);
+    process.removeListener("SIGTERM", sigtermHandler);
     await logger.close();
     if (inheritedPidPath) {
       // Best-effort: a missing file (already cleaned, or never written
@@ -276,8 +291,6 @@ export async function runAllCommand(opts: RunAllOptions = {}): Promise<void> {
         }
       }
     }
-    process.removeListener("SIGINT", sigintHandler);
-    process.removeListener("SIGTERM", sigtermHandler);
     process.removeListener("exit", exitPidCleanup);
     if (exitCode !== 0) process.exit(exitCode);
   }
@@ -360,15 +373,15 @@ function spawnChildRunner(taskId: string, repoRoot: string): ChildProcess {
   }
   // Re-exec the same Node binary with the same loader argv so tsx (in
   // dev) propagates. The child runs `flow run <id>` (no `--detach`)
-  // — the scheduler reaps via `child.on("exit", …)`. Stdio is
-  // ignore/pipe/pipe so the child's chatter doesn't clobber the
-  // scheduler's stdout; the child's per-task log file captures
-  // everything.
+  // — the scheduler reaps via `child.on("exit", …)`. Stdio is fully
+  // ignored: the child's per-task log file is the only sink we need,
+  // and an unread "pipe" would deadlock once the OS pipe buffer
+  // (~64KB on macOS) filled with a chatty child's output.
   return spawn(
     process.execPath,
     [...process.execArgv, entry, "run", taskId],
     {
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", "ignore", "ignore"],
       cwd: repoRoot,
       // Strip the per-task FLOW_LOG_PATH env var (if our parent set
       // one) so the child's `createLogger` opens its own per-task file

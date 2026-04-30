@@ -158,6 +158,31 @@ describe("drain (worker pool)", () => {
     ).rejects.toThrow(/max must be >= 1/);
   });
 
+  it("settles the worker promise when the child emits 'error' (no 'exit')", async () => {
+    // A pre-fork failure (EAGAIN/ENOENT/EMFILE) fires `'error'` and may
+    // never fire `'exit'`. Without the 'error' listener the slot would
+    // never free and `Promise.allSettled(inFlight)` would hang the
+    // whole drain. Assert the synthetic exit is recorded and the
+    // drain resolves.
+    const opts: WorkerPoolOptions = {
+      max: 1,
+      spawn: (id) => {
+        const c = new MockChild(id);
+        setImmediate(() => {
+          c.emit("error", new Error("ENOENT: simulated spawn failure"));
+        });
+        return asChildProcess(c);
+      },
+    };
+    const result = await drain(["a", "b"], opts);
+    expect(result.workers).toHaveLength(2);
+    for (const w of result.workers) {
+      expect(w.exitCode).toBeNull();
+      expect(w.signal).toBeNull();
+      expect(w.error?.message).toMatch(/ENOENT/);
+    }
+  });
+
   it("handles an empty input list", async () => {
     const result = await drain([], {
       max: 4,

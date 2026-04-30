@@ -38,10 +38,19 @@ export async function listTriagedTasks(
       opts.onSkip?.(filePath, new Error("missing id"));
       continue;
     }
+    const created = toIsoString(fm.created);
+    if (created === "") {
+      // A missing/invalid `created` would sort to the head of the
+      // queue (empty string < every real ISO timestamp) and cause
+      // broken/stale tasks to be claimed first — the opposite of FIFO.
+      // Treat the same as missing id: skip and surface to the caller.
+      opts.onSkip?.(filePath, new Error("missing or invalid 'created' timestamp"));
+      continue;
+    }
     out.push({
       id: fm.id,
       path: filePath,
-      created: toIsoString(fm.created),
+      created,
     });
   }
   out.sort((a, b) => {

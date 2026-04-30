@@ -83,6 +83,36 @@ describe("createRunAllLogger", () => {
     await logger.close();
   });
 
+  it("rejects a stamp containing path separators (traversal defence)", async () => {
+    await expect(
+      createRunAllLogger({ runsDir, stamp: "../escape" }),
+    ).rejects.toThrow(/invalid stamp/);
+    await expect(
+      createRunAllLogger({ runsDir, stamp: "a/b" }),
+    ).rejects.toThrow(/invalid stamp/);
+    await expect(
+      createRunAllLogger({ runsDir, stamp: ".." }),
+    ).rejects.toThrow(/invalid stamp/);
+    await expect(
+      createRunAllLogger({ runsDir, stamp: "" }),
+    ).rejects.toThrow(/invalid stamp/);
+  });
+
+  it("event() callers cannot override reserved 'ts' or 'name' via fields", async () => {
+    const logger = await createRunAllLogger({ runsDir });
+    logger.event("worker.spawn", {
+      ts: "HACKED",
+      name: "evil.event",
+      id: "task-1",
+    } as unknown as Record<string, unknown>);
+    await logger.close();
+    const jsonl = await fs.readFile(logger.jsonlPath, "utf8");
+    const parsed = JSON.parse(jsonl.trim().split("\n")[0]!);
+    expect(parsed.name).toBe("worker.spawn");
+    expect(parsed.ts).not.toBe("HACKED");
+    expect(parsed.id).toBe("task-1");
+  });
+
   it("close() flushes both streams (subsequent reads see content)", async () => {
     const logger = await createRunAllLogger({ runsDir });
     logger.info("line 1");
