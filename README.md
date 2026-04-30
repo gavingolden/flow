@@ -63,6 +63,24 @@ answers in-line and exits with no file written.
 Both front doors produce the same `task.md` schema and feed the same
 pipeline.
 
+### Drain the queue — `flow run --all`
+
+After several `/flow-add` kickoffs leave a stack of `triaged` tasks
+sitting in `.orchestrator/tasks/`, drain the lot in parallel:
+
+```sh
+flow run --all                          # one-shot drain (default --max=min(cpus, 4))
+flow run --all --watch                  # stay alive, picking up new tasks every 5s
+flow run --all --max 2 --detach         # bounded fan-out, parent shell freed
+```
+
+`--all` spawns one `flow run <id>` child per claimed task, bounded by
+`--max`. The cross-process claim primitive guarantees that two concurrent
+`flow run --all` invocations never pick up the same task twice. First
+Ctrl+C stops claiming new tasks but lets in-flight children finish; a
+second Ctrl+C within 5 seconds propagates SIGTERM. Scheduler activity
+logs to `.orchestrator/runs/all-<stamp>.{log,jsonl}`.
+
 Add `.orchestrator/` to your project's `.gitignore`.
 
 ## Install skills + scripts
