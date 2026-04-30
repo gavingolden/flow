@@ -267,4 +267,72 @@ describe("runReviewPhase — end-to-end loop scenarios", () => {
     const reloaded = await readTask(task.path);
     expect(reloaded.frontmatter.status).toBe("needs-human");
   });
+
+  it("surfaces implement(fix) failed: review returns failed and renders the inner reason", async () => {
+    // Defensive branch in review.ts: runFix is documented to return only
+    // ok|failed today, but the review phase guards against future contract
+    // changes. Pin the failed-path so the guard is exercised, not just dead.
+    mockReviewSequence([criticalCode]);
+    vi.mocked(runImplementPhase).mockResolvedValueOnce({
+      status: "failed",
+      reason: "synthetic implement-fix failure",
+    });
+    const task = await makeTaskFile(tmp);
+    const r = await runReviewPhase(task);
+    expect(r.status).toBe("failed");
+    if (r.status === "failed") {
+      expect(r.reason).toContain("synthetic implement-fix failure");
+    }
+    // review_cycles stayed at 0 — the failed fix did not consume budget.
+    const reloaded = await readTask(task.path);
+    expect(reloaded.frontmatter.review_cycles).toBe(0);
+    expect(reloaded.body).toContain("decision: failed");
+  });
+
+  it("surfaces implement(fix) needs-human: review propagates the inner reason", async () => {
+    // Same defensive-branch coverage as the failed case. If runFix ever grows
+    // a needs-human exit, review must surface it cleanly rather than letting
+    // an unknown status fall through.
+    mockReviewSequence([criticalCode]);
+    vi.mocked(runImplementPhase).mockResolvedValueOnce({
+      status: "needs-human",
+      reason: "synthetic-implement-fix-escalation",
+    });
+    const task = await makeTaskFile(tmp);
+    const r = await runReviewPhase(task);
+    expect(r).toEqual({
+      status: "needs-human",
+      reason: "synthetic-implement-fix-escalation",
+    });
+    const reloaded = await readTask(task.path);
+    expect(reloaded.frontmatter.review_cycles).toBe(0);
+    expect(reloaded.body).toContain(
+      "decision: needs-human (implement-fix:synthetic-implement-fix-escalation)",
+    );
+  });
+
+  it("truncates the ci excerpt when it exceeds the prompt budget (~4 KB)", async () => {
+    // The 4 KB cap on ci excerpts is defense against a chatty Copilot summary
+    // blowing the prompt budget. Build a body whose ci subsection is well
+    // over 4 KB and assert the truncation marker shows up in the prompt.
+    mockReviewSequence([clean]);
+    const huge = "x".repeat(8 * 1024);
+    const task = await makeTaskFile(tmp);
+    // Replace the ci subsection with the oversized payload.
+    task.body = task.body.replace(
+      "- bot: Copilot summary excerpt",
+      huge,
+    );
+    await fs.writeFile(
+      task.path,
+      `---\nid: ${task.frontmatter.id}\nstatus: reviewing\ncreated: ${task.frontmatter.created}\nupdated: ${task.frontmatter.updated}\ntarget_repo: ${task.frontmatter.target_repo}\nworktree: ${task.frontmatter.worktree}\nbranch: ${task.frontmatter.branch}\npr: ${task.frontmatter.pr}\nmanual_validation: null\nmerge_commit: null\nreview_cycles: null\n---\n${task.body}`,
+      "utf8",
+    );
+    const reloaded = await readTask(task.path);
+    await runReviewPhase(reloaded);
+    const prompt = vi.mocked(runHeadless).mock.calls[0]![0]!.prompt;
+    expect(prompt).toContain("[truncated for prompt budget]");
+    // The leading content survives; the tail is dropped.
+    expect(prompt).toContain("xxxx");
+  });
 });
