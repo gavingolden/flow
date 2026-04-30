@@ -72,6 +72,12 @@ export type GhOps = {
   prChecks(pr: number): GhCheck[];
   prReviews(pr: number): GhReview[];
   prUrl(pr: number): string;
+  // Requested reviewer logins (humans + bots). Used at startup to filter
+  // `config.bots` down to bots that were actually asked to review — a bot
+  // that wasn't requested won't post unsolicited, so waiting for one
+  // guarantees a hard-cap timeout. Returns `[]` when no reviewers were
+  // requested.
+  prRequestedReviewers(pr: number): string[];
 };
 
 export class GhTransientError extends Error {
@@ -246,6 +252,31 @@ export function defaultGhOps(): GhOps {
       }
       return r.stdout.trim();
     },
+    prRequestedReviewers(pr: number): string[] {
+      const r = ghCapture([
+        "pr",
+        "view",
+        String(pr),
+        "--json",
+        "reviewRequests",
+        "--jq",
+        "[.reviewRequests[].login]",
+      ]);
+      if (r.exitCode !== 0) {
+        const msg = r.stderr.trim() || `gh pr view --json reviewRequests exit ${r.exitCode}`;
+        if (isPermanentGhError(msg)) throw new GhPermanentError("prRequestedReviewers", msg);
+        throw new GhTransientError(msg);
+      }
+      try {
+        const parsed = JSON.parse(r.stdout) as unknown;
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter((x): x is string => typeof x === "string");
+      } catch (err) {
+        throw new GhTransientError(
+          `gh pr view --json reviewRequests: invalid JSON: ${(err as Error).message}`,
+        );
+      }
+    },
   };
 }
 
@@ -264,6 +295,20 @@ export function pendingCheckNames(checks: GhCheck[]): string[] {
   return checks
     .filter((c) => PENDING_STATES.has(c.state.toUpperCase()))
     .map((c) => c.name);
+}
+
+// Intersect the configured bot list with the PR's requested reviewers. Per
+// `docs/phases/m3-plan.md`: "if none of the listed bots is requested as a
+// reviewer on the PR, skip the wait entirely." A bot that wasn't requested
+// won't post unsolicited, so waiting for one is a guaranteed hard-cap
+// timeout. Match is case-insensitive but preserves the configured spelling
+// in the result so renderCiSection's bot column reads consistently.
+export function filterRequestedBots(
+  configured: string[],
+  requested: string[],
+): string[] {
+  const requestedLower = new Set(requested.map((r) => r.toLowerCase()));
+  return configured.filter((b) => requestedLower.has(b.toLowerCase()));
 }
 
 export function botsCollected(
@@ -525,6 +570,16 @@ export function renderCiSection(args: RenderArgs): string {
     lines.push("");
   }
 
+  // No bots were waited for (none of the configured bots was requested as a
+  // reviewer). Skip the table + per-bot blocks entirely — rendering a header
+  // row with no entries below it would be misleading.
+  if (bots.length === 0) {
+    if (lines.length === 0) {
+      lines.push("_(no bot reviewers requested on this PR; bot wait skipped)_");
+    }
+    return lines.join("\n").replace(/\s+$/, "") + "\n";
+  }
+
   // Build the table in `bots` order so the rendered output is stable across
   // runs regardless of the order GitHub returns reviews in.
   const byBot = new Map<string, GhReview>();
@@ -635,6 +690,34 @@ async function main(): Promise<void> {
   });
 
   const gh = defaultGhOps();
+
+  // Filter `config.bots` down to bots that were actually requested on this
+  // PR. A bot that wasn't requested won't post unsolicited, so waiting for
+  // one guarantees a hard-cap timeout — see `docs/phases/m3-plan.md`. On a
+  // gh failure we conservatively keep the original list rather than skip
+  // the wait incorrectly; permanent errors still abort the run.
+  let effectiveBots = config.bots;
+  try {
+    const requested = gh.prRequestedReviewers(args.pr);
+    effectiveBots = filterRequestedBots(config.bots, requested);
+    emitStderrEvent("ci-wait.bot_filter", {
+      configured: config.bots,
+      requested,
+      effective: effectiveBots,
+      skipBotWait: effectiveBots.length === 0,
+    });
+  } catch (err) {
+    if (err instanceof GhPermanentError) {
+      // Permanent errors at startup are non-recoverable; let main() emit
+      // the canonical gh-error outcome rather than silently degrading.
+      throw err;
+    }
+    emitStderrEvent("ci-wait.bot_filter_failed", {
+      error: (err as Error).message,
+      fallback: "configured-bots",
+    });
+  }
+
   // Resolve the PR url once up front — it doesn't change between polls and
   // we only need it for the rendered review-section markdown.
   let prUrl = "";
@@ -651,7 +734,12 @@ async function main(): Promise<void> {
 
   const result = await pollUntilTerminal({
     pr: args.pr,
-    config,
+    // Pass the filtered list as `config.bots` so the polling loop's
+    // `botsCollected` call uses it. When `effectiveBots` is empty,
+    // `missing.length === 0` is trivially true and the loop exits as
+    // soon as checks reach terminal — that's the documented "skip the
+    // bot wait entirely" behaviour.
+    config: { ...config, bots: effectiveBots },
     deps: {
       gh,
       sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
@@ -662,7 +750,7 @@ async function main(): Promise<void> {
 
   const section = renderCiSection({
     reviews: result.reviews,
-    bots: config.bots,
+    bots: effectiveBots,
     prUrl,
     pendingChecks: result.outcome === "ci-hang" ? result.pendingChecks : undefined,
     ciHangNoChecksFetched: result.ciHangNoChecksFetched,

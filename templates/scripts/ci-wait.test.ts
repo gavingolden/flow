@@ -11,6 +11,7 @@ import {
   type GhOps,
   type GhReview,
   botsCollected,
+  filterRequestedBots,
   isChecksTerminal,
   isNoChecksReported,
   isPermanentGhError,
@@ -43,6 +44,7 @@ function makeGhOps(overrides: Partial<GhOps>): GhOps {
     prChecks: () => [],
     prReviews: () => [],
     prUrl: () => "https://github.com/owner/repo/pull/184",
+    prRequestedReviewers: () => [],
     ...overrides,
   };
 }
@@ -141,6 +143,33 @@ describe("isPermanentGhError", () => {
     expect(isPermanentGhError("API rate limit exceeded")).toBe(false);
     expect(isPermanentGhError("dial tcp: i/o timeout")).toBe(false);
     expect(isPermanentGhError("HTTP 502: Bad Gateway")).toBe(false);
+  });
+});
+
+// --- filterRequestedBots ---
+
+describe("filterRequestedBots", () => {
+  it("keeps configured bots that match a requested reviewer (case-insensitive)", () => {
+    expect(
+      filterRequestedBots(
+        ["copilot-pull-request-reviewer", "Codecov"],
+        ["COPILOT-PULL-REQUEST-REVIEWER", "human-reviewer"],
+      ),
+    ).toEqual(["copilot-pull-request-reviewer"]);
+  });
+  it("returns an empty list when no configured bot is requested (skip-bot-wait signal)", () => {
+    expect(
+      filterRequestedBots(["copilot-pull-request-reviewer"], ["someone-else"]),
+    ).toEqual([]);
+  });
+  it("returns an empty list when reviewRequests is empty", () => {
+    expect(filterRequestedBots(["Copilot"], [])).toEqual([]);
+  });
+  it("preserves the configured spelling (so the rendered table reads consistently)", () => {
+    // Configured: "Copilot" (display-name spelling); requested: lowercase
+    // login form. Output must keep "Copilot" — what the user wrote in
+    // their config — so the rendered bot column is stable.
+    expect(filterRequestedBots(["Copilot"], ["copilot"])).toEqual(["Copilot"]);
   });
 });
 
@@ -484,6 +513,21 @@ describe("renderCiSection", () => {
     expect(out).toContain("> Coverage 99%");
     // No leading frontmatter delimiter that would confuse gray-matter.
     expect(out.startsWith("---")).toBe(false);
+  });
+
+  it("renders a one-liner (no table) when bots is empty (skip-bot-wait case)", () => {
+    // When no configured bot was requested as a reviewer the polling loop
+    // skips the bot wait. Rendering an empty | bot | state | header with no
+    // rows would imply the section was incomplete — instead emit a clear
+    // "skipped" line so the consumer knows nothing was being awaited.
+    const out = renderCiSection({
+      bots: [],
+      reviews: [],
+      prUrl: PR_URL,
+    });
+    expect(out).toContain("no bot reviewers requested on this PR; bot wait skipped");
+    expect(out).not.toContain("| bot | state |");
+    expect(out).not.toContain("####");
   });
 
   it("renders TIMEOUT row + placeholder body for missing bots", () => {
