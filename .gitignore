@@ -8,8 +8,9 @@ dist/
 .idea/
 
 # managed by flow install-skills
-# (symlinks resolve to absolute paths and aren't portable)
+# (symlinks resolve to absolute paths and rendered skills embed machine-local paths — neither is portable)
 /.claude/skills/add-worktree
+/.claude/skills/flow-add
 /.claude/skills/flow-status
 /.claude/skills/flow-watch
 /.claude/skills/new-feature
@@ -26,6 +27,7 @@ dist/
 # (symlinks resolve to absolute paths and aren't portable)
 /scripts/ci-wait.ts
 /scripts/fetch-pr-review.ts
+/scripts/flow-add.ts
 /scripts/flow-watch.ts
 /scripts/new-agent-worktree.ts
 /scripts/pre-commit-checks.ts

@@ -200,9 +200,27 @@ describe("runImplementPhase — modes and entry gate", () => {
     const reloaded = await readTask(task.path);
     // pr field is never touched by fix mode regardless of outcome.
     expect(reloaded.frontmatter.pr).toBe(42);
-    // Fix mode does NOT transition to "pr-open" on success — that belongs
-    // to the caller (PR 5 / PR 7) which knows the post-fix terminal state.
-    expect(reloaded.frontmatter.status).toBe("implementing");
+    // Fix mode does NOT transition status — the caller (PR 5 verify retry,
+    // PR 7 review loop-back) owns the surrounding status. The starting
+    // status is preserved end-to-end.
+    expect(reloaded.frontmatter.status).toBe("pr-open");
+  });
+
+  it("fix mode: caller's status is preserved across the call (review phase invariant)", async () => {
+    // PR 7's review phase keeps the task at status "reviewing" for the entire
+    // review→implement(fix)→review loop. If runFix transitioned to
+    // "implementing" mid-loop, a crash inside the fix call would resume into
+    // the implement phase rather than back into review, losing the cycle
+    // counter context. Pin the contract so a future refactor can't reintroduce
+    // the transition without breaking this test.
+    const task = await makeTaskFile(tmp, { status: "reviewing", pr: 42 });
+    const r = await runImplementPhase(task, {
+      mode: "fix",
+      failureLog: "review found: critical-code finding in foo.ts",
+    });
+    expect(r).toEqual({ status: "ok" });
+    const reloaded = await readTask(task.path);
+    expect(reloaded.frontmatter.status).toBe("reviewing");
   });
 
 });

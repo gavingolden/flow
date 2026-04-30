@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import pc from "picocolors";
 import { findCanonicalRoot } from "../util/git.js";
+import { renderWithTriageContract } from "../install/triage-contract.js";
 import { resolvePromptSource } from "./resolve-prompt.js";
 import {
   TRIAGE_SENTINEL_ENV,
@@ -121,5 +122,5 @@ async function loadTriageSystemPrompt(repoRoot: string): Promise<string> {
     "triage-system-prompt.md",
   );
   const raw = await fs.readFile(templatePath, "utf8");
-  return raw.replaceAll("${REPO_ROOT}", repoRoot);
+  return renderWithTriageContract(raw, { repoRoot });
 }

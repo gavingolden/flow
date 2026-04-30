@@ -185,12 +185,14 @@ async function runCreate(
   return { status: "ok" };
 }
 
-// Fix mode: caller invoked deliberately against an existing PR (PR 7 review
-// loop-back). Single-shot — the caller owns the retry loop, so an inner
-// retry would compound non-deterministically. Never calls `gh pr create`,
-// never mutates `task.frontmatter.pr`, never transitions to `"pr-open"`
-// (the caller owns the post-fix transition since the task is already past
-// `"pr-open"` by the time fix is invoked).
+// Fix mode: caller invoked deliberately against an existing PR (PR 5 verify
+// retry, PR 7 review loop-back). Single-shot — the caller owns the retry
+// loop, so an inner `retryOnce` would compound non-deterministically. Never
+// calls `gh pr create`, never mutates `task.frontmatter.pr`, and never
+// transitions status — the caller owns the surrounding status (e.g. PR 7's
+// review phase keeps it at "reviewing" for the duration of the loop). A
+// transition here would clobber the caller's invariant on resume after a
+// mid-fix crash.
 async function runFix(
   task: Task,
   worktree: string,
@@ -200,9 +202,6 @@ async function runFix(
   logger: Logger,
   jsonl: JsonlSink,
 ): Promise<PhaseResult> {
-  await transitionStatus(task, "implementing");
-  logger.event("task.status", "implementing");
-
   const result = await runImplementAttempt(
     task,
     worktree,
