@@ -11,6 +11,8 @@ dist/
 # (symlinks resolve to absolute paths and rendered skills embed machine-local paths — neither is portable)
 /.claude/skills/add-worktree
 /.claude/skills/flow-add
+/.claude/skills/flow-approve
+/.claude/skills/flow-revise
 /.claude/skills/flow-status
 /.claude/skills/flow-watch
 /.claude/skills/new-feature
