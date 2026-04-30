@@ -72,6 +72,25 @@ describe("readSentinelTaskId", () => {
     const p = await write("  2026-04-27-fix-thing\r\n");
     expect(await readSentinelTaskId(p)).toBe("2026-04-27-fix-thing");
   });
+
+  it("returns null and warns on non-ENOENT read errors (EISDIR)", async () => {
+    // Point readSentinelTaskId at a directory so readFile throws EISDIR.
+    // Verifies the post-PR-22-review behaviour: ENOENT is silent (no-change
+    // classification path), other errors warn but still fall through to null
+    // so the caller's "no task id recorded" warning is what the user sees.
+    const dir = path.join(os.tmpdir(), `flow-triage-test-isdir-${randomBytes(8).toString("hex")}`);
+    await fs.mkdir(dir);
+    const warnings: string[] = [];
+    const originalErr = console.error;
+    console.error = (msg: unknown) => warnings.push(String(msg));
+    try {
+      expect(await readSentinelTaskId(dir)).toBeNull();
+    } finally {
+      console.error = originalErr;
+      await fs.rmdir(dir).catch(() => {});
+    }
+    expect(warnings.some((w) => w.includes("failed to read triage sentinel"))).toBe(true);
+  });
 });
 
 describe("cleanupSentinel", () => {

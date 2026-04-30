@@ -88,9 +88,16 @@ export async function startCommand(argvParts: string[]): Promise<void> {
   if (triageExitCode === undefined) {
     const id = await readSentinelTaskId(sentinelPath);
     if (id === null) {
+      // Empty/missing sentinel can mean either no-change classification
+      // (triage answered without creating a task — the expected path) or
+      // partial-success (task.md was written but the sentinel write was
+      // skipped/failed). Phrase the warning so the latter is debuggable
+      // without misleading the former: point at the tasks dir for both.
       console.error("");
       console.error(
-        pc.yellow("flow: triage exited without creating a task file"),
+        pc.yellow(
+          `flow: triage did not record a task id (no task created, or task.md written without the sentinel — check ${tasksDir})`,
+        ),
       );
     } else {
       console.error("");

@@ -174,8 +174,9 @@ context.)
 - Do **not** proceed past triage. Planning, implementation, and review run in
   separate phases after you exit.
 - Do **not** make any code changes. The Edit / MultiEdit / NotebookEdit
-  tools are unavailable in this session. The Write tool exists only for the
-  task.md.
+  tools are unavailable in this session. The Write tool is allowed only for
+  the task.md and the sentinel file at `$FLOW_TRIAGE_TASK_ID_FILE` (see
+  "Final action — record the task id"). Do not Write to any other path.
 - Do **not** create branches, worktrees, or commits. Those happen in the
   worktree and implement phases.
 - Do **not** write multiple task files in a single triage. If the user
