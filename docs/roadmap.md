@@ -119,10 +119,10 @@ Done when:
 
 - A Bun script polls `gh pr checks <pr> --json` and `gh pr view <pr>
   --json reviews` on a 30s cadence until terminal state.
-- Configurable bot list (default `["Copilot"]`) controls which auto-
-  reviewers count toward "all reviews collected." Codecov, SonarCloud,
-  custom apps can be added per-repo.
-- 60-minute hard cap. If checks haven't reached terminal state, the
+- Configurable bot list (default `["copilot-pull-request-reviewer"]`)
+  controls which auto-reviewers count toward "all reviews collected."
+  Codecov, SonarCloud, custom apps can be added per-repo.
+- 20-minute hard cap. If checks haven't reached terminal state, the
   task escalates to `needs-human` with reason "CI hang." If checks
   are terminal but a configured bot hasn't posted, ci-wait proceeds
   (timeout treated as bot timed out).
@@ -492,6 +492,21 @@ Smaller items that aren't phase-blocking but should land when convenient:
   with create mode). Trigger: address as part of PR 5 when the first
   `mode: "fix"` caller lands — do not ship that PR with the create-mode
   prompt still being used for fix mode.
+
+- **Integration test for `startCommand`'s sentinel env-var plumbing.**
+  PR #22 added `triage-sentinel.ts` with unit tests, but `startCommand`
+  itself has no test that the `FLOW_TRIAGE_TASK_ID_FILE` env var is
+  actually plumbed into the spawned `claude` subprocess and that the
+  read-on-success path uses the same sentinel. A future refactor of
+  `start.ts` could regress the wiring and the helper unit tests would
+  not catch it; the only signal would be the manual concurrent-sessions
+  validation step. Deferred from PR #22 review because covering it
+  requires either standing up an `execa` injection point in
+  `src/commands/start.ts` (cross-cutting test-infrastructure refactor —
+  bar criterion 2) or adding a fake-`claude` shim on PATH for a smoke
+  test (new test infrastructure). Trigger: address when `src/commands/start.ts`
+  is next touched, or fold into the broader "Unit-test the new CLI output
+  helpers" item above (which already covers `start.ts` injection points).
 
 ## What's deliberately not on the roadmap
 

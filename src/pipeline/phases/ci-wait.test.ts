@@ -411,6 +411,48 @@ describe("runCiWaitPhase", () => {
     });
   });
 
+  it("gh-error: status flips to needs-human with note gh-error, no ci section written, error logged", async () => {
+    // Mirrors the production bug: gh dropped a JSON field, every poll
+    // failed permanently, and the user wants the wrapper to surface the
+    // gh call+message rather than the generic ci-hang fallback.
+    const stdoutPayload = JSON.stringify({
+      outcome: "gh-error",
+      polls: 1,
+      durMs: 50,
+      missingBots: ["Copilot"],
+      pendingChecks: [],
+      ghErrorCall: "prChecks",
+      ghErrorMessage: 'Unknown JSON field: "conclusion"',
+    });
+    const { tmp, task } = await setupRepo({
+      status: "pr-open",
+      pr: 184,
+      fixture: {
+        stderrLines: [
+          '{"event":"ci-wait.gh_permanent","call":"prChecks","error":"Unknown JSON field: \\"conclusion\\""}',
+        ],
+        stdoutPayload,
+        exitCode: 1,
+      },
+    });
+    tmpRoot = tmp;
+    const logger = makeLogger();
+    const result = await runCiWaitPhase(task, logger, makeJsonl());
+
+    expect(result).toEqual({ status: "needs-human", reason: "gh-error" });
+    const reread = await readTask(task.path);
+    expect(reread.frontmatter.status).toBe("needs-human");
+    expect(reread.body).not.toContain("### ci (latest:");
+    expect(reread.body).toContain("gh-error");
+    // The error log line must surface call + gh message — not a generic
+    // "ci-wait failed" — so the user knows whether to upgrade gh or fix
+    // a config rather than re-run blindly.
+    const loggedDetail = logger.errors.find(
+      (e) => e.includes("prChecks") && e.includes("Unknown JSON field"),
+    );
+    expect(loggedDetail).toBeDefined();
+  });
+
   it("returns failed when the script's stdout is unparseable", async () => {
     const { tmp, task } = await setupRepo({
       status: "pr-open",

@@ -4,6 +4,7 @@ import { startCommand } from "./commands/start.js";
 import { runCommand } from "./commands/run.js";
 import { installCommand } from "./commands/install.js";
 import { logCommand } from "./commands/log.js";
+import { statusCommand } from "./commands/status.js";
 
 const program = new Command();
 
@@ -51,6 +52,22 @@ program
       opts: { phase?: string; follow?: boolean; raw?: boolean },
     ) => {
       const code = await logCommand(id, opts);
+      if (code !== 0) process.exit(code);
+    },
+  );
+
+program
+  .command("status")
+  .description(
+    "Show task roster (id, status, phase, PR, last-updated, cost). " +
+      "Pass an id to drill into one task; --all also includes archived tasks.",
+  )
+  .argument("[id]", "task id (omit to list every active task)")
+  .option("--all", "also include archived tasks under .orchestrator/tasks/archive/")
+  .option("--json", "emit a single JSON document instead of the human-readable table")
+  .action(
+    async (id: string | undefined, opts: { all?: boolean; json?: boolean }) => {
+      const code = await statusCommand(id, opts);
       if (code !== 0) process.exit(code);
     },
   );
