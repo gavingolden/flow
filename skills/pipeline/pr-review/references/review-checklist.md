@@ -609,6 +609,61 @@ producer repo.
 
 ---
 
+## Slurping Append-Only Logs Into Memory
+
+Code that aggregates over append-only log files (jsonl phase logs, ndjson event streams,
+audit trails) often grows to hold the full file content in memory at once via
+`readFile` + `split("\n")`. Each file is small in isolation, but the aggregator multiplies
+the cost: scanning across all tasks (with `--all`, with archive enabled) reads every log
+file synchronously into the heap. Phase logs in flow can carry full Anthropic stream
+content via `JsonlSink.pipeFrom`, so individual files reach MBs and the aggregate easily
+hits hundreds of MBs.
+
+### What to look for
+
+- `fs.readFile` + `.split("\n")` over a file whose growth is unbounded by design (logs,
+  event streams, audit trails)
+- The same call invoked inside a `for…of` over many files (an aggregator, a roster
+  builder)
+- A function whose input is a path to a file the rest of the system writes incrementally
+
+### How to check
+
+1. For each `readFile` over a log/jsonl/ndjson path, ask: is the producer append-only
+   with no upper bound? If yes, this is the pattern.
+2. Verify the consumer truly needs the whole file in memory — most aggregators only need
+   per-line state (sum, last-seen, count). If so, `readline` over `createReadStream` is
+   the streaming alternative.
+3. Trace the worst-case fan-out — if the aggregator runs across N files at once
+   (`Promise.all`, `--all`), multiply per-file size by N for the peak.
+
+### Example — slurping per-phase jsonl in a roster aggregator (PR #23)
+
+```typescript
+// BAD: loads the full jsonl into memory for every phase, every task, every roster build.
+// With archive included this can easily hit hundreds of MB on a long-running repo.
+const raw = await fsp.readFile(filePath, "utf8");
+for (const line of raw.split("\n")) {
+  // …sum per-line state…
+}
+
+// GOOD: streaming line reader, peak memory bounded to one line.
+import { createReadStream } from "node:fs";
+import { createInterface } from "node:readline";
+const rl = createInterface({
+  input: createReadStream(filePath, { encoding: "utf8" }),
+  crlfDelay: Infinity,
+});
+for await (const line of rl) {
+  // …sum per-line state…
+}
+```
+
+**General rule:** If a log file's size is bounded only by how long the producer ran,
+read it line-by-line. Slurp + split is fine for config files, not for append-only logs.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue

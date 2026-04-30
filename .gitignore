@@ -10,6 +10,7 @@ dist/
 # managed by flow install-skills
 # (symlinks resolve to absolute paths and aren't portable)
 /.claude/skills/add-worktree
+/.claude/skills/flow-status
 /.claude/skills/flow-watch
 /.claude/skills/new-feature
 /.claude/skills/pr-review

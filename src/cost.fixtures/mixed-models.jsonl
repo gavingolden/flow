@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","session_id":"abc"}
+{"type":"result","subtype":"success","is_error":false,"total_cost_usd":2.0001,"modelUsage":{"claude-opus-4-7[1m]":{"costUSD":2.0001}}}
+{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.0102,"modelUsage":{"claude-haiku-4-5-20251001":{"costUSD":0.0102}}}
+not actually json — should be skipped
+{"this": "is malformed for parser", "no": "type field, ignored"}
