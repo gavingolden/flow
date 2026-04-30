@@ -84,4 +84,21 @@ describe("ensureRendered (skill install with include marker)", () => {
     // content-hash dance. Reflected as 'updated' even when bytes are the same.
     expect(result).toBe("updated");
   });
+
+  it("sweeps stale files left in the install dir when an upstream file is removed", async () => {
+    // First install: source has SKILL.md + extra.md.
+    writeSkill(`${INCLUDE_MARKER}\n`);
+    writeFileSync(join(sourceDir, "extra.md"), "extra body\n");
+    await ensureRendered(installPath, sourceDir, "/r");
+    expect(lstatSync(join(installPath, "SKILL.md")).isFile()).toBe(true);
+    expect(lstatSync(join(installPath, "extra.md")).isFile()).toBe(true);
+
+    // Upstream deletes extra.md. A re-render must remove the orphan from
+    // the install dir; otherwise stale skill files linger across installs
+    // and Claude Code may load partials that no longer match the source.
+    rmSync(join(sourceDir, "extra.md"));
+    await ensureRendered(installPath, sourceDir, "/r");
+    expect(lstatSync(join(installPath, "SKILL.md")).isFile()).toBe(true);
+    expect(() => lstatSync(join(installPath, "extra.md"))).toThrow();
+  });
 });

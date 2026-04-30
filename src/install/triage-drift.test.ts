@@ -41,7 +41,11 @@ function sliceShared(text: string, label: string): string {
       `${label} is missing the shared markers ${START}…${END} after rendering`,
     );
   }
-  return text.slice(startIdx + START.length, endIdx).trim();
+  // Compare the exact bytes between the markers — no trim. The whole point
+  // of the drift guard is byte-identity, and trimming would mask whitespace
+  // drift (e.g. an extra blank line after `<!-- start: shared -->` in one
+  // consumer) — exactly the class of silent skew this test exists to catch.
+  return text.slice(startIdx + START.length, endIdx);
 }
 
 async function render(filePath: string): Promise<string> {
@@ -74,5 +78,20 @@ describe("triage contract drift guard", () => {
     expect(skill).not.toContain("${REPO_ROOT}");
     expect(systemPrompt).toContain(REPO_ROOT_PLACEHOLDER);
     expect(skill).toContain(REPO_ROOT_PLACEHOLDER);
+  });
+
+  it("sliceShared returns the literal bytes between markers (no trim)", () => {
+    // Regression: an earlier version called `.trim()` on the slice, which
+    // silently masked leading/trailing whitespace drift between the two
+    // consumers — exactly the class of silent skew this guard exists to
+    // catch. Hand-construct two slices that differ only in surrounding
+    // whitespace and confirm the byte compare distinguishes them.
+    const a = `${START}\nbody\n${END}`;
+    const b = `${START}\n\nbody\n${END}`; // extra blank line after marker
+    const sliceA = sliceShared(a, "a");
+    const sliceB = sliceShared(b, "b");
+    expect(sliceA).not.toBe(sliceB);
+    expect(sliceA).toBe("\nbody\n");
+    expect(sliceB).toBe("\n\nbody\n");
   });
 });

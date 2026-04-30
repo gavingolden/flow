@@ -78,13 +78,15 @@ export async function installSkills(
     }
   }
 
-  // Skill symlinks resolve to absolute paths under the user's home and aren't
-  // portable, so the repo's .gitignore must list them. Rendered skills are
-  // also user-machine-specific (paths embedded in the body), so they share
-  // the same managed block.
+  // Skill symlinks resolve to absolute paths under the user's home, and
+  // rendered skills embed user-machine-specific paths in their bodies — both
+  // are non-portable across checkouts, so the repo's .gitignore must list
+  // them. They share the same managed block because they share the same
+  // install dir.
   const gitignoreResult = await updateGitignoreBlock(repoRoot, {
     tag: "install-skills",
-    comment: "(symlinks resolve to absolute paths and aren't portable)",
+    comment:
+      "(symlinks resolve to absolute paths and rendered skills embed machine-local paths — neither is portable)",
     paths: skillsToInstall.map((s) => `/.claude/skills/${s.name}`).sort(),
   });
   if (gitignoreResult !== "unchanged") {
@@ -221,9 +223,29 @@ export async function ensureRendered(
   }
 
   await fs.mkdir(installPath, { recursive: true });
-  const entries = await fs.readdir(sourceDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
+  const sourceEntries = (
+    await fs.readdir(sourceDir, { withFileTypes: true })
+  ).filter((entry) => entry.isFile());
+  const sourceNames = new Set(sourceEntries.map((entry) => entry.name));
+
+  // Sweep stale files left behind by a prior install (e.g. an upstream rename
+  // or deletion). Without this, `.claude/skills/<name>/` accumulates orphan
+  // files across upgrades and Claude Code may load stale partials that no
+  // longer match the source. The symlink path doesn't have this issue
+  // because the link target itself is the source dir — there's nothing
+  // separate to sweep.
+  const installedEntries = await fs.readdir(installPath, {
+    withFileTypes: true,
+  });
+  for (const entry of installedEntries) {
+    if (sourceNames.has(entry.name)) continue;
+    await fs.rm(path.join(installPath, entry.name), {
+      recursive: true,
+      force: true,
+    });
+  }
+
+  for (const entry of sourceEntries) {
     const sourcePath = path.join(sourceDir, entry.name);
     const targetPath = path.join(installPath, entry.name);
     const raw = await fs.readFile(sourcePath, "utf8");

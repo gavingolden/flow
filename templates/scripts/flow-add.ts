@@ -27,7 +27,7 @@
  *   5 — required argv missing or malformed
  */
 
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -393,11 +393,15 @@ function defaultSpawnDetach(args: {
 // --- Output formatting ---
 
 /**
- * The chat-visible artefact. Designed to be exactly copy-pasteable: every
- * actionable thing is a literal command or absolute path. The skill prints
- * this verbatim — keep formatting stable so users build muscle memory.
+ * The chat-visible artefact. Split into two halves so the helper can print
+ * the "task recorded" facts before attempting the detached spawn (so the
+ * user sees the absolute path even when spawn fails) and only assert the
+ * pipeline actually started after a successful spawn.
+ *
+ * `formatSuccessBlock` is the concatenation of both halves — kept for
+ * callers that want the full copy-pasteable block in one string.
  */
-export function formatSuccessBlock(args: {
+export function formatTaskRecordedBlock(args: {
   id: string;
   taskMdPath: string;
   logsDir: string;
@@ -405,11 +409,25 @@ export function formatSuccessBlock(args: {
   return `task: ${args.id}
 task-md: ${args.taskMdPath}
 logs: ${args.logsDir}
+`;
+}
 
+export function formatPipelineStartedBlock(args: { id: string }): string {
+  return `
 Pipeline started (detached). Next:
   /flow status ${args.id}
   /flow watch ${args.id}
 `;
+}
+
+export function formatSuccessBlock(args: {
+  id: string;
+  taskMdPath: string;
+  logsDir: string;
+}): string {
+  return (
+    formatTaskRecordedBlock(args) + formatPipelineStartedBlock({ id: args.id })
+  );
 }
 
 // --- Help ---
@@ -500,16 +518,6 @@ export async function main(
   }
 
   const taskMdPath = join(tasksRoot, `${id}.md`);
-  if (existsSync(taskMdPath)) {
-    // Defensive: nextAvailableId already excluded existing ids, but the
-    // tasks dir may have been mutated between read and write. Surface the
-    // race rather than silently overwriting a sibling task.
-    stderr.write(
-      `error: task file already exists at ${taskMdPath} (raced with another writer?). Re-run to pick a new id.\n`,
-    );
-    return 1;
-  }
-
   const nowIso = nowIsoFn();
   const body = buildTaskMd({
     id,
@@ -522,19 +530,30 @@ export async function main(
     repoRoot,
     nowIso,
   });
-  await writeFile(taskMdPath, body);
+  // `flag: "wx"` is the atomic create-or-fail open mode — the kernel guarantees
+  // exactly one writer wins when two concurrent helpers race past the
+  // nextAvailableId snapshot. Without it, both writers' `writeFile` calls would
+  // truncate-and-write, silently clobbering one task. EEXIST is the only
+  // race-class error here; all other errors propagate.
+  try {
+    await writeFile(taskMdPath, body, { flag: "wx" });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+      stderr.write(
+        `error: task file already exists at ${taskMdPath} (raced with another writer?). Re-run to pick a new id.\n`,
+      );
+      return 1;
+    }
+    throw err;
+  }
 
   const logsDir = join(tasksRoot, id);
-  const successBlock = formatSuccessBlock({
-    id,
-    taskMdPath,
-    logsDir,
-  });
 
-  // Print the success block before spawning so the user sees the path even
-  // if the detached spawn fails. The detached child's own status lines (pid,
-  // log path) follow from `flow run --detach`'s stdio:inherit.
-  stdout.write(successBlock);
+  // Surface "task recorded" before the spawn so the user sees the absolute
+  // path even when the detached spawn fails (otherwise a missing `flow` CLI
+  // hides the path the user just wrote to). The "Pipeline started" half
+  // only prints after the spawn returns ok, so chat never lies about state.
+  stdout.write(formatTaskRecordedBlock({ id, taskMdPath, logsDir }));
 
   const spawnFn = deps.spawnDetach ?? defaultSpawnDetach;
   const spawnResult = spawnFn({
@@ -555,6 +574,8 @@ export async function main(
     if (spawnResult.stderr) stderr.write(spawnResult.stderr);
     return 1;
   }
+
+  stdout.write(formatPipelineStartedBlock({ id }));
 
   return 0;
 }

@@ -498,8 +498,16 @@ describe(main, () => {
     expect(code).toBe(0);
     expect(stderr.text).toBe("");
     expect(stdout.text).toContain("task: 2026-04-29-add-csv-export");
+    expect(stdout.text).toContain("Pipeline started (detached)");
     expect(stdout.text).toContain("/flow status 2026-04-29-add-csv-export");
     expect(stdout.text).toContain("/flow watch 2026-04-29-add-csv-export");
+    // Regression: the success block must come *after* the spawn returns ok.
+    // Earlier versions emitted the whole block before the spawn, which lied
+    // about pipeline state when the spawn later failed.
+    const taskRecordedIdx = stdout.text.indexOf("task:");
+    const pipelineStartedIdx = stdout.text.indexOf("Pipeline started");
+    expect(taskRecordedIdx).toBeGreaterThanOrEqual(0);
+    expect(pipelineStartedIdx).toBeGreaterThan(taskRecordedIdx);
 
     const taskMdPath = join(
       dir,
@@ -638,6 +646,12 @@ describe(main, () => {
     );
     expect(code).toBe(2);
     expect(stderr.text).toContain("flow CLI not found on PATH");
+    // Regression: the "Pipeline started" half must NOT print on a failed
+    // spawn — chat would otherwise lie about pipeline state. The
+    // "task recorded" half (id + path) is still printed so the user can
+    // pick up the file even though the pipeline didn't start.
+    expect(stdout.text).toContain("task: 2026-04-29-p");
+    expect(stdout.text).not.toContain("Pipeline started");
   });
 
   it("exits 5 with a usage error when --intent is missing", async () => {
@@ -682,6 +696,44 @@ describe(main, () => {
     );
     expect(code).toBe(1);
     expect(stderr.text).toContain("exited with code 1");
+    // Regression: same as the enoent path — "Pipeline started" must not
+    // print on a non-zero spawn exit.
+    expect(stdout.text).toContain("task: 2026-04-29-p");
+    expect(stdout.text).not.toContain("Pipeline started");
+  });
+
+  it("exits 1 with an EEXIST race message when task.md is created between read and write", async () => {
+    // Drive the wx-flag race branch: pre-create the task file with the
+    // base id so writeFile fails EEXIST. The orchestrator's existing-id
+    // snapshot is empty (so nextAvailableId returns the base id), but the
+    // wx-flag check on disk wins — exactly the race the helper is
+    // defending against.
+    const { fn } = captureSpawn("ok");
+    const stdout = new StringSink();
+    const stderr = new StringSink();
+    mkdirSync(join(dir, ".orchestrator", "tasks"), { recursive: true });
+    writeFileSync(
+      join(dir, ".orchestrator", "tasks", "2026-04-29-p.md"),
+      "raced\n",
+    );
+    const code = await main(
+      ["p", "--intent", "feature", "--summary", "s"],
+      {
+        cwd: "/some/where",
+        nowIso: () => "2026-04-29T00:00:00.000Z",
+        todayUtcDate: () => "2026-04-29",
+        // Empty snapshot so nextAvailableId picks the base id; the on-disk
+        // file is the only thing that triggers the wx-flag failure.
+        readExistingIds: () => [],
+        findCanonicalRoot: () => dir,
+        spawnDetach: fn,
+        stdout,
+        stderr,
+      },
+    );
+    expect(code).toBe(1);
+    expect(stderr.text).toContain("task file already exists");
+    expect(stderr.text).toContain("raced with another writer");
   });
 
   it("prints --help and exits 0", async () => {
