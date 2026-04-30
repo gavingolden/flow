@@ -8,12 +8,12 @@ export interface RespawnDetachedResult {
   logPath: string;
 }
 
-// Internal — kept in lockstep with `runCommand`'s FLOW_LOG_PATH_ENV. The
-// detached child's `createLogger` reads this env var to append to the
+// The detached child's `createLogger` reads this env var to append to the
 // pre-opened log file rather than opening a second one with a slightly
-// later stamp. Defining it here lets approve/revise reuse the same
-// fd-inheritance contract `flow run --detach` established.
-const FLOW_LOG_PATH_ENV = "FLOW_LOG_PATH";
+// later stamp. Exported so `runCommand` can read the same env name on the
+// child side without duplicating the literal — a drift here would silently
+// break the parent/child log sharing the fd-inheritance contract relies on.
+export const FLOW_LOG_PATH_ENV = "FLOW_LOG_PATH";
 
 export interface RespawnDetachedDeps {
   spawnFn?: (

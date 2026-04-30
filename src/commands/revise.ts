@@ -5,7 +5,6 @@ import {
   appendToBodySection,
   readTask,
   transitionStatus,
-  writeTask,
 } from "../state/task-file.js";
 import { resolvePromptSource } from "./resolve-prompt.js";
 import { respawnDetached } from "../util/respawn.js";
@@ -83,13 +82,11 @@ export async function reviseCommand(
   const ts = new Date().toISOString();
   const block = formatRevisionEntry(ts, message);
   appendToBodySection(task, "## Revision notes", block);
-  // Persist the body change before the status transition so the entry is
-  // visible if the transition write fails partway. transitionStatus also
-  // calls writeTask, so this is one extra write for one-shot atomicity
-  // — acceptable cost for the durability guarantee.
-  await writeTask(task);
-
   const preview = message.split("\n", 1)[0]?.slice(0, NOTE_PREVIEW_MAX) ?? "";
+  // `transitionStatus` also calls `writeTask`, which persists both the
+  // revision-notes append above and the Phase-log line in a single atomic
+  // rename. No explicit pre-write is needed — `writeAtomicSync` is
+  // all-or-nothing.
   await transitionStatus(task, "worktree-ready", `revise: ${preview}`);
 
   stdout.write(

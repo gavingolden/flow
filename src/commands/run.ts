@@ -16,18 +16,11 @@ import {
   reapStatusSync,
 } from "../state/reaper.js";
 import { acquireClaim, type Claim } from "../state/claim.js";
-import { respawnDetached } from "../util/respawn.js";
+import { respawnDetached, FLOW_LOG_PATH_ENV } from "../util/respawn.js";
 
 export interface RunOptions {
   detach?: boolean;
 }
-
-// Env var the parent uses to hand a pre-opened plaintext-log path to a
-// detached child so the child's `createLogger` reuses the same file
-// (appending) rather than opening a second one. Kept in lockstep with the
-// constant inside src/util/respawn.ts; defining it here too avoids
-// adding a single-purpose import for the env name alone.
-const FLOW_LOG_PATH_ENV = "FLOW_LOG_PATH";
 
 export async function runCommand(
   taskId: string,
