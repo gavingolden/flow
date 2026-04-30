@@ -70,4 +70,26 @@ describe("retryN", () => {
       { attempt: 3, lastFailure: "attempt-2-failed" },
     ]);
   });
+
+  // Guard against the unsound-cast bug: with n <= 0 the loop body never runs,
+  // so the prior implementation returned `null as AttemptResult<T>` and broke
+  // any caller that branched on `.ok`. Throw eagerly instead so the misuse
+  // surfaces at the call site.
+  it("throws synchronously when n is 0", async () => {
+    const fn = vi.fn();
+    await expect(retryN(fn as never, 0)).rejects.toThrow(/positive integer/);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("throws synchronously when n is negative", async () => {
+    const fn = vi.fn();
+    await expect(retryN(fn as never, -1)).rejects.toThrow(/positive integer/);
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it("throws synchronously when n is non-integer", async () => {
+    const fn = vi.fn();
+    await expect(retryN(fn as never, 1.5)).rejects.toThrow(/positive integer/);
+    expect(fn).not.toHaveBeenCalled();
+  });
 });
