@@ -6,6 +6,23 @@ import {
   TaskStatus,
   renderProgressSection,
 } from "./phases.js";
+import { createNotifier, type Notifier } from "../util/notify.js";
+
+let __notifier: Notifier | null = null;
+function getNotifier(): Notifier {
+  if (__notifier) return __notifier;
+  __notifier = createNotifier();
+  return __notifier;
+}
+
+// Test seam: swap in a recording fake (or `null` to reset to a freshly
+// re-resolved default on the next call). Production code must not call
+// this — the underscore prefix flags it. Tests use this instead of
+// monkeypatching `process.env.FLOW_NOTIFY` mid-suite because the env-var
+// read is cached across `transitionStatus` calls within a process.
+export function __setNotifierForTests(n: Notifier | null): void {
+  __notifier = n;
+}
 
 export interface TaskFrontmatter {
   id: string;
@@ -105,6 +122,13 @@ export async function transitionStatus(
   appendToSectionInPlace(task, "## Phase log", `- ${ts} ${from} → ${next}${suffix}`);
   task.frontmatter.status = next;
   await writeTask(task);
+  try {
+    await getNotifier().notify({ task, status: next, reason: note });
+  } catch {
+    // Swallow: a failing notification (missing backend, sandbox, gh
+    // outage) must never poison a status transition. The disk write
+    // already succeeded; the user has the truth in the task file.
+  }
 }
 
 // Sync variant for the exit-handler reaper. Same Phase-log append as the
@@ -122,6 +146,21 @@ export function transitionStatusSync(
   appendToSectionInPlace(task, "## Phase log", `- ${ts} ${from} → ${next}${suffix}`);
   task.frontmatter.status = next;
   writeTaskSync(task);
+  try {
+    // Intentionally NOT awaited. This path runs from Node's `'exit'`
+    // event handler (the reaper) where there is no live event loop to
+    // resolve a Promise. The notifier already spawned the backend with
+    // `detached + unref` so the OS keeps the banner alive after we
+    // exit; the orphaned Promise is the price of fire-and-forget across
+    // teardown. A future maintainer who "fixes" this missing await will
+    // reintroduce a hang during `'exit'` — leave it alone.
+    void getNotifier().notify({ task, status: next, reason: note });
+  } catch {
+    // Swallow synchronous throws (rare — `spawn` argv validation only).
+    // Promise rejections from the un-awaited call go to
+    // unhandledRejection; we explicitly do not chain a `.catch` here
+    // because doing so would create another floating Promise.
+  }
 }
 
 export async function updateTaskFrontmatter(
