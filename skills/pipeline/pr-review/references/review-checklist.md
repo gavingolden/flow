@@ -993,6 +993,52 @@ the exit decision back up to the CLI entry point.
 
 ---
 
+## Branch Staleness vs Main-Integrated Behaviour
+
+A PR's branch can be cut from a stale `main` and still pass its own CI, because CI
+exercises the branch in isolation, not the post-squash-merge tree. If the PR touches
+or wires into modules that have changed on `main` since the cut, the merged tree may
+behave differently than either side did individually. The diff alone won't reveal this
+— the integration only manifests after squash. Even when the PR's own files don't
+overlap with `main`'s new commits, a runtime-integration concern (e.g. a runner that
+calls into both `runPlanPhase` and `runGatePhase`) can surface only post-merge.
+
+### What to look for
+
+- The PR's base SHA differs materially from current `origin/main` (multiple commits
+  behind, especially feat/fix commits that touch modules the PR integrates with)
+- The PR adds a new phase, hook, middleware, or pipeline step that *composes* with
+  existing modules — even if the PR's diff doesn't touch those modules' files
+- Mocks in tests stub out the very modules that have changed on `main` (so the test
+  cannot detect a contract drift)
+
+### How to check
+
+1. `git log --oneline <pr-base-sha>..origin/main` — list commits added to main since
+   the branch was cut. Skim subjects/bodies for changes to modules the PR integrates with.
+2. For each main-side commit that touches an integration partner, ask: would the PR's
+   tests catch a contract change? If the test mocks the partner, the answer is no.
+3. If the PR is squash-merge-bound, recommend a rebase (or merge-from-main) plus a fresh
+   `npm run test` / `npm run typecheck` run before merge — particularly when the PR's
+   pipeline-walk tests mock the changed-on-main module.
+
+### Example — pipeline-walk test mocks the changed-on-main module (PR #33)
+
+The PR adds gate + merge phases and wires them into `runPipeline` via `M2_PIPELINE`.
+Three commits landed on `main` after the branch was cut, including a change to
+`runPlanPhase`'s success semantics on subprocess failure. The PR's `runner.test.ts`
+mocks `runPlanPhase`, so a plan-vs-gate dispatch interaction would not surface in CI.
+The diff is non-overlapping (the PR doesn't touch `plan.ts`), so static analysis says
+"safe to merge"; only a rebase + re-run reveals whether `runPipeline`'s walk still
+holds end-to-end against the new plan-success branch.
+
+**General rule:** A non-overlapping diff doesn't imply a non-overlapping behaviour. When
+a PR composes with modules that have moved on `main` since the branch was cut, recommend
+rebase + re-run before merge — and explicitly check whether the PR's tests mock the
+changed-on-main partner (which would suppress the only signal that would catch drift).
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue
