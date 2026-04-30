@@ -4,6 +4,7 @@ import { TaskStatus } from "../state/phases.js";
 import { runPlanPhase } from "./phases/plan.js";
 import { runWorktreePhase } from "./phases/worktree.js";
 import { runImplementPhase } from "./phases/implement.js";
+import { runVerifyPhase } from "./phases/verify.js";
 import { runCiWaitPhase } from "./phases/ci-wait.js";
 import { runReviewPhase } from "./phases/review.js";
 import { PhaseResult } from "./types.js";
@@ -44,15 +45,20 @@ const M2_PIPELINE: readonly PhaseSpec[] = [
     name: "implement",
     unfinishedStatuses: ["planned", "implementing"],
     // The pipeline only ever creates fresh PRs — `mode: "fix"` is reserved
-    // for future callers (PR 5 verify retry, PR 7 review loop-back) that
-    // re-invoke the phase against an existing PR. Adapter scopes that
-    // awkwardness to one line so `PhaseFn` can stay generic.
+    // for the PR 7 review loop-back that re-invokes the phase against an
+    // existing PR. Adapter scopes that awkwardness to one line so
+    // `PhaseFn` can stay generic.
     phase: (task, logger, jsonl) =>
       runImplementPhase(task, { mode: "create" }, logger, jsonl),
   },
   {
+    name: "verify",
+    unfinishedStatuses: ["pr-open", "verifying"],
+    phase: runVerifyPhase,
+  },
+  {
     name: "ci-wait",
-    unfinishedStatuses: ["pr-open", "ci"],
+    unfinishedStatuses: ["ci"],
     phase: runCiWaitPhase,
   },
   {

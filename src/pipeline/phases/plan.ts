@@ -6,7 +6,7 @@ import {
   transitionStatus,
 } from "../../state/task-file.js";
 import { runHeadless } from "../headless.js";
-import { retryOnce } from "../retry.js";
+import { retryN } from "../retry.js";
 import { PhaseResult } from "../types.js";
 import { NoopLogger, type Logger } from "../../util/logger.js";
 import { NoopJsonlSink, type JsonlSink } from "../../util/jsonl-sink.js";
@@ -41,7 +41,7 @@ export async function runPlanPhase(
   await fs.mkdir(planDir, { recursive: true });
   logger.event("plan.dir", planDir);
 
-  const result = await retryOnce(async (attempt, lastFailure) => {
+  const result = await retryN(async (attempt, lastFailure) => {
     if (attempt > 1) {
       logger.warn(
         `plan attempt ${attempt} after failure: ${truncate(lastFailure ?? "", 200)}`,
@@ -69,7 +69,7 @@ export async function runPlanPhase(
     return r.ok
       ? { ok: true as const, value: r }
       : { ok: false as const, error: r.error ?? `exit ${r.exitCode}` };
-  });
+  }, 2);
 
   if (!result.ok) {
     logger.error(`plan: ${result.error}`);

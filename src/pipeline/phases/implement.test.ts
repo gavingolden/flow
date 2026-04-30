@@ -6,14 +6,9 @@ import { TaskStatus } from "../../state/phases.js";
 
 vi.mock("execa", () => ({ execa: vi.fn() }));
 vi.mock("../headless.js", () => ({ runHeadless: vi.fn() }));
-vi.mock("./verify-gate.js", () => ({
-  runVerifyGate: vi.fn(),
-  surfaceVerifyFailureOnPr: vi.fn(),
-}));
 
 import { execa } from "execa";
 import { runHeadless } from "../headless.js";
-import { runVerifyGate, surfaceVerifyFailureOnPr } from "./verify-gate.js";
 import { runImplementPhase } from "./implement.js";
 import { readTask, writeTask, type Task } from "../../state/task-file.js";
 
@@ -109,9 +104,6 @@ describe("runImplementPhase — modes and entry gate", () => {
       headlessPrompts.push(opts.prompt);
       return { ok: true, output: "", exitCode: 0 };
     });
-
-    vi.mocked(runVerifyGate).mockResolvedValue({ ok: true, output: "" });
-    vi.mocked(surfaceVerifyFailureOnPr).mockResolvedValue(undefined);
   });
 
   afterEach(async () => {
@@ -181,23 +173,17 @@ describe("runImplementPhase — modes and entry gate", () => {
     expect(reloaded.frontmatter.status).toBe("pr-open");
   });
 
-  it("create mode: first verify-gate failure triggers retryOnce with prior failure in the prompt", async () => {
-    // entry gate → []; failure-path detectOpenedPr → []; post-LLM gate → [];
-    // post-create probe → [{ 300 }].
-    prListQueue = [[], [], [], [{ number: 300 }]];
-    vi.mocked(runVerifyGate)
-      .mockResolvedValueOnce({ ok: false, output: "first gate failure" })
-      .mockResolvedValueOnce({ ok: true, output: "" });
+  it("create mode: LLM failure (non-zero exit) returns failed without retry", async () => {
+    vi.mocked(runHeadless).mockImplementationOnce(async (opts) => {
+      headlessPrompts.push(opts.prompt);
+      return { ok: false, output: "", error: "synthetic LLM failure", exitCode: 1 };
+    });
 
     const task = await makeTaskFile(tmp, { status: "planned", pr: null });
     const r = await runImplementPhase(task, { mode: "create" });
-    expect(r).toEqual({ status: "ok" });
-    expect(vi.mocked(runHeadless)).toHaveBeenCalledTimes(2);
-    expect(headlessPrompts[1]).toContain("first gate failure");
-    expect(ghPrCreateCount()).toBe(1);
-
-    const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.pr).toBe(300);
+    expect(r.status).toBe("failed");
+    expect(vi.mocked(runHeadless)).toHaveBeenCalledTimes(1);
+    expect(ghPrCreateCount()).toBe(0);
   });
 
   it("fix mode: LLM runs once with failureLog appended; no gh pr create; pr unchanged; returns ok", async () => {
@@ -237,33 +223,4 @@ describe("runImplementPhase — modes and entry gate", () => {
     expect(reloaded.frontmatter.status).toBe("reviewing");
   });
 
-  it("fix mode: verify-gate failure → returns failed, single attempt, surfaces failure on existing PR", async () => {
-    vi.mocked(runVerifyGate).mockResolvedValueOnce({
-      ok: false,
-      output: "synthetic gate failure",
-    });
-    // detectOpenedPr inside the failed-attempt surface step returns the
-    // existing PR so surfaceVerifyFailureOnPr can be called against it.
-    prListQueue = [[{ number: 42 }]];
-
-    const task = await makeTaskFile(tmp, { status: "pr-open", pr: 42 });
-    const r = await runImplementPhase(task, {
-      mode: "fix",
-      failureLog: "prior failure",
-    });
-    expect(r.status).toBe("failed");
-    // Single-shot in fix mode — no retry, even though create mode would have.
-    expect(vi.mocked(runHeadless)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(surfaceVerifyFailureOnPr)).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(surfaceVerifyFailureOnPr)).toHaveBeenCalledWith(
-      42,
-      tmp,
-      expect.stringContaining("synthetic gate failure"),
-      expect.anything(),
-    );
-    expect(ghPrCreateCount()).toBe(0);
-
-    const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.pr).toBe(42);
-  });
 });

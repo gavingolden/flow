@@ -9,9 +9,8 @@ import {
   updateTaskFrontmatter,
 } from "../../state/task-file.js";
 import { runHeadless } from "../headless.js";
-import { retryOnce, type AttemptResult } from "../retry.js";
+import { type AttemptResult } from "../retry.js";
 import { PhaseResult } from "../types.js";
-import { runVerifyGate, surfaceVerifyFailureOnPr } from "./verify-gate.js";
 import { NoopLogger, type Logger } from "../../util/logger.js";
 import { NoopJsonlSink, type JsonlSink } from "../../util/jsonl-sink.js";
 
@@ -127,17 +126,15 @@ async function runCreate(
   await transitionStatus(task, "implementing");
   logger.event("task.status", "implementing");
 
-  const result = await retryOnce((attemptNum, lastFailure) =>
-    runImplementAttempt(
-      task,
-      worktree,
-      branch,
-      bodyFilePath,
-      attemptNum,
-      lastFailure,
-      logger,
-      jsonl,
-    ),
+  const result = await runImplementAttempt(
+    task,
+    worktree,
+    branch,
+    bodyFilePath,
+    1,
+    undefined,
+    logger,
+    jsonl,
   );
 
   if (!result.ok) {
@@ -252,28 +249,7 @@ async function runImplementAttempt(
   if (!r.ok) {
     return { ok: false, error: r.error ?? `exit ${r.exitCode}` };
   }
-
-  const gate = await runVerifyGate(worktree, logger);
-  if (gate.ok) {
-    logger.info("verify-gate ok");
-    return { ok: true, value: undefined };
-  }
-
-  logger.warn("verify-gate failed — surfacing on PR if one exists");
-  const truncated = truncate(gate.output, 4000);
-  await appendPhaseOutput(
-    task,
-    "implement",
-    `### verify-gate failure\n\n\`\`\`text\n${truncated}\n\`\`\``,
-  );
-  const existingPr = await detectOpenedPr(worktree, branch);
-  if (existingPr != null) {
-    await surfaceVerifyFailureOnPr(existingPr, worktree, truncated, logger);
-  }
-  return {
-    ok: false,
-    error: `verify gate failed:\n${truncate(gate.output, 1500)}`,
-  };
+  return { ok: true, value: undefined };
 }
 
 async function resolveBodyPath(
@@ -337,8 +313,8 @@ Implement the feature, write tests, then commit and push the branch. Use
 final PR body (including the \`## Manual validation\` section populated per
 the rule below) to: ${bodyFilePath}
 
-Do NOT call \`gh pr create\`. The orchestrator will run an independent
-verify check and open the PR after the gate passes.
+Do NOT call \`gh pr create\`. The orchestrator opens the PR after your
+run completes; verification runs as a later phase.
 
 ${MANUAL_VALIDATION_RULE}
 
