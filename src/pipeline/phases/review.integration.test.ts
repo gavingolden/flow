@@ -245,6 +245,58 @@ describe("runReviewPhase — end-to-end loop scenarios", () => {
     expect(reloaded.body).toContain("decision: clean — advancing");
   });
 
+  it("rehydrate tolerates a missing prior result file (rendering history is incomplete but loop continues)", async () => {
+    // Defensive branch in rehydrateCycleRecords: a prior cycle's JSON file
+    // was deleted between the crash and the resume (e.g. the user wiped the
+    // task dir). Rehydration should warn-and-skip the missing record, not
+    // throw — the loop must still complete from the persisted counter so
+    // the user can reach a terminal state. Pin the contract: review_cycles
+    // round-trips and the resume returns ok even with no on-disk history
+    // to render for cycle 1.
+    mockReviewSequence([clean]);
+    const task = await makeTaskFile(tmp, { review_cycles: 1 });
+    // Deliberately do NOT seed result-0.json — rehydrate should warn-skip.
+    const r = await runReviewPhase(task);
+    expect(r).toEqual({ status: "ok" });
+    const reloaded = await readTask(task.path);
+    expect(reloaded.frontmatter.review_cycles).toBe(1);
+    // Cycle 2 (the new clean run) renders; cycle 1 is missing from history
+    // because rehydrate had nothing to read.
+    expect(reloaded.body).toContain("cycle 2");
+    expect(reloaded.body).toContain("decision: clean — advancing");
+  });
+
+  it("rehydrate tolerates a malformed prior result file (warn-and-skip, loop continues)", async () => {
+    // Defensive branch in rehydrateCycleRecords: a prior cycle's JSON file
+    // was truncated or corrupted (e.g. partial write before a kill -9).
+    // parseReviewResult returns ok=false; rehydrate should warn-and-skip
+    // the bad record rather than abort the entire phase. Pin the contract:
+    // the resume reaches a clean decision even with one cycle of unreadable
+    // history.
+    mockReviewSequence([clean]);
+    const task = await makeTaskFile(tmp, { review_cycles: 1 });
+    const reviewDir = path.join(
+      task.frontmatter.target_repo,
+      ".orchestrator",
+      "tasks",
+      task.frontmatter.id,
+      "review",
+    );
+    await fs.mkdir(reviewDir, { recursive: true });
+    // Write malformed JSON — parseReviewResult will reject this.
+    await fs.writeFile(
+      path.join(reviewDir, "result-0.json"),
+      "{ this is not valid json",
+      "utf8",
+    );
+    const r = await runReviewPhase(task);
+    expect(r).toEqual({ status: "ok" });
+    const reloaded = await readTask(task.path);
+    expect(reloaded.frontmatter.review_cycles).toBe(1);
+    expect(reloaded.body).toContain("cycle 2");
+    expect(reloaded.body).toContain("decision: clean — advancing");
+  });
+
   it("escalates to failed when frontmatter.worktree is null or missing on disk", async () => {
     // The defensive worktree check fires before the LLM is spawned. Pin
     // both modes (null and a non-existent path) so a future refactor that
