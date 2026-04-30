@@ -1,5 +1,3 @@
-import { spawn } from "node:child_process";
-import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { execa } from "execa";
@@ -18,6 +16,7 @@ import {
   reapStatusSync,
 } from "../state/reaper.js";
 import { acquireClaim, type Claim } from "../state/claim.js";
+import { respawnDetached } from "../util/respawn.js";
 
 export interface RunOptions {
   detach?: boolean;
@@ -25,8 +24,9 @@ export interface RunOptions {
 
 // Env var the parent uses to hand a pre-opened plaintext-log path to a
 // detached child so the child's `createLogger` reuses the same file
-// (appending) rather than opening a second one. Internal — not part of the
-// public CLI surface.
+// (appending) rather than opening a second one. Kept in lockstep with the
+// constant inside src/util/respawn.ts; defining it here too avoids
+// adding a single-purpose import for the env name alone.
 const FLOW_LOG_PATH_ENV = "FLOW_LOG_PATH";
 
 export async function runCommand(
@@ -70,6 +70,19 @@ export async function runCommand(
   // live there. mkdir-p is cheap and idempotent.
   const taskDir = taskDirFor(repoRoot, task.frontmatter.id);
   await fsp.mkdir(taskDir, { recursive: true });
+
+  // Friendly no-op for a checkpointed task. The runner's claim path
+  // already excludes `plan-pending-review` (it is not in any phase's
+  // unfinishedStatuses), so falling through would silently exit. Surface
+  // the affordance instead so the user doesn't think the pipeline
+  // crashed. We do this before the detach branch too — detaching a
+  // checkpointed task would be a no-op detached run, which is just noise.
+  if (task.frontmatter.status === "plan-pending-review") {
+    process.stderr.write(
+      `task ${task.frontmatter.id} is paused at plan-pending-review — run /flow-approve ${task.frontmatter.id} or /flow-revise ${task.frontmatter.id}\n`,
+    );
+    process.exit(0);
+  }
 
   if (opts.detach) {
     await detachAndExit(taskId, repoRoot);
@@ -223,48 +236,13 @@ async function detachAndExit(
   taskId: string,
   repoRoot: string,
 ): Promise<void> {
-  // Open the plaintext log file ourselves so the child writes to a
-  // pre-known path — that way we can print "log → <path>" to the user
-  // immediately (rather than only after the child opens its own file with
-  // a slightly different stamp). The child's `createLogger` honours the
-  // env var and appends to this same file.
-  //
   // Implementer's note re: PRD open-question: fd-inheritance is the path
-  // taken here. If a future port to Windows or an exotic shell makes fd
-  // inheritance fragile, fall back to "child opens its own log; parent
-  // prints a predicted path" — both modes use the same env-var contract.
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const safeTaskId = taskId.replace(/[^A-Za-z0-9._-]/g, "_");
-  const runsDir = path.join(repoRoot, ".orchestrator", "runs");
-  await fsp.mkdir(runsDir, { recursive: true });
-  const logPath = path.join(runsDir, `${safeTaskId}-${stamp}.log`);
-  const logFd = fs.openSync(logPath, "a");
-  // The child re-execs the same Node binary with the same loader-script
-  // argv (so the tsx loader propagates in dev) and the same `run <id>`
-  // sub-command, minus `--detach`. The argv0 fallback to argv[1] handles
-  // the rare case of being invoked without process.argv[1] (impossible
-  // for the CLI but cheap to guard).
-  const entry = process.argv[1];
-  if (!entry) {
-    throw new Error("flow run --detach: process.argv[1] missing — cannot re-exec");
-  }
-  const child = spawn(
-    process.execPath,
-    [...process.execArgv, entry, "run", taskId],
-    {
-      detached: true,
-      stdio: ["ignore", logFd, logFd],
-      cwd: repoRoot,
-      env: { ...process.env, [FLOW_LOG_PATH_ENV]: logPath },
-    },
-  );
-  child.unref();
-  // Close our copy of the fd so the parent's exit doesn't keep the file
-  // open beyond when the child wants to fsync/rotate. The child's own fd
-  // (inherited via stdio) keeps the file alive.
-  try { fs.closeSync(logFd); } catch {}
-
-  console.log(`flow run ${taskId} detached as pid ${child.pid}`);
+  // taken here (lifted into respawnDetached so approve/revise share it).
+  // If a future port to Windows or an exotic shell makes fd inheritance
+  // fragile, fall back to "child opens its own log; parent prints a
+  // predicted path" — both modes use the same env-var contract.
+  const { pid, logPath } = await respawnDetached(taskId, repoRoot);
+  console.log(`flow run ${taskId} detached as pid ${pid}`);
   console.log(`log → ${logPath}`);
   process.exit(0);
 }

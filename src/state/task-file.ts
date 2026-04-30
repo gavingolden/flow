@@ -220,6 +220,13 @@ function replaceSection(body: string, heading: string, replacement: string): str
   return body.replace(re, () => replacement);
 }
 
+// Promoted from file-private so `flow revise` can append to a brand-new
+// `## Revision notes` section without re-implementing section parsing.
+// Callers outside this module use the named export `appendToBodySection`.
+export function appendToBodySection(task: Task, heading: string, line: string): void {
+  appendToSectionInPlace(task, heading, line);
+}
+
 function appendToSectionInPlace(task: Task, heading: string, line: string): void {
   const re = sectionRegex(heading);
   const match = task.body.match(re);

@@ -5,6 +5,8 @@ import { runCommand } from "./commands/run.js";
 import { installCommand } from "./commands/install.js";
 import { logCommand } from "./commands/log.js";
 import { statusCommand } from "./commands/status.js";
+import { approveCommand } from "./commands/approve.js";
+import { reviseCommand } from "./commands/revise.js";
 
 const program = new Command();
 
@@ -68,6 +70,43 @@ program
   .action(
     async (id: string | undefined, opts: { all?: boolean; json?: boolean }) => {
       const code = await statusCommand(id, opts);
+      if (code !== 0) process.exit(code);
+    },
+  );
+
+program
+  .command("approve")
+  .description(
+    "Clear a plan-pending-review checkpoint: transition the task to `planned` " +
+      "and re-spawn `flow run --detach` so the pipeline picks up at implement.",
+  )
+  .argument("<task>", "task id or path to the task .md file")
+  .option("--no-resume", "skip the detached re-spawn (status transitions only)")
+  .action(async (taskId: string, opts: { resume?: boolean }) => {
+    const code = await approveCommand(taskId, { resume: opts.resume });
+    if (code !== 0) process.exit(code);
+  });
+
+program
+  .command("revise")
+  .description(
+    "Record a redirection for a paused plan: append the message to the task's " +
+      "`## Revision notes`, revert to `worktree-ready`, and re-spawn the " +
+      "pipeline so the plan phase re-runs with the new notes threaded in. " +
+      "Message comes from `--message <text>` or piped stdin.",
+  )
+  .argument("<task>", "task id or path to the task .md file")
+  .option("-m, --message <text>", "revision message (otherwise read from stdin)")
+  .option("--no-resume", "skip the detached re-spawn (status transitions only)")
+  .action(
+    async (
+      taskId: string,
+      opts: { message?: string; resume?: boolean },
+    ) => {
+      const code = await reviseCommand(taskId, {
+        message: opts.message,
+        resume: opts.resume,
+      });
       if (code !== 0) process.exit(code);
     },
   );

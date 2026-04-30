@@ -1,6 +1,7 @@
 import path from "node:path";
-import { Task, readTask } from "../state/task-file.js";
+import { Task, readTask, transitionStatus } from "../state/task-file.js";
 import { TaskStatus } from "../state/phases.js";
+import { parseIntent } from "../state/triage.js";
 import { runPlanPhase } from "./phases/plan.js";
 import { runWorktreePhase } from "./phases/worktree.js";
 import { runImplementPhase } from "./phases/implement.js";
@@ -137,6 +138,17 @@ export async function runPipeline(
     if (result.status !== "ok") return result;
     // Reload — the phase mutated the task on disk.
     Object.assign(task, await readTask(task.path));
+    // Post-plan checkpoint fork. Feature-intent tasks pause for review
+    // here so the user can read the PRD before paying implement-phase
+    // tokens. Other intents (bug, refactor, docs, infra, chore) flow
+    // straight into implement, matching the pre-PR-12 behaviour. A
+    // missing or malformed `intent` line is treated as non-feature so a
+    // hand-edited task body never wedges the pipeline.
+    if (spec.name === "plan" && parseIntent(task.body) === "feature") {
+      await transitionStatus(task, "plan-pending-review", "intent: feature");
+      logger.event("task.status", "plan-pending-review");
+      return { status: "ok" };
+    }
   }
   return { status: "ok" };
 }

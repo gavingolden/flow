@@ -141,7 +141,13 @@ describe("ActiveNotifier — status filtering", () => {
     expect(spawnCalls).toHaveLength(0);
   });
 
-  it.each<TaskStatus>(["needs-human", "gated", "merged", "aborted"])(
+  it.each<TaskStatus>([
+    "needs-human",
+    "gated",
+    "merged",
+    "aborted",
+    "plan-pending-review",
+  ])(
     "fires for attention status %s",
     async (status) => {
       const { notifier, spawnCalls } = makeHarness();
@@ -154,10 +160,32 @@ describe("ActiveNotifier — status filtering", () => {
     },
   );
 
-  it("NOTIFY_STATUSES contains exactly the four attention literals", () => {
-    const expected: TaskStatus[] = ["needs-human", "gated", "merged", "aborted"];
+  it("NOTIFY_STATUSES contains exactly the attention literals", () => {
+    const expected: TaskStatus[] = [
+      "needs-human",
+      "gated",
+      "merged",
+      "aborted",
+      "plan-pending-review",
+    ];
     for (const s of expected) expect(NOTIFY_STATUSES.has(s)).toBe(true);
     expect(NOTIFY_STATUSES.size).toBe(expected.length);
+  });
+
+  it("plan-pending-review payload renders the resume affordance", () => {
+    const payload = buildPayload(
+      {
+        task: makeTask({ id: "task-y", status: "plan-pending-review" }),
+        status: "plan-pending-review",
+        reason: "intent: feature",
+      },
+      "",
+    );
+    expect(payload.title).toBe("flow: plan-pending-review");
+    expect(payload.subtitle).toBe("task-y");
+    expect(payload.message).toBe(
+      "plan ready — /flow-approve task-y or /flow-revise task-y",
+    );
   });
 });
 

@@ -77,14 +77,21 @@ export async function runPlanPhase(
   }
 
   const summary = await summarizePlanOutputs(planDir, logger);
-  await appendPhaseOutput(task, "plan", summary);
+  await appendPhaseOutput(task, "plan", summary.text);
   logger.event("task.appendPhaseOutput", "plan");
+  if (summary.blocked) {
+    // Don't transition to `planned` — the runner records the
+    // `needs-human` transition via the existing path so the Phase log
+    // line carries the `plan-blocked` reason.
+    logger.warn("plan: BLOCKED.md present — escalating to needs-human");
+    return { status: "needs-human", reason: "plan-blocked" };
+  }
   await transitionStatus(task, "planned");
   logger.event("task.status", "planned");
   return { status: "ok" };
 }
 
-function buildPlanPrompt(
+export function buildPlanPrompt(
   task: Task,
   planDir: string,
   lastFailure?: string,
@@ -94,6 +101,7 @@ function buildPlanPrompt(
   const failureNote = lastFailure
     ? `\n\nPRIOR ATTEMPT FAILED — failure log:\n${truncate(lastFailure, 4000)}\n\nReview the failure, adjust your approach, and try again.`
     : "";
+  const revisionNote = buildRevisionNoteSection(task.body);
 
   return `${NON_INTERACTIVE_PREAMBLE}
 
@@ -119,8 +127,51 @@ Specifically, ensure the following files exist there when you finish:
 - task-breakdown.md — ordered task list with skill assignments
 - pr-description-draft.md — the PR description draft
 
+Escape hatch — if you encounter a load-bearing question you cannot resolve
+from ${taskFile} alone (e.g. an ambiguity that would force you to guess at
+which way the user wants the feature to behave), DO NOT guess and DO NOT
+produce the normal artefacts. Instead, write a single file
+${planDir}/BLOCKED.md containing the question(s) the user must answer,
+phrased so the user can resolve them by editing the task body or running
+/flow-revise. The orchestrator will surface BLOCKED.md to the user and
+pause the pipeline.
+
 Do not present the plan to the user for review or wait for approval — the
-orchestrator will read the files directly. Generate the artefacts and exit.${failureNote}`;
+orchestrator will read the files directly. Generate the artefacts and exit.${failureNote}${revisionNote}`;
+}
+
+// Reads the latest entry from the body's `## Revision notes` section (if
+// present) and emits a dedicated `REVISION NOTES:` block. Distinct from
+// the failure-note slot above — failure means "you broke, retry"; revision
+// means "user redirected, re-plan." Conflating the two would muddle the
+// prompt. Only the latest entry is threaded; older entries stay in the
+// body for audit but aren't re-injected (avoids prompt growth and matches
+// "the user redirected most recently with this").
+function buildRevisionNoteSection(body: string): string {
+  const latest = extractLatestRevisionNote(body);
+  if (!latest) return "";
+  return `\n\nREVISION NOTES — the user paused the previous plan and asked you to re-plan with this redirection:\n${truncate(latest, 4000)}\n\nIncorporate the redirection into the new plan; the old artefacts in the plan directory may be overwritten.`;
+}
+
+function extractLatestRevisionNote(body: string): string | null {
+  const sectionMatch = body.match(
+    /^## Revision notes\b[^\n]*\n([\s\S]*?)(?=\n## |(?![\s\S]))/m,
+  );
+  const section = sectionMatch?.[1]?.trim();
+  if (!section) return null;
+  // Each entry begins with `- <ISO ts>:` at column 0; continuation lines
+  // are indented. Walk backwards through the section to find the start of
+  // the last entry.
+  const lines = section.split("\n");
+  let lastEntryStart = -1;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^- /.test(lines[i] ?? "")) {
+      lastEntryStart = i;
+      break;
+    }
+  }
+  if (lastEntryStart === -1) return section;
+  return lines.slice(lastEntryStart).join("\n").trim();
 }
 
 function extractUserPrompt(body: string): string {
@@ -134,10 +185,24 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[truncated]`;
 }
 
-async function summarizePlanOutputs(
+export interface PlanOutputSummary {
+  text: string;
+  blocked: boolean;
+}
+
+const BLOCKED_CONTENT_MAX = 4000;
+
+export async function summarizePlanOutputs(
   planDir: string,
   logger: Logger,
-): Promise<string> {
+): Promise<PlanOutputSummary> {
+  const blockedPath = path.join(planDir, "BLOCKED.md");
+  let blockedContent: string | null = null;
+  try {
+    blockedContent = await fs.readFile(blockedPath, "utf8");
+  } catch {
+    blockedContent = null;
+  }
   const expected = ["prd.md", "task-breakdown.md", "pr-description-draft.md"];
   const lines: string[] = [`- Plan directory: ${planDir}`];
   for (const name of expected) {
@@ -151,5 +216,13 @@ async function summarizePlanOutputs(
       logger.warn(`plan deliverable missing: ${name}`);
     }
   }
-  return lines.join("\n");
+  if (blockedContent != null) {
+    lines.push("- BLOCKED.md: present");
+    lines.push("");
+    lines.push("BLOCKED:");
+    lines.push("");
+    lines.push(truncate(blockedContent.trim(), BLOCKED_CONTENT_MAX));
+    logger.warn("plan: BLOCKED.md present");
+  }
+  return { text: lines.join("\n"), blocked: blockedContent != null };
 }
