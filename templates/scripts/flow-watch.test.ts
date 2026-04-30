@@ -57,50 +57,77 @@ class StringSink {
 }
 
 /**
- * Builds a fake SpawnedProc that emits the given lines on its stdout, with an
- * optional gap between each line. Honors `kill()` by closing the stream early.
+ * Builds a fake SpawnedProc that emits the given lines on its stdout (and
+ * optionally on stderr), with an optional gap between each line. Honors
+ * `kill()` by closing the streams early.
  */
 function makeFakeProc(opts: {
   lines: string[];
+  stderrLines?: string[];
   delayMs?: number;
+  exitCode?: number;
 }): SpawnedProc & { wasKilled: () => boolean } {
   let killed = false;
   let resolveExited: (n: number) => void = () => {};
   const exited = new Promise<number>((r) => {
     resolveExited = r;
   });
-  let cancelEnqueue = () => {};
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const enc = new TextEncoder();
-      let cancelled = false;
-      cancelEnqueue = () => {
-        cancelled = true;
-      };
-      try {
-        for (const line of opts.lines) {
-          if (killed || cancelled) break;
-          controller.enqueue(enc.encode(line));
-          if (opts.delayMs && opts.delayMs > 0) {
-            await new Promise((r) => setTimeout(r, opts.delayMs));
+  let stdoutDone = false;
+  let stderrDone = !opts.stderrLines || opts.stderrLines.length === 0;
+  const maybeResolve = (): void => {
+    if (stdoutDone && stderrDone) {
+      resolveExited(killed ? 143 : opts.exitCode ?? 0);
+    }
+  };
+  const buildStream = (
+    lines: string[],
+    onDone: () => void,
+  ): ReadableStream<Uint8Array> => {
+    let cancelEnqueue = () => {};
+    return new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const enc = new TextEncoder();
+        let cancelled = false;
+        cancelEnqueue = () => {
+          cancelled = true;
+        };
+        try {
+          for (const line of lines) {
+            if (killed || cancelled) break;
+            controller.enqueue(enc.encode(line));
+            if (opts.delayMs && opts.delayMs > 0) {
+              await new Promise((r) => setTimeout(r, opts.delayMs));
+            }
           }
+        } catch {
+          // Stream cancelled mid-enqueue — fine, exit cleanly.
         }
-      } catch {
-        // Stream cancelled mid-enqueue — fine, exit cleanly.
-      }
-      try {
-        controller.close();
-      } catch {
-        // Already closed by cancel().
-      }
-      resolveExited(killed ? 143 : 0);
-    },
-    cancel() {
-      cancelEnqueue();
-    },
+        try {
+          controller.close();
+        } catch {
+          // Already closed by cancel().
+        }
+        onDone();
+      },
+      cancel() {
+        cancelEnqueue();
+      },
+    });
+  };
+  const stdout = buildStream(opts.lines, () => {
+    stdoutDone = true;
+    maybeResolve();
   });
+  const stderr =
+    opts.stderrLines && opts.stderrLines.length > 0
+      ? buildStream(opts.stderrLines, () => {
+          stderrDone = true;
+          maybeResolve();
+        })
+      : undefined;
   return {
-    stdout: stream,
+    stdout,
+    stderr,
     kill() {
       killed = true;
     },
@@ -232,6 +259,43 @@ describe(loadTasks, () => {
     const result = await loadTasks(dir);
     expect(result.map((t) => t.id)).toEqual(["ok"]);
   });
+
+  it("scans both tasks/ and tasks/archive/ and returns a merged sorted list", async () => {
+    require("node:fs").mkdirSync(join(dir, "archive"), { recursive: true });
+    writeFileSync(
+      join(dir, "active.md"),
+      buildTaskMd({ id: "active", status: "implementing" }),
+    );
+    writeFileSync(
+      join(dir, "archive", "old.md"),
+      buildTaskMd({ id: "old", status: "merged" }),
+    );
+    writeFileSync(
+      join(dir, "archive", "older.md"),
+      buildTaskMd({ id: "older", status: "aborted" }),
+    );
+    const result = await loadTasks(dir);
+    expect(result.map((t) => t.id)).toEqual(["active", "old", "older"]);
+    expect(result.find((t) => t.id === "old")?.status).toBe("merged");
+    expect(result.find((t) => t.id === "older")?.status).toBe("aborted");
+  });
+
+  it("does not double-count an id present in both tasks/ and archive/ (active wins by sort, both surface)", async () => {
+    // No de-dup is performed — if a task somehow lives in both directories
+    // the wrapper surfaces both so the inconsistency is visible in any
+    // "available ids" listing rather than silently swallowed.
+    require("node:fs").mkdirSync(join(dir, "archive"), { recursive: true });
+    writeFileSync(
+      join(dir, "dup.md"),
+      buildTaskMd({ id: "dup", status: "implementing" }),
+    );
+    writeFileSync(
+      join(dir, "archive", "dup.md"),
+      buildTaskMd({ id: "dup", status: "merged" }),
+    );
+    const result = await loadTasks(dir);
+    expect(result.length).toBe(2);
+  });
 });
 
 // --- resolveTaskId ---
@@ -254,7 +318,10 @@ describe(resolveTaskId, () => {
     });
   });
 
-  it("returns unknown with sorted available ids when explicit id is absent", () => {
+  it("returns unknown preserving the input task order in `available` when the explicit id is missing", () => {
+    // `loadTasks` already sorts ids ascending; `resolveTaskId` is a pure
+    // transformation that preserves whatever order it was handed. This test
+    // documents that contract — the sort lives in `loadTasks`, not here.
     const tasks = [
       task({ id: "z", status: "implementing" }),
       task({ id: "a", status: "merged" }),
@@ -262,7 +329,6 @@ describe(resolveTaskId, () => {
     const r = resolveTaskId({ explicitId: "missing", tasks });
     expect(r.kind).toBe("unknown");
     if (r.kind === "unknown") {
-      // loadTasks already sorts; resolveTaskId preserves that order.
       expect(r.available).toEqual(["z", "a"]);
       expect(r.id).toBe("missing");
     }
@@ -471,6 +537,70 @@ describe(runWithBound, () => {
     expect(proc.wasKilled()).toBe(false);
   });
 
+  it("propagates the child's non-zero exit code on natural EOF (so wrapper failures are visible)", async () => {
+    const proc = makeFakeProc({ lines: ["partial\n"], exitCode: 2 });
+    const out = new StringSink();
+    const code = await runWithBound({
+      flowLogArgs: ["log", "id"],
+      secondsCap: 30,
+      eventsCap: 50,
+      mode: "tail",
+      idForFooter: "id",
+      spawn: () => proc,
+      stdout: out,
+    });
+    expect(code).toBe(2);
+    expect(out.text).toContain("partial");
+  });
+
+  it("returns 0 when the wrapper itself stopped the child (kill is not a child failure)", async () => {
+    // Child would exit 143 (SIGTERM) but stoppedReason is `events`, so the
+    // wrapper should not surface that as a failure to the user.
+    const proc = makeFakeProc({
+      lines: ["a\n", "b\n", "c\n", "d\n"],
+    });
+    const out = new StringSink();
+    const code = await runWithBound({
+      flowLogArgs: ["log", "id", "--follow"],
+      secondsCap: 60,
+      eventsCap: 2,
+      mode: "follow",
+      idForFooter: "id",
+      spawn: () => proc,
+      stdout: out,
+    });
+    expect(code).toBe(0);
+    expect(proc.wasKilled()).toBe(true);
+  });
+
+  it("folds stderr lines into the same event budget so they cannot bypass the bound", async () => {
+    const proc = makeFakeProc({
+      lines: ["out1\n", "out2\n"],
+      stderrLines: ["err1\n", "err2\n", "err3\n"],
+    });
+    const out = new StringSink();
+    const errSink = new StringSink();
+    const code = await runWithBound({
+      flowLogArgs: ["log", "id", "--follow"],
+      secondsCap: 60,
+      eventsCap: 3,
+      mode: "follow",
+      idForFooter: "id",
+      spawn: () => proc,
+      stdout: out,
+      stderr: errSink,
+    });
+    expect(code).toBe(0);
+    // Combined stdout-line count + stderr-line count is bounded at 3.
+    const outLines = out.text
+      .split("\n")
+      .filter((l) => /^out\d$/.test(l)).length;
+    const errLines = errSink.text
+      .split("\n")
+      .filter((l) => /^err\d$/.test(l)).length;
+    expect(outLines + errLines).toBeLessThanOrEqual(3);
+  });
+
   it("emits the ENOENT error and exits non-zero when flow is not on PATH", async () => {
     const err = new Error("spawn flow ENOENT") as Error & { code: string };
     err.code = "ENOENT";
@@ -598,6 +728,30 @@ describe(main, () => {
       "(task done-task is merged — showing last events)",
     );
     expect(stdout.text).toContain("(end of log)");
+  });
+
+  it("resolves an explicit id that lives only in tasks/archive/", async () => {
+    // Terminal tasks are moved to archive/ per docs/task-schema.md, but
+    // `flow log` still finds them via findTaskFile. The wrapper has to mirror
+    // that or the SKILL.md guarantee for `/flow watch <merged-id>` breaks.
+    const tasksDir = join(dir, ".orchestrator", "tasks", "archive");
+    require("node:fs").mkdirSync(tasksDir, { recursive: true });
+    require("node:fs").writeFileSync(
+      join(tasksDir, "archived-task.md"),
+      buildTaskMd({ id: "archived-task", status: "merged" }),
+    );
+    const stdout = new StringSink();
+    const stderr = new StringSink();
+    const code = await main(["archived-task"], {
+      cwd: dir,
+      stdout,
+      stderr,
+      spawn: () => makeFakeProc({ lines: ["evt\n"] }),
+    });
+    expect(code).toBe(0);
+    expect(stdout.text).toContain(
+      "(task archived-task is merged — showing last events)",
+    );
   });
 
   it("forwards --phase to flow log without stripping it", async () => {

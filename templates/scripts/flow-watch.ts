@@ -19,6 +19,7 @@
 
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 // --- Types ---
 
@@ -47,6 +48,11 @@ export type ParsedArgs = {
 
 export type SpawnedProc = {
   stdout: ReadableStream<Uint8Array>;
+  // Optional: when present, the wrapper folds stderr lines into the same
+  // event budget as stdout, so warnings/errors from `flow log` can't bypass
+  // the chat-token bound. Implementations that inherit stderr (legacy) can
+  // omit this — the wrapper handles `undefined` gracefully.
+  stderr?: ReadableStream<Uint8Array>;
   kill: (signal?: number | string) => void;
   exited: Promise<number>;
 };
@@ -118,20 +124,32 @@ function stripQuotes(v: string): string {
   return v;
 }
 
-export async function loadTasks(tasksDir: string): Promise<TaskInfo[]> {
+/**
+ * Scans both `<tasksRoot>/*.md` and `<tasksRoot>/archive/*.md` for task files.
+ * Terminal tasks are moved under `archive/` per `docs/task-schema.md`, and
+ * `flow log` itself resolves them via `findTaskFile` (`src/util/git.ts`); the
+ * wrapper has to mirror that or `/flow watch <merged-id>` rejects ids that
+ * `flow log <id>` would happily tail.
+ */
+export async function loadTasks(tasksRoot: string): Promise<TaskInfo[]> {
+  const out: TaskInfo[] = [];
+  await collectFrom(tasksRoot, out);
+  await collectFrom(join(tasksRoot, "archive"), out);
+  out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return out;
+}
+
+async function collectFrom(dir: string, out: TaskInfo[]): Promise<void> {
   let entries: string[];
   try {
-    entries = await readdir(tasksDir);
+    entries = await readdir(dir);
   } catch {
-    return [];
+    return;
   }
-  const out: TaskInfo[] = [];
   for (const name of entries) {
     if (!name.endsWith(".md")) continue;
     const id = name.slice(0, -3);
-    const text = await readFile(join(tasksDir, name), "utf8").catch(
-      () => null,
-    );
+    const text = await readFile(join(dir, name), "utf8").catch(() => null);
     if (text === null) continue;
     const { status, updated } = parseFrontmatterStatus(text);
     if (!status) continue;
@@ -142,8 +160,25 @@ export async function loadTasks(tasksDir: string): Promise<TaskInfo[]> {
       updatedMs: Number.isNaN(parsed) ? 0 : parsed,
     });
   }
-  out.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return out;
+}
+
+/**
+ * Resolves the git toplevel for `cwd`, mirroring `flow log`'s behavior so
+ * subdirectory invocations still find `.orchestrator/`. Falls back to `cwd`
+ * unchanged when `git rev-parse` fails — `loadTasks` then surfaces the
+ * "no tasks found" path naturally.
+ */
+export function findRepoRoot(cwd: string): string {
+  try {
+    const r = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd,
+      encoding: "utf8",
+    });
+    if (r.status === 0 && r.stdout) return r.stdout.trim();
+  } catch {
+    // git not on PATH — fall through.
+  }
+  return cwd;
 }
 
 export function resolveTaskId(args: {
@@ -223,9 +258,14 @@ function parsePositiveInt(v: string | undefined, flag: string): number {
 // --- Bound enforcement ---
 
 function defaultSpawn(argv: string[]): SpawnedProc {
-  const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "inherit" });
+  // Pipe stderr (not inherit) so the wrapper can fold its lines into the
+  // same event budget as stdout. Inheriting would let `flow log` warnings
+  // bypass the chat-token bound — the exact failure mode the wrapper exists
+  // to prevent.
+  const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" });
   return {
     stdout: proc.stdout as ReadableStream<Uint8Array>,
+    stderr: proc.stderr as ReadableStream<Uint8Array>,
     kill: (sig) => proc.kill(sig as never),
     exited: proc.exited,
   };
@@ -258,6 +298,8 @@ export async function runWithBound(args: RunBoundArgs): Promise<number> {
     throw err;
   }
 
+  // Shared budget across stdout and stderr — both contribute lines to the
+  // chat window, so both must count against the same cap.
   let eventCount = 0;
   let stoppedReason: "events" | "time" | "eof" = "eof";
 
@@ -281,41 +323,63 @@ export async function runWithBound(args: RunBoundArgs): Promise<number> {
       ? setTimeout(() => stop("time"), args.secondsCap * 1000)
       : null;
 
-  const reader = proc.stdout.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-
-  outer: while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, nl + 1);
-      buf = buf.slice(nl + 1);
-      if (eventCount >= args.eventsCap) break outer;
-      stdout.write(line);
-      eventCount++;
-      if (eventCount >= args.eventsCap) {
-        stop("events");
-        break outer;
+  // Track the largest event count observed when we triggered the events cap,
+  // so we don't overshoot if stdout and stderr both push at once.
+  const drainStream = async (
+    stream: ReadableStream<Uint8Array>,
+    sink: WriteSink,
+  ): Promise<void> => {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    try {
+      outer: while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buf.indexOf("\n")) !== -1) {
+          const line = buf.slice(0, nl + 1);
+          buf = buf.slice(nl + 1);
+          if (eventCount >= args.eventsCap) break outer;
+          sink.write(line);
+          eventCount++;
+          if (eventCount >= args.eventsCap) {
+            stop("events");
+            break outer;
+          }
+        }
+      }
+      if (buf.length > 0 && eventCount < args.eventsCap) {
+        sink.write(buf);
+      }
+    } finally {
+      try {
+        await reader.cancel();
+      } catch {
+        // Already closed.
       }
     }
+  };
+
+  const drains: Promise<void>[] = [drainStream(proc.stdout, stdout)];
+  if (proc.stderr) {
+    drains.push(drainStream(proc.stderr, stderr));
   }
-  if (buf.length > 0 && eventCount < args.eventsCap) {
-    stdout.write(buf);
-  }
+  await Promise.all(drains);
 
   if (timer) clearTimeout(timer);
-  // Cancel the reader so kill() actually unblocks any pending read.
-  try {
-    await reader.cancel();
-  } catch {
-    // Ignore — already closed.
-  }
-  await proc.exited;
+  const childExit = await proc.exited;
 
   stdout.write(footerFor(args, stoppedReason));
+  // When the wrapper itself stopped the child (events/time cap), `proc.exited`
+  // is whatever signal-induced code the runtime chose — typically 143 for
+  // SIGTERM. That's not a child-side failure, so we always return 0 in that
+  // case. Only when the child finished on its own (`eof`) does its exit code
+  // reflect a real success/failure of `flow log`, and we forward it.
+  if (stoppedReason === "eof") {
+    return childExit;
+  }
   return 0;
 }
 
@@ -377,7 +441,10 @@ export async function main(
     return 1;
   }
 
-  const tasksDir = join(cwd, ".orchestrator", "tasks");
+  // Resolve the repo root the same way `flow log` does, so subdirectory
+  // invocations still discover `.orchestrator/`.
+  const repoRoot = findRepoRoot(cwd);
+  const tasksDir = join(repoRoot, ".orchestrator", "tasks");
   const tasks = await loadTasks(tasksDir);
   const resolution = resolveTaskId({ explicitId: parsed.id, tasks });
 
