@@ -220,4 +220,31 @@ describeMaybe("flow run --all worker-pool race (integration smoke)", () => {
     },
     60_000,
   );
+
+  it("empty queue: prints 'queue empty' on stderr, exits 0, no children spawned", async () => {
+    const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flow-run-all-empty-"));
+    try {
+      await execa("git", ["init", "-q"], { cwd: tmp });
+      await execa("git", ["config", "user.email", "test@test"], { cwd: tmp });
+      await execa("git", ["config", "user.name", "test"], { cwd: tmp });
+      await fs.mkdir(path.join(tmp, ".orchestrator", "tasks"), { recursive: true });
+
+      const result = await execa(TSX, [CLI, "run", "--all"], {
+        cwd: tmp,
+        reject: false,
+      });
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toContain("flow: queue empty — nothing to do");
+      // No worker.spawn events emitted — the scheduler short-circuited
+      // before reaching the drain loop.
+      const runsDir = path.join(tmp, ".orchestrator", "runs");
+      const entries = await fs.readdir(runsDir);
+      const jsonl = entries.find((n) => n.startsWith("all-") && n.endsWith(".jsonl"));
+      expect(jsonl, "expected a scheduler jsonl log").toBeTruthy();
+      const txt = await fs.readFile(path.join(runsDir, jsonl!), "utf8");
+      expect(txt).not.toContain('"name":"worker.spawn"');
+    } finally {
+      await fs.rm(tmp, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
