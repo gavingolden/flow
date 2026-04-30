@@ -26,6 +26,21 @@ describe("TASK_STATUSES order", () => {
       TASK_STATUSES.indexOf("implementing"),
     );
   });
+
+  it("places gating between reviewing and gated, and merging between gated and merged", () => {
+    // The runner walks the gate→merge sequence in this order. Asserting the
+    // positional invariant guards against accidental enum reordering that
+    // would silently change `flow status` roster sort order.
+    const reviewing = TASK_STATUSES.indexOf("reviewing");
+    const gating = TASK_STATUSES.indexOf("gating");
+    const gated = TASK_STATUSES.indexOf("gated");
+    const merging = TASK_STATUSES.indexOf("merging");
+    const merged = TASK_STATUSES.indexOf("merged");
+    expect(reviewing).toBeLessThan(gating);
+    expect(gating).toBeLessThan(gated);
+    expect(gated).toBeLessThan(merging);
+    expect(merging).toBeLessThan(merged);
+  });
 });
 
 describe("checkedThrough", () => {
@@ -51,6 +66,18 @@ describe("checkedThrough", () => {
   it("maps implementing to worktree (all three pre-implement phases done)", () => {
     expect(checkedThrough("implementing")).toBe("worktree");
   });
+
+  it("maps gating to review (review just completed; gate is mid-flight)", () => {
+    expect(checkedThrough("gating")).toBe("review");
+  });
+
+  it("maps gated to gate (gate ran, decided manual-validation-required)", () => {
+    expect(checkedThrough("gated")).toBe("gate");
+  });
+
+  it("maps merging to gate (gate completed; merge is mid-flight)", () => {
+    expect(checkedThrough("merging")).toBe("gate");
+  });
 });
 
 describe("renderProgressSection", () => {
@@ -71,6 +98,20 @@ describe("renderProgressSection", () => {
     expect(out).toContain("- [x] plan");
     expect(out).toContain("- [x] worktree");
     expect(out).toContain("- [ ] implement");
+  });
+
+  it("ticks through review at status gating (gate not yet checked)", () => {
+    const out = renderProgressSection("gating");
+    expect(out).toContain("- [x] review");
+    expect(out).toContain("- [ ] gate");
+    expect(out).toContain("- [ ] merge");
+  });
+
+  it("ticks through gate at status merging (merge not yet checked)", () => {
+    const out = renderProgressSection("merging");
+    expect(out).toContain("- [x] review");
+    expect(out).toContain("- [x] gate");
+    expect(out).toContain("- [ ] merge");
   });
 
   it("renders all phases in PHASE_ORDER sequence", () => {
@@ -95,6 +136,11 @@ describe("STATUS_TO_PHASE_LABEL", () => {
     expect(STATUS_TO_PHASE_LABEL["pr-open"]).toBe("implement");
     expect(STATUS_TO_PHASE_LABEL["verifying"]).toBe("verify");
     expect(STATUS_TO_PHASE_LABEL["ci"]).toBe("ci-wait");
+  });
+
+  it("maps gating and merging to their phase labels (PR 8)", () => {
+    expect(STATUS_TO_PHASE_LABEL["gating"]).toBe("gate");
+    expect(STATUS_TO_PHASE_LABEL["merging"]).toBe("merge");
   });
 
   it("maps creating-worktree to worktree (regression: PR #23)", () => {

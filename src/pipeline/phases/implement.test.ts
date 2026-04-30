@@ -206,6 +206,23 @@ describe("runImplementPhase — modes and entry gate", () => {
     expect(reloaded.frontmatter.status).toBe("pr-open");
   });
 
+  it("create-mode prompt includes the Manual validation rule with the strip-and-trim contract (gate input invariant)", async () => {
+    // The gate phase (PR 8) decides auto-merge vs needs-human by stripping
+    // HTML comments and trimming the section. The implement prompt must
+    // describe that contract explicitly, otherwise the LLM might emit prose
+    // placeholders ("TBD") that look non-empty to the gate and silently
+    // route auto-mergeable PRs to gated.
+    prListQueue = [[], [], [{ number: 100 }]];
+    const task = await makeTaskFile(tmp, { status: "planned", pr: null });
+    await runImplementPhase(task, { mode: "create" });
+    expect(headlessPrompts).toHaveLength(1);
+    const prompt = headlessPrompts[0]!;
+    expect(prompt).toContain("## Manual validation");
+    expect(prompt).toContain("strip");
+    expect(prompt).toContain("HTML comment");
+    expect(prompt).toContain("auto-merge");
+  });
+
   it("fix mode: caller's status is preserved across the call (review phase invariant)", async () => {
     // PR 7's review phase keeps the task at status "reviewing" for the entire
     // review→implement(fix)→review loop. If runFix transitioned to

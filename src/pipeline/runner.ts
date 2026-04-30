@@ -8,6 +8,8 @@ import { runImplementPhase } from "./phases/implement.js";
 import { runVerifyPhase } from "./phases/verify.js";
 import { runCiWaitPhase } from "./phases/ci-wait.js";
 import { runReviewPhase } from "./phases/review.js";
+import { runGatePhase } from "./phases/gate.js";
+import { runMergePhase } from "./phases/merge.js";
 import { PhaseResult } from "./types.js";
 import { NoopLogger, type Logger } from "../util/logger.js";
 import {
@@ -72,6 +74,23 @@ const M2_PIPELINE: readonly PhaseSpec[] = [
     name: "review",
     unfinishedStatuses: ["reviewing"],
     phase: runReviewPhase,
+  },
+  {
+    // Gate enters from `reviewing` (immediately after a clean review),
+    // re-enters from `gating` (mid-flight crash before a decision), and
+    // re-enters from `gated` (resume to detect external user-merge of a
+    // gated PR). All three branches converge on a fresh `gh pr view` so
+    // the decision is always derived from current PR state.
+    name: "gate",
+    unfinishedStatuses: ["reviewing", "gating", "gated"],
+    phase: runGatePhase,
+  },
+  {
+    // Merge owns just `merging`. Idempotent re-entry detects an
+    // already-MERGED PR via `gh pr view` and skips the merge call.
+    name: "merge",
+    unfinishedStatuses: ["merging"],
+    phase: runMergePhase,
   },
 ];
 

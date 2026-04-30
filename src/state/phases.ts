@@ -23,7 +23,9 @@ export const TASK_STATUSES = [
   "verifying",
   "ci",
   "reviewing",
+  "gating",
   "gated",
+  "merging",
   "merged",
   "aborted",
   "needs-human",
@@ -48,7 +50,12 @@ const STATUS_TO_LAST_CHECKED: Record<TaskStatus, PhaseName> = {
   verifying: "implement",
   ci: "verify",
   reviewing: "ci",
-  gated: "review",
+  gating: "review",
+  // `gated` means the gate phase ran and decided "needs-human" — gate is
+  // therefore the last completed phase (not review, even though review ran
+  // immediately before).
+  gated: "gate",
+  merging: "gate",
   merged: "merge",
   // Transient/terminal states fall back to whatever has been visibly completed.
   // The body's Phase log captures the actual lineage; Progress is just a hint.
@@ -79,7 +86,9 @@ export const STATUS_TO_PHASE_LABEL: Record<TaskStatus, string> = {
   verifying: "verify",
   ci: "ci-wait",
   reviewing: "review",
+  gating: "gate",
   gated: "gate",
+  merging: "merge",
   merged: "merge",
   aborted: "aborted",
   "needs-human": "needs-human",
