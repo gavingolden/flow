@@ -17,6 +17,23 @@ through the entire skill end-to-end with reasonable assumptions, write all
 deliverables to disk, and exit when finished. If a question would normally
 gate a confirmation, answer it yourself and proceed.`;
 
+// Match the other LLM phases (implement / verify / review). 10 minutes was
+// previously enough for trivial tasks but bigger PRDs reliably exhausted it
+// during the research pass before any deliverable hit disk. The retry note
+// (see buildPlanPrompt) flags the timeout so attempt 2 stops re-exploring.
+const HEADLESS_TIMEOUT_MS = 30 * 60 * 1000;
+// Sentinel prefix on the retry-thread error string. The plan callback emits
+// this when execa reports `timedOut`; buildPlanPrompt branches on it to
+// switch the retry guidance from "review the failure" to "stop researching,
+// start writing." Anything else falls through to the generic-failure note.
+const TIMEOUT_MARKER = "TIMEOUT:";
+
+const PLAN_DELIVERABLES = [
+  "prd.md",
+  "task-breakdown.md",
+  "pr-description-draft.md",
+] as const;
+
 export async function runPlanPhase(
   task: Task,
   logger: Logger = NoopLogger,
@@ -61,14 +78,27 @@ export async function runPlanPhase(
         "Bash(ls *)",
         "Bash(cat *)",
       ],
-      timeoutMs: 10 * 60 * 1000,
+      timeoutMs: HEADLESS_TIMEOUT_MS,
       logger,
       label: "claude (plan)",
       jsonl,
     });
-    return r.ok
-      ? { ok: true as const, value: r }
-      : { ok: false as const, error: r.error ?? `exit ${r.exitCode}` };
+    if (r.ok) return { ok: true as const, value: r };
+    // Subprocess didn't exit cleanly, but if every deliverable is on disk
+    // the skill effectively finished — most often this is a SIGTERM after
+    // the model wrote all three files but kept exploring. Accept the work
+    // instead of burning another attempt redoing it.
+    const missing = await findMissingDeliverables(planDir);
+    if (missing.length === 0) {
+      logger.warn(
+        `plan: subprocess exit=${r.exitCode}${r.timedOut ? " (timeout)" : ""} but all deliverables present — treating as success`,
+      );
+      return { ok: true as const, value: r };
+    }
+    const error = r.timedOut
+      ? `${TIMEOUT_MARKER} subprocess killed after ${Math.round(HEADLESS_TIMEOUT_MS / 60_000)} minutes — missing deliverables: ${missing.join(", ")}`
+      : (r.error ?? `exit ${r.exitCode}`);
+    return { ok: false as const, error };
   }, 2);
 
   if (!result.ok) {
@@ -103,7 +133,9 @@ export function buildPlanPrompt(
   const taskFile = task.path;
   const userPromptArg = extractUserPrompt(task.body);
   const failureNote = lastFailure
-    ? `\n\nPRIOR ATTEMPT FAILED — failure log:\n${truncate(lastFailure, 4000)}\n\nReview the failure, adjust your approach, and try again.`
+    ? lastFailure.startsWith(TIMEOUT_MARKER)
+      ? `\n\nPRIOR ATTEMPT TIMED OUT — ${lastFailure.slice(TIMEOUT_MARKER.length).trim()}.\n\nThe previous run spent its entire budget reading and exploring before writing anything. Be aggressive about cutting research short: skim, don't re-read, and start writing prd.md / task-breakdown.md / pr-description-draft.md within the first few minutes. Drafts you can refine in place beat perfect plans you never write.`
+      : `\n\nPRIOR ATTEMPT FAILED — failure log:\n${truncate(lastFailure, 4000)}\n\nReview the failure, adjust your approach, and try again.`
     : "";
   const revisionNote = buildRevisionNoteSection(task.body);
 
@@ -189,6 +221,18 @@ function truncate(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max)}\n…[truncated]`;
 }
 
+async function findMissingDeliverables(planDir: string): Promise<string[]> {
+  const missing: string[] = [];
+  for (const name of PLAN_DELIVERABLES) {
+    try {
+      await fs.access(path.join(planDir, name));
+    } catch {
+      missing.push(name);
+    }
+  }
+  return missing;
+}
+
 export interface PlanOutputSummary {
   text: string;
   blocked: boolean;
@@ -207,17 +251,15 @@ export async function summarizePlanOutputs(
   } catch {
     blockedContent = null;
   }
-  const expected = ["prd.md", "task-breakdown.md", "pr-description-draft.md"];
+  const missing = new Set(await findMissingDeliverables(planDir));
   const lines: string[] = [`- Plan directory: ${planDir}`];
-  for (const name of expected) {
-    const p = path.join(planDir, name);
-    try {
-      await fs.access(p);
-      lines.push(`- ${name}: present`);
-      logger.info(`plan deliverable present: ${name}`);
-    } catch {
+  for (const name of PLAN_DELIVERABLES) {
+    if (missing.has(name)) {
       lines.push(`- ${name}: MISSING`);
       logger.warn(`plan deliverable missing: ${name}`);
+    } else {
+      lines.push(`- ${name}: present`);
+      logger.info(`plan deliverable present: ${name}`);
     }
   }
   if (blockedContent != null) {

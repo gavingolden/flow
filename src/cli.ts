@@ -18,7 +18,7 @@ program
 program
   .command("start")
   .description(
-    "Start a new task: opens an interactive Claude Code session for triage. " +
+    "[deprecated] Start a new task: opens an interactive Claude Code session for triage. " +
       "If no prompt is given as arguments, reads it from stdin (e.g. `flow start <<EOF … EOF`).",
   )
   .argument(

@@ -61,7 +61,10 @@ macOS notification when the checkpoint hits (see "Notifications" below).
 Non-feature intents (`bug`, `refactor`, `docs`, `infra`, `chore`) skip
 the checkpoint and run straight through.
 
-### From a terminal — `flow start`
+### Legacy CLI (`flow start`)
+
+> `flow start` is deprecated and will be removed in a future release.
+> Prefer `/flow-add` (above) for new tasks.
 
 The CLI front door does the same triage in a spawned interactive Claude
 Code session:

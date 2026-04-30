@@ -24,6 +24,10 @@ export interface HeadlessResult {
   output: string;
   error?: string;
   exitCode: number;
+  // True iff execa killed the subprocess because it exceeded `timeoutMs`.
+  // Phases use this to distinguish "ran out of budget" from generic
+  // failures so the retry prompt can nudge the model differently.
+  timedOut?: boolean;
 }
 
 export async function runHeadless(
@@ -139,5 +143,6 @@ export async function runHeadless(
     output,
     error: exitCode !== 0 ? (stderr || output || `exit ${exitCode}`) : undefined,
     exitCode,
+    timedOut: result.timedOut === true,
   };
 }
