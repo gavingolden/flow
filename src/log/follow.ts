@@ -20,6 +20,11 @@ export interface FollowOptions extends RenderOptions {
   // is sub-second.
   pollIntervalMs?: number;
   idleWindowMs?: number;
+  // When set, skip the initial full-backlog dump and start reading from
+  // the byte offset that contains the last `tailEvents` newline-terminated
+  // events (or 0 if the file has fewer events). The poll loop continues
+  // from end-of-file as usual.
+  tailEvents?: number;
 }
 
 export type FollowExitReason =
@@ -80,7 +85,13 @@ export async function follow(opts: FollowOptions): Promise<FollowResult> {
   };
 
   // Step 1: render anything already present so the user sees backlog.
-  const initial = await readFromOffset(target.path, 0);
+  // With `tailEvents`, seek to the offset of the Nth-from-last event so
+  // the user sees the tail (live state) instead of stale head events.
+  const startOffset =
+    opts.tailEvents != null
+      ? await offsetForLastNLines(target.path, opts.tailEvents)
+      : 0;
+  const initial = await readFromOffset(target.path, startOffset);
   position = initial.size;
   processChunk(initial.text);
 
@@ -111,6 +122,54 @@ export async function follow(opts: FollowOptions): Promise<FollowResult> {
   // Footer: surface exit reason + next-phase hint if a newer file exists.
   await writeFooter(target, exitReason, exitStatus, opts);
   return { reason: exitReason, status: exitStatus };
+}
+
+// Walks the file backward from EOF in fixed-size chunks, counting newlines,
+// and returns the byte offset just past the boundary newline that begins the
+// last `n` events. Returns 0 if the file is empty or has fewer than `n`
+// events. A trailing-`\n` file needs one extra newline to skip past `n`
+// complete lines (the trailing `\n` ends the last line rather than starting
+// a new one); an unterminated file does not.
+async function offsetForLastNLines(
+  filePath: string,
+  n: number,
+): Promise<number> {
+  let stat;
+  try {
+    stat = await fsp.stat(filePath);
+  } catch {
+    return 0;
+  }
+  if (stat.size === 0) return 0;
+  const fh = await fsp.open(filePath, "r");
+  try {
+    const lastByte = Buffer.alloc(1);
+    await fh.read(lastByte, 0, 1, stat.size - 1);
+    const trailingNewline = lastByte[0] === 0x0a;
+    const newlinesNeeded = trailingNewline ? n + 1 : n;
+
+    const CHUNK = 4096;
+    const buf = Buffer.alloc(CHUNK);
+    let pos = stat.size;
+    let found = 0;
+    while (pos > 0) {
+      const chunkSize = Math.min(CHUNK, pos);
+      pos -= chunkSize;
+      const got = await fh.read(buf, 0, chunkSize, pos);
+      const data = buf.subarray(0, got.bytesRead);
+      for (let i = data.length - 1; i >= 0; i--) {
+        if (data[i] === 0x0a) {
+          found++;
+          if (found === newlinesNeeded) {
+            return pos + i + 1;
+          }
+        }
+      }
+    }
+    return 0;
+  } finally {
+    await fh.close();
+  }
 }
 
 async function readFromOffset(

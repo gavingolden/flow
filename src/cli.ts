@@ -121,13 +121,37 @@ program
   .argument("[id]", "the task id (omit to list available task ids)")
   .option("--phase <name>", "filter to log files whose phase matches <name>")
   .option("--follow", "tail the most recent phase log file")
+  .option(
+    "--tail <n>",
+    "with --follow: skip the initial backlog dump and start from the last <n> events (positive integer)",
+  )
   .option("--raw", "emit the original jsonl bytes verbatim (suitable for jq)")
   .action(
     async (
       id: string | undefined,
-      opts: { phase?: string; follow?: boolean; raw?: boolean },
+      opts: { phase?: string; follow?: boolean; raw?: boolean; tail?: string },
     ) => {
-      const code = await logCommand(id, opts);
+      let tail: number | undefined;
+      if (opts.tail != null) {
+        if (!opts.follow) {
+          console.error(
+            "error: --tail requires --follow (without --follow, the static concat path already renders the full file)",
+          );
+          process.exit(2);
+        }
+        const n = Number.parseInt(opts.tail, 10);
+        if (!Number.isInteger(n) || n < 1 || String(n) !== opts.tail.trim()) {
+          console.error("error: --tail must be a positive integer");
+          process.exit(2);
+        }
+        tail = n;
+      }
+      const code = await logCommand(id, {
+        phase: opts.phase,
+        follow: opts.follow,
+        raw: opts.raw,
+        tail,
+      });
       if (code !== 0) process.exit(code);
     },
   );
