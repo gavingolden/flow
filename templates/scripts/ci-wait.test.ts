@@ -9,8 +9,10 @@ import {
   type GhCheck,
   type GhOps,
   type GhReview,
+  GhPermanentError,
   botsCollected,
   isChecksTerminal,
+  isPermanentGhError,
   loadConfig,
   pendingCheckNames,
   pollUntilTerminal,
@@ -21,7 +23,7 @@ import {
 // --- Fixtures ---
 
 function check(name: string, state: string): GhCheck {
-  return { name, state, conclusion: state === "SUCCESS" ? "success" : null };
+  return { name, state };
 }
 
 function review(login: string, overrides: Partial<GhReview> = {}): GhReview {
@@ -113,6 +115,26 @@ describe("loadConfig", () => {
     const p = join(dir, "ci-wait.json");
     writeFileSync(p, JSON.stringify(["x"]));
     expect(() => loadConfig(p)).toThrow(ConfigInvalidError);
+  });
+});
+
+// --- isPermanentGhError ---
+
+describe("isPermanentGhError", () => {
+  it("flags Unknown JSON field (the conclusion-field regression)", () => {
+    expect(
+      isPermanentGhError('Unknown JSON field: "conclusion"\nAvailable fields: name, state'),
+    ).toBe(true);
+  });
+  it("flags missing PR / auth signatures", () => {
+    expect(isPermanentGhError("Could not resolve to a PullRequest with the number 999")).toBe(true);
+    expect(isPermanentGhError("authentication required")).toBe(true);
+    expect(isPermanentGhError("HTTP 401: Bad credentials")).toBe(true);
+  });
+  it("does not flag transient outages (rate limit, network blip)", () => {
+    expect(isPermanentGhError("API rate limit exceeded")).toBe(false);
+    expect(isPermanentGhError("dial tcp: i/o timeout")).toBe(false);
+    expect(isPermanentGhError("HTTP 502: Bad Gateway")).toBe(false);
   });
 });
 
@@ -319,6 +341,56 @@ describe("pollUntilTerminal", () => {
       (e) => e.event === "ci-wait.poll" && e.payload.noProgress === true,
     );
     expect(noProgress.length).toBeGreaterThan(0);
+  });
+
+  it("permanent gh error: short-circuits with outcome=gh-error on first attempt", async () => {
+    // The original bug: gh dropped the `conclusion` field, every poll
+    // failed with "Unknown JSON field", and the loop ground for an hour
+    // before reporting ci-hang. With permanent-error detection we bail
+    // immediately so the user sees the real cause.
+    const { config, deps, events } = makeDeps({
+      cadenceMs: 100,
+      hardCapMs: 60_000,
+      gh: makeGhOps({
+        prChecks: () => {
+          throw new GhPermanentError(
+            "prChecks",
+            'Unknown JSON field: "conclusion"',
+          );
+        },
+        prReviews: () => [],
+      }),
+    });
+    const r = await pollUntilTerminal({ pr: 184, config, deps });
+    expect(r.outcome).toBe("gh-error");
+    expect(r.polls).toBe(1);
+    expect(r.ghErrorCall).toBe("prChecks");
+    expect(r.ghErrorMessage).toContain("Unknown JSON field");
+    expect(events.some((e) => e.event === "ci-wait.gh_permanent")).toBe(true);
+    // No retry should be attempted on a permanent error.
+    expect(events.some((e) => e.event === "ci-wait.gh_retry")).toBe(false);
+  });
+
+  it("retry exhaustion: emits gh_retry_exhausted on second-attempt failure", async () => {
+    // Without this event, a sustained gh outage produced exactly one
+    // gh_retry log per poll, making 12 sequential failures look identical
+    // to one transient blip.
+    const { config, deps, events } = makeDeps({
+      cadenceMs: 100,
+      hardCapMs: 300,
+      gh: makeGhOps({
+        prChecks: () => {
+          throw new Error("transient outage");
+        },
+        prReviews: () => [],
+      }),
+    });
+    await pollUntilTerminal({ pr: 184, config, deps });
+    const exhausted = events.filter(
+      (e) => e.event === "ci-wait.gh_retry_exhausted",
+    );
+    expect(exhausted.length).toBeGreaterThan(0);
+    expect(exhausted[0].payload.call).toBe("prChecks");
   });
 
   it("does not advance past CI when checks fetch never succeeds (reviews ok, bots present)", async () => {
