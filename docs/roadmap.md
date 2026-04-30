@@ -415,18 +415,30 @@ Done when:
 > is no consumer of a top-level `.orchestrator/logs/`. If a future
 > consumer needs it, that consumer creates the directory itself.
 
-### PR 15 — `flow run --all --max N` parallelism
+### PR 15 — `flow run --all --max N` parallelism (shipped)
 
 Done when:
 
-- The runner is a worker pool: pulls from `.orchestrator/tasks/*.md`
-  where status ∈ {triaged, needs-human-after-resume}, claims one via
-  PR 2's primitive, spawns `flow run <id>` as a child, refills as
-  children exit.
-- `--max N` bounds concurrency; tasks beyond N wait in queue.
+- The runner is a worker pool: pulls `status: triaged` tasks from
+  `.orchestrator/tasks/*.md` (needs-human-after-resume deferred to
+  PR 16 — `/flow resume` is the natural home for resumable status
+  support), spawns `flow run <id>` as a child per claimed task, and
+  refills as children exit. Claim acquisition stays inside the child
+  via PR 2's primitive — the scheduler only filters by status, spawns,
+  and reaps.
+- `--max N` bounds concurrency; tasks beyond N wait in queue. Default
+  is `min(os.cpus().length, 4)` and the chosen value is logged on
+  startup.
+- `--watch` keeps the scheduler alive after the initial drain, polling
+  `.orchestrator/tasks/` on a 5-second cadence (overridable via
+  `--watch-interval <seconds>`).
+- `--detach` re-execs the scheduler itself as a detached process tree,
+  mirroring `flow run <id> --detach`.
 - Each running task uses its own worktree → no working-tree conflicts.
 - Two unrelated `/flow add` invocations followed by `flow run --all
   --max 2` results in two PRs both reaching merge concurrently.
+- Two concurrent `flow run --all` invocations claim every task exactly
+  once across the union (covered by the worker-pool race smoke test).
 
 ### PR 16 — pause / resume / abort
 
@@ -613,6 +625,26 @@ Smaller items that aren't phase-blocking but should land when convenient:
   test (new test infrastructure). Trigger: address when `src/commands/start.ts`
   is next touched, or fold into the broader "Unit-test the new CLI output
   helpers" item above (which already covers `start.ts` injection points).
+
+- **Unit-test `runAllCommand`'s SIGINT escalation, watch-loop, and pid
+  lifecycle.** PR #32 ships the `flow run --all` command with unit
+  coverage on its three pure dependencies (`listTriagedTasks`,
+  `drain`, `createRunAllLogger`) plus a `RUN_INTEGRATION=1` smoke test
+  that asserts claim-race correctness across two concurrent schedulers.
+  The orchestrating function in `src/commands/run-all.ts` itself —
+  two-step SIGINT escalation timing, watch-loop refill cadence, the
+  detached-child pid-file lifecycle, the malformed-task-file
+  forwarding to `logger.warn`, and the abort-during-full-pool path —
+  has no unit coverage. Real bugs the tests would catch: a regression
+  that drops the second-SIGINT escalation, a watch-mode hang when the
+  abort signal fires during the poll sleep, the new pid-cleanup path
+  silently failing on a permissions error. Deferred from PR #32
+  review because covering it requires standing up a fake-spawn / fake-
+  signal / fake-timer harness for a `process.exit`-calling command
+  (bar criterion 2: needs new test infrastructure shared with
+  `runCommand`'s equivalent gap). Trigger: address opportunistically
+  next time `run-all.ts` or `run.ts` is touched, or fold into the
+  broader "Unit-test the new CLI output helpers" item above.
 
 ## What's deliberately not on the roadmap
 
