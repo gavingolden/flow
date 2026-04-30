@@ -11,6 +11,7 @@ dist/
 # (symlinks resolve to absolute paths and aren't portable)
 /.claude/skills/add-worktree
 /.claude/skills/flow-status
+/.claude/skills/flow-watch
 /.claude/skills/new-feature
 /.claude/skills/pr-review
 /.claude/skills/product-planning
@@ -25,6 +26,7 @@ dist/
 # (symlinks resolve to absolute paths and aren't portable)
 /scripts/ci-wait.ts
 /scripts/fetch-pr-review.ts
+/scripts/flow-watch.ts
 /scripts/new-agent-worktree.ts
 /scripts/pre-commit-checks.ts
 /scripts/remove-agent-worktree.ts
