@@ -96,6 +96,13 @@ describe("STATUS_TO_PHASE_LABEL", () => {
     expect(STATUS_TO_PHASE_LABEL["verifying"]).toBe("verify");
     expect(STATUS_TO_PHASE_LABEL["ci"]).toBe("ci-wait");
   });
+
+  it("maps creating-worktree to worktree (regression: PR #23)", () => {
+    // `creating-worktree` is the *in-progress* status for the worktree
+    // phase. Previously mapped to `triage`, which hid the worktree phase
+    // from the roster while it was actively running.
+    expect(STATUS_TO_PHASE_LABEL["creating-worktree"]).toBe("worktree");
+  });
 });
 
 describe("phaseLabelFor", () => {

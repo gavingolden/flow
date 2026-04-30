@@ -17,11 +17,14 @@ describe("parsePhaseCost", () => {
     expect(r.usd).toBeCloseTo(0.4203, 6);
   });
 
-  it("returns hasResult=false for a phase that crashed before result", async () => {
+  it("returns hasResult=false (and hasAnthropicEvent=true) for a phase that crashed before result", async () => {
     const r = await parsePhaseCost(
       path.join(fixturesDir, "crash-no-result.jsonl"),
     );
     expect(r.hasResult).toBe(false);
+    // Script-only logs and crashed-LLM logs both lack `type:"result"`;
+    // hasAnthropicEvent is what tells the aggregator they're different.
+    expect(r.hasAnthropicEvent).toBe(true);
     expect(r.usd).toBe(0);
   });
 
@@ -44,6 +47,10 @@ describe("parsePhaseCost", () => {
       );
       const r = await parsePhaseCost(f);
       expect(r.hasResult).toBe(false);
+      // Flow `kind:` events are not Anthropic stream events — script-only
+      // logs that contain only these must NOT register as Anthropic-bearing,
+      // otherwise the aggregator will mark every script-phase log as partial.
+      expect(r.hasAnthropicEvent).toBe(false);
       expect(r.usd).toBe(0);
     } finally {
       await fsp.rm(tmp, { recursive: true, force: true });
@@ -52,7 +59,7 @@ describe("parsePhaseCost", () => {
 
   it("returns zeros cleanly for a missing file (does not throw)", async () => {
     const r = await parsePhaseCost(path.join(fixturesDir, "no-such-file.jsonl"));
-    expect(r).toEqual({ usd: 0, hasResult: false });
+    expect(r).toEqual({ usd: 0, hasResult: false, hasAnthropicEvent: false });
   });
 });
 
@@ -137,6 +144,35 @@ describe("aggregateTaskCost", () => {
     ]);
     const out = await aggregateTaskCost(taskDir);
     expect(out.phases.map((p) => p.name)).toEqual(["worktree", "plan"]);
+  });
+
+  it("does NOT mark a script-only phase as partial (regression: PR #23)", async () => {
+    // Script phases (worktree, ci-wait) emit only flow `kind:"..."` events
+    // and never a `type:"result"`. Before the fix, they showed up as
+    // `partial: true` on every healthy run — making `cost_partial` true on
+    // virtually every task. The aggregator must distinguish "no Anthropic
+    // events at all" (script-only, $0, NOT partial) from "Anthropic events
+    // but no `type:"result"`" (LLM crash, partial).
+    const taskDir = path.join(tmp, "task");
+    const logsDir = path.join(taskDir, "logs");
+    await fsp.mkdir(logsDir, { recursive: true });
+    const scriptLog = path.join(logsDir, "worktree-2026-04-29T08-00-00-000Z.jsonl");
+    await fsp.writeFile(
+      scriptLog,
+      [
+        '{"ts":"2026-04-29T08:00:00Z","kind":"start","phase":"worktree"}',
+        '{"ts":"2026-04-29T08:00:01Z","kind":"result","status":"ok"}',
+      ].join("\n") + "\n",
+    );
+    await fsp.copyFile(
+      path.join(fixturesDir, "normal-result.jsonl"),
+      path.join(logsDir, "implement-2026-04-29T09-00-00-000Z.jsonl"),
+    );
+    const out = await aggregateTaskCost(taskDir);
+    expect(out.partial).toBe(false);
+    const worktreePhase = out.phases.find((p) => p.name === "worktree")!;
+    expect(worktreePhase.partial).toBe(false);
+    expect(worktreePhase.usd).toBe(0);
   });
 
   it("task total equals the sum of per-phase costs to within float epsilon", async () => {

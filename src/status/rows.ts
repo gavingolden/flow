@@ -41,8 +41,13 @@ export async function buildStatusRows(
     ? await listMdFiles(path.join(tasksDir, "archive"), true)
     : [];
   const all = [...active, ...archived];
-  const rows = await Promise.all(
-    all.map(({ filePath, archived }) => buildRow(repoRoot, filePath, archived)),
+  // Bounded concurrency keeps `--all` runs against a long-lived archive
+  // from spawning hundreds of concurrent fd opens (each row reads the
+  // task .md plus every per-phase jsonl under its logs/ dir). 8 is well
+  // under the macOS default `EMFILE` ceiling of 256 even when each row
+  // opens 5–10 logs in parallel.
+  const rows = await mapWithLimit(all, 8, ({ filePath, archived }) =>
+    buildRow(repoRoot, filePath, archived),
   );
 
   // Most-recent-`updated` first; ties broken by id ascending so the order
@@ -70,12 +75,24 @@ async function buildRow(
 ): Promise<StatusRow> {
   const task = await readTask(filePath);
   const fm = task.frontmatter;
-  const cost = await aggregateTaskCost(taskDirFor(repoRoot, fm.id));
+  // `readTask` casts frontmatter without runtime validation. A hand-edited
+  // or partial task file with a missing/non-string `id` would otherwise
+  // throw inside `taskDirFor` and — because `buildStatusRows` runs every
+  // row inside a single `Promise.all` — break the entire roster for one
+  // bad file. Fall back to the markdown filename's stem so the row still
+  // renders (cost will be `$0` because the derived id won't match the
+  // logs directory layout, but the user can see the malformed task and
+  // act on it).
+  const id =
+    typeof fm.id === "string" && fm.id.length > 0
+      ? fm.id
+      : path.basename(filePath, ".md");
+  const cost = await aggregateTaskCost(taskDirFor(repoRoot, id));
   const phase = phaseLabelFor(fm.status, () =>
     priorStatusFromPhaseLog(task.body),
   );
   return {
-    id: fm.id,
+    id,
     path: filePath,
     archived,
     status: fm.status,
@@ -169,4 +186,25 @@ function isNotFound(err: unknown): boolean {
     typeof err === "object" &&
     (err as { code?: string }).code === "ENOENT"
   );
+}
+
+// Bounded-concurrency `Promise.all` with stable input-order results.
+// Tiny inline helper rather than a dependency — the only call site is
+// `buildStatusRows`, and the contract is narrow.
+async function mapWithLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]!);
+    }
+  });
+  await Promise.all(workers);
+  return out;
 }

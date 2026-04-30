@@ -134,6 +134,17 @@ describe("renderStatusDetail", () => {
     expect(out).toContain("(no logs yet)");
   });
 
+  it("does NOT emit ANSI for the (archived) marker when colour=false (regression: PR #23)", () => {
+    // `pc.dim` defers to picocolors' own env detection and would emit ANSI
+    // even when the caller has explicitly disabled colour. Route the dim
+    // styling through the same opts.color decision as the rest of the
+    // renderer so `--json` callers and non-TTY sinks stay clean.
+    const row: StatusRow = { ...baseRow, archived: true };
+    const out = renderStatusDetail(row, body, { color: false });
+    expect(out).toContain("(archived)");
+    expect(out).not.toMatch(/\x1b\[/);
+  });
+
   it("total in detail equals row.cost_total_usd to 4 decimals", () => {
     const row: StatusRow = {
       ...baseRow,

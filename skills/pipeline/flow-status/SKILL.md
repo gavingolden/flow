@@ -73,13 +73,29 @@ Summary: N active, M need-human, K gated
 
 ## 3. Anomaly callouts
 
-For each task whose status is `needs-human` or `gated`, print one line:
+Pick the wording per status — they mean different things:
 
-```
-⚠️ <id> needs human: <reason>
-```
+- **`needs-human`**: the pipeline bailed out and is waiting on a human. Print:
 
-The `<reason>` comes from the most recent line in the task's `## Phase log` that mentions the transition into `needs-human` (e.g. `verifying → needs-human (timed out)` → reason is `timed out`). If no parenthesized reason is present, omit the colon and trailing reason.
+  ```
+  ⚠️ <id> needs human: <reason>
+  ```
+
+  The `<reason>` comes from the most recent line in the task's `## Phase log` that mentions the transition into `needs-human` (e.g. `verifying → needs-human (timed out)` → reason is `timed out`). If no parenthesized reason is present, omit the colon and trailing reason.
+
+- **`gated`**: the PR is open and waiting on review approval. There is generally no `needs-human` transition for a gated task, so don't try to source a reason from one. Print:
+
+  ```
+  ⚠️ <id> gated (waiting on review)
+  ```
+
+- **`aborted`**: the pipeline gave up on this task. Print:
+
+  ```
+  ⚠️ <id> aborted: <reason>
+  ```
+
+  Source `<reason>` the same way as `needs-human` — the most recent transition into `aborted` in the `## Phase log`, parenthesized suffix only. Omit the colon if absent.
 
 If there are no anomalies, omit this section entirely — don't print "no anomalies" boilerplate.
 

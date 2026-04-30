@@ -64,9 +64,10 @@ export function renderStatusDetail(
   opts: RenderOptions = {},
 ): string {
   const colorize = pickColorFn(opts);
+  const dim = pickDimFn(opts);
   const out: string[] = [];
   out.push(`# ${row.id}`);
-  if (row.archived) out.push(pc.dim("(archived)"));
+  if (row.archived) out.push(dim("(archived)"));
   out.push("");
   const statusLabel = ALERT_STATUSES.has(row.status)
     ? colorize(row.status, statusTone(row.status))
@@ -115,6 +116,17 @@ function pickColorFn(opts: RenderOptions): (s: string, tone: "red" | "yellow") =
   // wanted (e.g. an explicit --color flag, or a test that pins colour).
   const colors = pc.createColors(true);
   return (s, tone) => (tone === "red" ? colors.red(s) : colors.yellow(s));
+}
+
+// Mirror of pickColorFn for the `dim` style used by `(archived)`. Routing
+// through the same opts.color decision keeps a caller passing `color: false`
+// from receiving ANSI escapes via `pc.dim` (which honours picocolors' own
+// env detection but ignores our explicit override).
+function pickDimFn(opts: RenderOptions): (s: string) => string {
+  const enabled = opts.color === undefined ? pc.isColorSupported : opts.color;
+  if (!enabled) return (s) => s;
+  const colors = pc.createColors(true);
+  return (s) => colors.dim(s);
 }
 
 function statusTone(status: string): "red" | "yellow" {

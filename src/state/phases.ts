@@ -64,7 +64,10 @@ export function checkedThrough(status: TaskStatus): PhaseName {
 // answer different questions: progress checkboxes vs roster column.
 export const STATUS_TO_PHASE_LABEL: Record<TaskStatus, string> = {
   triaged: "triage",
-  "creating-worktree": "triage",
+  // `creating-worktree` is the in-progress status for the worktree phase
+  // itself — not "between triage and worktree." Mapping it back to triage
+  // hides the worktree phase from the roster while it's actively running.
+  "creating-worktree": "worktree",
   "worktree-ready": "plan",
   planning: "plan",
   planned: "implement",

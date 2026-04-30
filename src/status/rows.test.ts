@@ -204,6 +204,41 @@ describe("buildStatusRows", () => {
     const rows = await buildStatusRows(tmp);
     expect(rows).toEqual([]);
   });
+
+  it("falls back to filename stem when frontmatter `id` is missing (regression: PR #23)", async () => {
+    // A hand-edited or partial task file without `id` should not break the
+    // entire roster. Derive the id from the filename so the row still
+    // renders alongside well-formed tasks.
+    const dir = path.join(tmp, ".orchestrator", "tasks");
+    await fsp.mkdir(dir, { recursive: true });
+    const malformed = [
+      "---",
+      "status: planning",
+      "target_repo: '/repo'",
+      "worktree: null",
+      "branch: null",
+      "pr: null",
+      "manual_validation: null",
+      "merge_commit: null",
+      "created: '2026-04-29T00:00:00.000Z'",
+      "updated: '2026-04-29T00:00:00.000Z'",
+      "---",
+      "",
+      "## Phase log",
+      "",
+      "(empty)",
+      "",
+    ].join("\n");
+    await fsp.writeFile(path.join(dir, "missing-id.md"), malformed);
+    await seedTask("good", {
+      ...baseFm,
+      status: "planning",
+      created: "2026-04-29T00:00:00.000Z",
+      updated: "2026-04-29T00:00:00.000Z",
+    });
+    const rows = await buildStatusRows(tmp);
+    expect(rows.map((r) => r.id).sort()).toEqual(["good", "missing-id"]);
+  });
 });
 
 describe("buildRowForId", () => {
