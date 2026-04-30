@@ -48,8 +48,13 @@ export async function runGatePhase(
     jsonl.event("gate.exit", { result: "needs-human", reason: "pr-missing" });
     return { status: "needs-human", reason: "pr-missing" };
   }
-  if (!task.frontmatter.worktree || !existsSync(task.frontmatter.worktree)) {
-    const reason = `gate phase requires an existing worktree; got ${task.frontmatter.worktree ?? "(null)"}`;
+  if (!task.frontmatter.worktree) {
+    // Frontmatter-null is a structural break: the worktree phase never
+    // populated `worktree`, so we can't even tell the user which path
+    // got cleaned up. Mirror merge.ts:38-48 — distinct from the
+    // "worktree path is set but the directory is gone" case below,
+    // which falls back to target_repo as the gh-cwd.
+    const reason = "gate phase requires a worktree path in frontmatter (set by worktree phase)";
     logger.error(reason);
     await appendPhaseOutput(
       task,
@@ -63,18 +68,33 @@ export async function runGatePhase(
 
   const pr = task.frontmatter.pr;
   const worktree = task.frontmatter.worktree;
+  // gh just needs *some* gh-aware cwd to identify the PR by number; the
+  // worktree is preferred but not required. If the user manually removed
+  // it before resuming a `gated` task whose PR was merged externally,
+  // fall back to target_repo so Story 3 (resume-after-external-merge)
+  // still completes the cleanup. Mirrors merge.ts:57.
+  const ghCwd = existsSync(worktree) ? worktree : task.frontmatter.target_repo;
 
-  // Idempotent transition: a no-op when already `gating`. Routes the
-  // first-entry-from-`reviewing` and the resume-from-`gated` cases
-  // through the same downstream code.
-  await transitionStatus(task, "gating");
-  logger.event("task.status", "gating");
+  // First-entry transition only. When resuming from `gated` with the PR
+  // still OPEN and the section still non-empty, walking
+  // `gated → gating → gated` re-fires the `gated` notifier on every
+  // `flow run` because `transitionStatus` only short-circuits on
+  // `from === to`. Restricting the transition to `reviewing → gating`
+  // (and the no-op `gating → gating` re-entry) leaves a settled
+  // `gated` task untouched until the decision actually changes.
+  if (
+    task.frontmatter.status === "reviewing" ||
+    task.frontmatter.status === "gating"
+  ) {
+    await transitionStatus(task, "gating");
+    logger.event("task.status", "gating");
+  }
 
   logger.event("gate.gh.pr-view", `pr=#${pr}`);
   const view = await execa(
     "gh",
     ["pr", "view", String(pr), "--json", "body,state,mergeCommit"],
-    { cwd: worktree, reject: false },
+    { cwd: ghCwd, reject: false },
   );
   jsonl.event("gate.gh.pr-view", {
     pr,
@@ -108,10 +128,13 @@ export async function runGatePhase(
   const body = payload.body ?? "";
 
   if (state === "MERGED") {
-    // Resume path: gated PR was merged externally, or merge phase crashed
-    // post-`gh pr merge` and re-entered gate from a stale `reviewing`. In
-    // either case capture the SHA if we don't already have it and hand
-    // off to merge for cleanup + archive.
+    // Resume path: the PR was merged externally (Story 3 — user clicked
+    // Squash and merge in the GitHub UI on a `gated` PR), or gate is
+    // re-entering against a `reviewing`/`gating` task whose PR was
+    // already merged out-of-band. Either way, capture the SHA if we
+    // don't already have it and hand off to merge for cleanup + archive.
+    // (The merge phase only runs from `merging`, so a post-`gh pr merge`
+    // crash never falls back here — the runner re-enters merge instead.)
     const oid = payload.mergeCommit?.oid?.trim() ?? null;
     if (oid && !task.frontmatter.merge_commit) {
       await updateTaskFrontmatter(task, { merge_commit: oid });

@@ -432,6 +432,78 @@ describe("runMergePhase", () => {
     expect(removeCalls).toHaveLength(0);
   });
 
+  it("post-archive, pre-final-transition crash: skips re-rename and finalises status=merged", async () => {
+    // Pin for `merge.ts:221` — `if (task.path !== archivePath)`. The
+    // canonical resume case from `docs/phases/merge.md` L66-67: a crash
+    // between `fs.rename(...)` and the final `transitionStatus(... ,
+    // "merged")` leaves the task file already at the archive path. The
+    // next entry must detect that, skip the rename, and still finalise
+    // cleanly (no ENOENT, no double-archive event, no spurious WARN).
+    const { tmp, task } = await setup({
+      status: "merging",
+      pr: 184,
+      worktreeOnDisk: false, // already cleaned up before the crash
+      mergeCommit: "merged-before-crash-sha",
+    });
+    tmpRoot = tmp;
+
+    // Pre-stage the task file at the archive path to model the
+    // post-rename, pre-final-transition state.
+    const archiveDir = path.join(tmp, ".orchestrator", "tasks", "archive");
+    const archivePath = path.join(archiveDir, "2026-04-30-merge-test.md");
+    await fs.mkdir(archiveDir, { recursive: true });
+    const original = await readTask(task.path);
+    // Re-write the file at the archive path; remove the original so the
+    // resume path can detect the post-rename state.
+    await fs.rename(original.path, archivePath);
+    const resumed = await readTask(archivePath);
+
+    installExecaMock(
+      {
+        prViewBeforeMerge: {
+          stdout: JSON.stringify({
+            state: "MERGED",
+            mergeCommit: { oid: "merged-before-crash-sha" },
+          }),
+        },
+      },
+      calls,
+    );
+
+    const jsonl = makeJsonl();
+    const r = await runMergePhase(resumed, makeLogger(), jsonl);
+    expect(r).toEqual({ status: "ok" });
+
+    const reread = await readTask(archivePath);
+    expect(reread.frontmatter.status).toBe("merged");
+    expect(reread.frontmatter.merge_commit).toBe("merged-before-crash-sha");
+
+    // The original (pre-archive) path must NOT exist post-resume — the
+    // file was already at the archive path and should remain there.
+    expect(
+      existsSync(path.join(tmp, ".orchestrator", "tasks", "2026-04-30-merge-test.md")),
+    ).toBe(false);
+    expect(existsSync(archivePath)).toBe(true);
+
+    // No `gh pr merge` (already MERGED), and no remove-agent-worktree
+    // (worktree already gone).
+    const mergeCalls = calls.filter(
+      (c) => c.cmd === "gh" && c.args[0] === "pr" && c.args[1] === "merge",
+    );
+    expect(mergeCalls).toHaveLength(0);
+    const removeCalls = calls.filter((c) =>
+      c.cmd.endsWith("remove-agent-worktree.ts"),
+    );
+    expect(removeCalls).toHaveLength(0);
+
+    // No `merge.archive` jsonl event because the rename is skipped —
+    // the task file was already at the archive path on entry.
+    const archiveEvents = jsonl.event.mock.calls.filter(
+      (c) => c[0] === "merge.archive",
+    );
+    expect(archiveEvents).toHaveLength(0);
+  });
+
   it("emits merge.start, merge.gh.pr-view, merge.gh.pr-merge, merge.archive, merge.exit jsonl events", async () => {
     const { tmp, task } = await setup({ status: "merging", pr: 184 });
     tmpRoot = tmp;

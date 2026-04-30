@@ -185,7 +185,14 @@ export async function runMergePhase(
       logger.warn(worktreeWarn);
       jsonl.event("merge.worktree-removal-failed", { reason: worktreeWarn });
     } else {
-      const args = branch ? [branch, "--delete-branch"] : [worktree];
+      // `gh pr merge --squash --delete-branch` above already deletes the
+      // remote branch and (in standard setups) the local one. Passing
+      // `--delete-branch` again here makes remove-agent-worktree.ts
+      // attempt a `git branch -d <branch>`, which after a squash merge
+      // refuses with "branch is not fully merged" and surfaces a
+      // noisy-but-unactionable warn on every successful auto-merge.
+      // Drop the flag — the worktree is what we want removed here.
+      const args = branch ? [branch] : [worktree];
       try {
         const rm = await execa(removeScript, args, {
           cwd: targetRepo,
@@ -219,6 +226,7 @@ export async function runMergePhase(
   // after a crash between rename and the final transition), skip the
   // rename and proceed straight to the transition with the existing path.
   if (task.path !== archivePath) {
+    const sourcePath = task.path;
     if (existsSync(task.path)) {
       await fs.rename(task.path, archivePath);
     } else if (!existsSync(archivePath)) {
@@ -230,7 +238,15 @@ export async function runMergePhase(
       return { status: "failed", reason };
     }
     task.path = archivePath;
-    jsonl.event("merge.archive", { from: archivePath, id: task.frontmatter.id });
+    // `from` is the pre-rename source path, `to` is the destination —
+    // the previous shape recorded `archivePath` as `from`, which made
+    // the event misleading for telemetry (a rename whose `from` and
+    // `to` are identical reads as a no-op).
+    jsonl.event("merge.archive", {
+      from: sourcePath,
+      to: archivePath,
+      id: task.frontmatter.id,
+    });
   }
 
   // Render the phase output before the final transition so the renamed

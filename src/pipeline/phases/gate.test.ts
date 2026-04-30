@@ -13,7 +13,7 @@ import {
   writeTask,
   type Task,
 } from "../../state/task-file.js";
-import { NoopNotifier } from "../../util/notify.js";
+import { NoopNotifier, type Notifier, type NotifyArgs } from "../../util/notify.js";
 import { TaskStatus } from "../../state/phases.js";
 import { NoopLogger, type Logger } from "../../util/logger.js";
 import type { JsonlSink } from "../../util/jsonl-sink.js";
@@ -203,11 +203,11 @@ describe("runGatePhase", () => {
     expect(reread.body).toContain("### gate (latest:");
   });
 
-  it("worktree-missing: routes to needs-human without calling gh", async () => {
+  it("worktree null in frontmatter: routes to needs-human without calling gh", async () => {
     const { tmp, task } = await setup({
       status: "reviewing",
       pr: 184,
-      worktreeOnDisk: false,
+      worktreeNullInFrontmatter: true,
     });
     tmpRoot = tmp;
     const r = await runGatePhase(task, makeLogger(), makeJsonl());
@@ -216,6 +216,48 @@ describe("runGatePhase", () => {
     expect(vi.mocked(execa)).not.toHaveBeenCalled();
     const reread = await readTask(task.path);
     expect(reread.frontmatter.status).toBe("needs-human");
+  });
+
+  it("worktree directory missing on disk but path set in frontmatter: falls back to target_repo and proceeds to gh", async () => {
+    // Story 3 cleanup robustness: a user who manually `rm -rf`'d the
+    // worktree directory before resuming a `gated` task whose PR was
+    // merged externally must still reach the MERGED branch that
+    // captures the SHA and hands off to merge for cleanup. Mirrors the
+    // merge.ts:57 fallback contract.
+    const { tmp, task } = await setup({
+      status: "gated",
+      pr: 184,
+      worktreeOnDisk: false,
+      manualValidation: true,
+      mergeCommit: null,
+    });
+    tmpRoot = tmp;
+    const view = vi.mocked(execa).mockImplementation((async (
+      cmd: string,
+      args: string[],
+      opts?: { cwd?: string },
+    ) => {
+      // The cwd MUST be target_repo (= `tmp`) since the worktree dir is
+      // gone. Pin this in the assertion to lock the fallback shape.
+      if (cmd === "gh" && args[0] === "pr" && args[1] === "view") {
+        expect(opts?.cwd).toBe(tmp);
+      }
+      return {
+        exitCode: 0,
+        stdout: JSON.stringify({
+          body: PR_BODY_NON_EMPTY,
+          state: "MERGED",
+          mergeCommit: { oid: "user-merged-after-rmdir" },
+        }),
+        stderr: "",
+      };
+    }) as never);
+    const r = await runGatePhase(task, makeLogger(), makeJsonl());
+    expect(r).toEqual({ status: "ok" });
+    expect(view).toHaveBeenCalled();
+    const reread = await readTask(task.path);
+    expect(reread.frontmatter.status).toBe("merging");
+    expect(reread.frontmatter.merge_commit).toBe("user-merged-after-rmdir");
   });
 
   it("gh non-zero exit: routes to needs-human gh-error with stderr in phase output", async () => {
@@ -391,6 +433,76 @@ describe("runGatePhase", () => {
     expect(r).toEqual({ status: "ok" });
     const reread = await readTask(task.path);
     expect(reread.frontmatter.status).toBe("merging");
+  });
+
+  it("re-entering with status=gated and PR still OPEN + non-empty section: stays gated, no extra Phase-log row, notifier not re-fired", async () => {
+    // Regression pin for the gated-loop bug. Without the
+    // `from === "reviewing" || from === "gating"` guard in gate.ts,
+    // re-entering against a settled `gated` task walks
+    // `gated → gating → gated`, and because `transitionStatus` only
+    // short-circuits on `from === to`, the second transition fires the
+    // notifier (gated ∈ NOTIFY_STATUSES). Pin: zero notifier calls on
+    // the persistent-gated re-entry, no spurious Phase-log row, and a
+    // single ### gate subsection across two consecutive runs.
+    const notifyFn = vi.fn<(args: NotifyArgs) => Promise<void>>(
+      async () => undefined,
+    );
+    const notifySyncFn = vi.fn<(args: NotifyArgs) => void>(() => undefined);
+    const notifier: Notifier = {
+      notify: notifyFn,
+      notifySync: notifySyncFn,
+    };
+    __setNotifierForTests(notifier);
+
+    const { tmp, task } = await setup({
+      status: "reviewing",
+      pr: 184,
+      manualValidation: null,
+    });
+    tmpRoot = tmp;
+    mockGhPrView({
+      stdout: JSON.stringify({
+        body: PR_BODY_NON_EMPTY,
+        state: "OPEN",
+        mergeCommit: null,
+      }),
+    });
+
+    // First run drives reviewing → gating → gated. Notifier fires once
+    // on the gated transition — that's the user-visible signal.
+    await runGatePhase(task, makeLogger(), makeJsonl());
+    const afterFirst = await readTask(task.path);
+    expect(afterFirst.frontmatter.status).toBe("gated");
+    const gatedNotifyCallsAfterFirst = notifyFn.mock.calls.filter(
+      (c) => c[0].status === "gated",
+    );
+    expect(gatedNotifyCallsAfterFirst).toHaveLength(1);
+
+    // Second run with the PR still gated. Must NOT fire the notifier
+    // again, must NOT add a `gated → gating` or `gating → gated` row to
+    // the Phase log, and must keep the ### gate subsection a singleton.
+    const second = await readTask(task.path);
+    await runGatePhase(second, makeLogger(), makeJsonl());
+    const afterSecond = await readTask(task.path);
+    expect(afterSecond.frontmatter.status).toBe("gated");
+
+    const gatedNotifyCallsAfterSecond = notifyFn.mock.calls.filter(
+      (c) => c[0].status === "gated",
+    );
+    // Still exactly one notification — the second pass added none.
+    expect(gatedNotifyCallsAfterSecond).toHaveLength(1);
+
+    // No spurious Phase-log row from the second pass. Count
+    // `gated → gating` / `gating → gated` transitions; should be
+    // exactly one of each (from the first pass), not two.
+    const gatedToGating = (afterSecond.body.match(/gated → gating/g) ?? []).length;
+    const gatingToGated = (afterSecond.body.match(/gating → gated/g) ?? []).length;
+    expect(gatedToGating).toBe(0);
+    expect(gatingToGated).toBe(1);
+
+    // Single ### gate subsection (idempotent upsert).
+    const matches = afterSecond.body.match(/^### gate \(latest:/gm) ?? [];
+    expect(matches).toHaveLength(1);
   });
 
   it("writes exactly one ### gate subsection across two runs (idempotent upsert)", async () => {
