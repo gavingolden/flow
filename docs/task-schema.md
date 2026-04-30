@@ -203,7 +203,7 @@ Rules:
   in the writer, not a state to be reconciled.
 - The triage agent writes the initial state (only triage checked) when
   it creates the file.
-- Sub-phase progress (e.g., "implement is 3/5 files in") is not
+- Sub-phase progress (e.g. "implement is 3/5 files in") is not
   captured here. Phases are atomic from the orchestrator's perspective.
 
 ### `## Phase log`
