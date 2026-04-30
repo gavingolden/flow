@@ -166,6 +166,9 @@ Phases 2, 3, 4, 6 are headless Claude Code subprocess invocations of
 skills that already exist in the target project (econ-data has them
 today). Phases 1, 5, 7, 8 are pure script work — no LLM cost.
 
+See also: [`phases/verify.md`](./phases/verify.md) for the verify
+phase's contract (inputs, outputs, retry loop, failure modes).
+
 The worktree phase runs first (right after triage) so every subsequent
 headless phase, including plan, executes inside a per-task worktree.
 The new worktree gets a `.orchestrator/` directory symlink pointing at

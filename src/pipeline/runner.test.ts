@@ -42,6 +42,14 @@ vi.mock("./phases/implement.js", () => ({
   }),
 }));
 
+vi.mock("./phases/verify.js", () => ({
+  runVerifyPhase: vi.fn(async (task, _logger, _jsonl) => {
+    callLog.push("verify");
+    await advanceStatus(task.path, "ci");
+    return { status: "ok" };
+  }),
+}));
+
 vi.mock("./phases/ci-wait.js", () => ({
   runCiWaitPhase: vi.fn(async (task, _logger, _jsonl) => {
     callLog.push("ci-wait");
@@ -97,11 +105,17 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
-  it("at status triaged, dispatches worktree → plan → implement → ci-wait in order", async () => {
+  it("at status triaged, dispatches worktree → plan → implement → verify → ci-wait in order", async () => {
     const task = await makeTaskFile(tmp, "triaged");
     const r = await runPipeline(task);
     expect(r.status).toBe("ok");
-    expect(callLog).toEqual(["worktree", "plan", "implement", "ci-wait"]);
+    expect(callLog).toEqual([
+      "worktree",
+      "plan",
+      "implement",
+      "verify",
+      "ci-wait",
+    ]);
   });
 
   it("at status creating-worktree, resumes from worktree", async () => {
@@ -113,7 +127,7 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
   it("at status worktree-ready, skips worktree and starts at plan", async () => {
     const task = await makeTaskFile(tmp, "worktree-ready");
     await runPipeline(task);
-    expect(callLog).toEqual(["plan", "implement", "ci-wait"]);
+    expect(callLog).toEqual(["plan", "implement", "verify", "ci-wait"]);
   });
 
   it("at status planning, resumes from plan (skips worktree)", async () => {
@@ -126,19 +140,25 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
   it("at status planned, skips worktree and plan, starts at implement", async () => {
     const task = await makeTaskFile(tmp, "planned");
     await runPipeline(task);
-    expect(callLog).toEqual(["implement", "ci-wait"]);
+    expect(callLog).toEqual(["implement", "verify", "ci-wait"]);
   });
 
   it("at status implementing, resumes from implement", async () => {
     const task = await makeTaskFile(tmp, "implementing");
     await runPipeline(task);
-    expect(callLog).toEqual(["implement", "ci-wait"]);
+    expect(callLog).toEqual(["implement", "verify", "ci-wait"]);
   });
 
-  it("at status pr-open, dispatches ci-wait", async () => {
+  it("at status pr-open, dispatches verify (verify owns the pr-open entry edge)", async () => {
     const task = await makeTaskFile(tmp, "pr-open");
     await runPipeline(task);
-    expect(callLog).toEqual(["ci-wait"]);
+    expect(callLog).toEqual(["verify", "ci-wait"]);
+  });
+
+  it("at status verifying, resumes from verify", async () => {
+    const task = await makeTaskFile(tmp, "verifying");
+    await runPipeline(task);
+    expect(callLog).toEqual(["verify", "ci-wait"]);
   });
 
   it("at status ci, resumes from ci-wait", async () => {
@@ -221,7 +241,7 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
     await runPipeline(task);
     // No logs/ subdir created.
     await expect(fs.access(path.join(tmp, "logs"))).rejects.toThrow();
-    expect(callLog).toEqual(["plan", "implement", "ci-wait"]);
+    expect(callLog).toEqual(["plan", "implement", "verify", "ci-wait"]);
   });
 
   it("emits a phaseEnd line even when a phase throws past the PhaseResult contract", async () => {
