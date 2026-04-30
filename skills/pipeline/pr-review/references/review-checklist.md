@@ -911,6 +911,88 @@ rebase before merge so the open branch's CI exercises the integrated tree at lea
 
 ---
 
+## `process.exit` Inside Result-Returning Primitives
+
+A function whose return type encodes both success and failure
+(`Promise<InstallScriptsResult>`, `{ ok, output }`, etc.) is making a contract that
+callers can wrap it in try/catch and translate every failure mode into a domain
+result. CLI primitives often grew up handling validation by calling `process.exit(1)`
+directly, on the assumption they only ever run from `main()`. When such a primitive
+is later **reused from a non-CLI caller** — a phase, a long-running orchestrator, a
+test harness — those exits bypass the caller's try/catch and terminate the entire
+host process. This is distinct from the "Subprocess Wrapper Non-Throwing Contracts"
+pattern: that one is about throws bypassing a Result variant, this one is about
+*process termination* bypassing it. A try/catch can't catch `process.exit`.
+
+The bug is invisible while the unreachable-from-here analysis happens to hold (the
+specific arguments a phase passes never trip the validation). It surfaces the moment
+a future change makes one of the validation branches reachable: a new CLI flag flows
+through, a new caller passes user input, a refactor consolidates two paths.
+
+### What to look for
+
+- A function returning `Promise<Result>` / `{ ok, ... }` / domain enum, whose body
+  contains a `process.exit(...)` call (typically inside a validation early-return)
+- The same function being newly invoked from a non-CLI context (a phase, a runner,
+  a long-running process) where the caller relies on the return value to decide
+  what to do next
+- A try/catch around such a call where the catch was added "just in case" — the
+  catch handles thrown errors but a reader might assume it also handles `exit`
+
+### How to check
+
+1. For each result-returning primitive newly used outside a CLI entry point, grep
+   the primitive (and its helpers) for `process.exit`. Every hit is a path that
+   bypasses the caller's failure boundary.
+2. For each `process.exit` site, enumerate the input conditions that reach it.
+   Compare against the new caller's call shape — if any condition is reachable from
+   the caller's argument set, this is a real bug. If none are reachable today, it
+   is a `suggestion (non-blocking)` defense-in-depth note: a later call-site change
+   can make it reachable, and the change won't surface in code review of the
+   primitive.
+3. The fix is not "wrap in try/catch" — that doesn't catch exits. The fix is to
+   refactor the primitive to throw or return a failure variant, optionally behind
+   an explicit `nonExitingMode` flag so the CLI entry point keeps its top-level
+   exit behaviour.
+
+### Example — `installScripts` exit reused from `worktree` phase (PR #35)
+
+```typescript
+// BAD-IF-REACHABLE: installScripts.ts
+if (path.resolve(scriptsRoot) === path.resolve(targetDir)) {
+  console.error("error: source and target are the same directory ...");
+  process.exit(1);                    // bypasses any caller's try/catch
+}
+
+// Caller in worktree.ts:
+try {
+  await installScripts(worktreePath, {});   // try/catch can't catch the exit
+  return { status: "ok" };
+} catch (error) {
+  return { status: "failed", reason: ... }; // never fires for the exit branch
+}
+
+// GOOD: primitive throws (or returns a failure variant); CLI entry point owns exit.
+if (path.resolve(scriptsRoot) === path.resolve(targetDir)) {
+  throw new Error(`source and target are the same directory (${targetDir}); refusing to install`);
+}
+// CLI entry point catches and exits at the top level.
+```
+
+For PR #35 the exit branches turned out to be unreachable from `ensureWorktreeInstalls`'s
+call shape (`scriptsRoot` is `templates/scripts` under flow's install, target is the
+worktree's `scripts/`; `installSkills` exits only on unknown stack names and the caller
+passes no `--stack`). Reachability analysis closed it as `suggestion (non-blocking)`
+rather than `issue (blocking)`. The pattern stays in the checklist because the next
+caller might not have the same luck.
+
+**General rule:** A try/catch boundary cannot catch `process.exit`. When you reuse
+a CLI primitive from a non-CLI caller, audit the primitive (and its helpers) for
+`process.exit`, enumerate reachability for the new call shape, and prefer pushing
+the exit decision back up to the CLI entry point.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue
