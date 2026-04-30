@@ -22,6 +22,7 @@ dist/
 
 # managed by flow install-scripts
 # (symlinks resolve to absolute paths and aren't portable)
+/scripts/ci-wait.ts
 /scripts/fetch-pr-review.ts
 /scripts/new-agent-worktree.ts
 /scripts/pre-commit-checks.ts
