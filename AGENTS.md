@@ -38,11 +38,24 @@ See `docs/roadmap.md`. As of now:
 - **Plan / worktree / implement shipped.** Phases 1–3 (plan,
   worktree, implement) drive a `triaged` task to an open PR via
   `flow run`.
-- **Phase 1 — foundation next.** PRs 1–3 (jsonl logging + detached
+- **Phase 1 — foundation shipped.** PRs 1–3 (jsonl logging + detached
   subprocesses, cross-process claim primitive, implement create/fix
-  split). See `docs/roadmap.md` for the full PR plan and
-  `docs/chat-first-design.md` for the rationale behind the
-  chat-first migration.
+  split) all merged.
+- **Phase 2 — pipeline buildout shipped.** PRs 4–8 (ci-wait, verify
+  retry loop, `flow log` viewer, review + critical loop-back, gate +
+  merge) all merged.
+- **Phase 2 follow-up — in this PR.** Review phase rewrites to native
+  `/pr-review` invocation (drop machine-mode forcing, drop the
+  `implement(fix)` loop-back, add the conditional `review → ci-wait →
+  gate` back-edge, swap to a `summary.json` contract).
+- **Phase 3 — entry point + UX shipped.** PRs 9–12 (`/flow add`,
+  `/flow status`, `/flow watch`, plan checkpoint) all merged.
+- **Phase 4 — partially shipped.** PRs 13 (deprecate `flow start`),
+  14 (`flow install --upgrade`), 15 (`flow run --all` parallelism),
+  and 17 (macOS notifications) merged. PR 16 (pause/resume/abort) is
+  in flight on `agent/pr-16-pause-resume-abort`. PR 18 (remove
+  `flow start`) is deferred until chat-first has multi-week real-user
+  adoption. PR 19 (`flow tui`) is optional, only if reached for.
 
 Note: `docs/phases/m2-plan.md` and `docs/phases/m3-plan.md` use the
 legacy `M<N>` syntax — they're historical artefacts kept for

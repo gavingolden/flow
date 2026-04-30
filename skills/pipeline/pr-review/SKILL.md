@@ -145,9 +145,10 @@ The 4 agents:
 | **Test Coverage**       | Missing tests, untested edges, test quality, env setup      | Test Environment                            |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
-`decoration`, `confidence`, `subject`, `body`, and (when running in
-[machine-readable output mode](#machine-readable-output-mode-orchestrator-driven))
-`kind: "code" | "architectural"` — see the rubric in that section.
+`decoration`, `confidence`, `subject`, and `body`. When the orchestrator drives this
+skill (see [Orchestrator output mode](#orchestrator-output-mode)), any deferred
+findings emitted in the final summary additionally carry `kind: "code" |
+"architectural"` — see the rubric in that section.
 
 Wait for all 4 agents to complete before proceeding.
 
@@ -191,14 +192,16 @@ The multi-agent review exists to catch real issues — not to produce a report. 
 finding in the filtered set (Step 5), you must either fix it now or escalate it to a
 durable tracker. Silently listing findings in the report without action is a failure mode.
 
-**Pre-flight mode assertion (do not skip).** Before any deferral reasoning, confirm the
-mode. The "no auto-fix" override lives in [Machine-readable output mode](#machine-readable-output-mode-orchestrator-driven)
-and applies *only* when the env var `RESULT_JSON_PATH` is set by the orchestrator. If
-`RESULT_JSON_PATH` is unset (any interactive `/pr-review <PR>` invocation), you are in
-fix-now mode — you MUST attempt the edits. Specifically:
+**Pre-flight mode assertion (do not skip).** Before any deferral reasoning, confirm
+the mode. There is no "no auto-fix" override anywhere in this skill — fix-now is the
+only behaviour. [Orchestrator output mode](#orchestrator-output-mode) (set when
+`RESULT_JSON_PATH` is set) only adds a final JSON summary write; it does not suppress
+auto-fix, commits, or pushes. If `RESULT_JSON_PATH` is unset (any interactive
+`/pr-review <PR>` invocation), you are in fix-now mode — you MUST attempt the edits.
+Specifically:
 
 - Do **not** preemptively decide that a hook, permission rule, or "machine-readable
-  mode" will block writes. None of those apply unless `RESULT_JSON_PATH` is set.
+  mode" will block writes. None of those apply.
 - Do **not** infer a block from the worktree path (e.g. `flow-agent-*` worktrees are
   ordinary git worktrees; they have no special write protection).
 - Make a real `Edit` / `Write` tool call. If — and only if — the tool returns an error,
@@ -668,94 +671,93 @@ must appear in one of the two buckets. If no findings were deferred, say so expl
 
 Commit any changes with a clear message referencing the PR number, then present the report.
 
-# Machine-readable output mode (orchestrator-driven)
+# Orchestrator output mode
 
-The flow orchestrator's `review` phase invokes this skill via `claude -p` and needs a
-deterministic, parseable result so it can branch (clean → advance, critical-code →
-loop back to implement(fix), architectural → escalate to needs-human). When the wrapper
-prompt supplies `RESULT_JSON_PATH=<absolute-path>`, this skill operates in **review-only
-machine mode** with the following overrides. Interactive `/pr-review <PR>` invocations
-(no `RESULT_JSON_PATH`) behave exactly as the rest of this document describes; this
-section only changes behaviour when that variable is set.
+When the env var `RESULT_JSON_PATH` is set, the skill behaves exactly as it does
+interactively (Address mode if inline comments exist, Review mode otherwise) AND
+additionally writes a JSON escalation summary to `RESULT_JSON_PATH` after Step 13.
+This is the only delta from interactive use: no Force Review mode, no auto-fix
+suppression, no skipped Steps 6/8/10. The independent multi-agent review (Steps 1–5)
+runs in both modes; Address mode skips Step 11 (post inline findings) since findings
+are rolled into the auto-fix commit and replies; Review mode skips Steps 6, 8, 10
+since there are no inline comments to retrospect against, address, or reply to.
 
-## Mode overrides
+## Output contract
 
-When `RESULT_JSON_PATH` is set:
-
-1. **Force Review mode.** Skip Step 3's mode-detection — always proceed as if no
-   inline comments existed. The orchestrator never wants Address mode behaviour.
-2. **No auto-fix.** Step 7 is suppressed entirely: do NOT modify code, do NOT commit,
-   do NOT push. The orchestrator routes fixes through a separate `implement(fix)` phase
-   that owns the commit and the verify-gate. Auto-fixing here would race that phase.
-3. **No address-mode flows.** Skip Steps 6, 8, and 10 (retrospective, comment-by-comment
-   address, replies to comments) — they only apply when there are existing reviewer
-   comments to address, and the orchestrator's caller is an LLM not a human reviewer.
-4. **No formal `gh pr review` submission.** Use only the inline-comments path from
-   Step 11 (`gh api repos/.../pulls/<n>/comments`). The Approved / Requested-changes
-   banner is wrong for an orchestrator-driven self-review.
-5. **Skip Step 9 (pre-commit checks).** Nothing was committed; there is nothing to verify.
-6. **Skip Step 12e PR-description edits.** The orchestrator owns the PR body via the
-   gate phase; the review skill must not race it. Findings about the description go in
-   the JSON output as minor findings, not into a `gh pr edit`.
-7. **Still produce the human-readable report from Step 13** as your final assistant
-   message — useful for jsonl log inspection — but the orchestrator parses the JSON
-   file, not stdout.
-
-## JSON output contract
-
-After Step 11 (inline comments posted), write the following JSON shape to
-`RESULT_JSON_PATH`. Create parent directories if they don't exist.
+After Step 13's report, write the following JSON shape to `RESULT_JSON_PATH`. Create
+parent directories if they don't exist.
 
 ```json
 {
-  "summary": "string — one-paragraph overview the orchestrator records in phase outputs",
-  "critical": [
-    {
-      "kind": "code",
-      "file": "src/foo.ts",
-      "line": 42,
-      "summary": "string — short title",
-      "body": "string — full conventional-comment body"
-    }
+  "mode": "address" | "review",
+  "committed": true,
+  "escalate": false,
+  "reason": "",
+  "addressed": [
+    { "file": "src/foo.ts", "line": 42, "summary": "fixed null deref at the X boundary" }
   ],
-  "minor": [
+  "deferred": [
     {
-      "file": "src/foo.ts",
+      "file": "src/bar.ts",
       "line": 73,
-      "summary": "string",
-      "body": "string"
+      "summary": "race condition in async cleanup — needs an audit pass",
+      "kind": "code",
+      "tracker_ref": "docs/roadmap.md#followup-cleanup-race"
     }
   ]
 }
 ```
 
-A finding belongs in `critical` if and only if you would block the PR on it (label
-`issue` or `todo` with `decoration: "blocking"`). All other surfaced findings (including
-non-blocking issues, suggestions, nitpicks, praise) go in `minor`. Drop low-confidence
-and filler findings exactly as Step 5 already requires — the JSON should reflect what
-you posted as inline comments, no more.
+Field semantics:
 
-## `kind` discriminator (critical findings only)
+- **`mode`** — Which mode you picked at Step 3: `"address"` if inline review comments
+  existed and you ran the Address path, `"review"` if not.
+- **`committed`** — `true` iff Step 9b pushed at least one commit during this run
+  (auto-fix or address-comment fix). Drives the orchestrator's conditional ci-wait
+  back-edge: when true, the orchestrator re-runs CI before gate so gate reads fresh
+  checks state.
+- **`escalate`** — `true` iff at least one deferred finding has `kind:
+  "architectural"`. See [Escalation rule](#escalation-rule) below.
+- **`reason`** — `"architectural-concern"` when `escalate` is true; otherwise the
+  empty string `""`. This is the only defined reason today.
+- **`addressed`** — One entry per finding you fixed (mirrors Step 7's "Addressed"
+  bucket and Step 8's address-each-comment fixes). `summary` is a 1-line description
+  of the change.
+- **`deferred`** — One entry per finding you deferred per Step 7's "Bar for deferral"
+  rubric. `tracker_ref` MUST point to the durable tracker entry you wrote (a
+  `ROADMAP.md` section anchor, GitHub issue URL, Linear ticket, etc.) — a deferral
+  without a tracker reference is a verification failure.
 
-Every entry in `critical` MUST carry `kind: "code" | "architectural"`. This is the load-
-bearing field — the orchestrator uses it to decide whether looping implement(fix) can
-help.
+## Escalation rule
 
-- `kind: "code"` — a code-level issue an implementer can fix without rethinking the
-  plan: a wrong null-check, a missing guard, a leaked resource, a logic error, a
-  missing test, a security bug whose fix is local. The PRD/plan is sound; the code
-  doesn't match it. Looping implement(fix) against this *will* converge.
-- `kind: "architectural"` — the *plan itself* is wrong. The wrong layer is doing the
-  work, the chosen abstraction can't represent the requirement, the design conflicts
-  with a load-bearing constraint elsewhere in the system. No amount of re-implementing
-  helps because the target is wrong. Examples: "this entire module should live in the
-  worker, not the request path"; "the chosen schema can't express the polymorphism the
-  callers need"; "this introduces a circular dependency between domains that the
-  architecture doc forbids."
+Set `escalate: true` and `reason: "architectural-concern"` when at least one
+deferred finding has `kind: "architectural"`. Otherwise `escalate: false` and
+`reason: ""`. Architectural deferrals are the only case where the orchestrator
+should pull a human into the loop — every other deferral is captured in the
+tracker per Step 7's bar. Multiple non-architectural deferrals do not aggregate
+into escalation.
 
-When in doubt, prefer `code` — `architectural` short-circuits the loop-back and routes
-to a human, so reserve it for findings that genuinely can't be fixed by another
-implement pass.
+## `kind` field on deferred entries
+
+Every entry in `deferred` MUST carry `kind: "code" | "architectural"`. The
+discriminator is load-bearing — the orchestrator uses it to decide whether to
+escalate to a human or advance.
+
+- `kind: "code"` — a code-level deferral an implementer can address without
+  rethinking the plan: a refactor too big for this PR, a missing-test gap that
+  needs new harness work, a non-blocking cleanup that warrants its own session.
+  The PRD/plan is sound; the deferred work is incremental.
+- `kind: "architectural"` — the *plan itself* is wrong. The wrong layer is doing
+  the work, the chosen abstraction can't represent the requirement, the design
+  conflicts with a load-bearing constraint elsewhere in the system. Examples:
+  "this entire module should live in the worker, not the request path"; "the
+  chosen schema can't express the polymorphism the callers need"; "this
+  introduces a circular dependency between domains that the architecture doc
+  forbids."
+
+When in doubt, prefer `code` — `architectural` short-circuits the orchestrator's
+advance and routes the task to a human, so reserve it for findings that
+genuinely require redesign rather than incremental code work.
 
 # Anti-Patterns
 

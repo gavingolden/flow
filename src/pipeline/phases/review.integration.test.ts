@@ -4,11 +4,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../headless.js", () => ({ runHeadless: vi.fn() }));
-vi.mock("./implement.js", () => ({ runImplementPhase: vi.fn() }));
+vi.mock("./ci-wait.js", () => ({ runCiWaitPhase: vi.fn() }));
 
 import { runHeadless } from "../headless.js";
-import { runImplementPhase } from "./implement.js";
-import { runReviewPhase } from "./review.js";
+import { runCiWaitPhase } from "./ci-wait.js";
+import { runReviewPhase, type ReviewSummary } from "./review.js";
 import {
   readTask,
   writeTask,
@@ -17,34 +17,41 @@ import {
 } from "../../state/task-file.js";
 import type { TaskStatus } from "../../state/phases.js";
 
-interface CycleJson {
-  summary: string;
-  critical: Array<{
-    kind: "code" | "architectural";
-    file: string;
-    line: number;
-    summary: string;
-    body: string;
-  }>;
-  minor: Array<{ file: string; line: number; summary: string; body: string }>;
-}
-
-const clean: CycleJson = { summary: "looks good", critical: [], minor: [] };
-
-const criticalCode: CycleJson = {
-  summary: "needs fix",
-  critical: [
-    { kind: "code", file: "src/foo.ts", line: 42, summary: "null deref", body: "issue (blocking)" },
-  ],
-  minor: [],
+const cleanSummary: ReviewSummary = {
+  mode: "review",
+  committed: false,
+  escalate: false,
+  reason: "",
+  addressed: [],
+  deferred: [],
 };
 
-const criticalArchitectural: CycleJson = {
-  summary: "wrong layer",
-  critical: [
-    { kind: "architectural", file: "src/foo.ts", line: 1, summary: "wrong layer", body: "..." },
+const committedSummary: ReviewSummary = {
+  mode: "address",
+  committed: true,
+  escalate: false,
+  reason: "",
+  addressed: [
+    { file: "src/foo.ts", line: 42, summary: "fixed null deref" },
   ],
-  minor: [],
+  deferred: [],
+};
+
+const architecturalSummary: ReviewSummary = {
+  mode: "review",
+  committed: false,
+  escalate: true,
+  reason: "architectural-concern",
+  addressed: [],
+  deferred: [
+    {
+      file: "src/foo.ts",
+      line: 1,
+      summary: "wrong layer",
+      kind: "architectural",
+      tracker_ref: "docs/roadmap.md#followup-relocate",
+    },
+  ],
 };
 
 async function makeTaskFile(
@@ -66,7 +73,6 @@ async function makeTaskFile(
     pr: 42,
     manual_validation: null,
     merge_commit: null,
-    review_cycles: null,
     ...overrides,
   };
   const initial: Task = {
@@ -91,30 +97,25 @@ async function makeTaskFile(
   return readTask(taskPath);
 }
 
-// Wire up the runHeadless mock to drop a JSON file at the expected path,
-// pulling the path back out of the prompt's `RESULT_JSON_PATH=...` line.
-function mockReviewSequence(jsons: CycleJson[]): void {
-  const queue = [...jsons];
+// Wire up the runHeadless mock to drop a JSON summary file at the path
+// pulled out of the prompt's `RESULT_JSON_PATH=...` line.
+function mockReviewSummary(summary: ReviewSummary): void {
   vi.mocked(runHeadless).mockImplementation(async (opts) => {
-    const next = queue.shift();
-    if (!next) {
-      throw new Error("integration: runHeadless called more times than canned cycles");
-    }
     const m = opts.prompt.match(/RESULT_JSON_PATH=(\S+)/);
     if (!m) throw new Error("integration: prompt missing RESULT_JSON_PATH");
     const resultPath = m[1]!;
     await fs.mkdir(path.dirname(resultPath), { recursive: true });
-    await fs.writeFile(resultPath, JSON.stringify(next), "utf8");
+    await fs.writeFile(resultPath, JSON.stringify(summary), "utf8");
     return { ok: true, output: "", exitCode: 0 };
   });
 }
 
-describe("runReviewPhase — end-to-end loop scenarios", () => {
+describe("runReviewPhase — single-invocation scenarios", () => {
   let tmp: string;
 
   beforeEach(async () => {
     tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flow-review-int-"));
-    vi.mocked(runImplementPhase).mockResolvedValue({ status: "ok" });
+    vi.mocked(runCiWaitPhase).mockResolvedValue({ status: "ok" });
   });
 
   afterEach(async () => {
@@ -122,84 +123,66 @@ describe("runReviewPhase — end-to-end loop scenarios", () => {
     vi.clearAllMocks();
   });
 
-  it("Path 1: cycle 0 clean → ok, status preserved at reviewing, review_cycles=0", async () => {
-    mockReviewSequence([clean]);
+  it("Story 2: clean review (committed=false) → ok, ci-wait NOT called, status preserved at reviewing", async () => {
+    mockReviewSummary(cleanSummary);
     const task = await makeTaskFile(tmp);
     const r = await runReviewPhase(task);
     expect(r).toEqual({ status: "ok" });
-    expect(vi.mocked(runImplementPhase)).not.toHaveBeenCalled();
+    expect(vi.mocked(runCiWaitPhase)).not.toHaveBeenCalled();
 
     const reloaded = await readTask(task.path);
-    // Gate phase (PR 8) will transition; review leaves it at reviewing.
     expect(reloaded.frontmatter.status).toBe("reviewing");
-    // Persisted on first entry: null → 0. No fix loop completed, so still 0.
-    expect(reloaded.frontmatter.review_cycles).toBe(0);
-    expect(reloaded.body).toContain("decision: clean — advancing");
+    expect(reloaded.body).toContain("mode: review");
+    expect(reloaded.body).toContain("committed: false");
+    expect(reloaded.body).toContain("escalate: false");
     expect(reloaded.body).toContain("### review");
   });
 
-  it("Path 2: critical-code → fix → critical-code → fix → clean, returns ok with review_cycles=2", async () => {
-    mockReviewSequence([criticalCode, criticalCode, clean]);
+  it("Story 1: Address mode auto-fix (committed=true) → ok after ci-wait re-runs", async () => {
+    mockReviewSummary(committedSummary);
     const task = await makeTaskFile(tmp);
     const r = await runReviewPhase(task);
     expect(r).toEqual({ status: "ok" });
-    // Two implement(fix) calls between the three reviews.
-    expect(vi.mocked(runImplementPhase)).toHaveBeenCalledTimes(2);
-    // Each implement(fix) call carries a failureLog rendered from the prior
-    // review JSON — confirm shape, not exact content.
-    const firstCallOpts = vi.mocked(runImplementPhase).mock.calls[0]![1] as { mode: string; failureLog: string };
-    expect(firstCallOpts.mode).toBe("fix");
-    expect(firstCallOpts.failureLog).toContain("src/foo.ts:42");
+    expect(vi.mocked(runCiWaitPhase)).toHaveBeenCalledTimes(1);
 
     const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.status).toBe("reviewing");
-    expect(reloaded.frontmatter.review_cycles).toBe(2);
-    expect(reloaded.body).toContain("decision: clean — advancing");
-    // All three cycles surface in the rendered subsection.
-    expect(reloaded.body).toMatch(/cycle 1 .*?summary "needs fix"/);
-    expect(reloaded.body).toMatch(/cycle 2 .*?summary "needs fix"/);
-    expect(reloaded.body).toMatch(/cycle 3 .*?summary "looks good"/);
+    expect(reloaded.body).toContain("mode: address");
+    expect(reloaded.body).toContain("committed: true");
+    expect(reloaded.body).toContain("src/foo.ts:42 — fixed null deref");
   });
 
-  it("Path 3: 3× critical-code → needs-human review-cycles-exhausted, review_cycles=2", async () => {
-    mockReviewSequence([criticalCode, criticalCode, criticalCode]);
-    const task = await makeTaskFile(tmp);
-    const r = await runReviewPhase(task);
-    expect(r).toEqual({ status: "needs-human", reason: "review-cycles-exhausted" });
-    // 2 fix loops fired between the 3 reviews; the 3rd review hit the cap.
-    expect(vi.mocked(runImplementPhase)).toHaveBeenCalledTimes(2);
-
-    const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.status).toBe("needs-human");
-    expect(reloaded.frontmatter.review_cycles).toBe(2);
-    expect(reloaded.body).toContain("decision: needs-human (review-cycles-exhausted)");
-    expect(reloaded.body).toMatch(/cycle 1/);
-    expect(reloaded.body).toMatch(/cycle 2/);
-    expect(reloaded.body).toMatch(/cycle 3/);
-  });
-
-  it("Path 4: critical-architectural at cycle 0 → needs-human architectural-concern, review_cycles=0, no fix call", async () => {
-    mockReviewSequence([criticalArchitectural]);
+  it("Story 3: architectural-deferred → needs-human (architectural-concern), ci-wait NOT called", async () => {
+    mockReviewSummary(architecturalSummary);
     const task = await makeTaskFile(tmp);
     const r = await runReviewPhase(task);
     expect(r).toEqual({ status: "needs-human", reason: "architectural-concern" });
-    // The escape hatch must skip the loop-back entirely.
-    expect(vi.mocked(runImplementPhase)).not.toHaveBeenCalled();
+    expect(vi.mocked(runCiWaitPhase)).not.toHaveBeenCalled();
 
     const reloaded = await readTask(task.path);
     expect(reloaded.frontmatter.status).toBe("needs-human");
-    // Architectural escape does NOT increment review_cycles.
-    expect(reloaded.frontmatter.review_cycles).toBe(0);
-    expect(reloaded.body).toContain("decision: needs-human (architectural-concern)");
-    expect(reloaded.body).toContain("critical (architectural)");
+    expect(reloaded.body).toContain("escalate: true (architectural-concern)");
+    expect(reloaded.body).toContain("(architectural)");
   });
 
-  it("preserves bot review excerpts from `## Phase outputs > ci` into the review prompt", async () => {
-    // ci-wait writes bot review excerpts into the ci subsection; review must
-    // pass them through to /pr-review verbatim. This pins the cross-phase
-    // contract — without it, the review phase would lose the second-opinion
-    // input ci-wait worked to collect.
-    mockReviewSequence([clean]);
+  it("propagates a ci-wait failure from the back-edge as the phase result", async () => {
+    // If the post-fix CI run fails, review must surface the inner reason
+    // verbatim rather than masking it as success and letting gate run on
+    // stale state. Pin the propagation contract.
+    mockReviewSummary(committedSummary);
+    vi.mocked(runCiWaitPhase).mockResolvedValueOnce({
+      status: "needs-human",
+      reason: "ci-hang",
+    });
+    const task = await makeTaskFile(tmp);
+    const r = await runReviewPhase(task);
+    expect(r).toEqual({ status: "needs-human", reason: "ci-hang" });
+  });
+
+  it("preserves bot review excerpts from `## Phase outputs > ci` into the prompt", async () => {
+    // Cross-phase contract: ci-wait writes bot review excerpts into the
+    // ci subsection; review must pass them through to /pr-review verbatim
+    // as second-opinion input.
+    mockReviewSummary(cleanSummary);
     const task = await makeTaskFile(tmp);
     await runReviewPhase(task);
     expect(vi.mocked(runHeadless)).toHaveBeenCalledTimes(1);
@@ -207,191 +190,13 @@ describe("runReviewPhase — end-to-end loop scenarios", () => {
     expect(prompt).toContain("Copilot summary excerpt");
   });
 
-  it("resume-after-crash: starting with review_cycles=1 reads the persisted value, rehydrates prior cycle, and continues", async () => {
-    // Simulate a runner crash mid-fix-loop. The task's frontmatter still
-    // says review_cycles=1, status=reviewing, and the pre-crash cycle's
-    // result-0.json is still on disk. On re-entry, review must:
-    //   (a) read the persisted counter and treat the next review run as
-    //       cycle 2 (not 1);
-    //   (b) rehydrate cycle 1 from result-0.json so the rendered subsection
-    //       still surfaces it (per docs/task-schema.md the review subsection
-    //       re-renders with full history).
-    mockReviewSequence([clean]);
-    const task = await makeTaskFile(tmp, { review_cycles: 1 });
-    // Seed the pre-crash cycle 1 JSON on disk so rehydrate has something
-    // to read.
-    const reviewDir = path.join(
-      task.frontmatter.target_repo,
-      ".orchestrator",
-      "tasks",
-      task.frontmatter.id,
-      "review",
-    );
-    await fs.mkdir(reviewDir, { recursive: true });
-    await fs.writeFile(
-      path.join(reviewDir, "result-0.json"),
-      JSON.stringify(criticalCode),
-      "utf8",
-    );
-
-    await runReviewPhase(task);
-    const reloaded = await readTask(task.path);
-    // Clean review on re-entry → counter unchanged at 1.
-    expect(reloaded.frontmatter.review_cycles).toBe(1);
-    // Both cycles surface — the rehydrated pre-crash cycle 1 and the new
-    // cycle 2.
-    expect(reloaded.body).toContain("cycle 2");
-    expect(reloaded.body).toMatch(/cycle 1\b/);
-    expect(reloaded.body).toContain("decision: clean — advancing");
-  });
-
-  it("rehydrate tolerates a missing prior result file (rendering history is incomplete but loop continues)", async () => {
-    // Defensive branch in rehydrateCycleRecords: a prior cycle's JSON file
-    // was deleted between the crash and the resume (e.g. the user wiped the
-    // task dir). Rehydration should warn-and-skip the missing record, not
-    // throw — the loop must still complete from the persisted counter so
-    // the user can reach a terminal state. Pin the contract: review_cycles
-    // round-trips and the resume returns ok even with no on-disk history
-    // to render for cycle 1.
-    mockReviewSequence([clean]);
-    const task = await makeTaskFile(tmp, { review_cycles: 1 });
-    // Deliberately do NOT seed result-0.json — rehydrate should warn-skip.
-    const r = await runReviewPhase(task);
-    expect(r).toEqual({ status: "ok" });
-    const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.review_cycles).toBe(1);
-    // Cycle 2 (the new clean run) renders; cycle 1 is missing from history
-    // because rehydrate had nothing to read.
-    expect(reloaded.body).toContain("cycle 2");
-    expect(reloaded.body).toContain("decision: clean — advancing");
-  });
-
-  it("rehydrate tolerates a malformed prior result file (warn-and-skip, loop continues)", async () => {
-    // Defensive branch in rehydrateCycleRecords: a prior cycle's JSON file
-    // was truncated or corrupted (e.g. partial write before a kill -9).
-    // parseReviewResult returns ok=false; rehydrate should warn-and-skip
-    // the bad record rather than abort the entire phase. Pin the contract:
-    // the resume reaches a clean decision even with one cycle of unreadable
-    // history.
-    mockReviewSequence([clean]);
-    const task = await makeTaskFile(tmp, { review_cycles: 1 });
-    const reviewDir = path.join(
-      task.frontmatter.target_repo,
-      ".orchestrator",
-      "tasks",
-      task.frontmatter.id,
-      "review",
-    );
-    await fs.mkdir(reviewDir, { recursive: true });
-    // Write malformed JSON — parseReviewResult will reject this.
-    await fs.writeFile(
-      path.join(reviewDir, "result-0.json"),
-      "{ this is not valid json",
-      "utf8",
-    );
-    const r = await runReviewPhase(task);
-    expect(r).toEqual({ status: "ok" });
-    const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.review_cycles).toBe(1);
-    expect(reloaded.body).toContain("cycle 2");
-    expect(reloaded.body).toContain("decision: clean — advancing");
-  });
-
-  it("escalates to needs-human (worktree-missing) when frontmatter.worktree points at a non-existent path", async () => {
-    // The defensive worktree check fires before the LLM is spawned. Routes
-    // to needs-human (not `failed`) so a runner re-entry doesn't silently
-    // re-attempt the same broken state — recovery requires the user to
-    // recreate the worktree, same shape as the pr-missing branch below.
-    const task = await makeTaskFile(tmp, { worktree: "/tmp/does-not-exist-flow-review" });
-    const r = await runReviewPhase(task);
-    expect(r).toEqual({ status: "needs-human", reason: "worktree-missing" });
-    expect(vi.mocked(runHeadless)).not.toHaveBeenCalled();
-    const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.status).toBe("needs-human");
-    // Phase output captures why the phase bailed for post-mortem readers.
-    expect(reloaded.body).toContain("decision: needs-human (worktree-missing)");
-  });
-
-  it("escalates to needs-human (worktree-missing) when frontmatter.worktree is null", async () => {
-    // Cover the null-worktree mode separately from the non-existent-path
-    // mode above. A future refactor that collapses the two checks must
-    // keep both branches reaching the same needs-human transition.
-    const task = await makeTaskFile(tmp, { worktree: null });
-    const r = await runReviewPhase(task);
-    expect(r).toEqual({ status: "needs-human", reason: "worktree-missing" });
-    expect(vi.mocked(runHeadless)).not.toHaveBeenCalled();
-    const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.status).toBe("needs-human");
-    expect(reloaded.body).toContain("decision: needs-human (worktree-missing)");
-  });
-
-  it("escalates to needs-human (pr-missing) when frontmatter.pr is null", async () => {
-    // Defensive fail-fast mirrors ci-wait. The runner shouldn't get here in
-    // practice (implement opens the PR before transitioning to pr-open) but
-    // direct `flow run --phase review` against a malformed task is caught.
-    const task = await makeTaskFile(tmp, { pr: null });
-    const r = await runReviewPhase(task);
-    expect(r).toEqual({ status: "needs-human", reason: "pr-missing" });
-    expect(vi.mocked(runHeadless)).not.toHaveBeenCalled();
-    const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.status).toBe("needs-human");
-    // Phase output captures why the phase bailed for post-mortem readers.
-    expect(reloaded.body).toContain("decision: needs-human (pr-missing)");
-  });
-
-  it("surfaces implement(fix) failed: review returns failed and renders the inner reason", async () => {
-    // Defensive branch in review.ts: runFix is documented to return only
-    // ok|failed today, but the review phase guards against future contract
-    // changes. Pin the failed-path so the guard is exercised, not just dead.
-    mockReviewSequence([criticalCode]);
-    vi.mocked(runImplementPhase).mockResolvedValueOnce({
-      status: "failed",
-      reason: "synthetic implement-fix failure",
-    });
+  it("clears any stale summary.json before the subprocess runs", async () => {
+    // Resume scenario: a prior crash left a stale summary.json on disk
+    // that reads as a clean review. Without the pre-spawn unlink, a
+    // subprocess that exits 0 without writing the file would let us
+    // succeed against pre-crash content. Pin the unlink so the no-write
+    // case becomes an unambiguous "summary missing" failure.
     const task = await makeTaskFile(tmp);
-    const r = await runReviewPhase(task);
-    expect(r.status).toBe("failed");
-    if (r.status === "failed") {
-      expect(r.reason).toContain("synthetic implement-fix failure");
-    }
-    // review_cycles stayed at 0 — the failed fix did not consume budget.
-    const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.review_cycles).toBe(0);
-    expect(reloaded.body).toContain("decision: failed");
-  });
-
-  it("surfaces implement(fix) needs-human: review propagates the inner reason", async () => {
-    // Same defensive-branch coverage as the failed case. If runFix ever grows
-    // a needs-human exit, review must surface it cleanly rather than letting
-    // an unknown status fall through.
-    mockReviewSequence([criticalCode]);
-    vi.mocked(runImplementPhase).mockResolvedValueOnce({
-      status: "needs-human",
-      reason: "synthetic-implement-fix-escalation",
-    });
-    const task = await makeTaskFile(tmp);
-    const r = await runReviewPhase(task);
-    expect(r).toEqual({
-      status: "needs-human",
-      reason: "synthetic-implement-fix-escalation",
-    });
-    const reloaded = await readTask(task.path);
-    expect(reloaded.frontmatter.review_cycles).toBe(0);
-    expect(reloaded.body).toContain(
-      "decision: needs-human (implement-fix:synthetic-implement-fix-escalation)",
-    );
-  });
-
-  it("clears any stale result-<i>.json before each cycle so a no-op subprocess can't read pre-crash content", async () => {
-    // Resume scenario: a prior crash left review_cycles=1 (the cycle 1 fix
-    // landed) and a pre-crash cycle 2 result-1.json on disk that was never
-    // consumed because the runner died before the parse. On resume, the
-    // current cycle's resultJsonPath is result-1.json again. Without the
-    // pre-spawn unlink, a subprocess that exits 0 without writing the file
-    // would leave readFile happily returning the stale content as if it
-    // were the new cycle's output. The unlink turns that into an
-    // unambiguous "review JSON missing" failure instead.
-    const task = await makeTaskFile(tmp, { review_cycles: 1 });
     const reviewDir = path.join(
       task.frontmatter.target_repo,
       ".orchestrator",
@@ -400,20 +205,11 @@ describe("runReviewPhase — end-to-end loop scenarios", () => {
       "review",
     );
     await fs.mkdir(reviewDir, { recursive: true });
-    // Seed cycle 1 (rehydratable) and a stale cycle 2 result.
     await fs.writeFile(
-      path.join(reviewDir, "result-0.json"),
-      JSON.stringify(criticalCode),
+      path.join(reviewDir, "summary.json"),
+      JSON.stringify({ ...cleanSummary, addressed: [{ file: "STALE", line: 1, summary: "STALE" }] }),
       "utf8",
     );
-    await fs.writeFile(
-      path.join(reviewDir, "result-1.json"),
-      JSON.stringify({ summary: "STALE — should not be read", critical: [], minor: [] }),
-      "utf8",
-    );
-    // Subprocess "succeeds" but doesn't write a fresh result-1.json. The
-    // unlink should turn this into a missing-file failure, not a stale-
-    // content success.
     vi.mocked(runHeadless).mockImplementationOnce(async () => ({
       ok: true,
       output: "",
@@ -422,36 +218,82 @@ describe("runReviewPhase — end-to-end loop scenarios", () => {
     const r = await runReviewPhase(task);
     expect(r.status).toBe("failed");
     if (r.status === "failed") {
-      expect(r.reason).toContain("review JSON missing");
+      expect(r.reason).toContain("summary.json missing");
     }
     const reloaded = await readTask(task.path);
-    // The stale STALE-summary text must NOT have been picked up as the
-    // current cycle's result.
     expect(reloaded.body).not.toContain("STALE");
   });
 
+  it("escalates to needs-human (worktree-missing) when frontmatter.worktree points at a non-existent path", async () => {
+    const task = await makeTaskFile(tmp, { worktree: "/tmp/does-not-exist-flow-review" });
+    const r = await runReviewPhase(task);
+    expect(r).toEqual({ status: "needs-human", reason: "worktree-missing" });
+    expect(vi.mocked(runHeadless)).not.toHaveBeenCalled();
+    const reloaded = await readTask(task.path);
+    expect(reloaded.frontmatter.status).toBe("needs-human");
+    expect(reloaded.body).toContain("decision: needs-human (worktree-missing)");
+  });
+
+  it("escalates to needs-human (worktree-missing) when frontmatter.worktree is null", async () => {
+    const task = await makeTaskFile(tmp, { worktree: null });
+    const r = await runReviewPhase(task);
+    expect(r).toEqual({ status: "needs-human", reason: "worktree-missing" });
+    expect(vi.mocked(runHeadless)).not.toHaveBeenCalled();
+  });
+
+  it("escalates to needs-human (pr-missing) when frontmatter.pr is null", async () => {
+    const task = await makeTaskFile(tmp, { pr: null });
+    const r = await runReviewPhase(task);
+    expect(r).toEqual({ status: "needs-human", reason: "pr-missing" });
+    expect(vi.mocked(runHeadless)).not.toHaveBeenCalled();
+  });
+
+  it("returns failed when the subprocess writes malformed JSON", async () => {
+    vi.mocked(runHeadless).mockImplementation(async (opts) => {
+      const m = opts.prompt.match(/RESULT_JSON_PATH=(\S+)/)!;
+      const resultPath = m[1]!;
+      await fs.mkdir(path.dirname(resultPath), { recursive: true });
+      await fs.writeFile(resultPath, "{ not valid json", "utf8");
+      return { ok: true, output: "", exitCode: 0 };
+    });
+    const task = await makeTaskFile(tmp);
+    const r = await runReviewPhase(task);
+    expect(r.status).toBe("failed");
+    if (r.status === "failed") {
+      expect(r.reason).toContain("malformed");
+    }
+  });
+
+  it("returns failed when the subprocess itself fails", async () => {
+    vi.mocked(runHeadless).mockResolvedValueOnce({
+      ok: false,
+      output: "",
+      exitCode: 1,
+      error: "synthetic claude crash",
+    });
+    const task = await makeTaskFile(tmp);
+    const r = await runReviewPhase(task);
+    expect(r.status).toBe("failed");
+    if (r.status === "failed") {
+      expect(r.reason).toContain("synthetic claude crash");
+    }
+    expect(vi.mocked(runCiWaitPhase)).not.toHaveBeenCalled();
+  });
+
   it("truncates the ci excerpt when it exceeds the prompt budget (~4 KB)", async () => {
-    // The 4 KB cap on ci excerpts is defense against a chatty Copilot summary
-    // blowing the prompt budget. Build a body whose ci subsection is well
-    // over 4 KB and assert the truncation marker shows up in the prompt.
-    mockReviewSequence([clean]);
+    mockReviewSummary(cleanSummary);
     const huge = "x".repeat(8 * 1024);
     const task = await makeTaskFile(tmp);
-    // Replace the ci subsection with the oversized payload.
-    task.body = task.body.replace(
-      "- bot: Copilot summary excerpt",
-      huge,
-    );
+    task.body = task.body.replace("- bot: Copilot summary excerpt", huge);
     await fs.writeFile(
       task.path,
-      `---\nid: ${task.frontmatter.id}\nstatus: reviewing\ncreated: ${task.frontmatter.created}\nupdated: ${task.frontmatter.updated}\ntarget_repo: ${task.frontmatter.target_repo}\nworktree: ${task.frontmatter.worktree}\nbranch: ${task.frontmatter.branch}\npr: ${task.frontmatter.pr}\nmanual_validation: null\nmerge_commit: null\nreview_cycles: null\n---\n${task.body}`,
+      `---\nid: ${task.frontmatter.id}\nstatus: reviewing\ncreated: ${task.frontmatter.created}\nupdated: ${task.frontmatter.updated}\ntarget_repo: ${task.frontmatter.target_repo}\nworktree: ${task.frontmatter.worktree}\nbranch: ${task.frontmatter.branch}\npr: ${task.frontmatter.pr}\nmanual_validation: null\nmerge_commit: null\n---\n${task.body}`,
       "utf8",
     );
     const reloaded = await readTask(task.path);
     await runReviewPhase(reloaded);
     const prompt = vi.mocked(runHeadless).mock.calls[0]![0]!.prompt;
     expect(prompt).toContain("[truncated for prompt budget]");
-    // The leading content survives; the tail is dropped.
     expect(prompt).toContain("xxxx");
   });
 });

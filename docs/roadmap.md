@@ -20,10 +20,11 @@ not introduced ahead of the PR that needs them.
 |---|---|---|
 | **Triage + scaffold** | Phase 0 (triage) + CLI scaffold | **shipped** |
 | **Plan / worktree / implement** | Phases 1–3 (plan, worktree, implement), single task | **shipped** |
-| **Phase 1 — foundation** | jsonl logging, detached subprocesses, cross-process claim primitive, implement create/fix split | **next** |
-| **Phase 2 — pipeline buildout** | ci-wait, verify retry loop, `flow log` viewer, review + critical loop-back, gate + merge | planned |
-| **Phase 3 — entry point + UX** | `/flow add`, `/flow status`, `/flow watch`, plan checkpoint | planned |
-| **Phase 4 — cutover + parallelism** | deprecate `flow start`, `flow install --upgrade`, parallelism, pause/resume/abort, notifications, `flow tui` | planned |
+| **Phase 1 — foundation** | jsonl logging, detached subprocesses, cross-process claim primitive, implement create/fix split | **shipped** (PRs 1–3) |
+| **Phase 2 — pipeline buildout** | ci-wait, verify retry loop, `flow log` viewer, review + critical loop-back, gate + merge | **shipped** (PRs 4–8) |
+| **Phase 2 follow-up** | review phase rewrites to native `/pr-review` invocation | **next** |
+| **Phase 3 — entry point + UX** | `/flow add`, `/flow status`, `/flow watch`, plan checkpoint | **shipped** (PRs 9–12) |
+| **Phase 4 — cutover + parallelism** | deprecate `flow start`, `flow install --upgrade`, parallelism, pause/resume/abort, notifications, `flow tui` | **partial**: PRs 13, 14, 15, 17 shipped; PR 16 in flight; PR 18 deferred; PR 19 optional |
 
 ## Shipped work
 
@@ -202,6 +203,13 @@ Done when:
   without human intervention.
 
 ## Phase 2 follow-up: review phase rewrites to native skill invocation
+
+> **Status:** **shipped in this PR** — drop the machine-mode forcing,
+> let `/pr-review`'s own Address-vs-Review mode detection drive the
+> single invocation, replace the `critical`/`minor` JSON contract with
+> the new `summary.json` (`{ mode, committed, escalate, reason,
+> addressed, deferred }`), and add a conditional `review → ci-wait →
+> gate` back-edge that fires only when the review phase committed.
 
 PR 7 shipped the review phase as a Review-mode-only wrapper around
 `/pr-review`: it sets `RESULT_JSON_PATH` to trip machine-mode in

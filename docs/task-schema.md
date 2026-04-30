@@ -73,7 +73,6 @@ merge_commit: null
 | `pr` | integer \| `null` | implement phase | GitHub PR number. Null until phase 3 opens it. |
 | `manual_validation` | bool \| `null` | gate phase | True if the PR's "Manual validation" section is non-empty. Null before the gate runs. |
 | `merge_commit` | string \| `null` | merge phase | SHA of the squash-merge commit on the base branch. Hard to recover after the fact (branch deleted, PR squashed) so we capture it explicitly. Null until M4's merge phase runs. |
-| `review_cycles` | integer \| `null` | review phase | Number of review→implement(fix) loop-backs that completed successfully (i.e. `implement(fix)` returned ok). Null until review runs the first time, then 0; increments only after a successful fix, so a failed fix does not consume budget and resume re-runs the same cycle. Capped at 2; reaching the cap with critical-code findings still present escalates to `needs-human (review-cycles-exhausted)`. Persists across crashes so resume-mid-loop continues from the right cycle. |
 
 Add new fields freely as later phases need them, but keep the schema
 backward-compatible: existing readers must not crash on missing fields.

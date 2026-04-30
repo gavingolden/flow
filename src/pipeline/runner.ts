@@ -65,12 +65,12 @@ const M2_PIPELINE: readonly PhaseSpec[] = [
     phase: runCiWaitPhase,
   },
   {
-    // The review phase keeps the task at status "reviewing" for the entire
-    // review→implement(fix) loop, including across the inner fix call.
-    // `unfinishedStatuses` is therefore just ["reviewing"]: a mid-loop
-    // crash leaves the status at "reviewing" so the runner re-enters here,
-    // reads the persisted `review_cycles` counter from frontmatter, and
-    // continues from where it left off.
+    // Review invokes /pr-review natively and lets its own mode detection
+    // drive: Address mode (auto-fix, address inline comments, reply,
+    // commit, push) when ci-wait collected reviewer comments, Review mode
+    // (independent multi-agent review, auto-fix, post inline findings)
+    // otherwise. When the skill commits, review.ts re-runs ci-wait inline
+    // before returning so gate reads fresh checks state.
     name: "review",
     unfinishedStatuses: ["reviewing"],
     phase: runReviewPhase,
