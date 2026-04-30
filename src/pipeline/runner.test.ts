@@ -94,7 +94,11 @@ import { runGatePhase } from "./phases/gate.js";
 import { runMergePhase } from "./phases/merge.js";
 import { NoopLogger, type Logger } from "../util/logger.js";
 
-async function makeTaskFile(tmpDir: string, status: TaskStatus): Promise<Task> {
+async function makeTaskFile(
+  tmpDir: string,
+  status: TaskStatus,
+  triageIntent?: string,
+): Promise<Task> {
   const taskPath = path.join(tmpDir, "task.md");
   const fm = {
     id: "2026-04-28-test",
@@ -108,6 +112,9 @@ async function makeTaskFile(tmpDir: string, status: TaskStatus): Promise<Task> {
     manual_validation: null,
     merge_commit: null,
   };
+  const triageBlock = triageIntent
+    ? ["## Triage", "", `- intent: ${triageIntent}`, "- summary: x", ""]
+    : [];
   const initial: Task = {
     path: taskPath,
     frontmatter: fm as Task["frontmatter"],
@@ -116,6 +123,7 @@ async function makeTaskFile(tmpDir: string, status: TaskStatus): Promise<Task> {
       "",
       "test",
       "",
+      ...triageBlock,
       "## Phase log",
       "",
       "## Phase outputs",
@@ -371,6 +379,40 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
       "gate",
       "merge",
     ]);
+  });
+
+  it("intent: feature halts after plan with status plan-pending-review", async () => {
+    // The post-plan checkpoint pauses feature-intent tasks for user
+    // review before implement burns tokens. Implement, verify, ci-wait,
+    // and review must NOT be invoked.
+    const task = await makeTaskFile(tmp, "worktree-ready", "feature");
+    const r = await runPipeline(task);
+    expect(r.status).toBe("ok");
+    expect(callLog).toEqual(["plan"]);
+    const after = await readTask(task.path);
+    expect(after.frontmatter.status).toBe("plan-pending-review");
+    expect(after.body).toMatch(
+      /planned → plan-pending-review \(intent: feature\)/,
+    );
+  });
+
+  it("intent: bug continues straight through to review (no checkpoint)", async () => {
+    const task = await makeTaskFile(tmp, "worktree-ready", "bug");
+    await runPipeline(task);
+    expect(callLog).toEqual(["plan", "implement", "verify", "ci-wait", "review"]);
+    const after = await readTask(task.path);
+    expect(after.frontmatter.status).not.toBe("plan-pending-review");
+  });
+
+  it("missing intent line continues straight through (treats as non-feature)", async () => {
+    const task = await makeTaskFile(tmp, "worktree-ready");
+    await runPipeline(task);
+    expect(callLog).toEqual(["plan", "implement", "verify", "ci-wait", "review"]);
+  });
+
+  it("plan-pending-review is not in CLAIMABLE_STATUSES (the runner won't pick it up)", async () => {
+    const { isClaimableStatus } = await import("./runner.js");
+    expect(isClaimableStatus("plan-pending-review")).toBe(false);
   });
 
   it("emits a phaseEnd line even when a phase throws past the PhaseResult contract", async () => {

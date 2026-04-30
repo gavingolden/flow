@@ -12,6 +12,8 @@ import { deriveBranchName } from "../../state/ids.js";
 import { PhaseResult } from "../types.js";
 import { NoopLogger, type Logger } from "../../util/logger.js";
 import { NoopJsonlSink, type JsonlSink } from "../../util/jsonl-sink.js";
+import { installScripts } from "../../install/scripts.js";
+import { installSkills } from "../../install/skills.js";
 
 export async function runWorktreePhase(
   task: Task,
@@ -32,6 +34,12 @@ export async function runWorktreePhase(
       task.frontmatter.target_repo,
     );
     if (symlinkResult.status !== "ok") return symlinkResult;
+    const installResult = await ensureWorktreeInstalls(task.frontmatter.worktree);
+    if (installResult.status !== "ok") {
+      jsonl.event("error", { msg: `worktree install failed: ${installResult.reason}` });
+      return installResult;
+    }
+    logger.event("worktree.install", "scripts+skills");
     if (task.frontmatter.status !== "worktree-ready") {
       await transitionStatus(task, "worktree-ready");
       logger.event("task.status", "worktree-ready");
@@ -150,6 +158,13 @@ async function finalizeWorktree(
     return symlinkResult;
   }
 
+  const installResult = await ensureWorktreeInstalls(worktreePath);
+  if (installResult.status !== "ok") {
+    jsonl.event("error", { msg: `worktree install failed: ${installResult.reason}` });
+    return installResult;
+  }
+  logger.event("worktree.install", "scripts+skills");
+
   await updateTaskFrontmatter(task, { worktree: worktreePath, branch });
   logger.event("task.frontmatter", `worktree=${worktreePath} branch=${branch}`);
   jsonl.event("info", { msg: `frontmatter updated worktree=${worktreePath} branch=${branch}` });
@@ -258,4 +273,34 @@ async function lstatOrNull(
 // internal single quote with the standard `'\''` close-escape-open dance.
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+// Run `flow install` (scripts + skills) against the new worktree so
+// downstream phases that shell out to bundled scripts (`ci-wait`,
+// `verify-gate`, `pr-review`, etc.) and skills under `.claude/skills/`
+// find the symlinks they expect. Without this, a fresh `git worktree add`
+// starts empty of every flow-managed symlink (they're absolute paths and
+// gitignored), so the user has to manually run `flow install --force`
+// before the pipeline can proceed. Idempotent on re-entry — calling
+// against an already-populated worktree is a no-op.
+//
+// Defaults only: no `--force` (preserves user-customised real files),
+// no `--upgrade` (orphan removal is a separate user-driven concern),
+// no `--skipPipeline` (the orchestrator depends on pipeline skills),
+// no `--stack` (the worktree pipeline doesn't need stack skills; a
+// stack-using consumer can re-run `flow install --stack=...` manually).
+export async function ensureWorktreeInstalls(
+  worktreePath: string,
+): Promise<PhaseResult> {
+  try {
+    await installScripts(worktreePath, {});
+    await installSkills(worktreePath, {});
+    return { status: "ok" };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      status: "failed",
+      reason: `failed to install scripts/skills into worktree at ${worktreePath}: ${reason}`,
+    };
+  }
 }

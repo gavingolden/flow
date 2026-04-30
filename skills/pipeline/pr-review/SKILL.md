@@ -191,6 +191,21 @@ The multi-agent review exists to catch real issues — not to produce a report. 
 finding in the filtered set (Step 5), you must either fix it now or escalate it to a
 durable tracker. Silently listing findings in the report without action is a failure mode.
 
+**Pre-flight mode assertion (do not skip).** Before any deferral reasoning, confirm the
+mode. The "no auto-fix" override lives in [Machine-readable output mode](#machine-readable-output-mode-orchestrator-driven)
+and applies *only* when the env var `RESULT_JSON_PATH` is set by the orchestrator. If
+`RESULT_JSON_PATH` is unset (any interactive `/pr-review <PR>` invocation), you are in
+fix-now mode — you MUST attempt the edits. Specifically:
+
+- Do **not** preemptively decide that a hook, permission rule, or "machine-readable
+  mode" will block writes. None of those apply unless `RESULT_JSON_PATH` is set.
+- Do **not** infer a block from the worktree path (e.g. `flow-agent-*` worktrees are
+  ordinary git worktrees; they have no special write protection).
+- Make a real `Edit` / `Write` tool call. If — and only if — the tool returns an error,
+  surface the verbatim error message to the user and ask how to proceed. Paraphrasing a
+  refusal as "the hook denied edits" without an actual tool-call error is a fabrication
+  and a verification failure.
+
 **Default is fix-now.** Per `AGENTS.md` Hardening: "Fix security, reliability, and
 correctness issues immediately — don't defer them. If a fix is complex enough to warrant
 separate work, add a concrete task to the project's tracker (e.g., `ROADMAP.md`, GitHub

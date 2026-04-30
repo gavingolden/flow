@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   __setNotifierForTests,
+  appendToBodySection,
   readTask,
   readTaskSync,
   transitionStatus,
@@ -260,5 +261,52 @@ describe("optional frontmatter fields", () => {
     const t = await makeTask(tmp);
     const reread = await readTask(t.path);
     expect(reread.frontmatter.review_cycles).toBeUndefined();
+  });
+});
+
+describe("appendToBodySection — replacement-string special chars", () => {
+  // Regression: PR 12 exposed `appendToBodySection` to user-supplied text
+  // (the `flow revise` message). The internal `String.prototype.replace`
+  // call previously used a string replacement, which expands `$&`, `$1`,
+  // `$$`, `$\``, `$'`, `$<n>` patterns — corrupting `task.md` whenever a
+  // revise message happened to include them. The replacer now uses a
+  // function, so the `line` argument lands in the body verbatim.
+  let tmp: string;
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flow-tf-append-"));
+  });
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("appends a line containing $& to an existing section verbatim (no replacement-pattern expansion)", async () => {
+    const t = await makeTask(tmp);
+    // Append into an existing section so the bug path (the .replace call
+    // that previously interpreted $&) is exercised.
+    appendToBodySection(t, "## Phase log", "- 2026-04-30T00:00:00Z note: $& should stay literal");
+    expect(t.body).toContain("note: $& should stay literal");
+    // The matched block ("## Phase log\n\n…") must NOT have been spliced
+    // back in via $& expansion.
+    expect(t.body).not.toContain("note: ## Phase log");
+  });
+
+  it("appends a line containing $1, $$, and $` verbatim", async () => {
+    const t = await makeTask(tmp);
+    appendToBodySection(
+      t,
+      "## Phase log",
+      "- 2026-04-30T00:00:00Z weird: $$ $1 $` $' tail",
+    );
+    expect(t.body).toContain("weird: $$ $1 $` $' tail");
+  });
+
+  it("creates a new section verbatim when the heading is missing (the line is concatenated, not replaced)", async () => {
+    const t = await makeTask(tmp);
+    // ## Revision notes is not in the base body; the missing-section
+    // branch concatenates rather than calling .replace, so it is already
+    // safe — pin that to keep both branches covered.
+    appendToBodySection(t, "## Revision notes", "- ts: $& $$ $1 verbatim");
+    expect(t.body).toContain("## Revision notes");
+    expect(t.body).toContain("- ts: $& $$ $1 verbatim");
   });
 });

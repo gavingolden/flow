@@ -124,6 +124,17 @@ Notes:
 - Omit `--clarification` entirely if the user's request was
   unambiguous; do not pass an empty value.
 
+> **Heads-up for `feature`-intent tasks.** The pipeline pauses for review
+> after the plan phase at status `plan-pending-review` — implement does
+> NOT auto-run. The user resumes the pipeline by running `/flow-approve
+> <id>` (continue with the plan as-is) or `/flow-revise <id> "<message>"`
+> (re-plan with a redirection). This pause does not happen for `bug`,
+> `refactor`, `docs`, `infra`, or `chore` intents — those flow straight
+> through to implement. To be alerted (macOS) when the checkpoint hits,
+> export `FLOW_NOTIFY=1` in your shell before kicking off the run; see
+> the README's "Notifications" section for the full list of
+> attention-worthy statuses.
+
 ## 4. Run the helper and forward its output verbatim
 
 Invoke the command via the `Bash` tool. The helper prints a
