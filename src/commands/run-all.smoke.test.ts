@@ -186,22 +186,50 @@ describeMaybe("flow run --all worker-pool race (integration smoke)", () => {
       // assume the file count is 2: when the schedulers spawn within
       // the same millisecond the stamp collides and both append to one
       // shared file (line-atomic appends keep the events distinct).
+      //
+      // Drain at least until every loser child has had a chance to
+      // exit so the loser-side worker.exit assertions below are
+      // meaningful. Losers exit on `acquireClaim` failure with a
+      // clean exit code, so they finish quickly once the lock file
+      // exists; the deadline is a generous upper bound.
       const runsDir = path.join(fixture.dir, ".orchestrator", "runs");
-      const runsEntries = await fs.readdir(runsDir).catch(() => []);
-      const jsonlFiles = runsEntries.filter((n) => n.startsWith("all-") && n.endsWith(".jsonl"));
-      expect(jsonlFiles.length).toBeGreaterThanOrEqual(1);
+      const exitDeadline = Date.now() + 10_000;
       let totalSpawnEvents = 0;
-      for (const name of jsonlFiles) {
-        const txt = await fs.readFile(path.join(runsDir, name), "utf8");
-        for (const line of txt.split("\n")) {
-          if (!line.trim()) continue;
-          try {
-            const evt = JSON.parse(line);
-            if (evt.name === "worker.spawn") totalSpawnEvents++;
-          } catch {}
+      let totalExitEvents = 0;
+      while (Date.now() < exitDeadline) {
+        totalSpawnEvents = 0;
+        totalExitEvents = 0;
+        const runsEntries = await fs.readdir(runsDir).catch(() => []);
+        const jsonlFiles = runsEntries.filter(
+          (n) => n.startsWith("all-") && n.endsWith(".jsonl"),
+        );
+        for (const name of jsonlFiles) {
+          const txt = await fs.readFile(path.join(runsDir, name), "utf8");
+          for (const line of txt.split("\n")) {
+            if (!line.trim()) continue;
+            try {
+              const evt = JSON.parse(line);
+              if (evt.name === "worker.spawn") totalSpawnEvents++;
+              else if (evt.name === "worker.exit") totalExitEvents++;
+            } catch {}
+          }
         }
+        // We expect every loser to have exited by now — that's N exits
+        // across the union (one per task's losing child). Winners are
+        // still pinned in the sleep stub, so 2N exits are not expected
+        // until tear-down.
+        if (totalSpawnEvents === fixture.ids.length * 2 && totalExitEvents >= fixture.ids.length) {
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 100));
       }
       expect(totalSpawnEvents).toBe(fixture.ids.length * 2);
+      // Every loser child must have produced a `worker.exit` event by
+      // now. Without this assertion, a regression in the per-task
+      // runner's loser-path exit (e.g. it starts hanging on an
+      // unrelated lock contention) would still pass the spawn-count
+      // check but actually leave the scheduler unable to free slots.
+      expect(totalExitEvents).toBeGreaterThanOrEqual(fixture.ids.length);
 
       // Tear down: kill the winners so the scheduler's drain wraps up
       // and `a.done` / `b.done` resolve. We don't wait on the schedulers

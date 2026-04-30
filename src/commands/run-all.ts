@@ -161,9 +161,13 @@ export async function runAllCommand(opts: RunAllOptions = {}): Promise<void> {
   process.on("SIGINT", sigintHandler);
   // Deliver-on-SIGTERM: same behaviour as the second SIGINT — propagate
   // SIGTERM to children and exit. The detached-scheduler's documented
-  // stop signal.
+  // stop signal. Idempotent on repeat delivery: if the cascade has
+  // already fired, just record the signal and return — re-iterating
+  // `liveChildren` and re-emitting the warn line on every duplicate
+  // SIGTERM would noise up the log without changing behaviour.
   const sigtermHandler = (): void => {
     logger.event("signal.received", { signal: "SIGTERM" });
+    if (escalated) return;
     logger.warn(
       `received SIGTERM — propagating to ${liveChildren.size} child(ren) and exiting`,
     );
@@ -383,18 +387,25 @@ function spawnChildRunner(taskId: string, repoRoot: string): ChildProcess {
     {
       stdio: ["ignore", "ignore", "ignore"],
       cwd: repoRoot,
-      // Strip the per-task FLOW_LOG_PATH env var (if our parent set
-      // one) so the child's `createLogger` opens its own per-task file
-      // instead of clobbering the scheduler's. Each child writes to
-      // `runs/<safeTaskId>-<stamp>.log` as today.
-      env: stripFlowLogPath(process.env),
+      // Strip scheduler-only env vars before handing off to the
+      // per-task child:
+      //   - FLOW_LOG_PATH: scheduler's createLogger uses this; the
+      //     child must open its own per-task file at
+      //     `runs/<safeTaskId>-<stamp>.log` rather than appending to
+      //     the scheduler's.
+      //   - FLOW_RUN_ALL_STAMP: only the scheduler interprets this
+      //     (to inherit the parent-detached log stamp); leaking it
+      //     into per-task children means a future read of the var
+      //     would silently bind to the scheduler's stamp instead of
+      //     no-op'ing.
+      env: stripSchedulerEnv(process.env),
     },
   );
 }
 
-function stripFlowLogPath(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+function stripSchedulerEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { FLOW_LOG_PATH, ...rest } = env;
+  const { FLOW_LOG_PATH, FLOW_RUN_ALL_STAMP, ...rest } = env;
   return rest;
 }
 
