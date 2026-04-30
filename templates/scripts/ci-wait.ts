@@ -81,26 +81,42 @@ export class GhTransientError extends Error {
   }
 }
 
-// CLI-usage / structural errors from `gh` are not transient — retrying them
-// for an hour just delays the inevitable failure. We classify by stderr
-// content so the polling loop can fail fast instead of treating "Unknown
-// JSON field" or "unknown flag" as a retryable network blip.
+// Errors that retrying cannot fix: schema drift between this script and the
+// installed `gh` CLI (`Unknown JSON field`, `unknown flag`), an invalid PR
+// number, or auth misconfig. Retrying these for an hour just delays the
+// inevitable failure; the loop bails out immediately on this class. The
+// `call` property names which gh op tripped the error so the wrapper can
+// surface an actionable diagnostic.
 export class GhPermanentError extends Error {
-  constructor(message: string) {
+  constructor(public readonly call: string, message: string) {
     super(message);
     this.name = "GhPermanentError";
   }
 }
 
-const PERMANENT_GH_PATTERNS: RegExp[] = [
-  /Unknown JSON field/i,
-  /unknown flag/i,
-  /unknown command/i,
-  /accepts \d+ arg\(s\)/i,
-];
+// Heuristic: classify a gh stderr message as permanent when the error
+// signature could not change without a code/CLI/config edit. Conservative —
+// anything ambiguous stays transient and goes through the retry path.
+export function isPermanentGhError(stderr: string): boolean {
+  const s = stderr.toLowerCase();
+  return (
+    s.includes("unknown json field") ||
+    s.includes("unknown flag") ||
+    s.includes("unknown command") ||
+    /accepts \d+ arg\(s\)/.test(s) ||
+    s.includes("could not resolve to a pullrequest") ||
+    s.includes("no pull requests found") ||
+    s.includes("authentication required") ||
+    s.includes("bad credentials")
+  );
+}
 
-export function isPermanentGhStderr(stderr: string): boolean {
-  return PERMANENT_GH_PATTERNS.some((p) => p.test(stderr));
+// gh exits non-zero with this exact stderr signature when a PR has no
+// checks at all (e.g. the target repo has no GitHub Actions configured).
+// From ci-wait's perspective that's a successful "zero checks" fetch —
+// otherwise every flow target without CI would grind to the hard cap.
+export function isNoChecksReported(stderr: string): boolean {
+  return /^no checks reported/i.test(stderr);
 }
 
 // --- Config ---
@@ -186,20 +202,11 @@ export function defaultGhOps(): GhOps {
         "--json",
         "name,state",
       ]);
-      // `gh pr checks` exits 1 with stderr "no checks reported on the '<ref>'
-      // branch" when the PR genuinely has no checks. That's a successful
-      // empty result, not a transient failure — distinguish it explicitly so
-      // repos without GitHub Actions don't hang the loop to hard cap.
       if (r.exitCode !== 0) {
-        if (/no checks reported/i.test(r.stderr)) return [];
-        if (isPermanentGhStderr(r.stderr)) {
-          throw new GhPermanentError(
-            `gh pr checks: ${r.stderr.trim() || `exit ${r.exitCode}`}`,
-          );
-        }
-        throw new GhTransientError(
-          r.stderr.trim() || `gh pr checks exit ${r.exitCode}`,
-        );
+        const msg = r.stderr.trim() || `gh pr checks exit ${r.exitCode}`;
+        if (isNoChecksReported(msg)) return [];
+        if (isPermanentGhError(msg)) throw new GhPermanentError("prChecks", msg);
+        throw new GhTransientError(msg);
       }
       try {
         const parsed = JSON.parse(r.stdout) as GhCheck[];
@@ -219,14 +226,9 @@ export function defaultGhOps(): GhOps {
         ".reviews",
       ]);
       if (r.exitCode !== 0) {
-        if (isPermanentGhStderr(r.stderr)) {
-          throw new GhPermanentError(
-            `gh pr view (reviews): ${r.stderr.trim() || `exit ${r.exitCode}`}`,
-          );
-        }
-        throw new GhTransientError(
-          r.stderr.trim() || `gh pr view exit ${r.exitCode}`,
-        );
+        const msg = r.stderr.trim() || `gh pr view exit ${r.exitCode}`;
+        if (isPermanentGhError(msg)) throw new GhPermanentError("prReviews", msg);
+        throw new GhTransientError(msg);
       }
       try {
         const parsed = JSON.parse(r.stdout) as GhReview[];
@@ -238,11 +240,6 @@ export function defaultGhOps(): GhOps {
     prUrl(pr: number): string {
       const r = ghCapture(["pr", "view", String(pr), "--json", "url", "--jq", ".url"]);
       if (r.exitCode !== 0) {
-        if (isPermanentGhStderr(r.stderr)) {
-          throw new GhPermanentError(
-            `gh pr view (url): ${r.stderr.trim() || `exit ${r.exitCode}`}`,
-          );
-        }
         throw new GhTransientError(
           r.stderr.trim() || `gh pr view --json url exit ${r.exitCode}`,
         );
@@ -316,7 +313,7 @@ export type PollDeps = {
   emit: (event: string, payload: Record<string, unknown>) => void;
 };
 
-export type PollOutcome = "ok" | "ci-hang";
+export type PollOutcome = "ok" | "ci-hang" | "gh-error";
 
 export type PollResult = {
   outcome: PollOutcome;
@@ -331,14 +328,19 @@ export type PollResult = {
   // legitimately-pending CI run. The renderer distinguishes the two cases
   // so the user isn't left with a `ci-hang` section that omits the cause.
   ciHangNoChecksFetched: boolean;
+  // Populated when `outcome === "gh-error"`: which gh call hit the
+  // permanent error and the message gh returned. Lets the wrapper render
+  // an actionable diagnostic rather than a generic timeout.
+  ghErrorCall?: string;
+  ghErrorMessage?: string;
 };
 
 // Per-call retry wrapper. The first failure pauses 5s, then re-invokes; the
-// second failure surfaces. The polling loop's caller decides what "second
-// failure" means at the iteration level — typically: skip this poll, sleep
-// the cadence, try again until the hard cap. `GhPermanentError` is
-// rethrown immediately on either attempt — retrying a CLI-usage error just
-// burns the hard cap on a guaranteed failure.
+// second failure surfaces. Permanent errors (schema drift, auth, missing PR)
+// short-circuit both attempts — retrying them is pointless and just delays
+// the user-visible diagnostic. The polling loop's caller decides what
+// "second failure" means at the iteration level — typically: skip this
+// poll, sleep the cadence, try again until the hard cap.
 async function callWithRetry<T>(
   label: string,
   fn: () => T | Promise<T>,
@@ -356,7 +358,13 @@ async function callWithRetry<T>(
       return { ok: true, value: await fn() };
     } catch (err2) {
       if (err2 instanceof GhPermanentError) throw err2;
-      return { ok: false, error: (err2 as Error).message };
+      const msg = (err2 as Error).message;
+      // Without this second-failure event, a sustained outage looks
+      // identical to a single transient blip in the jsonl log: the wrapper
+      // would have no way to count failures or surface them in the
+      // heartbeat. Emit so consumers can see the full failure progression.
+      emit("ci-wait.gh_retry_exhausted", { call: label, error: msg });
+      return { ok: false, error: msg };
     }
   }
 }
@@ -402,8 +410,31 @@ export async function pollUntilTerminal(args: {
 
     polls++;
 
-    const checksRes = await callWithRetry("prChecks", () => gh.prChecks(pr), sleep, emit);
-    const reviewsRes = await callWithRetry("prReviews", () => gh.prReviews(pr), sleep, emit);
+    let checksRes: { ok: true; value: GhCheck[] } | { ok: false; error: string };
+    let reviewsRes: { ok: true; value: GhReview[] } | { ok: false; error: string };
+    try {
+      checksRes = await callWithRetry("prChecks", () => gh.prChecks(pr), sleep, emit);
+      reviewsRes = await callWithRetry("prReviews", () => gh.prReviews(pr), sleep, emit);
+    } catch (err) {
+      if (err instanceof GhPermanentError) {
+        emit("ci-wait.gh_permanent", { call: err.call, error: err.message });
+        return {
+          outcome: "gh-error",
+          polls,
+          durMs: now() - start,
+          checks: lastChecks,
+          reviews: lastReviews,
+          pendingChecks: pendingCheckNames(lastChecks),
+          missingBots: botsCollected(lastReviews, config.bots).missing,
+          // ciHangNoChecksFetched is specifically for ci-hang at hard cap;
+          // a permanent gh error has its own dedicated diagnostic path.
+          ciHangNoChecksFetched: false,
+          ghErrorCall: err.call,
+          ghErrorMessage: err.message,
+        };
+      }
+      throw err;
+    }
 
     if (!checksRes.ok && !reviewsRes.ok) {
       // Both calls failed both attempts. Treat this iteration as no-progress
@@ -618,28 +649,16 @@ async function main(): Promise<void> {
     });
   }
 
-  let result: PollResult;
-  try {
-    result = await pollUntilTerminal({
-      pr: args.pr,
-      config,
-      deps: {
-        gh,
-        sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
-        now: () => Date.now(),
-        emit: emitStderrEvent,
-      },
-    });
-  } catch (err) {
-    if (err instanceof GhPermanentError) {
-      emitStderrEvent("ci-wait.exit", { outcome: "gh-permanent", reason: err.message });
-      process.stdout.write(
-        `${JSON.stringify({ outcome: "gh-permanent", reason: err.message })}\n`,
-      );
-      process.exit(1);
-    }
-    throw err;
-  }
+  const result = await pollUntilTerminal({
+    pr: args.pr,
+    config,
+    deps: {
+      gh,
+      sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+      now: () => Date.now(),
+      emit: emitStderrEvent,
+    },
+  });
 
   const section = renderCiSection({
     reviews: result.reviews,
@@ -663,6 +682,8 @@ async function main(): Promise<void> {
       section,
       missingBots: result.missingBots,
       pendingChecks: result.pendingChecks,
+      ghErrorCall: result.ghErrorCall,
+      ghErrorMessage: result.ghErrorMessage,
     })}\n`,
   );
   process.exit(result.outcome === "ok" ? 0 : 1);
