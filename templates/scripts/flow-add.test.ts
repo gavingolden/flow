@@ -625,6 +625,29 @@ describe(main, () => {
     );
     expect(code).toBe(3);
     expect(stderr.text).toContain("must be run from inside a git repository");
+    // Distinct error wording: this branch is for "user is outside any repo",
+    // not "git binary missing". The git-missing branch has its own message
+    // so the user can act — install git vs. cd into a repo.
+    expect(stderr.text).not.toContain("git not found on PATH");
+  });
+
+  it("exits 3 with a distinct 'git not found on PATH' message when git is missing", async () => {
+    const stdout = new StringSink();
+    const stderr = new StringSink();
+    const code = await main(
+      ["p", "--intent", "feature", "--summary", "s"],
+      {
+        cwd: "/some/where",
+        findCanonicalRootResult: () => ({ kind: "git-missing" }),
+        stdout,
+        stderr,
+      },
+    );
+    expect(code).toBe(3);
+    expect(stderr.text).toContain("git not found on PATH");
+    expect(stderr.text).not.toContain(
+      "must be run from inside a git repository",
+    );
   });
 
   it("exits 2 when flow is not on PATH", async () => {

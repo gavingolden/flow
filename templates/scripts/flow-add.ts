@@ -80,7 +80,18 @@ export type MainDeps = {
   nowIso?: () => string;
   todayUtcDate?: () => string;
   readExistingIds?: (tasksRoot: string) => string[];
+  /**
+   * Path-only injection for happy-path tests that don't care about
+   * the git-missing vs not-a-repo distinction. Maps to a `kind: "ok"`
+   * or `kind: "not-a-repo"` result internally.
+   */
   findCanonicalRoot?: (cwd: string) => string | null;
+  /**
+   * Richer injection for tests that need to drive the git-missing
+   * branch separately from the not-a-repo branch. When provided,
+   * `findCanonicalRoot` is ignored.
+   */
+  findCanonicalRootResult?: (cwd: string) => CanonicalRootResult;
   spawnDetach?: SpawnDetachFn;
   stdout?: WriteSink;
   stderr?: WriteSink;
@@ -295,6 +306,17 @@ function required(v: string | undefined, flag: string): string {
 // --- Canonical root (mirrors src/util/git.ts) ---
 
 /**
+ * Result of canonical-root resolution. Distinguishes the two ways root
+ * lookup can fail so the caller can produce different error wording:
+ * `git` missing from PATH is a setup problem, while "not in a git repo"
+ * is a use-site problem.
+ */
+export type CanonicalRootResult =
+  | { kind: "ok"; path: string }
+  | { kind: "git-missing" }
+  | { kind: "not-a-repo" };
+
+/**
  * Returns the *primary* worktree path even when invoked from a child
  * worktree — `flow run` refuses to operate from a child worktree's cwd, so
  * the helper must canonicalise before spawning. Mirrors `findCanonicalRoot`
@@ -302,35 +324,56 @@ function required(v: string | undefined, flag: string): string {
  * repos that don't have flow's TS sources on disk (same constraint as
  * `flow-watch.ts`).
  *
- * Returns null when `cwd` isn't inside any git repo.
+ * `spawnSync`-with-missing-binary surfaces as `r.error.code === "ENOENT"`
+ * (no thrown exception), so the git-missing classification reads the
+ * `error` field rather than relying on a try/catch.
+ */
+export function findCanonicalRootResult(cwd: string): CanonicalRootResult {
+  let gitMissing = false;
+  const r1 = spawnSync(
+    "git",
+    ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+    { cwd, encoding: "utf8" },
+  );
+  if ((r1.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+    gitMissing = true;
+  } else if (r1.status === 0 && r1.stdout) {
+    const commonDir = r1.stdout.trim();
+    if (commonDir.endsWith(`${sep}.git`) || commonDir.endsWith("/.git")) {
+      return { kind: "ok", path: commonDir.slice(0, -".git".length - 1) };
+    }
+    // Bare repo / custom GIT_DIR — fall through to toplevel.
+  }
+  const r2 = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd,
+    encoding: "utf8",
+  });
+  if ((r2.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+    gitMissing = true;
+  } else if (r2.status === 0 && r2.stdout) {
+    return { kind: "ok", path: r2.stdout.trim() };
+  }
+  return gitMissing ? { kind: "git-missing" } : { kind: "not-a-repo" };
+}
+
+/**
+ * Backwards-compatible wrapper returning the path or null. `main` uses the
+ * richer `findCanonicalRootResult` to distinguish error classes; tests for
+ * the pure git-rooted resolution still consume this string-or-null shape.
  */
 export function findCanonicalRoot(cwd: string): string | null {
-  try {
-    const r = spawnSync(
-      "git",
-      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
-      { cwd, encoding: "utf8" },
-    );
-    if (r.status === 0 && r.stdout) {
-      const commonDir = r.stdout.trim();
-      if (commonDir.endsWith(`${sep}.git`) || commonDir.endsWith("/.git")) {
-        return commonDir.slice(0, -".git".length - 1);
-      }
-      // Bare repo / custom GIT_DIR — fall through to toplevel.
-    }
-  } catch {
-    // git not on PATH — fall through.
-  }
-  try {
-    const r = spawnSync("git", ["rev-parse", "--show-toplevel"], {
-      cwd,
-      encoding: "utf8",
-    });
-    if (r.status === 0 && r.stdout) return r.stdout.trim();
-  } catch {
-    // git not on PATH; surface as null below.
-  }
-  return null;
+  const r = findCanonicalRootResult(cwd);
+  return r.kind === "ok" ? r.path : null;
+}
+
+/**
+ * Adapter from the legacy string-or-null shape to the richer result. Tests
+ * that inject only `findCanonicalRoot` (pre-rich-API) get an "ok" or
+ * "not-a-repo" classification — they can't drive "git-missing" without
+ * switching to `findCanonicalRootResult`.
+ */
+function toCanonicalRootResult(p: string | null): CanonicalRootResult {
+  return p === null ? { kind: "not-a-repo" } : { kind: "ok", path: p };
 }
 
 // --- Existing-id discovery ---
@@ -478,14 +521,24 @@ export async function main(
     throw err;
   }
 
-  const findRoot = deps.findCanonicalRoot ?? findCanonicalRoot;
-  const repoRoot = findRoot(cwd);
-  if (!repoRoot) {
-    stderr.write(
-      "error: flow-add must be run from inside a git repository\n",
-    );
+  const rootResult: CanonicalRootResult = deps.findCanonicalRootResult
+    ? deps.findCanonicalRootResult(cwd)
+    : deps.findCanonicalRoot
+      ? toCanonicalRootResult(deps.findCanonicalRoot(cwd))
+      : findCanonicalRootResult(cwd);
+  if (rootResult.kind !== "ok") {
+    if (rootResult.kind === "git-missing") {
+      stderr.write(
+        "error: git not found on PATH; install git (or add it to PATH) and try again\n",
+      );
+    } else {
+      stderr.write(
+        "error: flow-add must be run from inside a git repository\n",
+      );
+    }
     return 3;
   }
+  const repoRoot = rootResult.path;
 
   const tasksRoot = join(repoRoot, ".orchestrator", "tasks");
   await mkdir(tasksRoot, { recursive: true });
