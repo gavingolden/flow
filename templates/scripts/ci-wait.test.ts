@@ -6,11 +6,13 @@ import { join } from "node:path";
 import {
   ConfigInvalidError,
   DEFAULT_CONFIG,
+  GhPermanentError,
   type GhCheck,
   type GhOps,
   type GhReview,
   botsCollected,
   isChecksTerminal,
+  isPermanentGhStderr,
   loadConfig,
   pendingCheckNames,
   pollUntilTerminal,
@@ -21,7 +23,7 @@ import {
 // --- Fixtures ---
 
 function check(name: string, state: string): GhCheck {
-  return { name, state, conclusion: state === "SUCCESS" ? "success" : null };
+  return { name, state };
 }
 
 function review(login: string, overrides: Partial<GhReview> = {}): GhReview {
@@ -152,6 +154,41 @@ describe("pendingCheckNames", () => {
         check("build", "QUEUED"),
       ]),
     ).toEqual(["lint", "build"]);
+  });
+});
+
+// --- isPermanentGhStderr ---
+
+describe("isPermanentGhStderr", () => {
+  it("flags 'Unknown JSON field' as permanent", () => {
+    expect(
+      isPermanentGhStderr(
+        'Unknown JSON field: "conclusion"\nAvailable fields:\n  bucket\n  state',
+      ),
+    ).toBe(true);
+  });
+  it("flags 'unknown flag' as permanent", () => {
+    expect(isPermanentGhStderr("unknown flag: --bogus")).toBe(true);
+  });
+  it("flags 'unknown command' as permanent", () => {
+    expect(isPermanentGhStderr("unknown command \"frobnicate\" for \"gh pr\"")).toBe(true);
+  });
+  it("does not flag generic network errors as permanent", () => {
+    expect(isPermanentGhStderr("HTTP 502: bad gateway")).toBe(false);
+    expect(isPermanentGhStderr("rate limit exceeded; try again later")).toBe(false);
+    expect(isPermanentGhStderr("")).toBe(false);
+  });
+});
+
+// --- DEFAULT_CONFIG ---
+
+describe("DEFAULT_CONFIG", () => {
+  it("uses Copilot's actual GitHub login", () => {
+    // The reviewer login on real PRs is `copilot-pull-request-reviewer`.
+    // `botsCollected` matches by exact (case-insensitive) login, so the
+    // default must match the real login or every default-config run
+    // hangs to hard cap. See ci-hang on PR #23 (2026-04-30).
+    expect(DEFAULT_CONFIG.bots).toEqual(["copilot-pull-request-reviewer"]);
   });
 });
 
@@ -319,6 +356,25 @@ describe("pollUntilTerminal", () => {
       (e) => e.event === "ci-wait.poll" && e.payload.noProgress === true,
     );
     expect(noProgress.length).toBeGreaterThan(0);
+  });
+
+  it("propagates GhPermanentError out of the loop instead of retrying", async () => {
+    // Regression: an "Unknown JSON field" error from gh used to be retried
+    // every 30s for the full hour. It must escape the loop on the first
+    // poll so main() can fail fast with outcome=gh-permanent.
+    const { config, deps } = makeDeps({
+      cadenceMs: 50,
+      hardCapMs: 5_000,
+      gh: makeGhOps({
+        prChecks: () => {
+          throw new GhPermanentError("Unknown JSON field: \"conclusion\"");
+        },
+        prReviews: () => [],
+      }),
+    });
+    await expect(pollUntilTerminal({ pr: 184, config, deps })).rejects.toBeInstanceOf(
+      GhPermanentError,
+    );
   });
 
   it("does not advance past CI when checks fetch never succeeds (reviews ok, bots present)", async () => {

@@ -11,13 +11,13 @@ import { PhaseResult } from "../types.js";
 import { NoopLogger, type Logger } from "../../util/logger.js";
 import { NoopJsonlSink, type JsonlSink } from "../../util/jsonl-sink.js";
 
-// 5-minute heartbeat. ci-wait can run for up to 60 minutes — verify-gate's
+// 5-minute heartbeat. ci-wait can run for up to 20 minutes — verify-gate's
 // 15s default would dilute the signal, but no heartbeat at all (a single
-// 60-min execa) leaves the user staring at a frozen log.
+// 20-min execa) leaves the user staring at a frozen log.
 const CI_WAIT_HEARTBEAT_MS = 5 * 60 * 1000;
 
 interface CiWaitScriptOutput {
-  outcome: "ok" | "ci-hang" | "config-invalid";
+  outcome: "ok" | "ci-hang" | "config-invalid" | "gh-permanent";
   polls?: number;
   durMs?: number;
   section?: string;
@@ -176,6 +176,14 @@ export async function runCiWaitPhase(
     // config file.
     await transitionStatus(task, "needs-human", "config-invalid");
     return { status: "needs-human", reason: "config-invalid" };
+  }
+
+  if (parsed.outcome === "gh-permanent") {
+    // The ci-wait script detected a non-retryable `gh` CLI error (e.g.
+    // "Unknown JSON field"). Fail fast rather than burning the hard cap.
+    // No phase output — there's no review/check data to record.
+    await transitionStatus(task, "needs-human", "gh-permanent");
+    return { status: "needs-human", reason: "gh-permanent" };
   }
 
   const reason = `ci-wait script returned unknown outcome: ${parsed.outcome}`;

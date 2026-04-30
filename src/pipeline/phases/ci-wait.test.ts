@@ -317,6 +317,31 @@ describe("runCiWaitPhase", () => {
     expect(reread.body).toContain("config-invalid");
   });
 
+  it("gh-permanent: status flips to needs-human with note gh-permanent, no ci section written", async () => {
+    // Permanent gh CLI errors (e.g. "Unknown JSON field") must short-circuit
+    // to needs-human instead of riding the loop to hard cap. Mirror of the
+    // config-invalid branch — no review/check data, but distinct reason
+    // so the user can debug the gh invocation.
+    const stdoutPayload = JSON.stringify({
+      outcome: "gh-permanent",
+      reason: "gh pr checks: Unknown JSON field: \"conclusion\"",
+    });
+
+    const { tmp, task } = await setupRepo({
+      status: "pr-open",
+      pr: 184,
+      fixture: { stdoutPayload, exitCode: 1 },
+    });
+    tmpRoot = tmp;
+    const result = await runCiWaitPhase(task, makeLogger(), makeJsonl());
+
+    expect(result).toEqual({ status: "needs-human", reason: "gh-permanent" });
+    const reread = await readTask(task.path);
+    expect(reread.frontmatter.status).toBe("needs-human");
+    expect(reread.body).not.toContain("### ci (latest:");
+    expect(reread.body).toContain("gh-permanent");
+  });
+
   it("resume idempotency: running twice on a happy-path script writes one ### ci subsection", async () => {
     const sectionMd = "| bot | state | submitted_at |\n|---|---|---|\n| Copilot | COMMENTED | 2026-04-29T22:35:00Z |";
     const stdoutPayload = JSON.stringify({

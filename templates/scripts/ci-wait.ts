@@ -32,10 +32,14 @@ export type CiWaitConfig = {
   hardCapMs: number;
 };
 
+// The GitHub Copilot reviewer's actual login is `copilot-pull-request-reviewer`,
+// not `Copilot`. `botsCollected` matches by exact (case-insensitive) login, so
+// the default must be the real login or every default-config run hangs to
+// hard cap waiting for a bot that will never appear.
 export const DEFAULT_CONFIG: CiWaitConfig = {
-  bots: ["Copilot"],
+  bots: ["copilot-pull-request-reviewer"],
   cadenceMs: 30_000,
-  hardCapMs: 60 * 60 * 1000,
+  hardCapMs: 20 * 60 * 1000,
 };
 
 export class ConfigInvalidError extends Error {
@@ -45,15 +49,15 @@ export class ConfigInvalidError extends Error {
   }
 }
 
-// gh's JSON shape for `gh pr checks --json name,state,conclusion`. `state`
-// values are upper-snake-case strings like SUCCESS, FAILURE, IN_PROGRESS,
-// QUEUED, PENDING, STARTUP_FAILURE, STALE. We type the field as a wide
-// `string` so unknown future values don't fail the load — `isChecksTerminal`
-// is the single decision point.
+// gh's JSON shape for `gh pr checks --json name,state`. `state` values are
+// upper-snake-case strings like SUCCESS, FAILURE, IN_PROGRESS, QUEUED,
+// PENDING, STARTUP_FAILURE, STALE. We type the field as a wide `string` so
+// unknown future values don't fail the load — `isChecksTerminal` is the
+// single decision point. `gh pr checks` does not expose a `conclusion`
+// field; `state` already encodes the terminal verdict.
 export type GhCheck = {
   name: string;
   state: string;
-  conclusion: string | null;
 };
 
 export type GhReview = {
@@ -75,6 +79,28 @@ export class GhTransientError extends Error {
     super(message);
     this.name = "GhTransientError";
   }
+}
+
+// CLI-usage / structural errors from `gh` are not transient — retrying them
+// for an hour just delays the inevitable failure. We classify by stderr
+// content so the polling loop can fail fast instead of treating "Unknown
+// JSON field" or "unknown flag" as a retryable network blip.
+export class GhPermanentError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GhPermanentError";
+  }
+}
+
+const PERMANENT_GH_PATTERNS: RegExp[] = [
+  /Unknown JSON field/i,
+  /unknown flag/i,
+  /unknown command/i,
+  /accepts \d+ arg\(s\)/i,
+];
+
+export function isPermanentGhStderr(stderr: string): boolean {
+  return PERMANENT_GH_PATTERNS.some((p) => p.test(stderr));
 }
 
 // --- Config ---
@@ -158,9 +184,19 @@ export function defaultGhOps(): GhOps {
         "checks",
         String(pr),
         "--json",
-        "name,state,conclusion",
+        "name,state",
       ]);
+      // `gh pr checks` exits 1 with stderr "no checks reported on the '<ref>'
+      // branch" when the PR genuinely has no checks. That's a successful
+      // empty result, not a transient failure — distinguish it explicitly so
+      // repos without GitHub Actions don't hang the loop to hard cap.
       if (r.exitCode !== 0) {
+        if (/no checks reported/i.test(r.stderr)) return [];
+        if (isPermanentGhStderr(r.stderr)) {
+          throw new GhPermanentError(
+            `gh pr checks: ${r.stderr.trim() || `exit ${r.exitCode}`}`,
+          );
+        }
         throw new GhTransientError(
           r.stderr.trim() || `gh pr checks exit ${r.exitCode}`,
         );
@@ -183,6 +219,11 @@ export function defaultGhOps(): GhOps {
         ".reviews",
       ]);
       if (r.exitCode !== 0) {
+        if (isPermanentGhStderr(r.stderr)) {
+          throw new GhPermanentError(
+            `gh pr view (reviews): ${r.stderr.trim() || `exit ${r.exitCode}`}`,
+          );
+        }
         throw new GhTransientError(
           r.stderr.trim() || `gh pr view exit ${r.exitCode}`,
         );
@@ -197,6 +238,11 @@ export function defaultGhOps(): GhOps {
     prUrl(pr: number): string {
       const r = ghCapture(["pr", "view", String(pr), "--json", "url", "--jq", ".url"]);
       if (r.exitCode !== 0) {
+        if (isPermanentGhStderr(r.stderr)) {
+          throw new GhPermanentError(
+            `gh pr view (url): ${r.stderr.trim() || `exit ${r.exitCode}`}`,
+          );
+        }
         throw new GhTransientError(
           r.stderr.trim() || `gh pr view --json url exit ${r.exitCode}`,
         );
@@ -290,7 +336,9 @@ export type PollResult = {
 // Per-call retry wrapper. The first failure pauses 5s, then re-invokes; the
 // second failure surfaces. The polling loop's caller decides what "second
 // failure" means at the iteration level — typically: skip this poll, sleep
-// the cadence, try again until the hard cap.
+// the cadence, try again until the hard cap. `GhPermanentError` is
+// rethrown immediately on either attempt — retrying a CLI-usage error just
+// burns the hard cap on a guaranteed failure.
 async function callWithRetry<T>(
   label: string,
   fn: () => T | Promise<T>,
@@ -300,12 +348,14 @@ async function callWithRetry<T>(
   try {
     return { ok: true, value: await fn() };
   } catch (err) {
+    if (err instanceof GhPermanentError) throw err;
     const e = err as Error;
     emit("ci-wait.gh_retry", { call: label, error: e.message });
     await sleep(5_000);
     try {
       return { ok: true, value: await fn() };
     } catch (err2) {
+      if (err2 instanceof GhPermanentError) throw err2;
       return { ok: false, error: (err2 as Error).message };
     }
   }
@@ -568,16 +618,28 @@ async function main(): Promise<void> {
     });
   }
 
-  const result = await pollUntilTerminal({
-    pr: args.pr,
-    config,
-    deps: {
-      gh,
-      sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
-      now: () => Date.now(),
-      emit: emitStderrEvent,
-    },
-  });
+  let result: PollResult;
+  try {
+    result = await pollUntilTerminal({
+      pr: args.pr,
+      config,
+      deps: {
+        gh,
+        sleep: (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+        now: () => Date.now(),
+        emit: emitStderrEvent,
+      },
+    });
+  } catch (err) {
+    if (err instanceof GhPermanentError) {
+      emitStderrEvent("ci-wait.exit", { outcome: "gh-permanent", reason: err.message });
+      process.stdout.write(
+        `${JSON.stringify({ outcome: "gh-permanent", reason: err.message })}\n`,
+      );
+      process.exit(1);
+    }
+    throw err;
+  }
 
   const section = renderCiSection({
     reviews: result.reviews,
