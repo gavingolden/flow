@@ -3,6 +3,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pc from "picocolors";
 import { updateGitignoreBlock } from "../util/gitignore.js";
+import {
+  INCLUDE_MARKER,
+  renderWithTriageContract,
+} from "./triage-contract.js";
 
 export interface InstallSkillsOptions {
   stack?: string;
@@ -43,13 +47,25 @@ export async function installSkills(
   let skipped = 0;
   let blocked = 0;
   for (const { name, sourceDir } of skillsToInstall) {
-    const linkPath = path.join(targetDir, name);
-    const result = await ensureSymlink(linkPath, sourceDir);
+    const installPath = path.join(targetDir, name);
+    // Skills that embed the include marker can't be symlinked: their on-disk
+    // body must contain the resolved partial bytes, otherwise Claude Code
+    // sees the literal `<!-- include: ... -->` comment and the contract
+    // never reaches the chat. Render-and-write for those; symlink the rest
+    // so dev edits propagate without a re-install for unaffected skills.
+    const needsRender = await skillNeedsRender(sourceDir);
+    const result = needsRender
+      ? await ensureRendered(installPath, sourceDir, repoRoot)
+      : await ensureSymlink(installPath, sourceDir);
     if (result === "created") {
       console.error(pc.green(`  + ${name}`));
       created++;
     } else if (result === "updated") {
-      console.error(pc.yellow(`  ~ ${name}  (relinked)`));
+      console.error(
+        pc.yellow(
+          `  ~ ${name}  (${needsRender ? "re-rendered" : "relinked"})`,
+        ),
+      );
       updated++;
     } else if (result === "exists") {
       console.error(pc.dim(`  = ${name}  (already linked)`));
@@ -63,9 +79,9 @@ export async function installSkills(
   }
 
   // Skill symlinks resolve to absolute paths under the user's home and aren't
-  // portable, so the repo's .gitignore must list them. The block reflects every
-  // skill the install actually emitted (pipeline / universal / stacks honor
-  // the user's flags), so deselected skills get their entries pruned.
+  // portable, so the repo's .gitignore must list them. Rendered skills are
+  // also user-machine-specific (paths embedded in the body), so they share
+  // the same managed block.
   const gitignoreResult = await updateGitignoreBlock(repoRoot, {
     tag: "install-skills",
     comment: "(symlinks resolve to absolute paths and aren't portable)",
@@ -172,6 +188,62 @@ async function ensureSymlink(
   await fs.unlink(linkPath);
   await fs.symlink(targetDir, linkPath);
   return "updated";
+}
+
+/**
+ * Renders a skill that embeds the triage-contract include marker into a real
+ * directory under `<targetDir>/.claude/skills/<name>/`. Replaces a stale
+ * symlink (left behind by a pre-render install) with a real directory.
+ *
+ * Rendering is unconditional on every install (no content-hash skip): an
+ * upstream edit to `triage-contract.md` must propagate even when the skill
+ * body itself is unchanged, and the cost of one fs write per install is
+ * trivial.
+ */
+export async function ensureRendered(
+  installPath: string,
+  sourceDir: string,
+  repoRoot: string,
+): Promise<LinkResult> {
+  const existing = await statIfExists(installPath);
+  let result: LinkResult;
+  if (existing === null) {
+    result = "created";
+  } else if (existing.isSymbolicLink()) {
+    // Stale symlink from before render-mode landed. Replace with a real dir.
+    await fs.unlink(installPath);
+    result = "updated";
+  } else if (existing.isDirectory()) {
+    result = "updated";
+  } else {
+    // A regular file at the install path is unexpected — don't clobber.
+    return "blocked";
+  }
+
+  await fs.mkdir(installPath, { recursive: true });
+  const entries = await fs.readdir(sourceDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const sourcePath = path.join(sourceDir, entry.name);
+    const targetPath = path.join(installPath, entry.name);
+    const raw = await fs.readFile(sourcePath, "utf8");
+    const rendered = await renderWithTriageContract(raw, { repoRoot });
+    await fs.writeFile(targetPath, rendered);
+  }
+  return result;
+}
+
+async function skillNeedsRender(sourceDir: string): Promise<boolean> {
+  const entries = await fs.readdir(sourceDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const raw = await fs.readFile(
+      path.join(sourceDir, entry.name),
+      "utf8",
+    );
+    if (raw.includes(INCLUDE_MARKER)) return true;
+  }
+  return false;
 }
 
 async function readLink(p: string): Promise<string | null> {

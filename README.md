@@ -32,7 +32,25 @@ npm link        # makes `flow` available on PATH
 
 ## Use the orchestrator
 
-From inside any git repository:
+### From a Claude Code chat — `/flow add`
+
+Once `flow install` has run in the repo, any Claude Code chat opened inside
+that repo can kick off a flow task without leaving the chat:
+
+```
+/flow add "add a portfolio allocation chart to the dashboard"
+```
+
+The skill conducts triage in the same chat session, records
+`.orchestrator/tasks/<id>.md`, and spawns `flow run --detach` so the
+pipeline runs as a detached process tree. The chat is freed immediately;
+follow up with `/flow status <id>` or `/flow watch <id>` to check
+progress.
+
+### From a terminal — `flow start`
+
+The CLI front door does the same triage in a spawned interactive Claude
+Code session:
 
 ```sh
 flow start "add a portfolio allocation chart to the dashboard"
@@ -41,6 +59,9 @@ flow start "explain how the FRED manifest works"
 
 The first opens triage and writes `.orchestrator/tasks/<id>.md`. The second
 answers in-line and exits with no file written.
+
+Both front doors produce the same `task.md` schema and feed the same
+pipeline.
 
 Add `.orchestrator/` to your project's `.gitignore`.
 
