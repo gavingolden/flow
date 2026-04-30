@@ -6,10 +6,10 @@ import { join } from "node:path";
 import {
   ConfigInvalidError,
   DEFAULT_CONFIG,
+  GhPermanentError,
   type GhCheck,
   type GhOps,
   type GhReview,
-  GhPermanentError,
   botsCollected,
   isChecksTerminal,
   isNoChecksReported,
@@ -127,6 +127,11 @@ describe("isPermanentGhError", () => {
       isPermanentGhError('Unknown JSON field: "conclusion"\nAvailable fields: name, state'),
     ).toBe(true);
   });
+  it("flags CLI-usage signatures (unknown flag/command, arg-count)", () => {
+    expect(isPermanentGhError("unknown flag: --bogus")).toBe(true);
+    expect(isPermanentGhError('unknown command "frobnicate" for "gh pr"')).toBe(true);
+    expect(isPermanentGhError("accepts 1 arg(s), received 2")).toBe(true);
+  });
   it("flags missing PR / auth signatures", () => {
     expect(isPermanentGhError("Could not resolve to a PullRequest with the number 999")).toBe(true);
     expect(isPermanentGhError("authentication required")).toBe(true);
@@ -192,6 +197,18 @@ describe("pendingCheckNames", () => {
         check("build", "QUEUED"),
       ]),
     ).toEqual(["lint", "build"]);
+  });
+});
+
+// --- DEFAULT_CONFIG ---
+
+describe("DEFAULT_CONFIG", () => {
+  it("uses Copilot's actual GitHub login", () => {
+    // The reviewer login on real PRs is `copilot-pull-request-reviewer`.
+    // `botsCollected` matches by exact (case-insensitive) login, so the
+    // default must match the real login or every default-config run
+    // hangs to hard cap. See ci-hang on PR #23 (2026-04-30).
+    expect(DEFAULT_CONFIG.bots).toEqual(["copilot-pull-request-reviewer"]);
   });
 });
 

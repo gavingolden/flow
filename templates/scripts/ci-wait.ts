@@ -32,10 +32,14 @@ export type CiWaitConfig = {
   hardCapMs: number;
 };
 
+// The GitHub Copilot reviewer's actual login is `copilot-pull-request-reviewer`,
+// not `Copilot`. `botsCollected` matches by exact (case-insensitive) login, so
+// the default must be the real login or every default-config run hangs to
+// hard cap waiting for a bot that will never appear.
 export const DEFAULT_CONFIG: CiWaitConfig = {
-  bots: ["Copilot"],
+  bots: ["copilot-pull-request-reviewer"],
   cadenceMs: 30_000,
-  hardCapMs: 60 * 60 * 1000,
+  hardCapMs: 20 * 60 * 1000,
 };
 
 export class ConfigInvalidError extends Error {
@@ -49,8 +53,8 @@ export class ConfigInvalidError extends Error {
 // upper-snake-case strings like SUCCESS, FAILURE, IN_PROGRESS, QUEUED,
 // PENDING, STARTUP_FAILURE, STALE. We type the field as a wide `string` so
 // unknown future values don't fail the load — `isChecksTerminal` is the
-// single decision point. (`conclusion` was dropped from gh's `pr checks`
-// JSON output and we never read it anyway.)
+// single decision point. `gh pr checks` does not expose a `conclusion`
+// field; `state` already encodes the terminal verdict.
 export type GhCheck = {
   name: string;
   state: string;
@@ -78,9 +82,11 @@ export class GhTransientError extends Error {
 }
 
 // Errors that retrying cannot fix: schema drift between this script and the
-// installed `gh` CLI, an invalid PR number, or auth misconfig. Retrying for
-// an hour just to hit the hard cap wastes wall time and hides the real
-// cause; the loop bails out immediately on this class.
+// installed `gh` CLI (`Unknown JSON field`, `unknown flag`), an invalid PR
+// number, or auth misconfig. Retrying these for an hour just delays the
+// inevitable failure; the loop bails out immediately on this class. The
+// `call` property names which gh op tripped the error so the wrapper can
+// surface an actionable diagnostic.
 export class GhPermanentError extends Error {
   constructor(public readonly call: string, message: string) {
     super(message);
@@ -95,6 +101,9 @@ export function isPermanentGhError(stderr: string): boolean {
   const s = stderr.toLowerCase();
   return (
     s.includes("unknown json field") ||
+    s.includes("unknown flag") ||
+    s.includes("unknown command") ||
+    /accepts \d+ arg\(s\)/.test(s) ||
     s.includes("could not resolve to a pullrequest") ||
     s.includes("no pull requests found") ||
     s.includes("authentication required") ||

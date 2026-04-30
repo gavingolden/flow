@@ -11,9 +11,9 @@ import { PhaseResult } from "../types.js";
 import { NoopLogger, type Logger } from "../../util/logger.js";
 import { NoopJsonlSink, type JsonlSink } from "../../util/jsonl-sink.js";
 
-// 5-minute heartbeat. ci-wait can run for up to 60 minutes — verify-gate's
+// 5-minute heartbeat. ci-wait can run for up to 20 minutes — verify-gate's
 // 15s default would dilute the signal, but no heartbeat at all (a single
-// 60-min execa) leaves the user staring at a frozen log.
+// 20-min execa) leaves the user staring at a frozen log.
 const CI_WAIT_HEARTBEAT_MS = 5 * 60 * 1000;
 
 interface CiWaitScriptOutput {
@@ -128,7 +128,7 @@ export async function runCiWaitPhase(
 
   // Local 5-minute heartbeat. We don't reuse `logger.withHeartbeat` because
   // its cadence is a logger-creation-time constant (15s default) and ci-wait
-  // runs up to 60 min — a 15s heartbeat would dump 240 "still running" lines
+  // runs up to 20 min — a 15s heartbeat would dump 80 "still running" lines
   // into the per-task log. Five-minute beats keep liveness without noise.
   // We append the gh-error counter when non-zero so a sustained gh outage
   // is visible in the user-facing heartbeat instead of buried in jsonl —

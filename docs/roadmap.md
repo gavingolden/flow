@@ -119,10 +119,10 @@ Done when:
 
 - A Bun script polls `gh pr checks <pr> --json` and `gh pr view <pr>
   --json reviews` on a 30s cadence until terminal state.
-- Configurable bot list (default `["Copilot"]`) controls which auto-
-  reviewers count toward "all reviews collected." Codecov, SonarCloud,
-  custom apps can be added per-repo.
-- 60-minute hard cap. If checks haven't reached terminal state, the
+- Configurable bot list (default `["copilot-pull-request-reviewer"]`)
+  controls which auto-reviewers count toward "all reviews collected."
+  Codecov, SonarCloud, custom apps can be added per-repo.
+- 20-minute hard cap. If checks haven't reached terminal state, the
   task escalates to `needs-human` with reason "CI hang." If checks
   are terminal but a configured bot hasn't posted, ci-wait proceeds
   (timeout treated as bot timed out).
