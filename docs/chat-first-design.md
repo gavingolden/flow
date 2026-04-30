@@ -180,13 +180,13 @@ retries.
                    implementing ───────► /new-feature (mode: create | fix)
                          │
                          ▼
+                       pr-open   (push + gh pr create)
+                         │
+                         ▼
                   local-verifying ────► /verify
                          │   ▲
                   green   │   │ red, retry up to 3x with truncated log
                          ▼   │ exhaust → needs-human
-                       pr-open   (push + gh pr create)
-                         │
-                         ▼
                        ci-wait ─────────► (script: poll gh)
                          │   │
                   green  │   │ red ─────────► loop back to implementing (fix mode)
