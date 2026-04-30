@@ -47,7 +47,10 @@ pipeline runs as a detached process tree. The chat is freed immediately;
 follow up with `/flow-status <id>` or `/flow-watch <id>` to check
 progress.
 
-### From a terminal — `flow start`
+### Legacy CLI (`flow start`)
+
+> `flow start` is deprecated and will be removed in a future release.
+> Prefer `/flow-add` (above) for new tasks.
 
 The CLI front door does the same triage in a spawned interactive Claude
 Code session:
