@@ -33,16 +33,21 @@ If you're picking up a milestone, the order is: `architecture.md` →
 
 See `docs/roadmap.md`. As of now:
 
-- **Triage + scaffold shipped.** Phase 0 (triage) + CLI scaffold
-  (`flow start`).
-- **Plan / worktree / implement shipped.** Phases 1–3 (plan,
-  worktree, implement) drive a `triaged` task to an open PR via
-  `flow run`.
-- **Phase 1 — foundation next.** PRs 1–3 (jsonl logging + detached
-  subprocesses, cross-process claim primitive, implement create/fix
-  split). See `docs/roadmap.md` for the full PR plan and
-  `docs/chat-first-design.md` for the rationale behind the
-  chat-first migration.
+- **Phases 1–3 (foundation, pipeline buildout, entry point + UX)
+  shipped.** PRs 1–12 are merged. The chat-first pipeline runs
+  end-to-end: `/flow-add` triages, the runner drives a task through
+  plan → implement → verify → ci-wait → review → gate → merge.
+- **Phase 4 (cutover + parallelism) mostly shipped.** PRs 13–15 and
+  17 are merged. PR 16 (pause/resume/abort) is in flight on
+  `agent/pr-16-pause-resume-abort`. PR 18 (remove `flow start`
+  entirely) is deferred until chat-first has multi-week adoption.
+  PR 19 (`flow tui`) is optional/later.
+- **Phase 2 follow-up — review phase native skill invocation —
+  next.** Rewrites the review phase to drop machine-mode forcing of
+  `/pr-review` and the `implement(fix)` loop-back, letting the
+  skill's own Address vs Review mode detection drive behaviour.
+  Full Done-when criteria and open questions are in
+  `docs/roadmap.md`.
 
 Note: `docs/phases/m2-plan.md` and `docs/phases/m3-plan.md` use the
 legacy `M<N>` syntax — they're historical artefacts kept for
