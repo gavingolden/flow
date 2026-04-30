@@ -251,26 +251,31 @@ other phases' subsections.
 - 1230/1230 PASS, lint clean
 
 ### review (latest: 2026-04-30T01:30:12Z)
-- cycle 1 (2026-04-30T01:23:45Z): summary "<one-line>"
-  - critical (code): src/foo.ts:42 — <subject>
-  - minor: src/bar.ts:73 — <subject>
-- cycle 2 (2026-04-30T01:30:12Z): summary "<one-line>"
-  - critical (code): src/foo.ts:42 — <subject> (still flagged)
-- decision: needs-human (review-cycles-exhausted)
-- JSON: <task-dir>/review/result-2.json
+- mode: address
+- committed: true
+- escalate: false
+- addressed:
+  - src/foo.ts:42 — fixed null deref at the X boundary
+- deferred:
+  - src/bar.ts:73 (code) — race condition in async cleanup [tracker: docs/roadmap.md#followup-cleanup-race]
 ```
 
 Subsections may carry whatever structured data the phase needs to
 hand off to the next one. Keep it grep-able.
 
-The `review` subsection is special: it re-renders on every cycle so the
-full history of review runs (and the final decision line) stays visible.
-On a resume after a mid-loop crash, the review phase rehydrates prior
-cycles by reading the per-cycle JSON files at
-`<task-dir>/review/result-<i>.json` so the rendered history survives the
-restart. Decision is one of `clean — advancing`,
-`needs-human (architectural-concern)`, or
-`needs-human (review-cycles-exhausted)`.
+The `review` phase invokes `/pr-review` natively in a single
+subprocess: the skill picks Address mode (when ci-wait collected
+inline reviewer comments) or Review mode (otherwise), runs the
+independent multi-agent review, auto-fixes findings, replies to inline
+comments, commits, and pushes. The skill writes a JSON summary to
+`<task-dir>/review/summary.json` matching the
+`{ mode, committed, escalate, reason, addressed, deferred }` contract
+in `skills/pipeline/pr-review/SKILL.md` § "Orchestrator output mode".
+The orchestrator branches on `escalate`: a deferred finding with
+`kind: "architectural"` flips the task to
+`needs-human (architectural-concern)`; otherwise the phase advances.
+When `committed` is true, review re-runs ci-wait inline before
+returning so gate reads fresh checks state.
 
 ## Read/write conventions
 
