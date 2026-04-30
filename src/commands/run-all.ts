@@ -67,6 +67,12 @@ export async function runAllCommand(opts: RunAllOptions = {}): Promise<void> {
   // than computing a fresh stamp (which would split scheduler activity
   // across two files when the parent and child are seconds apart).
   const inheritedStamp = process.env.FLOW_RUN_ALL_STAMP;
+  // The detached parent writes `runs/all-<stamp>.pid` so the user can
+  // see its path immediately. The child owns cleanup — without this,
+  // stale pid files accumulate in `.orchestrator/runs/` forever.
+  const inheritedPidPath = inheritedStamp
+    ? path.join(runsDir, `all-${inheritedStamp}.pid`)
+    : null;
   const logger = await createRunAllLogger({
     runsDir,
     stamp: inheritedStamp,
@@ -91,6 +97,17 @@ export async function runAllCommand(opts: RunAllOptions = {}): Promise<void> {
     watchIntervalMs: opts.watch ? watchIntervalMs : null,
   });
 
+  // Process-exit cleanup for the detached pid file. Sync only — Node tears
+  // down the event loop before any async I/O queued from inside `'exit'`
+  // can complete. The `finally` block's unlinkSync also runs on the happy
+  // path; this handler is the safety net for crashes / signal-cascade
+  // exits that bypass the finally.
+  const exitPidCleanup = (): void => {
+    if (!inheritedPidPath) return;
+    try { fs.unlinkSync(inheritedPidPath); } catch {}
+  };
+  process.on("exit", exitPidCleanup);
+
   const ac = new AbortController();
   // Track in-flight children so the second-SIGINT escalation can
   // propagate SIGTERM to every still-alive process. Children are added
@@ -114,9 +131,15 @@ export async function runAllCommand(opts: RunAllOptions = {}): Promise<void> {
     lastSigintAt = now;
     logger.event("signal.received", { signal: "SIGINT", count: sigintCount });
     if (sigintCount === 1) {
-      logger.info(
-        "received SIGINT — stopping new claims, waiting for in-flight children",
-      );
+      // Skip the "stopping new claims" line if we've already escalated to
+      // SIGTERM-cascade — the user's mental model after escalation is
+      // "everything is dying," and re-suggesting "waiting for in-flight
+      // children" after the post-window reset is misleading.
+      if (!escalated) {
+        logger.info(
+          "received SIGINT — stopping new claims, waiting for in-flight children",
+        );
+      }
       ac.abort();
       return;
     }
@@ -238,8 +261,24 @@ export async function runAllCommand(opts: RunAllOptions = {}): Promise<void> {
       exitCode,
     });
     await logger.close();
+    if (inheritedPidPath) {
+      // Best-effort: a missing file (already cleaned, or never written
+      // because the parent failed) is fine; any other error surfaces to
+      // stderr but doesn't change the exit code.
+      try {
+        fs.unlinkSync(inheritedPidPath);
+      } catch (err) {
+        const e = err as NodeJS.ErrnoException;
+        if (e.code !== "ENOENT") {
+          process.stderr.write(
+            `[run-all] could not remove pid file ${inheritedPidPath}: ${e.message}\n`,
+          );
+        }
+      }
+    }
     process.removeListener("SIGINT", sigintHandler);
     process.removeListener("SIGTERM", sigtermHandler);
+    process.removeListener("exit", exitPidCleanup);
     if (exitCode !== 0) process.exit(exitCode);
   }
 }
@@ -294,9 +333,17 @@ async function detachAndExit(
   child.unref();
   try { fs.closeSync(logFd); } catch {}
 
-  if (child.pid != null) {
-    fs.writeFileSync(pidPath, `${child.pid}\n`, "utf8");
+  // `child.pid` is undefined only if `spawn()` itself failed (e.g. ENOENT
+  // on the node binary, EAGAIN on fork). Surface that as a real error
+  // rather than printing "detached as pid undefined" and silently exiting
+  // 0 with no pid file.
+  if (child.pid == null) {
+    console.error(
+      `error: failed to spawn detached scheduler — check ${logPath} for details`,
+    );
+    process.exit(1);
   }
+  fs.writeFileSync(pidPath, `${child.pid}\n`, "utf8");
 
   console.log(`flow run --all detached as pid ${child.pid}`);
   console.log(`log → ${logPath}`);

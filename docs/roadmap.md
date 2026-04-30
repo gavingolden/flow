@@ -527,6 +527,26 @@ Smaller items that aren't phase-blocking but should land when convenient:
   is next touched, or fold into the broader "Unit-test the new CLI output
   helpers" item above (which already covers `start.ts` injection points).
 
+- **Unit-test `runAllCommand`'s SIGINT escalation, watch-loop, and pid
+  lifecycle.** PR #32 ships the `flow run --all` command with unit
+  coverage on its three pure dependencies (`listTriagedTasks`,
+  `drain`, `createRunAllLogger`) plus a `RUN_INTEGRATION=1` smoke test
+  that asserts claim-race correctness across two concurrent schedulers.
+  The orchestrating function in `src/commands/run-all.ts` itself —
+  two-step SIGINT escalation timing, watch-loop refill cadence, the
+  detached-child pid-file lifecycle, the malformed-task-file
+  forwarding to `logger.warn`, and the abort-during-full-pool path —
+  has no unit coverage. Real bugs the tests would catch: a regression
+  that drops the second-SIGINT escalation, a watch-mode hang when the
+  abort signal fires during the poll sleep, the new pid-cleanup path
+  silently failing on a permissions error. Deferred from PR #32
+  review because covering it requires standing up a fake-spawn / fake-
+  signal / fake-timer harness for a `process.exit`-calling command
+  (bar criterion 2: needs new test infrastructure shared with
+  `runCommand`'s equivalent gap). Trigger: address opportunistically
+  next time `run-all.ts` or `run.ts` is touched, or fold into the
+  broader "Unit-test the new CLI output helpers" item above.
+
 ## What's deliberately not on the roadmap
 
 - A web UI, dashboard, or status server. (`flow tui` in PR 19 is a

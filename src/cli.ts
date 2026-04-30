@@ -75,6 +75,12 @@ program
         }
         let watchIntervalMs: number | undefined;
         if (opts.watchInterval != null) {
+          if (!opts.watch) {
+            console.error(
+              "error: --watch-interval requires --watch (the interval is meaningless without watch mode)",
+            );
+            process.exit(2);
+          }
           const s = Number.parseInt(opts.watchInterval, 10);
           if (!Number.isInteger(s) || s < 1 || String(s) !== opts.watchInterval.trim()) {
             console.error("error: --watch-interval must be a positive integer (seconds)");
