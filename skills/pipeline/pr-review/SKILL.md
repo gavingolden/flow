@@ -145,7 +145,9 @@ The 4 agents:
 | **Test Coverage**       | Missing tests, untested edges, test quality, env setup      | Test Environment                            |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
-`decoration`, `confidence`, `subject`, `body`.
+`decoration`, `confidence`, `subject`, `body`, and (when running in
+[machine-readable output mode](#machine-readable-output-mode-orchestrator-driven))
+`kind: "code" | "architectural"` — see the rubric in that section.
 
 Wait for all 4 agents to complete before proceeding.
 
@@ -294,23 +296,44 @@ prevent.
   protection, network) — in that case, surface the error to the user. "I wasn't sure
   if I should push" is not a valid reason; the exemption removes the ambiguity.
 
-### 9c. Run "How to test" items and tick the boxes
+### 9c. Run every runnable verification item and tick the boxes
 
-After 9b's commit + push, run the items in the PR body's **How to test** section so
-the description reflects actual verification, not the author's intent. The format note
+After 9b's commit + push, run every runnable `- [ ]` item in the PR body, **regardless
+of which section it lives under** — `How to test`, `Manual validation`, or any other
+heading. The classification below is per-item, not per-section. The format note
 in 12b promises reviewers that checkbox state means something — leaving every box
 unticked after a successful run breaks that contract and forces the next reviewer
 (human or agent) to re-run everything from scratch.
 
+> **Headings do not exempt items.** A section called "Manual validation" does not
+> mean its items are off-limits to automation. The author's choice of heading
+> reflects intent ("a human should sanity-check this end-to-end"), not
+> impossibility. The architectural reason `## Manual validation` exists in flow PRs
+> is that the gate phase parses it for risky-change heuristics — the heading is
+> load-bearing for the orchestrator, **not** a hands-off signal for the reviewer.
+> Apply the runnable test below to every checkbox in the body. If an item is
+> deterministic and exec'able from a terminal in this repo, you must run it, even
+> when the heading says "Manual".
+
 For each `- [ ]` item, classify before running:
 
 - **Runnable**: a shell command, test invocation, build, or script with deterministic
-  pass/fail from exit code. Examples: `npm run test`, `npm run typecheck`,
-  `RUN_INTEGRATION=1 npm run test -- foo`, `./scripts/foo.ts`, `curl localhost:3000/x`
-  paired with a documented assertion.
+  pass/fail from exit code, **including** items that involve scripted filesystem
+  setup (`ln -s`, hand-editing a tracked file, `git add -f`) followed by a CLI
+  invocation and an assertion on disk state, exit code, or stdout/stderr. Examples:
+  `npm run test`, `npm run typecheck`, `RUN_INTEGRATION=1 npm run test -- foo`,
+  `./scripts/foo.ts`, `curl localhost:3000/x` paired with a documented assertion,
+  "edit `.gitignore`, create symlink, run `flow install --upgrade`, confirm `1
+  removed` and the symlink is gone."
 - **Not runnable**: requires a browser, a deploy target, real human/UI judgment ("the
   modal animates smoothly"), production credentials, or external services (Slack post,
   Stripe redirect, real-LLM judgment). Leave unticked.
+
+**Self-check before classifying anything as not-runnable**: am I about to invoke
+phrases like "out of scope for an automated agent run", "the harness flagged this
+as manual", or "this is the author's deliberate human sanity check"? If so, stop —
+those are post-hoc excuses, not real signals. The bar is literal: can I exec this
+from a terminal in this repo? If yes, run it.
 
 For each runnable item:
 
@@ -331,15 +354,15 @@ EOF
 Apply the no-hard-wrap and preserve-existing-wrapping rules from 12e — do not reflow
 prose to flip a checkbox. The minimal diff is `[ ]` → `[x]`.
 
-Record unticked items in the report's **How to Test** section with a one-line reason
+Record unticked items in the report with a one-line reason
 ("requires browser session", "needs prod creds", "subjective UI judgment"). Do not
 invent excuses for items you should run; the bar is "I literally cannot exec this
 from a terminal in this repo."
 
-If the PR has no "How to test" section or the section has zero items, this step is a
-no-op — the missing-section case is handled by Step 12b/12e. If 12e later drafts new
-items into the section, return here once on user confirmation to attempt to tick the
-new items before producing the final report.
+If the PR has no checklist items in any section, this step is a no-op — the
+missing-section case is handled by Step 12b/12e. If 12e later drafts new
+items into either section, return here once on user confirmation to attempt to tick
+the new items before producing the final report.
 
 ## 10. Reply to PR Comments (Address mode only)
 
@@ -450,12 +473,15 @@ Score each criterion as Pass/Fail. If 2+ criteria fail, the description needs an
 - `Fail (missing)` — no "How to test" section at all, or a section with no concrete steps
 - `Fail (shallow — happy-path only)` — steps exist but only cover the happy path on a
   material change that warrants unhappy/edge scenarios per the rubric
-- `Fail (automatable — manual items should be tests)` — the manual section contains
-  scenarios that pass the rubric's automation test (named fixture + deterministic
-  assertion + exit condition, no subjective judgment). Manual is the fallback; default
-  is automation. Apply this when you can sketch the test in one or two sentences
-  ("a `RUN_INTEGRATION=1` test that spawns the CLI, asserts the file exists and `jq`
-  parses every line, then SIGTERMs the child").
+- `Fail (automatable — manual items should be tests)` — the **How to test**
+  section, or **any other section in the body** (typically `## Manual validation`),
+  contains scenarios that pass the rubric's automation test (named fixture +
+  deterministic assertion + exit condition, no subjective judgment). Manual is the
+  fallback; default is automation. Scan every checkbox in the body — section
+  heading is irrelevant; the rubric is per-item. Apply this when you can sketch
+  the test in one or two sentences ("a `RUN_INTEGRATION=1` test that spawns the
+  CLI, asserts the file exists and `jq` parses every line, then SIGTERMs the
+  child").
 
 Multiple subtypes can apply simultaneously (e.g. shallow *and* automatable). Record each.
 The criterion fails for the 2+ threshold even if only one subtype applies.
@@ -626,6 +652,95 @@ must appear in one of the two buckets. If no findings were deferred, say so expl
 ("No findings deferred").
 
 Commit any changes with a clear message referencing the PR number, then present the report.
+
+# Machine-readable output mode (orchestrator-driven)
+
+The flow orchestrator's `review` phase invokes this skill via `claude -p` and needs a
+deterministic, parseable result so it can branch (clean → advance, critical-code →
+loop back to implement(fix), architectural → escalate to needs-human). When the wrapper
+prompt supplies `RESULT_JSON_PATH=<absolute-path>`, this skill operates in **review-only
+machine mode** with the following overrides. Interactive `/pr-review <PR>` invocations
+(no `RESULT_JSON_PATH`) behave exactly as the rest of this document describes; this
+section only changes behaviour when that variable is set.
+
+## Mode overrides
+
+When `RESULT_JSON_PATH` is set:
+
+1. **Force Review mode.** Skip Step 3's mode-detection — always proceed as if no
+   inline comments existed. The orchestrator never wants Address mode behaviour.
+2. **No auto-fix.** Step 7 is suppressed entirely: do NOT modify code, do NOT commit,
+   do NOT push. The orchestrator routes fixes through a separate `implement(fix)` phase
+   that owns the commit and the verify-gate. Auto-fixing here would race that phase.
+3. **No address-mode flows.** Skip Steps 6, 8, and 10 (retrospective, comment-by-comment
+   address, replies to comments) — they only apply when there are existing reviewer
+   comments to address, and the orchestrator's caller is an LLM not a human reviewer.
+4. **No formal `gh pr review` submission.** Use only the inline-comments path from
+   Step 11 (`gh api repos/.../pulls/<n>/comments`). The Approved / Requested-changes
+   banner is wrong for an orchestrator-driven self-review.
+5. **Skip Step 9 (pre-commit checks).** Nothing was committed; there is nothing to verify.
+6. **Skip Step 12e PR-description edits.** The orchestrator owns the PR body via the
+   gate phase; the review skill must not race it. Findings about the description go in
+   the JSON output as minor findings, not into a `gh pr edit`.
+7. **Still produce the human-readable report from Step 13** as your final assistant
+   message — useful for jsonl log inspection — but the orchestrator parses the JSON
+   file, not stdout.
+
+## JSON output contract
+
+After Step 11 (inline comments posted), write the following JSON shape to
+`RESULT_JSON_PATH`. Create parent directories if they don't exist.
+
+```json
+{
+  "summary": "string — one-paragraph overview the orchestrator records in phase outputs",
+  "critical": [
+    {
+      "kind": "code",
+      "file": "src/foo.ts",
+      "line": 42,
+      "summary": "string — short title",
+      "body": "string — full conventional-comment body"
+    }
+  ],
+  "minor": [
+    {
+      "file": "src/foo.ts",
+      "line": 73,
+      "summary": "string",
+      "body": "string"
+    }
+  ]
+}
+```
+
+A finding belongs in `critical` if and only if you would block the PR on it (label
+`issue` or `todo` with `decoration: "blocking"`). All other surfaced findings (including
+non-blocking issues, suggestions, nitpicks, praise) go in `minor`. Drop low-confidence
+and filler findings exactly as Step 5 already requires — the JSON should reflect what
+you posted as inline comments, no more.
+
+## `kind` discriminator (critical findings only)
+
+Every entry in `critical` MUST carry `kind: "code" | "architectural"`. This is the load-
+bearing field — the orchestrator uses it to decide whether looping implement(fix) can
+help.
+
+- `kind: "code"` — a code-level issue an implementer can fix without rethinking the
+  plan: a wrong null-check, a missing guard, a leaked resource, a logic error, a
+  missing test, a security bug whose fix is local. The PRD/plan is sound; the code
+  doesn't match it. Looping implement(fix) against this *will* converge.
+- `kind: "architectural"` — the *plan itself* is wrong. The wrong layer is doing the
+  work, the chosen abstraction can't represent the requirement, the design conflicts
+  with a load-bearing constraint elsewhere in the system. No amount of re-implementing
+  helps because the target is wrong. Examples: "this entire module should live in the
+  worker, not the request path"; "the chosen schema can't express the polymorphism the
+  callers need"; "this introduces a circular dependency between domains that the
+  architecture doc forbids."
+
+When in doubt, prefer `code` — `architectural` short-circuits the loop-back and routes
+to a human, so reserve it for findings that genuinely can't be fixed by another
+implement pass.
 
 # Anti-Patterns
 

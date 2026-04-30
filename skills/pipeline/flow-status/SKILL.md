@@ -21,7 +21,7 @@ Show the user the current state of their flow pipelines — which tasks are acti
 
 # When NOT to Use
 
-- The user wants live-tailing or `--follow`-style streaming → that's `/flow watch` (PR 11), not this
+- The user wants live-tailing or `--follow`-style streaming → that's `/flow-watch` (PR 11), not this
 - The user wants to read raw jsonl logs → that's `flow log --raw`
 - The user wants to *change* state (approve, abort, retry) → those are the dedicated mutation skills
 

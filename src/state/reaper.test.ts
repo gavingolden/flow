@@ -50,7 +50,7 @@ describe("reapStatusAsync", () => {
       expect(remapped).toBe(true);
       const t = await readTask(taskPath);
       expect(t.frontmatter.status).toBe("needs-human");
-      // Phase log records the reason so PR 10's `/flow status` can surface
+      // Phase log records the reason so PR 10's `/flow-status` can surface
       // *why* the runner gave up.
       expect(t.body).toContain(`→ needs-human (${reason})`);
     },

@@ -16,6 +16,14 @@ human cost — for the author, the reviewer, and every future contributor who ru
 before merging a related change. When a scenario can be expressed as "run command X, assert
 condition Y," it should be an automated test, not a manual checklist item.
 
+> **Section headings do not exempt items from this rubric.** A section titled
+> "Manual validation", "Smoke test", or anything similar is the author's signal of
+> intent, not a verdict on automatability. Apply the rubric to each checkbox
+> individually — if it passes the automation test below, it should either be run
+> by the reviewer right now (per Step 9c of the pr-review skill) **or** converted
+> to a real test (per Step 12b's `Fail (automatable)` resolution). The presence of
+> a "Manual" heading is not a reason to skip either path.
+
 Apply the **automation test** to every entry in the proposed manual section:
 
 > Can I name (a) a fixture / setup, (b) one or more deterministic assertions, and (c) an

@@ -66,7 +66,7 @@ export type RunBoundArgs = {
   secondsCap: number;
   eventsCap: number;
   mode: "follow" | "tail";
-  // Used in the bound footer's "invoke /flow watch <id> again" hint.
+  // Used in the bound footer's "invoke /flow-watch <id> again" hint.
   idForFooter: string;
   spawn?: SpawnFn;
   stdout?: WriteSink;
@@ -128,7 +128,7 @@ function stripQuotes(v: string): string {
  * Scans both `<tasksRoot>/*.md` and `<tasksRoot>/archive/*.md` for task files.
  * Terminal tasks are moved under `archive/` per `docs/task-schema.md`, and
  * `flow log` itself resolves them via `findTaskFile` (`src/util/git.ts`); the
- * wrapper has to mirror that or `/flow watch <merged-id>` rejects ids that
+ * wrapper has to mirror that or `/flow-watch <merged-id>` rejects ids that
  * `flow log <id>` would happily tail.
  */
 export async function loadTasks(tasksRoot: string): Promise<TaskInfo[]> {
@@ -387,7 +387,7 @@ function footerFor(
   args: RunBoundArgs,
   reason: "events" | "time" | "eof",
 ): string {
-  const hint = `invoke \`/flow watch ${args.idForFooter}\` again to keep tailing`;
+  const hint = `invoke \`/flow-watch ${args.idForFooter}\` again to keep tailing`;
   switch (reason) {
     case "events":
       return `(stopped after ${args.eventsCap} events — ${hint})\n`;
@@ -467,7 +467,7 @@ export async function main(
     }
     case "ambiguous": {
       stderr.write(
-        "error: multiple non-terminal tasks — specify one with `/flow watch <id>`:\n",
+        "error: multiple non-terminal tasks — specify one with `/flow-watch <id>`:\n",
       );
       for (const t of resolution.candidates) {
         const updated = t.updatedMs
