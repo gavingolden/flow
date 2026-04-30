@@ -328,7 +328,19 @@ export async function runReviewPhase(
   }
 
   const ciExcerpts = extractCiExcerpts(task.body);
-  const cycleRecords: ReviewCycleRecord[] = [];
+
+  // Resume contract: rehydrate prior cycles from `result-<i>.json` files on
+  // disk so the rendered `### review` subsection re-includes all cycles after
+  // a crash. `appendPhaseOutput` overwrites the entire `### review` block on
+  // each call, so without seeding `cycleRecords` from disk a resume would
+  // erase pre-crash cycle history from the task file. Read up to `cycles - 1`
+  // (i.e. cycles that were *completed* pre-crash); a missing or malformed
+  // file is non-fatal — we render what we can recover and continue.
+  const cycleRecords: ReviewCycleRecord[] = await rehydrateCycleRecords(
+    reviewDir,
+    cycles,
+    logger,
+  );
 
   // Use a manual loop rather than retryN; the cap must persist across crashes
   // (frontmatter), and each iteration calls runImplementPhase between reviews.
@@ -453,9 +465,6 @@ export async function runReviewPhase(
     );
 
     const failureLog = renderFailureLogFromReview(parsed.value);
-    cycles += 1;
-    await updateTaskFrontmatter(task, { review_cycles: cycles });
-    logger.event("task.frontmatter", `review_cycles=${cycles}`);
     await appendPhaseLog(
       task,
       `- ${new Date().toISOString()} review cycle ${cycleNum} → implement(fix)`,
@@ -468,9 +477,25 @@ export async function runReviewPhase(
       jsonl,
     );
 
+    // `review_cycles` counts loop-backs that completed (implement(fix)
+    // returned ok). Incrementing only on success keeps the counter aligned
+    // with the doc-comment in `task-file.ts` and means a failed fix does not
+    // burn budget — the resume re-runs the same cycle. The cap was already
+    // checked above, so an `ok` here is guaranteed to be under-cap.
+    if (fix.status === "ok") {
+      cycles += 1;
+      await updateTaskFrontmatter(task, { review_cycles: cycles });
+      logger.event("task.frontmatter", `review_cycles=${cycles}`);
+      // Loop iteration repeats and re-runs review against the new PR head.
+      continue;
+    }
+
+    // Defensive: `runFix` (implement.ts) currently only returns ok or
+    // failed. If it ever surfaces `needs-human` or `retry`, surface the
+    // inner reason cleanly rather than letting an unknown status fall
+    // through. These branches are belt-and-suspenders against future
+    // changes to implement(fix)'s contract.
     if (fix.status === "needs-human") {
-      // Re-render with the implement-side reason so the user sees why the
-      // loop stopped without having to read the implement subsection.
       await appendPhaseOutput(
         task,
         "review",
@@ -479,7 +504,6 @@ export async function runReviewPhase(
           reason: `implement-fix:${fix.reason}`,
         }),
       );
-      // Status is already set by runImplementPhase's caller logic; pass through.
       return fix;
     }
     if (fix.status === "failed") {
@@ -492,16 +516,56 @@ export async function runReviewPhase(
       );
       return { status: "failed", reason };
     }
-    if (fix.status === "retry") {
-      // PhaseResult includes "retry" but the review→fix path doesn't need
-      // it — runImplementPhase never returns retry today. If it ever does,
-      // surface as failed rather than silently swallowing.
-      const reason = `implement(fix) returned unexpected retry during review cycle ${cycleNum}: ${fix.reason}`;
-      logger.error(reason);
-      return { status: "failed", reason };
-    }
-    // ok → loop iteration repeats and re-runs review against the new PR head.
+    // Status is "retry" — not expected from runFix today, but handle it
+    // explicitly so a future reintroduction doesn't silently loop.
+    const reason = `implement(fix) returned unexpected retry during review cycle ${cycleNum}: ${fix.reason}`;
+    logger.error(reason);
+    return { status: "failed", reason };
   }
+}
+
+// Read prior cycles' result JSON files into ReviewCycleRecord[] so the
+// rendered `### review` subsection survives a resume. The on-disk JSON is
+// authoritative; the timestamp is derived from the file mtime since the
+// original cycle's wall-clock isn't recorded in the JSON itself. A missing
+// or malformed file is logged and skipped — the visible cycle history will
+// be incomplete, but the loop's correctness is unaffected.
+async function rehydrateCycleRecords(
+  reviewDir: string,
+  cycles: number,
+  logger: Logger,
+): Promise<ReviewCycleRecord[]> {
+  if (cycles <= 0) return [];
+  const records: ReviewCycleRecord[] = [];
+  for (let i = 0; i < cycles; i++) {
+    const p = path.join(reviewDir, `result-${i}.json`);
+    let raw: string;
+    try {
+      raw = await fs.readFile(p, "utf8");
+    } catch {
+      logger.warn(`review: prior cycle ${i + 1} JSON missing at ${p}; rendering history will be incomplete`);
+      continue;
+    }
+    const parsed = parseReviewResult(raw);
+    if (!parsed.ok) {
+      logger.warn(`review: prior cycle ${i + 1} JSON malformed at ${p} (${parsed.error}); rendering history will be incomplete`);
+      continue;
+    }
+    let timestamp = "";
+    try {
+      const stat = await fs.stat(p);
+      timestamp = stat.mtime.toISOString();
+    } catch {
+      timestamp = "";
+    }
+    records.push({
+      cycleNumber: i + 1,
+      timestamp,
+      resultJsonPath: p,
+      result: parsed.value,
+    });
+  }
+  return records;
 }
 
 // ---------- Internal: extract bot review excerpts from `## Phase outputs > ci`

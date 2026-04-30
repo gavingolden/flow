@@ -207,21 +207,53 @@ describe("runReviewPhase — end-to-end loop scenarios", () => {
     expect(prompt).toContain("Copilot summary excerpt");
   });
 
-  it("resume-after-crash: starting with review_cycles=1 reads the persisted value and continues", async () => {
+  it("resume-after-crash: starting with review_cycles=1 reads the persisted value, rehydrates prior cycle, and continues", async () => {
     // Simulate a runner crash mid-fix-loop. The task's frontmatter still
-    // says review_cycles=1, status=reviewing. On re-entry, review must read
-    // the persisted counter and treat the next review run as cycle 2 (not 1).
+    // says review_cycles=1, status=reviewing, and the pre-crash cycle's
+    // result-0.json is still on disk. On re-entry, review must:
+    //   (a) read the persisted counter and treat the next review run as
+    //       cycle 2 (not 1);
+    //   (b) rehydrate cycle 1 from result-0.json so the rendered subsection
+    //       still surfaces it (per docs/task-schema.md the review subsection
+    //       re-renders with full history).
     mockReviewSequence([clean]);
     const task = await makeTaskFile(tmp, { review_cycles: 1 });
+    // Seed the pre-crash cycle 1 JSON on disk so rehydrate has something
+    // to read.
+    const reviewDir = path.join(
+      task.frontmatter.target_repo,
+      ".orchestrator",
+      "tasks",
+      task.frontmatter.id,
+      "review",
+    );
+    await fs.mkdir(reviewDir, { recursive: true });
+    await fs.writeFile(
+      path.join(reviewDir, "result-0.json"),
+      JSON.stringify(criticalCode),
+      "utf8",
+    );
+
     await runReviewPhase(task);
     const reloaded = await readTask(task.path);
     // Clean review on re-entry → counter unchanged at 1.
     expect(reloaded.frontmatter.review_cycles).toBe(1);
-    // The single review run is labelled cycle 2 (1-indexed: cycles=1 at
-    // start means this is the second review run, the first having happened
-    // pre-crash).
+    // Both cycles surface — the rehydrated pre-crash cycle 1 and the new
+    // cycle 2.
     expect(reloaded.body).toContain("cycle 2");
-    expect(reloaded.body).not.toMatch(/cycle 1\b/);
+    expect(reloaded.body).toMatch(/cycle 1\b/);
+    expect(reloaded.body).toContain("decision: clean — advancing");
+  });
+
+  it("escalates to failed when frontmatter.worktree is null or missing on disk", async () => {
+    // The defensive worktree check fires before the LLM is spawned. Pin
+    // both modes (null and a non-existent path) so a future refactor that
+    // collapses the branches can't silently let the runner spawn claude
+    // against an invalid cwd.
+    const task = await makeTaskFile(tmp, { worktree: "/tmp/does-not-exist-flow-review" });
+    const r = await runReviewPhase(task);
+    expect(r.status).toBe("failed");
+    expect(vi.mocked(runHeadless)).not.toHaveBeenCalled();
   });
 
   it("escalates to needs-human (pr-missing) when frontmatter.pr is null", async () => {
