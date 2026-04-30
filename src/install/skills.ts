@@ -7,6 +7,7 @@ import {
   readManagedBlockPaths,
   updateGitignoreBlock,
 } from "../util/gitignore.js";
+import { removeOrphanIfManaged } from "./orphan.js";
 
 export interface InstallSkillsOptions {
   stack?: string;
@@ -72,19 +73,33 @@ export async function installSkills(
   // --upgrade: orphan-removal sweep. See scripts.ts for the rationale —
   // gitignore-driven detection only ever cleans up things flow definitely
   // managed (real dirs and user-pointed symlinks are left alone).
+  //
+  // Orphan detection is anchored to the *whole* source tree, not the
+  // currently-selected subset: an "orphan" is a path absent from source,
+  // not a path the user happened to deselect with --skip-pipeline / --stack.
+  // Otherwise `flow install --upgrade --skip-pipeline` would delete every
+  // pipeline skill the previous install put down. The gitignore block still
+  // reflects the selected subset (existing behavior — deselected skills
+  // drop out of the block on the rewrite below).
   const currentPaths = skillsToInstall.map((s) => `/.claude/skills/${s.name}`);
+  const allSourcePaths = [
+    ...tiers.pipeline,
+    ...tiers.universal,
+    ...tiers.stacks,
+  ].map((s) => `/.claude/skills/${s.name}`);
   const removedOrphans: string[] = [];
   if (options.upgrade) {
     const previousPaths = await readManagedBlockPaths(repoRoot, "install-skills");
-    const currentSet = new Set(currentPaths);
-    const orphans = previousPaths.filter((p) => !currentSet.has(p));
+    const sourceSet = new Set(allSourcePaths);
+    const orphans = previousPaths.filter((p) => !sourceSet.has(p));
     for (const orphan of orphans) {
       const name = path.basename(orphan);
-      const removedNow = await removeOrphanIfManaged(
+      const removedNow = await removeOrphanIfManaged({
         repoRoot,
-        orphan,
-        skillsRoot,
-      );
+        gitignorePath: orphan,
+        sourceRoot: skillsRoot,
+        expectedPrefix: "/.claude/skills/",
+      });
       if (removedNow) {
         console.error(pc.magenta(`  - ${name}  (removed)`));
         removedOrphans.push(orphan);
@@ -121,27 +136,6 @@ export async function installSkills(
   }
 
   return { created, updated, skipped, removed, blocked };
-}
-
-// Mirror of the helper in scripts.ts. See comment there. Kept as a sibling
-// rather than a shared module: the function is ~10 lines and per AGENTS.md
-// "no premature abstractions" — sharing across two callers does not yet
-// justify a new module.
-async function removeOrphanIfManaged(
-  repoRoot: string,
-  gitignorePath: string,
-  sourceRoot: string,
-): Promise<boolean> {
-  const targetPath = path.join(repoRoot, gitignorePath.replace(/^\//, ""));
-  const link = await readLink(targetPath);
-  if (link === null) return false;
-  const resolved = path.resolve(path.dirname(targetPath), link);
-  const rel = path.relative(sourceRoot, resolved);
-  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
-    return false;
-  }
-  await fs.unlink(targetPath);
-  return true;
 }
 
 function resolveSkillsRoot(): string {

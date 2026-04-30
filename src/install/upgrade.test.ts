@@ -223,6 +223,39 @@ describe("installSkills --upgrade orphan removal", () => {
     // so the old-skill entry naturally drops from the gitignore.
     expect(ignore).not.toContain("/.claude/skills/old-skill");
   });
+
+  it("--skip-pipeline does not orphan still-in-source pipeline skills", async () => {
+    // Regression: previously, orphan detection used the *selected* skill set,
+    // so `--upgrade --skip-pipeline` deleted every previously-installed
+    // pipeline skill even though the source tree still contains them.
+    const pipelineDir = path.join(skillsRoot(), "pipeline");
+    const entries = await fs.readdir(pipelineDir, { withFileTypes: true });
+    const firstPipelineSkill = entries.find((e) => e.isDirectory())!.name;
+
+    const skillsTarget = path.join(repoRoot, ".claude", "skills");
+    await fs.mkdir(skillsTarget, { recursive: true });
+    const previouslyInstalledLink = path.join(skillsTarget, firstPipelineSkill);
+    await fs.symlink(
+      path.join(pipelineDir, firstPipelineSkill),
+      previouslyInstalledLink,
+    );
+    await seedManagedBlock("install-skills", [
+      `/.claude/skills/${firstPipelineSkill}`,
+    ]);
+
+    const result = await installSkills(repoRoot, {
+      upgrade: true,
+      skipPipeline: true,
+    });
+
+    // Still in source — must NOT be removed even though it's deselected.
+    expect(result.removed).toBe(0);
+    expect(await isSymlink(previouslyInstalledLink)).toBe(true);
+    // But it does drop from the .gitignore block (existing rewrite behavior:
+    // the block reflects the currently-selected subset).
+    const ignore = await readGitignore();
+    expect(ignore).not.toContain(`/.claude/skills/${firstPipelineSkill}`);
+  });
 });
 
 // --- Scripts orphan removal ---

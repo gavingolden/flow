@@ -7,6 +7,7 @@ import {
   readManagedBlockPaths,
   updateGitignoreBlock,
 } from "../util/gitignore.js";
+import { removeOrphanIfManaged } from "./orphan.js";
 
 export interface InstallScriptsOptions {
   force?: boolean;
@@ -90,11 +91,12 @@ export async function installScripts(
     const orphans = previousPaths.filter((p) => !currentSet.has(p));
     for (const orphan of orphans) {
       const name = path.basename(orphan);
-      const removedNow = await removeOrphanIfManaged(
+      const removedNow = await removeOrphanIfManaged({
         repoRoot,
-        orphan,
-        scriptsRoot,
-      );
+        gitignorePath: orphan,
+        sourceRoot: scriptsRoot,
+        expectedPrefix: "/scripts/",
+      });
       if (removedNow) {
         console.error(pc.magenta(`  - ${name}  (removed)`));
         removedOrphans.push(orphan);
@@ -158,29 +160,6 @@ export async function installScripts(
   }
 
   return { created, updated, skipped, removed, blocked };
-}
-
-// Try to delete an orphan install-target path. Returns true iff the path
-// was an actual symlink whose target resolves under flow's source tree
-// (i.e. flow definitely managed it). Real files, real directories, and
-// symlinks pointing outside `sourceRoot` are user-owned and left alone.
-// The gitignore entry for the orphan drops out either way on the next
-// updateGitignoreBlock call.
-async function removeOrphanIfManaged(
-  repoRoot: string,
-  gitignorePath: string,
-  sourceRoot: string,
-): Promise<boolean> {
-  const targetPath = path.join(repoRoot, gitignorePath.replace(/^\//, ""));
-  const link = await readLink(targetPath);
-  if (link === null) return false;
-  const resolved = path.resolve(path.dirname(targetPath), link);
-  const rel = path.relative(sourceRoot, resolved);
-  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
-    return false;
-  }
-  await fs.unlink(targetPath);
-  return true;
 }
 
 async function deleteStaleCompanionTests(
