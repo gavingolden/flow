@@ -396,10 +396,18 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
     );
   });
 
-  it("intent: bug continues straight through to review (no checkpoint)", async () => {
+  it("intent: bug continues straight through (no checkpoint)", async () => {
     const task = await makeTaskFile(tmp, "worktree-ready", "bug");
     await runPipeline(task);
-    expect(callLog).toEqual(["plan", "implement", "verify", "ci-wait", "review"]);
+    expect(callLog).toEqual([
+      "plan",
+      "implement",
+      "verify",
+      "ci-wait",
+      "review",
+      "gate",
+      "merge",
+    ]);
     const after = await readTask(task.path);
     expect(after.frontmatter.status).not.toBe("plan-pending-review");
   });
@@ -407,12 +415,51 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
   it("missing intent line continues straight through (treats as non-feature)", async () => {
     const task = await makeTaskFile(tmp, "worktree-ready");
     await runPipeline(task);
-    expect(callLog).toEqual(["plan", "implement", "verify", "ci-wait", "review"]);
+    expect(callLog).toEqual([
+      "plan",
+      "implement",
+      "verify",
+      "ci-wait",
+      "review",
+      "gate",
+      "merge",
+    ]);
   });
 
   it("plan-pending-review is not in CLAIMABLE_STATUSES (the runner won't pick it up)", async () => {
     const { isClaimableStatus } = await import("./runner.js");
     expect(isClaimableStatus("plan-pending-review")).toBe(false);
+  });
+
+  it("pause flag at phase boundary halts the pipeline with paused_from set", async () => {
+    // Pre-create the .pause flag in the taskDir before runPipeline starts.
+    // The runner must check at the top of each iteration (before invoking
+    // any phase) and exit cleanly with status=needs-human, reason=user-paused.
+    const task = await makeTaskFile(tmp, "worktree-ready");
+    await fs.writeFile(path.join(tmp, ".pause"), "", "utf8");
+
+    const r = await runPipeline(task, NoopLogger, { taskDir: tmp });
+
+    expect(r).toEqual({ status: "needs-human", reason: "user-paused" });
+    // No phase should have been invoked.
+    expect(callLog).toEqual([]);
+    const after = await readTask(task.path);
+    expect(after.frontmatter.status).toBe("needs-human");
+    expect(after.frontmatter.paused_from).toBe("worktree-ready");
+    expect(after.body).toMatch(/worktree-ready → needs-human \(user-paused\)/);
+  });
+
+  it("pause flag is ignored when taskDir is undefined (legacy unit-test path)", async () => {
+    // The dispatch tests above pass no taskDir; pause-flag presence in those
+    // contexts (none — the flag lives in the taskDir we just bypassed) is
+    // moot. This test pins the bypass: even if a stray .pause shows up
+    // somewhere, no taskDir means no check.
+    const task = await makeTaskFile(tmp, "worktree-ready");
+    await fs.writeFile(path.join(tmp, ".pause"), "", "utf8");
+    const r = await runPipeline(task);
+    expect(r.status).toBe("ok");
+    // Pipeline ran normally.
+    expect(callLog).toContain("plan");
   });
 
   it("emits a phaseEnd line even when a phase throws past the PhaseResult contract", async () => {

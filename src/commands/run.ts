@@ -17,6 +17,7 @@ import {
 } from "../state/reaper.js";
 import { acquireClaim, type Claim } from "../state/claim.js";
 import { respawnDetached, FLOW_LOG_PATH_ENV } from "../util/respawn.js";
+import { isPaused } from "../state/pause-flag.js";
 
 export interface RunOptions {
   detach?: boolean;
@@ -73,6 +74,21 @@ export async function runCommand(
   if (task.frontmatter.status === "plan-pending-review") {
     process.stderr.write(
       `task ${task.frontmatter.id} is paused at plan-pending-review — run /flow-approve ${task.frontmatter.id} or /flow-revise ${task.frontmatter.id}\n`,
+    );
+    process.exit(0);
+  }
+
+  // Defensive pause check at startup. Without this a manual `flow run
+  // <id>` against a paused task would acquire the claim, enter the
+  // pipeline loop, hit the in-loop pause check, transition to
+  // needs-human (user-paused) redundantly, and exit. Surfacing the
+  // affordance early keeps log output clean and avoids a misleading
+  // duplicate transition. Mirrors the plan-pending-review early-exit
+  // above. Sits *before* the --detach branch so `flow run <id> --detach`
+  // against a paused task doesn't spawn a zero-work child.
+  if (isPaused(taskDir)) {
+    process.stderr.write(
+      `task ${task.frontmatter.id} is paused — run \`flow resume ${task.frontmatter.id}\` first\n`,
     );
     process.exit(0);
   }

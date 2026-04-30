@@ -1,6 +1,12 @@
 import path from "node:path";
-import { Task, readTask, transitionStatus } from "../state/task-file.js";
+import {
+  Task,
+  readTask,
+  transitionStatus,
+  updateTaskFrontmatter,
+} from "../state/task-file.js";
 import { TaskStatus } from "../state/phases.js";
+import { isPaused } from "../state/pause-flag.js";
 import { parseIntent } from "../state/triage.js";
 import { runPlanPhase } from "./phases/plan.js";
 import { runWorktreePhase } from "./phases/worktree.js";
@@ -121,6 +127,28 @@ export async function runPipeline(
 ): Promise<PhaseResult> {
   for (const spec of M2_PIPELINE) {
     if (!spec.unfinishedStatuses.includes(task.frontmatter.status)) continue;
+    // Pause check at the phase boundary. Sits between the unfinished-status
+    // gate (so we don't flap pause transitions on a no-op iteration) and
+    // the phase invocation (so a phase already running is never
+    // interrupted). `taskDir` is undefined in legacy unit tests that
+    // exercise dispatch without a real on-disk task dir — those paths
+    // bypass the check, preserving existing behaviour.
+    if (opts.taskDir && isPaused(opts.taskDir)) {
+      const pausedFrom = task.frontmatter.status;
+      await updateTaskFrontmatter(task, { paused_from: pausedFrom });
+      await transitionStatus(task, "needs-human", "user-paused");
+      logger.event("task.status", "needs-human (user-paused)");
+      const pauseSink = await createJsonlSink({
+        taskDir: opts.taskDir,
+        phase: "pause",
+      });
+      try {
+        pauseSink.event("task.pause", { paused_from: pausedFrom });
+      } finally {
+        await pauseSink.close();
+      }
+      return { status: "needs-human", reason: "user-paused" };
+    }
     logger.phaseStart(spec.name);
     const start = Date.now();
     const jsonl: JsonlSink = opts.taskDir

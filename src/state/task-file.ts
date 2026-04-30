@@ -43,6 +43,12 @@ export interface TaskFrontmatter {
   // findings still present escalates to needs-human
   // (review-cycles-exhausted).
   review_cycles?: number | null;
+  // Captures the entry-status of the next-pending phase when `flow pause`
+  // fires; cleared by `flow resume`. The runner records this at the moment
+  // it sees the `.pause` flag so resume can route the task back to the
+  // exact pre-pause status (and therefore the right next phase) without
+  // scanning the Phase log.
+  paused_from?: TaskStatus | null;
 }
 
 export interface Task {

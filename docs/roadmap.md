@@ -440,20 +440,31 @@ Done when:
 - Two concurrent `flow run --all` invocations claim every task exactly
   once across the union (covered by the worker-pool race smoke test).
 
-### PR 16 — pause / resume / abort
+### PR 16 — pause / resume / abort (shipped)
+
+> Implementation note: the pause flag lives at
+> `.orchestrator/tasks/<id>/.pause` (per-task), not the original
+> `.orchestrator/.pause` (global). A global flag would halt every
+> concurrent runner under `flow run --all` (PR 15); per-task pause
+> is the only design that supports parallel pipelines.
 
 Done when:
 
-- Three new skills land: `/flow pause <id>`, `/flow resume <id>`,
-  `/flow abort <id>`.
-- Pause drops a `.pause` flag in `.orchestrator/`; the runner checks
-  the flag at phase boundaries (no mid-tool interruption) and exits
-  cleanly with status `needs-human`, reason `user-paused`.
-- Resume removes the flag and spawns `flow run <id> --detach`.
+- Three new skills land: `/flow-pause <id>`, `/flow-resume <id>`,
+  `/flow-abort <id>`. Each is a thin shell over the matching CLI.
+- Pause drops a `.pause` flag in `.orchestrator/tasks/<id>/`; the
+  runner checks the flag at phase boundaries (no mid-tool
+  interruption) and exits cleanly with status `needs-human`, reason
+  `user-paused`. The pre-pause status is recorded in the new
+  `paused_from` frontmatter field so resume can route to the right
+  next phase.
+- Resume removes the flag, restores `paused_from` to status, and
+  spawns `flow run <id> --detach`.
 - Abort sets a terminal `aborted` status, closes the PR if open,
   removes the worktree, deletes the branch, and moves the task file
-  to `.orchestrator/tasks/archive/`. Confirmation prompt before
-  proceeding.
+  to `.orchestrator/tasks/archive/`. CLI requires `--confirm`; the
+  chat skill collects the confirmation interactively via
+  `AskUserQuestion`.
 
 ### PR 17 — macOS notifications (opt-in)
 

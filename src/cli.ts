@@ -8,6 +8,9 @@ import { logCommand } from "./commands/log.js";
 import { statusCommand } from "./commands/status.js";
 import { approveCommand } from "./commands/approve.js";
 import { reviseCommand } from "./commands/revise.js";
+import { pauseCommand } from "./commands/pause.js";
+import { resumeCommand } from "./commands/resume.js";
+import { abortCommand } from "./commands/abort.js";
 
 const program = new Command();
 
@@ -184,6 +187,49 @@ program
       if (code !== 0) process.exit(code);
     },
   );
+
+program
+  .command("pause")
+  .description(
+    "Drop a per-task pause flag at .orchestrator/tasks/<id>/.pause. The " +
+      "runner exits cleanly at the next phase boundary (status → " +
+      "needs-human, reason user-paused). Resume with `flow resume <id>`.",
+  )
+  .argument("<task>", "task id or path to the task .md file")
+  .action(async (taskId: string) => {
+    const code = await pauseCommand(taskId, {});
+    if (code !== 0) process.exit(code);
+  });
+
+program
+  .command("resume")
+  .description(
+    "Clear a pause flag, restore the task to its pre-pause status (via the " +
+      "`paused_from` frontmatter field), and re-spawn `flow run --detach`.",
+  )
+  .argument("<task>", "task id or path to the task .md file")
+  .option("--no-resume", "skip the detached re-spawn (status restore only)")
+  .action(async (taskId: string, opts: { resume?: boolean }) => {
+    const code = await resumeCommand(taskId, { resume: opts.resume });
+    if (code !== 0) process.exit(code);
+  });
+
+program
+  .command("abort")
+  .description(
+    "Tear down a task: close its PR (if open), remove the worktree and " +
+      "branch, archive the task file under `.orchestrator/tasks/archive/`, " +
+      "and mark the task `aborted`. Destructive — requires `--confirm`.",
+  )
+  .argument("<task>", "task id or path to the task .md file")
+  .option(
+    "--confirm",
+    "explicit confirmation; required (CLI runs non-interactively)",
+  )
+  .action(async (taskId: string, opts: { confirm?: boolean }) => {
+    const code = await abortCommand(taskId, { confirm: opts.confirm });
+    if (code !== 0) process.exit(code);
+  });
 
 program
   .command("install")

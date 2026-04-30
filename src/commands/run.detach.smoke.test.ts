@@ -231,6 +231,74 @@ describeMaybe("flow run --detach (integration smoke)", () => {
     expect(reread).toMatch(/^status: plan-pending-review$/m);
   });
 
+  it("flow run <id> against a paused task is a friendly no-op (exit 0, stderr names flow resume, no claim acquired)", async () => {
+    // PR 16 added a defensive pause-check at runCommand startup that
+    // mirrors the plan-pending-review early-exit. A manual `flow run
+    // <id>` against a paused task must surface the resume affordance on
+    // stderr and exit 0 without acquiring the claim or running the
+    // pipeline (which would otherwise hit the in-loop pause check,
+    // record a redundant transition, and exit anyway).
+    const taskId = "2026-04-30-paused-noop";
+    fixture = await fs.mkdtemp(path.join(os.tmpdir(), "flow-paused-noop-"));
+    await execa("git", ["init", "-q"], { cwd: fixture });
+    await execa("git", ["config", "user.email", "test@test"], { cwd: fixture });
+    await execa("git", ["config", "user.name", "test"], { cwd: fixture });
+    const tasksDir = path.join(fixture, ".orchestrator", "tasks");
+    await fs.mkdir(tasksDir, { recursive: true });
+    const body = [
+      "---",
+      `id: ${taskId}`,
+      "status: pr-open",
+      "created: 2026-04-30T00:00:00.000Z",
+      "updated: 2026-04-30T00:00:00.000Z",
+      `target_repo: ${fixture}`,
+      "worktree: null",
+      "branch: null",
+      "pr: null",
+      "manual_validation: null",
+      "merge_commit: null",
+      "paused_from: pr-open",
+      "---",
+      "",
+      "## User prompt",
+      "",
+      "smoke",
+      "",
+      "## Phase log",
+      "",
+      "## Phase outputs",
+      "",
+    ].join("\n");
+    await fs.writeFile(path.join(tasksDir, `${taskId}.md`), body, "utf8");
+    const taskDir = path.join(tasksDir, taskId);
+    await fs.mkdir(taskDir, { recursive: true });
+    await fs.writeFile(path.join(taskDir, ".pause"), "", "utf8");
+
+    const child = spawn(TSX, [CLI, "run", taskId], {
+      cwd: fixture,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (d: Buffer) => { stdout += d.toString("utf8"); });
+    child.stderr.on("data", (d: Buffer) => { stderr += d.toString("utf8"); });
+    const exitCode = await new Promise<number>((resolve) => {
+      child.on("exit", (code) => resolve(code ?? -1));
+    });
+
+    expect(exitCode, `stderr=${stderr}\nstdout=${stdout}`).toBe(0);
+    expect(stderr).toContain("is paused");
+    expect(stderr).toContain(`flow resume ${taskId}`);
+
+    // No claim / runner.pid was written — the no-op exits before
+    // acquireClaim runs.
+    const pidPath = path.join(taskDir, "runner.pid");
+    await expect(fs.access(pidPath)).rejects.toThrow();
+    // Status is unchanged.
+    const reread = await fs.readFile(path.join(tasksDir, `${taskId}.md`), "utf8");
+    expect(reread).toMatch(/^status: pr-open$/m);
+  });
+
   it("parent exits 0 quickly, runner.pid is written, child survives parent exit, SIGTERM reaps to needs-human", async () => {
     const taskId = "2026-04-29-detach-smoke";
     fixture = await makeFixtureRepo(taskId);
