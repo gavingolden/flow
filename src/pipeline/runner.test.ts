@@ -50,9 +50,21 @@ vi.mock("./phases/ci-wait.js", () => ({
   }),
 }));
 
+vi.mock("./phases/review.js", () => ({
+  runReviewPhase: vi.fn(async (_task, _logger, _jsonl) => {
+    // Review may keep the task at "reviewing" (clean review, gate phase
+    // takes the next transition) or escalate to needs-human; the runner
+    // test only cares about the dispatch contract, not the loop internals.
+    // Leave status untouched and return ok.
+    callLog.push("review");
+    return { status: "ok" };
+  }),
+}));
+
 import { runPipeline } from "./runner.js";
 import { readTask, writeTask, type Task } from "../state/task-file.js";
 import { runPlanPhase } from "./phases/plan.js";
+import { runReviewPhase } from "./phases/review.js";
 import { NoopLogger, type Logger } from "../util/logger.js";
 
 async function makeTaskFile(tmpDir: string, status: TaskStatus): Promise<Task> {
@@ -97,11 +109,11 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
-  it("at status triaged, dispatches worktree → plan → implement → ci-wait in order", async () => {
+  it("at status triaged, dispatches worktree → plan → implement → ci-wait → review in order", async () => {
     const task = await makeTaskFile(tmp, "triaged");
     const r = await runPipeline(task);
     expect(r.status).toBe("ok");
-    expect(callLog).toEqual(["worktree", "plan", "implement", "ci-wait"]);
+    expect(callLog).toEqual(["worktree", "plan", "implement", "ci-wait", "review"]);
   });
 
   it("at status creating-worktree, resumes from worktree", async () => {
@@ -113,7 +125,7 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
   it("at status worktree-ready, skips worktree and starts at plan", async () => {
     const task = await makeTaskFile(tmp, "worktree-ready");
     await runPipeline(task);
-    expect(callLog).toEqual(["plan", "implement", "ci-wait"]);
+    expect(callLog).toEqual(["plan", "implement", "ci-wait", "review"]);
   });
 
   it("at status planning, resumes from plan (skips worktree)", async () => {
@@ -126,31 +138,50 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
   it("at status planned, skips worktree and plan, starts at implement", async () => {
     const task = await makeTaskFile(tmp, "planned");
     await runPipeline(task);
-    expect(callLog).toEqual(["implement", "ci-wait"]);
+    expect(callLog).toEqual(["implement", "ci-wait", "review"]);
   });
 
   it("at status implementing, resumes from implement", async () => {
     const task = await makeTaskFile(tmp, "implementing");
     await runPipeline(task);
-    expect(callLog).toEqual(["implement", "ci-wait"]);
+    expect(callLog).toEqual(["implement", "ci-wait", "review"]);
   });
 
   it("at status pr-open, dispatches ci-wait", async () => {
     const task = await makeTaskFile(tmp, "pr-open");
     await runPipeline(task);
-    expect(callLog).toEqual(["ci-wait"]);
+    expect(callLog).toEqual(["ci-wait", "review"]);
   });
 
   it("at status ci, resumes from ci-wait", async () => {
     const task = await makeTaskFile(tmp, "ci");
     await runPipeline(task);
-    expect(callLog).toEqual(["ci-wait"]);
+    expect(callLog).toEqual(["ci-wait", "review"]);
   });
 
-  it("at status reviewing, no phases run (post-ci-wait, pre-PR-7 state)", async () => {
+  it("at status reviewing, dispatches review (PR 7 wired)", async () => {
+    // Pre-PR-7 this returned []. After PR 7, status `reviewing` is review's
+    // entry status — the runner picks the task up and invokes runReviewPhase.
+    // The review phase keeps the task at `reviewing` for its full loop;
+    // a clean run leaves it there for the gate phase (PR 8) to advance.
     const task = await makeTaskFile(tmp, "reviewing");
     await runPipeline(task);
-    expect(callLog).toEqual([]);
+    expect(callLog).toEqual(["review"]);
+  });
+
+  it("propagates needs-human from review without advancing", async () => {
+    // When review escalates (architectural-concern, review-cycles-exhausted,
+    // or pr-missing) the runner must stop the pipeline rather than treating
+    // it as a soft error. There is no phase after review in M2, but the
+    // contract still matters for PR 8's gate phase.
+    const task = await makeTaskFile(tmp, "reviewing");
+    vi.mocked(runReviewPhase).mockImplementationOnce(async () => {
+      callLog.push("review");
+      return { status: "needs-human", reason: "architectural-concern" };
+    });
+    const r = await runPipeline(task);
+    expect(r).toEqual({ status: "needs-human", reason: "architectural-concern" });
+    expect(callLog).toEqual(["review"]);
   });
 
   it("threads a per-phase JsonlSink to each phase and closes it (writing a result line)", async () => {
@@ -221,7 +252,7 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
     await runPipeline(task);
     // No logs/ subdir created.
     await expect(fs.access(path.join(tmp, "logs"))).rejects.toThrow();
-    expect(callLog).toEqual(["plan", "implement", "ci-wait"]);
+    expect(callLog).toEqual(["plan", "implement", "ci-wait", "review"]);
   });
 
   it("emits a phaseEnd line even when a phase throws past the PhaseResult contract", async () => {

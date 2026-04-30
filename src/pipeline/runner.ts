@@ -5,6 +5,7 @@ import { runPlanPhase } from "./phases/plan.js";
 import { runWorktreePhase } from "./phases/worktree.js";
 import { runImplementPhase } from "./phases/implement.js";
 import { runCiWaitPhase } from "./phases/ci-wait.js";
+import { runReviewPhase } from "./phases/review.js";
 import { PhaseResult } from "./types.js";
 import { NoopLogger, type Logger } from "../util/logger.js";
 import {
@@ -53,6 +54,17 @@ const M2_PIPELINE: readonly PhaseSpec[] = [
     name: "ci-wait",
     unfinishedStatuses: ["pr-open", "ci"],
     phase: runCiWaitPhase,
+  },
+  {
+    // The review phase keeps the task at status "reviewing" for the entire
+    // review→implement(fix) loop, including across the inner fix call.
+    // `unfinishedStatuses` is therefore just ["reviewing"]: a mid-loop
+    // crash leaves the status at "reviewing" so the runner re-enters here,
+    // reads the persisted `review_cycles` counter from frontmatter, and
+    // continues from where it left off.
+    name: "review",
+    unfinishedStatuses: ["reviewing"],
+    phase: runReviewPhase,
   },
 ];
 

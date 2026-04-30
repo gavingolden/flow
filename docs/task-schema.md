@@ -73,6 +73,7 @@ merge_commit: null
 | `pr` | integer \| `null` | implement phase | GitHub PR number. Null until phase 3 opens it. |
 | `manual_validation` | bool \| `null` | gate phase | True if the PR's "Manual validation" section is non-empty. Null before the gate runs. |
 | `merge_commit` | string \| `null` | merge phase | SHA of the squash-merge commit on the base branch. Hard to recover after the fact (branch deleted, PR squashed) so we capture it explicitly. Null until M4's merge phase runs. |
+| `review_cycles` | integer \| `null` | review phase | Number of review→implement(fix) loop-backs completed. Null until review runs the first time, then 0 and increments per loop. Capped at 2; reaching the cap with critical-code findings still present escalates to `needs-human (review-cycles-exhausted)`. Persists across crashes so resume-mid-loop continues from the right cycle. |
 
 Add new fields freely as later phases need them, but keep the schema
 backward-compatible: existing readers must not crash on missing fields.
@@ -241,10 +242,24 @@ other phases' subsections.
 
 ### verify
 - 1230/1230 PASS, lint clean
+
+### review (latest: 2026-04-30T01:30:12Z)
+- cycle 1 (2026-04-30T01:23:45Z): summary "<one-line>"
+  - critical (code): src/foo.ts:42 — <subject>
+  - minor: src/bar.ts:73 — <subject>
+- cycle 2 (2026-04-30T01:30:12Z): summary "<one-line>"
+  - critical (code): src/foo.ts:42 — <subject> (still flagged)
+- decision: needs-human (review-cycles-exhausted)
+- JSON: <task-dir>/review/result-2.json
 ```
 
 Subsections may carry whatever structured data the phase needs to
 hand off to the next one. Keep it grep-able.
+
+The `review` subsection is special: it re-renders on every cycle so the
+full history of review runs (and the final decision line) stays visible.
+Decision is one of `clean — advancing`, `needs-human (architectural-concern)`,
+or `needs-human (review-cycles-exhausted)`.
 
 ## Read/write conventions
 

@@ -18,6 +18,11 @@ export interface TaskFrontmatter {
   pr: number | null;
   manual_validation: boolean | null;
   merge_commit: string | null;
+  // Number of review→implement(fix) loops completed for this task. Null until
+  // the review phase runs once. The review phase increments per loop-back; the
+  // cap is checked before incrementing so a value of 2 with critical-code
+  // findings still present escalates to needs-human (review-cycles-exhausted).
+  review_cycles?: number | null;
 }
 
 export interface Task {
