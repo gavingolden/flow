@@ -750,6 +750,167 @@ of them. Use a discriminated union and let the cause survive to the message. Aud
 
 ---
 
+## Replacement-String Metacharacter Expansion in `String.prototype.replace`
+
+When user-supplied (or otherwise externally-sourced) text becomes the *replacement* argument to a
+JavaScript `String.prototype.replace(...)` call with a **string** replacement, the engine
+interprets `$&`, `$1`–`$99`, `$$`, `$\``, `$'`, and `$<name>` as substitution patterns. Any
+literal occurrence of those sequences in the user input is silently rewritten, corrupting
+the output. The bug is invisible until a user happens to type one of the expansion sequences,
+at which point the result depends on the surrounding match — typically replacing a small
+literal with a large slice of the matched region.
+
+This is distinct from regex injection: the *search* argument is fine; only the replacement
+string is interpreted. The fix is always the same — pass a function replacer
+(`replace(re, () => replacement)`) so the replacement string is never re-parsed.
+
+### What to look for
+
+- `someString.replace(searchValue, replacementString)` where `replacementString` interpolates
+  any value not constructed from a closed set of internal literals (user input, file
+  contents, command output, parsed-from-disk text)
+- A function that was previously file-private being newly exported / promoted to the public
+  module surface, then reused by a caller that flows user input through it
+- Any helper that builds a "replace this section with a new line" or "swap this token for
+  the user's input" abstraction and uses string replacement under the hood
+
+### How to check
+
+1. Grep the diff for `\.replace\(` calls. For each, identify whether the second argument is
+   a string literal, a template literal that interpolates variables, or a function.
+2. For string and template-literal replacements, trace the interpolated variables back to
+   their source. If any variable can carry user-supplied or file-supplied text, the call is
+   vulnerable.
+3. Verify the fix by feeding a literal `$&` (and ideally `$$`, `$1`, `$\``, `$'`) through the
+   user-input path and asserting the output preserves them verbatim.
+4. When promoting a previously file-private function to a public export, audit every
+   `.replace` inside it and downstream — visibility changes can re-classify a "trusted
+   internal" call as "exposed to user input" without changing the call itself.
+
+### Example — `$&` in `flow revise --message` corrupted `task.md` (PR #34)
+
+```typescript
+// BAD: `line` carries user-supplied text via `flow revise --message`. A
+// literal `$&` in the message is expanded to the entire matched section.
+const trimmedBlock = block.replace(/\s+$/, "");
+task.body = task.body.replace(block, `${trimmedBlock}\n${line}\n`);
+
+// GOOD: function replacer — the replacement string is never re-parsed,
+// so user-supplied `$&`, `$1`, `$$`, `$\``, `$'` land in the output verbatim.
+const trimmedBlock = block.replace(/\s+$/, "");
+const replacement = `${trimmedBlock}\n${line}\n`;
+task.body = task.body.replace(block, () => replacement);
+```
+
+**General rule:** If externally-sourced text can reach the second argument of a string-form
+`String.prototype.replace`, switch to a function replacer. The conversion is always safe and
+costs nothing; the bug it prevents is invisible until a user types `$&`.
+
+---
+
+## Stale Comments Referencing Impossible Scenarios
+
+When a phase doc-comment enumerates resume scenarios, crash windows, or branch-reach
+conditions, those enumerations age faster than the surrounding code. A refactor that
+narrows a branch's `unfinishedStatuses` (or otherwise restricts how the branch can be
+reached) leaves the comment claiming a scenario that the new wiring makes unreachable.
+The code still works, but the comment now misleads the next maintainer into treating an
+impossible case as part of the contract — and into preserving conditional logic that
+exists only to satisfy the stale comment.
+
+### What to look for
+
+- Block comments that enumerate "resume cases", "this can happen when…", or "we get here
+  via…" inside a branch
+- Comments that mention a status, phase, or caller no longer wired to reach that branch
+  per the dispatch table (`unfinishedStatuses`, allowlists, route guards)
+- Branches whose comment references an upstream phase whose own comment now contradicts
+  it — a sign the two drifted independently
+
+### How to check
+
+1. For each enumerated scenario in a comment, trace whether the runner / dispatcher /
+   caller can actually produce it. The dispatch table is the authority — if a scenario
+   requires `status: X` reaching this branch but `X` is not in the relevant phase's
+   `unfinishedStatuses` (or equivalent), the scenario is dead.
+2. When a refactor narrows reachability, audit comments on the changed branch and on
+   adjacent branches. The refactor's diff often touches the wiring, not the explanatory
+   prose downstream of it.
+3. Prefer deleting the impossible scenario over hedging it ("merge could have crashed
+   post-…"). A short comment that's accurate beats a long one that's partly wrong.
+
+### Example — gate's MERGED branch comment referenced a scenario the runner forbids (PR #33)
+
+```typescript
+// BAD: comment claims merge could have crashed post-`gh pr merge` and re-entered
+// gate from a stale `reviewing`. With merge's `unfinishedStatuses = ["merging"]`,
+// the runner only invokes merge from `merging`, so this scenario is unreachable.
+// The real resume cases are user-merged-externally / gated resume.
+if (state === "MERGED") {
+  // Resume path: gated PR was merged externally, or merge phase crashed
+  // post-`gh pr merge` and re-entered gate from a stale `reviewing`. ...
+}
+
+// GOOD: comment lists only scenarios the dispatch table can produce.
+if (state === "MERGED") {
+  // Resume path: the PR was merged externally, or gate resumed and found
+  // it already merged. Capture the SHA if we don't already have it and
+  // hand off to merge for cleanup + archive.
+}
+```
+
+**General rule:** When you change `unfinishedStatuses` or any other reachability
+constraint, grep the touched files for "resume", "crashed", "re-entered", and "via" and
+audit each enumerated scenario against the new wiring. Reviewers should treat any branch
+comment that lists scenarios as a candidate for staleness whenever the dispatch wiring
+changes in the same PR.
+
+---
+
+## Branch Staleness vs. Main Across Cross-Phase Refactors
+
+When a feature branch has been open for several days against a main branch that has
+gained commits in unrelated phases of the same orchestrator (e.g. main lands a fix to
+`plan.ts` while the open PR adds `gate.ts` + `merge.ts`), the branch's CI never exercises
+the new phase against the integrated tree. The squash-merge will not silently revert the
+plan-phase commits — git's three-way merge handles disjoint files cleanly — but the
+branch's runner-pipeline-walk test (which mocks `runPlanPhase` and friends) won't catch a
+behaviour change in the real `plan` phase that interacts with the new `gate`/`merge`
+phases on a fresh tree.
+
+### What to look for
+
+- Open PRs introducing a new pipeline phase or wiring change while main has shipped fixes
+  to other phases the runner integrates with
+- Branches cut from a base SHA that's >2 commits behind `origin/main` at review time
+- Runner-level dispatch tests that mock the very phases that have changed on main —
+  passing locally tells you nothing about post-rebase behaviour
+
+### How to check
+
+1. `git log <branch>..origin/main --oneline` — if more than a couple of commits and any
+   touch files the new phase integrates with, recommend a rebase before merge.
+2. After rebase, re-run the full suite (`npm run test`, `npm run typecheck`) against the
+   integrated tree, paying attention to runner pipeline-walk tests where the previously-
+   mocked phases now return a slightly different shape.
+3. Don't escalate to `issue` unless there's a concrete file-level conflict or a known
+   contract change. The bar is `suggestion (non-blocking)` — the author can decide
+   whether the integration risk warrants the rebase round-trip.
+
+### Example — PR 8 cut from `ecc8999`; main gained 3 commits including a plan-phase contract change (PR #33)
+
+The PR's diff didn't touch `plan.ts` / `headless.ts` / `start.ts`, so the squash-merge
+silently reverting them was a false alarm. But the runner pipeline-walk test
+(`runner.test.ts`) mocks `runPlanPhase`, so a plan-vs-gate interaction on the integrated
+tree wouldn't show up there either. The author flagged this as a `suggestion
+(non-blocking)` to rebase and re-run the suite before merging.
+
+**General rule:** A clean diff against base doesn't certify a clean merge into the
+current main — if the runner integrates phases that have changed on main, recommend a
+rebase before merge so the open branch's CI exercises the integrated tree at least once.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue
