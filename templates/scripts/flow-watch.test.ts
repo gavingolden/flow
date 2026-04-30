@@ -774,9 +774,50 @@ describe(main, () => {
       "log",
       "alive",
       "--follow",
+      "--tail",
+      "50",
       "--phase",
       "plan",
     ]);
+  });
+
+  it("forwards --tail <events> to flow log in the follow path", async () => {
+    setupTasks([{ id: "alive", status: "implementing" }]);
+    const stdout = new StringSink();
+    const stderr = new StringSink();
+    let capturedArgv: string[] = [];
+    await main(["alive", "--events", "20"], {
+      cwd: dir,
+      stdout,
+      stderr,
+      spawn: (argv) => {
+        capturedArgv = argv;
+        return makeFakeProc({ lines: [] });
+      },
+    });
+    expect(capturedArgv).toContain("--tail");
+    const tailIdx = capturedArgv.indexOf("--tail");
+    expect(capturedArgv[tailIdx + 1]).toBe("20");
+    // Sanity-check positional ordering: `--follow` precedes `--tail`.
+    expect(capturedArgv.indexOf("--follow")).toBeLessThan(tailIdx);
+  });
+
+  it("does NOT forward --tail in the terminal-fallback / explicit-terminal path", async () => {
+    setupTasks([{ id: "done-task", status: "merged" }]);
+    const stdout = new StringSink();
+    const stderr = new StringSink();
+    let capturedArgv: string[] = [];
+    await main(["done-task"], {
+      cwd: dir,
+      stdout,
+      stderr,
+      spawn: (argv) => {
+        capturedArgv = argv;
+        return makeFakeProc({ lines: ["evt\n"] });
+      },
+    });
+    expect(capturedArgv).not.toContain("--tail");
+    expect(capturedArgv).not.toContain("--follow");
   });
 
   it("strips --seconds and --events from the flow log argv", async () => {

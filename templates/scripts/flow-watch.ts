@@ -509,9 +509,13 @@ async function runFollow(
   const stdout = deps.stdout ?? { write: (s) => process.stdout.write(s) };
   const phaseLabel = parsed.phase ?? "active phase";
   stdout.write(
-    `Tailing ${phaseLabel} for ${id} (bound: ${parsed.seconds}s / ${parsed.events} events)\n`,
+    `Tailing ${phaseLabel} for ${id} (starts from last ${parsed.events} events; capped at ${parsed.events} total events or ${parsed.seconds}s, whichever first)\n`,
   );
-  const flowLogArgs = ["log", id, "--follow"];
+  // `--tail <events>` makes the inner `flow log --follow` skip the full
+  // backlog and start reading from the last N events of the file. Without
+  // it, a phase past ~50 events gets clipped at the head every invocation,
+  // which is useless for live state checks.
+  const flowLogArgs = ["log", id, "--follow", "--tail", String(parsed.events)];
   if (parsed.phase) flowLogArgs.push("--phase", parsed.phase);
   return runWithBound({
     flowLogArgs,

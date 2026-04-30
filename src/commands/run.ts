@@ -16,6 +16,10 @@ import {
   reapStatusSync,
 } from "../state/reaper.js";
 import { acquireClaim, type Claim } from "../state/claim.js";
+import {
+  inspectPhaseLogs,
+  needsRecovery,
+} from "../state/phase-recovery.js";
 import { respawnDetached, FLOW_LOG_PATH_ENV } from "../util/respawn.js";
 
 export interface RunOptions {
@@ -172,6 +176,22 @@ export async function runCommand(
   let exitCode = 0;
   try {
     logger.info(`log → ${logger.filePath}`);
+    // Diagnose "subprocess finished but parent never advanced" before the
+    // pipeline re-enters. The phase's existing idempotent re-entry handles
+    // the actual recovery (e.g. implement's preexisting-PR detection); this
+    // line just confirms the system recognised the situation.
+    try {
+      const evidence = await inspectPhaseLogs(taskDir, task.frontmatter.status);
+      if (needsRecovery(evidence)) {
+        logger.info(
+          `recovering: phase ${evidence.phase} subprocess completed in prior run; re-entering phase to resume`,
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        `phase-recovery inspector failed: ${(err as Error).message ?? String(err)}`,
+      );
+    }
     logger.info(`task ${task.frontmatter.id}`);
     logger.info(`status ${task.frontmatter.status}`);
 
