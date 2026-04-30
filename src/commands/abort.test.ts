@@ -227,7 +227,7 @@ describe("abortCommand", () => {
       "close",
       "42",
       "--comment",
-      "aborted by user via flow",
+      `aborted by user via flow (task ${taskId})`,
     ]);
 
     // Worktree script was called with branch + --delete-branch.
@@ -284,6 +284,35 @@ describe("abortCommand", () => {
     expect(stdout.data).toContain("- Worktree: removed");
 
     if (worktree) await fs.rm(worktree, { recursive: true, force: true });
+    await fs.rm(repo, { recursive: true, force: true });
+  });
+
+  it("worktree field set but dir already gone: prints `already gone (no-op)`, no script call", async () => {
+    // The `worktree` frontmatter field can outlive the dir (manual rm,
+    // user-initiated cleanup, prior partial abort). The branch at
+    // abort.ts:160-163 handles this — it should print "already gone"
+    // and NOT try to invoke remove-agent-worktree.ts.
+    const stalePath = path.join(os.tmpdir(), `stale-wt-${Date.now()}`);
+    const { repo, taskId } = await makeFixture({
+      status: "pr-open",
+      pr: null,
+      worktree: stalePath,
+      branch: "agent/stale",
+    });
+    const stdout = new StringSink();
+    const stderr = new StringSink();
+    const code = await abortCommand(
+      taskId,
+      { confirm: true },
+      { stdout, stderr, cwd: repo },
+    );
+    expect(code).toBe(0);
+    expect(stdout.data).toContain("- Worktree: already gone (no-op)");
+    // No remove-agent-worktree.ts invocation.
+    const rmCalls = execaCalls.filter((c) =>
+      c.cmd.endsWith("remove-agent-worktree.ts"),
+    );
+    expect(rmCalls.length).toBe(0);
     await fs.rm(repo, { recursive: true, force: true });
   });
 

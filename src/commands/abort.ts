@@ -24,7 +24,12 @@ export interface AbortIo {
   cwd?: string;
 }
 
-const TERMINAL_STATUSES = new Set(["merged", "aborted"]);
+// Statuses where the task is already in a terminal state and abort is a
+// no-op. Distinct from `pause.ts`'s wider `PAUSE_REFUSAL_STATUSES` —
+// pause refuses on `needs-human` too (no runner to halt), but abort
+// *should* fire against `needs-human` to tear down a stuck task's
+// worktree/PR.
+const ABORT_TERMINAL_STATUSES = new Set(["merged", "aborted"]);
 
 export async function abortCommand(
   taskId: string,
@@ -73,7 +78,7 @@ export async function abortCommand(
 
   const task = await readTask(resolved.path);
   const status = task.frontmatter.status;
-  if (TERMINAL_STATUSES.has(status)) {
+  if (ABORT_TERMINAL_STATUSES.has(status)) {
     stderr.write(
       `${pc.red(`error: cannot abort task at terminal status ${status}`)}\n`,
     );
@@ -109,7 +114,7 @@ export async function abortCommand(
         "close",
         String(pr),
         "--comment",
-        "aborted by user via flow",
+        `aborted by user via flow (task ${task.frontmatter.id})`,
       ],
       { cwd: ghCwd, reject: false },
     );

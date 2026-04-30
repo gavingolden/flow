@@ -1,10 +1,9 @@
 import fsp from "node:fs/promises";
-import path from "node:path";
 import type { Writable } from "node:stream";
 import pc from "picocolors";
 import { findGitRoot, resolveTaskInput } from "../util/git.js";
 import { readTask } from "../state/task-file.js";
-import { dropPauseFlag } from "../state/pause-flag.js";
+import { dropPauseFlag, pauseFlagPath } from "../state/pause-flag.js";
 import { readPidFileSync } from "../state/runner-pid.js";
 import { taskDirFor } from "../pipeline/runner.js";
 
@@ -14,7 +13,14 @@ export interface PauseIo {
   cwd?: string;
 }
 
-const TERMINAL_STATUSES = new Set(["merged", "aborted", "needs-human"]);
+// Statuses where `flow pause` refuses to drop the flag. `merged` and
+// `aborted` are genuinely terminal; `needs-human` is non-running by
+// definition (a paused, exhausted, or failed task already sits there)
+// so dropping a pause flag on it has no effect — the runner isn't going
+// to pick it up. Distinct from `abort.ts`'s narrower `ABORT_TERMINAL_STATUSES`
+// (which only excludes `merged`/`aborted`) — abort *can* fire against a
+// `needs-human` task to clean up its worktree/PR.
+const PAUSE_REFUSAL_STATUSES = new Set(["merged", "aborted", "needs-human"]);
 
 export async function pauseCommand(
   taskId: string,
@@ -55,7 +61,7 @@ export async function pauseCommand(
   const task = await readTask(resolved.path);
   const status = task.frontmatter.status;
 
-  if (TERMINAL_STATUSES.has(status)) {
+  if (PAUSE_REFUSAL_STATUSES.has(status)) {
     stderr.write(
       `${pc.red(`error: cannot pause task at status ${status}`)}\n`,
     );
@@ -74,9 +80,8 @@ export async function pauseCommand(
   await fsp.mkdir(taskDir, { recursive: true });
   await dropPauseFlag(taskDir);
 
-  const flagPath = path.join(taskDir, ".pause");
   stdout.write(
-    `paused ${task.frontmatter.id}: pause flag dropped at ${flagPath}\n`,
+    `paused ${task.frontmatter.id}: pause flag dropped at ${pauseFlagPath(taskDir)}\n`,
   );
 
   const runnerLive = isRunnerLive(taskDir);
