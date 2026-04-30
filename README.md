@@ -47,6 +47,20 @@ pipeline runs as a detached process tree. The chat is freed immediately;
 follow up with `/flow-status <id>` or `/flow-watch <id>` to check
 progress.
 
+For `feature`-intent tasks, the pipeline pauses after the plan phase at
+status `plan-pending-review` so you can read the PRD before paying
+implement-phase tokens. Resume the pipeline with one of:
+
+```
+/flow-approve <id>                     # accept the plan, continue to implement
+/flow-revise  <id> "<redirection>"     # record a redirection, re-plan
+```
+
+Set `FLOW_NOTIFY=1` in the shell that started the pipeline to fire a
+macOS notification when the checkpoint hits (see "Notifications" below).
+Non-feature intents (`bug`, `refactor`, `docs`, `infra`, `chore`) skip
+the checkpoint and run straight through.
+
 ### Legacy CLI (`flow start`)
 
 > `flow start` is deprecated and will be removed in a future release.
@@ -136,8 +150,8 @@ orchestrator ever falls out of favor, the skills survive: delete `src/`, keep
 ## Notifications (macOS, opt-in)
 
 flow can fire a desktop notification when a pipeline reaches an
-attention-worthy state (`needs-human`, `gated`, `merged`, `aborted`) so you
-can walk away from a long run.
+attention-worthy state (`needs-human`, `gated`, `merged`, `aborted`,
+`plan-pending-review`) so you can walk away from a long run.
 
 Enable per-shell:
 

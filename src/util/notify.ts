@@ -29,14 +29,13 @@ export interface Notifier {
 // `ReadonlySet<TaskStatus>` makes adding a non-`TaskStatus` literal a
 // compile error — the set's membership is the only place new attention
 // statuses are wired, and the type system enforces that every entry is a
-// status the orchestrator can actually transition to today. PR 12 will
-// add `plan-pending-review` here in the same change that adds it to
-// `TASK_STATUSES`.
+// status the orchestrator can actually transition to today.
 export const NOTIFY_STATUSES: ReadonlySet<TaskStatus> = new Set<TaskStatus>([
   "needs-human",
   "gated",
   "merged",
   "aborted",
+  "plan-pending-review",
 ]);
 
 type SpawnFn = (
@@ -66,6 +65,18 @@ export function buildPayload(
 ): { title: string; subtitle: string; message: string } {
   const title = `flow: ${args.status}`;
   const subtitle = args.task.frontmatter.id;
+  // The plan-pending-review checkpoint is the one status whose default
+  // payload (`reason` = "intent: feature") doesn't tell the user what to
+  // do next. Override with the resume affordance so the banner is
+  // actionable in isolation; users won't always have `/flow-status` open
+  // when the notification fires.
+  if (args.status === "plan-pending-review") {
+    return {
+      title,
+      subtitle,
+      message: `plan ready — /flow-approve ${subtitle} or /flow-revise ${subtitle}`,
+    };
+  }
   const reason = args.reason?.trim();
   let message: string;
   if (reason && reason.length > 0) {
