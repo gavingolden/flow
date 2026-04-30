@@ -766,19 +766,27 @@ $ cd ~/code/me/flow && git pull
 Already up to date.
 
 $ flow install --upgrade
-Checking ~/code/me/econ-data...
-  ✓ skills symlinks updated:
-      .claude/skills/flow-add → /Users/.../flow/skills/pipeline/flow-add
-      .claude/skills/flow-status → ...
-      .claude/skills/flow-watch → ...
-      .claude/skills/flow-pause → ...
-      .claude/skills/flow-resume → ...
-      .claude/skills/flow-abort → ...
-      .claude/skills/flow-approve → ...
-      .claude/skills/flow-revise → ...
-  ✓ scripts symlinks updated (3 new, 0 removed)
-  ✓ Created .orchestrator/logs/
-  ✓ Updated .gitignore managed blocks
+flow: installing skills
+      source /Users/.../flow/skills
+      target /Users/.../econ-data/.claude/skills
+  + flow-add
+  + flow-status
+  + flow-watch
+  - old-skill  (removed)
+  = product-planning  (already linked)
+  ...
+      .gitignore updated
+
+flow: installing scripts
+      source /Users/.../flow/templates/scripts
+      target /Users/.../econ-data/scripts
+  + ci-wait.ts
+  - old-script.ts  (removed)
+  = remove-agent-worktree.ts  (already linked)
+      .gitignore updated
+
+flow: skills 3 created, 0 relinked, 5 unchanged, 1 removed, 0 blocked.
+flow: scripts 1 created, 0 relinked, 2 unchanged, 1 removed, 0 blocked.
 
 Migration complete. New chat-first workflow:
   /flow add "your prompt"   in any Claude Code session

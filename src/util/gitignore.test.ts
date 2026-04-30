@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyManagedBlock,
   type ManagedBlock,
+  parseManagedBlockPaths,
+  readManagedBlockPaths,
   updateGitignoreBlock,
 } from "./gitignore.js";
 
@@ -210,5 +212,118 @@ describe(updateGitignoreBlock, () => {
     });
     expect(result).toBe("unchanged");
     await expect(fs.access(path.join(tmp, ".gitignore"))).rejects.toThrow();
+  });
+});
+
+// --- Read-side parser ---
+
+describe(parseManagedBlockPaths, () => {
+  it("returns [] when the block is absent", () => {
+    expect(parseManagedBlockPaths("node_modules/\ndist/\n", "install-scripts")).toEqual([]);
+  });
+
+  it("returns [] when the input is empty", () => {
+    expect(parseManagedBlockPaths("", "install-scripts")).toEqual([]);
+  });
+
+  it("returns paths in a block without a comment", () => {
+    const input = [
+      "# managed by flow install-scripts",
+      "/scripts/a.ts",
+      "/scripts/b.ts",
+      "# end flow install-scripts",
+      "",
+    ].join("\n");
+    expect(parseManagedBlockPaths(input, "install-scripts")).toEqual([
+      "/scripts/a.ts",
+      "/scripts/b.ts",
+    ]);
+  });
+
+  it("excludes the comment line directly under the begin marker", () => {
+    const input = [
+      "# managed by flow install-scripts",
+      "# (symlinks resolve to absolute paths and aren't portable)",
+      "/scripts/a.ts",
+      "# end flow install-scripts",
+      "",
+    ].join("\n");
+    expect(parseManagedBlockPaths(input, "install-scripts")).toEqual([
+      "/scripts/a.ts",
+    ]);
+  });
+
+  it("returns [] for an empty block (only a comment between markers)", () => {
+    const input = [
+      "# managed by flow install-scripts",
+      "# (symlinks resolve to absolute paths and aren't portable)",
+      "# end flow install-scripts",
+      "",
+    ].join("\n");
+    expect(parseManagedBlockPaths(input, "install-scripts")).toEqual([]);
+  });
+
+  it("returns [] for a truly empty block (no content between markers)", () => {
+    const input = [
+      "# managed by flow install-scripts",
+      "# end flow install-scripts",
+      "",
+    ].join("\n");
+    expect(parseManagedBlockPaths(input, "install-scripts")).toEqual([]);
+  });
+
+  it("returns only the requested tag's paths when two blocks coexist", () => {
+    const input = [
+      "# managed by flow install-skills",
+      "/.claude/skills/foo",
+      "# end flow install-skills",
+      "",
+      "# managed by flow install-scripts",
+      "/scripts/a.ts",
+      "/scripts/b.ts",
+      "# end flow install-scripts",
+      "",
+    ].join("\n");
+    expect(parseManagedBlockPaths(input, "install-scripts")).toEqual([
+      "/scripts/a.ts",
+      "/scripts/b.ts",
+    ]);
+    expect(parseManagedBlockPaths(input, "install-skills")).toEqual([
+      "/.claude/skills/foo",
+    ]);
+  });
+});
+
+describe(readManagedBlockPaths, () => {
+  let tmp: string;
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flow-gitignore-read-"));
+  });
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("returns [] when .gitignore is missing", async () => {
+    expect(await readManagedBlockPaths(tmp, "install-scripts")).toEqual([]);
+  });
+
+  it("returns the block's paths from a real file", async () => {
+    await fs.writeFile(
+      path.join(tmp, ".gitignore"),
+      [
+        "node_modules/",
+        "",
+        "# managed by flow install-scripts",
+        "# (symlinks resolve to absolute paths and aren't portable)",
+        "/scripts/a.ts",
+        "/scripts/b.ts",
+        "# end flow install-scripts",
+        "",
+      ].join("\n"),
+    );
+    expect(await readManagedBlockPaths(tmp, "install-scripts")).toEqual([
+      "/scripts/a.ts",
+      "/scripts/b.ts",
+    ]);
   });
 });

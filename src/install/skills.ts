@@ -1,18 +1,24 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execa } from "execa";
 import pc from "picocolors";
-import { updateGitignoreBlock } from "../util/gitignore.js";
+import {
+  readManagedBlockPaths,
+  updateGitignoreBlock,
+} from "../util/gitignore.js";
 
 export interface InstallSkillsOptions {
   stack?: string;
   skipPipeline?: boolean;
+  upgrade?: boolean;
 }
 
 export interface InstallSkillsResult {
   created: number;
   updated: number;
   skipped: number;
+  removed: number;
   blocked: number;
 }
 
@@ -41,6 +47,7 @@ export async function installSkills(
   let created = 0;
   let updated = 0;
   let skipped = 0;
+  let removed = 0;
   let blocked = 0;
   for (const { name, sourceDir } of skillsToInstall) {
     const linkPath = path.join(targetDir, name);
@@ -62,6 +69,44 @@ export async function installSkills(
     }
   }
 
+  // --upgrade: orphan-removal sweep. See scripts.ts for the rationale —
+  // gitignore-driven detection only ever cleans up things flow definitely
+  // managed (real dirs and user-pointed symlinks are left alone).
+  const currentPaths = skillsToInstall.map((s) => `/.claude/skills/${s.name}`);
+  const removedOrphans: string[] = [];
+  if (options.upgrade) {
+    const previousPaths = await readManagedBlockPaths(repoRoot, "install-skills");
+    const currentSet = new Set(currentPaths);
+    const orphans = previousPaths.filter((p) => !currentSet.has(p));
+    for (const orphan of orphans) {
+      const name = path.basename(orphan);
+      const removedNow = await removeOrphanIfManaged(
+        repoRoot,
+        orphan,
+        skillsRoot,
+      );
+      if (removedNow) {
+        console.error(pc.magenta(`  - ${name}  (removed)`));
+        removedOrphans.push(orphan);
+        removed++;
+      }
+    }
+    if (removedOrphans.length > 0) {
+      await execa(
+        "git",
+        [
+          "rm",
+          "--cached",
+          "--quiet",
+          "--ignore-unmatch",
+          "--",
+          ...removedOrphans.map((p) => p.replace(/^\//, "")),
+        ],
+        { cwd: repoRoot },
+      );
+    }
+  }
+
   // Skill symlinks resolve to absolute paths under the user's home and aren't
   // portable, so the repo's .gitignore must list them. The block reflects every
   // skill the install actually emitted (pipeline / universal / stacks honor
@@ -69,13 +114,34 @@ export async function installSkills(
   const gitignoreResult = await updateGitignoreBlock(repoRoot, {
     tag: "install-skills",
     comment: "(symlinks resolve to absolute paths and aren't portable)",
-    paths: skillsToInstall.map((s) => `/.claude/skills/${s.name}`).sort(),
+    paths: [...currentPaths].sort(),
   });
   if (gitignoreResult !== "unchanged") {
     console.error(pc.dim(`      .gitignore ${gitignoreResult}`));
   }
 
-  return { created, updated, skipped, blocked };
+  return { created, updated, skipped, removed, blocked };
+}
+
+// Mirror of the helper in scripts.ts. See comment there. Kept as a sibling
+// rather than a shared module: the function is ~10 lines and per AGENTS.md
+// "no premature abstractions" — sharing across two callers does not yet
+// justify a new module.
+async function removeOrphanIfManaged(
+  repoRoot: string,
+  gitignorePath: string,
+  sourceRoot: string,
+): Promise<boolean> {
+  const targetPath = path.join(repoRoot, gitignorePath.replace(/^\//, ""));
+  const link = await readLink(targetPath);
+  if (link === null) return false;
+  const resolved = path.resolve(path.dirname(targetPath), link);
+  const rel = path.relative(sourceRoot, resolved);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) {
+    return false;
+  }
+  await fs.unlink(targetPath);
+  return true;
 }
 
 function resolveSkillsRoot(): string {
