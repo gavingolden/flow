@@ -12,6 +12,7 @@ import {
   GhPermanentError,
   botsCollected,
   isChecksTerminal,
+  isNoChecksReported,
   isPermanentGhError,
   loadConfig,
   pendingCheckNames,
@@ -135,6 +136,23 @@ describe("isPermanentGhError", () => {
     expect(isPermanentGhError("API rate limit exceeded")).toBe(false);
     expect(isPermanentGhError("dial tcp: i/o timeout")).toBe(false);
     expect(isPermanentGhError("HTTP 502: Bad Gateway")).toBe(false);
+  });
+});
+
+// --- isNoChecksReported ---
+
+describe("isNoChecksReported", () => {
+  it("matches gh's exact 'no checks reported' signature", () => {
+    expect(
+      isNoChecksReported("no checks reported on the 'agent/pr-7-review-phase-loopback' branch"),
+    ).toBe(true);
+  });
+  it("does not match unrelated error messages", () => {
+    expect(isNoChecksReported("HTTP 502: Bad Gateway")).toBe(false);
+    expect(isNoChecksReported('Unknown JSON field: "conclusion"')).toBe(false);
+    // Substring "no checks reported" mid-message would be ambiguous; we
+    // anchor on line start to keep the predicate tight.
+    expect(isNoChecksReported("foo no checks reported bar")).toBe(false);
   });
 });
 

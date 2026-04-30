@@ -102,6 +102,14 @@ export function isPermanentGhError(stderr: string): boolean {
   );
 }
 
+// gh exits non-zero with this exact stderr signature when a PR has no
+// checks at all (e.g. the target repo has no GitHub Actions configured).
+// From ci-wait's perspective that's a successful "zero checks" fetch —
+// otherwise every flow target without CI would grind to the hard cap.
+export function isNoChecksReported(stderr: string): boolean {
+  return /^no checks reported/i.test(stderr);
+}
+
 // --- Config ---
 
 export function loadConfig(configPath: string): CiWaitConfig {
@@ -187,6 +195,7 @@ export function defaultGhOps(): GhOps {
       ]);
       if (r.exitCode !== 0) {
         const msg = r.stderr.trim() || `gh pr checks exit ${r.exitCode}`;
+        if (isNoChecksReported(msg)) return [];
         if (isPermanentGhError(msg)) throw new GhPermanentError("prChecks", msg);
         throw new GhTransientError(msg);
       }
