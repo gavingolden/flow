@@ -1,10 +1,19 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NoopLogger } from "../../util/logger.js";
-import type { Task } from "../../state/task-file.js";
-import { buildPlanPrompt, summarizePlanOutputs } from "./plan.js";
+import {
+  readTask,
+  writeTask,
+  __setNotifierForTests,
+  type Task,
+} from "../../state/task-file.js";
+
+vi.mock("../headless.js", () => ({ runHeadless: vi.fn() }));
+
+import { runHeadless } from "../headless.js";
+import { buildPlanPrompt, runPlanPhase, summarizePlanOutputs } from "./plan.js";
 
 function makeTask(body: string): Task {
   return {
@@ -121,5 +130,81 @@ describe("summarizePlanOutputs", () => {
     expect(summary.text).toContain("BLOCKED:");
     expect(summary.text).toContain("Question 1: which API endpoint");
     expect(summary.text).toContain("Question 2: how should errors be handled?");
+  });
+});
+
+describe("runPlanPhase — BLOCKED.md branch transitions on-disk status", () => {
+  let tmp: string;
+  let task: Task;
+  let planDir: string;
+
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flow-plan-blocked-"));
+    __setNotifierForTests({
+      notify: async () => {},
+      notifySync: () => {},
+    });
+    const taskPath = path.join(tmp, "task.md");
+    const initial: Task = {
+      path: taskPath,
+      frontmatter: {
+        id: "2026-04-30-x",
+        status: "worktree-ready",
+        created: "2026-04-30T00:00:00.000Z",
+        updated: "2026-04-30T00:00:00.000Z",
+        target_repo: tmp,
+        worktree: tmp,
+        branch: "agent/x",
+        pr: null,
+        manual_validation: null,
+        merge_commit: null,
+      },
+      body: [
+        "## User prompt",
+        "",
+        "do the thing",
+        "",
+        "## Triage",
+        "",
+        "- intent: feature",
+        "- summary: x",
+        "",
+        "## Phase log",
+        "",
+        "## Phase outputs",
+        "",
+      ].join("\n"),
+    };
+    await writeTask(initial);
+    task = await readTask(taskPath);
+    planDir = path.join(tmp, ".orchestrator", "tasks", "2026-04-30-x-plan");
+  });
+
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+    vi.clearAllMocks();
+    __setNotifierForTests(null);
+  });
+
+  it("writes status=needs-human and a 'plan-blocked' Phase log entry when BLOCKED.md is present", async () => {
+    vi.mocked(runHeadless).mockImplementation(async () => {
+      // The "LLM" produces only BLOCKED.md, no other artefacts.
+      await fs.mkdir(planDir, { recursive: true });
+      await fs.writeFile(
+        path.join(planDir, "BLOCKED.md"),
+        "Need clarification on export format.",
+      );
+      return { ok: true, output: "", exitCode: 0 };
+    });
+
+    const result = await runPlanPhase(task);
+    expect(result).toEqual({ status: "needs-human", reason: "plan-blocked" });
+
+    // The on-disk task must reflect needs-human, not the mid-flight
+    // `planning` state. Without the explicit transitionStatus call in the
+    // BLOCKED branch the runner would leave the file at `planning`.
+    const reloaded = await readTask(task.path);
+    expect(reloaded.frontmatter.status).toBe("needs-human");
+    expect(reloaded.body).toContain("planning → needs-human (plan-blocked)");
   });
 });

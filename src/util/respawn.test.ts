@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { ChildProcess } from "node:child_process";
@@ -72,5 +73,30 @@ describe("respawnDetached", () => {
       { spawnFn: fakeSpawn },
     );
     expect(path.basename(result.logPath)).toMatch(/^weird_id_with_chars-/);
+  });
+
+  it("closes the pre-opened log fd when spawnFn throws (no descriptor leak on the failure path)", async () => {
+    // Spy on closeSync to count exactly how many times the fd is released.
+    // The success path closes once (parent's copy after the child inherits);
+    // the failure path must also close exactly once (the spawn never
+    // happened, so only the parent's copy exists).
+    const closeSpy = vi.spyOn(fsSync, "closeSync");
+    const spawnError = new Error("ENOENT: synthetic spawn failure");
+    const fakeSpawn = vi.fn(() => {
+      throw spawnError;
+    });
+
+    await expect(
+      respawnDetached("task-fail", tmp, { spawnFn: fakeSpawn }),
+    ).rejects.toBe(spawnError);
+
+    // closeSync was invoked at least once with a numeric fd (the one
+    // openSync returned). Filtering on `typeof === "number"` keeps the
+    // assertion robust to incidental closeSync calls from the test runner.
+    const fdCloses = closeSpy.mock.calls.filter(
+      ([fd]) => typeof fd === "number",
+    );
+    expect(fdCloses.length).toBeGreaterThanOrEqual(1);
+    closeSpy.mockRestore();
   });
 });

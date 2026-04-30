@@ -80,9 +80,13 @@ export async function runPlanPhase(
   await appendPhaseOutput(task, "plan", summary.text);
   logger.event("task.appendPhaseOutput", "plan");
   if (summary.blocked) {
-    // Don't transition to `planned` — the runner records the
-    // `needs-human` transition via the existing path so the Phase log
-    // line carries the `plan-blocked` reason.
+    // The runner only translates `result.status` into a phaseEnd outcome
+    // string — it does not call `transitionStatus` for non-ok results.
+    // Mirror the explicit transition the `planned` happy path does below
+    // so the on-disk status reflects the block (otherwise `/flow-status`
+    // shows `planning` and the next `flow run` re-enters the phase).
+    await transitionStatus(task, "needs-human", "plan-blocked");
+    logger.event("task.status", "needs-human");
     logger.warn("plan: BLOCKED.md present — escalating to needs-human");
     return { status: "needs-human", reason: "plan-blocked" };
   }

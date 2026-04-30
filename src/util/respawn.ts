@@ -45,16 +45,26 @@ export async function respawnDetached(
     throw new Error("respawnDetached: process.argv[1] missing — cannot re-exec");
   }
   const spawnFn = deps.spawnFn ?? spawn;
-  const child = spawnFn(
-    process.execPath,
-    [...process.execArgv, entry, "run", taskId],
-    {
-      detached: true,
-      stdio: ["ignore", logFd, logFd],
-      cwd: repoRoot,
-      env: { ...process.env, [FLOW_LOG_PATH_ENV]: logPath },
-    },
-  );
+  let child: ChildProcess;
+  try {
+    child = spawnFn(
+      process.execPath,
+      [...process.execArgv, entry, "run", taskId],
+      {
+        detached: true,
+        stdio: ["ignore", logFd, logFd],
+        cwd: repoRoot,
+        env: { ...process.env, [FLOW_LOG_PATH_ENV]: logPath },
+      },
+    );
+  } catch (err) {
+    // The spawn never inherited the fd, so the parent's open copy is the
+    // only reference — leak it and any failure path (ENOENT on
+    // process.execPath, EACCES, ulimit) accumulates descriptors over the
+    // life of the process.
+    try { fs.closeSync(logFd); } catch {}
+    throw err;
+  }
   child.unref?.();
   // Close the parent's copy of the fd so the parent's exit doesn't keep
   // the file open beyond when the child wants to fsync/rotate. The
