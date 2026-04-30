@@ -15,6 +15,15 @@ export interface NotifyArgs {
 
 export interface Notifier {
   notify(args: NotifyArgs): Promise<void>;
+  // Synchronous fire-and-forget for callers that run inside Node's
+  // `'exit'` event, where the event loop is already torn down and any
+  // `await` is silently dropped. Implementations must reach `spawn()`
+  // without yielding — no `await`, no Promise chaining, no async lookup
+  // (`which`, `gh repo view`). The async `notify()` may have warmed
+  // process-lifetime caches (e.g. selected backend); the sync path uses
+  // those if present and otherwise falls back to a backend that is
+  // guaranteed to exist on the host (`osascript` on darwin).
+  notifySync(args: NotifyArgs): void;
 }
 
 // `ReadonlySet<TaskStatus>` makes adding a non-`TaskStatus` literal a
@@ -46,6 +55,7 @@ export interface NotifyDeps {
 
 export const NoopNotifier: Notifier = {
   async notify() {},
+  notifySync() {},
 };
 
 const MESSAGE_MAX_CHARS = 120;
@@ -83,6 +93,18 @@ function extractFirstUserPromptLine(body: string): string | null {
     if (line.length > 0) return line;
   }
   return null;
+}
+
+function buildOsascriptScript(payload: {
+  title: string;
+  subtitle: string;
+  message: string;
+}): string {
+  return (
+    `display notification "${escapeForAppleScript(payload.message)}" ` +
+    `with title "${escapeForAppleScript(payload.title)}" ` +
+    `subtitle "${escapeForAppleScript(payload.subtitle)}"`
+  );
 }
 
 // Order matters: escape backslash first so a later `"` → `\"` rewrite
@@ -129,9 +151,12 @@ class ActiveNotifier implements Notifier {
   async notify(args: NotifyArgs): Promise<void> {
     if (!NOTIFY_STATUSES.has(args.status)) return;
     const payload = buildPayload(args, args.task.body);
-    const url = await this.resolvePrUrl(args.task);
+    // Resolve backend before URL: only `terminal-notifier` can act on
+    // the click-to-open URL, so the `gh repo view` round-trip is
+    // wasted work on the `osascript` fallback path.
     const backend = await this.resolveBackend();
     if (backend === "terminal-notifier") {
+      const url = await this.resolvePrUrl(args.task);
       const argv = [
         "-title",
         payload.title,
@@ -144,11 +169,40 @@ class ActiveNotifier implements Notifier {
       this.spawnDetached("terminal-notifier", argv);
       return;
     }
-    const script =
-      `display notification "${escapeForAppleScript(payload.message)}" ` +
-      `with title "${escapeForAppleScript(payload.title)}" ` +
-      `subtitle "${escapeForAppleScript(payload.subtitle)}"`;
-    this.spawnDetached("osascript", ["-e", script]);
+    this.spawnDetached("osascript", ["-e", buildOsascriptScript(payload)]);
+  }
+
+  // Synchronous variant for the `'exit'` reaper path. Cannot `await` —
+  // any continuation queued after a yield will be silently dropped when
+  // Node finishes the exit handler and tears down the loop. Therefore:
+  // no `which`, no `gh repo view`. We reuse a backend cached by an
+  // earlier async call when possible; otherwise we go straight to
+  // `osascript` (always present on darwin). PR URL is only emitted when
+  // the repo cache already has an answer for `target_repo` — we never
+  // block on the network here.
+  notifySync(args: NotifyArgs): void {
+    if (!NOTIFY_STATUSES.has(args.status)) return;
+    const payload = buildPayload(args, args.task.body);
+    const backend = this.backend ?? "osascript";
+    if (backend === "terminal-notifier") {
+      const cachedOwner = this.repoCache.get(args.task.frontmatter.target_repo);
+      const url =
+        args.task.frontmatter.pr != null && cachedOwner
+          ? `https://github.com/${cachedOwner}/pull/${args.task.frontmatter.pr}`
+          : null;
+      const argv = [
+        "-title",
+        payload.title,
+        "-subtitle",
+        payload.subtitle,
+        "-message",
+        payload.message,
+      ];
+      if (url) argv.push("-open", url);
+      this.spawnDetached("terminal-notifier", argv);
+      return;
+    }
+    this.spawnDetached("osascript", ["-e", buildOsascriptScript(payload)]);
   }
 
   private async resolveBackend(): Promise<"terminal-notifier" | "osascript"> {
@@ -175,6 +229,13 @@ class ActiveNotifier implements Notifier {
       detached: true,
       stdio: "ignore",
     });
+    // Without an `error` listener, an async spawn failure (binary
+    // missing on PATH after the `which` cache was warmed, sandbox
+    // EPERM, fork failure under load) emits `error` on the child and,
+    // un-listened, propagates as `uncaughtException` — which would
+    // crash the orchestrator. The fire-and-forget contract is "a
+    // failed banner never poisons a status transition," so swallow.
+    child.on("error", () => {});
     child.unref();
   }
 }

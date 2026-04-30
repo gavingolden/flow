@@ -103,6 +103,9 @@ describe("transitionStatus — notifier dispatch", () => {
         async notify(args) {
           calls.push(args);
         },
+        notifySync(args) {
+          calls.push(args);
+        },
       },
     };
   }
@@ -132,6 +135,7 @@ describe("transitionStatus — notifier dispatch", () => {
       async notify() {
         throw new Error("boom");
       },
+      notifySync() {},
     });
     const t = await makeTask(tmp);
     await expect(
@@ -164,31 +168,38 @@ describe("transitionStatusSync — notifier dispatch", () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
-  it("reaches the notifier with the same args as the async path", async () => {
-    const calls: NotifyArgs[] = [];
+  it("calls notifySync (not notify) so the spawn happens before the exit handler returns", async () => {
+    const asyncCalls: NotifyArgs[] = [];
+    const syncCalls: NotifyArgs[] = [];
     __setNotifierForTests({
       async notify(args) {
-        calls.push(args);
+        asyncCalls.push(args);
+      },
+      notifySync(args) {
+        syncCalls.push(args);
       },
     });
     const t = await makeTask(tmp);
     transitionStatusSync(t, "needs-human", "signaled");
-    // The notify Promise is intentionally not awaited by the sync path,
-    // but a recording notifier that synchronously appends to the array
-    // before returning the Promise is observable immediately.
-    expect(calls).toHaveLength(1);
-    expect(calls[0]?.status).toBe("needs-human");
-    expect(calls[0]?.reason).toBe("signaled");
+    // The sync path must dispatch via notifySync — observable
+    // synchronously without awaiting any Promise. Using `notify`
+    // (async) from inside Node's `'exit'` would silently drop the
+    // spawn after the first await. This test pins the contract.
+    expect(syncCalls).toHaveLength(1);
+    expect(syncCalls[0]?.status).toBe("needs-human");
+    expect(syncCalls[0]?.reason).toBe("signaled");
+    expect(asyncCalls).toHaveLength(0);
   });
 
-  it("swallows synchronous throws from the notifier; on-disk file is updated", async () => {
+  it("swallows synchronous throws from notifySync; on-disk file is updated", async () => {
     const throwSpy = vi.fn(() => {
       throw new Error("sync-boom");
     });
     __setNotifierForTests({
-      // Synchronous throw before the Promise is created — must be
-      // caught by the sync path's try/catch, not propagated.
-      notify: throwSpy as unknown as Notifier["notify"],
+      async notify() {},
+      // Synchronous throw — must be caught by transitionStatusSync's
+      // try/catch, never propagated past the disk write.
+      notifySync: throwSpy as unknown as Notifier["notifySync"],
     });
     const t = await makeTask(tmp);
     expect(() =>
@@ -204,6 +215,9 @@ describe("transitionStatusSync — notifier dispatch", () => {
     const calls: NotifyArgs[] = [];
     __setNotifierForTests({
       async notify(args) {
+        calls.push(args);
+      },
+      notifySync(args) {
         calls.push(args);
       },
     });

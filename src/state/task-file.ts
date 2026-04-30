@@ -147,19 +147,19 @@ export function transitionStatusSync(
   task.frontmatter.status = next;
   writeTaskSync(task);
   try {
-    // Intentionally NOT awaited. This path runs from Node's `'exit'`
-    // event handler (the reaper) where there is no live event loop to
-    // resolve a Promise. The notifier already spawned the backend with
-    // `detached + unref` so the OS keeps the banner alive after we
-    // exit; the orphaned Promise is the price of fire-and-forget across
-    // teardown. A future maintainer who "fixes" this missing await will
-    // reintroduce a hang during `'exit'` — leave it alone.
-    void getNotifier().notify({ task, status: next, reason: note });
+    // `notifySync`, not the async `notify`. This path runs inside
+    // Node's `'exit'` event handler where the event loop is already
+    // torn down — any `await` after this point would silently drop its
+    // continuation, so a `void notify(...)` would never reach
+    // `spawn()`. `notifySync` reaches `spawn` synchronously, then
+    // relies on `detached + unref` to keep the OS banner alive after
+    // the orchestrator exits.
+    getNotifier().notifySync({ task, status: next, reason: note });
   } catch {
-    // Swallow synchronous throws (rare — `spawn` argv validation only).
-    // Promise rejections from the un-awaited call go to
-    // unhandledRejection; we explicitly do not chain a `.catch` here
-    // because doing so would create another floating Promise.
+    // Swallow synchronous throws from the notifier (rare — argv
+    // validation in `spawn`, or a sync throw inside an injected fake
+    // notifier in tests). The disk write already succeeded; a missing
+    // banner must never poison a status transition.
   }
 }
 
