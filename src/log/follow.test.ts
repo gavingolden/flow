@@ -414,6 +414,82 @@ describe("follow", () => {
     );
   });
 
+  it("with tailEvents and a file without a trailing newline, renders the last N events", async () => {
+    // Exercises the `trailingNewline ? n + 1 : n` branch of
+    // offsetForLastNLines: if the file's last byte isn't `\n`, the
+    // function only needs to find N (not N+1) newlines walking
+    // backward to land on the start of the Nth-from-last event.
+    const taskDir = path.join(tmp, "task");
+    const logsDir = path.join(taskDir, "logs");
+    await fsp.mkdir(logsDir, { recursive: true });
+    const filePath = path.join(
+      logsDir,
+      "implement-2026-04-30T10-00-00-000Z.jsonl",
+    );
+    const lines = [
+      JSON.stringify({ ts: "x", kind: "info", msg: "evt-1" }),
+      JSON.stringify({ ts: "x", kind: "info", msg: "evt-2" }),
+      JSON.stringify({ ts: "x", kind: "info", msg: "evt-3" }),
+      JSON.stringify({ ts: "x", kind: "info", msg: "evt-4" }),
+    ];
+    // Note the explicit no-trailing-newline.
+    await fsp.writeFile(filePath, lines.join("\n"), "utf8");
+    const files = await listLogFiles(taskDir);
+    const stdout = new StringSink();
+    const stderr = new StringSink();
+    await follow({
+      stdout,
+      stderr,
+      taskDir,
+      taskId: "tid",
+      targetSet: files,
+      pollIntervalMs: 5,
+      idleWindowMs: 50,
+      forceColor: false,
+      tailEvents: 2,
+    });
+    // Last 2 events of the 4-line file are evt-3 and evt-4.
+    expect(stdout.buffer).not.toContain("info evt-1");
+    expect(stdout.buffer).not.toContain("info evt-2");
+    expect(stdout.buffer).toContain("info evt-3");
+    expect(stdout.buffer).toContain("info evt-4");
+  });
+
+  it("with tailEvents exactly equal to the event count, renders every event", async () => {
+    // Boundary: the offset walker should land at byte 0 (not skip the
+    // first event). Catches a one-off where `n+1` newlines aren't
+    // present and the loop fall-through must return 0.
+    const taskDir = path.join(tmp, "task");
+    const logsDir = path.join(taskDir, "logs");
+    await fsp.mkdir(logsDir, { recursive: true });
+    const filePath = path.join(
+      logsDir,
+      "implement-2026-04-30T10-00-00-000Z.jsonl",
+    );
+    await writeJsonl(filePath, [
+      { ts: "x", kind: "info", msg: "evt-1" },
+      { ts: "x", kind: "info", msg: "evt-2" },
+      { ts: "x", kind: "result", status: "ok" },
+    ]);
+    const files = await listLogFiles(taskDir);
+    const stdout = new StringSink();
+    const stderr = new StringSink();
+    await follow({
+      stdout,
+      stderr,
+      taskDir,
+      taskId: "tid",
+      targetSet: files,
+      pollIntervalMs: 5,
+      idleWindowMs: 50,
+      forceColor: false,
+      tailEvents: 3,
+    });
+    expect(stdout.buffer).toContain("info evt-1");
+    expect(stdout.buffer).toContain("info evt-2");
+    expect(stdout.buffer).toContain("flow result status=ok");
+  });
+
   it("renders bytes appended after follow starts", async () => {
     const taskDir = path.join(tmp, "task");
     const logsDir = path.join(taskDir, "logs");

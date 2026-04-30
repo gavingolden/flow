@@ -184,7 +184,7 @@ export async function runCommand(
       const evidence = await inspectPhaseLogs(taskDir, task.frontmatter.status);
       if (needsRecovery(evidence)) {
         logger.info(
-          `recovering: phase ${evidence!.phase} subprocess completed in prior run; re-entering phase to resume`,
+          `recovering: phase ${evidence.phase} subprocess completed in prior run; re-entering phase to resume`,
         );
       }
     } catch (err) {

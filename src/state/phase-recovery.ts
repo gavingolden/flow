@@ -1,24 +1,31 @@
 import fsp from "node:fs/promises";
 import { filterByPhase, latestFile, listLogFiles } from "../log/discover.js";
-import type { TaskStatus } from "./phases.js";
+import { STATUS_TO_PHASE_LABEL, type TaskStatus } from "./phases.js";
 
-// Status → phase mapping. A task at one of these transient phase-running
-// statuses is "inside" the corresponding phase; if its parent process died
-// before the phase function returned, the JSONL log for the phase carries
-// the evidence of how far the work got.
-//
-// Statuses that are *not* mid-phase (settled like `pr-open`, terminal like
-// `merged`) map to `null` — there's no "the parent died mid-phase"
-// scenario to detect for them.
-export const STATUS_TO_PHASE: Partial<Record<TaskStatus, string>> = {
-  "creating-worktree": "worktree",
-  planning: "plan",
-  implementing: "implement",
-  verifying: "verify",
-  reviewing: "review",
-  gating: "gate",
-  merging: "merge",
-};
+// The transient "phase-running" statuses — a task at one of these is
+// "inside" the corresponding phase. If its parent process died before the
+// phase function returned, the JSONL log for the phase carries the
+// evidence of how far the work got. Settled statuses (`pr-open`,
+// `worktree-ready`, …) and terminal ones (`merged`, …) are excluded —
+// there's no "the parent died mid-phase" scenario to detect for them.
+const MID_PHASE_STATUSES: ReadonlySet<TaskStatus> = new Set<TaskStatus>([
+  "creating-worktree",
+  "planning",
+  "implementing",
+  "verifying",
+  "reviewing",
+  "gating",
+  "merging",
+]);
+
+// Status → phase mapping for mid-phase statuses. Derived from
+// `STATUS_TO_PHASE_LABEL` (the canonical status→phase map in `phases.ts`)
+// so the two stay in sync — a new transient status only needs to be
+// added to `MID_PHASE_STATUSES` here, not re-mapped to a phase name.
+export const STATUS_TO_PHASE: Partial<Record<TaskStatus, string>> =
+  Object.fromEntries(
+    [...MID_PHASE_STATUSES].map((s) => [s, STATUS_TO_PHASE_LABEL[s]]),
+  ) as Partial<Record<TaskStatus, string>>;
 
 export interface RecoveryEvidence {
   phase: string;
@@ -84,7 +91,7 @@ export async function inspectPhaseLogs(
 
 export function needsRecovery(
   evidence: RecoveryEvidence | null,
-): boolean {
+): evidence is RecoveryEvidence {
   if (!evidence) return false;
   return evidence.subprocessSucceeded && !evidence.flowResultRecorded;
 }

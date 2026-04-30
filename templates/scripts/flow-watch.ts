@@ -509,7 +509,7 @@ async function runFollow(
   const stdout = deps.stdout ?? { write: (s) => process.stdout.write(s) };
   const phaseLabel = parsed.phase ?? "active phase";
   stdout.write(
-    `Tailing ${phaseLabel} for ${id} (bound: last ${parsed.events} events plus newer ones up to ${parsed.events}, max ${parsed.seconds}s)\n`,
+    `Tailing ${phaseLabel} for ${id} (starts from last ${parsed.events} events; capped at ${parsed.events} total events or ${parsed.seconds}s, whichever first)\n`,
   );
   // `--tail <events>` makes the inner `flow log --follow` skip the full
   // backlog and start reading from the last N events of the file. Without
