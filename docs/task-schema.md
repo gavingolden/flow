@@ -123,10 +123,18 @@ nameWithOwner` call) and storing both numbers and URLs invites drift.
                                                                    reviewing
                                                                        │
                                                                        ▼
-                          gated  (if manual_validation = true)
-                            │
-                            ▼
-                          merged  ──► (terminal)
+                                                                    gating
+                                                                       │
+                              ┌────────────────────────────────────────┤
+                              ▼                                        ▼
+                   gated  (manual_validation = true)         merging  (manual_validation = false)
+                              │                                        │
+                              ▼ (user merges PR; flow run resumes)     │
+                           merging                                     │
+                              │                                        │
+                              └────────────────────┬───────────────────┘
+                                                   ▼
+                                                merged  ──► (terminal)
 
    any state ──► aborted   (terminal — user-initiated or unrecoverable)
    any state ──► needs-human  (transient — pipeline pauses, user resumes)

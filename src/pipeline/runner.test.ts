@@ -69,10 +69,29 @@ vi.mock("./phases/review.js", () => ({
   }),
 }));
 
+vi.mock("./phases/gate.js", () => ({
+  runGatePhase: vi.fn(async (task, _logger, _jsonl) => {
+    callLog.push("gate");
+    // Default: empty manual validation → auto-merge path. Tests override.
+    await advanceStatus(task.path, "merging");
+    return { status: "ok" };
+  }),
+}));
+
+vi.mock("./phases/merge.js", () => ({
+  runMergePhase: vi.fn(async (task, _logger, _jsonl) => {
+    callLog.push("merge");
+    await advanceStatus(task.path, "merged");
+    return { status: "ok" };
+  }),
+}));
+
 import { runPipeline } from "./runner.js";
 import { readTask, writeTask, type Task } from "../state/task-file.js";
 import { runPlanPhase } from "./phases/plan.js";
 import { runReviewPhase } from "./phases/review.js";
+import { runGatePhase } from "./phases/gate.js";
+import { runMergePhase } from "./phases/merge.js";
 import { NoopLogger, type Logger } from "../util/logger.js";
 
 async function makeTaskFile(tmpDir: string, status: TaskStatus): Promise<Task> {
@@ -117,7 +136,7 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
     await fs.rm(tmp, { recursive: true, force: true });
   });
 
-  it("at status triaged, dispatches worktree → plan → implement → verify → ci-wait → review in order", async () => {
+  it("at status triaged, dispatches the full pipeline through merge in order", async () => {
     const task = await makeTaskFile(tmp, "triaged");
     const r = await runPipeline(task);
     expect(r.status).toBe("ok");
@@ -128,6 +147,8 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
       "verify",
       "ci-wait",
       "review",
+      "gate",
+      "merge",
     ]);
   });
 
@@ -140,7 +161,15 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
   it("at status worktree-ready, skips worktree and starts at plan", async () => {
     const task = await makeTaskFile(tmp, "worktree-ready");
     await runPipeline(task);
-    expect(callLog).toEqual(["plan", "implement", "verify", "ci-wait", "review"]);
+    expect(callLog).toEqual([
+      "plan",
+      "implement",
+      "verify",
+      "ci-wait",
+      "review",
+      "gate",
+      "merge",
+    ]);
   });
 
   it("at status planning, resumes from plan (skips worktree)", async () => {
@@ -153,41 +182,101 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
   it("at status planned, skips worktree and plan, starts at implement", async () => {
     const task = await makeTaskFile(tmp, "planned");
     await runPipeline(task);
-    expect(callLog).toEqual(["implement", "verify", "ci-wait", "review"]);
+    expect(callLog).toEqual([
+      "implement",
+      "verify",
+      "ci-wait",
+      "review",
+      "gate",
+      "merge",
+    ]);
   });
 
   it("at status implementing, resumes from implement", async () => {
     const task = await makeTaskFile(tmp, "implementing");
     await runPipeline(task);
-    expect(callLog).toEqual(["implement", "verify", "ci-wait", "review"]);
+    expect(callLog).toEqual([
+      "implement",
+      "verify",
+      "ci-wait",
+      "review",
+      "gate",
+      "merge",
+    ]);
   });
 
   it("at status pr-open, dispatches verify (verify owns the pr-open entry edge)", async () => {
     const task = await makeTaskFile(tmp, "pr-open");
     await runPipeline(task);
-    expect(callLog).toEqual(["verify", "ci-wait", "review"]);
+    expect(callLog).toEqual(["verify", "ci-wait", "review", "gate", "merge"]);
   });
 
   it("at status verifying, resumes from verify", async () => {
     const task = await makeTaskFile(tmp, "verifying");
     await runPipeline(task);
-    expect(callLog).toEqual(["verify", "ci-wait", "review"]);
+    expect(callLog).toEqual(["verify", "ci-wait", "review", "gate", "merge"]);
   });
 
   it("at status ci, resumes from ci-wait", async () => {
     const task = await makeTaskFile(tmp, "ci");
     await runPipeline(task);
-    expect(callLog).toEqual(["ci-wait", "review"]);
+    expect(callLog).toEqual(["ci-wait", "review", "gate", "merge"]);
   });
 
-  it("at status reviewing, dispatches review (PR 7 wired)", async () => {
-    // Pre-PR-7 this returned []. After PR 7, status `reviewing` is review's
-    // entry status — the runner picks the task up and invokes runReviewPhase.
-    // The review phase keeps the task at `reviewing` for its full loop;
-    // a clean run leaves it there for the gate phase (PR 8) to advance.
+  it("at status reviewing, dispatches review then gate then merge (PR 8 wired)", async () => {
+    // After a clean review the status stays at `reviewing`. The runner
+    // reloads, iterates to the next spec, and gate's `unfinishedStatuses`
+    // includes `reviewing` so it dispatches; gate's default mock advances
+    // to `merging`, which merge picks up.
     const task = await makeTaskFile(tmp, "reviewing");
     await runPipeline(task);
-    expect(callLog).toEqual(["review"]);
+    expect(callLog).toEqual(["review", "gate", "merge"]);
+  });
+
+  it("at status gating, resumes from gate (mid-flight crash; review does not re-run)", async () => {
+    const task = await makeTaskFile(tmp, "gating");
+    await runPipeline(task);
+    expect(callLog).toEqual(["gate", "merge"]);
+  });
+
+  it("at status gated, re-enters gate (resume to detect external user-merge)", async () => {
+    // gate's unfinishedStatuses includes `gated` so a `flow run` against a
+    // gated task re-enters the gate to fetch fresh PR state.
+    const task = await makeTaskFile(tmp, "gated");
+    // Override gate to model the "PR was merged externally" branch.
+    vi.mocked(runGatePhase).mockImplementationOnce(async (t) => {
+      callLog.push("gate");
+      await advanceStatus(t.path, "merging");
+      return { status: "ok" };
+    });
+    await runPipeline(task);
+    expect(callLog).toEqual(["gate", "merge"]);
+  });
+
+  it("at status merging, resumes from merge", async () => {
+    const task = await makeTaskFile(tmp, "merging");
+    await runPipeline(task);
+    expect(callLog).toEqual(["merge"]);
+  });
+
+  it("gate returning needs-human (manual-validation-required) halts the pipeline before merge", async () => {
+    const task = await makeTaskFile(tmp, "reviewing");
+    vi.mocked(runGatePhase).mockImplementationOnce(async (t) => {
+      callLog.push("gate");
+      await advanceStatus(t.path, "gated");
+      return { status: "needs-human", reason: "manual-validation-required" };
+    });
+    vi.mocked(runMergePhase).mockClear();
+    const r = await runPipeline(task);
+    expect(r).toEqual({
+      status: "needs-human",
+      reason: "manual-validation-required",
+    });
+    // merge must not have run on this invocation — the callLog tells the
+    // dispatch story; the spy assertion pins it explicitly. mockClear above
+    // resets the cross-test call count from prior tests in the suite.
+    expect(callLog).toEqual(["review", "gate"]);
+    expect(vi.mocked(runMergePhase)).not.toHaveBeenCalled();
   });
 
   it("propagates needs-human from review without advancing", async () => {
@@ -273,7 +362,15 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
     await runPipeline(task);
     // No logs/ subdir created.
     await expect(fs.access(path.join(tmp, "logs"))).rejects.toThrow();
-    expect(callLog).toEqual(["plan", "implement", "verify", "ci-wait", "review"]);
+    expect(callLog).toEqual([
+      "plan",
+      "implement",
+      "verify",
+      "ci-wait",
+      "review",
+      "gate",
+      "merge",
+    ]);
   });
 
   it("emits a phaseEnd line even when a phase throws past the PhaseResult contract", async () => {

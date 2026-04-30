@@ -168,6 +168,9 @@ today). Phases 1, 5, 7, 8 are pure script work — no LLM cost.
 
 See also: [`phases/verify.md`](./phases/verify.md) for the verify
 phase's contract (inputs, outputs, retry loop, failure modes).
+[`phases/gate.md`](./phases/gate.md) and
+[`phases/merge.md`](./phases/merge.md) document the auto-merge decision
+and the squash-merge + cleanup + archive steps respectively.
 
 The worktree phase runs first (right after triage) so every subsequent
 headless phase, including plan, executes inside a per-task worktree.

@@ -29,12 +29,29 @@ the orchestrator supplies — do not call \`gh pr create\` yourself.`;
 
 const MANUAL_VALIDATION_RULE = `The PR body must include a \`## Manual validation\` section. Edit
 \`pr-description-draft.md\` on disk to add it before opening the PR.
-Populate it with concrete steps if any of these apply: a database migration,
-a new external API integration, a UI change (e.g. \`.svelte\` files in
-\`src/lib/\`), or a behaviour change to a critical path. Otherwise leave the
-section empty (just the heading and an HTML comment explaining the
-convention). The orchestrator's gate phase reads this section to decide
-whether to auto-merge.`;
+
+The section's contents drive the gate phase's auto-merge decision via a
+strict strip-and-trim contract: the gate strips all HTML comments
+(\`<!-- ... -->\`, including multi-line) and trims whitespace; if anything
+remains, the gate pauses for human validation, otherwise it auto-merges.
+Match one of these two shapes exactly:
+
+1. **No manual validation needed** (pure refactor, internal logic, docs,
+   config-only changes): the section body must contain *only* an HTML
+   comment placeholder — no list items, no prose, no headings. Example:
+
+       ## Manual validation
+
+       <!-- No manual validation required: pure-internal-logic change. -->
+
+2. **Manual validation needed** (any of: a database migration, a new
+   external API integration, a UI change such as \`.svelte\` files in
+   \`src/lib/\`, or a behaviour change to a critical path): the section
+   body must contain a numbered or bulleted list of concrete steps a
+   human can execute (URLs, commands, expected results). Do not leave
+   placeholder prose like "TBD" or "verify the change works" — the gate
+   sees that as non-empty and pauses, but a reviewer reading the PR
+   gets nothing actionable.`;
 
 const ALLOWED_TOOLS = [
   "Read",
