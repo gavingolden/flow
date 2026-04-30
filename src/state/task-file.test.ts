@@ -80,3 +80,34 @@ describe("readTaskSync", () => {
     expect(sync.body).toEqual(t.body);
   });
 });
+
+describe("optional frontmatter fields", () => {
+  let tmp: string;
+  beforeEach(async () => {
+    tmp = await fs.mkdtemp(path.join(os.tmpdir(), "flow-tf-opt-"));
+  });
+  afterEach(async () => {
+    await fs.rm(tmp, { recursive: true, force: true });
+  });
+
+  it("round-trips review_cycles through write/read without loss", async () => {
+    // The review phase persists this counter in frontmatter so resume after
+    // a mid-loop crash continues from the right cycle. Pin the round-trip so
+    // a writer regression can't silently drop the field on resume.
+    const t = await makeTask(tmp);
+    t.frontmatter.review_cycles = 1;
+    await writeTask(t);
+    const reread = await readTask(t.path);
+    expect(reread.frontmatter.review_cycles).toBe(1);
+  });
+
+  it("readers without the field still parse old task files", async () => {
+    // Tasks created before PR 7 don't have review_cycles in frontmatter.
+    // gray-matter passes unknown / missing fields through as undefined; the
+    // typed surface treats it as optional. A readback should not throw and
+    // the field should be undefined (not 0, not null).
+    const t = await makeTask(tmp);
+    const reread = await readTask(t.path);
+    expect(reread.frontmatter.review_cycles).toBeUndefined();
+  });
+});
