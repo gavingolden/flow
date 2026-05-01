@@ -13,9 +13,18 @@
  *   - both                     → no annotation
  */
 
+import { computeCost, defaultProjectsRoot, EMPTY_COST, type CostBreakdown } from "./cost";
+import { friendlyName } from "./cost-pricing";
 import { listStates, type PipelineState } from "./state";
 import { relativeTime } from "./time";
 import { listWindows, type TmuxWindow } from "./tmux";
+
+export type LsOptions = {
+  cost?: boolean;
+  detail?: boolean;
+  /** Override for tests; defaults to ~/.claude/projects/. */
+  projectsRoot?: string;
+};
 
 export type Row = {
   name: string;
@@ -23,29 +32,34 @@ export type Row = {
   pr: string;
   lastActivity: string;
   annotation: "" | "(no window)" | "(no state)";
+  cost?: CostBreakdown;
 };
 
-export function runLs(): number {
+export async function runLs(opts: LsOptions = {}): Promise<number> {
   const states = listStates();
   const windows = listWindows();
-  const rows = buildRows(states, windows, Date.now());
+  const rows = await buildRows(states, windows, Date.now(), opts);
 
   if (rows.length === 0) {
     console.log("no active pipelines.");
     return 0;
   }
 
-  printTable(rows);
+  printTable(rows, opts);
+  if (opts.cost && opts.detail) printDetail(rows);
+  warnUnknownModels(rows);
   return 0;
 }
 
-export function buildRows(
+export async function buildRows(
   states: PipelineState[],
   windows: TmuxWindow[],
   nowMs: number,
-): Row[] {
+  opts: LsOptions = {},
+): Promise<Row[]> {
   const windowByName = new Map(windows.map((w) => [w.name, w] as const));
   const stateBySlug = new Map(states.map((s) => [s.slug, s] as const));
+  const projectsRoot = opts.projectsRoot ?? defaultProjectsRoot();
 
   const rows: Row[] = [];
 
@@ -57,6 +71,7 @@ export function buildRows(
       pr: state.pr ? `#${state.pr}` : "—",
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
       annotation: window ? "" : "(no window)",
+      cost: opts.cost ? await computeCost(state, projectsRoot) : undefined,
     });
   }
 
@@ -72,6 +87,7 @@ export function buildRows(
       lastActivity:
         window.activity > 0 ? relativeTime(window.activity * 1000, nowMs) : "—",
       annotation: "(no state)",
+      cost: opts.cost ? EMPTY_COST : undefined,
     });
   }
 
@@ -85,13 +101,21 @@ function lastActivityFrom(updatedAt: string | undefined, nowMs: number): string 
   return relativeTime(ms, nowMs);
 }
 
-function printTable(rows: Row[]): void {
-  const cols = [
-    { header: "NAME", get: (r: Row) => (r.annotation ? `${r.name} ${r.annotation}` : r.name) },
-    { header: "PHASE", get: (r: Row) => r.phase },
-    { header: "PR", get: (r: Row) => r.pr },
-    { header: "LAST ACTIVITY", get: (r: Row) => r.lastActivity },
+export function formatCostCell(cost: CostBreakdown | undefined): string {
+  if (!cost || !cost.hasData) return "—";
+  const prefix = cost.unknownModels.length > 0 ? "~" : "";
+  return `${prefix}$${cost.total.toFixed(2)}`;
+}
+
+function printTable(rows: Row[], opts: LsOptions): void {
+  type Col = { header: string; get: (r: Row) => string };
+  const cols: Col[] = [
+    { header: "NAME", get: (r) => (r.annotation ? `${r.name} ${r.annotation}` : r.name) },
+    { header: "PHASE", get: (r) => r.phase },
+    { header: "PR", get: (r) => r.pr },
+    { header: "LAST ACTIVITY", get: (r) => r.lastActivity },
   ];
+  if (opts.cost) cols.push({ header: "$ COST", get: (r) => formatCostCell(r.cost) });
 
   const widths = cols.map((c) => Math.max(c.header.length, ...rows.map((r) => c.get(r).length)));
 
@@ -100,4 +124,30 @@ function printTable(rows: Row[]): void {
 
   console.log(line(cols.map((c) => c.header)));
   for (const row of rows) console.log(line(cols.map((c) => c.get(row))));
+}
+
+function printDetail(rows: Row[]): void {
+  const detailRows = rows.filter(
+    (r) => r.cost?.hasData && Object.keys(r.cost.byModel).length > 0,
+  );
+  if (detailRows.length === 0) return;
+  console.log("");
+  for (const row of detailRows) {
+    const parts = Object.entries(row.cost!.byModel)
+      .filter(([, v]) => v > 0)
+      .sort(([, a], [, b]) => b - a)
+      .map(([model, dollars]) => `${friendlyName(model)} $${dollars.toFixed(2)}`);
+    console.log(`${row.name}: ${parts.join(" · ")}`);
+  }
+}
+
+function warnUnknownModels(rows: Row[]): void {
+  const unknown = new Set<string>();
+  for (const row of rows) {
+    for (const m of row.cost?.unknownModels ?? []) unknown.add(m);
+  }
+  if (unknown.size === 0) return;
+  console.error(
+    `flow ls: unknown model(s) — cost may be undercount: ${[...unknown].sort().join(", ")}`,
+  );
 }
