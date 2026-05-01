@@ -9,7 +9,7 @@
 2. A **curated skill library** at `skills/` plus the helper binaries at
    `bin/` they shell out to. Both are distributed by `flow setup`
    (the new global install) and `flow install` (the legacy per-repo
-   install, retained until PR 5 of the redesign deletes it). Skills are
+   install, retained until Item 5 of the redesign deletes it). Skills are
    usable independent of the orchestrator; the CLI is just one consumer.
 
 This file is the entry point for any agent (human or AI) working on flow.
@@ -35,7 +35,7 @@ If you're picking up a milestone, the order is: `architecture.md` →
 See `docs/roadmap.md`. flow is mid-redesign — moving from a Node-based
 orchestrator to a tmux-driven supervisor skill.
 
-- **PR 1 (this work) — global install + shell wrapper.** Adds `flow
+- **Item 1 (this work) — global install + shell wrapper.** Adds `flow
   setup`, `flow new`, `flow ls`, `flow attach`, `flow done`,
   `flow migrate`. Migrates 5 helpers from `templates/scripts/` to `bin/`
   with backward-compat symlinks. Old verbs (`run`, `log`, `status`,
@@ -43,11 +43,11 @@ orchestrator to a tmux-driven supervisor skill.
   `src/cli.ts`.
 - **Pre-redesign orchestrator (Phases 1–4)** shipped — runs end-to-end
   in any flow-installed repo. The new design replaces it incrementally;
-  PR 4 of the redesign deletes `src/`.
+  Item 4 of the redesign deletes `src/`.
 
 Note: `docs/phases/m2-plan.md` and `docs/phases/m3-plan.md` use the
 legacy `M<N>` syntax — they're historical artefacts kept for
-reference. New work uses the sequential PR / Phase numbering from
+reference. New work uses the sequential Item / Phase numbering from
 `docs/roadmap.md`.
 
 ## Code conventions
@@ -67,7 +67,7 @@ reference. New work uses the sequential PR / Phase numbering from
 
 ## Scripts: Bun runtime, distributed via symlinks
 
-Source for shipped helper binaries lives in **`bin/`** as of PR 1 of the
+Source for shipped helper binaries lives in **`bin/`** as of Item 1 of the
 redesign. The five user-callable helpers — `flow-new-worktree`,
 `flow-remove-worktree`, `flow-pre-commit`, `flow-fetch-pr-review`,
 `flow-reply-pr-comments` — live there with `.ts` extensions, Bun
@@ -79,7 +79,7 @@ each into `~/.local/bin/<name>` (extensionless on PATH).
 - **Symlinks back to `bin/<name>.ts`** for the migrated helpers — keeps
   legacy `flow install` working without duplicating logic.
 - **The orchestrator-only scripts** (`ci-wait.ts`, `flow-add.ts`,
-  `flow-watch.ts`) until PR 5 of the redesign deletes them along with
+  `flow-watch.ts`) until Item 5 of the redesign deletes them along with
   the orchestrator that calls them.
 
 The new `flow` wrapper itself is also Bun, at `bin/flow`. It dispatches
@@ -109,7 +109,7 @@ Conventions for any script under `bin/` or `templates/scripts/`:
 The legacy CLI under `src/` is still Node + tsx. The new wrapper at
 `bin/flow` is Bun — Bun runs the existing Node/TS source as-is for the
 old-verb passthrough, which is what makes the additive cutover possible.
-Once PR 4 of the redesign deletes `src/`, the wrapper's only runtime is
+Once Item 4 of the redesign deletes `src/`, the wrapper's only runtime is
 Bun and the AGENTS.md "Bun is *only* a script runtime" rule lapses
 naturally.
 
