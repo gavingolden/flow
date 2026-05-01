@@ -69,7 +69,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | ⬜ queued |
 | **PR 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
 | **PR 9 (optional) — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ⏸ optional |
-| **PR 10 (optional) — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | ⏸ optional |
+| **PR 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | 🚧 in review |
 
 ---
 
@@ -913,14 +913,25 @@ Done when:
 - [ ] Useful primarily for Claude Code crashes; for laptop sleep, the
   session usually resumes naturally.
 
-### PR 10 (optional) — notifications
+### PR 10 — notifications
 
-Status: ⏸ optional. Carry-forward from shipped PR 17.
+Status: 🚧 in review. Carry-forward from shipped PR 17.
 
 Done when:
 
-- [ ] The supervisor calls `terminal-notifier` (or `osascript`) on
-  `NEEDS HUMAN`, `MERGED`, `gated`. Opt-in via env var.
+- [x] The supervisor calls `terminal-notifier` (or `osascript`) on
+  `NEEDS HUMAN`, `MERGED`, `gated`. Opt-in via `FLOW_NOTIFY=1`.
+- [x] New helper `bin/flow-notify.ts`: parses `--status`, `--slug`,
+  `--reason`, `--url`; resolves backend (`terminal-notifier` →
+  `osascript` fallback); spawns detached + fire-and-forget so a
+  notifier failure never blocks the supervisor's terminal print.
+  Auto-installed by `flow setup`'s `discoverHelpers`.
+- [x] `skills/pipeline/flow-pipeline/SKILL.md` gains a
+  `Notifications` section documenting the contract, plus injected
+  call sites at step 9 (gated, externally-merged), step 10 (merged),
+  and the failure-paths block (every `NEEDS HUMAN` escalation).
+- [x] `cancelled` is intentionally not a notify status — cancellation
+  is user-initiated.
 
 ---
 

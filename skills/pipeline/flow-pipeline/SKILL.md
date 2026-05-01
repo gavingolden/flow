@@ -75,6 +75,34 @@ in-process for skills; shell out for scripts; never delegate.
 > exposed as `$WORKTREE` in this skill). The main worktree is
 > read-only from this skill's perspective.
 
+# Notifications
+
+When the pipeline reaches a terminal end-state (`MERGED`, `GATED`,
+or `NEEDS HUMAN`), call `flow-notify` immediately *before* printing
+the end-state line. The helper is opt-in (`FLOW_NOTIFY=1` in the
+environment that started the supervisor's tmux session) and a no-op
+otherwise — so calling it unconditionally is safe; the user
+controls firing via the env var, not the skill prompt.
+
+```bash
+flow-notify --status <merged|gated|needs-human> \
+            --slug "$SLUG" \
+            [--reason "<one-line summary>"] \
+            [--url "<pr-url>"]
+```
+
+- darwin-only; non-mac hosts and unset `FLOW_NOTIFY` both no-op.
+- Backend: `terminal-notifier` preferred (click-through to
+  `--url`), `osascript display notification` fallback.
+- Detached + fire-and-forget. The helper exits 0 even if the
+  notifier fails — it must never break the supervisor's terminal
+  print.
+- `cancelled` is **not** a notify status. Cancellation is
+  user-initiated; they already know.
+
+The exact call sites are listed inline at steps 9, 10, and at every
+escalation site documented under `# Failure paths`.
+
 # State: `~/.flow/state/<slug>.json`
 
 One state file per pipeline at `~/.flow/state/<slug>.json`, written
@@ -423,8 +451,8 @@ Decision matrix:
 | State | Section after trim | Action |
 |---|---|---|
 | `OPEN` | empty | Go to step 10 (auto-merge). |
-| `OPEN` | non-empty | Write `phase: gated`. Print: `GATED:`, the PR URL, the validation steps verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
-| `MERGED` | (any) | Already merged externally. Run `flow-remove-worktree <slug>`. Write `phase: merged`. Print `MERGED`. End. |
+| `OPEN` | non-empty | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "<first validation step>"`. Print: `GATED:`, the PR URL, the validation steps verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
+| `MERGED` | (any) | Already merged externally. Run `flow-remove-worktree <slug>`. Write `phase: merged`. Call `flow-notify --status merged --slug "$SLUG" --url "<pr-url>"`. Print `MERGED`. End. |
 | `CLOSED` | (any) | Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 
 **Defensive cases:**
@@ -448,7 +476,14 @@ Then:
 flow-remove-worktree <slug>
 ```
 
-Then write `phase: merged` and print `MERGED` on its own line. End.
+Then write `phase: merged`, call
+
+```bash
+flow-notify --status merged --slug "$SLUG" --url "<pr-url>"
+```
+
+(the PR URL is available from `gh pr view "$PR" --json url -q .url`),
+and print `MERGED` on its own line. End.
 
 On `gh pr merge` failure: retry once. If still failing, escalate
 `NEEDS HUMAN: merge-failed`. Leave the worktree intact.
@@ -474,9 +509,16 @@ with `flow done <name>`.
 
 The general rule: **escalate over silent retry**. Each step has a
 documented retry budget; once exhausted, write `phase: needs-human`,
-print `NEEDS HUMAN: <reason>`, and end. Do **not** call
-`flow-remove-worktree` on escalation — leave the worktree + PR
-intact so the user can inspect and resume.
+fire a notification, print `NEEDS HUMAN: <reason>`, and end:
+
+```bash
+flow-state-update "$SLUG" --phase needs-human
+flow-notify --status needs-human --slug "$SLUG" --reason "<reason>"
+echo "NEEDS HUMAN: <reason>"
+```
+
+Do **not** call `flow-remove-worktree` on escalation — leave the
+worktree + PR intact so the user can inspect and resume.
 
 The full per-step cap table and the resume-from-disk decision tree
 live in `references/failure-recovery.md`.
@@ -530,3 +572,8 @@ After each phase transition:
 When the pipeline ends, scrollback contains exactly one of `MERGED`
 / `GATED: <url>` / `NEEDS HUMAN: <reason>` / `cancelled` on its own
 line, and the corresponding `phase:` is in state.json.
+
+When `FLOW_NOTIFY=1` is set in the supervisor's environment, every
+terminal end-state (`merged`, `gated`, `needs-human`) is preceded
+by a `flow-notify` call. The helper is a no-op when the env var is
+unset, so the call is unconditional from the skill's perspective.
