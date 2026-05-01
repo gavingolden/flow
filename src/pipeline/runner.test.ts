@@ -399,7 +399,15 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
   it("intent: bug continues straight through to review (no checkpoint)", async () => {
     const task = await makeTaskFile(tmp, "worktree-ready", "bug");
     await runPipeline(task);
-    expect(callLog).toEqual(["plan", "implement", "verify", "ci-wait", "review"]);
+    expect(callLog).toEqual([
+      "plan",
+      "implement",
+      "verify",
+      "ci-wait",
+      "review",
+      "gate",
+      "merge",
+    ]);
     const after = await readTask(task.path);
     expect(after.frontmatter.status).not.toBe("plan-pending-review");
   });
@@ -407,7 +415,15 @@ describe("runPipeline dispatch (M2 worktree-first ordering)", () => {
   it("missing intent line continues straight through (treats as non-feature)", async () => {
     const task = await makeTaskFile(tmp, "worktree-ready");
     await runPipeline(task);
-    expect(callLog).toEqual(["plan", "implement", "verify", "ci-wait", "review"]);
+    expect(callLog).toEqual([
+      "plan",
+      "implement",
+      "verify",
+      "ci-wait",
+      "review",
+      "gate",
+      "merge",
+    ]);
   });
 
   it("plan-pending-review is not in CLAIMABLE_STATUSES (the runner won't pick it up)", async () => {

@@ -27,6 +27,15 @@ through the entire skill end-to-end with reasonable assumptions, write all
 deliverables, commit and push the branch, and write the PR body to the file
 the orchestrator supplies — do not call \`gh pr create\` yourself.`;
 
+// Fix-mode preamble. Drops the create-mode "write the PR body" framing — the
+// pull request is already open, so the LLM's only job is to fix the failure
+// in place and push.
+const NON_INTERACTIVE_PREAMBLE_FIX = `You are running in non-interactive headless mode driven by the flow orchestrator.
+Do not pause for confirmations or ask the user any clarifying questions. The
+pull request is already open — your job is to address the failure described
+below in place, commit the fix on the existing branch, and push. Do not open
+a new pull request and do not edit the pull request description.`;
+
 const MANUAL_VALIDATION_RULE = `The PR body must include a \`## Manual validation\` section. Edit
 \`pr-description-draft.md\` on disk to add it before opening the PR.
 
@@ -252,7 +261,13 @@ async function runImplementAttempt(
       `implement attempt ${attemptNum} after failure: ${truncate(failureNote ?? "", 200)}`,
     );
   }
-  const prompt = buildImplementPrompt(task, bodyFilePath, failureNote);
+  // Mode dispatch: failureNote presence is the discriminator. Create mode
+  // never has one (no prior failure to address); fix mode always does (the
+  // failure log is the load-bearing context).
+  const prompt =
+    failureNote === undefined
+      ? buildCreatePrompt(task, bodyFilePath)
+      : buildFixPrompt(task, failureNote);
   logger.info(`implement: invoking claude (attempt ${attemptNum})`);
   const r = await runHeadless({
     cwd: worktree,
@@ -291,11 +306,7 @@ async function resolveBodyPath(
   return fallback;
 }
 
-function buildImplementPrompt(
-  task: Task,
-  bodyFilePath: string,
-  failureNote?: string,
-): string {
+function buildCreatePrompt(task: Task, bodyFilePath: string): string {
   const planDir = path.join(
     task.frontmatter.target_repo,
     ".orchestrator",
@@ -304,9 +315,6 @@ function buildImplementPrompt(
   );
   const taskFile = task.path;
   const userPromptArg = extractUserPrompt(task.body);
-  const failureBlock = failureNote
-    ? `\n\nPRIOR ATTEMPT FAILED — failure log:\n${truncate(failureNote, 4000)}\n\nReview the failure, adjust your approach, and try again.`
-    : "";
 
   return `${NON_INTERACTIVE_PREAMBLE}
 
@@ -337,7 +345,44 @@ ${MANUAL_VALIDATION_RULE}
 
 Before exiting, confirm you have: (a) committed and pushed your changes on
 branch ${task.frontmatter.branch}, and (b) written the PR body to
-${bodyFilePath}.${failureBlock}`;
+${bodyFilePath}.`;
+}
+
+// Fix-mode prompt. Frames the job as "address a failure on an already-open
+// PR" — invokes /verify (not /new-feature), surfaces the failure log as the
+// load-bearing context under a labelled block, and drops every create-mode
+// artefact (pr-description-draft.md seed, bodyFilePath write target, the
+// Manual-validation contract, and the gh-pr-create framing). The failure log
+// is embedded verbatim — callers truncate upstream (verify-retry uses
+// `truncateForRetryPrompt` from verify.ts).
+function buildFixPrompt(task: Task, failureLog: string): string {
+  const taskFile = task.path;
+  return `${NON_INTERACTIVE_PREAMBLE_FIX}
+
+You are running the *implement* phase in fix mode for task ${task.frontmatter.id}.
+You are operating inside the worktree at: ${task.frontmatter.worktree}
+The feature branch is already checked out: ${task.frontmatter.branch}
+The pull request is already open at: #${task.frontmatter.pr}
+
+Read these inputs first:
+- Task file: ${taskFile}
+
+PRIOR FAILURE — failure log:
+${failureLog}
+
+Now invoke the project's verification skill:
+
+/verify
+
+Address the failure described above: fix it in place, re-run the project's
+verify checks (see \`.flow/verify\`) until they pass, then commit and push
+the fix on branch ${task.frontmatter.branch}.
+
+Do not open a new pull request — one is already open at #${task.frontmatter.pr}.
+Do not edit the pull request description.
+
+Before exiting, confirm you have committed and pushed the fix on branch
+${task.frontmatter.branch}.`;
 }
 
 async function detectOpenedPr(

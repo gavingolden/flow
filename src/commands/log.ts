@@ -17,6 +17,7 @@ export interface LogOptions {
   phase?: string;
   follow?: boolean;
   raw?: boolean;
+  tail?: number;
 }
 
 export interface LogIo {
@@ -92,6 +93,7 @@ export async function logCommand(
       taskDir,
       taskId,
       targetSet: filtered,
+      tailEvents: opts.tail,
     });
     return 0;
   }
