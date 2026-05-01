@@ -996,6 +996,18 @@ Done when:
   and asserts each ends up on its own branch in its own directory,
   with no cross-mutation.
 - [ ] **Supervisor SKILL.md hard rule.** Add a hard rule along the lines of `You never run git branch -m or git switch <other-pipeline-branch>`. Belt-and-braces against the LLM-confusion failure mode that opened the door here in the first place.
+- [ ] **`$TMUX_PANE` self-identification rule.** Add a sibling hard
+  rule in the supervisor SKILL.md: when the supervisor needs to query
+  or target its own tmux window, it must anchor on `$TMUX_PANE` (which
+  tmux pins to the process at spawn time and is immutable for the life
+  of that process) rather than untargeted queries like `tmux
+  display-message -p '#S:#W'` or `#{session_name}`. Untargeted queries
+  resolve against tmux's *current client*, which races across parallel
+  pipelines and was implicated in a separate parallel-flow run where a
+  supervisor misidentified its own window. Different failure mode from
+  the `cwd` / branch confusion above (anchoring on `$TMUX_PANE` would
+  not have prevented the 2026-05-01 incident), but same family —
+  parallel-pipelines self-identification hazard, fix belongs adjacent.
 - [ ] **Postmortem entry under "Open questions" or a new "Incidents"
   section** linking this PR to the 2026-05-01 reflog evidence so the
   context survives the bug fix.
