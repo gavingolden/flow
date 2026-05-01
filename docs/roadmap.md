@@ -72,7 +72,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **PR 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
 | **PR 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
 | **PR 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ⬜ queued |
-| **PR 9 (optional) — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ⏸ optional |
+| **PR 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
 | **PR 10 (optional) — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | ⏸ optional |
 
 ---
@@ -181,10 +181,10 @@ which lives in the tmux window.
 
 The single failure mode: if Claude Code crashes inside the window,
 the session is lost. The PR and worktree survive on disk. The user
-can `flow new --resume <name>` (PR 9, optional): re-launches Claude
-Code into the same window with a `/flow-pipeline --resume` prompt
-that tells the supervisor to inspect the worktree + PR + branch
-state and pick up from whatever phase looks done.
+can `flow new --resume <name>` (PR 9): re-launches Claude Code into
+the same window with the resume seed prompt that tells the
+supervisor to inspect state.json + the worktree + the PR and pick
+up from whatever phase looks done.
 
 ### Flow 7 — Parallelism
 
@@ -1114,20 +1114,24 @@ Done when:
   elapsed 1m30s of 20m") so the user can see the wait progressing
   rather than guessing.
 
-### PR 9 (optional) — `flow new --resume <name>`
+### PR 9 — `flow new --resume <name>`
 
-Status: ⏸ optional.
+Status: ✅ shipped (#50).
 
 Done when:
 
-- [ ] `flow new --resume <name>` launches Claude Code into an existing
-  tmux window with a `/flow-pipeline --resume` prompt that says:
-  *"This pipeline was interrupted. Inspect the worktree, branch, PR
-  state, and resume from the last completed phase."*
-- [ ] The supervisor's first action is to read the worktree + `gh pr
-  view` and decide where to pick up, using the decision tree pinned
-  in PR 2's `references/failure-recovery.md`.
-- [ ] Useful primarily for Claude Code crashes; for laptop sleep, the
+- [x] `flow new --resume <name>` launches Claude Code into an existing
+  tmux window with a `/flow-pipeline` resume seed prompt
+  (`Use the /flow-pipeline skill in --resume mode for: <slug>`); when
+  the window has died too, the wrapper recreates it.
+- [x] The supervisor's first action on detecting the resume prompt is
+  to read state.json + the worktree + `gh pr view` and walk the
+  decision tree in `references/failure-recovery.md` section (b),
+  resuming at the first step whose precondition is not met. Prints
+  `RESUMING AT: <step> (<reason>)` before re-entering.
+- [x] Wrapper refusal cases: missing state → "run `flow new <description>`";
+  live pane → "attach with `flow attach <name>`".
+- [x] Useful primarily for Claude Code crashes; for laptop sleep, the
   session usually resumes naturally.
 
 ### PR 10 (optional) — notifications
