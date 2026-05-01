@@ -29,7 +29,11 @@ existing high-quality skills (`/product-planning`, `/new-feature`,
 
 A second simplification rides along: **flow installs globally under
 `~/.claude/`** rather than per-repo. No more `flow install` in each
-consumer repo, no managed `.gitignore` blocks, no per-repo symlinks.
+consumer repo, no managed `.gitignore` blocks, no per-repo symlinks
+for core flow. The single named exception is stack skills (svelte,
+supabase, tailwind-shadcn) under option B — see "Stack skills" in the
+Installation UX section; those are scoped per-project on purpose so
+they don't pollute every repo's skill resolution.
 
 See [`alternate-architecture.md`](./alternate-architecture.md) for the
 full reasoning behind picking Design B over Designs A (GitHub-native)
@@ -78,9 +82,12 @@ making a judgment.
 
 1. **User (any terminal)**: `flow new "add CSV export"`
 2. **Deterministic** (the `flow new` shell function): slugifies the
-   description → `csv-export`. Creates a tmux session/window named
-   `flow:csv-export`. Starts Claude Code in it with an initial prompt:
-   *"Run the `/flow-pipeline` skill for: add CSV export."*
+   description → `csv-export`. Creates a tmux window named `csv-export`
+   inside the `flow` session (creating the session if it doesn't exist
+   yet). The tmux target is `flow:csv-export` — `<session>:<window>` in
+   tmux syntax, not a literal window name. Starts Claude Code in the
+   window with an initial prompt: *"Run the `/flow-pipeline` skill for:
+   add CSV export."*
 3. **Supervisor (LLM, in attached or detached tmux window)**: invokes
    the `/flow-pipeline` skill. Step 1 of the skill:
    - **Deterministic tool call**: `flow-new-worktree csv-export` →
@@ -122,8 +129,10 @@ making a judgment.
 
 ### Flow 3 — Status check
 
-`flow ls` (any terminal) reads `tmux list-windows -t flow`, parses
-each window name (`<name>:<phase>`), prints a table:
+`flow ls` (any terminal) reads `tmux list-windows -t flow` for the set
+of active pipelines, then for each window reads
+`<worktree>/.flow-status` (a one-line file the supervisor updates at
+each phase transition) to get the current phase. Prints a table:
 
 ```
 NAME            PHASE         PR    LAST ACTIVITY
@@ -336,8 +345,10 @@ flow setup
    `flow setup --upgrade` and the future `flow uninstall` know
    exactly what to reap.
 
-**No per-repo step.** Open any repo in Claude Code → all flow skills
-are already available.
+**No per-repo step for core flow.** Open any repo in Claude Code →
+all flow skills are already available. Stack skills (option B below)
+are the named exception: they install per-project on demand because
+they're stack-specific and shouldn't autoload everywhere.
 
 ### Updating
 
@@ -361,8 +372,11 @@ project's skill resolution. Two options to be picked during PR 1:
 - **B (preferred):** `flow stack add svelte` (run inside a project)
   symlinks `~/code/flow/skills/stacks/svelte/` into
   `<repo>/.claude/skills/svelte/` and records it in a small managed
-  `.gitignore` block. The only remaining "per-repo install" verb.
-  Stack skills are scoped where they belong.
+  `.gitignore` block. **This is the one explicit exception to the
+  "zero per-repo footprint" goal stated above.** Stack skills are
+  scoped where they belong — the managed-block + symlink pattern is
+  retained from old flow's `flow install` because it's the right
+  shape for stack scoping, just narrowed to opt-in stack skills only.
 
 ### Per-machine config
 
@@ -622,11 +636,12 @@ Done when:
 - `flow new <description>` creates a tmux session/window
   (`flow:<slug>`), launches Claude Code in it with a stub prompt
   (`Use the /flow-pipeline skill for: <description>`).
-- `flow ls` parses `tmux list-windows -t flow` and prints a table:
-  name, phase, pr, last-activity. Phase parsed from the window
-  name's `:<phase>` suffix (set by the supervisor via `tmux
-  rename-window`) or from `<worktree>/.flow-status` (open question
-  #5 below).
+- `flow ls` lists windows from `tmux list-windows -t flow`, then reads
+  `<worktree>/.flow-status` for each to recover the current phase, and
+  prints a table: name, phase, pr, last-activity. Phase is tracked via
+  the status file rather than encoded in the window name so window
+  names stay parseable as `tmux attach -t flow:<name>` targets — see
+  also the resolved open question #5 below.
 - `flow attach <name>` runs `tmux attach -t flow:<name>`.
 - `flow done <name>` kills the window after a confirmation prompt.
 - `flow migrate` (with dry-run default and `--apply` to commit)
@@ -810,12 +825,14 @@ Carry-forward from shipped PR 17. Done when:
    review-fix commit means the supervisor must loop back to the
    "wait for CI + Copilot" step, not jump straight to merge. The
    skill prompt must encode this back-edge explicitly.
-5. **Window-name phase encoding vs richer status file.** `flow ls`
-   parses `<name>:<phase>` from the window name, which means the
-   supervisor must `tmux rename-window` at every phase transition.
-   Clean contract but adds a dependency. Alternative: supervisor
-   writes a tiny status file at `<worktree>/.flow-status` and
-   `flow ls` reads those. Either works. Pick during PR 1.
+5. **Window-name phase encoding vs richer status file.** *Resolved:
+   status file.* The supervisor writes a one-line phase to
+   `<worktree>/.flow-status` at each transition; `flow ls` reads it.
+   Reason: encoding phase as a `:<phase>` suffix in the window name
+   collides with tmux's `<session>:<window>` target syntax — `tmux
+   attach -t flow:csv-export:planning` is ambiguous to the tmux
+   parser. The status-file approach also avoids a `tmux rename-window`
+   call on every phase transition.
 6. **Stack skill placement.** Per-machine global symlink (`flow
    setup --stack`) vs per-project on-demand (`flow stack add`). PR 1
    picks one; the rest of the doc currently treats option B as

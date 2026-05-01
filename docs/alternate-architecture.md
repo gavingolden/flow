@@ -6,9 +6,11 @@ makes a different choice about *where state lives* and *where the user-facing
 interface lives*, which is the most consequential axis for how the system
 feels day-to-day.
 
-This is a living reference, not a decision record. None of these have been
-adopted; they're documented so the trade-offs are recoverable later if the
-question is reopened.
+This document captures the pre-decision landscape. **Design B (tmux as the
+interface) has since been chosen** as flow's path forward — see
+[`roadmap.md`](./roadmap.md) for the committed plan. Designs A and C remain
+recorded here as the alternatives that were considered, so the trade-offs
+are recoverable later if the question is reopened.
 
 ## Why this exists
 
