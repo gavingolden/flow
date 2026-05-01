@@ -1,0 +1,13 @@
+hard:
+  must_pass:
+    - "grep -E 'export function validateConfig' src/parser.ts"
+    - "grep -E 'validateConfig\\(' src/parser.ts"
+    - "tsc --noEmit src/parser.ts"
+  must_create: []
+  must_not_modify:
+    - "package.json"
+soft:
+  - "validateConfig is exported (so it's testable from outside parser.ts)."
+  - "parseConfig calls validateConfig — no duplicate validation logic remains inline."
+  - "validateConfig has a clear, narrow purpose (only validation, no IO or parsing)."
+  - "The public behaviour of parseConfig is unchanged: still throws on invalid input, still returns the same shape on valid input."

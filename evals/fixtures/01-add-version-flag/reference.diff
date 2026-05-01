@@ -1,0 +1,46 @@
+diff --git a/bin/cli.ts b/bin/cli.ts
+--- a/bin/cli.ts
++++ b/bin/cli.ts
+@@ -1,6 +1,16 @@
+ #!/usr/bin/env node
++import { readFileSync } from "node:fs";
++import { fileURLToPath } from "node:url";
++import { dirname, join } from "node:path";
++
+ const args = process.argv.slice(2);
+
++if (args.includes("--version") || args.includes("-v")) {
++  const here = dirname(fileURLToPath(import.meta.url));
++  const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
++  console.log(pkg.version);
++  process.exit(0);
++}
++
+ if (args.includes("--help") || args.includes("-h")) {
+   console.log("tinycli — a tiny example cli\n");
+   console.log("Usage:");
++  console.log("  tinycli --version  print the version");
+   console.log("  tinycli --help     show this help");
+   process.exit(0);
+ }
+diff --git a/bin/cli.test.ts b/bin/cli.test.ts
+new file mode 100644
+--- /dev/null
++++ b/bin/cli.test.ts
+@@ -0,0 +1,17 @@
++import { test } from "node:test";
++import { strict as assert } from "node:assert";
++import { execFileSync, readFileSync } from "node:fs";
++import { fileURLToPath } from "node:url";
++import { dirname, join } from "node:path";
++
++test("--version prints the package.json version", () => {
++  const here = dirname(fileURLToPath(import.meta.url));
++  const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
++  const out = execFileSync(
++    "node",
++    ["--experimental-strip-types", join(here, "cli.ts"), "--version"],
++    { encoding: "utf8" },
++  ).trim();
++  assert.equal(out, pkg.version);
++});

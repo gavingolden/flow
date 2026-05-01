@@ -1,0 +1,38 @@
+diff --git a/bin/cli.ts b/bin/cli.ts
+--- a/bin/cli.ts
++++ b/bin/cli.ts
+@@ -13,6 +13,12 @@ if (subcommand === "list") {
+   process.exit(0);
+ }
+
++if (subcommand === "count") {
++  const items = JSON.parse(readFileSync(itemsPath, "utf8")) as string[];
++  console.log(items.length);
++  process.exit(0);
++}
++
+ console.error(`unknown subcommand: ${subcommand ?? "(none)"}`);
+-console.error("usage: cli.ts <list>");
++console.error("usage: cli.ts <list|count>");
+ process.exit(1);
+diff --git a/bin/cli.test.ts b/bin/cli.test.ts
+new file mode 100644
+--- /dev/null
++++ b/bin/cli.test.ts
+@@ -0,0 +1,15 @@
++import { test } from "node:test";
++import { strict as assert } from "node:assert";
++import { execFileSync } from "node:child_process";
++import { fileURLToPath } from "node:url";
++import { dirname, join } from "node:path";
++
++const here = dirname(fileURLToPath(import.meta.url));
++
++test("count prints the number of items", () => {
++  const out = execFileSync(
++    "node",
++    ["--experimental-strip-types", join(here, "cli.ts"), "count"],
++    { encoding: "utf8" },
++  ).trim();
++  assert.equal(out, "3");
++});

@@ -1,0 +1,25 @@
+diff --git a/src/parser.ts b/src/parser.ts
+--- a/src/parser.ts
++++ b/src/parser.ts
+@@ -10,8 +10,12 @@ export type Config = {
+  * Read a config JSON file, parse it, and validate its shape.
+  * Throws if the file is missing, unparseable, or fails validation.
+  */
+ export function parseConfig(filePath: string): Config {
+   const raw = readFileSync(filePath, "utf8");
+   const obj = JSON.parse(raw);
++  return validateConfig(obj);
++}
+
++/** Validate that `obj` matches the Config shape. Throws on mismatch. */
++export function validateConfig(obj: unknown): Config {
+   if (typeof obj !== "object" || obj === null) {
+     throw new Error("config must be an object");
+   }
+@@ -28,5 +32,5 @@ export function parseConfig(filePath: string): Config {
+     }
+   }
+
+-  return obj as Config;
++  return obj as Config;
+ }
