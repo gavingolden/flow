@@ -67,6 +67,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **PR 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ⬜ queued |
 | **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | ⬜ queued |
 | **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | ⬜ queued |
+| **PR 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
 | **PR 9 (optional) — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ⏸ optional |
 | **PR 10 (optional) — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | ⏸ optional |
 
@@ -859,6 +860,42 @@ Done when:
   $/run, prints a delta.
 - [ ] Pass-rate regression of >1 fixture between configs exits non-zero
   (CI-friendly).
+
+### PR 11 — `pr-review` unified mode (collapse Address vs Review)
+
+Status: ⬜ queued.
+
+Why: PR 3 dropped the orchestrator-driven machine mode but left the
+older Address-vs-Review dichotomy in place. That dichotomy is largely
+cosmetic — Steps 6, 8, 10 already no-op when there are no inline
+comments to operate on. The one real divergence is that Step 11 (post
+agent findings as inline comments) is **suppressed** in Address mode,
+on the rationale "don't add noise when humans/Copilot have already
+commented." That trade-off is wrong: the agent's independent findings
+genuinely complement reviewer comments (different angles, different
+miss profiles), and forcing readers to scrape the diff to discover
+what the agent caught is worse than a few extra inline comments.
+
+Done when:
+
+- [ ] `skills/pipeline/pr-review/SKILL.md` no longer has Step 3
+  ("Determine Mode") or any "(Address mode only)" / "(Review mode
+  only)" gating headings. Steps 6, 8, 10, 11 always run, with no-op
+  fallthrough when no inline comments exist.
+- [ ] Step 11 (post agent findings as inline review comments) runs on
+  **every** invocation — both when reviewer comments already exist
+  and when they don't.
+- [ ] Reference docs (`report-template.md`, etc.) reflect a single
+  output flow with no mode-conditional sections.
+- [ ] Skill prompt is shorter (target: ≥ 30 lines net deletion just
+  from removing mode-conditional gating).
+- [ ] Any eval fixtures that pin mode-detection behaviour are
+  updated.
+
+Out of scope: the multi-agent review architecture, the
+conventional-comments format, the auto-fix-vs-defer bar, the
+retrospective-and-checklist-evolution mechanic — none of that
+changes. This is a control-flow simplification only.
 
 ### PR 9 (optional) — `flow new --resume <name>`
 
