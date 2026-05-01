@@ -2,10 +2,15 @@
  * `flow ls` — join state files (~/.flow/state/<slug>.json) with tmux
  * windows from the flow session and print a status table.
  *
- * Phase and LAST ACTIVITY are sourced from `<worktree>/.flow-status`,
- * written by PR 2's supervisor at every phase transition. State files
- * carry the worktree path but never the phase (the file under the
- * worktree is the single source of truth — see flow-status.ts).
+ * Phase + LAST ACTIVITY source preference:
+ *   1. <worktree>/.flow-status (live, atomic; written by PR 2's supervisor
+ *      at every transition once the worktree exists).
+ *   2. ~/.flow/state/<slug>.json fields (phase + updatedAt) as fallback —
+ *      covers the pre-worktree window: cold-start, triage, and the
+ *      moments between flow new and flow-new-worktree finishing. Without
+ *      this fallback, `flow ls` would render "—" for the entire phase-1
+ *      window of every fresh pipeline.
+ *   3. "—" only when neither surface has data.
  *
  * Drift handling:
  *   - state file but no window → "(no window)" (likely a crashed session)
@@ -57,9 +62,9 @@ export function buildRows(
     const status = state.worktree ? statusReader(state.worktree) : null;
     rows.push({
       name: state.slug,
-      phase: status?.phase ?? "—",
+      phase: status?.phase ?? state.phase ?? "—",
       pr: state.pr ? `#${state.pr}` : "—",
-      lastActivity: lastActivityFromStatus(status, nowMs),
+      lastActivity: lastActivityFrom(status, state.updatedAt, nowMs),
       annotation: window ? "" : "(no window)",
     });
   }
@@ -82,9 +87,17 @@ export function buildRows(
   return rows;
 }
 
-function lastActivityFromStatus(status: FlowStatus | null, nowMs: number): string {
-  if (!status) return "—";
-  const ms = Date.parse(status.lastTransitionAt);
+function lastActivityFrom(
+  status: FlowStatus | null,
+  stateUpdatedAt: string | undefined,
+  nowMs: number,
+): string {
+  // Prefer the live .flow-status timestamp (atomic per-transition write).
+  // Fall back to state.updatedAt for the pre-worktree window — covers the
+  // cold-start + triage gap before flow-new-worktree finishes.
+  const candidate = status?.lastTransitionAt ?? stateUpdatedAt;
+  if (!candidate) return "—";
+  const ms = Date.parse(candidate);
   if (!Number.isFinite(ms)) return "—";
   return relativeTime(ms, nowMs);
 }

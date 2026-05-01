@@ -75,37 +75,52 @@ in-process for skills; shell out for scripts; never delegate.
 > exposed as `$WORKTREE` in this skill). The main worktree is
 > read-only from this skill's perspective.
 
-# Status writes: two surfaces, both updated together
+# Status writes: two surfaces, joined by `flow ls`
 
-PR 1 ships **two** state surfaces. The supervisor must update both at
-every phase transition; `flow ls` joins them.
+PR 1 ships **two** state surfaces with different lifetimes. The
+supervisor's protocol depends on whether the worktree exists yet.
 
-| File | Scope | Carries | Why split |
+| File | Scope | Carries | Lifetime |
 |---|---|---|---|
-| `~/.flow/state/<slug>.json` | global, survives worktree cleanup | `slug`, `repo`, `worktree`, `phase`, `pr`, `updatedAt` | persists after merge so `flow ls` can still show the slug + PR for a recently-merged pipeline |
-| `<worktree>/.flow-status` | per-worktree text | `phase`, `last_transition_at` | atomic two-line file; the live source of truth that `flow ls` displays |
+| `~/.flow/state/<slug>.json` | global, on every machine running flow | `slug`, `repo`, `worktree`, `phase`, `pr`, `updatedAt` | created by `flow new`; lives until `flow done`. **Always exists once a pipeline is started.** |
+| `<worktree>/.flow-status` | per-worktree text | `phase`, `last_transition_at` | created when **you** first write it (after step 2 succeeds); deleted with the worktree at merge or cancel. |
 
-`flow new` creates the global state file with `phase: "starting"`.
-**You must update both** at every transition.
+`flow ls` joins them with this preference: read the live phase from
+`.flow-status` if it exists, fall back to `state.json`'s `phase` and
+`updatedAt` otherwise. So during the pre-worktree window (Claude
+Code cold-start, step 1 triage, the moments before
+`flow-new-worktree` returns), `flow ls` shows whatever phase you've
+last written to `state.json` via `flow-state-update`. **If you skip
+the state.json update during step 1, `flow ls` shows `starting`
+until step 2 finishes — that's the UX bug we fixed by making the
+fallback explicit.**
 
-## At every phase transition, run both writes
+## Always update `state.json`. Update `.flow-status` only when the worktree exists.
+
+**Update `state.json` at every phase transition** (steps 1-10 and
+sub-transitions like the entry of step 7's CI loop):
 
 ```bash
-# 1. Per-worktree status (atomic via tmp + rename).
+flow-state-update "$SLUG" --phase "$PHASE"
+```
+
+The helper merges fields preserving `repo`, `worktree`, and `pr`,
+and refreshes `updatedAt`. It exits non-zero if the slug has no
+state file, surfacing drift instead of papering over it.
+
+**Update `<worktree>/.flow-status` at every transition once the
+worktree exists** — that's "from after step 2's `flow-new-worktree`
+returns onward". The write is atomic via tmp + rename:
+
+```bash
+# Skip this block during step 1 (no worktree yet) and during the
+# part of step 2 that runs before flow-new-worktree returns.
 printf 'phase: %s\nlast_transition_at: %s\n' \
   "$PHASE" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$WORKTREE/.flow-status.tmp" \
   && mv "$WORKTREE/.flow-status.tmp" "$WORKTREE/.flow-status"
-
-# 2. Global registry (helper handles atomic JSON merge).
-flow-state-update "$SLUG" --phase "$PHASE"
 ```
-
-Use the `flow-state-update` helper rather than writing the JSON
-yourself — it merges fields preserving repo, worktree, pr, and
-refreshes `updatedAt`. The helper exits non-zero if the slug has no
-state file, which surfaces drift instead of papering over it.
 
 `$PHASE` must be one of the values listed in the phase table below.
 `$WORKTREE` is the absolute worktree path returned by
@@ -114,12 +129,12 @@ state file, which surfaces drift instead of papering over it.
 
 ## Additional fields to set once
 
-Beyond phase, two fields ship via `flow-state-update` exactly once
-during a pipeline:
+Two fields ship via `flow-state-update` exactly once during a
+pipeline:
 
 ```bash
-# After step 2 (worktree create): record the absolute path so
-# `flow ls` can read .flow-status without scraping disk.
+# After step 2 (flow-new-worktree returns): record the absolute path
+# so `flow ls` can read .flow-status without scraping disk.
 flow-state-update "$SLUG" --phase worktree-create --worktree "$WORKTREE"
 
 # After step 5 (PR opens): record the PR number so flow ls shows
@@ -133,16 +148,27 @@ file.
 
 # The 10-step pipeline
 
-Each step's phase value goes to `.flow-status` *before* the step's
-work starts. The step ends when its end-condition is met; the next
+Each step's phase value goes to the state surfaces *before* the step's
+work starts (state.json always; `.flow-status` once the worktree
+exists). The step ends when its end-condition is met; the next
 step's phase value is written next. There is **no inter-step state
-file** — the worktree contents and the PR are the state.
+file** — the worktree contents, state.json, and the PR are the state.
 
 ## Step 1 — Triage
 
 **Phase:** `triaging`
 
-Classify the request. Apply the heuristics from `flow-add` /
+**First action of the supervisor.** Before classifying, write the
+phase to state.json so `flow ls` immediately shows `triaging`
+instead of the stale `starting` from `flow new`:
+
+```bash
+flow-state-update "$SLUG" --phase triaging
+```
+
+(No `.flow-status` write — the worktree doesn't exist yet.)
+
+Then classify. Apply the heuristics from `flow-add` /
 `docs/phases/triage.md`:
 
 | Pattern | Class |
@@ -169,7 +195,16 @@ escalate `NEEDS HUMAN: triage-ambiguous` and end.
 
 **Phase:** `worktree-create`
 
-Create the per-task worktree:
+First, advertise the phase before doing the work — `flow-new-worktree`
+can take a couple of seconds, and the user shouldn't see a stale
+`triaging` row in `flow ls` while git is working:
+
+```bash
+flow-state-update "$SLUG" --phase worktree-create
+```
+
+(No `.flow-status` write yet — the worktree doesn't exist.) Then
+create it:
 
 ```bash
 flow-new-worktree <slug>
@@ -179,15 +214,14 @@ Capture the absolute worktree path it prints. Set `$WORKTREE` to
 this for the rest of the pipeline. **`cd` into the worktree** —
 every subsequent step runs from there.
 
-Then record the path in the global state file (the only step where
-`--worktree` is set):
+Now that the worktree exists, record its path in state.json (the
+only step where `--worktree` is set) **and** write `.flow-status`
+for the first time per the "Status writes" section above:
 
 ```bash
 flow-state-update "$SLUG" --phase worktree-create --worktree "$WORKTREE"
+# … plus the .flow-status atomic write
 ```
-
-The `<worktree>/.flow-status` write happens after the worktree
-exists, in the same shape pinned in the "Status writes" section.
 
 **End condition:** the worktree directory exists, is on a fresh
 branch, and `pwd` matches `$WORKTREE`.

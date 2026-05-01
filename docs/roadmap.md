@@ -702,6 +702,18 @@ Design deviations from the original spec:
   state file for `pr` + `worktree` fields that `flow ls` reads.
   Without this, `flow ls` would have shown `pr: —` for every active
   pipeline.
+- **Scope addition: `flow ls` phase-fallback to `state.json`.** Smoke
+  testing surfaced that `flow ls` rendered `phase: —` for the entire
+  pre-worktree window (Claude Code cold-start, step 1 triage, the
+  moments before `flow-new-worktree` returns) because `bin/lib/ls.ts`
+  read phase only from `<worktree>/.flow-status`. PR 2 amends `ls.ts`
+  to fall back to `state.phase` + `state.updatedAt` when
+  `.flow-status` is absent, and amends the supervisor protocol so
+  `flow-state-update --phase triaging` runs as the first action of
+  step 1. Net effect: `flow ls` now shows `starting → triaging →
+  worktree-create → planning → …` continuously from `flow new`
+  onward. `.flow-status` remains the authoritative live source when
+  present (post-worktree).
 - **`product-planning` amendment scope.** Roadmap "Keep, lightly
   amended" called this "minor: writes its PRD + task breakdown to
   `<worktree>/plan.md`". Shipped scope is slightly larger: a new

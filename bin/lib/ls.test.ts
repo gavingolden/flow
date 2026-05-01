@@ -69,26 +69,52 @@ describe(buildRows, () => {
     expect(rows[0].lastActivity).toBe("1m ago");
   });
 
-  it("renders phase: — and last-activity: — when .flow-status is missing", () => {
+  it("falls back to state.phase + state.updatedAt when .flow-status is missing", () => {
+    // Pre-worktree window: state.json exists (written by flow new), worktree
+    // path is set but the file under it doesn't exist yet.
     const rows = buildRows(
-      [state({ slug: "csv-export" })],
+      [state({ slug: "csv-export", phase: "triaging", updatedAt: new Date(NOW - 90_000).toISOString() })],
       [window({ name: "csv-export" })],
       NOW,
       readerFor({}),
     );
-    expect(rows[0].phase).toBe("—");
-    expect(rows[0].lastActivity).toBe("—");
+    expect(rows[0].phase).toBe("triaging");
+    expect(rows[0].lastActivity).toBe("1m ago");
   });
 
-  it("renders phase: — and last-activity: — when state lacks a worktree path", () => {
+  it("falls back to state.phase + state.updatedAt when state lacks a worktree path", () => {
+    // Pre-flow-new-worktree window: cold-start, no worktree at all yet.
     const rows = buildRows(
-      [state({ slug: "csv-export", worktree: undefined })],
+      [
+        state({
+          slug: "csv-export",
+          phase: "starting",
+          worktree: undefined,
+          updatedAt: new Date(NOW - 5_000).toISOString(),
+        }),
+      ],
       [window({ name: "csv-export" })],
       NOW,
       readerFor({}),
     );
-    expect(rows[0].phase).toBe("—");
-    expect(rows[0].lastActivity).toBe("—");
+    expect(rows[0].phase).toBe("starting");
+    expect(rows[0].lastActivity).toBe("5s ago");
+  });
+
+  it("prefers .flow-status over state.phase when both exist", () => {
+    // .flow-status takes precedence; state.json is the fallback only.
+    const status: FlowStatus = {
+      phase: "implementing",
+      lastTransitionAt: new Date(NOW - 30_000).toISOString(),
+    };
+    const rows = buildRows(
+      [state({ slug: "csv-export", phase: "starting" })],
+      [window({ name: "csv-export" })],
+      NOW,
+      readerFor({ "/repo/wt/csv-export": status }),
+    );
+    expect(rows[0].phase).toBe("implementing");
+    expect(rows[0].lastActivity).toBe("30s ago");
   });
 
   it("renders missing pr as '—'", () => {
