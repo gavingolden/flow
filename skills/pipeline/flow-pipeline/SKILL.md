@@ -74,27 +74,61 @@ in-process for skills; shell out for scripts; never delegate.
 > <slug>/`) created in step 2. The main worktree is read-only from
 > this skill's perspective.
 
-# Status file: `<worktree>/.flow-status`
+# Status writes: two surfaces, both updated together
 
-PR 1 pinned the format that `flow ls` reads. PR 2 (this skill) is
-the writer. At every phase transition, write atomically:
+PR 1 ships **two** state surfaces. The supervisor must update both at
+every phase transition; `flow ls` joins them.
+
+| File | Scope | Carries | Why split |
+|---|---|---|---|
+| `~/.flow/state/<slug>.json` | global, survives worktree cleanup | `slug`, `repo`, `worktree`, `phase`, `pr`, `updatedAt` | persists after merge so `flow ls` can still show the slug + PR for a recently-merged pipeline |
+| `<worktree>/.flow-status` | per-worktree text | `phase`, `last_transition_at` | atomic two-line file; the live source of truth that `flow ls` displays |
+
+`flow new` creates the global state file with `phase: "starting"`.
+**You must update both** at every transition.
+
+## At every phase transition, run both writes
 
 ```bash
+# 1. Per-worktree status (atomic via tmp + rename).
 printf 'phase: %s\nlast_transition_at: %s\n' \
   "$PHASE" \
   "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   > "$WORKTREE/.flow-status.tmp" \
   && mv "$WORKTREE/.flow-status.tmp" "$WORKTREE/.flow-status"
+
+# 2. Global registry (helper handles atomic JSON merge).
+flow-state-update "$SLUG" --phase "$PHASE"
 ```
 
-The `tmp + rename` pattern is what makes the write atomic — `flow
-ls` (which reads the file from any other terminal) never sees a
-partial line. **Always use this exact shape**, never write the file
-directly.
+Use the `flow-state-update` helper rather than writing the JSON
+yourself — it merges fields preserving repo, worktree, pr, and
+refreshes `updatedAt`. The helper exits non-zero if the slug has no
+state file, which surfaces drift instead of papering over it.
 
 `$PHASE` must be one of the values listed in the phase table below.
 `$WORKTREE` is the absolute worktree path returned by
-`flow-new-worktree`.
+`flow-new-worktree`. `$SLUG` is the worktree directory's basename
+(e.g. `csv-export`).
+
+## Additional fields to set once
+
+Beyond phase, two fields ship via `flow-state-update` exactly once
+during a pipeline:
+
+```bash
+# After step 2 (worktree create): record the absolute path so
+# `flow ls` can read .flow-status without scraping disk.
+flow-state-update "$SLUG" --phase worktree-create --worktree "$WORKTREE"
+
+# After step 5 (PR opens): record the PR number so flow ls shows
+# the #142 column.
+flow-state-update "$SLUG" --phase implementing --pr "$PR"
+```
+
+After the PR is set, never overwrite it — subsequent transitions
+just pass `--phase`, the helper preserves `pr` from the existing
+file.
 
 # The 10-step pipeline
 
@@ -143,6 +177,16 @@ flow-new-worktree <slug>
 Capture the absolute worktree path it prints. Set `$WORKTREE` to
 this for the rest of the pipeline. **`cd` into the worktree** —
 every subsequent step runs from there.
+
+Then record the path in the global state file (the only step where
+`--worktree` is set):
+
+```bash
+flow-state-update "$SLUG" --phase worktree-create --worktree "$WORKTREE"
+```
+
+The `<worktree>/.flow-status` write happens after the worktree
+exists, in the same shape pinned in the "Status writes" section.
 
 **End condition:** the worktree directory exists, is on a fresh
 branch, and `pwd` matches `$WORKTREE`.
@@ -220,7 +264,12 @@ Capture the PR number after it returns:
 gh pr view --json number --jq '.number'
 ```
 
-Set `$PR` to this for the rest of the pipeline.
+Set `$PR` to this for the rest of the pipeline. Then record it in
+the global state (the only step where `--pr` is set):
+
+```bash
+flow-state-update "$SLUG" --phase implementing --pr "$PR"
+```
 
 **Re-entry from a fix loop** (called from step 7 ci-red or step 8
 review-critical): pass mode=fix and the failure log:
@@ -461,8 +510,11 @@ After each phase transition:
 
 - `<worktree>/.flow-status` exists and contains the two pinned
   lines (`phase:` + `last_transition_at:`).
-- `flow ls` (run from any terminal) shows the right phase for this
-  pipeline's window.
+- `~/.flow/state/<slug>.json` exists and reflects the same `phase`,
+  the populated `worktree` and (post-step-5) `pr` fields, and a
+  fresh `updatedAt`.
+- `flow ls` (run from any terminal) shows the right phase **and PR
+  number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool.
 - The supervisor never spawned a `claude -p` subprocess.
 
