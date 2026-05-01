@@ -2,11 +2,22 @@
  * `flow new <description>` — slugify, create a tmux window, write initial
  * state. The supervisor skill (PR 2) takes over from there. Does not
  * auto-attach by default; the user runs `flow attach <slug>` separately.
+ *
+ * `flow new --resume <name>` — re-launch a crashed supervisor session in
+ * its existing tmux window (or recreate the window if tmux died too) using
+ * the resume seed prompt. Refuses if there is no state for `<name>` or if
+ * the existing pane has a live process.
  */
 
 import * as fs from "node:fs";
 import { slugify } from "./slug";
-import { createWindow, windowExists, FLOW_SESSION } from "./tmux";
+import {
+  createWindow,
+  respawnWindow,
+  windowExists,
+  isPaneAlive,
+  FLOW_SESSION,
+} from "./tmux";
 import { readState, writeState, nowIso } from "./state";
 
 export type NewOptions = {
@@ -14,9 +25,18 @@ export type NewOptions = {
   cwd?: string;
   /** Override the command launched in the window. */
   command?: string[];
+  /** Resume a crashed pipeline rather than start a new one. */
+  resume?: boolean;
+  /** Override the state directory (test seam). */
+  stateDir?: string;
 };
 
-export function runNew(description: string, options: NewOptions = {}): number {
+export function runNew(input: string, options: NewOptions = {}): number {
+  if (options.resume) return runResume(input, options);
+  return runFresh(input, options);
+}
+
+function runFresh(description: string, options: NewOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow new: description is required.");
     console.error("usage: flow new <description>");
@@ -39,10 +59,9 @@ export function runNew(description: string, options: NewOptions = {}): number {
   if (windowExists(slug)) {
     console.error(`flow new: window '${FLOW_SESSION}:${slug}' already exists.`);
     console.error(
-      "  attach with `flow attach " +
-        slug +
-        "` or pick a different description. (--resume comes in PR 9.)",
+      `  attach with \`flow attach ${slug}\`, resume with \`flow new --resume ${slug}\`,`,
     );
+    console.error("  or pick a different description.");
     return 1;
   }
 
@@ -72,11 +91,63 @@ export function runNew(description: string, options: NewOptions = {}): number {
   return 0;
 }
 
+function runResume(name: string, options: NewOptions): number {
+  if (!name || name.trim() === "") {
+    console.error("flow new --resume: <name> is required.");
+    console.error("usage: flow new --resume <name>");
+    return 1;
+  }
+
+  const slug = slugify(name);
+  if (!slug || slug !== name) {
+    console.error(`flow new --resume: '${name}' is not a valid pipeline name.`);
+    console.error("  pass the slug as printed by `flow ls`.");
+    return 1;
+  }
+
+  const state = readState(slug, options.stateDir);
+  if (!state) {
+    console.error(`flow new --resume: no pipeline state for '${slug}'.`);
+    console.error("  run `flow new <description>` to start a fresh pipeline.");
+    return 1;
+  }
+
+  const exists = windowExists(slug);
+  if (exists && isPaneAlive(slug)) {
+    console.error(`flow new --resume: pipeline '${slug}' is still running.`);
+    console.error(`  attach with \`flow attach ${slug}\` instead of resuming.`);
+    return 1;
+  }
+
+  const command = options.command ?? resumeCommand(slug);
+  const result = exists
+    ? respawnWindow(slug, state.repo, command)
+    : createWindow(slug, state.repo, command);
+  if (!result.ok) {
+    console.error(`flow new --resume: tmux failed to ${exists ? "respawn" : "create"} the window.`);
+    if (result.stderr) console.error(`  ${result.stderr}`);
+    return 1;
+  }
+
+  // Phase + worktree + pr stay as the crash left them. The supervisor's
+  // first real transition is what updates state.json.
+  console.log(`${FLOW_SESSION}:${slug}`);
+  console.log(`  attach with: flow attach ${slug}`);
+  return 0;
+}
+
 function defaultCommand(description: string): string[] {
   // The supervisor skill is invoked by the chat session itself, not by
   // passing the slash command on the CLI. We launch claude with an initial
   // prompt that tells the user (and the LLM, once active) what to do.
   const prompt = `Use the /flow-pipeline skill for: ${description}`;
+  return ["claude", prompt];
+}
+
+function resumeCommand(slug: string): string[] {
+  // The supervisor parses this prefix to detect resume mode and walk the
+  // decision tree in references/failure-recovery.md section (b).
+  const prompt = `Use the /flow-pipeline skill in --resume mode for: ${slug}`;
   return ["claude", prompt];
 }
 
