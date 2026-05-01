@@ -11,6 +11,8 @@ description: >-
   sub-agent.
 argument-hint: '"<feature description>"'
 disable-model-invocation: true
+model: claude-sonnet-4-6
+effort: medium
 ---
 
 # Goal
@@ -46,9 +48,11 @@ in-process for skills; shell out for scripts; never delegate.
   Use the individual skills (`/product-planning`, `/new-feature`,
   `/verify`, `/pr-review`) directly.
 - Resume after a Claude Code crash → `flow new --resume <name>` is
-  the entry point (PR 9; not yet implemented). When that lands, this
-  skill gains a `--resume` mode that walks the resume-from-disk tree
-  in `references/failure-recovery.md`.
+  the entry point. The wrapper re-launches Claude Code into the same
+  tmux window with the resume seed prompt; this skill detects the
+  prompt prefix and walks the decision tree in
+  `references/failure-recovery.md` section (b). See **Resume mode**
+  below.
 
 # Hard rules
 
@@ -345,6 +349,22 @@ PRIOR ATTEMPT FAILED — failure log:
 <truncated log; cap 200 lines / 100 matched-error lines>
 ```
 
+**Model escalation on retry.** Attempt 1 runs `/verify` at its
+declared model (Sonnet 4.6, `effort: medium`). Attempts 2 and 3
+escalate to **Opus 4.7 / `effort: xhigh`** by passing those overrides
+when invoking the skill — the failures Sonnet/medium couldn't fix
+on the first pass are exactly the long-tail cases Opus is worth
+spending on. The override is per-invocation; it does not mutate
+the skill's frontmatter. Append a one-line note to the prompt so
+the user can see the escalation in scrollback:
+
+```
+/verify  (model: claude-opus-4-7, effort: xhigh — retry 2/3)
+
+PRIOR ATTEMPT FAILED — failure log:
+<truncated log>
+```
+
 After three failed outer attempts, escalate `NEEDS HUMAN:
 verify-exhausted`. Surface the final failure log on the PR body's
 `## Manual validation` section as a `> [!CAUTION]` block (idempotent —
@@ -487,6 +507,99 @@ and print `MERGED` on its own line. End.
 
 On `gh pr merge` failure: retry once. If still failing, escalate
 `NEEDS HUMAN: merge-failed`. Leave the worktree intact.
+
+# Resume mode
+
+The supervisor enters resume mode when the seed prompt begins with
+the literal prefix:
+
+```
+Use the /flow-pipeline skill in --resume mode for: <slug>
+```
+
+`flow new --resume <name>` writes that prompt; nothing else does.
+On detecting it, **do not** start at step 1. Instead, walk the
+resume-from-disk decision tree below and re-enter at the first step
+whose precondition is **not** met. Each step in the 10-step
+pipeline has at least one inspectable side-effect on disk or on
+GitHub, so the supervisor can always answer "what was already
+done?" without any in-process memory.
+
+## First-turn protocol
+
+1. Read `~/.flow/state/<slug>.json`. The wrapper already verified it
+   exists, but if you find it missing now, escalate
+   `NEEDS HUMAN: state-missing-on-resume` and end — something
+   removed it between the wrapper check and your turn.
+2. Set `$SLUG` to the value from the prompt (and from state.json —
+   they must match).
+3. Set `$WORKTREE` to `state.worktree` if present.
+4. Set `$PR` to `state.pr` if present.
+5. Walk the table top-down; resume at the first row whose "done"
+   column is `false`.
+6. Print `RESUMING AT: <step name> (<reason>)` on its own line
+   before re-entering the step, so the user reading scrollback can
+   confirm.
+7. From that step onward, behave exactly as the normal pipeline —
+   the same phase transitions, the same `flow-state-update` calls,
+   the same caps.
+
+## Decision tree
+
+| Step | "Done" check | Notes |
+|---|---|---|
+| 2 — worktree | `$WORKTREE` is set in state.json **and** the directory exists and is a git checkout | If unset / missing, recreate via `flow-new-worktree`. |
+| 3 — plan | `<worktree>/plan.md` exists and is non-empty | If missing, re-invoke `/product-planning`. |
+| 4 — approval | state.json shows `phase` ∈ {`implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
+| 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | If no PR, re-invoke `/new-feature`. |
+| 6 — verify | state.json shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | If false, re-invoke `/verify`. |
+| 7 — ci-wait | PR's checks all reached terminal state | If still pending, re-enter the poll loop. |
+| 8 — review | PR has a `pr-review` commit on HEAD (look for the commit subject prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | If false, re-invoke `/pr-review <PR>`. |
+| 9 — gate | (PR is `MERGED` **and** worktree directory removed) **or** state.json shows `phase: gated` | If false: when PR is `MERGED` but the worktree still exists, re-enter step 9's `MERGED` branch (run `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end) — **do not** fall through to step 10 and re-run `gh pr merge` on an already-merged PR. Otherwise re-evaluate the gate. |
+| 10 — merge | PR is `MERGED` **and** worktree directory removed | Terminal. Print `MERGED` and end. |
+
+The first row whose "done" condition is **false** is your re-entry
+step. If every row is `true`, the pipeline is in a terminal state
+— print `MERGED` (or `gated`) and end without re-running anything.
+
+## Edge cases (verbatim from `references/failure-recovery.md` section (b))
+
+- **Worktree path recorded but the directory is gone.** Escalate
+  `NEEDS HUMAN: worktree-missing-on-resume`. Don't auto-recreate —
+  the user may have removed it deliberately.
+- **Worktree exists but state.json shows `phase: starting` /
+  `triaging` / `worktree-create`.** Treat as resume-from-step-3
+  (plan). The worktree was created but the pipeline crashed before
+  the planning phase advanced state.
+- **`plan.md` exists but no PR.** Resume at step 4 (approval). The
+  user may have approved before the crash; re-print the plan and
+  wait for the user to re-confirm. Don't replay an approval the
+  user gave to a now-dead session.
+- **PR exists but state.json is stale (e.g. still shows
+  `implementing`).** Resume at step 6 (verify). The PR survived;
+  the phase value didn't catch up before the crash.
+- **PR `CLOSED` without merge.** Escalate `NEEDS HUMAN:
+  pr-closed-without-merge`; do not resume. Let the user decide
+  reopen vs. abandon.
+- **Terminal phase (`merged` / `gated` / `cancelled`).** Print the
+  terminal line and end without re-running anything. The window
+  stayed open after a previous run; this resume is a no-op.
+
+## What resume mode does NOT do
+
+- It does not re-run verify or review steps if they previously
+  passed. Their successful exit is observable from disk + PR state.
+- It does not auto-merge a PR that's already in `gated` state — the
+  user gated it intentionally.
+- It does not delete a worktree on entry. Worktree cleanup is a
+  step-9-or-step-10 effect (whichever ran cleanup last); if neither
+  ran, the worktree stays.
+- It does not re-run `gh pr merge` on a PR that is already `MERGED`.
+  An already-merged PR with the worktree still present resumes into
+  step 9's `MERGED` cleanup branch (`flow-remove-worktree` + write
+  `phase: merged` + print `MERGED`), not step 10.
+- It does not rewrite state.json on entry. The first transition you
+  make from your re-entry step is what updates phase.
 
 # End conditions
 

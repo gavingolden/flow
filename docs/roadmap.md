@@ -61,14 +61,19 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Old orchestrator (Phases 1–4 PRs 13–17)** | Full Node-based pipeline, chat-first entry, parallelism, notifications | ✅ shipped — being deprecated. History preserved in this file's "Old roadmap" appendix. |
 | **PR 1 — global install + shell wrapper** | `flow setup`, `flow new`, `flow ls`, `flow attach`, `flow done`, `flow migrate` | ✅ shipped (#41) |
 | **PR 2 — `/flow-pipeline` supervisor skill** | The new pipeline-as-skill that replaces the Node runner + 8 phases | ✅ shipped (#42) |
-| **PR 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | 🚧 in review |
-| **PR 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ⬜ queued |
+| **PR 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | ✅ shipped (#44) |
+| **PR 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ✅ shipped (#47) |
 | **PR 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
 | **PR 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ⬜ queued |
-| **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | ⬜ queued |
+| **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | ✅ shipped (#46) |
 | **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | ⬜ queued |
 | **PR 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
-| **PR 9 (optional) — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ⏸ optional |
+| **PR 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ⬜ queued — high priority |
+| **PR 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | ⬜ queued |
+| **PR 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
+| **PR 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
+| **PR 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ⬜ queued |
+| **PR 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
 | **PR 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | 🚧 in review |
 
 ---
@@ -177,10 +182,10 @@ which lives in the tmux window.
 
 The single failure mode: if Claude Code crashes inside the window,
 the session is lost. The PR and worktree survive on disk. The user
-can `flow new --resume <name>` (PR 9, optional): re-launches Claude
-Code into the same window with a `/flow-pipeline --resume` prompt
-that tells the supervisor to inspect the worktree + PR + branch
-state and pick up from whatever phase looks done.
+can `flow new --resume <name>` (PR 9): re-launches Claude Code into
+the same window with the resume seed prompt that tells the
+supervisor to inspect state.json + the worktree + the PR and pick
+up from whatever phase looks done.
 
 ### Flow 7 — Parallelism
 
@@ -759,7 +764,7 @@ Design deviations from the original spec:
 
 ### PR 3 — `pr-review` machine-mode removal + global-binary references
 
-Status: 🚧 in review.
+Status: ✅ shipped (#44).
 
 Done when:
 
@@ -778,17 +783,28 @@ Done when:
 
 ### PR 4 — delete the orchestrator
 
-Status: ⬜ queued.
+Status: ✅ shipped (#47).
 
 Done when:
 
-- [ ] All files listed under "Fully delete" above are removed (except
-  `src/install/` which goes in PR 5).
-- [ ] `src/cli.ts` no longer registers `start`, `run`, `run-all`,
-  `approve`, `revise`, `log`, `status`. Only the new shell-verb
-  passthroughs from PR 1 (and `install`, until PR 5) remain.
-- [ ] `npm run typecheck` and `npm run test` are clean.
-- [ ] README is rewritten around the tmux flow.
+- [x] All files listed under "Fully delete" above are removed (except
+  `src/install/` which goes in PR 5). Also removes the support modules
+  that became dead code once the pipeline went away —
+  `src/state/`, `src/status/`, `src/cost.ts`, `src/cost.fixtures/`,
+  `src/util/{notify,jsonl-sink,respawn,run-all-logger,logger}.ts`,
+  `src/commands/resolve-prompt.ts`, and the `findCanonicalRoot` /
+  `resolveTaskInput` helpers in `src/util/git.ts` (only `findGitRoot`
+  is still used by `install`).
+- [x] `src/cli.ts` no longer registers `start`, `run`, `run-all`,
+  `approve`, `revise`, `log`, `status`. Only the `install` command
+  remains (deleted in PR 5).
+- [x] `bin/flow` wrapper's `OLD_VERBS` set trimmed to just `install`,
+  so `flow start` / `flow run` / etc. now print
+  `flow: unknown verb '<verb>'` from the wrapper itself rather than
+  passing through to a commander that no longer knows them.
+- [x] `npm run typecheck`, `npm run typecheck:scripts`, and `npm run
+  test` are clean (381 tests pass).
+- [x] README is rewritten around the tmux flow.
 
 ### PR 5 — delete obsolete pipeline skills + retire per-repo install
 
@@ -826,11 +842,11 @@ Done when:
 
 ### PR 7 — per-skill model + effort tuning
 
-Status: ⬜ queued. Carry-forward from queued Phase 5 PR 20.
+Status: ✅ shipped (#46). Carry-forward from queued Phase 5 PR 20.
 
 Done when:
 
-- [ ] Skills under `skills/pipeline/` and agents under `agents/` declare
+- [x] Skills under `skills/pipeline/` and agents under `agents/` declare
   `model:` and `effort:` in frontmatter where it matters:
   - `flow-pipeline` — Sonnet 4.6, `medium` (orchestration; control-
     flow judgment doesn't need Opus).
@@ -840,12 +856,48 @@ Done when:
   - `pr-review` sub-agents (promoted to `agents/`): Opus for
     bug+security at `xhigh`; Sonnet for pattern+test-coverage at
     `high`/`medium`.
-- [ ] The `agents/` directory is symlinked by `flow setup` into
-  `~/.claude/agents/`.
-- [ ] Verify-retry escalation: when `/verify` fails inside the
+- [x] The `agents/` directory is symlinked by `flow setup` into
+  `~/.claude/agents/` (the symlink wiring shipped with PR 1's
+  `flow setup`; PR 7 is the first PR to actually populate the
+  directory, so a `flow setup --upgrade` after merge lights up the
+  4 promoted agents in `~/.claude/agents/`).
+- [x] Verify-retry escalation: when `/verify` fails inside the
   supervisor's loop, the next attempt runs at Opus/`xhigh`. Logic
-  lives in `/flow-pipeline`'s SKILL.md, since Node retry no longer
-  exists.
+  lives in `/flow-pipeline`'s SKILL.md step 6, since Node retry no
+  longer exists. The override is passed per-invocation (model +
+  effort overrides on the skill call) and does not mutate the
+  skill's frontmatter — Sonnet/medium remains the default for
+  attempt 1.
+
+#### Known issues / follow-ups (surfaced by `/pr-review` on PR #46)
+
+- **Task-tool contract collision between `/pr-review` step 4 and
+  `/flow-pipeline` hard rules.** `pr-review`'s step 4 now invokes the
+  4 promoted agents via the `Task` / `Agent` tool, but `flow-pipeline`'s
+  hard rules (SKILL.md lines 57-60) and verification (SKILL.md line 545)
+  forbid the supervisor from ever using `Task`. When step 8 of the
+  pipeline loads `/pr-review` in-process, the supervisor's own hard
+  rule blocks the new fan-out. **Revisit trigger:** before PR 11
+  (`pr-review` unified mode) — that PR re-touches step 4 and is the
+  natural point to either (a) carve out an explicit Task exception in
+  `flow-pipeline` for the review phase or (b) document a
+  no-Task fallback path in `pr-review` for both supervisor and
+  standalone-without-Task contexts. Why deferred: picking between
+  the two requires a design decision on whether the supervisor's
+  "single LLM container" invariant survives or evolves.
+- **Per-invocation model/effort override syntax for `/verify` retry
+  is asserted but not specified.** `flow-pipeline` SKILL.md step 6
+  and the PR 7 done-when bullet describe escalating attempts 2-3 to
+  Opus/`xhigh` "by passing those overrides when invoking the skill"
+  but do not show the syntax Claude Code actually parses (the example
+  prompt-line annotation `(model: …, effort: …)` is an in-prose
+  comment, not a parsed flag). **Revisit trigger:** first time the
+  retry path actually fires in production, or when PR 8 (eval harness)
+  exercises retry loops — verify the override is honoured by checking
+  the model recorded in the per-attempt usage line. Why deferred:
+  resolution depends on Claude Code harness behaviour outside this
+  repo; either the syntax exists and the doc just needs to cite it,
+  or it doesn't and the escalation claim must be removed.
 
 ### PR 8 — eval harness
 
@@ -897,20 +949,261 @@ conventional-comments format, the auto-fix-vs-defer bar, the
 retrospective-and-checklist-evolution mechanic — none of that
 changes. This is a control-flow simplification only.
 
-### PR 9 (optional) — `flow new --resume <name>`
+### PR 12 — fix cross-pipeline worktree contamination (high priority)
 
-Status: ⏸ optional.
+Status: ⬜ queued — high priority.
+
+The bug, witnessed end-to-end on 2026-05-01: the user kicked off six parallel `flow new` pipelines for PRs 4 / 6 / 7 / 8 / 9 / 10. The PR 10 supervisor created its worktree at `flow-proceed-with-pr-10-in-the-roadmap-if-the` on branch `proceed-with-pr-10-in-the-roadmap-if-the` (correct). The PR 4 supervisor — running concurrently in a different tmux window — then **renamed PR 10's branch** to `pr4-delete-orchestrator`:
+
+```
+Branch: renamed refs/heads/proceed-with-pr-10-in-the-roadmap-if-the to refs/heads/pr4-delete-orchestrator
+```
+
+It then **committed PR 4's work into PR 10's worktree**. The PR 10 supervisor's in-flight edits to `SKILL.md` and `docs/roadmap.md` were silently clobbered. Recovery required dropping back to main, hand-restoring the lost edits, and opening PR 10 from a third branch — none of which is automatable.
+
+The two contributing factors so far:
+
+1. **Worktree paths are derived deterministically from the slug**, not
+   from a unique pipeline identifier (e.g. timestamp, uuid). Two
+   pipelines whose slugs share a prefix can end up adjacent in the
+   filesystem and easy for an LLM agent to confuse. *(All six slugs
+   here started with `proceed-with-pr-` — visually similar enough that
+   the supervisor's `cd` step is one fat-fingered tab-complete away
+   from landing in a sibling worktree.)*
+2. **The supervisor LLM has no `cwd` lock.** Every Bash call resolves
+   `cwd` independently. If the supervisor for PR 4 ever resolved its
+   `cwd` to PR 10's worktree path (whether via tab-complete, a
+   misremembered absolute path, or a `flow-new-worktree` race), every
+   subsequent `git switch / git branch -m / git commit` in that turn
+   landed in PR 10's filesystem, on PR 10's branch, with no diagnostic
+   that anything was wrong. The branch-rename step in particular is
+   irreversible after the agent moves on.
 
 Done when:
 
-- [ ] `flow new --resume <name>` launches Claude Code into an existing
-  tmux window with a `/flow-pipeline --resume` prompt that says:
-  *"This pipeline was interrupted. Inspect the worktree, branch, PR
-  state, and resume from the last completed phase."*
-- [ ] The supervisor's first action is to read the worktree + `gh pr
-  view` and decide where to pick up, using the decision tree pinned
-  in PR 2's `references/failure-recovery.md`.
-- [ ] Useful primarily for Claude Code crashes; for laptop sleep, the
+- [ ] **Pipeline-isolated worktrees.** `flow-new-worktree <slug>`
+  refuses to operate on a path that already exists *unless* the
+  caller passes an opt-in flag (e.g. `--reuse`). Concurrent calls with
+  the same slug return distinct paths (e.g. `<slug>` vs
+  `<slug>-2`) instead of clobbering.
+- [ ] **Branch-name guard.** `flow-new-worktree` writes the
+  expected branch name into a worktree-local marker file (e.g.
+  `.flow-branch`). The supervisor reads this on every loop entry and
+  asserts `git branch --show-current` matches; mismatch aborts the
+  phase with a clear error rather than committing on the wrong branch.
+- [ ] **Cross-pipeline isolation tests.** A vitest fixture spins up
+  two `flow-new-worktree` calls in parallel against overlapping slugs
+  and asserts each ends up on its own branch in its own directory,
+  with no cross-mutation.
+- [ ] **Supervisor SKILL.md hard rule.** Add a hard rule along the lines of `You never run git branch -m or git switch <other-pipeline-branch>`. Belt-and-braces against the LLM-confusion failure mode that opened the door here in the first place.
+- [ ] **Postmortem entry under "Open questions" or a new "Incidents"
+  section** linking this PR to the 2026-05-01 reflog evidence so the
+  context survives the bug fix.
+
+Why this is a blocker for the parallel-pipelines value prop:
+
+The roadmap repeatedly cites parallel pipelines as the carrying value
+of the redesign (Flow 7, "End-state shape", "no claim primitive
+needed"). If parallel pipelines are *not* in fact isolated, every claim
+about "the OS schedules them" is unsafe. PR 12 has to land before
+parallel use is recommended again. Until it does, the workaround is to
+run pipelines serially.
+
+### PR 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep
+
+Status: ⬜ queued.
+
+Why: PR 7's run surfaced two adjacent gaps in how `/flow-pipeline`
+finishes a pipeline.
+
+(a) `AGENTS.md`'s blanket "Don't auto-commit or auto-push without an
+explicit user instruction" rule fires against `/flow-pipeline`'s
+step 10 auto-merge, denying the merge mid-flow even though invoking
+`/flow-pipeline` is itself the user's authorization for the
+documented step 10. The runtime denied PR #46's merge on this
+basis. The doc and the skill disagree.
+
+(b) Every PR's diff sets its own roadmap row to "🚧 in review";
+nothing flips it to "✅ shipped (#N)" post-merge. PR 3 (#44) and
+PR 7 (#46) both drifted into stale state until this PR's fix
+sweep landed them by hand.
+
+Done when:
+
+- [ ] `AGENTS.md` carves out a named auto-merge exemption for
+  `/flow-pipeline` step 10, parallel to the existing `/pr-review`
+  push exemption. The exemption is narrow and explicit — only the
+  documented `gh pr merge --squash --delete-branch <PR>` call
+  inside step 10, only when the auto-merge gate fires (Manual
+  validation section empty), only on a PR opened by `/flow-pipeline`
+  itself.
+- [ ] `flow new --no-auto-merge` opt-out flag for users who want
+  every PR to be gated manually regardless. The supervisor reads
+  the flag from state.json and stops at step 9 (gated) instead of
+  proceeding to step 10.
+- [ ] Supervisor step 10.5 (or a `flow housekeeping` step) post-
+  merge: edit `docs/roadmap.md` to flip the merged PR's row + detail
+  block to "✅ shipped (#N)", commit straight to main, push.
+  Idempotent — re-running on an already-shipped row is a no-op. Runs
+  unconditionally on merge, not gated by Manual-validation-empty.
+
+### PR 14 — supervisor↔skill contract correctness
+
+Status: ⬜ queued.
+
+Why: PR 7's `/pr-review` invocation surfaced three contract-level
+issues between `/flow-pipeline` and the sub-skills it loads in-
+process:
+
+(a) **Task-tool conflict.** `/flow-pipeline`'s hard rule: "the
+supervisor never invokes the Task / Agent tool" (one-level cap).
+`/pr-review`'s step 4 spawns four named subagents via Task. When
+the supervisor loads `/pr-review`, the rule transitively breaks.
+PR 7 saw the empirical fallback: the Task tool wasn't exposed in-
+session, and `/pr-review` collapsed to a single-reviewer pass.
+Tracker entry posted on PR 46 already names this; this PR resolves
+it.
+
+(b) **Verify-retry escalation is aspirational.** `/flow-pipeline`
+step 6 documents "pass model+effort overrides per-invocation" on
+verify retry, but no such override mechanism is documented in this
+repo or in `~/.claude/`. Either the syntax exists and the doc
+should cite it, or the claim is currently aspirational and needs
+to be rewritten to do something the harness actually supports.
+
+(c) **New agents/skills aren't live until `flow setup --upgrade`.**
+PR 7 created `agents/pr-*.md` files but didn't symlink them into
+`~/.claude/agents/`; the same session's `/pr-review` couldn't see
+them. Self-reference between "this PR adds an agent" and "this PR
+exercises the agent" needs a re-symlink step inside the supervisor.
+
+Done when:
+
+- [ ] Pick one resolution for (a) and apply it: (i) carve a named
+  Task-tool exception for `/pr-review` in `/flow-pipeline`'s hard
+  rule, (ii) refactor `/pr-review` to fan out via in-process skill
+  loads, or (iii) drop the supervisor's hard rule. Most likely (i).
+  Document the rationale inline in both SKILL.md files.
+- [ ] (b) is resolved either by citing a real per-invocation override
+  syntax (Skill-tool model param, `/skill --model`, env var picked
+  up by Claude Code), or by rewriting step 6 to do something
+  concrete (split verify into two skills, escalate via a different
+  mechanism).
+- [ ] `/flow-pipeline` runs `flow setup --upgrade` between step 5
+  (implement) and step 6 (verify) when the worktree's diff adds
+  files under `skills/` or `agents/`. Detect via `git diff --name-only
+  origin/main...HEAD | grep -E '^(skills|agents)/'`.
+
+### PR 15 — pipeline ergonomics + scratch hygiene
+
+Status: ⬜ queued.
+
+Why: PR 7's run with multiple parallel pipelines surfaced a cluster
+of frictions. None of these are the cross-pipeline data-loss bug
+(PR 12 owns that). They are the smaller papercuts that compound at
+scale.
+
+(a) **Slug derivation is too long.** `flow new "Proceed with PR 7
+in the roadmap if the prerequisites are complete"` produces slug
+`proceed-with-pr-7-in-the-roadmap-if-the`. The supervisor's triage
+step says "derive 3-5 word kebab-case slug" but state.json + tmux
+window already exist by the time triage runs, with no clean rename
+path.
+
+(b) **Parallel agents collide on `/tmp`.** PR 7's body file landed
+at `/tmp/pr7-body.md`; the file already existed with stale content
+from a prior session, and `gh pr create --body-file` read the stale
+content. (Recovered with a follow-up `gh pr edit`.) `/tmp` is
+shared across every parallel agent.
+
+(c) **`flow setup --upgrade` race.** Two parallel pipelines that
+each run `flow setup --upgrade` (e.g. as part of the proposed PR 14
+re-symlink step) can race on `~/.claude/skills/` and
+`~/.claude/agents/` symlinks.
+
+(d) **state.json `pr` field is set late.** Step 5 writes `pr` only
+after `gh pr create` returns and the supervisor extracts the
+number. If the supervisor crashes between `gh pr create` and
+`flow-state-update --pr`, the PR exists but state never knows.
+`flow ls` shows `pr: —`.
+
+(e) **`flow-pre-commit` is silent on no-op.** "No relevant scopes
+detected — nothing to check" exits 0; correct behaviour but
+indistinguishable from a real bug. PR 7's invocation hit this and
+the user couldn't tell if anything ran.
+
+Done when:
+
+- [ ] `flow new` slugifies more aggressively — drops stop-words
+  (`the`, `if`, `and`, etc.), caps at N tokens (4-6), and falls
+  through to a deterministic short hash if nothing useful remains.
+  OR: triage step renames the slug when the auto-slug exceeds N
+  characters (state file move + `tmux rename-window`).
+- [ ] All scratch writes go under `<worktree>/.flow-tmp/` (auto-
+  deleted by `flow-remove-worktree`), not `/tmp`. The supervisor's
+  body-file, commit-message, and any other transient files use this
+  path.
+- [ ] `flow setup` (and `flow setup --upgrade`) wraps its symlink
+  creation in `flock ~/.flow/setup.lock`. Concurrent invocations
+  serialise instead of racing.
+- [ ] Crash-safe wrapper for PR creation: a `flow-open-pr <body-file>`
+  helper that atomically calls `gh pr create`, reads back the PR
+  number, and writes it to state.json in the same step. Step 5 in
+  the supervisor invokes this instead of separate `gh pr create` +
+  `flow-state-update --pr` calls.
+- [ ] `flow-pre-commit` prints which scopes were considered and why
+  each was skipped, so a no-op pass is loud, not silent.
+
+### PR 16 — supervisor polling discipline
+
+Status: ⬜ queued.
+
+Why: PR 7's CI/Copilot wait step terminated after a single empty
+poll. Both `gh pr checks` and `gh pr view --json reviews` returned
+empty on the first call (Copilot hadn't posted yet), and the
+supervisor mis-inferred "no CI configured + no Copilot configured"
+instead of "not yet posted." PR #46 merged before Copilot's review
+landed.
+
+The polling protocol's 30s cadence and 20-min cap exist precisely
+to absorb the gap between "PR opened" and "first results posted."
+The supervisor must respect them.
+
+Done when:
+
+- [ ] Step 7's poll loop in `flow-pipeline/SKILL.md` makes the 30s
+  cadence + 20-min cap unconditional on the first iteration. Empty
+  results on the first poll mean "not yet posted," never "skip the
+  wait."
+- [ ] Distinguish "no CI workflow exists" (presence check on
+  `.github/workflows/*.yml`) from "CI hasn't reported yet" (gh API
+  returned empty). The former legitimately skips the wait; the
+  latter does not.
+- [ ] Same distinction for Copilot: check repo settings / app
+  installation (e.g. via `gh api repos/<owner>/<repo>/installations`),
+  not just the empty review list.
+- [ ] Surface a concrete poll counter in scrollback ("CI poll 3/40,
+  elapsed 1m30s of 20m") so the user can see the wait progressing
+  rather than guessing.
+
+### PR 9 — `flow new --resume <name>`
+
+Status: ✅ shipped (#50).
+
+Done when:
+
+- [x] `flow new --resume <name>` launches Claude Code into an existing
+  tmux window with a `/flow-pipeline` resume seed prompt
+  (`Use the /flow-pipeline skill in --resume mode for: <slug>`); when
+  the window has died too, the wrapper recreates it.
+- [x] The supervisor's first action on detecting the resume prompt is
+  to read state.json + the worktree + `gh pr view` and walk the
+  decision tree in `references/failure-recovery.md` section (b),
+  resuming at the first step whose precondition is not met. Prints
+  `RESUMING AT: <step> (<reason>)` before re-entering.
+- [x] Wrapper refusal cases: missing state → "run `flow new <description>`";
+  live pane → "attach with `flow attach <name>`".
+- [x] Useful primarily for Claude Code crashes; for laptop sleep, the
   session usually resumes naturally.
 
 ### PR 10 — notifications
