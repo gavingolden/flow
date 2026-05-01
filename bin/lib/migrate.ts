@@ -205,7 +205,10 @@ function scanNonTerminalTasks(tasksDir: string): { id: string; status: string }[
 function isTerminalStatus(status: string): boolean {
   // Conservative list. False positives here just delay migration;
   // false negatives would let migrate proceed with in-flight work.
-  return ["merged", "cancelled", "abandoned", "done"].includes(status);
+  // `merged` and `aborted` are the canonical terminal statuses per
+  // docs/task-schema.md; `cancelled`, `abandoned`, `done` are kept as
+  // legacy/synonym safety nets in case older tasks predate the schema.
+  return ["merged", "aborted", "cancelled", "abandoned", "done"].includes(status);
 }
 
 function findGitRepos(root: string): string[] {

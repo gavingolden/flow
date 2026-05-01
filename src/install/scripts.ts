@@ -219,12 +219,28 @@ async function readScripts(scriptsRoot: string): Promise<ScriptRef[]> {
   // for shipped helpers into bin/ and replaced the templates/scripts/
   // entries with symlinks pointing back. Resolve through realpath so the
   // consumer's symlink targets the canonical bin/ file directly.
+  // Guard each realpath: a single broken symlink in templates/scripts/
+  // (e.g. left over from a mid-refactor source-tree state) shouldn't
+  // abort the entire install. Warn and skip the offender so the rest
+  // of the helpers still install.
   const refs: ScriptRef[] = [];
   for (const e of entries) {
     if (!(e.isFile() || e.isSymbolicLink())) continue;
     if (!e.name.endsWith(".ts")) continue;
     if (e.name.endsWith(".test.ts")) continue;
-    const sourceFile = await fs.realpath(path.join(scriptsRoot, e.name));
+    const entryPath = path.join(scriptsRoot, e.name);
+    let sourceFile: string;
+    try {
+      sourceFile = await fs.realpath(entryPath);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code ?? "?";
+      console.error(
+        pc.yellow(
+          `  ! ${e.name}  (skipped — broken symlink at ${entryPath}: ${code})`,
+        ),
+      );
+      continue;
+    }
     refs.push({ name: e.name, sourceFile });
   }
   return refs;

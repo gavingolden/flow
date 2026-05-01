@@ -7,6 +7,7 @@
  * once with the count + names before acting.
  */
 
+import * as fs from "node:fs";
 import { killWindow, listWindows, windowExists, FLOW_SESSION } from "./tmux";
 import { deleteState, listStates, readState } from "./state";
 
@@ -85,10 +86,8 @@ function runDoneAllMerged(options: DoneOptions): number {
 
 function confirm(prompt: string): boolean {
   process.stdout.write(`${prompt} [y/N] `);
-  // Bun reads from stdin synchronously via Bun.stdin or process.stdin.
-  // For an interactive prompt, the simplest is the readline-like approach
-  // via fs.readSync on stdin.
-  const fs = require("node:fs") as typeof import("node:fs");
+  // Bun supports synchronous stdin reads via fs.readSync(0, ...). Avoid
+  // require() so this module stays pure ESM (matches the rest of bin/lib).
   const buf = Buffer.alloc(16);
   let len = 0;
   try {

@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { LOCAL_BIN_DIR, resolveFlowSource } from "./paths";
+import { resolveFlowSource } from "./paths";
 import {
   readManifest,
   writeManifest,

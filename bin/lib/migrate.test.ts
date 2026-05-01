@@ -127,6 +127,19 @@ describe("flow migrate", () => {
     expect(code).toBe(1);
   });
 
+  it("treats both 'merged' and 'aborted' as terminal (per task-schema)", () => {
+    writeGitignoreFixture(["/.claude/skills/alpha"], []);
+    createManagedSymlinks(["/.claude/skills/alpha"]);
+    const tasksDir = path.join(repoRoot, ".orchestrator", "tasks");
+    fs.mkdirSync(tasksDir, { recursive: true });
+    fs.writeFileSync(path.join(tasksDir, "merged-task.md"), "---\nstatus: merged\n---\n");
+    fs.writeFileSync(path.join(tasksDir, "aborted-task.md"), "---\nstatus: aborted\n---\n");
+
+    // No non-terminal tasks → migrate is allowed to proceed.
+    const code = runMigrate({}, repoRoot);
+    expect(code).toBe(0);
+  });
+
   it("--include-orchestrator removes .orchestrator/ on apply", () => {
     fs.mkdirSync(path.join(repoRoot, ".orchestrator", "tasks"), { recursive: true });
     fs.writeFileSync(path.join(repoRoot, ".orchestrator", "tasks", "old.md"), "---\nstatus: merged\n---\n");
