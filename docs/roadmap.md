@@ -54,19 +54,21 @@ and C (Claude Code supervisor session).
 
 ## Status table
 
+Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
+
 | Block | Adds | Status |
 |---|---|---|
-| **Old orchestrator (Phases 1–4 PRs 13–17)** | Full Node-based pipeline, chat-first entry, parallelism, notifications | **shipped — being deprecated.** History preserved in this file's "Old roadmap" appendix. |
-| **PR 1 — global install + shell wrapper** | `flow setup`, `flow new`, `flow ls`, `flow attach`, `flow done`, `flow migrate` | **next** |
-| **PR 2 — `/flow-pipeline` supervisor skill** | The new pipeline-as-skill that replaces the Node runner + 8 phases | queued |
-| **PR 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | queued |
-| **PR 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | queued |
-| **PR 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | queued |
-| **PR 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | queued |
-| **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | queued |
-| **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | queued |
-| **PR 9 (optional) — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | optional |
-| **PR 10 (optional) — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | optional |
+| **Old orchestrator (Phases 1–4 PRs 13–17)** | Full Node-based pipeline, chat-first entry, parallelism, notifications | ✅ shipped — being deprecated. History preserved in this file's "Old roadmap" appendix. |
+| **PR 1 — global install + shell wrapper** | `flow setup`, `flow new`, `flow ls`, `flow attach`, `flow done`, `flow migrate` | ✅ shipped (#41) |
+| **PR 2 — `/flow-pipeline` supervisor skill** | The new pipeline-as-skill that replaces the Node runner + 8 phases | 🚧 in review (#42) — end-to-end smoke pending |
+| **PR 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | ⬜ queued — **next** |
+| **PR 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ⬜ queued |
+| **PR 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
+| **PR 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ⬜ queued |
+| **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | ⬜ queued |
+| **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | ⬜ queued |
+| **PR 9 (optional) — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ⏸ optional |
+| **PR 10 (optional) — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | ⏸ optional |
 
 ---
 
@@ -130,9 +132,10 @@ making a judgment.
 ### Flow 3 — Status check
 
 `flow ls` (any terminal) reads `tmux list-windows -t flow` for the set
-of active pipelines, then for each window reads
-`<worktree>/.flow-status` (a one-line file the supervisor updates at
-each phase transition) to get the current phase. Prints a table:
+of active pipelines, then for each slug reads
+`~/.flow/state/<slug>.json` (a global JSON file that `flow new`
+creates and the supervisor updates via `flow-state-update` at every
+transition) to get the current phase + PR. Prints a table:
 
 ```
 NAME            PHASE         PR    LAST ACTIVITY
@@ -624,126 +627,209 @@ are inert.
 
 ### PR 1 — global install + shell wrapper
 
+Status: ✅ shipped (#41).
+
 Done when:
 
-- `flow setup` symlinks all skills into `~/.claude/skills/`, all
+- [x] `flow setup` symlinks all skills into `~/.claude/skills/`, all
   agents into `~/.claude/agents/`, all helper scripts into
   `~/.local/bin/flow-<name>`, and the `flow` wrapper itself into
   `~/.local/bin/flow`. Records every symlink in
   `~/.flow/installed.json`. Verifies tmux on PATH.
-- `flow setup --upgrade` is idempotent — re-creates missing
+- [x] `flow setup --upgrade` is idempotent — re-creates missing
   symlinks, reaps orphans, refreshes the manifest.
-- `flow new <description>` creates a tmux session/window
+- [x] `flow new <description>` creates a tmux session/window
   (`flow:<slug>`), launches Claude Code in it with a stub prompt
   (`Use the /flow-pipeline skill for: <description>`).
-- `flow ls` lists windows from `tmux list-windows -t flow`, then reads
-  `<worktree>/.flow-status` for each to recover the current phase, and
-  prints a table: name, phase, pr, last-activity. Phase is tracked via
-  the status file rather than encoded in the window name so window
-  names stay parseable as `tmux attach -t flow:<name>` targets — see
-  also the resolved open question #5 below.
-- `<worktree>/.flow-status` format pinned as two key:value lines —
-  `phase: <lifecycle-phase>` and `last_transition_at: <ISO-8601 UTC
-  with Z>` — and documented as atomically rewritten (write-tmp +
-  rename) on every phase transition. PR 1 ships only the reader plus
-  format pin; PR 2's supervisor is responsible for actually writing
-  the file. `flow ls` reads both fields, renders **LAST ACTIVITY** as
-  the relative-time delta from `last_transition_at` (`<N>s ago`,
-  `<N>m ago`, `<N>h ago`, `<N>d ago`), and tolerates missing or
-  malformed files by rendering `phase: —` and `LAST ACTIVITY: —`
-  (with a one-line stderr warning on malformed but never crashing
-  the row).
-- `flow attach <name>` runs `tmux attach -t flow:<name>`.
-- `flow done <name>` kills the window after a confirmation prompt.
-- `flow migrate` (with dry-run default and `--apply` to commit)
+- [x] `flow ls` lists windows from `tmux list-windows -t flow`, then reads
+  `~/.flow/state/<slug>.json` for each to recover the current phase + PR
+  + activity, and prints a table: name, phase, pr, last-activity. Phase
+  is tracked in the state file rather than encoded in the window name
+  so window names stay parseable as `tmux attach -t flow:<name>`
+  targets — see also the resolved open question #5 below.
+- [x] `~/.flow/state/<slug>.json` schema pinned. `flow new` creates the
+  file with `phase: "starting"`, `slug`, `repo`. PR 2's supervisor
+  updates `phase` + `worktree` + `pr` + `updatedAt` at every transition
+  via `flow-state-update`. `flow ls` reads `phase` and renders **LAST
+  ACTIVITY** from `updatedAt` (`<N>s ago`, `<N>m ago`, `<N>h ago`,
+  `<N>d ago`); tolerates a missing or malformed file by rendering
+  `phase: —` and `LAST ACTIVITY: —` rather than crashing the row.
+  (Originally PR 1 also pinned a per-worktree `<worktree>/.flow-status`
+  text file as the live phase source; PR 2 collapsed both surfaces into
+  state.json — see PR 2 design deviations.)
+- [x] `flow attach <name>` runs `tmux attach -t flow:<name>`.
+- [x] `flow done <name>` kills the window after a confirmation prompt.
+- [x] `flow migrate` (with dry-run default and `--apply` to commit)
   reverses the per-repo install: removes managed-block symlinks
   under `.claude/skills/` and `scripts/`, strips the two managed
   blocks from `.gitignore`, optionally deletes `.orchestrator/`.
   Refuses to proceed if non-terminal tasks exist.
-- `flow migrate --scan <path>` runs the dry-run across every git
+- [x] `flow migrate --scan <path>` runs the dry-run across every git
   repo under a path.
-- Old verbs (`run`, `start`, `install`, etc.) still work in this
+- [x] Old verbs (`run`, `start`, `install`, etc.) still work in this
   PR — they're removed in PR 4. This PR is additive so users can
   migrate at their own pace.
 
 ### PR 2 — `/flow-pipeline` supervisor skill
 
+Status: 🚧 in review (#42) — code merged-pending, end-to-end smoke
+not yet run.
+
 Done when:
 
-- `skills/pipeline/flow-pipeline/SKILL.md` exists with the 10-step
+- [x] `skills/pipeline/flow-pipeline/SKILL.md` exists with the 10-step
   outline above; reference docs land under `references/`.
-- A real-repo end-to-end pass: `flow new "trivial test feature"`
+- [ ] A real-repo end-to-end pass: `flow new "trivial test feature"`
   from a scratch branch produces a merged PR (or a `gated` PR if the
   manual-validation section was filled), with no other commands
   needed.
-- The skill never spawns nested agents; it only loads sub-skills
+- [x] The skill never spawns nested agents; it only loads sub-skills
   in-process and invokes scripts as tool calls.
-- The `references/failure-recovery.md` decision tree is pinned for
+- [x] The `references/failure-recovery.md` decision tree is pinned for
   use in PR 9 (`flow new --resume`).
+
+Design deviations from the original spec:
+
+- **State surface consolidated to `state.json` only.** Original PR 1
+  spec called for two state surfaces: `<worktree>/.flow-status`
+  (per-worktree text, the "live source") and `~/.flow/state/<slug>.json`
+  (global, post-merge fallback). PR 2's smoke test surfaced two
+  related problems: (a) `bin/lib/ls.ts` read phase only from
+  `.flow-status`, so `flow ls` showed `phase: —` for the entire
+  pre-worktree window of every fresh pipeline (Claude Code
+  cold-start, step 1 triage, moments before `flow-new-worktree`
+  returns), and (b) PR 1 didn't ship a CLI writer for `state.json`
+  even though `bin/lib/state.ts:6-9` documented that as PR 2's
+  responsibility, so `flow ls` would have shown `pr: —` for every
+  active pipeline. PR 2 fixes both by: shipping
+  `bin/flow-state-update` (auto-symlinked by `flow setup`'s
+  `discoverHelpers`) for atomic JSON merge writes; deleting
+  `bin/lib/flow-status.{ts,test.ts}` and the per-worktree text file
+  entirely; rewriting `bin/lib/ls.ts` to read `state.json` only. Net
+  effect: one writer, one reader, one source of truth. `flow ls`
+  now shows `starting → triaging → worktree-create → planning → …`
+  continuously from `flow new` onward.
+- **`/new-feature` `disable-model-invocation: true` removed.** Smoke
+  test surfaced that the supervisor's `Skill(new-feature)`
+  invocation failed with "Skill new-feature cannot be used with
+  Skill tool due to disable-model-invocation". The flag was added in
+  the old per-repo era to prevent generic "build X / implement Y"
+  phrasing from auto-triggering the skill in unrelated chats; in the
+  new tmux supervisor session that collision concern is gone, and
+  the supervisor genuinely needs to invoke `/new-feature`
+  programmatically. PR 2 drops the flag from
+  `skills/pipeline/new-feature/SKILL.md`. The skill's description is
+  specific enough to keep auto-invocation tame without it. The
+  other three pipeline sub-skills (`/product-planning`, `/verify`,
+  `/pr-review`) never had the flag.
+- **`product-planning` amendment scope.** Roadmap "Keep, lightly
+  amended" called this "minor: writes its PRD + task breakdown to
+  `<worktree>/plan.md`". Shipped scope is slightly larger: a new
+  step 9 in `product-planning/SKILL.md` writes a consolidated
+  `plan.md` with three explicit sections (PRD, Task breakdown, PR
+  description draft) in fixed order. The existing
+  `pr-description-draft.md` write is preserved as a separate
+  artifact that `pr-review` already consumes. Rationale: the
+  supervisor needs the full PRD + tasks, not just the PR draft, so a
+  one-line "also write plan.md" amendment wasn't enough.
+- **Polling back-off documented but not active.** Spec doesn't pin
+  a back-off policy. Shipped `polling-protocol.md` documents an
+  optional 30s → 60s → 90s ramp after 5 failed polls but ships with
+  fixed 30s cadence. Activate when PR 6 cost telemetry justifies it.
+- **`plan-pending-review` phase value added.** Spec lists the
+  lifecycle phases but doesn't enumerate the feature-only checkpoint
+  phase. Shipped SKILL.md uses `plan-pending-review` as its
+  `state.json` phase value during the approval checkpoint so `flow
+  ls` distinguishes "waiting on user" from `planning` and
+  `implementing`.
+- **Frontmatter omits `model:` / `effort:`.** Roadmap PR 7 specifies
+  `flow-pipeline → Sonnet 4.6, medium`. PR 2 ships without the
+  frontmatter; PR 7 adds it. Documented to avoid the appearance of
+  drift.
+- **Open question #4 resolved in-skill.** Spec flagged "after
+  `/pr-review` fix-commit, supervisor must loop back to ci-wait,
+  not jump to merge" as an open question. Shipped step 8 encodes
+  this back-edge explicitly. Open question #4 below can be marked
+  resolved.
+- **Bot-reviewer config key not yet read.** `polling-protocol.md`
+  references `~/.flow/config.json`'s bot-reviewer name with a
+  `Copilot` fallback. PR 1's per-machine config is documented but
+  the key isn't wired into a script in this PR — fallback is the
+  active path until PR 7 (or earlier) wires the read.
 
 ### PR 3 — `pr-review` machine-mode removal + global-binary references
 
+Status: ⬜ queued — next.
+
 Done when:
 
-- `skills/pipeline/pr-review/SKILL.md` no longer references
+- [ ] `skills/pipeline/pr-review/SKILL.md` no longer references
   `RESULT_JSON_PATH` machine-mode forcing or the
   Force-Review-mode/no-auto-fix/no-commit/no-push preamble.
-- Native mode-detection drives Address vs Review.
-- Script invocations switch from `./scripts/fetch-pr-review.ts` /
+- [ ] Native mode-detection drives Address vs Review.
+- [ ] Script invocations switch from `./scripts/fetch-pr-review.ts` /
   `./scripts/reply-pr-comments.ts` to the global binaries
   `flow-fetch-pr-review` / `flow-reply-pr-comments`.
-- Same change applied to `/verify` and `/new-feature` for any
+- [ ] Same change applied to `/verify` and `/new-feature` for any
   `pre-commit-checks.ts` references.
-- This subsumes the previously-queued Phase 2 follow-up; it ships
+- [ ] This subsumes the previously-queued Phase 2 follow-up; it ships
   in service of the redesign rather than the old runner.
 
 ### PR 4 — delete the orchestrator
 
+Status: ⬜ queued.
+
 Done when:
 
-- All files listed under "Fully delete" above are removed (except
+- [ ] All files listed under "Fully delete" above are removed (except
   `src/install/` which goes in PR 5).
-- `src/cli.ts` no longer registers `start`, `run`, `run-all`,
+- [ ] `src/cli.ts` no longer registers `start`, `run`, `run-all`,
   `approve`, `revise`, `log`, `status`. Only the new shell-verb
   passthroughs from PR 1 (and `install`, until PR 5) remain.
-- `npm run typecheck` and `npm run test` are clean.
-- README is rewritten around the tmux flow.
+- [ ] `npm run typecheck` and `npm run test` are clean.
+- [ ] README is rewritten around the tmux flow.
 
 ### PR 5 — delete obsolete pipeline skills + retire per-repo install
 
+Status: ⬜ queued.
+
 Done when:
 
-- `skills/pipeline/{flow-add,flow-approve,flow-revise,flow-watch,
+- [ ] `skills/pipeline/{flow-add,flow-approve,flow-revise,flow-watch,
   flow-status}/` are removed from the source tree.
-- `templates/scripts/{ci-wait,flow-add,flow-watch}.ts` (and tests)
+- [ ] `templates/scripts/{ci-wait,flow-add,flow-watch}.ts` (and tests)
   are removed.
-- `src/commands/install.ts`, `src/install/scripts.ts`,
+- [ ] `src/commands/install.ts`, `src/install/scripts.ts`,
   `src/install/skills.ts`, `templates/scripts/` (the directory)
   and any related tests are deleted. The per-repo install pattern is
   retired in favour of the global install from PR 1.
-- A subsequent `flow setup --upgrade` reaps the orphan symlinks for
+- [ ] A subsequent `flow setup --upgrade` reaps the orphan symlinks for
   the deleted skills/scripts from `~/.claude/skills/` and
   `~/.local/bin/`.
-- `flow migrate` (PR 1) handles cleanup of legacy per-repo installs
+- [ ] `flow migrate` (PR 1) handles cleanup of legacy per-repo installs
   in any target repo that still has them.
 
 ### PR 6 — cost reporting in `flow ls`
 
-Carry-forward from queued Phase 5. Done when:
+Status: ⬜ queued. Carry-forward from queued Phase 5.
 
-- `flow ls --cost` shows `$ spent` per active window.
-- Source: scrape `claude --output-format stream-json`-style usage
+Done when:
+
+- [ ] `flow ls --cost` shows `$ spent` per active window.
+- [ ] Source: scrape `claude --output-format stream-json`-style usage
   events out of the supervisor session if exposed; otherwise pipe
   through Claude Code's session-usage API once available.
-- Cost attribution by model is preserved (Haiku triage vs Opus plan
+- [ ] Cost attribution by model is preserved (Haiku triage vs Opus plan
   vs Sonnet implement → distinct line items in
   `flow ls --cost --detail`).
 
 ### PR 7 — per-skill model + effort tuning
 
-Carry-forward from queued Phase 5 PR 20. Done when:
+Status: ⬜ queued. Carry-forward from queued Phase 5 PR 20.
 
-- Skills under `skills/pipeline/` and agents under `agents/` declare
+Done when:
+
+- [ ] Skills under `skills/pipeline/` and agents under `agents/` declare
   `model:` and `effort:` in frontmatter where it matters:
   - `flow-pipeline` — Sonnet 4.6, `medium` (orchestration; control-
     flow judgment doesn't need Opus).
@@ -753,44 +839,50 @@ Carry-forward from queued Phase 5 PR 20. Done when:
   - `pr-review` sub-agents (promoted to `agents/`): Opus for
     bug+security at `xhigh`; Sonnet for pattern+test-coverage at
     `high`/`medium`.
-- The `agents/` directory is symlinked by `flow setup` into
+- [ ] The `agents/` directory is symlinked by `flow setup` into
   `~/.claude/agents/`.
-- Verify-retry escalation: when `/verify` fails inside the
+- [ ] Verify-retry escalation: when `/verify` fails inside the
   supervisor's loop, the next attempt runs at Opus/`xhigh`. Logic
   lives in `/flow-pipeline`'s SKILL.md, since Node retry no longer
   exists.
 
 ### PR 8 — eval harness
 
-Carry-forward from queued Phase 5 PR 21. Done when:
+Status: ⬜ queued. Carry-forward from queued Phase 5 PR 21.
 
-- 5–10 fixture features under `evals/` with expected diffs +
+Done when:
+
+- [ ] 5–10 fixture features under `evals/` with expected diffs +
   rubrics.
-- `flow eval` runs each fixture under two model configs (Claude Code
+- [ ] `flow eval` runs each fixture under two model configs (Claude Code
   defaults vs the per-skill picks from PR 7), captures pass/fail and
   $/run, prints a delta.
-- Pass-rate regression of >1 fixture between configs exits non-zero
+- [ ] Pass-rate regression of >1 fixture between configs exits non-zero
   (CI-friendly).
 
 ### PR 9 (optional) — `flow new --resume <name>`
 
+Status: ⏸ optional.
+
 Done when:
 
-- `flow new --resume <name>` launches Claude Code into an existing
+- [ ] `flow new --resume <name>` launches Claude Code into an existing
   tmux window with a `/flow-pipeline --resume` prompt that says:
   *"This pipeline was interrupted. Inspect the worktree, branch, PR
   state, and resume from the last completed phase."*
-- The supervisor's first action is to read the worktree + `gh pr
+- [ ] The supervisor's first action is to read the worktree + `gh pr
   view` and decide where to pick up, using the decision tree pinned
   in PR 2's `references/failure-recovery.md`.
-- Useful primarily for Claude Code crashes; for laptop sleep, the
+- [ ] Useful primarily for Claude Code crashes; for laptop sleep, the
   session usually resumes naturally.
 
 ### PR 10 (optional) — notifications
 
-Carry-forward from shipped PR 17. Done when:
+Status: ⏸ optional. Carry-forward from shipped PR 17.
 
-- The supervisor calls `terminal-notifier` (or `osascript`) on
+Done when:
+
+- [ ] The supervisor calls `terminal-notifier` (or `osascript`) on
   `NEEDS HUMAN`, `MERGED`, `gated`. Opt-in via env var.
 
 ---
@@ -830,15 +922,15 @@ Carry-forward from shipped PR 17. Done when:
    `plan.md` written? PR open? CI green? review commit landed?
    merged?). Worth pinning the exact decision tree in
    `references/failure-recovery.md` during PR 2.
-4. **`pr-review` post-merge cleanup.** `/pr-review`'s
-   committed-and-pushed fixes retrigger CI. The supervisor's polling
-   loop already handles this — but re-entering the gate after a
-   review-fix commit means the supervisor must loop back to the
-   "wait for CI + Copilot" step, not jump straight to merge. The
-   skill prompt must encode this back-edge explicitly.
+4. **`pr-review` post-merge cleanup.** *Resolved: encoded in PR 2.*
+   `/pr-review`'s committed-and-pushed fixes retrigger CI; step 8 of
+   `skills/pipeline/flow-pipeline/SKILL.md` explicitly returns to step
+   7 (CI wait), not step 9, after a review-fix commit lands. The
+   supervisor's polling loop covers the next CI cycle.
 5. **Window-name phase encoding vs richer status file.** *Resolved:
-   status file.* The supervisor writes a one-line phase to
-   `<worktree>/.flow-status` at each transition; `flow ls` reads it.
+   global state file (post PR 2).* The supervisor calls
+   `flow-state-update` to write the phase into
+   `~/.flow/state/<slug>.json` at each transition; `flow ls` reads it.
    Reason: encoding phase as a `:<phase>` suffix in the window name
    collides with tmux's `<session>:<window>` target syntax — `tmux
    attach -t flow:csv-export:planning` is ambiguous to the tmux

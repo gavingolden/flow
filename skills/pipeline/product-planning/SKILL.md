@@ -296,7 +296,35 @@ don't truncate to look concise. Example:
   add no value on GitHub, which renders one long line as one flowing paragraph.
 - Save the draft to `pr-description-draft.md` in the working directory.
 
-## 8. Present and Iterate
+## 8. Persist the consolidated plan
+
+Before sharing with the user, write the full PRD + task breakdown + PR-description draft
+to `plan.md` in the working directory. Single artifact, three sections in this order:
+
+```markdown
+# PRD
+
+<the structured PRD from step 5>
+
+# Task breakdown
+
+<the ordered tasks + Skills Summary from step 6>
+
+# PR description draft
+
+<the Why / What / Key decisions / User-facing changes / How to test from step 7>
+```
+
+This file is the predictable handoff for the `/flow-pipeline` supervisor — it reads
+`plan.md` after this skill returns to drive the implement phase. When this skill is run
+manually (no supervisor), `plan.md` is still useful as a single artifact the user can
+share or iterate on. Overwrite any prior `plan.md` in the working directory; do not
+append.
+
+The `pr-description-draft.md` write from step 7 is independent and stays — it's the
+artifact `pr-review` consumes. Both files should land.
+
+## 9. Present and Iterate
 
 Share the full PRD + task breakdown + PR description draft with the user. Iterate based on
 feedback until the user confirms the plan is ready for implementation. The user approves
@@ -332,6 +360,7 @@ Common failure modes during planning:
 - No task is too large for a single focused session (if it seems large, split it)
 - Skill recommendations reference skills that actually exist in `.claude/skills/`
 - PR description draft follows the standardized format (Why / What / Key decisions / User-facing changes / How to test)
+- `plan.md` was written to the working directory with PRD + Task breakdown + PR description draft sections in that order
 
 # Constraints
 
