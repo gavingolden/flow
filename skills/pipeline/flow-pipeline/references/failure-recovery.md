@@ -1,0 +1,139 @@
+# Failure recovery
+
+Two decision trees:
+
+- **(a) Per-step failure recovery** — what the supervisor does when
+  a step fails mid-pipeline. Used live in PR 2.
+- **(b) Resume-from-disk** — what the supervisor does when invoked
+  with `--resume` after a Claude Code crash. Pinned here for PR 9;
+  the `--resume` entry-point is not yet wired in PR 2.
+
+## (a) Per-step failure recovery
+
+The general rule: **prefer escalating to human over silent retry**.
+Each step that fails has a bounded retry budget; once exhausted,
+print `NEEDS HUMAN: <reason>`, leave the worktree + PR intact, and
+end the turn. The user attaches to the tmux window and types a
+redirect to recover.
+
+| Step | Failure | Budget | Action when budget exhausts |
+|---|---|---|---|
+| 1 — triage | classification ambiguous after 2 clarifying questions | 2 questions | Escalate: `NEEDS HUMAN: triage-ambiguous`. End. |
+| 2 — worktree | `flow-new-worktree` non-zero exit | 1 attempt | Escalate: `NEEDS HUMAN: worktree-create-failed <stderr>`. End. |
+| 3 — plan | `/product-planning` exits without writing `<worktree>/plan.md` | 1 retry | Escalate: `NEEDS HUMAN: plan-missing`. End. |
+| 4 — approval | user input ambiguous | 1 clarifying question | Ask the question; if still unclear, escalate: `NEEDS HUMAN: approval-ambiguous`. End. |
+| 5 — implement | `/new-feature` exits without committing + pushing + opening PR | 1 retry | Escalate: `NEEDS HUMAN: implement-failed`. End. |
+| 6 — verify | `/verify` exits without a clean pass | **3 outer attempts** | Escalate: `NEEDS HUMAN: verify-exhausted`. Surface the last failure log on the PR body's `## Manual validation` as a `> [!CAUTION]` block (idempotent). End. |
+| 7 — ci-wait | hard cap reached, CI still pending | 20 min cap | Escalate: `NEEDS HUMAN: ci-hang`. End. |
+| 7 — ci-wait | CI red | **3 fix-loops total** | Escalate: `NEEDS HUMAN: ci-fix-exhausted`. End. |
+| 8 — review | `/pr-review` finds critical issues | **2 fix-loops total** | Escalate: `NEEDS HUMAN: review-fix-exhausted`. End. |
+| 8 — review | `/pr-review` exits non-zero | 1 retry | Escalate: `NEEDS HUMAN: review-failed`. End. |
+| 9 — gate | `gh pr view` fails or returns unparseable JSON | 1 retry | Escalate: `NEEDS HUMAN: gh-error <stderr>`. End. |
+| 9 — gate | PR `CLOSED` without merge | 0 attempts | Escalate: `NEEDS HUMAN: pr-closed-without-merge`. End. |
+| 10 — merge | `gh pr merge --squash` fails | 1 retry | Escalate: `NEEDS HUMAN: merge-failed`. End. |
+| (any) | user types `cancel` / `abort` / `kill this` | 0 attempts | Run `flow-remove-worktree`, write `phase: cancelled`, print `cancelled`. End. |
+
+### The verify outer-retry loop
+
+`/verify` has its own internal "run checks → fix → re-run" loop. The
+supervisor's outer cap of 3 attempts fires only when `/verify` exits
+without a clean pass (it hit its own internal cap, or its
+self-reported success failed the deterministic post-check at
+`.flow/verify`). Each outer retry appends the previous attempt's
+failure log to the next prompt so `/verify` doesn't re-attempt the
+same fix in a vacuum. At 30-min timeout per attempt, the worst-case
+bound is **90 minutes** before escalation.
+
+### The implement-fix loop
+
+When CI is red (step 7) or review surfaces critical findings (step
+8), the supervisor loops back to step 5 with `mode: fix` and the
+failure log appended. The implement skill then writes a focused fix
+commit on the existing branch and pushes — it does NOT open a new
+PR. After each fix push, the supervisor returns to step 7 (CI wait),
+not to step 8 directly: a fix can break CI just as easily as it can
+fix the review finding.
+
+The two fix-loop caps (3 for ci-fail, 2 for review-critical) are
+counted independently. A pipeline can in principle do up to 3
+ci-fix loops *and* 2 review-fix loops before escalating.
+
+### What "escalate" means
+
+- Print exactly: `NEEDS HUMAN: <reason> [<extra context>]` on its
+  own line.
+- Write `<worktree>/.flow-status` with `phase: needs-human` and the
+  current timestamp.
+- Leave the worktree intact. Leave the PR intact. **Do not** call
+  `flow-remove-worktree`.
+- End the supervisor's conversation turn. The user attaches and
+  types a redirect (or runs `flow done <name>` to abandon).
+
+The supervisor does **not** re-enter the failed step on its own
+after escalation — `flow new --resume <name>` (PR 9) is the way
+back in.
+
+## (b) Resume-from-disk decision tree (pinned for PR 9)
+
+When PR 9 lands, `flow new --resume <name>` re-enters the supervisor
+into a tmux window whose Claude Code session crashed. The supervisor
+must infer "what phase am I in" from the worktree + PR state, not
+from any in-process memory (which is gone).
+
+Each step in the 10-step pipeline has at least one inspectable
+side-effect on disk or on GitHub. The supervisor walks the table
+top-down and resumes at the first step whose precondition is **not**
+met:
+
+| Step | Inspect | If true, this step is done |
+|---|---|---|
+| 2 — worktree | worktree directory exists at `~/<repo>.worktrees/<slug>` and is a git checkout | yes |
+| 3 — plan | `<worktree>/plan.md` exists and is non-empty | yes |
+| 4 — approval | `<worktree>/.flow-status` shows `phase` ∈ {`implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | yes |
+| 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | yes |
+| 6 — verify | `<worktree>/.flow-status` shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | yes |
+| 7 — ci-wait | PR's checks all reached terminal state | yes |
+| 8 — review | PR has a `pr-review` commit on HEAD (look for the conventional commit prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | yes |
+| 9 — gate | PR is `MERGED` or `phase: gated` | yes |
+| 10 — merge | PR is `MERGED` AND worktree directory removed | yes (terminal) |
+
+The first row whose "done" condition is **false** is where the
+supervisor resumes. If every row is done, the pipeline is in a
+terminal state — print `MERGED` (or `gated`) and end.
+
+### Edge cases
+
+- **Worktree exists but `.flow-status` is missing.** Treat as
+  resume-from-step-3 (plan). The worktree was created but the
+  pipeline crashed before the first phase transition.
+- **`plan.md` exists but no PR.** Resume at step 4 (approval). The
+  user may have approved before the crash; the supervisor re-prints
+  the plan and waits for the user to re-confirm. We don't replay an
+  approval the user gave to a now-dead session.
+- **PR exists but `.flow-status` doesn't.** Resume at step 6
+  (verify). The PR survived; the status file didn't.
+- **PR `CLOSED` without merge.** The user closed the PR while the
+  session was crashed. Escalate `NEEDS HUMAN: pr-closed-without-
+  merge`; do not resume. Let the user decide reopen vs. abandon.
+
+### What `--resume` does NOT do
+
+- It does not re-run the verify or review steps if they previously
+  passed. Their successful exit is observable from disk + PR state.
+- It does not auto-merge a PR that's already in `gated` state — the
+  user gated it intentionally.
+- It does not delete a worktree on crash. Worktree cleanup is a
+  step-10 effect; if step 10 didn't run, the worktree stays.
+
+## Why escalation is preferred over deeper retry
+
+Each retry burns latency, money, and (most importantly) supervisor
+context — every failed attempt's tool results stay in the
+conversation until the turn ends. A 4th verify attempt that
+hallucinates a fix to a 3-failed-attempt log is worse than a clean
+hand-off to the user. The pipeline's value comes from automating
+the boring 80%, not from heroic recovery on the messy 20%.
+
+If a particular failure starts hitting the same cap repeatedly in
+practice, raise the cap deliberately — don't paper over it with an
+inner retry layer.
