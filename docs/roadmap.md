@@ -74,7 +74,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **PR 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
 | **PR 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ⬜ queued |
 | **PR 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
-| **PR 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | 🚧 in review |
+| **PR 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | ✅ shipped (#48) |
 
 ---
 
@@ -1208,7 +1208,7 @@ Done when:
 
 ### PR 10 — notifications
 
-Status: 🚧 in review. Carry-forward from shipped PR 17.
+Status: ✅ shipped (#48). Carry-forward from shipped PR 17.
 
 Done when:
 

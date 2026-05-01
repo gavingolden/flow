@@ -473,7 +473,7 @@ Decision matrix:
 | `OPEN` | empty | Go to step 10 (auto-merge). |
 | `OPEN` | non-empty | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "<first validation step>"`. Print: `GATED:`, the PR URL, the validation steps verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
 | `MERGED` | (any) | Already merged externally. Run `flow-remove-worktree <slug>`. Write `phase: merged`. Call `flow-notify --status merged --slug "$SLUG" --url "<pr-url>"`. Print `MERGED`. End. |
-| `CLOSED` | (any) | Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
+| `CLOSED` | (any) | Call `flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 
 **Defensive cases:**
 
@@ -505,8 +505,9 @@ flow-notify --status merged --slug "$SLUG" --url "<pr-url>"
 (the PR URL is available from `gh pr view "$PR" --json url -q .url`),
 and print `MERGED` on its own line. End.
 
-On `gh pr merge` failure: retry once. If still failing, escalate
-`NEEDS HUMAN: merge-failed`. Leave the worktree intact.
+On `gh pr merge` failure: retry once. If still failing, call
+`flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "merge-failed"`,
+then escalate `NEEDS HUMAN: merge-failed`. Leave the worktree intact.
 
 # Resume mode
 
