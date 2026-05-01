@@ -2,12 +2,18 @@
  * `flow ls` — join state files (~/.flow/state/<slug>.json) with tmux
  * windows from the flow session and print a status table.
  *
+ * Phase and LAST ACTIVITY are sourced from `<worktree>/.flow-status`,
+ * written by PR 2's supervisor at every phase transition. State files
+ * carry the worktree path but never the phase (the file under the
+ * worktree is the single source of truth — see flow-status.ts).
+ *
  * Drift handling:
  *   - state file but no window → "(no window)" (likely a crashed session)
  *   - window but no state file → "(no state)" (manual creation)
  *   - both                     → no annotation
  */
 
+import { readFlowStatus, relativeTime, type FlowStatus } from "./flow-status";
 import { listStates, type PipelineState } from "./state";
 import { listWindows, type TmuxWindow } from "./tmux";
 
@@ -18,6 +24,8 @@ export type Row = {
   lastActivity: string;
   annotation: "" | "(no window)" | "(no state)";
 };
+
+export type StatusReader = (worktree: string) => FlowStatus | null;
 
 export function runLs(): number {
   const states = listStates();
@@ -37,6 +45,7 @@ export function buildRows(
   states: PipelineState[],
   windows: TmuxWindow[],
   nowMs: number,
+  statusReader: StatusReader = readFlowStatus,
 ): Row[] {
   const windowByName = new Map(windows.map((w) => [w.name, w] as const));
   const stateBySlug = new Map(states.map((s) => [s.slug, s] as const));
@@ -45,25 +54,27 @@ export function buildRows(
 
   for (const state of states) {
     const window = windowByName.get(state.slug);
+    const status = state.worktree ? statusReader(state.worktree) : null;
     rows.push({
       name: state.slug,
-      phase: state.phase || "—",
+      phase: status?.phase ?? "—",
       pr: state.pr ? `#${state.pr}` : "—",
-      lastActivity: lastActivityFor(window, state, nowMs),
+      lastActivity: lastActivityFromStatus(status, nowMs),
       annotation: window ? "" : "(no window)",
     });
   }
 
   // Surface windows that lack a state file. They're not pipelines flow
-  // owns, but listing them as "(no state)" prevents silent gaps when the
-  // user wonders why a window they see in tmux doesn't show up here.
+  // owns, so there's no worktree path to read .flow-status from — fall
+  // back to the tmux-reported activity so the user still sees something.
   for (const window of windows) {
     if (stateBySlug.has(window.name)) continue;
     rows.push({
       name: window.name,
       phase: "—",
       pr: "—",
-      lastActivity: humanizeActivity(window.activity * 1000, nowMs),
+      lastActivity:
+        window.activity > 0 ? relativeTime(window.activity * 1000, nowMs) : "—",
       annotation: "(no state)",
     });
   }
@@ -71,24 +82,11 @@ export function buildRows(
   return rows;
 }
 
-function lastActivityFor(window: TmuxWindow | undefined, state: PipelineState, nowMs: number): string {
-  if (window && window.activity > 0) {
-    return humanizeActivity(window.activity * 1000, nowMs);
-  }
-  const updatedMs = Date.parse(state.updatedAt);
-  if (Number.isFinite(updatedMs)) return humanizeActivity(updatedMs, nowMs);
-  return "—";
-}
-
-export function humanizeActivity(thenMs: number, nowMs: number): string {
-  const diffSec = Math.max(0, Math.floor((nowMs - thenMs) / 1000));
-  if (diffSec < 60) return `${diffSec}s ago`;
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.floor(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.floor(diffHr / 24);
-  return `${diffDay}d ago`;
+function lastActivityFromStatus(status: FlowStatus | null, nowMs: number): string {
+  if (!status) return "—";
+  const ms = Date.parse(status.lastTransitionAt);
+  if (!Number.isFinite(ms)) return "—";
+  return relativeTime(ms, nowMs);
 }
 
 function printTable(rows: Row[]): void {
