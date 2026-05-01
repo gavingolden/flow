@@ -83,6 +83,72 @@ export function killWindow(name: string, session = FLOW_SESSION): boolean {
   return tmux(["kill-window", "-t", `${session}:${name}`]).exitCode === 0;
 }
 
+/**
+ * Reruns `command` inside the named window's first pane, replacing whatever
+ * was there. Used by `flow new --resume` when the window survived the crash —
+ * preserves the pane id so the user's tmux scrollback addressing stays valid.
+ */
+export function respawnWindow(
+  name: string,
+  cwd: string,
+  command: string[],
+  session = FLOW_SESSION,
+): { ok: boolean; stderr: string } {
+  const r = tmux([
+    "respawn-window",
+    "-k",
+    "-t",
+    `${session}:${name}`,
+    "-c",
+    cwd,
+    "--",
+    ...command,
+  ]);
+  return { ok: r.exitCode === 0, stderr: r.stderr };
+}
+
+/**
+ * `true` when the window's first pane has a live foreground process. The
+ * caller uses this to refuse `--resume` over a still-running supervisor.
+ *
+ * `pane_dead` flips to 1 only when tmux has `remain-on-exit on`; otherwise
+ * the window disappears on exit, so we also probe the pid directly.
+ */
+export function isPaneAlive(name: string, session = FLOW_SESSION): boolean {
+  if (!windowExists(name, session)) return false;
+  const r = tmux([
+    "list-panes",
+    "-t",
+    `${session}:${name}`,
+    "-F",
+    "#{pane_dead} #{pane_pid}",
+  ]);
+  if (r.exitCode !== 0) return false;
+  return parseAliveStatus(r.stdout, pidIsAlive);
+}
+
+export function parseAliveStatus(
+  stdout: string,
+  pidProbe: (pid: number) => boolean,
+): boolean {
+  const line = stdout.split("\n").find((l) => l.length > 0);
+  if (!line) return false;
+  const [deadStr, pidStr] = line.split(/\s+/);
+  if (deadStr !== "0") return false;
+  const pid = Number(pidStr);
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  return pidProbe(pid);
+}
+
+function pidIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Replaces the current process with `tmux attach`. Never returns on success. */
 export function execAttach(name: string, session = FLOW_SESSION): never {
   // execvp via Bun.spawn doesn't replace the parent process, so use the
