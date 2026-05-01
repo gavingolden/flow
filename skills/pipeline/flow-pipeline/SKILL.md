@@ -520,7 +520,7 @@ done?" without any in-process memory.
 | 6 — verify | state.json shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | If false, re-invoke `/verify`. |
 | 7 — ci-wait | PR's checks all reached terminal state | If still pending, re-enter the poll loop. |
 | 8 — review | PR has a `pr-review` commit on HEAD (look for the commit subject prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | If false, re-invoke `/pr-review <PR>`. |
-| 9 — gate | PR is `MERGED` or state.json shows `phase: gated` | If false, re-evaluate the gate. |
+| 9 — gate | (PR is `MERGED` **and** worktree directory removed) **or** state.json shows `phase: gated` | If false: when PR is `MERGED` but the worktree still exists, re-enter step 9's `MERGED` branch (run `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end) — **do not** fall through to step 10 and re-run `gh pr merge` on an already-merged PR. Otherwise re-evaluate the gate. |
 | 10 — merge | PR is `MERGED` **and** worktree directory removed | Terminal. Print `MERGED` and end. |
 
 The first row whose "done" condition is **false** is your re-entry
@@ -557,7 +557,12 @@ step. If every row is `true`, the pipeline is in a terminal state
 - It does not auto-merge a PR that's already in `gated` state — the
   user gated it intentionally.
 - It does not delete a worktree on entry. Worktree cleanup is a
-  step-10 effect; if step 10 didn't run, the worktree stays.
+  step-9-or-step-10 effect (whichever ran cleanup last); if neither
+  ran, the worktree stays.
+- It does not re-run `gh pr merge` on a PR that is already `MERGED`.
+  An already-merged PR with the worktree still present resumes into
+  step 9's `MERGED` cleanup branch (`flow-remove-worktree` + write
+  `phase: merged` + print `MERGED`), not step 10.
 - It does not rewrite state.json on entry. The first transition you
   make from your re-entry step is what updates phase.
 

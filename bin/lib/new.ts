@@ -77,14 +77,17 @@ function runFresh(description: string, options: NewOptions): number {
   // worktree + phase + pr at each transition. Pre-existing state for the
   // same slug shouldn't happen because windowExists() blocked above; if it
   // does (e.g. external tmux reset), the new write supersedes.
-  const existing = readState(slug);
-  writeState({
-    slug,
-    phase: "starting",
-    repo,
-    worktree: existing?.worktree,
-    updatedAt: nowIso(),
-  });
+  const existing = readState(slug, options.stateDir);
+  writeState(
+    {
+      slug,
+      phase: "starting",
+      repo,
+      worktree: existing?.worktree,
+      updatedAt: nowIso(),
+    },
+    options.stateDir,
+  );
 
   console.log(`${FLOW_SESSION}:${slug}`);
   console.log(`  attach with: flow attach ${slug}`);
@@ -109,6 +112,17 @@ function runResume(name: string, options: NewOptions): number {
   if (!state) {
     console.error(`flow new --resume: no pipeline state for '${slug}'.`);
     console.error("  run `flow new <description>` to start a fresh pipeline.");
+    return 1;
+  }
+
+  if (!state.repo || !fs.existsSync(state.repo)) {
+    // The repo path recorded at `flow new` time has moved or been deleted.
+    // tmux would surface this as an opaque "-c: no such directory" — give
+    // the user the actual cause so they can decide to recreate the state.
+    console.error(`flow new --resume: pipeline '${slug}' was launched against`);
+    console.error(`  ${state.repo || "(no repo recorded)"}`);
+    console.error(`  but that path no longer exists. Move the repo back, or`);
+    console.error(`  run \`flow done ${slug}\` and start fresh with \`flow new\`.`);
     return 1;
   }
 
