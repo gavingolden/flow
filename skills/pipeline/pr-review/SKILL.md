@@ -188,8 +188,9 @@ durable tracker. Silently listing findings in the report without action is a fai
 **Pre-flight mode assertion (do not skip).** You are in fix-now mode — you MUST attempt
 the edits. Specifically:
 
-- Do **not** preemptively decide that a hook or permission rule will block writes — none
-  apply.
+- Do **not** preemptively decide that a hook, permission rule, or read-only filesystem
+  state will block writes. Don't assume one applies; attempt the edit and rely on the
+  tool-call result.
 - Do **not** infer a block from the worktree path (e.g. `flow-agent-*` worktrees are
   ordinary git worktrees; they have no special write protection).
 - Make a real `Edit` / `Write` tool call. If — and only if — the tool returns an error,

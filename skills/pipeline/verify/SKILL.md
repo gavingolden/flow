@@ -44,7 +44,7 @@ the first failure.
 
 ## 2. Interpret Results
 
-- The script exits 0 if all checks pass, 1 if any fail.
+- The helper exits 0 if all checks pass, 1 if any fail.
 - Failed checks include their output inline — read it to identify the failing file/test.
 
 ## 3. Fix Failures
