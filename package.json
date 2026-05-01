@@ -7,6 +7,7 @@
     "flow": "./dist/cli.js"
   },
   "files": [
+    "bin",
     "dist",
     "templates"
   ],

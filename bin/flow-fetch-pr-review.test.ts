@@ -1,5 +1,5 @@
 /**
- * Tests for fetch-pr-review.ts
+ * Tests for flow-fetch-pr-review.ts
  */
 
 import { describe, expect, it } from "vitest";
@@ -11,7 +11,7 @@ import {
   parseNdjson,
   parsePrNumber,
   type ReviewComment,
-} from "./fetch-pr-review";
+} from "./flow-fetch-pr-review";
 
 // --- Factories ---
 

@@ -1,9 +1,9 @@
 /**
- * Tests for remove-agent-worktree.ts
+ * Tests for flow-remove-worktree.ts
  */
 
 import { describe, expect, it } from "vitest";
-import { parseWorktreeListOutput } from "./remove-agent-worktree";
+import { parseWorktreeListOutput } from "./flow-remove-worktree";
 
 // --- parseWorktreeListOutput ---
 

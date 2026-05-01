@@ -1,9 +1,9 @@
 /**
- * Tests for new-agent-worktree.ts
+ * Tests for flow-new-worktree.ts
  */
 
 import { describe, expect, it } from "vitest";
-import { SYMLINK_FILES, toDirSuffix } from "./new-agent-worktree";
+import { SYMLINK_FILES, toDirSuffix } from "./flow-new-worktree";
 
 describe(toDirSuffix, () => {
   it("should replace slashes with hyphens", () => {
