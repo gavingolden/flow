@@ -11,7 +11,7 @@
  *   flow migrate [--apply] [--scan <p>] [--include-orchestrator]
  *
  * Old verbs (passthrough to src/cli.ts via Bun until PR 4 deletes them):
- *   flow start | run | log | status | approve | revise | install | triage-sentinel
+ *   flow install
  *
  * Bun runs the existing Node/TS source as-is, so the passthrough is one
  * spawn. When PR 4 removes src/cli.ts, the passthrough errors out and old
@@ -45,14 +45,7 @@ const NEW_VERBS = new Set([
 ]);
 
 const OLD_VERBS = new Set([
-  "start",
-  "run",
-  "log",
-  "status",
-  "approve",
-  "revise",
   "install",
-  "triage-sentinel",
 ]);
 
 async function main(): Promise<number> {
@@ -131,8 +124,8 @@ function runSetupVerb(args: string[]): number {
 }
 
 function passthroughOldVerb(verb: string, args: string[]): number {
-  // Bun runs the existing Node/TS CLI source as-is. When PR 4 deletes
-  // src/cli.ts, this fallback returns a hard error and old verbs disappear.
+  // Bun runs the existing Node/TS CLI source as-is. PR 4 removed every old
+  // verb except `install`; PR 5 will delete src/cli.ts and this fallback.
   const source = resolveFlowSource();
   const cliEntry = path.join(source, "src", "cli.ts");
   const result = Bun.spawnSync(["bun", cliEntry, verb, ...args], {
