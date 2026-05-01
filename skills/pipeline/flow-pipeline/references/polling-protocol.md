@@ -35,9 +35,13 @@ has reached a terminal state by then, escalate `NEEDS HUMAN: ci-hang
 Run both each iteration. Both are read-only and idempotent.
 
 ```bash
-# CI check status — terminal states are SUCCESS, FAILURE, CANCELLED, TIMED_OUT.
-# PENDING and IN_PROGRESS mean "keep polling".
-gh pr checks <pr> --json name,state,conclusion
+# CI check status — terminal states are SUCCESS, FAILURE, CANCELLED,
+# TIMED_OUT, SKIPPED, STARTUP_FAILURE, STALE. Pending states are
+# PENDING, QUEUED, IN_PROGRESS. `gh pr checks` does not expose a
+# `conclusion` JSON field — `state` already encodes the verdict, and
+# requesting `conclusion` triggers an `Unknown JSON field` error from
+# `gh` (see `scripts/ci-wait.ts` for the same hard-won lesson).
+gh pr checks <pr> --json name,state
 
 # Reviews from any source (Copilot, humans, other bots).
 gh pr view <pr> --json reviews,state
@@ -47,10 +51,13 @@ Combine the two JSON payloads in shell (jq) to derive a single state
 per poll:
 
 ```
-ci_terminal     := all checks have conclusion ∈ {SUCCESS, FAILURE, CANCELLED, SKIPPED}
-ci_passed       := ci_terminal AND every conclusion ∈ {SUCCESS, SKIPPED}
-ci_failed       := ci_terminal AND any conclusion ∈ {FAILURE, CANCELLED, TIMED_OUT}
-copilot_posted  := reviews[].author.login contains "Copilot" AND review.state ∈ {APPROVED, CHANGES_REQUESTED, COMMENTED}
+ci_terminal     := every check has state ∉ {PENDING, QUEUED, IN_PROGRESS}
+ci_passed       := ci_terminal AND every state ∈ {SUCCESS, SKIPPED}
+ci_failed       := ci_terminal AND any state ∈ {FAILURE, CANCELLED, TIMED_OUT, STARTUP_FAILURE, STALE}
+copilot_posted  := some review where author.login matches the configured
+                   bot login (default `copilot-pull-request-reviewer`,
+                   case-insensitive exact match) AND
+                   review.state ∈ {APPROVED, CHANGES_REQUESTED, COMMENTED}
 pr_state        := <`OPEN`, `MERGED`, `CLOSED`>
 ```
 
@@ -80,10 +87,21 @@ reason (a different test failing on attempt 2 still counts).
 
 ## Bot reviewer name
 
-Default: `Copilot`. If the repo uses a different bot reviewer (e.g.
-`coderabbitai`), the supervisor reads the bot name from
-`~/.flow/config.json` (the per-machine config introduced in PR 1).
-If the file is absent or doesn't define one, fall back to `Copilot`.
+Default reviewer login: `copilot-pull-request-reviewer`. The supervisor
+treats a bot review as posted only when `reviews[].author.login`
+matches the configured login by exact (case-insensitive) string
+equality. Substring matching (`contains "Copilot"`) is wrong — the
+real GitHub Copilot reviewer's login is `copilot-pull-request-reviewer`,
+not `Copilot`, and a substring rule risks colliding with unrelated
+reviewer names.
+
+If the repo uses a different bot reviewer (e.g. `coderabbitai`), the
+supervisor reads the reviewer login from `~/.flow/config.json` (the
+per-machine config introduced in PR 1). If the file is absent or
+doesn't define one, fall back to `copilot-pull-request-reviewer`.
+
+`scripts/ci-wait.ts` makes the same choice for the same reason — see
+its `DEFAULT_CONFIG.bots` and the rationale comment above it.
 
 ## What "in one conversation turn" means for this loop
 

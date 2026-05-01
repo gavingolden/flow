@@ -27,28 +27,55 @@ Run:
 gh pr view <pr> --json body --jq '.body'
 ```
 
-Then apply this three-step contract:
+Then apply this **four-step contract** — the heading-presence check is
+not optional, because steps 2-4 alone cannot distinguish "section
+exists but trims to empty" (auto-merge) from "section is missing
+entirely" (escalate, per the defensive cases below).
 
-1. **Find the section.** Match the heading at column 0:
+1. **Confirm the heading exists.** Grep the body for a column-0
+   `^## Manual validation\s*$`. If not found, do **not** treat this
+   as empty — escalate `NEEDS HUMAN: manual-validation-section-missing`
+   and end. A missing heading means a hand-edited PR or an upstream
+   regression in the implement skill, and silently auto-merging would
+   ship a PR the user might have expected to be gated.
+2. **Find the section.** Match the heading at column 0:
    `^## Manual validation\s*$`. The section runs to the next `## `
    heading at column 0, or to end-of-input.
-2. **Strip HTML comments.** Remove every `<!-- ... -->` block
+3. **Strip HTML comments.** Remove every `<!-- ... -->` block
    (multi-line, non-greedy). The implement skill sometimes leaves
    instructional comments inside the section that the user never
    sees rendered — they don't count as content.
-3. **Trim.** Empty result after trim ⇒ auto-merge. Non-empty ⇒ gated.
+4. **Trim.** Empty result after trim ⇒ auto-merge. Non-empty ⇒ gated.
 
-A one-liner that does all three:
+A one-liner that does all four — note the explicit
+`grep -q` heading-presence check before the awk extraction, so a
+missing heading exits non-zero and routes to escalation rather than
+falling through to "empty ⇒ auto-merge":
 
 ```bash
-gh pr view <pr> --json body --jq '.body' \
+body=$(gh pr view <pr> --json body --jq '.body')
+
+# Step 1: heading-presence check. Must run first; awk's flag-loop
+# returns the same empty output for "heading missing" and "heading
+# present but section empty", so we cannot disambiguate downstream.
+if ! printf '%s' "$body" | grep -Eq '^## Manual validation[[:space:]]*$'; then
+  # Escalate: NEEDS HUMAN: manual-validation-section-missing
+  exit 2
+fi
+
+# Steps 2-4: extract, strip comments, trim.
+extracted=$(printf '%s' "$body" \
   | awk '/^## Manual validation[[:space:]]*$/{flag=1; next} /^## /{flag=0} flag' \
   | perl -0pe 's/<!--.*?-->//gs' \
-  | tr -d '[:space:]'
+  | tr -d '[:space:]')
+
+# extracted=""  ⇒ auto-merge
+# extracted=*   ⇒ gated
 ```
 
-If the output is empty, the section is empty. If anything remains,
-it's gated.
+If `grep -q` failed: heading missing → escalate (do **not** treat as
+empty). If it passed and `extracted` is empty: section is empty →
+auto-merge. If `extracted` is non-empty: gated.
 
 ## The four PR states
 

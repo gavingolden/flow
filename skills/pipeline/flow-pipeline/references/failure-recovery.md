@@ -18,7 +18,7 @@ redirect to recover.
 
 | Step | Failure | Budget | Action when budget exhausts |
 |---|---|---|---|
-| 1 — triage | classification ambiguous after 2 clarifying questions | 2 questions | Escalate: `NEEDS HUMAN: triage-ambiguous`. End. |
+| 1 — triage | classification ambiguous after 1 clarifying question | 1 question | Escalate: `NEEDS HUMAN: triage-ambiguous`. End. |
 | 2 — worktree | `flow-new-worktree` non-zero exit | 1 attempt | Escalate: `NEEDS HUMAN: worktree-create-failed <stderr>`. End. |
 | 3 — plan | `/product-planning` exits without writing `<worktree>/plan.md` | 1 retry | Escalate: `NEEDS HUMAN: plan-missing`. End. |
 | 4 — approval | user input ambiguous | 1 clarifying question | Ask the question; if still unclear, escalate: `NEEDS HUMAN: approval-ambiguous`. End. |
@@ -87,7 +87,7 @@ met:
 
 | Step | Inspect | If true, this step is done |
 |---|---|---|
-| 2 — worktree | worktree directory exists at `~/<repo>.worktrees/<slug>` and is a git checkout | yes |
+| 2 — worktree | the worktree path recorded in `~/.flow/state/<slug>.json` (originally printed by `flow-new-worktree`) exists and is a git checkout | yes |
 | 3 — plan | `<worktree>/plan.md` exists and is non-empty | yes |
 | 4 — approval | `<worktree>/.flow-status` shows `phase` ∈ {`implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | yes |
 | 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | yes |

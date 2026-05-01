@@ -70,9 +70,10 @@ in-process for skills; shell out for scripts; never delegate.
 > per-step cap table is in `references/failure-recovery.md`.
 
 > **You never edit code in the main repo's worktree.** Every code
-> change happens inside the per-task worktree (`<repo>.worktrees/
-> <slug>/`) created in step 2. The main worktree is read-only from
-> this skill's perspective.
+> change happens inside the per-task worktree directory created by
+> `flow-new-worktree` in step 2 (the absolute path the helper prints,
+> exposed as `$WORKTREE` in this skill). The main worktree is
+> read-only from this skill's perspective.
 
 # Status writes: two surfaces, both updated together
 
@@ -337,7 +338,11 @@ Sleep + poll loop. Cadence + cap from
 Each poll runs:
 
 ```bash
-gh pr checks "$PR" --json name,state,conclusion
+# `gh pr checks` does not expose a `conclusion` JSON field — `state`
+# already encodes the verdict. See `references/polling-protocol.md`
+# and the matching note in `scripts/ci-wait.ts` for the hard-won
+# lesson behind this.
+gh pr checks "$PR" --json name,state
 gh pr view "$PR" --json reviews,state
 ```
 
