@@ -68,6 +68,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | ✅ shipped (#46) |
 | **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | ⬜ queued |
 | **PR 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
+| **PR 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ⬜ queued — high priority |
 | **PR 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | ⬜ queued |
 | **PR 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
 | **PR 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
@@ -936,6 +937,66 @@ Out of scope: the multi-agent review architecture, the
 conventional-comments format, the auto-fix-vs-defer bar, the
 retrospective-and-checklist-evolution mechanic — none of that
 changes. This is a control-flow simplification only.
+
+### PR 12 — fix cross-pipeline worktree contamination (high priority)
+
+Status: ⬜ queued — high priority.
+
+The bug, witnessed end-to-end on 2026-05-01: the user kicked off six parallel `flow new` pipelines for PRs 4 / 6 / 7 / 8 / 9 / 10. The PR 10 supervisor created its worktree at `flow-proceed-with-pr-10-in-the-roadmap-if-the` on branch `proceed-with-pr-10-in-the-roadmap-if-the` (correct). The PR 4 supervisor — running concurrently in a different tmux window — then **renamed PR 10's branch** to `pr4-delete-orchestrator`:
+
+```
+Branch: renamed refs/heads/proceed-with-pr-10-in-the-roadmap-if-the to refs/heads/pr4-delete-orchestrator
+```
+
+It then **committed PR 4's work into PR 10's worktree**. The PR 10 supervisor's in-flight edits to `SKILL.md` and `docs/roadmap.md` were silently clobbered. Recovery required dropping back to main, hand-restoring the lost edits, and opening PR 10 from a third branch — none of which is automatable.
+
+The two contributing factors so far:
+
+1. **Worktree paths are derived deterministically from the slug**, not
+   from a unique pipeline identifier (e.g. timestamp, uuid). Two
+   pipelines whose slugs share a prefix can end up adjacent in the
+   filesystem and easy for an LLM agent to confuse. *(All six slugs
+   here started with `proceed-with-pr-` — visually similar enough that
+   the supervisor's `cd` step is one fat-fingered tab-complete away
+   from landing in a sibling worktree.)*
+2. **The supervisor LLM has no `cwd` lock.** Every Bash call resolves
+   `cwd` independently. If the supervisor for PR 4 ever resolved its
+   `cwd` to PR 10's worktree path (whether via tab-complete, a
+   misremembered absolute path, or a `flow-new-worktree` race), every
+   subsequent `git switch / git branch -m / git commit` in that turn
+   landed in PR 10's filesystem, on PR 10's branch, with no diagnostic
+   that anything was wrong. The branch-rename step in particular is
+   irreversible after the agent moves on.
+
+Done when:
+
+- [ ] **Pipeline-isolated worktrees.** `flow-new-worktree <slug>`
+  refuses to operate on a path that already exists *unless* the
+  caller passes an opt-in flag (e.g. `--reuse`). Concurrent calls with
+  the same slug return distinct paths (e.g. `<slug>` vs
+  `<slug>-2`) instead of clobbering.
+- [ ] **Branch-name guard.** `flow-new-worktree` writes the
+  expected branch name into a worktree-local marker file (e.g.
+  `.flow-branch`). The supervisor reads this on every loop entry and
+  asserts `git branch --show-current` matches; mismatch aborts the
+  phase with a clear error rather than committing on the wrong branch.
+- [ ] **Cross-pipeline isolation tests.** A vitest fixture spins up
+  two `flow-new-worktree` calls in parallel against overlapping slugs
+  and asserts each ends up on its own branch in its own directory,
+  with no cross-mutation.
+- [ ] **Supervisor SKILL.md hard rule.** Add a hard rule along the lines of `You never run git branch -m or git switch <other-pipeline-branch>`. Belt-and-braces against the LLM-confusion failure mode that opened the door here in the first place.
+- [ ] **Postmortem entry under "Open questions" or a new "Incidents"
+  section** linking this PR to the 2026-05-01 reflog evidence so the
+  context survives the bug fix.
+
+Why this is a blocker for the parallel-pipelines value prop:
+
+The roadmap repeatedly cites parallel pipelines as the carrying value
+of the redesign (Flow 7, "End-state shape", "no claim primitive
+needed"). If parallel pipelines are *not* in fact isolated, every claim
+about "the OS schedules them" is unsafe. PR 12 has to land before
+parallel use is recommended again. Until it does, the workaround is to
+run pipelines serially.
 
 ### PR 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep
 
