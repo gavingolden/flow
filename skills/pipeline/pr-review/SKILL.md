@@ -52,8 +52,6 @@ Reference files (read on demand, not upfront):
   Read at Step 4 when preparing agent context.
 - `references/conventional-comments.md` — labeling framework (praise/nitpick/suggestion/
   issue/todo/question) with decorations. Read at Step 4 when preparing agent context.
-- `references/agent-prompts.md` — prompt templates for the 4 specialized review agents.
-  Read at Step 4 when spawning agents.
 - `references/manual-test-rubric.md` — depth rubric for the "How to test" criterion
   (happy/unhappy/edges + PR-type scenario menus). Read at Step 12 when evaluating
   description Testability.
@@ -100,48 +98,70 @@ Both modes share the independent review (Steps 4-5) and diverge after.
 
 ## 4. Independent Multi-Agent Review
 
-This is the core of the skill. You will spawn 4 specialized review agents in parallel,
-each examining the PR from a different angle. Their independent perspectives catch more
-than any single reviewer could.
+This is the core of the skill. You will spawn 4 specialised review agents in
+parallel, each examining the PR from a different angle. Their independent
+perspectives catch more than any single reviewer could.
+
+The agents are promoted, named subagents under `~/.claude/agents/` (installed
+globally by `flow setup` from the flow repo's `agents/` directory). Each
+agent has its own model + effort tuned for the work — bug-detection and
+security run at Opus/`xhigh`; pattern and test-coverage run at Sonnet
+(`high` and `medium` respectively). The split lives in the agent files, not
+here.
 
 **Preparation** (before spawning):
 
-1. Read the PR description and changed files list from the fetch output. DO NOT read
-   the review comments section yet — reviewing before seeing others' feedback eliminates
-   anchoring bias and lets you independently validate what reviewers found.
+1. Read the PR description and changed files list from the fetch output. DO
+   NOT read the review comments section yet — reviewing before seeing
+   others' feedback eliminates anchoring bias and lets you independently
+   validate what reviewers found.
 2. Get the full diff: `gh pr diff <number>`
 3. Get the commit history with full messages (not just subjects):
    `gh pr view <number> --json commits -q '.commits[] | "\(.oid[0:7]) \(.messageHeadline)\n\(.messageBody)\n---"'`
-   Per `AGENTS.md`, commit bodies are expected to capture the **why**, non-obvious design
-   choices, and approaches that were tried and rejected. Use these as primary context for
-   the review — they explain intent that the diff alone cannot convey. If a commit body
-   is missing or only restates the diff, flag it in Step 12 as a `suggestion` so the
-   author can backfill context in the PR description.
-4. Read `references/agent-prompts.md` for the prompt templates.
+   Per `AGENTS.md`, commit bodies capture the **why** — motivation,
+   non-obvious design choices, approaches that were tried and rejected.
+   Pass them to the agents as primary context; the diff alone cannot convey
+   intent. If a commit body is missing or only restates the diff, flag it
+   in Step 12 as a `suggestion` so the author can backfill context.
 
-**Spawn 4 agents in parallel**, each as a subagent. For each agent:
+**Spawn the 4 agents in parallel** by invoking them by name via the Task /
+Agent tool. The agents:
 
-- Copy the shared context block from `references/agent-prompts.md`
-- Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
-  `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`
-- Append the agent-specific section (Role, Process, False Positive Avoidance)
-- Include paths to `references/review-checklist.md` and `references/conventional-comments.md`
-  so agents can read them
-- Instruct agents to treat commit bodies as author intent: a finding that contradicts a
-  stated rationale should cite the commit and explain why the rationale doesn't hold,
-  rather than assuming the author didn't consider the alternative.
+| Agent name             | Focus                                                       | Model + effort      |
+| ---------------------- | ----------------------------------------------------------- | ------------------- |
+| `pr-bug-detection`     | Logic errors, null deref, race conditions, broken contracts | Opus 4.7 / `xhigh`  |
+| `pr-security`          | OWASP top 10, input validation, auth, secrets, injection    | Opus 4.7 / `xhigh`  |
+| `pr-pattern`           | AGENTS.md compliance, cross-cutting uniformity, dead code   | Sonnet 4.6 / `high` |
+| `pr-test-coverage`     | Missing tests, untested edges, test quality, env setup      | Sonnet 4.6 / `medium` |
 
-The 4 agents:
+Pass each agent the same PR context block (the agent's own prompt embeds
+the role, process, output format, confidence calibration, and
+false-positive guardrails — you only supply the case-specific data):
 
-| Agent                   | Focus                                                       | Checklist sections                          |
-| ----------------------- | ----------------------------------------------------------- | ------------------------------------------- |
-| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts | Error Handling, Type Safety                 |
-| **Security**            | OWASP top 10, input validation, auth, secrets, injection    | Security                                    |
-| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code   | Consistency, Lifecycle/Cleanup, Composition |
-| **Test Coverage**       | Missing tests, untested edges, test quality, env setup      | Test Environment                            |
+```
+PR #<NUMBER>: <TITLE>
 
-Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
-`decoration`, `confidence`, `subject`, `body`.
+## Description
+<PR_DESCRIPTION>
+
+## Commit messages (full bodies)
+<COMMIT_MESSAGES from step 3>
+
+## Changed files
+<CHANGED_FILES_LIST>
+
+## Reference docs
+- skills/pipeline/pr-review/references/review-checklist.md
+  (read the sections relevant to your domain)
+- skills/pipeline/pr-review/references/conventional-comments.md
+  (output format for the eventual posted comments)
+
+## Diff
+<full diff from step 2>
+```
+
+Each agent returns a JSON array of findings with: `file`, `line`, `end_line`,
+`label`, `decoration`, `confidence`, `subject`, `body`.
 
 Wait for all 4 agents to complete before proceeding.
 

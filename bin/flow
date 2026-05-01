@@ -79,7 +79,7 @@ async function runNewVerb(verb: string, args: string[]): Promise<number> {
     case "setup":
       return runSetupVerb(args);
     case "new":
-      return runNew(args.join(" "));
+      return dispatchNew(args);
     case "attach":
     case "a":
       return runAttach(args[0]);
@@ -95,6 +95,25 @@ async function runNewVerb(verb: string, args: string[]): Promise<number> {
       return runVersion();
   }
   return 1;
+}
+
+function dispatchNew(args: string[]): number {
+  const resumeIdx = args.indexOf("--resume");
+  if (resumeIdx >= 0) {
+    const rest = [...args.slice(0, resumeIdx), ...args.slice(resumeIdx + 1)];
+    if (rest.length === 0) {
+      console.error("flow new --resume: <name> is required.");
+      console.error("usage: flow new --resume <name>");
+      return 1;
+    }
+    if (rest.length > 1) {
+      console.error("flow new --resume: takes a single <name> argument.");
+      console.error(`  got: ${rest.join(" ")}`);
+      return 1;
+    }
+    return runNew(rest[0], { resume: true });
+  }
+  return runNew(args.join(" "));
 }
 
 function runMigrateVerb(args: string[]): number {
@@ -142,6 +161,7 @@ function printHelp(): void {
 Usage:
   flow setup [--upgrade] [--force]      install skills, agents, helpers globally
   flow new <description>                start a new pipeline in a tmux window
+  flow new --resume <name>              resume a crashed pipeline in its existing window
   flow ls                               list active pipelines
   flow attach <name>                    attach to a pipeline window  (alias: a)
   flow done <name>                      close a pipeline window
