@@ -66,7 +66,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **PR 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
 | **PR 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ⬜ queued |
 | **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | ✅ shipped (#46) |
-| **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | ✅ shipped (#PR) |
+| **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | ✅ shipped (#52) |
 | **PR 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
 | **PR 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ⬜ queued — high priority |
 | **PR 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | ⬜ queued |
@@ -901,7 +901,7 @@ Done when:
 
 ### PR 8 — eval harness
 
-Status: ✅ shipped (#PR). Carry-forward from queued Phase 5 PR 21.
+Status: ✅ shipped (#52). Carry-forward from queued Phase 5 PR 21.
 
 Done when:
 
