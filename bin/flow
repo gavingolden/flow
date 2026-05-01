@@ -26,6 +26,7 @@ import { runAttach } from "./lib/attach";
 import { runDone } from "./lib/done";
 import { runLs } from "./lib/ls";
 import { runMigrate } from "./lib/migrate";
+import { runVersion } from "./lib/version";
 
 const NEW_VERBS = new Set([
   "setup",
@@ -38,6 +39,9 @@ const NEW_VERBS = new Set([
   "--help",
   "-h",
   "help",
+  "--version",
+  "-v",
+  "version",
 ]);
 
 const OLD_VERBS = new Set([
@@ -92,6 +96,10 @@ async function runNewVerb(verb: string, args: string[]): Promise<number> {
       return runLs();
     case "migrate":
       return runMigrateVerb(args);
+    case "--version":
+    case "-v":
+    case "version":
+      return runVersion();
   }
   return 1;
 }
@@ -147,6 +155,7 @@ Usage:
   flow done --all-merged                close every merged or cancelled window
   flow migrate [--apply] [--scan <p>]   clean up legacy per-repo flow install
 
+  flow --version                        print the installed flow version
   flow --help                           this help
 
 Run 'flow setup' once after cloning the flow source. Pipelines run inside
