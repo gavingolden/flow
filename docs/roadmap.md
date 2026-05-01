@@ -65,7 +65,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **PR 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ⬜ queued |
 | **PR 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
 | **PR 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ⬜ queued |
-| **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | ⬜ queued |
+| **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | 🚧 in review |
 | **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | ⬜ queued |
 | **PR 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
 | **PR 9 (optional) — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ⏸ optional |
@@ -826,11 +826,11 @@ Done when:
 
 ### PR 7 — per-skill model + effort tuning
 
-Status: ⬜ queued. Carry-forward from queued Phase 5 PR 20.
+Status: 🚧 in review. Carry-forward from queued Phase 5 PR 20.
 
 Done when:
 
-- [ ] Skills under `skills/pipeline/` and agents under `agents/` declare
+- [x] Skills under `skills/pipeline/` and agents under `agents/` declare
   `model:` and `effort:` in frontmatter where it matters:
   - `flow-pipeline` — Sonnet 4.6, `medium` (orchestration; control-
     flow judgment doesn't need Opus).
@@ -840,12 +840,18 @@ Done when:
   - `pr-review` sub-agents (promoted to `agents/`): Opus for
     bug+security at `xhigh`; Sonnet for pattern+test-coverage at
     `high`/`medium`.
-- [ ] The `agents/` directory is symlinked by `flow setup` into
-  `~/.claude/agents/`.
-- [ ] Verify-retry escalation: when `/verify` fails inside the
+- [x] The `agents/` directory is symlinked by `flow setup` into
+  `~/.claude/agents/` (the symlink wiring shipped with PR 1's
+  `flow setup`; PR 7 is the first PR to actually populate the
+  directory, so a `flow setup --upgrade` after merge lights up the
+  4 promoted agents in `~/.claude/agents/`).
+- [x] Verify-retry escalation: when `/verify` fails inside the
   supervisor's loop, the next attempt runs at Opus/`xhigh`. Logic
-  lives in `/flow-pipeline`'s SKILL.md, since Node retry no longer
-  exists.
+  lives in `/flow-pipeline`'s SKILL.md step 6, since Node retry no
+  longer exists. The override is passed per-invocation (model +
+  effort overrides on the skill call) and does not mutate the
+  skill's frontmatter — Sonnet/medium remains the default for
+  attempt 1.
 
 ### PR 8 — eval harness
 

@@ -11,6 +11,8 @@ description: >-
   structure it rather than ready to write specific code, use this skill. Do NOT
   use when the task is already specific and actionable (e.g., "add a column to
   X", "write tests for Y", "fix the colors on Z").
+model: claude-opus-4-7
+effort: xhigh
 ---
 
 # Goal
