@@ -68,7 +68,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | ⬜ queued |
 | **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | ⬜ queued |
 | **PR 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
-| **PR 12 — fix cross-pipeline worktree contamination (🚨 high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | 🚨 queued — high priority |
+| **PR 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ⬜ queued — high priority |
 | **PR 9 (optional) — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ⏸ optional |
 | **PR 10 (optional) — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | ⏸ optional |
 
@@ -898,23 +898,17 @@ conventional-comments format, the auto-fix-vs-defer bar, the
 retrospective-and-checklist-evolution mechanic — none of that
 changes. This is a control-flow simplification only.
 
-### PR 12 — fix cross-pipeline worktree contamination (🚨 high priority)
+### PR 12 — fix cross-pipeline worktree contamination (high priority)
 
 Status: ⬜ queued — high priority.
 
-The bug, witnessed end-to-end on 2026-05-01: the user kicked off six
-parallel `flow new` pipelines for PRs 4 / 6 / 7 / 8 / 9 / 10. The PR
-10 supervisor created its worktree at
-`flow-proceed-with-pr-10-in-the-roadmap-if-the` on branch
-`proceed-with-pr-10-in-the-roadmap-if-the` (correct). The PR 4
-supervisor — running concurrently in a different tmux window — then
-**renamed PR 10's branch** to `pr4-delete-orchestrator` (reflog: `Branch:
-renamed refs/heads/proceed-with-pr-10-in-the-roadmap-if-the to
-refs/heads/pr4-delete-orchestrator`) and **committed PR 4's work into
-PR 10's worktree**. The PR 10 supervisor's in-flight edits to
-`SKILL.md` and `docs/roadmap.md` were silently clobbered. Recovery
-required dropping back to main, hand-restoring the lost edits, and
-opening PR 10 from a third branch — none of which is automatable.
+The bug, witnessed end-to-end on 2026-05-01: the user kicked off six parallel `flow new` pipelines for PRs 4 / 6 / 7 / 8 / 9 / 10. The PR 10 supervisor created its worktree at `flow-proceed-with-pr-10-in-the-roadmap-if-the` on branch `proceed-with-pr-10-in-the-roadmap-if-the` (correct). The PR 4 supervisor — running concurrently in a different tmux window — then **renamed PR 10's branch** to `pr4-delete-orchestrator`:
+
+```
+Branch: renamed refs/heads/proceed-with-pr-10-in-the-roadmap-if-the to refs/heads/pr4-delete-orchestrator
+```
+
+It then **committed PR 4's work into PR 10's worktree**. The PR 10 supervisor's in-flight edits to `SKILL.md` and `docs/roadmap.md` were silently clobbered. Recovery required dropping back to main, hand-restoring the lost edits, and opening PR 10 from a third branch — none of which is automatable.
 
 The two contributing factors so far:
 
@@ -950,10 +944,7 @@ Done when:
   two `flow-new-worktree` calls in parallel against overlapping slugs
   and asserts each ends up on its own branch in its own directory,
   with no cross-mutation.
-- [ ] **Supervisor SKILL.md hard rule.** Add a `> **You never run git
-  branch -m / git switch <other-pipeline-branch>**` rule. Belt-and-
-  braces against the LLM-confusion failure mode that opened the door
-  here in the first place.
+- [ ] **Supervisor SKILL.md hard rule.** Add a hard rule along the lines of `You never run git branch -m or git switch <other-pipeline-branch>`. Belt-and-braces against the LLM-confusion failure mode that opened the door here in the first place.
 - [ ] **Postmortem entry under "Open questions" or a new "Incidents"
   section** linking this PR to the 2026-05-01 reflog evidence so the
   context survives the bug fix.
