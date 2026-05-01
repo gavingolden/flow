@@ -853,6 +853,36 @@ Done when:
   skill's frontmatter — Sonnet/medium remains the default for
   attempt 1.
 
+#### Known issues / follow-ups (surfaced by `/pr-review` on PR #46)
+
+- **Task-tool contract collision between `/pr-review` step 4 and
+  `/flow-pipeline` hard rules.** `pr-review`'s step 4 now invokes the
+  4 promoted agents via the `Task` / `Agent` tool, but `flow-pipeline`'s
+  hard rules (SKILL.md lines 57-60) and verification (SKILL.md line 545)
+  forbid the supervisor from ever using `Task`. When step 8 of the
+  pipeline loads `/pr-review` in-process, the supervisor's own hard
+  rule blocks the new fan-out. **Revisit trigger:** before PR 11
+  (`pr-review` unified mode) — that PR re-touches step 4 and is the
+  natural point to either (a) carve out an explicit Task exception in
+  `flow-pipeline` for the review phase or (b) document a
+  no-Task fallback path in `pr-review` for both supervisor and
+  standalone-without-Task contexts. Why deferred: picking between
+  the two requires a design decision on whether the supervisor's
+  "single LLM container" invariant survives or evolves.
+- **Per-invocation model/effort override syntax for `/verify` retry
+  is asserted but not specified.** `flow-pipeline` SKILL.md step 6
+  and the PR 7 done-when bullet describe escalating attempts 2-3 to
+  Opus/`xhigh` "by passing those overrides when invoking the skill"
+  but do not show the syntax Claude Code actually parses (the example
+  prompt-line annotation `(model: …, effort: …)` is an in-prose
+  comment, not a parsed flag). **Revisit trigger:** first time the
+  retry path actually fires in production, or when PR 8 (eval harness)
+  exercises retry loops — verify the override is honoured by checking
+  the model recorded in the per-attempt usage line. Why deferred:
+  resolution depends on Claude Code harness behaviour outside this
+  repo; either the syntax exists and the doc just needs to cite it,
+  or it doesn't and the escalation claim must be removed.
+
 ### PR 8 — eval harness
 
 Status: ⬜ queued. Carry-forward from queued Phase 5 PR 21.
