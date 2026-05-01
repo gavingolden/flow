@@ -62,8 +62,8 @@ ci-fix loops *and* 2 review-fix loops before escalating.
 
 - Print exactly: `NEEDS HUMAN: <reason> [<extra context>]` on its
   own line.
-- Write `<worktree>/.flow-status` with `phase: needs-human` and the
-  current timestamp.
+- Run `flow-state-update "$SLUG" --phase needs-human` so `flow ls`
+  surfaces the stall.
 - Leave the worktree intact. Leave the PR intact. **Do not** call
   `flow-remove-worktree`.
 - End the supervisor's conversation turn. The user attaches and
@@ -89,12 +89,12 @@ met:
 |---|---|---|
 | 2 — worktree | the worktree path recorded in `~/.flow/state/<slug>.json` (originally printed by `flow-new-worktree`) exists and is a git checkout | yes |
 | 3 — plan | `<worktree>/plan.md` exists and is non-empty | yes |
-| 4 — approval | `<worktree>/.flow-status` shows `phase` ∈ {`implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | yes |
+| 4 — approval | `state.json` shows `phase` ∈ {`implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | yes |
 | 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | yes |
-| 6 — verify | `<worktree>/.flow-status` shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | yes |
+| 6 — verify | `state.json` shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | yes |
 | 7 — ci-wait | PR's checks all reached terminal state | yes |
 | 8 — review | PR has a `pr-review` commit on HEAD (look for the conventional commit prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | yes |
-| 9 — gate | PR is `MERGED` or `phase: gated` | yes |
+| 9 — gate | PR is `MERGED` or `state.json` shows `phase: gated` | yes |
 | 10 — merge | PR is `MERGED` AND worktree directory removed | yes (terminal) |
 
 The first row whose "done" condition is **false** is where the
@@ -103,15 +103,20 @@ terminal state — print `MERGED` (or `gated`) and end.
 
 ### Edge cases
 
-- **Worktree exists but `.flow-status` is missing.** Treat as
-  resume-from-step-3 (plan). The worktree was created but the
-  pipeline crashed before the first phase transition.
+- **Worktree exists but `state.json` shows `phase: starting` /
+  `triaging` / `worktree-create`.** Treat as resume-from-step-3
+  (plan). The worktree was created but the pipeline crashed before
+  the planning phase advanced state.
 - **`plan.md` exists but no PR.** Resume at step 4 (approval). The
   user may have approved before the crash; the supervisor re-prints
   the plan and waits for the user to re-confirm. We don't replay an
   approval the user gave to a now-dead session.
-- **PR exists but `.flow-status` doesn't.** Resume at step 6
-  (verify). The PR survived; the status file didn't.
+- **PR exists but `state.json` is stale (e.g. still shows
+  `implementing`).** Resume at step 6 (verify). The PR survived; the
+  phase value didn't catch up before the crash.
+- **`state.json` is missing entirely.** The pipeline was never
+  started, or `flow done` already ran. Refuse to resume — the user
+  should run `flow new` afresh.
 - **PR `CLOSED` without merge.** The user closed the PR while the
   session was crashed. Escalate `NEEDS HUMAN: pr-closed-without-
   merge`; do not resume. Let the user decide reopen vs. abandon.

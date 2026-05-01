@@ -27,7 +27,8 @@ input-ambiguous`.
 
 The action depends on **where the supervisor was** when the input
 arrived. The phase column is the value the supervisor was about to
-write (or just wrote) to `.flow-status`.
+write (or just wrote) to `~/.flow/state/<slug>.json` via
+`flow-state-update`.
 
 | Phase | Affirmative | Redirect | Cancel |
 |---|---|---|---|

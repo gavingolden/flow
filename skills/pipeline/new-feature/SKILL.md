@@ -5,7 +5,6 @@ description: >-
   it.todo() acceptance criteria, and mandatory test implementation. Use when user
   says "new feature", "implement feature", "build this feature", or wants a
   structured feature implementation process.
-disable-model-invocation: true
 ---
 
 # Goal

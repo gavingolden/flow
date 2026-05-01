@@ -2,15 +2,10 @@
  * `flow ls` — join state files (~/.flow/state/<slug>.json) with tmux
  * windows from the flow session and print a status table.
  *
- * Phase + LAST ACTIVITY source preference:
- *   1. <worktree>/.flow-status (live, atomic; written by PR 2's supervisor
- *      at every transition once the worktree exists).
- *   2. ~/.flow/state/<slug>.json fields (phase + updatedAt) as fallback —
- *      covers the pre-worktree window: cold-start, triage, and the
- *      moments between flow new and flow-new-worktree finishing. Without
- *      this fallback, `flow ls` would render "—" for the entire phase-1
- *      window of every fresh pipeline.
- *   3. "—" only when neither surface has data.
+ * State source: a single global JSON file per pipeline. The supervisor
+ * (PR 2) updates `phase` + `updatedAt` (and `pr` after step 5, `worktree`
+ * after step 2) at every transition via `flow-state-update`. PR 1 wrote
+ * the initial state with `phase: "starting"` from `flow new`.
  *
  * Drift handling:
  *   - state file but no window → "(no window)" (likely a crashed session)
@@ -18,8 +13,8 @@
  *   - both                     → no annotation
  */
 
-import { readFlowStatus, relativeTime, type FlowStatus } from "./flow-status";
 import { listStates, type PipelineState } from "./state";
+import { relativeTime } from "./time";
 import { listWindows, type TmuxWindow } from "./tmux";
 
 export type Row = {
@@ -29,8 +24,6 @@ export type Row = {
   lastActivity: string;
   annotation: "" | "(no window)" | "(no state)";
 };
-
-export type StatusReader = (worktree: string) => FlowStatus | null;
 
 export function runLs(): number {
   const states = listStates();
@@ -50,7 +43,6 @@ export function buildRows(
   states: PipelineState[],
   windows: TmuxWindow[],
   nowMs: number,
-  statusReader: StatusReader = readFlowStatus,
 ): Row[] {
   const windowByName = new Map(windows.map((w) => [w.name, w] as const));
   const stateBySlug = new Map(states.map((s) => [s.slug, s] as const));
@@ -59,19 +51,18 @@ export function buildRows(
 
   for (const state of states) {
     const window = windowByName.get(state.slug);
-    const status = state.worktree ? statusReader(state.worktree) : null;
     rows.push({
       name: state.slug,
-      phase: status?.phase ?? state.phase ?? "—",
+      phase: state.phase || "—",
       pr: state.pr ? `#${state.pr}` : "—",
-      lastActivity: lastActivityFrom(status, state.updatedAt, nowMs),
+      lastActivity: lastActivityFrom(state.updatedAt, nowMs),
       annotation: window ? "" : "(no window)",
     });
   }
 
   // Surface windows that lack a state file. They're not pipelines flow
-  // owns, so there's no worktree path to read .flow-status from — fall
-  // back to the tmux-reported activity so the user still sees something.
+  // owns, so fall back to the tmux-reported activity so the user still
+  // sees something.
   for (const window of windows) {
     if (stateBySlug.has(window.name)) continue;
     rows.push({
@@ -87,17 +78,9 @@ export function buildRows(
   return rows;
 }
 
-function lastActivityFrom(
-  status: FlowStatus | null,
-  stateUpdatedAt: string | undefined,
-  nowMs: number,
-): string {
-  // Prefer the live .flow-status timestamp (atomic per-transition write).
-  // Fall back to state.updatedAt for the pre-worktree window — covers the
-  // cold-start + triage gap before flow-new-worktree finishes.
-  const candidate = status?.lastTransitionAt ?? stateUpdatedAt;
-  if (!candidate) return "—";
-  const ms = Date.parse(candidate);
+function lastActivityFrom(updatedAt: string | undefined, nowMs: number): string {
+  if (!updatedAt) return "—";
+  const ms = Date.parse(updatedAt);
   if (!Number.isFinite(ms)) return "—";
   return relativeTime(ms, nowMs);
 }

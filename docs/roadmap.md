@@ -132,9 +132,10 @@ making a judgment.
 ### Flow 3 — Status check
 
 `flow ls` (any terminal) reads `tmux list-windows -t flow` for the set
-of active pipelines, then for each window reads
-`<worktree>/.flow-status` (a one-line file the supervisor updates at
-each phase transition) to get the current phase. Prints a table:
+of active pipelines, then for each slug reads
+`~/.flow/state/<slug>.json` (a global JSON file that `flow new`
+creates and the supervisor updates via `flow-state-update` at every
+transition) to get the current phase + PR. Prints a table:
 
 ```
 NAME            PHASE         PR    LAST ACTIVITY
@@ -641,22 +642,21 @@ Done when:
   (`flow:<slug>`), launches Claude Code in it with a stub prompt
   (`Use the /flow-pipeline skill for: <description>`).
 - [x] `flow ls` lists windows from `tmux list-windows -t flow`, then reads
-  `<worktree>/.flow-status` for each to recover the current phase, and
-  prints a table: name, phase, pr, last-activity. Phase is tracked via
-  the status file rather than encoded in the window name so window
-  names stay parseable as `tmux attach -t flow:<name>` targets — see
-  also the resolved open question #5 below.
-- [x] `<worktree>/.flow-status` format pinned as two key:value lines —
-  `phase: <lifecycle-phase>` and `last_transition_at: <ISO-8601 UTC
-  with Z>` — and documented as atomically rewritten (write-tmp +
-  rename) on every phase transition. PR 1 ships only the reader plus
-  format pin; PR 2's supervisor is responsible for actually writing
-  the file. `flow ls` reads both fields, renders **LAST ACTIVITY** as
-  the relative-time delta from `last_transition_at` (`<N>s ago`,
-  `<N>m ago`, `<N>h ago`, `<N>d ago`), and tolerates missing or
-  malformed files by rendering `phase: —` and `LAST ACTIVITY: —`
-  (with a one-line stderr warning on malformed but never crashing
-  the row).
+  `~/.flow/state/<slug>.json` for each to recover the current phase + PR
+  + activity, and prints a table: name, phase, pr, last-activity. Phase
+  is tracked in the state file rather than encoded in the window name
+  so window names stay parseable as `tmux attach -t flow:<name>`
+  targets — see also the resolved open question #5 below.
+- [x] `~/.flow/state/<slug>.json` schema pinned. `flow new` creates the
+  file with `phase: "starting"`, `slug`, `repo`. PR 2's supervisor
+  updates `phase` + `worktree` + `pr` + `updatedAt` at every transition
+  via `flow-state-update`. `flow ls` reads `phase` and renders **LAST
+  ACTIVITY** from `updatedAt` (`<N>s ago`, `<N>m ago`, `<N>h ago`,
+  `<N>d ago`); tolerates a missing or malformed file by rendering
+  `phase: —` and `LAST ACTIVITY: —` rather than crashing the row.
+  (Originally PR 1 also pinned a per-worktree `<worktree>/.flow-status`
+  text file as the live phase source; PR 2 collapsed both surfaces into
+  state.json — see PR 2 design deviations.)
 - [x] `flow attach <name>` runs `tmux attach -t flow:<name>`.
 - [x] `flow done <name>` kills the window after a confirmation prompt.
 - [x] `flow migrate` (with dry-run default and `--apply` to commit)
@@ -690,30 +690,38 @@ Done when:
 
 Design deviations from the original spec:
 
-- **Scope addition: `bin/flow-state-update`.** Spec only described
-  the supervisor writing `<worktree>/.flow-status`. The actual PR 1
-  code shipped a second state surface — `~/.flow/state/<slug>.json`,
-  written initially by `flow new` and intended ("supervisor (PR 2)
-  updates phase + pr at every transition", per `bin/lib/state.ts:6-9`)
-  to be updated by this PR — but didn't ship a CLI writer for it. PR
-  2 now ships `bin/flow-state-update` (auto-symlinked by `flow
-  setup`'s `discoverHelpers`) so the supervisor keeps both surfaces
-  fresh: `.flow-status` for the live phase column, and the global
-  state file for `pr` + `worktree` fields that `flow ls` reads.
-  Without this, `flow ls` would have shown `pr: —` for every active
-  pipeline.
-- **Scope addition: `flow ls` phase-fallback to `state.json`.** Smoke
-  testing surfaced that `flow ls` rendered `phase: —` for the entire
-  pre-worktree window (Claude Code cold-start, step 1 triage, the
-  moments before `flow-new-worktree` returns) because `bin/lib/ls.ts`
-  read phase only from `<worktree>/.flow-status`. PR 2 amends `ls.ts`
-  to fall back to `state.phase` + `state.updatedAt` when
-  `.flow-status` is absent, and amends the supervisor protocol so
-  `flow-state-update --phase triaging` runs as the first action of
-  step 1. Net effect: `flow ls` now shows `starting → triaging →
-  worktree-create → planning → …` continuously from `flow new`
-  onward. `.flow-status` remains the authoritative live source when
-  present (post-worktree).
+- **State surface consolidated to `state.json` only.** Original PR 1
+  spec called for two state surfaces: `<worktree>/.flow-status`
+  (per-worktree text, the "live source") and `~/.flow/state/<slug>.json`
+  (global, post-merge fallback). PR 2's smoke test surfaced two
+  related problems: (a) `bin/lib/ls.ts` read phase only from
+  `.flow-status`, so `flow ls` showed `phase: —` for the entire
+  pre-worktree window of every fresh pipeline (Claude Code
+  cold-start, step 1 triage, moments before `flow-new-worktree`
+  returns), and (b) PR 1 didn't ship a CLI writer for `state.json`
+  even though `bin/lib/state.ts:6-9` documented that as PR 2's
+  responsibility, so `flow ls` would have shown `pr: —` for every
+  active pipeline. PR 2 fixes both by: shipping
+  `bin/flow-state-update` (auto-symlinked by `flow setup`'s
+  `discoverHelpers`) for atomic JSON merge writes; deleting
+  `bin/lib/flow-status.{ts,test.ts}` and the per-worktree text file
+  entirely; rewriting `bin/lib/ls.ts` to read `state.json` only. Net
+  effect: one writer, one reader, one source of truth. `flow ls`
+  now shows `starting → triaging → worktree-create → planning → …`
+  continuously from `flow new` onward.
+- **`/new-feature` `disable-model-invocation: true` removed.** Smoke
+  test surfaced that the supervisor's `Skill(new-feature)`
+  invocation failed with "Skill new-feature cannot be used with
+  Skill tool due to disable-model-invocation". The flag was added in
+  the old per-repo era to prevent generic "build X / implement Y"
+  phrasing from auto-triggering the skill in unrelated chats; in the
+  new tmux supervisor session that collision concern is gone, and
+  the supervisor genuinely needs to invoke `/new-feature`
+  programmatically. PR 2 drops the flag from
+  `skills/pipeline/new-feature/SKILL.md`. The skill's description is
+  specific enough to keep auto-invocation tame without it. The
+  other three pipeline sub-skills (`/product-planning`, `/verify`,
+  `/pr-review`) never had the flag.
 - **`product-planning` amendment scope.** Roadmap "Keep, lightly
   amended" called this "minor: writes its PRD + task breakdown to
   `<worktree>/plan.md`". Shipped scope is slightly larger: a new
@@ -729,11 +737,11 @@ Design deviations from the original spec:
   optional 30s → 60s → 90s ramp after 5 failed polls but ships with
   fixed 30s cadence. Activate when PR 6 cost telemetry justifies it.
 - **`plan-pending-review` phase value added.** Spec lists the
-  lifecycle phases that flow through the status file but doesn't
-  enumerate the feature-only checkpoint phase. Shipped SKILL.md
-  uses `plan-pending-review` as its `.flow-status` value during the
-  approval checkpoint so `flow ls` distinguishes "waiting on user"
-  from `planning` and `implementing`.
+  lifecycle phases but doesn't enumerate the feature-only checkpoint
+  phase. Shipped SKILL.md uses `plan-pending-review` as its
+  `state.json` phase value during the approval checkpoint so `flow
+  ls` distinguishes "waiting on user" from `planning` and
+  `implementing`.
 - **Frontmatter omits `model:` / `effort:`.** Roadmap PR 7 specifies
   `flow-pipeline → Sonnet 4.6, medium`. PR 2 ships without the
   frontmatter; PR 7 adds it. Documented to avoid the appearance of
@@ -920,8 +928,9 @@ Done when:
    7 (CI wait), not step 9, after a review-fix commit lands. The
    supervisor's polling loop covers the next CI cycle.
 5. **Window-name phase encoding vs richer status file.** *Resolved:
-   status file.* The supervisor writes a one-line phase to
-   `<worktree>/.flow-status` at each transition; `flow ls` reads it.
+   global state file (post PR 2).* The supervisor calls
+   `flow-state-update` to write the phase into
+   `~/.flow/state/<slug>.json` at each transition; `flow ls` reads it.
    Reason: encoding phase as a `:<phase>` suffix in the window name
    collides with tmux's `<session>:<window>` target syntax — `tmux
    attach -t flow:csv-export:planning` is ambiguous to the tmux
