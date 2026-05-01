@@ -642,6 +642,17 @@ Done when:
   the status file rather than encoded in the window name so window
   names stay parseable as `tmux attach -t flow:<name>` targets — see
   also the resolved open question #5 below.
+- `<worktree>/.flow-status` format pinned as two key:value lines —
+  `phase: <lifecycle-phase>` and `last_transition_at: <ISO-8601 UTC
+  with Z>` — and documented as atomically rewritten (write-tmp +
+  rename) on every phase transition. PR 1 ships only the reader plus
+  format pin; PR 2's supervisor is responsible for actually writing
+  the file. `flow ls` reads both fields, renders **LAST ACTIVITY** as
+  the relative-time delta from `last_transition_at` (`<N>s ago`,
+  `<N>m ago`, `<N>h ago`, `<N>d ago`), and tolerates missing or
+  malformed files by rendering `phase: —` and `LAST ACTIVITY: —`
+  (with a one-line stderr warning on malformed but never crashing
+  the row).
 - `flow attach <name>` runs `tmux attach -t flow:<name>`.
 - `flow done <name>` kills the window after a confirmation prompt.
 - `flow migrate` (with dry-run default and `--apply` to commit)

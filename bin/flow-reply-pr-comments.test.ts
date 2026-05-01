@@ -1,9 +1,9 @@
 /**
- * Tests for reply-pr-comments.ts
+ * Tests for flow-reply-pr-comments.ts
  */
 
 import { describe, expect, it } from "vitest";
-import { formatSummary, parseReplies, type ReplySummary } from "./reply-pr-comments";
+import { formatSummary, parseReplies, type ReplySummary } from "./flow-reply-pr-comments";
 
 // --- Tests ---
 

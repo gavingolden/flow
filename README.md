@@ -15,19 +15,83 @@ two responsibilities:
 
 ## Status
 
-**M1 only.** `flow start "<prompt>"` opens an interactive Claude Code
-session in the current git repo with a triage system prompt. The session
-either answers a no-change request in-line (Q&A, brainstorm) or writes a
-structured `task.md` to `.orchestrator/tasks/` for the pipeline to pick up.
+**Mid-redesign.** flow is moving from a Node-based orchestrator to a
+tmux-driven supervisor skill. This PR (PR 1) ships the new global install
+model and the `flow` shell wrapper. The Node orchestrator (`flow run`,
+`flow start`, `flow log`, etc.) still works in already-installed repos —
+deletion is later in the redesign. See [`docs/roadmap.md`](docs/roadmap.md)
+for the full plan.
 
-The pipeline phases (plan, worktree, implement, verify, CI, review, gate,
-merge) ship in M2–M4.
+## Install (global, recommended)
 
-## Install (dev)
+```sh
+git clone https://github.com/<user>/flow ~/code/flow
+cd ~/code/flow
+npm install     # `prepare` also builds dist/ for old verbs
+bun bin/flow setup
+```
+
+`flow setup`:
+
+- Symlinks every skill from `~/code/flow/skills/{pipeline,universal,stacks}/`
+  into `~/.claude/skills/`. Available in every project, zero per-repo
+  declaration.
+- Symlinks every helper (`flow-new-worktree`, `flow-pre-commit`,
+  `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-remove-worktree`)
+  into `~/.local/bin/`.
+- Symlinks the `flow` wrapper itself into `~/.local/bin/flow`.
+- Records every symlink in `~/.flow/installed.json` so `flow setup --upgrade`
+  can reap orphans deterministically.
+
+Verifies `tmux` is on PATH (a hard requirement for the tmux-driven flow)
+and warns if `~/.local/bin/` is missing from `PATH`.
+
+Update with `cd ~/code/flow && git pull && bun bin/flow setup --upgrade`.
+
+## Quick start (tmux-driven)
+
+> The supervisor skill (`/flow-pipeline`) that drives a pipeline end-to-end
+> ships in PR 2. Until then, `flow new` opens a window with the right
+> initial prompt but the supervisor doesn't yet automate the phases — it
+> shows up as plain chat input.
+
+```sh
+flow new "add CSV export"        # creates tmux window flow:add-csv-export
+flow ls                          # lists active pipelines
+flow attach add-csv-export       # tmux attach (alias: flow a)
+flow done add-csv-export         # close the window when finished
+flow done --all-merged           # sweep terminal-state windows
+```
+
+Pipelines are tmux windows inside a `flow` session. State lives at
+`~/.flow/state/<slug>.json` (one JSON per pipeline). Walk-away execution
+is just detaching from tmux (`Ctrl-b d`); resume by attaching again.
+
+## Migrate a repo off the legacy per-repo install
+
+Repos that were set up with the old `flow install` keep working. To clean
+up the per-repo footprint:
+
+```sh
+cd <some-repo>
+flow migrate                     # dry-run — print what would change
+flow migrate --apply             # remove managed symlinks, strip gitignore blocks
+flow migrate --apply --include-orchestrator   # also delete .orchestrator/
+flow migrate --scan ~/code/      # dry-run across every git repo under a path
+```
+
+`flow migrate` only deletes symlinks listed in the two managed
+`.gitignore` blocks (`# managed by flow install-skills`, `# managed by
+flow install-scripts`). Real files in those paths are warned about, never
+deleted. See [`docs/migration.md`](docs/migration.md) for full details.
+
+## Install (legacy, dev only)
+
+The old `npm link` path still works for hacking on `src/`:
 
 ```sh
 npm install     # `prepare` builds dist/ automatically
-npm link        # makes `flow` available on PATH
+npm link        # makes `flow` available on PATH (overwritten by `flow setup`)
 ```
 
 ## Use the orchestrator

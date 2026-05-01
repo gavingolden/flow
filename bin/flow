@@ -1,0 +1,157 @@
+#!/usr/bin/env bun
+/**
+ * `flow` — the shell wrapper for tmux-driven pipelines.
+ *
+ * New verbs (handled here):
+ *   flow setup [--upgrade] [--force]   global install
+ *   flow new <description>             create a tmux window + initial state
+ *   flow ls                            list active pipelines
+ *   flow attach <name>                 tmux attach -t flow:<name>  (alias: a)
+ *   flow done <name> | --all-merged    kill window + remove state
+ *   flow migrate [--apply] [--scan <p>] [--include-orchestrator]
+ *
+ * Old verbs (passthrough to src/cli.ts via Bun until PR 4 deletes them):
+ *   flow start | run | log | status | approve | revise | install | triage-sentinel
+ *
+ * Bun runs the existing Node/TS source as-is, so the passthrough is one
+ * spawn. When PR 4 removes src/cli.ts, the passthrough errors out and old
+ * verbs disappear cleanly.
+ */
+
+import * as path from "node:path";
+import { runSetup } from "./lib/setup";
+import { resolveFlowSource } from "./lib/paths";
+import { runNew } from "./lib/new";
+import { runAttach } from "./lib/attach";
+import { runDone } from "./lib/done";
+import { runLs } from "./lib/ls";
+import { runMigrate } from "./lib/migrate";
+
+const NEW_VERBS = new Set([
+  "setup",
+  "new",
+  "ls",
+  "attach",
+  "a",
+  "done",
+  "migrate",
+  "--help",
+  "-h",
+  "help",
+]);
+
+const OLD_VERBS = new Set([
+  "start",
+  "run",
+  "log",
+  "status",
+  "approve",
+  "revise",
+  "install",
+  "triage-sentinel",
+]);
+
+async function main(): Promise<number> {
+  const [, , verb, ...rest] = process.argv;
+
+  if (!verb) {
+    printHelp();
+    return 0;
+  }
+
+  if (NEW_VERBS.has(verb)) {
+    return await runNewVerb(verb, rest);
+  }
+
+  if (OLD_VERBS.has(verb)) {
+    return passthroughOldVerb(verb, rest);
+  }
+
+  console.error(`flow: unknown verb '${verb}'`);
+  console.error(`run 'flow --help' for available verbs.`);
+  return 1;
+}
+
+async function runNewVerb(verb: string, args: string[]): Promise<number> {
+  switch (verb) {
+    case "--help":
+    case "-h":
+    case "help":
+      printHelp();
+      return 0;
+    case "setup":
+      return runSetupVerb(args);
+    case "new":
+      return runNew(args.join(" "));
+    case "attach":
+    case "a":
+      return runAttach(args[0]);
+    case "done":
+      return runDoneVerb(args);
+    case "ls":
+      return runLs();
+    case "migrate":
+      return runMigrateVerb(args);
+  }
+  return 1;
+}
+
+function runMigrateVerb(args: string[]): number {
+  const apply = args.includes("--apply");
+  const includeOrchestrator = args.includes("--include-orchestrator");
+  const scanIdx = args.indexOf("--scan");
+  const scan = scanIdx >= 0 ? args[scanIdx + 1] : undefined;
+  if (scanIdx >= 0 && !scan) {
+    console.error("flow migrate: --scan requires a path argument.");
+    return 1;
+  }
+  return runMigrate({ apply, includeOrchestrator, scan });
+}
+
+function runDoneVerb(args: string[]): number {
+  const allMerged = args.includes("--all-merged");
+  const yes = args.includes("--yes") || args.includes("-y");
+  const positional = args.filter((a) => !a.startsWith("-"));
+  return runDone(positional[0], { allMerged, yes });
+}
+
+function runSetupVerb(args: string[]): number {
+  const upgrade = args.includes("--upgrade");
+  const force = args.includes("--force");
+  runSetup({ upgrade, force });
+  return 0;
+}
+
+function passthroughOldVerb(verb: string, args: string[]): number {
+  // Bun runs the existing Node/TS CLI source as-is. When PR 4 deletes
+  // src/cli.ts, this fallback returns a hard error and old verbs disappear.
+  const source = resolveFlowSource();
+  const cliEntry = path.join(source, "src", "cli.ts");
+  const result = Bun.spawnSync(["bun", cliEntry, verb, ...args], {
+    stdout: "inherit",
+    stderr: "inherit",
+    stdin: "inherit",
+  });
+  return result.exitCode ?? 1;
+}
+
+function printHelp(): void {
+  console.log(`flow — tmux-driven pipelines for Claude Code
+
+Usage:
+  flow setup [--upgrade] [--force]      install skills, agents, helpers globally
+  flow new <description>                start a new pipeline in a tmux window
+  flow ls                               list active pipelines
+  flow attach <name>                    attach to a pipeline window  (alias: a)
+  flow done <name>                      close a pipeline window
+  flow done --all-merged                close every merged or cancelled window
+  flow migrate [--apply] [--scan <p>]   clean up legacy per-repo flow install
+
+  flow --help                           this help
+
+Run 'flow setup' once after cloning the flow source. Pipelines run inside
+tmux windows; the supervisor skill (/flow-pipeline) drives each one.
+`);
+}
+
+main().then((code) => process.exit(code));

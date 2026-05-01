@@ -1,5 +1,5 @@
 /**
- * Tests for pre-commit-checks.ts
+ * Tests for flow-pre-commit.ts
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -16,7 +16,7 @@ import {
   type GitOps,
   type PrePushRef,
   type Scope,
-} from "./pre-commit-checks";
+} from "./flow-pre-commit";
 
 // --- Factories ---
 
@@ -51,8 +51,12 @@ describe(detectScopesFromFiles, () => {
     expect(detectScopesFromFiles(["scripts/fetch-pr-review.ts"])).toEqual(["scripts"]);
   });
 
-  it("should detect scripts scope from templates/scripts/ files (flow's source location)", () => {
-    expect(detectScopesFromFiles(["templates/scripts/pre-commit-checks.ts"])).toEqual(["scripts"]);
+  it("should detect scripts scope from templates/scripts/ files (flow's legacy script source)", () => {
+    expect(detectScopesFromFiles(["templates/scripts/ci-wait.ts"])).toEqual(["scripts"]);
+  });
+
+  it("should detect scripts scope from bin/ files (flow's canonical helper binary source)", () => {
+    expect(detectScopesFromFiles(["bin/flow-pre-commit.ts"])).toEqual(["scripts"]);
   });
 
   it("should detect multiple scopes from mixed files", () => {

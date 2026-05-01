@@ -6,10 +6,11 @@
    no-change flow (Q&A, brainstorm) or a change flow (triage → plan → worktree
    → implement → verify → CI → review → gate → merge). It targets any git
    repository and drives Claude Code skills via headless subprocess invocations.
-2. A **curated skill library** at `skills/` plus the helper scripts at
-   `templates/scripts/` they shell out to. Both are distributed by `flow install`,
-   which symlinks them into a target repo. Skills are usable independent of the
-   orchestrator; the CLI is just one consumer.
+2. A **curated skill library** at `skills/` plus the helper binaries at
+   `bin/` they shell out to. Both are distributed by `flow setup`
+   (the new global install) and `flow install` (the legacy per-repo
+   install, retained until PR 5 of the redesign deletes it). Skills are
+   usable independent of the orchestrator; the CLI is just one consumer.
 
 This file is the entry point for any agent (human or AI) working on flow.
 Read it once at the start of a session.
@@ -31,23 +32,18 @@ If you're picking up a milestone, the order is: `architecture.md` →
 
 ## Current state
 
-See `docs/roadmap.md`. As of now:
+See `docs/roadmap.md`. flow is mid-redesign — moving from a Node-based
+orchestrator to a tmux-driven supervisor skill.
 
-- **Phases 1–3 (foundation, pipeline buildout, entry point + UX)
-  shipped.** PRs 1–12 are merged. The chat-first pipeline runs
-  end-to-end: `/flow-add` triages, the runner drives a task through
-  plan → implement → verify → ci-wait → review → gate → merge.
-- **Phase 4 (cutover + parallelism) mostly shipped.** PRs 13–15 and
-  17 are merged. PR 16 (pause/resume/abort) is in flight on
-  `agent/pr-16-pause-resume-abort`. PR 18 (remove `flow start`
-  entirely) is deferred until chat-first has multi-week adoption.
-  PR 19 (`flow tui`) is optional/later.
-- **Phase 2 follow-up — review phase native skill invocation —
-  next.** Rewrites the review phase to drop machine-mode forcing of
-  `/pr-review` and the `implement(fix)` loop-back, letting the
-  skill's own Address vs Review mode detection drive behaviour.
-  Full Done-when criteria and open questions are in
-  `docs/roadmap.md`.
+- **PR 1 (this work) — global install + shell wrapper.** Adds `flow
+  setup`, `flow new`, `flow ls`, `flow attach`, `flow done`,
+  `flow migrate`. Migrates 5 helpers from `templates/scripts/` to `bin/`
+  with backward-compat symlinks. Old verbs (`run`, `log`, `status`,
+  `approve`, `revise`, `install`) keep working via passthrough to
+  `src/cli.ts`.
+- **Pre-redesign orchestrator (Phases 1–4)** shipped — runs end-to-end
+  in any flow-installed repo. The new design replaces it incrementally;
+  PR 4 of the redesign deletes `src/`.
 
 Note: `docs/phases/m2-plan.md` and `docs/phases/m3-plan.md` use the
 legacy `M<N>` syntax — they're historical artefacts kept for
@@ -71,15 +67,27 @@ reference. New work uses the sequential PR / Phase numbering from
 
 ## Scripts: Bun runtime, distributed via symlinks
 
-Source for all bundled scripts lives in **`templates/scripts/`** — that's
-the canonical location, edited and tested in flow's repo. Target repos
-(including flow itself) get them via `flow install`, which symlinks each
-`templates/scripts/<name>.ts` into the repo's `scripts/` directory and
-records the symlinks in a `# managed by flow install-scripts` block in
-`.gitignore`. The same command also installs skills under
-`.claude/skills/` with an analogous gitignore block.
+Source for shipped helper binaries lives in **`bin/`** as of PR 1 of the
+redesign. The five user-callable helpers — `flow-new-worktree`,
+`flow-remove-worktree`, `flow-pre-commit`, `flow-fetch-pr-review`,
+`flow-reply-pr-comments` — live there with `.ts` extensions, Bun
+shebangs, and tests next door (`<name>.test.ts`). `flow setup` symlinks
+each into `~/.local/bin/<name>` (extensionless on PATH).
 
-Conventions for any script under `templates/scripts/`:
+`templates/scripts/` retains:
+
+- **Symlinks back to `bin/<name>.ts`** for the migrated helpers — keeps
+  legacy `flow install` working without duplicating logic.
+- **The orchestrator-only scripts** (`ci-wait.ts`, `flow-add.ts`,
+  `flow-watch.ts`) until PR 5 of the redesign deletes them along with
+  the orchestrator that calls them.
+
+The new `flow` wrapper itself is also Bun, at `bin/flow`. It dispatches
+new verbs natively (`new`, `ls`, `attach`, `done`, `setup`, `migrate`)
+and shells out to `bun src/cli.ts <verb> $@` for legacy verbs (`run`,
+`start`, `log`, `status`, `approve`, `revise`, `install`).
+
+Conventions for any script under `bin/` or `templates/scripts/`:
 
 - `#!/usr/bin/env bun` shebang and `chmod +x`.
 - Use `import.meta.main` (Bun's symlink-aware "is this the entry
@@ -93,16 +101,17 @@ Conventions for any script under `templates/scripts/`:
   APIs that wouldn't run anyway. `flow install --force` deletes any
   stale companion `*.test.ts` files left behind by a prior pre-flow
   setup (and untracks them from git).
-- Source ≠ install target by design (`templates/scripts/` vs `scripts/`).
-  Don't move scripts back to a single `scripts/` dir — `flow install`
-  refuses to run when source equals target, but the architectural
-  separation is what makes the install safe.
+- Source ≠ install target by design (`bin/` and `templates/scripts/` in
+  flow's repo vs `scripts/` and `~/.local/bin/` on the consumer's
+  machine). Don't move scripts back to the consumer-side install
+  directories.
 
-The CLI itself (`src/`) is Node + tsx — see "Code conventions" above.
-The two runtimes are independent: the orchestrator invokes target-repo
-scripts directly via their shebang, so a script's runtime choice
-doesn't leak into the CLI's dependency graph. Bun is *only* a script
-runtime, never a CLI runtime.
+The legacy CLI under `src/` is still Node + tsx. The new wrapper at
+`bin/flow` is Bun — Bun runs the existing Node/TS source as-is for the
+old-verb passthrough, which is what makes the additive cutover possible.
+Once PR 4 of the redesign deletes `src/`, the wrapper's only runtime is
+Bun and the AGENTS.md "Bun is *only* a script runtime" rule lapses
+naturally.
 
 When adding a new script, default to Bun. If you need to deviate (e.g.
 a target-repo install needs Node-only), confirm with the user first
@@ -152,10 +161,11 @@ npm install                # one-time
 npm run dev -- <args>      # tsx, no build
 npm run build              # tsc + chmod +x dist/cli.js
 npm run typecheck          # tsc --noEmit (src/ only)
-npm run typecheck:scripts  # tsc -p tsconfig.scripts.json (templates/scripts/ only)
-npm run test               # vitest run (templates/scripts/ + src/)
-npm run dev install        # symlink skills + scripts into the current repo
-npm link                   # makes `flow` available on PATH globally
+npm run typecheck:scripts  # tsc -p tsconfig.scripts.json (bin/ + templates/scripts/)
+npm run test               # vitest run (bin/ + templates/scripts/ + src/)
+npm run dev install        # legacy: symlink skills + scripts into the current repo
+bun bin/flow setup         # global install (replaces npm link)
+npm link                   # legacy: also makes `flow` available globally
 ```
 
 The build script chmods `dist/cli.js` so direct invocation works locally
