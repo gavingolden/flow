@@ -60,8 +60,8 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 |---|---|---|
 | **Old orchestrator (Phases 1–4 PRs 13–17)** | Full Node-based pipeline, chat-first entry, parallelism, notifications | ✅ shipped — being deprecated. History preserved in this file's "Old roadmap" appendix. |
 | **PR 1 — global install + shell wrapper** | `flow setup`, `flow new`, `flow ls`, `flow attach`, `flow done`, `flow migrate` | ✅ shipped (#41) |
-| **PR 2 — `/flow-pipeline` supervisor skill** | The new pipeline-as-skill that replaces the Node runner + 8 phases | 🚧 in review (#42) — end-to-end smoke pending |
-| **PR 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | ⬜ queued — **next** |
+| **PR 2 — `/flow-pipeline` supervisor skill** | The new pipeline-as-skill that replaces the Node runner + 8 phases | ✅ shipped (#42) |
+| **PR 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | 🚧 in review |
 | **PR 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ⬜ queued |
 | **PR 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
 | **PR 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ⬜ queued |
@@ -672,8 +672,7 @@ Done when:
 
 ### PR 2 — `/flow-pipeline` supervisor skill
 
-Status: 🚧 in review (#42) — code merged-pending, end-to-end smoke
-not yet run.
+Status: ✅ shipped (#42).
 
 Done when:
 
@@ -759,20 +758,21 @@ Design deviations from the original spec:
 
 ### PR 3 — `pr-review` machine-mode removal + global-binary references
 
-Status: ⬜ queued — next.
+Status: 🚧 in review.
 
 Done when:
 
-- [ ] `skills/pipeline/pr-review/SKILL.md` no longer references
+- [x] `skills/pipeline/pr-review/SKILL.md` no longer references
   `RESULT_JSON_PATH` machine-mode forcing or the
   Force-Review-mode/no-auto-fix/no-commit/no-push preamble.
-- [ ] Native mode-detection drives Address vs Review.
-- [ ] Script invocations switch from `./scripts/fetch-pr-review.ts` /
+- [x] Native mode-detection drives Address vs Review.
+- [x] Script invocations switch from `./scripts/fetch-pr-review.ts` /
   `./scripts/reply-pr-comments.ts` to the global binaries
   `flow-fetch-pr-review` / `flow-reply-pr-comments`.
-- [ ] Same change applied to `/verify` and `/new-feature` for any
-  `pre-commit-checks.ts` references.
-- [ ] This subsumes the previously-queued Phase 2 follow-up; it ships
+- [x] Same change applied to `/verify` and `/new-feature` for any
+  `pre-commit-checks.ts` references (verify only — new-feature has no
+  such references).
+- [x] This subsumes the previously-queued Phase 2 follow-up; it ships
   in service of the redesign rather than the old runner.
 
 ### PR 4 — delete the orchestrator

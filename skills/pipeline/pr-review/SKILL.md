@@ -34,20 +34,16 @@ by learning from gaps between its findings and human reviewer feedback.
 
 # Context
 
-Scripts the consumer repo is expected to ship at `scripts/` (substitute the equivalent in
-projects that name them differently):
+Helpers (installed globally by `flow setup` and on PATH):
 
-- `scripts/fetch-pr-review.ts` — fetches PR metadata, description, changed files, review
+- `flow-fetch-pr-review` — fetches PR metadata, description, changed files, review
   summaries, and inline comments from GitHub
-- `scripts/pre-commit-checks.ts` — auto-detects scope, runs format + checks, reports pass/fail
-- `scripts/reply-pr-comments.ts` — batch-posts replies to PR review comments
+- `flow-pre-commit` — auto-detects scope, runs format + checks, reports pass/fail
+- `flow-reply-pr-comments` — batch-posts replies to PR review comments
 
-If a project doesn't have these scripts, fall back to `gh pr view`, `gh pr diff`, and the
-project's npm scripts directly. The skill workflow is the value; the scripts are just
-helpers.
-
-- **Runtime:** When the project uses `#!/usr/bin/env bun` shebangs in `scripts/`, run with
-  **Bun** — do not substitute `node`, `npx tsx`, or other Node runtimes.
+If `flow setup` has not been run on this machine, fall back to `gh pr view`, `gh pr diff`,
+and the project's npm scripts directly. The skill workflow is the value; the binaries are
+just helpers.
 
 Reference files (read on demand, not upfront):
 
@@ -72,10 +68,10 @@ number from URLs like `https://github.com/owner/repo/pull/100`.
 
 ## 2. Fetch and Pre-Flight
 
-Run the fetch script:
+Run the fetch helper:
 
 ```bash
-./scripts/fetch-pr-review.ts $ARGUMENTS
+flow-fetch-pr-review $ARGUMENTS
 ```
 
 Then perform pre-flight checks on the output:
@@ -145,9 +141,7 @@ The 4 agents:
 | **Test Coverage**       | Missing tests, untested edges, test quality, env setup      | Test Environment                            |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
-`decoration`, `confidence`, `subject`, `body`, and (when running in
-[machine-readable output mode](#machine-readable-output-mode-orchestrator-driven))
-`kind: "code" | "architectural"` — see the rubric in that section.
+`decoration`, `confidence`, `subject`, `body`.
 
 Wait for all 4 agents to complete before proceeding.
 
@@ -191,14 +185,11 @@ The multi-agent review exists to catch real issues — not to produce a report. 
 finding in the filtered set (Step 5), you must either fix it now or escalate it to a
 durable tracker. Silently listing findings in the report without action is a failure mode.
 
-**Pre-flight mode assertion (do not skip).** Before any deferral reasoning, confirm the
-mode. The "no auto-fix" override lives in [Machine-readable output mode](#machine-readable-output-mode-orchestrator-driven)
-and applies *only* when the env var `RESULT_JSON_PATH` is set by the orchestrator. If
-`RESULT_JSON_PATH` is unset (any interactive `/pr-review <PR>` invocation), you are in
-fix-now mode — you MUST attempt the edits. Specifically:
+**Pre-flight mode assertion (do not skip).** You are in fix-now mode — you MUST attempt
+the edits. Specifically:
 
-- Do **not** preemptively decide that a hook, permission rule, or "machine-readable
-  mode" will block writes. None of those apply unless `RESULT_JSON_PATH` is set.
+- Do **not** preemptively decide that a hook or permission rule will block writes — none
+  apply.
 - Do **not** infer a block from the worktree path (e.g. `flow-agent-*` worktrees are
   ordinary git worktrees; they have no special write protection).
 - Make a real `Edit` / `Write` tool call. If — and only if — the tool returns an error,
@@ -275,10 +266,10 @@ every suggestion is worse than thoughtfully declining some.
 Run the pre-commit checks with the PR number:
 
 ```bash
-./scripts/pre-commit-checks.ts --pr <pr-number>
+flow-pre-commit --pr <pr-number>
 ```
 
-The script auto-detects changed areas (frontend, backend, scripts), runs `npm run format`
+The helper auto-detects changed areas (frontend, backend, scripts), runs `npm run format`
 first, then each check separately with structured pass/fail output.
 
 A non-zero exit code means a check failed. Do not explain it away — investigate, fix the
@@ -381,10 +372,10 @@ the new items before producing the final report.
 
 ## 10. Reply to PR Comments (Address mode only)
 
-Construct a JSON array of replies and pipe it to the reply script:
+Construct a JSON array of replies and pipe it to the reply helper:
 
 ```bash
-echo '<json-array>' | ./scripts/reply-pr-comments.ts <pr-number>
+echo '<json-array>' | flow-reply-pr-comments <pr-number>
 ```
 
 Each entry: `{"comment_id": <id>, "body": "<reply>"}`.
@@ -667,95 +658,6 @@ must appear in one of the two buckets. If no findings were deferred, say so expl
 ("No findings deferred").
 
 Commit any changes with a clear message referencing the PR number, then present the report.
-
-# Machine-readable output mode (orchestrator-driven)
-
-The flow orchestrator's `review` phase invokes this skill via `claude -p` and needs a
-deterministic, parseable result so it can branch (clean → advance, critical-code →
-loop back to implement(fix), architectural → escalate to needs-human). When the wrapper
-prompt supplies `RESULT_JSON_PATH=<absolute-path>`, this skill operates in **review-only
-machine mode** with the following overrides. Interactive `/pr-review <PR>` invocations
-(no `RESULT_JSON_PATH`) behave exactly as the rest of this document describes; this
-section only changes behaviour when that variable is set.
-
-## Mode overrides
-
-When `RESULT_JSON_PATH` is set:
-
-1. **Force Review mode.** Skip Step 3's mode-detection — always proceed as if no
-   inline comments existed. The orchestrator never wants Address mode behaviour.
-2. **No auto-fix.** Step 7 is suppressed entirely: do NOT modify code, do NOT commit,
-   do NOT push. The orchestrator routes fixes through a separate `implement(fix)` phase
-   that owns the commit and the verify-gate. Auto-fixing here would race that phase.
-3. **No address-mode flows.** Skip Steps 6, 8, and 10 (retrospective, comment-by-comment
-   address, replies to comments) — they only apply when there are existing reviewer
-   comments to address, and the orchestrator's caller is an LLM not a human reviewer.
-4. **No formal `gh pr review` submission.** Use only the inline-comments path from
-   Step 11 (`gh api repos/.../pulls/<n>/comments`). The Approved / Requested-changes
-   banner is wrong for an orchestrator-driven self-review.
-5. **Skip Step 9 (pre-commit checks).** Nothing was committed; there is nothing to verify.
-6. **Skip Step 12e PR-description edits.** The orchestrator owns the PR body via the
-   gate phase; the review skill must not race it. Findings about the description go in
-   the JSON output as minor findings, not into a `gh pr edit`.
-7. **Still produce the human-readable report from Step 13** as your final assistant
-   message — useful for jsonl log inspection — but the orchestrator parses the JSON
-   file, not stdout.
-
-## JSON output contract
-
-After Step 11 (inline comments posted), write the following JSON shape to
-`RESULT_JSON_PATH`. Create parent directories if they don't exist.
-
-```json
-{
-  "summary": "string — one-paragraph overview the orchestrator records in phase outputs",
-  "critical": [
-    {
-      "kind": "code",
-      "file": "src/foo.ts",
-      "line": 42,
-      "summary": "string — short title",
-      "body": "string — full conventional-comment body"
-    }
-  ],
-  "minor": [
-    {
-      "file": "src/foo.ts",
-      "line": 73,
-      "summary": "string",
-      "body": "string"
-    }
-  ]
-}
-```
-
-A finding belongs in `critical` if and only if you would block the PR on it (label
-`issue` or `todo` with `decoration: "blocking"`). All other surfaced findings (including
-non-blocking issues, suggestions, nitpicks, praise) go in `minor`. Drop low-confidence
-and filler findings exactly as Step 5 already requires — the JSON should reflect what
-you posted as inline comments, no more.
-
-## `kind` discriminator (critical findings only)
-
-Every entry in `critical` MUST carry `kind: "code" | "architectural"`. This is the load-
-bearing field — the orchestrator uses it to decide whether looping implement(fix) can
-help.
-
-- `kind: "code"` — a code-level issue an implementer can fix without rethinking the
-  plan: a wrong null-check, a missing guard, a leaked resource, a logic error, a
-  missing test, a security bug whose fix is local. The PRD/plan is sound; the code
-  doesn't match it. Looping implement(fix) against this *will* converge.
-- `kind: "architectural"` — the *plan itself* is wrong. The wrong layer is doing the
-  work, the chosen abstraction can't represent the requirement, the design conflicts
-  with a load-bearing constraint elsewhere in the system. No amount of re-implementing
-  helps because the target is wrong. Examples: "this entire module should live in the
-  worker, not the request path"; "the chosen schema can't express the polymorphism the
-  callers need"; "this introduces a circular dependency between domains that the
-  architecture doc forbids."
-
-When in doubt, prefer `code` — `architectural` short-circuits the loop-back and routes
-to a human, so reserve it for findings that genuinely can't be fixed by another
-implement pass.
 
 # Anti-Patterns
 
