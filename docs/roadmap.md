@@ -62,7 +62,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **PR 1 — global install + shell wrapper** | `flow setup`, `flow new`, `flow ls`, `flow attach`, `flow done`, `flow migrate` | ✅ shipped (#41) |
 | **PR 2 — `/flow-pipeline` supervisor skill** | The new pipeline-as-skill that replaces the Node runner + 8 phases | ✅ shipped (#42) |
 | **PR 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | ✅ shipped (#44) |
-| **PR 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ⬜ queued |
+| **PR 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ✅ shipped (#47) |
 | **PR 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
 | **PR 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ⬜ queued |
 | **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | ✅ shipped (#46) |
@@ -783,17 +783,28 @@ Done when:
 
 ### PR 4 — delete the orchestrator
 
-Status: ⬜ queued.
+Status: ✅ shipped (#47).
 
 Done when:
 
-- [ ] All files listed under "Fully delete" above are removed (except
-  `src/install/` which goes in PR 5).
-- [ ] `src/cli.ts` no longer registers `start`, `run`, `run-all`,
-  `approve`, `revise`, `log`, `status`. Only the new shell-verb
-  passthroughs from PR 1 (and `install`, until PR 5) remain.
-- [ ] `npm run typecheck` and `npm run test` are clean.
-- [ ] README is rewritten around the tmux flow.
+- [x] All files listed under "Fully delete" above are removed (except
+  `src/install/` which goes in PR 5). Also removes the support modules
+  that became dead code once the pipeline went away —
+  `src/state/`, `src/status/`, `src/cost.ts`, `src/cost.fixtures/`,
+  `src/util/{notify,jsonl-sink,respawn,run-all-logger,logger}.ts`,
+  `src/commands/resolve-prompt.ts`, and the `findCanonicalRoot` /
+  `resolveTaskInput` helpers in `src/util/git.ts` (only `findGitRoot`
+  is still used by `install`).
+- [x] `src/cli.ts` no longer registers `start`, `run`, `run-all`,
+  `approve`, `revise`, `log`, `status`. Only the `install` command
+  remains (deleted in PR 5).
+- [x] `bin/flow` wrapper's `OLD_VERBS` set trimmed to just `install`,
+  so `flow start` / `flow run` / etc. now print
+  `flow: unknown verb '<verb>'` from the wrapper itself rather than
+  passing through to a commander that no longer knows them.
+- [x] `npm run typecheck`, `npm run typecheck:scripts`, and `npm run
+  test` are clean (381 tests pass).
+- [x] README is rewritten around the tmux flow.
 
 ### PR 5 — delete obsolete pipeline skills + retire per-repo install
 
@@ -1195,14 +1206,25 @@ Done when:
 - [x] Useful primarily for Claude Code crashes; for laptop sleep, the
   session usually resumes naturally.
 
-### PR 10 (optional) — notifications
+### PR 10 — notifications
 
-Status: ⏸ optional. Carry-forward from shipped PR 17.
+Status: 🚧 in review. Carry-forward from shipped PR 17.
 
 Done when:
 
-- [ ] The supervisor calls `terminal-notifier` (or `osascript`) on
-  `NEEDS HUMAN`, `MERGED`, `gated`. Opt-in via env var.
+- [x] The supervisor calls `terminal-notifier` (or `osascript`) on
+  `NEEDS HUMAN`, `MERGED`, `gated`. Opt-in via `FLOW_NOTIFY=1`.
+- [x] New helper `bin/flow-notify.ts`: parses `--status`, `--slug`,
+  `--reason`, `--url`; resolves backend (`terminal-notifier` →
+  `osascript` fallback); spawns detached + fire-and-forget so a
+  notifier failure never blocks the supervisor's terminal print.
+  Auto-installed by `flow setup`'s `discoverHelpers`.
+- [x] `skills/pipeline/flow-pipeline/SKILL.md` gains a
+  `Notifications` section documenting the contract, plus injected
+  call sites at step 9 (gated, externally-merged), step 10 (merged),
+  and the failure-paths block (every `NEEDS HUMAN` escalation).
+- [x] `cancelled` is intentionally not a notify status — cancellation
+  is user-initiated.
 
 ---
 

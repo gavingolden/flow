@@ -1,4 +1,0 @@
-{"type":"system","subtype":"init","session_id":"abc"}
-{"type":"assistant","message":{"id":"x"}}
-{"type":"result","subtype":"success","is_error":false,"duration_ms":12345,"total_cost_usd":0.4203,"usage":{"input_tokens":10,"output_tokens":5}}
-{"ts":"2026-04-29T12:00:00.000Z","kind":"result","status":"ok"}
