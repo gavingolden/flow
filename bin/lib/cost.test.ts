@@ -81,6 +81,18 @@ describe(seedMatchesSlug, () => {
     const slug = "proceed-with-pr-6-in-the-roadmap-if-the";
     expect(seedMatchesSlug(`Use the /flow-pipeline skill for: ${desc}`, slug)).toBe(true);
   });
+
+  it("matches the resume-mode seed prompt format", () => {
+    // `flow new --resume <slug>` seeds the supervisor with this prompt; the
+    // resumed JSONL must still attribute back to the same pipeline so cost
+    // counts both the pre-crash and post-resume sessions.
+    expect(
+      seedMatchesSlug(
+        "Use the /flow-pipeline skill in --resume mode for: add-csv-export",
+        "add-csv-export",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe(computeCost, () => {
@@ -250,6 +262,50 @@ describe(computeCost, () => {
     ]);
     const cost = await computeCost(state(), tmpRoot);
     expect(cost.total).toBeCloseTo(3, 6);
+  });
+
+  it("sums across all matching JSONLs when a pipeline has multiple sessions (resume)", async () => {
+    // `flow new --resume` spawns a fresh Claude session and writes a second
+    // JSONL whose seed-prompt also extracts back to the same slug. Cost must
+    // include both pre-crash and post-resume sessions, plus aggregate
+    // per-model totals and unknown-model markers across them.
+    writeJsonl("pre-crash.jsonl", [
+      seedEvent(),
+      assistant("claude-opus-4-7", {
+        input_tokens: 1_000_000,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      }),
+      assistant("claude-experimental-future", {
+        input_tokens: 1_000_000,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      }),
+    ]);
+    writeJsonl("post-resume.jsonl", [
+      seedEvent(`Use the /flow-pipeline skill in --resume mode for: ${SLUG}`),
+      assistant("claude-opus-4-7", {
+        input_tokens: 0,
+        output_tokens: 1_000_000,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      }),
+      assistant("claude-sonnet-4-6", {
+        input_tokens: 1_000_000,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      }),
+    ]);
+    const cost = await computeCost(state(), tmpRoot);
+    // Opus: $15 (input) + $75 (output) = $90; Sonnet: $3; total $93.
+    expect(cost.total).toBeCloseTo(93, 6);
+    expect(cost.byModel["claude-opus-4-7"]).toBeCloseTo(90, 6);
+    expect(cost.byModel["claude-sonnet-4-6"]).toBeCloseTo(3, 6);
+    expect(cost.unknownModels).toEqual(["claude-experimental-future"]);
+    expect(cost.hasData).toBe(true);
   });
 });
 

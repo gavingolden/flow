@@ -63,7 +63,15 @@ export async function buildRows(
 
   const rows: Row[] = [];
 
-  for (const state of states) {
+  // Compute costs for all pipelines in parallel — each call streams a JSONL
+  // and reads a directory, so sequential awaits would scale linearly with
+  // active pipelines (six concurrent windows is an expected case).
+  const costs = opts.cost
+    ? await Promise.all(states.map((s) => computeCost(s, projectsRoot)))
+    : null;
+
+  for (let i = 0; i < states.length; i++) {
+    const state = states[i];
     const window = windowByName.get(state.slug);
     rows.push({
       name: state.slug,
@@ -71,7 +79,7 @@ export async function buildRows(
       pr: state.pr ? `#${state.pr}` : "—",
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
       annotation: window ? "" : "(no window)",
-      cost: opts.cost ? await computeCost(state, projectsRoot) : undefined,
+      cost: costs ? costs[i] : undefined,
     });
   }
 
