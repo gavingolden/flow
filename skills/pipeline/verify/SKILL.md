@@ -25,28 +25,26 @@ Run all relevant pre-commit checks, fix any failures, and re-run until every che
 
 # Context
 
-- The repo provides a pre-commit checks script (commonly `scripts/pre-commit-checks.ts`)
-  that auto-detects scope, runs format + checks, and reports pass/fail.
-- If the script doesn't exist, fall back to invoking the relevant `npm run` scripts directly
-  (e.g., `npm run check`, `npm run lint`, `npm run test`).
-- **Runtime:** If the project ships a `scripts/` directory using `#!/usr/bin/env bun`, run
-  with **Bun** — do not substitute `node`, `npx tsx`, or other Node runtimes.
+- `flow-pre-commit` (installed globally by `flow setup` and on PATH) auto-detects scope,
+  runs format + checks, and reports pass/fail.
+- If the binary isn't on PATH, fall back to invoking the relevant `npm run` scripts
+  directly (e.g., `npm run check`, `npm run lint`, `npm run test`).
 
 # Instructions
 
-## 1. Run the Pre-Commit Checks Script
+## 1. Run the Pre-Commit Checks
 
 ```bash
-./scripts/pre-commit-checks.ts $ARGUMENTS
+flow-pre-commit $ARGUMENTS
 ```
 
-If `$ARGUMENTS` is empty, the script should auto-detect scope from `git diff HEAD`. If the
-project doesn't have this script, run the equivalent npm scripts in sequence and stop on
+If `$ARGUMENTS` is empty, the helper auto-detects scope from `git diff HEAD`. If
+`flow-pre-commit` isn't available, run the equivalent npm scripts in sequence and stop on
 the first failure.
 
 ## 2. Interpret Results
 
-- The script exits 0 if all checks pass, 1 if any fail.
+- The helper exits 0 if all checks pass, 1 if any fail.
 - Failed checks include their output inline — read it to identify the failing file/test.
 
 ## 3. Fix Failures

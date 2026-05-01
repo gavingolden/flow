@@ -384,9 +384,8 @@ Invoke `/pr-review` in-process with the PR number:
 /pr-review <PR>
 ```
 
-**Native invocation** — no `RESULT_JSON_PATH` or other machine-mode
-flags. The skill auto-detects Address vs Review mode from the
-existing PR state and:
+The skill auto-detects Address vs Review mode from the existing PR
+state and:
 
 - In Address mode (existing inline review comments to address):
   resolves each, commits, pushes.
