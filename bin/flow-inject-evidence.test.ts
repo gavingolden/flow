@@ -241,6 +241,84 @@ describe("rewriteBody", () => {
     expect(result.body).toContain("  - [x] indented item");
   });
 
+  it("inserts evidence after the last continuation line of a multi-line bullet", () => {
+    // Regression: the helper used to splice evidence on the line
+    // immediately after `matchIdx`, splitting a multi-line bullet so
+    // the continuation lines were orphaned past `</details>`. Result:
+    // the bullet's prose visibly broke at the seam on the rendered
+    // PR. Evidence must always land *after* the bullet, never inside.
+    const multiLine = [
+      "## Test Steps",
+      "",
+      '- [ ] `grep -rn "Manual"` returns',
+      "      only matches inside this PR's diff context — no surviving live",
+      "      references.",
+      "- [ ] another bullet",
+    ].join("\n");
+    const result = rewriteBody(
+      multiLine,
+      {
+        bodyFile: "",
+        outputFile: "",
+        item: "grep -rn",
+        exitCode: 0,
+        timestamp: TS,
+      },
+      "8 lines remain",
+    );
+    if (!result.ok) throw new Error(result.error);
+    const lines = result.body.split("\n");
+    const tickIdx = lines.findIndex((l) => l.includes('- [x] `grep -rn'));
+    const refIdx = lines.findIndex((l) => l.includes("references."));
+    const detailsIdx = lines.findIndex((l) => l.includes("<!-- flow:evidence -->"));
+    const nextBulletIdx = lines.findIndex((l) => l === "- [ ] another bullet");
+    expect(tickIdx).toBeGreaterThanOrEqual(0);
+    expect(refIdx).toBeGreaterThan(tickIdx);
+    expect(detailsIdx).toBeGreaterThan(refIdx);
+    expect(nextBulletIdx).toBeGreaterThan(detailsIdx);
+  });
+
+  it("re-runs idempotently on a multi-line bullet whose evidence sits past the continuation", () => {
+    const multiLine = [
+      "## Test Steps",
+      "",
+      '- [ ] `grep -rn "Manual"` returns',
+      "      only matches inside this PR's diff context — no surviving live",
+      "      references.",
+    ].join("\n");
+    const first = rewriteBody(
+      multiLine,
+      {
+        bodyFile: "",
+        outputFile: "",
+        item: "grep -rn",
+        exitCode: 0,
+        timestamp: "2026-05-02T00:00:00Z",
+      },
+      "first run",
+    );
+    if (!first.ok) throw new Error(first.error);
+    const second = rewriteBody(
+      first.body,
+      {
+        bodyFile: "",
+        outputFile: "",
+        item: "grep -rn",
+        exitCode: 0,
+        timestamp: "2026-05-02T01:00:00Z",
+      },
+      "second run",
+    );
+    if (!second.ok) throw new Error(second.error);
+    expect(second.replaced).toBe(true);
+    expect(second.body).toContain("second run");
+    expect(second.body).not.toContain("first run");
+    expect(second.body).toContain("references.");
+    expect(
+      (second.body.match(/<!-- flow:evidence -->/g) ?? []).length,
+    ).toBe(1);
+  });
+
   it("inserts a fresh block instead of repairing an orphaned open marker", () => {
     // Hand-edited or interrupted prior write: marker is present but the
     // closing </details> was lost. The helper must not claim to have

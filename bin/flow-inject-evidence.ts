@@ -115,26 +115,75 @@ export function buildEvidenceBlock(
   ].join("\n");
 }
 
+/**
+ * Scan from a list-item head line forward to the index of its last
+ * continuation line. CommonMark/GFM rule: continuations are blank
+ * lines or lines indented past the bullet marker. We treat any
+ * non-blank line indented to `bulletIndent + 2` or deeper as part of
+ * the same item; a blank line is tolerated only if a later indented
+ * line follows. Anything else (another bullet at the same indent, an
+ * unindented paragraph, the next `## ` heading, EOF) terminates.
+ *
+ * If `headIdx` is not a `- ` bullet, returns `headIdx` unchanged.
+ */
+function findListItemEnd(lines: string[], headIdx: number): number {
+  const head = lines[headIdx];
+  const headMatch = head.match(/^(\s*)-\s/);
+  if (!headMatch) return headIdx;
+  const continuationMin = headMatch[1].length + 2;
+
+  let lastContent = headIdx;
+  let i = headIdx + 1;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") {
+      i++;
+      continue;
+    }
+    const lineIndent = line.length - line.trimStart().length;
+    if (lineIndent >= continuationMin) {
+      lastContent = i;
+      i++;
+      continue;
+    }
+    break;
+  }
+  return lastContent;
+}
+
+/**
+ * Locate a prior evidence block attached to the bullet at `matchIdx`.
+ * The marker can appear directly under the bullet head (single-line
+ * item, legacy layout) or after the bullet's continuation lines
+ * (multi-line item, current layout). Search runs from the line after
+ * the list item's end through any blanks until the first non-blank
+ * line, which must carry MARKER_OPEN. Returns the line index of the
+ * block's `</details>` close, or `null` if no clean block exists.
+ *
+ * If MARKER_OPEN is present but the closing `</details>` is missing,
+ * the body was hand-edited or a prior write was interrupted —
+ * treated as "no existing block" so the caller inserts a fresh one
+ * and the orphan stays visible for the human to clean up.
+ */
 function findExistingBlockEnd(lines: string[], matchIdx: number): number | null {
-  let i = matchIdx + 1;
+  const itemEnd = findListItemEnd(lines, matchIdx);
+  let i = itemEnd + 1;
   while (i < lines.length && lines[i].trim() === "") i++;
   if (i >= lines.length || !lines[i].includes(MARKER_OPEN)) return null;
   while (i < lines.length) {
     if (lines[i].includes("</details>")) return i;
     i++;
   }
-  // Marker present but no closing `</details>` — body was hand-edited
-  // or a prior write was interrupted. Don't try to repair it; treat
-  // as "no existing block" so the caller inserts a fresh one and
-  // leaves the orphan visible for the human to clean up.
   return null;
 }
 
 /**
  * Find the first line matching `args.item` (interpreted as a JS regex,
  * tested against each line). On match: tick `- [ ]` → `- [x]` if the
- * exit code is 0; replace any existing evidence block immediately
- * below; insert a fresh evidence block on the next line.
+ * exit code is 0; replace any existing evidence block attached to the
+ * matched bullet; insert a fresh evidence block after the bullet's
+ * last continuation line. Multi-line bullets keep their continuation
+ * intact — evidence never splits a list item.
  */
 export function rewriteBody(
   body: string,
@@ -157,15 +206,18 @@ export function rewriteBody(
     }
   }
 
+  const itemEnd = findListItemEnd(lines, matchIdx);
   const blockEnd = findExistingBlockEnd(lines, matchIdx);
   const replaced = blockEnd !== null;
   if (replaced) {
-    lines.splice(matchIdx + 1, blockEnd - matchIdx);
+    // Drop everything from the line after the list item through the
+    // closing </details>, including any blank lines between them.
+    lines.splice(itemEnd + 1, blockEnd - itemEnd);
   }
 
   const ts = args.timestamp ?? new Date().toISOString();
   const evidence = buildEvidenceBlock(output, args.exitCode, ts);
-  lines.splice(matchIdx + 1, 0, ...evidence.split("\n"));
+  lines.splice(itemEnd + 1, 0, ...evidence.split("\n"));
 
   return { ok: true, body: lines.join("\n"), replaced, ticked };
 }
