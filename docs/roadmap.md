@@ -597,13 +597,14 @@ everywhere automatically.
 
 ### Cleanup of the global old `npm link`
 
-`flow setup` overwrites the old `npm link`-installed `flow` binary
-cleanly. No manual `npm unlink` needed — but for the paranoid:
-
-```sh
-cd ~/code/flow && npm unlink && rm -f $(which flow)
-flow setup
-```
+If flow was ever installed via `npm link` (or `npm install -g`)
+**before** the `bin` field was removed from `package.json`, the
+npm-managed symlink at `$(npm prefix -g)/bin/flow` lingers and can
+shadow `~/.local/bin/flow` — silently keeping the deleted
+`dist/cli.js` resolvable. `npm uninstall -g flow` is a required
+step before `flow setup`. See
+[`docs/migration.md`](migration.md#cleaning-up-the-global-npm-link)
+for the full recipe (single source of truth — update there).
 
 ### What survives migration intentionally
 
