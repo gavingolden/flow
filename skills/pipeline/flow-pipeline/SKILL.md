@@ -11,8 +11,6 @@ description: >-
   sub-agent.
 argument-hint: '"<feature description>"'
 disable-model-invocation: true
-model: claude-sonnet-4-6
-effort: medium
 ---
 
 # Goal
@@ -374,22 +372,6 @@ log appended to the prompt:
 
 PRIOR ATTEMPT FAILED — failure log:
 <truncated log; cap 200 lines / 100 matched-error lines>
-```
-
-**Model escalation on retry.** Attempt 1 runs `/verify` at its
-declared model (Sonnet 4.6, `effort: medium`). Attempts 2 and 3
-escalate to **Opus 4.7 / `effort: xhigh`** by passing those overrides
-when invoking the skill — the failures Sonnet/medium couldn't fix
-on the first pass are exactly the long-tail cases Opus is worth
-spending on. The override is per-invocation; it does not mutate
-the skill's frontmatter. Append a one-line note to the prompt so
-the user can see the escalation in scrollback:
-
-```
-/verify  (model: claude-opus-4-7, effort: xhigh — retry 2/3)
-
-PRIOR ATTEMPT FAILED — failure log:
-<truncated log>
 ```
 
 After three failed outer attempts, escalate `NEEDS HUMAN:

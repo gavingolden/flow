@@ -65,7 +65,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ✅ shipped (#47) |
 | **Item 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
 | **Item 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ✅ shipped (#51) |
-| **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ✅ shipped (#46) |
+| **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ⬜ queued |
 | **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ⬜ queued |
 | **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
 | **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ✅ shipped (#53) |
@@ -966,11 +966,11 @@ Design deviations from the original spec:
 
 ### Item 7 — per-skill model + effort tuning
 
-Status: ✅ shipped (#46). Carry-forward from queued Phase 5 Item 20.
+Status: ⬜ queued. Carry-forward from queued Phase 5 Item 20.
 
 Done when:
 
-- [x] Skills under `skills/pipeline/` and agents under `agents/` declare
+- [ ] Skills under `skills/pipeline/` and agents under `agents/` declare
   `model:` and `effort:` in frontmatter where it matters:
   - `flow-pipeline` — Sonnet 4.6, `medium` (orchestration; control-
     flow judgment doesn't need Opus).
@@ -980,48 +980,12 @@ Done when:
   - `pr-review` sub-agents (promoted to `agents/`): Opus for
     bug+security at `xhigh`; Sonnet for pattern+test-coverage at
     `high`/`medium`.
-- [x] The `agents/` directory is symlinked by `flow setup` into
-  `~/.claude/agents/` (the symlink wiring shipped with Item 1's
-  `flow setup`; Item 7 is the first PR to actually populate the
-  directory, so a `flow setup --upgrade` after merge lights up the
-  4 promoted agents in `~/.claude/agents/`).
-- [x] Verify-retry escalation: when `/verify` fails inside the
+- [ ] The `agents/` directory is symlinked by `flow setup` into
+  `~/.claude/agents/`.
+- [ ] Verify-retry escalation: when `/verify` fails inside the
   supervisor's loop, the next attempt runs at Opus/`xhigh`. Logic
-  lives in `/flow-pipeline`'s SKILL.md step 6, since Node retry no
-  longer exists. The override is passed per-invocation (model +
-  effort overrides on the skill call) and does not mutate the
-  skill's frontmatter — Sonnet/medium remains the default for
-  attempt 1.
-
-#### Known issues / follow-ups (surfaced by `/pr-review` on PR #46)
-
-- **Task-tool contract collision between `/pr-review` step 4 and
-  `/flow-pipeline` hard rules.** `pr-review`'s step 4 now invokes the
-  4 promoted agents via the `Task` / `Agent` tool, but `flow-pipeline`'s
-  hard rules (SKILL.md lines 57-60) and verification (SKILL.md line 545)
-  forbid the supervisor from ever using `Task`. When step 8 of the
-  pipeline loads `/pr-review` in-process, the supervisor's own hard
-  rule blocks the new fan-out. **Revisit trigger:** before Item 11
-  (`pr-review` unified mode) — that PR re-touches step 4 and is the
-  natural point to either (a) carve out an explicit Task exception in
-  `flow-pipeline` for the review phase or (b) document a
-  no-Task fallback path in `pr-review` for both supervisor and
-  standalone-without-Task contexts. Why deferred: picking between
-  the two requires a design decision on whether the supervisor's
-  "single LLM container" invariant survives or evolves.
-- **Per-invocation model/effort override syntax for `/verify` retry
-  is asserted but not specified.** `flow-pipeline` SKILL.md step 6
-  and the Item 7 done-when bullet describe escalating attempts 2-3 to
-  Opus/`xhigh` "by passing those overrides when invoking the skill"
-  but do not show the syntax Claude Code actually parses (the example
-  prompt-line annotation `(model: …, effort: …)` is an in-prose
-  comment, not a parsed flag). **Revisit trigger:** first time the
-  retry path actually fires in production, or when Item 8 (eval harness)
-  exercises retry loops — verify the override is honoured by checking
-  the model recorded in the per-attempt usage line. Why deferred:
-  resolution depends on Claude Code harness behaviour outside this
-  repo; either the syntax exists and the doc just needs to cite it,
-  or it doesn't and the escalation claim must be removed.
+  lives in `/flow-pipeline`'s SKILL.md, since Node retry no longer
+  exists.
 
 ### Item 8 — eval harness
 
