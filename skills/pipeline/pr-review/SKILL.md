@@ -261,6 +261,81 @@ Otherwise, for each inline comment from the fetch output:
 Push back on comments that are incorrect or would degrade code quality. Blindly accepting
 every suggestion is worse than thoughtfully declining some.
 
+## 7.5. Roadmap Mark-Shipped Sweep
+
+Edit `docs/roadmap.md` in the worktree so the merged-state marker for the current PR (and
+any drifted prior PRs) lands in this PR's own diff, not in a post-merge commit on `main`.
+Carrying the flip in the PR diff is the project convention ("PR self-marks shipped before
+merge, no post-merge drift") — see the `Auto-push exemption: pr-review` clause in
+`AGENTS.md` for the authorising context.
+
+If `docs/roadmap.md` doesn't exist in this repo, this step is a no-op — skip to Step 8.
+
+### 7.5a. Self-mark the current PR's row
+
+Read `docs/roadmap.md`. Find every line containing `(#$PR_NUMBER)` (the PR being reviewed).
+For each match:
+
+- **Table row** (line starts with `|`): locate the cell containing `(#$PR_NUMBER)` and
+  replace its full contents with ` ✅ shipped (#$PR_NUMBER) ` — single leading and trailing
+  space inside the cell pipes, matching the existing roadmap convention. Preserve all other
+  cells verbatim.
+- **`Status:` line** (line matches `^Status:`): replace the entire line with
+  `Status: ✅ shipped (#$PR_NUMBER).`
+
+If no line contains `(#$PR_NUMBER)`, log "no roadmap row for current PR; skipping
+self-mark" and continue to 7.5b — many PRs (chores, hotfixes, dep bumps) aren't roadmap
+items and that's fine. Do not create a row that didn't exist.
+
+If multiple table rows match, flip all of them (a PR can legitimately span items). The
+old `flow-roadmap-mark-shipped` helper refused ambiguous matches with exit code 2; that
+defensive posture made sense for an out-of-process post-merge sweep but is unnecessary
+here — the change is in the PR diff, so the human reviewer (or auto-merge gate) sees the
+flip count before merge.
+
+The edit is idempotent: rows already showing `✅ shipped (#$PR_NUMBER)` produce no diff.
+
+### 7.5b. Sweep drifted rows from prior PRs
+
+Find every line in `docs/roadmap.md` matching `🚧 in review (#N)` for any N other than
+`$PR_NUMBER`. For each such N, look up the PR's state:
+
+```bash
+gh pr view N --json state -q .state
+```
+
+Branch on the result:
+
+- `MERGED` — flip the row using the same cell-replacement rule as 7.5a (replace the cell
+  containing `(#N)` with ` ✅ shipped (#N) `; replace any matching `Status:` line with
+  `Status: ✅ shipped (#N).`).
+- `OPEN` — leave the row untouched. The PR is in flight; another supervisor or the same
+  PR's eventual `/pr-review` pass will mark it.
+- `CLOSED` (without merge) — leave the row untouched. The roadmap may still be valid
+  (the work might land via a different PR); a human can decide.
+- `gh` non-zero / 404 (PR doesn't exist) — leave the row untouched. Don't error; some
+  rows reference renumbered or deleted PRs and the sweep should be tolerant.
+
+The sweep is bounded — typically 0–2 drifted rows in practice. Sequential lookups are
+fine; do not parallelise.
+
+### 7.5c. Commit handling
+
+Step 7.5 only edits the file. The diff is included in whatever commit Step 8b produces:
+
+- If pr-review made code fixes in Steps 6/7 and the roadmap edit is the only additional
+  change, bundle into the same fix commit (Step 8b already permits batching).
+- If the roadmap edit is the *only* change pr-review produced (clean PR with no findings,
+  no comments to address), use commit message
+  `chore(roadmap): mark Item N shipped (pr-review #$PR_NUMBER)` where `Item N` is the
+  item number parsed from the matched row's `**Item N` token. If no item number can be
+  parsed, use `chore(roadmap): mark row shipped (pr-review #$PR_NUMBER)`.
+- If the sweep flipped additional rows beyond the self-mark, mention the count in the
+  commit body: `Also swept N drifted row(s) for PRs already merged on main: #X, #Y`.
+
+Do not commit yet — Step 8 owns the commit + push, and Step 8a's pre-commit checks must
+run against the worktree state including this edit.
+
 ## 8. Run Pre-Commit Checks and Commit
 
 Run the pre-commit checks with the PR number:
@@ -697,6 +772,7 @@ Commit any changes with a clear message referencing the PR number, then present 
   GitHub Issue, Linear, etc.) committed in this run — the review report is not a tracker**
 - When inline review comments existed: every comment is addressed or explicitly skipped with reason, replies are posted, and the retrospective + checklist update appear in the report (or the report records "No reviewer comments to retrospect against" when none existed)
 - Findings posted as individual inline review comments via `gh api` on every invocation, including PRs that already have reviewer comments
+- Roadmap self-mark + sweep performed (Step 7.5): when `docs/roadmap.md` exists, the current PR's row is flipped to `✅ shipped (#$PR)` if a row exists, and any `🚧 in review (#N)` rows whose PR is already MERGED are flipped in the same diff
 - Pre-commit checks pass (run individually, not chained)
 - PR description quality check completed
 - Structured report produced using the template format
