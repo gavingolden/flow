@@ -189,7 +189,7 @@ Save to `.flow-tmp/pr-description-draft.md` in the working directory. Create the
 directory first with `mkdir -p .flow-tmp` if it doesn't already exist — `/flow-pipeline`
 worktrees pre-register the path in `.git/info/exclude` so it stays untracked, and a stray
 write at the worktree root would block the post-merge `git worktree remove` in
-`/flow-pipeline` step 10.5. Present the draft to the user for quick confirmation before
+`/flow-pipeline` step 10. Present the draft to the user for quick confirmation before
 proceeding to implementation.
 
 **Rules:**

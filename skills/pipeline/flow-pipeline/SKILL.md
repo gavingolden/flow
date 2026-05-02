@@ -125,8 +125,8 @@ in-process for skills; shell out for scripts; never delegate.
 > per-worktree path inherits the worktree's isolation guarantees for
 > free. The directory is created lazily by whoever writes first
 > (`mkdir -p "$WORKTREE/.flow-tmp"`); cleanup is automatic — `git
-> worktree remove` (run by `flow-remove-worktree` at step 10.5) deletes
-> the whole worktree tree, scratch dir included. The path is registered
+> worktree remove` (run by `flow-remove-worktree` after step 10's
+> merge) deletes the whole worktree tree, scratch dir included. The path is registered
 > in the worktree's per-checkout `.git/info/exclude` by
 > `flow-new-worktree`, so it stays untracked without polluting the
 > consumer repo's `.gitignore`.
@@ -318,9 +318,9 @@ request as the argument:
 draft and writes the consolidated artifact to
 `<worktree>/.flow-tmp/plan.md` (the skill creates `.flow-tmp/` on
 demand). The path lives under `.flow-tmp/` so the post-merge
-`git worktree remove` at step 10.5 doesn't choke on a stray untracked
-file at the worktree root — same reason the supervisor itself writes
-all scratch under `$WORKTREE/.flow-tmp/`.
+`git worktree remove` (run after step 10's merge) doesn't choke on a
+stray untracked file at the worktree root — same reason the supervisor
+itself writes all scratch under `$WORKTREE/.flow-tmp/`.
 
 After it returns, **read `<worktree>/.flow-tmp/plan.md`** and print a
 3-5 line summary to chat (just the problem statement and the task
@@ -384,7 +384,7 @@ mkdir -p "$WORKTREE/.flow-tmp"
 # Compose the PR body (typically copied from .flow-tmp/pr-description-draft.md
 # that /new-feature wrote, then templated with the final commit list). Both
 # the source draft and the rendered body live under .flow-tmp/ so the
-# worktree root stays clean for step 10.5's git worktree remove.
+# worktree root stays clean for the post-merge git worktree remove.
 PR_URL=$(flow-open-pr "$SLUG" \
   --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
   --title "<conventional-commit summary>")
@@ -758,7 +758,7 @@ and `CLOSED` states still take their normal branches.
 | `OPEN` | empty | `true` (default) | Go to step 10 (auto-merge). |
 | `OPEN` | empty | `false` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "auto-merge opted out"`. Print: `GATED:`, the PR URL, and `merge with: gh pr merge --squash <PR>`. End. |
 | `OPEN` | non-empty | (any) | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "<first validation step>"`. Print: `GATED:`, the PR URL, the validation steps verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
-| `MERGED` | (any) | (any) | Already merged externally. Go to step 10.5 (post-merge sweep) — **do not** run `gh pr merge`. After 10.5 returns, run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged ...`, print `MERGED`. End. |
+| `MERGED` | (any) | (any) | Already merged externally. **Do not** run `gh pr merge`. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged ...`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
 | `CLOSED` | (any) | (any) | Call `flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 
 **Defensive cases** (full list in the rubric):
@@ -778,51 +778,12 @@ gh pr merge --squash --delete-branch "$PR"
 
 On `gh pr merge` failure: retry once. If still failing, call
 `flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "merge-failed"`,
-then escalate `NEEDS HUMAN: merge-failed`. Leave the worktree intact
-(do not proceed to step 10.5).
+then escalate `NEEDS HUMAN: merge-failed`. Leave the worktree intact.
 
-On success, continue to step 10.5 (post-merge sweep) **before**
-removing the worktree — so a sweep failure leaves the worktree intact
-for inspection.
-
-## Step 10.5 — Post-merge roadmap sweep
-
-**Phase:** `housekeeping`
-
-Run the helper unconditionally on every successful merge — not gated
-by the Manual-validation rubric. The helper edits `docs/roadmap.md`
-on `main` via `gh api PUT /contents/...`, flipping the merged PR's
-table row + `Status:` line to `✅ shipped (#$PR)`. Idempotent: if
-the row is already `✅ shipped (#$PR)` the helper is a no-op.
-
-```bash
-flow-state-update "$SLUG" --phase housekeeping
-flow-roadmap-mark-shipped --pr "$PR"
-```
-
-**Failure handling: best-effort, non-blocking.** The merge already
-succeeded; metadata sweep that fails should not gate the pipeline's
-terminal state. On non-zero exit:
-
-- Retry once.
-- On second failure, print `WARN: roadmap-sweep-failed code=<N>
-  (manual flip needed)` — include the helper's exit code so the user
-  knows which class of fix applies (see exit-code semantics below).
-  Continue to terminal `MERGED` — do **not** escalate `NEEDS HUMAN`.
-  The user can re-run the helper by hand (`flow-roadmap-mark-shipped
-  --pr <N>`) once the underlying issue (auth, transient 5xx, missing
-  self-mark) clears.
-
-Exit-code semantics from the helper:
-
-- `0` — success (changed or no-op).
-- `2` — argument / no-row / ambiguity. The PR's diff didn't annotate
-  the row, or two rows reference the same PR number. Print the
-  `WARN:` line and continue.
-- `3` — 409 conflict twice. Same handling as `2`: warn and continue.
-- `4` — gh API failure (auth, 5xx). Same handling.
-
-After step 10.5 returns (success or warn), then:
+On success, the roadmap row for this PR was already flipped to
+`✅ shipped (#$PR)` in the PR's own diff by `/pr-review` step 7.5
+(self-mark + sweep), so no post-merge metadata sweep is required.
+Clean up the worktree and finalize:
 
 ```bash
 flow-remove-worktree <slug>
@@ -875,15 +836,14 @@ done?" without any in-process memory.
 |---|---|---|
 | 2 — worktree | `$WORKTREE` is set in state.json **and** the directory exists and is a git checkout | If unset / missing, recreate via `flow-new-worktree`. |
 | 3 — plan | `<worktree>/.flow-tmp/plan.md` exists and is non-empty | If missing, re-invoke `/product-planning`. |
-| 4 — approval | state.json shows `phase` ∈ {`implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
+| 4 — approval | state.json shows `phase` ∈ {`implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
 | 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | If no PR, re-invoke `/new-feature`. |
-| 5.5 — re-symlink | state.json shows `phase` ∈ {`verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} OR `git diff --name-only origin/<default-branch>...HEAD \| grep -E '^(skills\|agents)/'` returns nothing (resolve `<default-branch>` from `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `main`) | If false (additions exist and we crashed before phase advanced), re-run `flow setup --upgrade --source "$WORKTREE"` and check the exit code per step 5.5's end-condition (exit 0 ⇒ done; non-zero ⇒ retry once, then escalate `NEEDS HUMAN: flow-setup-upgrade-failed`). Idempotent — safe to re-run. |
-| 6 — verify | state.json shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-invoke `/verify`. |
+| 5.5 — re-symlink | state.json shows `phase` ∈ {`verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} OR `git diff --name-only origin/<default-branch>...HEAD \| grep -E '^(skills\|agents)/'` returns nothing (resolve `<default-branch>` from `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `main`) | If false (additions exist and we crashed before phase advanced), re-run `flow setup --upgrade --source "$WORKTREE"` and check the exit code per step 5.5's end-condition (exit 0 ⇒ done; non-zero ⇒ retry once, then escalate `NEEDS HUMAN: flow-setup-upgrade-failed`). Idempotent — safe to re-run. |
+| 6 — verify | state.json shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | If false, re-invoke `/verify`. |
 | 7 — ci-wait | PR's checks all reached terminal state | If still pending, re-enter the poll loop. |
 | 8 — review | PR has a `pr-review` commit on HEAD (look for the commit subject prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | If false, re-invoke `/pr-review <PR>`. |
-| 9 — gate | (PR is `MERGED` **and** worktree directory removed) **or** state.json shows `phase: gated` | If false: when PR is `MERGED` but the worktree still exists, re-enter step 9's `MERGED` branch (route to step 10.5, then `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end) — **do not** fall through to step 10 and re-run `gh pr merge` on an already-merged PR. Otherwise re-evaluate the gate. |
-| 10 — merge | PR is `MERGED` (state.json may show `merging` if the supervisor crashed between merge and step 10.5) | If false, re-evaluate the gate; if `MERGED`, jump to step 10.5. |
-| 10.5 — housekeeping | `gh api /repos/.../contents/docs/roadmap.md?ref=main` returns content where the merged PR's row is `✅ shipped (#$PR)` | If false, re-invoke `flow-roadmap-mark-shipped --pr "$PR"` (idempotent — safe to re-run). On warn, continue. |
+| 9 — gate | (PR is `MERGED` **and** worktree directory removed) **or** state.json shows `phase: gated` | If false: when PR is `MERGED` but the worktree still exists, re-enter step 9's `MERGED` branch (run `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end) — **do not** fall through to step 10 and re-run `gh pr merge` on an already-merged PR. Otherwise re-evaluate the gate. |
+| 10 — merge | PR is `MERGED` (state.json may still show `merging` if the supervisor crashed between merge and worktree cleanup) | If false, re-evaluate the gate. The MERGED-with-worktree-still-present case is owned by row 9's `MERGED` branch above, not by re-entering step 10. |
 
 The first row whose "done" condition is **false** is your re-entry
 step. If every row is `true`, the pipeline is in a terminal state
@@ -918,20 +878,15 @@ step. If every row is `true`, the pipeline is in a terminal state
   passed. Their successful exit is observable from disk + PR state.
 - It does not auto-merge a PR that's already in `gated` state — the
   user gated it intentionally.
-- It does not delete a worktree on entry. Worktree cleanup is a
-  step-10.5 effect (or step-9 when the PR was merged externally); if
-  neither ran, the worktree stays.
+- It does not delete a worktree on entry. Worktree cleanup happens
+  after step 10's merge (or in step 9's MERGED branch when the PR
+  was merged externally); if neither ran, the worktree stays.
 - It does not re-run `gh pr merge` on a PR that is already `MERGED`.
   An already-merged PR with the worktree still present resumes into
-  step 9's `MERGED` cleanup branch (route into step 10.5 sweep, then
-  `flow-remove-worktree` + write `phase: merged` + print `MERGED`),
-  not step 10.
-- It does not skip step 10.5 on resume just because phase advanced
-  past `housekeeping`. The roadmap-sweep helper is idempotent — re-
-  running on an already-shipped row is a no-op — so resume always
-  invokes it before declaring `MERGED`. This guarantees a partial-
-  sweep crash (PUT failed mid-pipeline) gets retried on resume
-  without manual intervention.
+  step 9's `MERGED` cleanup branch (run `flow-remove-worktree`, write
+  `phase: merged`, print `MERGED`), not step 10. The roadmap row was
+  flipped to `✅ shipped (#$PR)` in the PR's own diff by `/pr-review`
+  step 7.5, so no post-merge sweep is needed.
 - It does not rewrite state.json on entry. The first transition you
   make from your re-entry step is what updates phase.
 
@@ -1021,7 +976,6 @@ ci-wait
 reviewing
 gating
 merging
-housekeeping            (post-merge roadmap sweep; non-blocking)
 merged                  (terminal)
 ```
 
