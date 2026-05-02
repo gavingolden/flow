@@ -843,7 +843,7 @@ done?" without any in-process memory.
 | 7 — ci-wait | PR's checks all reached terminal state | If still pending, re-enter the poll loop. |
 | 8 — review | PR has a `pr-review` commit on HEAD (look for the commit subject prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | If false, re-invoke `/pr-review <PR>`. |
 | 9 — gate | (PR is `MERGED` **and** worktree directory removed) **or** state.json shows `phase: gated` | If false: when PR is `MERGED` but the worktree still exists, re-enter step 9's `MERGED` branch (run `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end) — **do not** fall through to step 10 and re-run `gh pr merge` on an already-merged PR. Otherwise re-evaluate the gate. |
-| 10 — merge | PR is `MERGED` (state.json may still show `merging` if the supervisor crashed between merge and worktree cleanup) | If false, re-evaluate the gate; if `MERGED`, jump to step 10's post-merge cleanup. |
+| 10 — merge | PR is `MERGED` (state.json may still show `merging` if the supervisor crashed between merge and worktree cleanup) | If false, re-evaluate the gate. The MERGED-with-worktree-still-present case is owned by row 9's `MERGED` branch above, not by re-entering step 10. |
 
 The first row whose "done" condition is **false** is your re-entry
 step. If every row is `true`, the pipeline is in a terminal state
