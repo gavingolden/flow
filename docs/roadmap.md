@@ -70,7 +70,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
 | **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ✅ shipped (#53) |
 | **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | 🚧 in review (#55) |
-| **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ✅ shipped (#58) |
+| **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule (named exception); document that verify-retry escalation is prompt-side only (model + effort do not change per-invocation); re-symlink between phases when the worktree adds skills/agents | ✅ shipped (#58) |
 | **Item 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
 | **Item 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ✅ shipped (#54) |
 | **Item 17 — auto-merge rubric template alignment** | `/product-planning` emits `## How to test`; supervisor's auto-merge rubric requires `## Manual validation`. Mismatch escalates by default. Pick one heading and align both ends. | ⬜ queued |
@@ -167,6 +167,33 @@ isn't lost when the originating review report disappears.
   testability. *Trigger: address opportunistically if the retry
   loop's bound (`MAX_RACE_RETRIES`) ever changes, or alongside the
   file-split followup above.*
+
+### From PR 58 review
+
+- **`flow setup --upgrade` ignores worktree-local source for PRs
+  against flow itself.** `bin/lib/setup.ts` accepts a programmatic
+  `flowSource` override, but `runSetupVerb` in `bin/flow` does not
+  expose it. `resolveFlowSource()` (`bin/lib/paths.ts`) derives the
+  source from the *installed* binary's canonical path, so step 5.5's
+  re-symlink reads from the original install root and silently misses
+  any new skills/agents added in the worktree. Add `flow setup
+  --source <path>` (or an env override picked up before
+  `resolveFlowSource()`) and have `/flow-pipeline` step 5.5 pass
+  `--source "$WORKTREE"`. Deferred: meaningful design decision (flag
+  vs env vs config) plus a code change that touches `bin/flow` +
+  `bin/lib/setup.ts` + tests. *Trigger: before the next flow PR that
+  adds a new skill or agent, or alongside Item 15(c)'s flock work
+  since both touch the setup CLI shape.*
+- **`flow setup --upgrade` exits 0 on `summary.blocked > 0`.**
+  `bin/flow:140-145` returns 0 unconditionally regardless of
+  `runSetup`'s summary. Step 5.5 currently parses the printed
+  `<N> blocked` token to detect this; once the verb wires
+  `summary.blocked > 0 → exit 1`, the supervisor's
+  blocked-summary parsing in step 5.5 can collapse back to a plain
+  exit-code check. Deferred: small but separable change; better as
+  its own commit so step 5.5's contract change is visible in isolation.
+  *Trigger: bundle with the `--source` flag work above, or the next
+  time `bin/flow` setup-handling is touched.*
 
 ---
 

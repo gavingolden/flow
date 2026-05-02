@@ -89,9 +89,10 @@ met:
 |---|---|---|
 | 2 — worktree | the worktree path recorded in `~/.flow/state/<slug>.json` (originally printed by `flow-new-worktree`) exists and is a git checkout | yes |
 | 3 — plan | `<worktree>/plan.md` exists and is non-empty | yes |
-| 4 — approval | `state.json` shows `phase` ∈ {`implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | yes |
+| 4 — approval | `state.json` shows `phase` ∈ {`implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | yes |
 | 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | yes |
-| 6 — verify | `state.json` shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | yes |
+| 5.5 — re-symlink | `state.json` shows `phase` ∈ {`verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} OR the worktree's `git diff --name-only origin/<default-branch>...HEAD` adds nothing under `skills/` or `agents/` (resolve `<default-branch>` from `git symbolic-ref refs/remotes/origin/HEAD`) | yes (idempotent — safe to re-run `flow setup --upgrade` regardless) |
+| 6 — verify | `state.json` shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | yes |
 | 7 — ci-wait | PR's checks all reached terminal state | yes |
 | 8 — review | PR has a `pr-review` commit on HEAD (look for the conventional commit prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | yes |
 | 9 — gate | PR is `MERGED` or `state.json` shows `phase: gated` | yes |
