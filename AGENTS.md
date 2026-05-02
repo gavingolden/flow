@@ -183,8 +183,15 @@ no compile step.
   `~/.flow/state/<slug>.json` are the state store until the queue gets
   unwieldy (then we swap in Beads via an adapter — see `docs/roadmap.md`
   "Future stretch").
-- Don't auto-commit or auto-push without an explicit user instruction.
-  Creating PRs counts as user-visible action — confirm before pushing.
+- Don't auto-commit or auto-push outside an explicit user instruction.
+  **A user invoking a code-editing skill (`/new-feature`, `/refactoring`,
+  `/pr-review`, `/flow-pipeline`, etc.) is itself an instruction to
+  commit the skill's edits — leave the tree clean before returning.** A
+  skill that finishes with uncommitted changes has not finished: the
+  user can otherwise merge the branch or move to the next task without
+  the final edits landing. Pushing remains gated by the named exemptions
+  below; creating PRs counts as user-visible action — confirm before
+  pushing.
   - **Auto-push exemption: `pr-review`.** The `pr-review` skill is exempt
     from the no-auto-commit and no-auto-push defaults — invoking
     `/pr-review` is itself the user's explicit instruction to commit and
