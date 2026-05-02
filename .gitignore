@@ -36,3 +36,7 @@ dist/
 /scripts/remove-agent-worktree.ts
 /scripts/reply-pr-comments.ts
 # end flow install-scripts
+
+# managed by flow runtime
+.flow-branch
+# end flow runtime

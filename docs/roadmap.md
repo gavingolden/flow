@@ -78,6 +78,61 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 
 ---
 
+## Incidents
+
+A running record of parallel-pipelines safety bugs that motivated
+fixes. Each entry is a short narrative + reflog/log evidence so the
+*context* survives the patch — code-level fixes and tests live with
+their PRs, but the "why this exists" thread does not without a place
+to anchor it.
+
+### 2026-05-01 — cross-pipeline worktree contamination
+
+The user kicked off six parallel `flow new` pipelines for PRs
+4 / 6 / 7 / 8 / 9 / 10. The PR 10 supervisor created its worktree
+at `flow-proceed-with-pr-10-in-the-roadmap-if-the` on branch
+`proceed-with-pr-10-in-the-roadmap-if-the` (correct). The PR 4
+supervisor — running concurrently in a different tmux window — then
+**renamed PR 10's branch** to `pr4-delete-orchestrator`:
+
+```
+Branch: renamed refs/heads/proceed-with-pr-10-in-the-roadmap-if-the to refs/heads/pr4-delete-orchestrator
+```
+
+It then **committed PR 4's work into PR 10's worktree**. The PR 10
+supervisor's in-flight edits to `SKILL.md` and `docs/roadmap.md` were
+silently clobbered. Recovery required dropping back to main, hand-
+restoring the lost edits, and opening PR 10 from a third branch —
+none of which is automatable.
+
+Two contributing factors, addressed by **PR 12** (see `### PR 12` below):
+
+1. Worktree paths are derived deterministically from the slug, not
+   from a unique pipeline identifier. Six slugs all starting with
+   `proceed-with-pr-` looked visually similar enough to confuse the
+   supervisor's `cd` step.
+2. The supervisor LLM has no `cwd` lock. Every Bash call resolves
+   `cwd` independently. A single fat-fingered tab-complete landed PR
+   4's commands in PR 10's filesystem — irreversible after the agent
+   moved on.
+
+PR 12 fixed both: `flow-new-worktree` now auto-suffixes on collision,
+writes a `.flow-branch` marker, and `flow-state-update` mechanically
+refuses any phase transition where the worktree's current branch
+disagrees with the marker. A paired SKILL.md hard rule forbids
+`git branch -m` and `git switch <other-pipeline-branch>` to defend
+against the LLM-confusion failure mode the bug originated from.
+
+A separately-witnessed parallel-flow run revealed a second
+self-identification hazard: untargeted `tmux display-message` queries
+resolve against tmux's *current client*, not the supervisor's own
+pane, and silently return the wrong window name when the user
+glances at a sibling window. PR 12 added the
+`-t "$TMUX_PANE"`-required hard rule alongside the branch rule —
+different failure mode, same family.
+
+---
+
 ## User flows
 
 The flows are described by what the **user** sees and types.

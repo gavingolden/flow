@@ -79,6 +79,33 @@ in-process for skills; shell out for scripts; never delegate.
 > exposed as `$WORKTREE` in this skill). The main worktree is
 > read-only from this skill's perspective.
 
+> **You never run `git branch -m` or `git switch
+> <other-pipeline-branch>`.** Branch renames and cross-branch switches
+> are the failure mode that opened the door to the 2026-05-01
+> worktree-contamination incident: a peer supervisor renamed this
+> pipeline's branch and committed its own work into this worktree.
+> The supervisor only operates on its own pipeline's branch, captured
+> at step 2 from `flow-new-worktree`'s output. If a phase ever needs
+> to switch branches, that's a sign of confusion — escalate
+> `NEEDS HUMAN: cross-branch-operation-attempted` instead. The
+> mechanical guard in `flow-state-update` will also refuse the next
+> phase transition (`branch-mismatch`), but don't rely on the guard
+> as a license to run the dangerous command in the first place.
+
+> **You anchor every tmux self-query on `$TMUX_PANE`.** When you need
+> to read or target your own tmux window — pane id, window name,
+> session name, sending keys to yourself, gating logic on "is this
+> me?" — pass `-t "$TMUX_PANE"` to every `tmux` invocation.
+> Untargeted queries like `tmux display-message -p '#S:#W'` or format
+> strings like `#{session_name}` resolve against tmux's *current
+> client* — whichever window the user most recently activated — which
+> races across parallel pipelines and silently returns another
+> supervisor's identity. `$TMUX_PANE` is set by tmux at process spawn
+> and is immutable for the life of this process; it is the only safe
+> self-anchor. Different failure family from the `git branch -m` rule
+> above (it would not have prevented 2026-05-01) but adjacent — both
+> are parallel-pipelines self-identification hazards.
+
 # Notifications
 
 When the pipeline reaches a terminal end-state (`MERGED`, `GATED`,
@@ -633,6 +660,27 @@ echo "NEEDS HUMAN: <reason>"
 
 Do **not** call `flow-remove-worktree` on escalation — leave the
 worktree + PR intact so the user can inspect and resume.
+
+## Branch-mismatch escalation (no retries)
+
+When `flow-state-update` exits with status 3, the worktree's branch
+no longer matches the `.flow-branch` marker written by
+`flow-new-worktree`. This means a peer pipeline (or a stray manual
+git command) renamed this branch out from under us — the same family
+of failure as the 2026-05-01 incident. The mechanical guard refused
+to write the phase transition; the supervisor must NOT retry.
+Escalate immediately:
+
+```bash
+flow-state-update "$SLUG" --phase needs-human  # may itself fail; that's ok, scrollback shows the cause
+flow-notify --status needs-human --slug "$SLUG" --reason "branch-mismatch"
+echo "NEEDS HUMAN: branch-mismatch <expected vs actual from stderr>"
+```
+
+There is no auto-recovery — branch state is load-bearing and the
+user must inspect (`git reflog`, `git worktree list`) to decide
+whether the rename was malicious, accidental, or expected. Leave the
+worktree + PR intact.
 
 The full per-step cap table and the resume-from-disk decision tree
 live in `references/failure-recovery.md`.
