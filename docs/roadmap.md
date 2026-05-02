@@ -388,13 +388,11 @@ supervisor window.
   skill-creator/
 
 ~/.claude/agents/                # Claude Code user-level agents (auto-loaded everywhere)
-  pr-bug-detection.md            # → symlinks to ~/code/flow/agents/*
-  pr-security.md
-  pr-pattern.md
-  pr-test-coverage.md
-  skill-grader.md
+  skill-grader.md                # (not flow — populated by other Claude tooling)
   skill-comparator.md
   skill-analyzer.md
+  # `flow setup` will populate this directory with `pr-*.md` agents
+  # once Item 7 ships; today, flow ships no agents.
 
 ~/.local/bin/                    # on PATH; helper binaries callable from any repo
   flow                           # the wrapper (new, ls, attach, done, setup, migrate)
