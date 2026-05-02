@@ -6,6 +6,7 @@ dist/
 .env
 .env.local
 .idea/
+.claude/settings.local.json
 
 # managed by flow runtime
 .flow-branch

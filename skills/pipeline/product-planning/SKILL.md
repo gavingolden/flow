@@ -322,7 +322,7 @@ Example (gated — non-empty section):
   doesn't already exist — `/flow-pipeline` worktrees pre-register the
   path in `.git/info/exclude` so it stays untracked, and a stray write
   at the worktree root would block the post-merge `git worktree remove`
-  in `/flow-pipeline` step 10.5.
+  in `/flow-pipeline` step 10.
 
 ## 8. Persist the consolidated plan
 
@@ -352,7 +352,7 @@ artifact the user can share or iterate on. Overwrite any prior
 `.flow-tmp/plan.md`; do not append.
 
 The path lives under `.flow-tmp/` (rather than the worktree root) so the post-merge
-`git worktree remove` in `/flow-pipeline` step 10.5 doesn't choke on a stray untracked
+`git worktree remove` in `/flow-pipeline` step 10 doesn't choke on a stray untracked
 file. `flow-new-worktree` registers the path in `.git/info/exclude`, and
 `flow-remove-worktree` cleans the directory before removing the worktree.
 

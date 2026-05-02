@@ -183,8 +183,19 @@ no compile step.
   `~/.flow/state/<slug>.json` are the state store until the queue gets
   unwieldy (then we swap in Beads via an adapter — see `docs/roadmap.md`
   "Future stretch").
-- Don't auto-commit or auto-push without an explicit user instruction.
-  Creating PRs counts as user-visible action — confirm before pushing.
+- Don't auto-commit or auto-push outside an explicit user instruction —
+  this default always holds on `main` (or any base branch). **On a
+  feature/PR branch, a user invoking a code-editing skill
+  (`/new-feature`, `/refactoring`, `/pr-review`, `/flow-pipeline`, etc.)
+  is itself an instruction to commit the skill's edits to that branch —
+  leave the tree clean before returning.** A skill that finishes with
+  uncommitted changes on a feature branch has not finished: the user
+  can otherwise merge the branch or move to the next task without the
+  final edits landing. The exemption is scoped to non-base branches:
+  on `main`, pause and ask before committing even when running a
+  code-editing skill, since direct commits to main bypass review.
+  Pushing remains gated by the named exemptions below; creating PRs
+  counts as user-visible action — confirm before pushing.
   - **Auto-push exemption: `pr-review`.** The `pr-review` skill is exempt
     from the no-auto-commit and no-auto-push defaults — invoking
     `/pr-review` is itself the user's explicit instruction to commit and
@@ -192,21 +203,20 @@ no compile step.
     and narrow: no other skill or agent flow is authorised to bypass the
     default. If a future skill needs the same license, add it here by
     name rather than generalising the rule.
-  - **Auto-merge exemption: `/flow-pipeline` step 10 + 10.5.** The
+  - **Auto-merge exemption: `/flow-pipeline` step 10.** The
     `/flow-pipeline` skill is exempt from the no-auto-commit / no-auto-
-    push default for two narrow, named operations: (1) the documented
+    push default for one narrow, named operation: the documented
     `gh pr merge --squash --delete-branch <PR>` call inside step 10,
     only when the auto-merge gate fires (Test Steps section has no
-    unchecked items) and only on a PR opened by `/flow-pipeline`
-    itself; and (2)
-    the post-merge roadmap-sweep commit inside step 10.5
-    (`flow-roadmap-mark-shipped`), which runs unconditionally on
-    successful merge to flip the PR's roadmap row from
-    `🚧 in review (#N)` to `✅ shipped (#N)`. Invoking `/flow-pipeline`
-    is itself the user's authorisation; opt out per-pipeline with
-    `flow new --no-auto-merge` (the supervisor stops at the gated state
-    regardless of the gate verdict). Same narrow-and-named contract as
-    the `/pr-review` exemption above.
+    unchecked items) and only on a PR opened by `/flow-pipeline` itself.
+    Invoking `/flow-pipeline` is itself the user's authorisation; opt
+    out per-pipeline with `flow new --no-auto-merge` (the supervisor
+    stops at the gated state regardless of the gate verdict). Same
+    narrow-and-named contract as the `/pr-review` exemption above.
+    (Roadmap self-marking — flipping `🚧 in review (#N)` to `✅ shipped
+    (#N)` — happens pre-merge inside `/pr-review` step 7.5 and is
+    covered by the `/pr-review` auto-push exemption above; no separate
+    post-merge sweep exemption is needed.)
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
     Multi-Agent Review.** `/flow-pipeline`'s "Hard rules" section
     forbids the supervisor from calling the `Task` / `Agent` tool,
