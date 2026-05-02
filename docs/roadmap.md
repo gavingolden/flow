@@ -63,7 +63,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 2 — `/flow-pipeline` supervisor skill** | The new pipeline-as-skill that replaces the Node runner + 8 phases | ✅ shipped (#42) |
 | **Item 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | ✅ shipped (#44) |
 | **Item 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ✅ shipped (#47) |
-| **Item 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
+| **Item 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ✅ shipped (#56) |
 | **Item 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ✅ shipped (#51) |
 | **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ✅ shipped (#46) |
 | **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ✅ shipped (#52) |
@@ -899,23 +899,36 @@ Done when:
 
 ### Item 5 — delete obsolete pipeline skills + retire per-repo install
 
-Status: ⬜ queued.
+Status: ✅ shipped (#56).
 
 Done when:
 
-- [ ] `skills/pipeline/{flow-add,flow-approve,flow-revise,flow-watch,
+- [x] `skills/pipeline/{flow-add,flow-approve,flow-revise,flow-watch,
   flow-status}/` are removed from the source tree.
-- [ ] `templates/scripts/{ci-wait,flow-add,flow-watch}.ts` (and tests)
+- [x] `templates/scripts/{ci-wait,flow-add,flow-watch}.ts` (and tests)
   are removed.
-- [ ] `src/commands/install.ts`, `src/install/scripts.ts`,
+- [x] `src/commands/install.ts`, `src/install/scripts.ts`,
   `src/install/skills.ts`, `templates/scripts/` (the directory)
   and any related tests are deleted. The per-repo install pattern is
   retired in favour of the global install from Item 1.
-- [ ] A subsequent `flow setup --upgrade` reaps the orphan symlinks for
+- [x] A subsequent `flow setup --upgrade` reaps the orphan symlinks for
   the deleted skills/scripts from `~/.claude/skills/` and
-  `~/.local/bin/`.
-- [ ] `flow migrate` (Item 1) handles cleanup of legacy per-repo installs
-  in any target repo that still has them.
+  `~/.local/bin/`. Already covered by the existing `reapOrphans()`
+  manifest mechanism in `bin/lib/setup.ts` — deleting source files is
+  sufficient because the helper diffs the new discovery output against
+  `~/.flow/installed.json`.
+- [x] `flow migrate` (Item 1) handles cleanup of legacy per-repo installs
+  in any target repo that still has them. (Unchanged by this PR — the
+  helper parses the gitignore managed blocks in target repos, not the
+  flow source tree.)
+- [x] `bin/flow` no longer dispatches the `install` verb; the
+  `OLD_VERBS` set and `passthroughOldVerb` function are gone, and
+  `flow install` now prints `flow: unknown verb 'install'`.
+- [x] `package.json` no longer carries scripts that target `src/`
+  (`build`, `dev`, `typecheck`, `prepare`) or dependencies the deleted
+  code uniquely consumed (`commander`, `picocolors`, `gray-matter`,
+  `tsx`). `tsconfig.json` deleted; `tsconfig.scripts.json` and
+  `vitest.config.ts` scope only to `bin/`.
 
 ### Item 6 — cost reporting in `flow ls`
 

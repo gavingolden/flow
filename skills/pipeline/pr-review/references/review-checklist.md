@@ -1090,6 +1090,69 @@ mid-span.
 
 ---
 
+## Removing a Top-Level `package.json` Field Breaks an Install Pathway
+
+When a PR drops a top-level field from `package.json` (`bin`, `main`,
+`exports`, `types`, `engines`, `files`, `scripts.prepare`,
+`scripts.postinstall`, etc.), check that no documented user-facing
+install or invocation path silently breaks. The deletion is often the
+*intent* — but the docs and any external onboarding flows must be
+consistent with the new world. A reader still typing `npm i -g <pkg>`
+or `npm link` will get a successful install with no executable shim.
+
+### What to look for
+
+- A `package.json` diff that removes a top-level field, especially
+  `bin`, `main`, `exports`, or a lifecycle hook (`prepare`,
+  `postinstall`).
+- The same PR removing the only consumer of that field (e.g. deleting
+  `dist/cli.js` along with `bin: { "<cmd>": "./dist/cli.js" }`).
+- Onboarding docs (`README.md`, install guides) that still mention
+  `npm link` / `npm i -g` / `node_modules/.bin/<cmd>`.
+
+### How to check
+
+1. List every top-level field removed in the `package.json` diff.
+2. For each, identify what install/invocation pathway it enabled
+   (`bin` → `npm i -g`, `main` → bare imports, `prepare` → fresh-clone
+   build, etc.).
+3. `grep -rn 'npm link\|npm i -g\|npm install -g\|node_modules/.bin'`
+   across `README.md`, `docs/`, and onboarding scripts.
+4. Confirm any remaining references are explicitly historical /
+   migration text, not "do this to install".
+5. If the new install path requires a separate command (e.g.
+   `flow setup`), confirm the README's "Install" section is the
+   single source of truth and reads cleanly without the deleted
+   field.
+
+### Example — `bin` removal without README sync (PR #56)
+
+```json
+// BAD: package.json drops the bin entry, but README.md still says
+//        npm install     # `prepare` builds dist/ for the legacy `install` verb
+//        npm link        # makes flow available on PATH
+//      so a reader pastes those commands and gets no `flow` shim.
+{
+  "name": "flow",
+  "type": "module",
+  "files": ["bin", "templates"]
+  // (no "bin" field)
+}
+
+// GOOD: drop the field AND scrub the README's "Install" section so
+// the documented path is the only path that still works.
+//   git clone <repo>
+//   npm install
+//   bun bin/flow setup
+```
+
+**General rule:** A `package.json` field deletion is half a change.
+The other half is the docs that previously assumed it. Cross-check
+every removed field against `README.md` install / quick-start
+sections before approving.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue

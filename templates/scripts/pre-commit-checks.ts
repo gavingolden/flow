@@ -1,1 +1,0 @@
-../../bin/flow-pre-commit.ts
