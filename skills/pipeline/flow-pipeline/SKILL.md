@@ -454,12 +454,7 @@ ADDED=$(git diff --name-only "origin/$DEFAULT_BRANCH...HEAD" | \
 if [ -n "$ADDED" ]; then
   echo "Detected new skill/agent files; re-symlinking:"
   echo "$ADDED" | sed 's/^/  /'
-  flow setup --upgrade 2>&1 | tee /tmp/flow-setup-upgrade-${SLUG}.log
-  if grep -qE '[0-9]+ blocked' /tmp/flow-setup-upgrade-${SLUG}.log; then
-    echo "WARN: flow setup --upgrade reported blocked symlinks — see log above"
-    # treat as failure for the retry/escalation contract below
-    false
-  fi
+  flow setup --upgrade --source "$WORKTREE"
 else
   echo "No skill/agent additions; skipping re-symlink."
 fi
@@ -472,28 +467,17 @@ changed files. The default-branch resolution mirrors
 `bin/flow-new-worktree.ts` and `bin/flow-pre-commit.ts`; do not
 hardcode `origin/main`.
 
-**`flow setup --upgrade` exit-code caveat.** The CLI verb currently
-returns 0 even when one or more symlinks are `blocked` (a real file
-sits at the install target — e.g. a previous orphaned copy). The
-end-condition below therefore parses the printed summary for the
-`<N> blocked` token in addition to the exit code. A future change
-should wire the verb to exit non-zero on `summary.blocked > 0` so
-the parsing dance can be deleted; tracked in `docs/roadmap.md`
-Followups under "From PR 58 review".
-
-**Install-source caveat (PRs against flow itself).** `flow setup
---upgrade` reads the source tree from `resolveFlowSource()` (see
-`bin/lib/paths.ts`), which derives the source from the *installed*
-binary's canonical path — i.e. wherever the user originally ran
-`flow setup` from. Inside a worktree at
-`<repo>.worktrees/<slug>/`, that resolution still points at the
-original install root, **not** the worktree. So a PR that adds a
-new skill under flow's own `skills/` and tries to use it in the
-same supervisor session will not see the new skill until the
-install-source override lands (tracked under Item 14 followups in
-`docs/roadmap.md`). For PRs against repos *other than flow*, this
-caveat doesn't apply — flow's source is already the original
-install root and the worktree is an unrelated repo's tree.
+The `--source "$WORKTREE"` argument forces `flow setup` to read its
+source tree from the in-flight worktree rather than the original
+install root. Without it, a PR against flow itself that adds a new
+skill under `skills/...` would not see the new files in the same
+supervisor session — `resolveFlowSource()` derives the source from
+the installed binary's canonical path. For PRs against repos *other
+than flow*, the override is harmless: flow's source is already the
+original install root and the worktree is an unrelated repo's tree,
+so passing `--source "$WORKTREE"` would point at a tree that has no
+`skills/` or `agents/` directories. The detection guard above keeps
+this branch from running in that case.
 
 **Race condition footnote.** Two parallel pipelines that both add
 skills/agents can race on `~/.claude/skills/` and `~/.claude/agents/`
@@ -505,9 +489,9 @@ millisecond-scale during symlink creation, no data loss possible
 pipeline's symlink wins). Do **not** add an ad-hoc lock here; let
 Item 15(c) own the fix so there's a single chokepoint.
 
-**End condition:** the helper exits 0 **and** the printed summary
-contains no `<N> blocked` token. On non-zero exit *or* a non-zero
-blocked count: retry once. If the retry also fails, escalate
+**End condition:** the helper exits 0. On non-zero exit (the verb
+maps `summary.blocked > 0` to exit 1; parser errors map to 2):
+retry once. If the retry also fails, escalate
 `NEEDS HUMAN: flow-setup-upgrade-failed <stderr>` — the supervisor
 cannot safely continue to step 6 without the new skill/agent files
 visible.
@@ -869,7 +853,7 @@ done?" without any in-process memory.
 | 3 — plan | `<worktree>/plan.md` exists and is non-empty | If missing, re-invoke `/product-planning`. |
 | 4 — approval | state.json shows `phase` ∈ {`implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
 | 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | If no PR, re-invoke `/new-feature`. |
-| 5.5 — re-symlink | state.json shows `phase` ∈ {`verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} OR `git diff --name-only origin/<default-branch>...HEAD \| grep -E '^(skills\|agents)/'` returns nothing (resolve `<default-branch>` from `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `main`) | If false (additions exist and we crashed before phase advanced), re-run `flow setup --upgrade` and re-check the summary for `<N> blocked`. Idempotent — safe to re-run. |
+| 5.5 — re-symlink | state.json shows `phase` ∈ {`verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} OR `git diff --name-only origin/<default-branch>...HEAD \| grep -E '^(skills\|agents)/'` returns nothing (resolve `<default-branch>` from `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `main`) | If false (additions exist and we crashed before phase advanced), re-run `flow setup --upgrade --source "$WORKTREE"` and check the exit code per step 5.5's end-condition (exit 0 ⇒ done; non-zero ⇒ retry once, then escalate `NEEDS HUMAN: flow-setup-upgrade-failed`). Idempotent — safe to re-run. |
 | 6 — verify | state.json shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-invoke `/verify`. |
 | 7 — ci-wait | PR's checks all reached terminal state | If still pending, re-enter the poll loop. |
 | 8 — review | PR has a `pr-review` commit on HEAD (look for the commit subject prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | If false, re-invoke `/pr-review <PR>`. |

@@ -77,7 +77,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional · ❌ cance
 | **Item 17 — auto-merge rubric template alignment** | `/product-planning` emits `## How to test`; supervisor's auto-merge rubric requires `## Manual validation`. Mismatch escalates by default. Pick one heading and align both ends. | ✅ shipped (#59) |
 | **Item 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
 | **Item 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped Item 17. | ✅ shipped (#48) |
-| **Item 18 — `flow setup` CLI hardening** | `flow setup --source <path>` so step 5.5 re-symlinks from a worktree; `flow setup --upgrade` exits 1 on `summary.blocked > 0` so step 5.5 can collapse stdout-parsing to an exit-code check. Bundles both PR 58 followups. | ⬜ queued |
+| **Item 18 — `flow setup` CLI hardening** | `flow setup --source <path>` so step 5.5 re-symlinks from a worktree; `flow setup --upgrade` exits 1 on `summary.blocked > 0` so step 5.5 can collapse stdout-parsing to an exit-code check. Bundles both PR 58 followups. | 🚧 in review (#64) |
 | **Item 19 — supervisor poll cadence optimization** | Activate the 30s → 60s → 90s ramp documented in `polling-protocol.md`; surface current cadence in scrollback; verify cost delta via `flow ls --cost`. | ⬜ queued |
 | **Item 20 — global-by-default stack skills + disciplined frontmatter** | Decide open question #6 in favour of Option A: stack skills install globally via `flow setup`. Drop per-project `flow stack add/remove/list` and the managed-`.gitignore` block. Tighten each stack skill's frontmatter `description:` so Claude Code only auto-loads them in matching contexts. | ⬜ queued |
 | **Item 21 — `flow-new-worktree` refactor + missing test coverage** | Split `bin/flow-new-worktree.ts` (388 lines) into `bin/lib/worktree-slot.ts` + `bin/lib/worktree-marker.ts`; lift duplicated `BRANCH_MARKER_FILENAME` constant to one source of truth; add unit test that injects a `git worktree add` failure to cover the retry catch block. Bundles all three PR 53 followups. | ✅ shipped (#66) |
@@ -151,11 +151,6 @@ the originating review context isn't lost.
 - **`bin/flow-new-worktree.ts` 388-line file split** → Item 21.
 - **Duplicated `BRANCH_MARKER_FILENAME` constant** → Item 21.
 - **Missing unit test for `createWorktreeWithRetry` race-retry path** → Item 21.
-
-### From PR 58 review
-
-- **`flow setup --upgrade` ignores worktree-local source** → Item 18.
-- **`flow setup --upgrade` exits 0 on `summary.blocked > 0`** → Item 18.
 
 ---
 
@@ -1418,7 +1413,7 @@ Done when:
 
 ### Item 18 — `flow setup` CLI hardening
 
-Status: ⬜ queued.
+Status: 🚧 in review (#64).
 
 Why: Two adjacent gaps surfaced on PR 58. Both touch `bin/flow`
 setup-handling and `bin/lib/setup.ts`; bundling them avoids
