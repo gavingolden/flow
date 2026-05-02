@@ -18,6 +18,12 @@ export type PipelineState = {
   pr?: number;
   repo: string;
   worktree?: string;
+  /**
+   * When false, `/flow-pipeline` step 9 routes every OPEN PR to gated
+   * regardless of the Manual-validation rubric. Absent ≡ true (the
+   * documented happy-path default).
+   */
+  autoMerge?: boolean;
   updatedAt: string;
 };
 

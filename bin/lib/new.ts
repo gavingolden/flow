@@ -10,6 +10,7 @@
  */
 
 import * as fs from "node:fs";
+import { spawnSync } from "node:child_process";
 import { slugify } from "./slug";
 import {
   createWindow,
@@ -29,6 +30,8 @@ export type NewOptions = {
   resume?: boolean;
   /** Override the state directory (test seam). */
   stateDir?: string;
+  /** Persist `autoMerge: false` so the supervisor stops at gated. */
+  noAutoMerge?: boolean;
 };
 
 export function runNew(input: string, options: NewOptions = {}): number {
@@ -39,7 +42,7 @@ export function runNew(input: string, options: NewOptions = {}): number {
 function runFresh(description: string, options: NewOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow new: description is required.");
-    console.error("usage: flow new <description>");
+    console.error("usage: flow new [--no-auto-merge] <description>");
     return 1;
   }
 
@@ -84,6 +87,7 @@ function runFresh(description: string, options: NewOptions): number {
       phase: "starting",
       repo,
       worktree: existing?.worktree,
+      autoMerge: options.noAutoMerge ? false : undefined,
       updatedAt: nowIso(),
     },
     options.stateDir,
@@ -166,12 +170,11 @@ function resumeCommand(slug: string): string[] {
 }
 
 function resolveRepoRoot(cwd: string): string | null {
-  const r = Bun.spawnSync(["git", "-C", cwd, "rev-parse", "--show-toplevel"], {
-    stdout: "pipe",
-    stderr: "pipe",
+  const r = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+    encoding: "utf8",
   });
-  if (r.exitCode !== 0) return null;
-  const out = r.stdout.toString().trim();
+  if (r.status !== 0) return null;
+  const out = r.stdout.trim();
   if (!out || !fs.existsSync(out)) return null;
   return out;
 }
