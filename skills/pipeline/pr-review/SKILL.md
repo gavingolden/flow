@@ -104,6 +104,13 @@ This is the core of the skill. You will spawn 4 specialized review agents in par
 each examining the PR from a different angle. Their independent perspectives catch more
 than any single reviewer could.
 
+**Task-tool fan-out is intentional.** Step 4 spawns the four review agents via the Task
+tool. When `/pr-review` is loaded in-process by `/flow-pipeline` (the supervisor's step
+8), this fan-out is permitted by the named Task-tool exception in
+`skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section. Outside the supervisor
+context (e.g. invoked directly from a user session), the Task tool is unrestricted, so
+the fan-out runs identically. Either path: four agents in parallel, then merge.
+
 **Preparation** (before spawning):
 
 1. Read the PR description and changed files list from the fetch output. DO NOT read

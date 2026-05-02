@@ -55,9 +55,31 @@ in-process for skills; shell out for scripts; never delegate.
 # Hard rules
 
 > **You are never a sub-agent.** Never call the `Task` / `Agent`
-> tool from this skill. Never spawn a separate `claude -p`
-> subprocess. The supervisor's only fan-out is (a) loading
-> sub-skills in-process and (b) Bash tool calls.
+> tool from this skill — **except for the named exception below**.
+> Never spawn a separate `claude -p` subprocess. The supervisor's
+> only fan-out is (a) loading sub-skills in-process, (b) Bash tool
+> calls, and (c) the narrowly-named Task-tool exception that follows.
+>
+> **Task-tool exemption: `/pr-review` step 4.** When the supervisor
+> invokes `/pr-review` in step 8, `/pr-review`'s step 4 ("Independent
+> Multi-Agent Review") spawns four review agents in parallel via the
+> Task tool. This is the **only** authorised Task-tool fan-out from
+> this supervisor; no other skill or step may call Task. Rationale:
+> the two constraints behind the rule above are (1) sub-agents can't
+> spawn sub-agents (one-level cap) and (2) a long-running supervisor
+> with sub-agents would bloat past the context window. The supervisor
+> is itself a top-level Claude Code session (started by `flow new`
+> opening tmux + `claude`), so constraint (1) does not apply to *its*
+> Task calls — it applies to *its* sub-agents. Constraint (2) requires
+> the fan-out to be long-running; `/pr-review` step 4 is one-shot
+> (four parallel agents return JSON findings, then the parent skill
+> merges and exits). Refactoring `/pr-review` to use in-process skill
+> loads instead would lose the parallelism and the isolated-context
+> benefit each review agent gets; dropping the rule entirely is too
+> broad. Same narrow-and-named contract as the `/pr-review` auto-push
+> and `/flow-pipeline` auto-merge exemptions in `AGENTS.md`. If a
+> future skill needs the same license, add it here by name rather
+> than generalising the rule.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -356,6 +378,54 @@ On non-zero exit without a PR: retry once with the failure context
 appended. If the retry also fails, escalate `NEEDS HUMAN:
 implement-failed`.
 
+## Step 5.5 — Re-symlink if worktree adds skills/agents
+
+**Phase:** `installing-skills`
+
+Sub-skills loaded by the supervisor in steps 6–8 (`/verify`,
+`/pr-review`) are read from `~/.claude/skills/` and `~/.claude/agents/`
+— populated by `flow setup` (and `flow setup --upgrade`) via symlink.
+A worktree that adds new files under `skills/` or `agents/` in step 5
+does not get those files symlinked automatically; the same supervisor
+session cannot use them downstream until `flow setup --upgrade` runs.
+This step closes that gap.
+
+```bash
+flow-state-update "$SLUG" --phase installing-skills
+
+ADDED=$(git diff --name-only origin/main...HEAD | \
+          grep -E '^(skills|agents)/' || true)
+
+if [ -n "$ADDED" ]; then
+  echo "Detected new skill/agent files; re-symlinking:"
+  echo "$ADDED" | sed 's/^/  /'
+  flow setup --upgrade
+else
+  echo "No skill/agent additions; skipping re-symlink."
+fi
+```
+
+The detection grep is deliberately verbatim from `docs/roadmap.md`
+Item 14(c) — `--name-only` plus the triple-dot range
+(`origin/main...HEAD`) so the comparison reflects the worktree's
+diff against the merge-base, not the absolute set of changed files.
+
+**Race condition footnote.** Two parallel pipelines that both add
+skills/agents can race on `~/.claude/skills/` and `~/.claude/agents/`
+symlinks. Item 15(c) wraps `flow setup --upgrade` in
+`flock ~/.flow/setup.lock` to serialise concurrent invocations. Until
+that lands, the race is acknowledged but bounded — the window is
+millisecond-scale during symlink creation, no data loss possible
+(symlinks are atomic per-file via `ln -sf`; the worst case is one
+pipeline's symlink wins). Do **not** add an ad-hoc lock here; let
+Item 15(c) own the fix so there's a single chokepoint.
+
+**End condition:** the helper exits 0 (success or no-op) and the
+phase has advanced. On non-zero exit from `flow setup --upgrade`:
+retry once. If the retry also fails, escalate `NEEDS HUMAN:
+flow-setup-upgrade-failed <stderr>` — the supervisor cannot safely
+continue to step 6 without the new skill/agent files visible.
+
 ## Step 6 — Local verify
 
 **Phase:** `verifying`
@@ -373,6 +443,16 @@ log appended to the prompt:
 PRIOR ATTEMPT FAILED — failure log:
 <truncated log; cap 200 lines / 100 matched-error lines>
 ```
+
+**Retries do not change model or effort.** The Skill tool has no
+per-invocation override for either today, so the escalation between
+attempts is *prompt-side only* — the prior failure log narrows the
+search space, but the underlying model and reasoning effort are the
+same on attempt 3 as on attempt 1. If a per-invocation override
+mechanism becomes available (Item 7 revisited, or a future harness
+primitive), document the syntax here and gate it on attempt count.
+Do not silently re-invent the override claim — if the doc still says
+"prompt-side only" but the harness has changed, fix the doc.
 
 After three failed outer attempts, escalate `NEEDS HUMAN:
 verify-exhausted`. Surface the final failure log on the PR body's
@@ -703,8 +783,9 @@ done?" without any in-process memory.
 |---|---|---|
 | 2 — worktree | `$WORKTREE` is set in state.json **and** the directory exists and is a git checkout | If unset / missing, recreate via `flow-new-worktree`. |
 | 3 — plan | `<worktree>/plan.md` exists and is non-empty | If missing, re-invoke `/product-planning`. |
-| 4 — approval | state.json shows `phase` ∈ {`implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
+| 4 — approval | state.json shows `phase` ∈ {`implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
 | 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | If no PR, re-invoke `/new-feature`. |
+| 5.5 — re-symlink | state.json shows `phase` ∈ {`verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} OR `git diff --name-only origin/main...HEAD \| grep -E '^(skills\|agents)/'` returns nothing | If false (additions exist and we crashed before phase advanced), re-run `flow setup --upgrade`. Idempotent — safe to re-run. |
 | 6 — verify | state.json shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-invoke `/verify`. |
 | 7 — ci-wait | PR's checks all reached terminal state | If still pending, re-enter the poll loop. |
 | 8 — review | PR has a `pr-review` commit on HEAD (look for the commit subject prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | If false, re-invoke `/pr-review <PR>`. |
@@ -842,6 +923,7 @@ worktree-create
 planning
 plan-pending-review     (feature only; ends turn)
 implementing
+installing-skills       (only if worktree adds skills/agents; otherwise skipped)
 verifying
 ci-wait
 reviewing

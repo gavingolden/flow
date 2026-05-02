@@ -70,7 +70,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
 | **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ✅ shipped (#53) |
 | **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | 🚧 in review (#55) |
-| **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
+| **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ✅ shipped (#TBD) |
 | **Item 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
 | **Item 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ✅ shipped (#54) |
 | **Item 17 — auto-merge rubric template alignment** | `/product-planning` emits `## How to test`; supervisor's auto-merge rubric requires `## Manual validation`. Mismatch escalates by default. Pick one heading and align both ends. | ⬜ queued |
@@ -1189,7 +1189,7 @@ Done when:
 
 ### Item 14 — supervisor↔skill contract correctness
 
-Status: ⬜ queued.
+Status: ✅ shipped (#TBD).
 
 Why: Item 7's `/pr-review` invocation surfaced three contract-level
 issues between `/flow-pipeline` and the sub-skills it loads in-
@@ -1219,20 +1219,33 @@ exercises the agent" needs a re-symlink step inside the supervisor.
 
 Done when:
 
-- [ ] Pick one resolution for (a) and apply it: (i) carve a named
+- [x] Pick one resolution for (a) and apply it: (i) carve a named
   Task-tool exception for `/pr-review` in `/flow-pipeline`'s hard
   rule, (ii) refactor `/pr-review` to fan out via in-process skill
   loads, or (iii) drop the supervisor's hard rule. Most likely (i).
   Document the rationale inline in both SKILL.md files.
-- [ ] (b) is resolved either by citing a real per-invocation override
+  *Resolved (i): named Task-tool exemption for `/pr-review` step 4
+  documented in `flow-pipeline/SKILL.md` "Hard rules", cross-
+  referenced in `pr-review/SKILL.md` step 4, and added as the third
+  bullet in `AGENTS.md`'s exemptions block.*
+- [x] (b) is resolved either by citing a real per-invocation override
   syntax (Skill-tool model param, `/skill --model`, env var picked
   up by Claude Code), or by rewriting step 6 to do something
   concrete (split verify into two skills, escalate via a different
   mechanism).
-- [ ] `/flow-pipeline` runs `flow setup --upgrade` between step 5
+  *Resolved by doc-only honesty edit: step 6 now states explicitly
+  that retries don't change model or effort; escalation is prompt-
+  side only (failure log appended). Item 7's revert removed the
+  aspirational override claim; the new note prevents it from
+  creeping back. If a per-invocation override mechanism becomes
+  available, step 6 is the place to document it.*
+- [x] `/flow-pipeline` runs `flow setup --upgrade` between step 5
   (implement) and step 6 (verify) when the worktree's diff adds
   files under `skills/` or `agents/`. Detect via `git diff --name-only
   origin/main...HEAD | grep -E '^(skills|agents)/'`.
+  *Resolved as new step 5.5 (`installing-skills` phase). Race with
+  parallel pipelines acknowledged inline; Item 15(c) lands the
+  flock.*
 
 ### Item 15 — pipeline ergonomics + scratch hygiene
 
