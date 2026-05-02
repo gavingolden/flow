@@ -109,8 +109,9 @@ After the user approves the critical analysis and test specs, seed a PR descript
 PR tells a coherent story from the start. Writing the description before implementation
 (rather than after) ensures it captures intent — not just a post-hoc summary of what was built.
 
-**If `pr-description-draft.md` exists in the working directory** (left by `product-planning`):
-use it as-is. It was already distilled from a full PRD and approved by the user. Skip to Step 5.
+**If `.flow-tmp/pr-description-draft.md` exists in the working directory** (left by
+`product-planning`): use it as-is. It was already distilled from a full PRD and approved by
+the user. Skip to Step 5.
 
 **If no draft exists**, synthesize one from the critical analysis and test specs:
 
@@ -184,8 +185,12 @@ Example (gated — non-empty section):
 - [ ] Cut the network mid-load — error state appears, no console errors.>
 ```
 
-Save to `pr-description-draft.md` in the working directory. Present the draft to the user
-for quick confirmation before proceeding to implementation.
+Save to `.flow-tmp/pr-description-draft.md` in the working directory. Create the
+directory first with `mkdir -p .flow-tmp` if it doesn't already exist — `/flow-pipeline`
+worktrees pre-register the path in `.git/info/exclude` so it stays untracked, and a stray
+write at the worktree root would block the post-merge `git worktree remove` in
+`/flow-pipeline` step 10.5. Present the draft to the user for quick confirmation before
+proceeding to implementation.
 
 **Rules:**
 
@@ -257,7 +262,7 @@ wasn't used for a UI-only change.
 - Critical analysis was reviewed and approved by the user before implementation
 - Test specs were reviewed and approved by the user before implementation
 - Any new environment variables have been added to `.env.example` with comments and safe defaults
-- PR description draft exists (`pr-description-draft.md`) or user explicitly deferred it
+- PR description draft exists (`.flow-tmp/pr-description-draft.md`) or user explicitly deferred it
 
 # Constraints
 

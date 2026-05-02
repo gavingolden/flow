@@ -314,12 +314,19 @@ Example (gated — non-empty section):
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
   and let the renderer wrap it. Hard wraps go ragged the moment a sentence is edited and
   add no value on GitHub, which renders one long line as one flowing paragraph.
-- Save the draft to `pr-description-draft.md` in the working directory.
+- Save the draft to `.flow-tmp/pr-description-draft.md` in the working
+  directory. Create the directory first with `mkdir -p .flow-tmp` if it
+  doesn't already exist — `/flow-pipeline` worktrees pre-register the
+  path in `.git/info/exclude` so it stays untracked, and a stray write
+  at the worktree root would block the post-merge `git worktree remove`
+  in `/flow-pipeline` step 10.5.
 
 ## 8. Persist the consolidated plan
 
 Before sharing with the user, write the full PRD + task breakdown + PR-description draft
-to `plan.md` in the working directory. Single artifact, three sections in this order:
+to `.flow-tmp/plan.md` in the working directory. Create the directory first with
+`mkdir -p .flow-tmp` if it doesn't already exist. Single artifact, three sections in
+this order:
 
 ```markdown
 # PRD
@@ -336,13 +343,18 @@ to `plan.md` in the working directory. Single artifact, three sections in this o
 ```
 
 This file is the predictable handoff for the `/flow-pipeline` supervisor — it reads
-`plan.md` after this skill returns to drive the implement phase. When this skill is run
-manually (no supervisor), `plan.md` is still useful as a single artifact the user can
-share or iterate on. Overwrite any prior `plan.md` in the working directory; do not
-append.
+`.flow-tmp/plan.md` after this skill returns to drive the implement phase. When this
+skill is run manually (no supervisor), the same file is still useful as a single
+artifact the user can share or iterate on. Overwrite any prior
+`.flow-tmp/plan.md`; do not append.
 
-The `pr-description-draft.md` write from step 7 is independent and stays — it's the
-artifact `pr-review` consumes. Both files should land.
+The path lives under `.flow-tmp/` (rather than the worktree root) so the post-merge
+`git worktree remove` in `/flow-pipeline` step 10.5 doesn't choke on a stray untracked
+file. `flow-new-worktree` registers the path in `.git/info/exclude`, and
+`flow-remove-worktree` cleans the directory before removing the worktree.
+
+The `.flow-tmp/pr-description-draft.md` write from step 7 is independent and stays —
+it's the artifact `pr-review` consumes. Both files should land.
 
 ## 9. Present and Iterate
 
@@ -380,7 +392,7 @@ Common failure modes during planning:
 - No task is too large for a single focused session (if it seems large, split it)
 - Skill recommendations reference skills that actually exist in `.claude/skills/`
 - PR description draft follows the standardized format (Why / What / Key decisions / User-facing changes / Manual validation)
-- `plan.md` was written to the working directory with PRD + Task breakdown + PR description draft sections in that order
+- `.flow-tmp/plan.md` was written (with the directory created on demand) with PRD + Task breakdown + PR description draft sections in that order
 
 # Constraints
 
