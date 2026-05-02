@@ -141,10 +141,28 @@ describe("flow-pipeline supervisor SKILL.md", () => {
       expect(step6).toMatch(SAME_TURN_GLOSS);
     });
 
-    it("step 7 End-condition tells supervisor to continue to step 8 in the same turn on proceed-to-review", () => {
+    it("step 7 End-condition tells supervisor to continue to step 8 (proceed-to-review), step 10.5 (merged externally), and step 5 (ci-failed mode=fix), all in the same turn", () => {
       const step7 = sliceStep(readSkill(), "## Step 7 ");
+      // proceed-to-review
       expect(step7).toMatch(continueToStep("8"));
-      expect(step7).toMatch(SAME_TURN_GLOSS);
+      // merged externally → post-merge sweep
+      expect(step7).toMatch(continueToStep("10.5"));
+      // ci-failed → step 5 mode=fix (subject to fix-loop cap)
+      expect(step7).toMatch(continueToStep("5"));
+      // All three transitions need the same-turn gloss; counting
+      // occurrences keeps the test honest if a future edit drops one.
+      const matches = step7.match(new RegExp(SAME_TURN_GLOSS, "g")) ?? [];
+      expect(matches.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it("step 3 feature-intent branch still ends the turn at plan-pending-review (the do-not-end-turn rule must not break this)", () => {
+      const step3 = sliceStep(readSkill(), "## Step 3 ");
+      // The feature-intent branch must still write plan-pending-review
+      // and end the turn. The do-not-end-turn fix is for non-feature
+      // intents; feature intents are explicitly listed as a legitimate
+      // turn-end in the Hard rule.
+      expect(step3).toMatch(/plan-pending-review/);
+      expect(step3).toMatch(/end\s+the\s+turn/i);
     });
 
     it("step 8 tells supervisor to continue to step 5 (mode=fix), step 7 (CI re-wait), and step 9 (clean)", () => {

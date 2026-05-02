@@ -742,11 +742,16 @@ When `CI_CONFIGURED=1` and `gh pr checks` returns `[]`, that means
 After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
 
 **End condition:** decision is "proceed to review", "merged
-externally", or escalation. On "proceed to review": **continue
-immediately to step 8 in the same turn — do not end the turn.** On
-"merged externally": continue to step 10.5 in the same turn (route
-into the post-merge sweep, then `flow-remove-worktree`, write
-`phase: merged`, print `MERGED`, end).
+externally", "ci-failed → step 5 mode=fix", or escalation. On
+"proceed to review": **continue immediately to step 8 in the same
+turn — do not end the turn.** On "merged externally": **continue
+immediately to step 10.5 in the same turn — do not end the turn**
+(route into the post-merge sweep, then `flow-remove-worktree`,
+write `phase: merged`, print `MERGED`, end). On "ci-failed → step 5
+mode=fix" (subject to the 3-loop fix-loop cap above): **continue
+immediately to step 5 in the same turn — do not end the turn.** The
+red-CI summary printed by `gh pr checks` is a localised end of one
+poll cycle, not a session boundary.
 
 ## Step 8 — Review
 
