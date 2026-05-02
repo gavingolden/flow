@@ -170,6 +170,10 @@ function resumeCommand(slug: string): string[] {
 }
 
 function resolveRepoRoot(cwd: string): string | null {
+  // node:child_process spawnSync, not Bun.spawnSync, so the new vitest cases
+  // exercising runFresh's autoMerge persistence run under node — Bun.spawnSync
+  // is undefined in the vitest worker. Production runs through bin/flow which
+  // is bun-shebanged, so node-compat here costs nothing.
   const r = spawnSync("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
     encoding: "utf8",
   });

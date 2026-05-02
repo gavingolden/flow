@@ -651,11 +651,13 @@ succeeded; metadata sweep that fails should not gate the pipeline's
 terminal state. On non-zero exit:
 
 - Retry once.
-- On second failure, print `WARN: roadmap-sweep-failed (manual flip
-  needed)` to scrollback. Continue to terminal `MERGED` — do **not**
-  escalate `NEEDS HUMAN`. The user can re-run the helper by hand
-  (`flow-roadmap-mark-shipped --pr <N>`) once the underlying issue
-  (auth, transient 5xx) clears.
+- On second failure, print `WARN: roadmap-sweep-failed code=<N>
+  (manual flip needed)` — include the helper's exit code so the user
+  knows which class of fix applies (see exit-code semantics below).
+  Continue to terminal `MERGED` — do **not** escalate `NEEDS HUMAN`.
+  The user can re-run the helper by hand (`flow-roadmap-mark-shipped
+  --pr <N>`) once the underlying issue (auth, transient 5xx, missing
+  self-mark) clears.
 
 Exit-code semantics from the helper:
 

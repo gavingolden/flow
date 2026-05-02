@@ -24,16 +24,29 @@ export type GhResult = { stdout: string; stderr: string; exitCode: number };
 export type GhRunner = (args: string[], stdin?: string) => GhResult;
 
 export const defaultGh: GhRunner = (args, stdin) => {
-  const r = Bun.spawnSync(["gh", ...args], {
-    stdout: "pipe",
-    stderr: "pipe",
-    stdin: stdin !== undefined ? Buffer.from(stdin) : undefined,
-  });
-  return {
-    stdout: r.stdout.toString(),
-    stderr: r.stderr.toString(),
-    exitCode: r.exitCode ?? 1,
-  };
+  // Bun.spawnSync throws on ENOENT (gh missing from PATH) and on a few other
+  // pre-launch failures. Convert to a non-zero GhResult so run()'s
+  // RunResult contract is preserved instead of bubbling a stack trace
+  // through the supervisor's step 10.5 call.
+  try {
+    const r = Bun.spawnSync(["gh", ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: stdin !== undefined ? Buffer.from(stdin) : undefined,
+    });
+    return {
+      stdout: r.stdout.toString(),
+      stderr: r.stderr.toString(),
+      exitCode: r.exitCode ?? 1,
+    };
+  } catch (err) {
+    const e = err as { message?: string };
+    return {
+      stdout: "",
+      stderr: e.message ?? `failed to spawn gh: ${String(err)}`,
+      exitCode: 1,
+    };
+  }
 };
 
 export type Args = {

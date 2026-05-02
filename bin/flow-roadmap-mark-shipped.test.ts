@@ -310,6 +310,34 @@ describe("run", () => {
     expect(putCount).toBe(2);
   });
 
+  it("409 conflict where the re-fetched roadmap is already shipped: returns ok no-op", async () => {
+    // Race-with-self: another supervisor instance flipped the row between
+    // our GET and our PUT. The 409 retry path re-fetches, finds the
+    // transform yields no change, and short-circuits to ok/changed:false.
+    const alreadyShipped = transformRoadmap(ROADMAP_FIXTURE, 54).next;
+    let getCount = 0;
+    const runner: GhRunner = (args) => {
+      const key = args.join(" ");
+      if (key === GET_KEY) {
+        getCount++;
+        // First GET: stale (in-review). Second GET (after 409): already shipped.
+        return getCount === 1
+          ? ghContentResponse(ROADMAP_FIXTURE, "sha-A")
+          : ghContentResponse(alreadyShipped, "sha-B");
+      }
+      if (key === PUT_KEY) {
+        return { stdout: "", stderr: "HTTP 409: sha does not match", exitCode: 22 };
+      }
+      throw new Error(`unmocked: ${key}`);
+    };
+    const result = await run(
+      { pr: 54, repo: FIXTURE_REPO, path: FIXTURE_PATH, ref: "main", dryRun: false },
+      runner,
+    );
+    expect(result).toEqual({ ok: true, changed: false, itemNumber: 13 });
+    expect(getCount).toBe(2);
+  });
+
   it("returns code 3 when the retry PUT also conflicts", async () => {
     const conflictResponse: GhResult = {
       stdout: "",
