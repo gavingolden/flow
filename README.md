@@ -63,9 +63,9 @@ Three categories under `skills/`:
 
 - **`skills/pipeline/`** — invoked by `/flow-pipeline` (`product-planning`, `new-feature`, `verify`, `pr-review`). Used by the supervisor to advance a pipeline phase by phase.
 - **`skills/universal/`** — generic productivity skills (`refactoring`, `skill-creator`, `add-worktree`, etc.).
-- **`skills/stacks/`** — stack-specific (Svelte, Tailwind+shadcn, Supabase). Opt in per-project — see [`docs/roadmap.md`](docs/roadmap.md) "Stack skills".
+- **`skills/stacks/`** — stack-specific (Svelte, Tailwind+shadcn, Supabase). Each carries explicit `TRIGGER when` / `SKIP when` clauses in its frontmatter so Claude Code's matcher only auto-loads it in matching contexts — see [`docs/roadmap.md`](docs/roadmap.md) "Stack skills".
 
-`flow setup` makes pipeline + universal skills available in every project. Stack skills install per-project on demand so they don't pollute every repo's skill resolution.
+`flow setup` makes every skill — pipeline, universal, and stack — available in every project. Stack-skill noise in unrelated repos is bounded by the frontmatter triggers/anti-triggers, not by a per-project install step.
 
 ## Why skills live here too
 

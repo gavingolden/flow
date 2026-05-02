@@ -68,10 +68,23 @@ dry-run across every git repo under a path.
 
 ## Cleaning up the global `npm link`
 
-`flow setup` overwrites the old `npm link`-installed `flow` binary
-cleanly. No manual `npm unlink` needed. For paranoia:
+If flow was ever installed via `npm link` (or `npm install -g`) **before**
+the `bin` field was removed from `package.json`, you must run
+`npm uninstall -g flow` before `flow setup`. Skipping this step will
+silently leave the old install in place: the npm-managed symlinks at
+`$(npm prefix -g)/bin/flow` linger after the `bin` field is gone (npm
+only writes new symlinks; it never sweeps stale ones), and depending on
+PATH ordering they may shadow `~/.local/bin/flow` and keep resolving the
+deleted `dist/cli.js` from the original checkout. The failure mode is
+quiet — `flow --version` keeps working — so you may not notice for a
+while.
 
 ```sh
-cd ~/code/flow && npm unlink && rm -f $(which flow)
-bun bin/flow setup
+npm uninstall -g flow                 # required if you ever ran npm link / npm install -g
+rm -f $(which flow) 2>/dev/null       # belt-and-suspenders: drop any leftover symlink
+bun bin/flow setup                    # writes ~/.local/bin/flow
+which flow                            # confirm it now resolves to ~/.local/bin/flow
 ```
+
+If you've never installed flow globally via npm, only the last two
+commands are needed.
