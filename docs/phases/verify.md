@@ -28,7 +28,7 @@ ground-truth post-check. Up to three attempts before escalating to
   - `verify: 3/3 attempts failed` followed by a fenced failure block —
     on exhaustion.
 - On exhaustion, the same failure log is upserted into the PR body's
-  `## Manual validation` section as a `> [!CAUTION]` block via
+  `## Test Steps` section as a `> [!CAUTION]` block via
   `surfaceVerifyFailureOnPr` (idempotent — a prior caution block is
   replaced, not stacked).
 
@@ -112,7 +112,7 @@ fix loops.
   and direct `flow run --phase verify` invocations.
 - **`verify-exhausted`.** Three full attempts failed. The final failure
   log is surfaced on both the task file and the PR body's
-  `## Manual validation` section (via `surfaceVerifyFailureOnPr`).
+  `## Test Steps` section (via `surfaceVerifyFailureOnPr`).
 - **Headless invocation failure.** A non-zero exit from `claude -p`
   counts as a failed attempt — same retry treatment as a gate failure.
 

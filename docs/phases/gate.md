@@ -1,7 +1,7 @@
 # Phase 7 — gate
 
 The pipeline's auto-merge decision point. Reads the rendered PR body's
-`## Manual validation` section, strips HTML comments and whitespace, and
+`## Test Steps` section, strips HTML comments and whitespace, and
 decides whether the PR can auto-merge or whether a human needs to perform
 validation steps before merging.
 
@@ -13,8 +13,8 @@ validation steps before merging.
   `gating` (mid-flight resume), or `gated` (resume after a gated PR was
   merged externally), plus `worktree` (absolute path) and `pr` (integer)
   populated.
-- A PR on the remote whose body contains a `## Manual validation`
-  section. The implement-phase `MANUAL_VALIDATION_RULE` documents the
+- A PR on the remote whose body contains a `## Test Steps`
+  section. The implement-phase `TEST_STEPS_RULE` documents the
   contract for the LLM that authors the body; the gate enforces it for
   the runner.
 
@@ -23,18 +23,18 @@ validation steps before merging.
 - `## Phase outputs > gate` populated with the decision and the data the
   decision was derived from. One of:
   - **auto-merge** (`OPEN`, section empty after strip-and-trim) — records
-    `manual_validation: false` and the handoff to merge.
+    `test_steps: false` and the handoff to merge.
   - **gated** (`OPEN`, section non-empty) — records the validation steps
     verbatim so a post-mortem reader sees what blocked auto-merge.
   - **already-merged** (`MERGED`) — records the merge SHA and the handoff
     to merge for cleanup.
   - **pr-closed-without-merge** (`CLOSED`) — records the state and the
     needs-human escalation.
-  - **manual-validation-section-missing** — defensive, surfaces a
+  - **test-steps-section-missing** — defensive, surfaces a
     hand-edited or regressed PR body.
   - **gh-error / pr-missing / worktree-missing** — preflight or `gh pr
     view` failures.
-- `frontmatter.manual_validation` set to `true` (gated) or `false`
+- `frontmatter.test_steps` set to `true` (gated) or `false`
   (auto-merge).
 - `frontmatter.merge_commit` set when state is `MERGED` and the SHA
   wasn't already recorded — supports the gated-then-user-merged-externally
@@ -43,13 +43,13 @@ validation steps before merging.
 Status transitions:
 
 - `reviewing → gating → merging` — empty section, auto-merge path.
-- `reviewing → gating → gated` (with `manual-validation-required`
+- `reviewing → gating → gated` (with `test-steps-required`
   reason) — non-empty section, needs human.
 - `gated → gating → merging` — resume after a user merged the PR
   externally; gate observes `state: MERGED` and hands off to merge.
 - `reviewing → gating → needs-human` — defensive branches
   (`pr-missing`, `worktree-missing`, `gh-error`, `pr-closed-without-merge`,
-  `manual-validation-section-missing`).
+  `test-steps-section-missing`).
 
 ## Wrapping prompt
 
@@ -60,17 +60,17 @@ invariant that "the orchestrator carries no LLM context."
 
 ## The strip-and-trim contract
 
-The PR body's `## Manual validation` section is parsed in three steps:
+The PR body's `## Test Steps` section is parsed in three steps:
 
 1. Extract the section body via the same regex shape used by
    `verify-gate.ts`'s `upsertCautionBlock` — anchored at column 0, runs
    to the next `## ` heading or end-of-input.
 2. Strip all HTML comments (`<!--[\s\S]*?-->`, multi-line supported).
-3. Trim. Empty result ⇒ `manual_validation: false` (auto-merge).
-   Non-empty ⇒ `manual_validation: true` (gated).
+3. Trim. Empty result ⇒ `test_steps: false` (auto-merge).
+   Non-empty ⇒ `test_steps: true` (gated).
 
 This is the single source of truth for "is the section actually
-populated." The implement phase's `MANUAL_VALIDATION_RULE` documents the
+populated." The implement phase's `TEST_STEPS_RULE` documents the
 contract for the LLM so it produces the right shape; the helpers in
 `src/pipeline/phases/gate-helpers.ts` enforce it for the runner.
 
@@ -87,11 +87,11 @@ contract for the LLM so it produces the right shape; the helpers in
   permission issues that need human attention.
 - **`pr-closed-without-merge`.** The PR was closed via the GitHub UI
   without merging. Operator decides: reopen, recreate, or abandon.
-- **`manual-validation-section-missing`.** The implement phase always
+- **`test-steps-section-missing`.** The implement phase always
   writes the heading. Missing means a hand-edited PR or a regression
   upstream. Surfacing rather than guessing intent keeps the auto-merge
   path safe.
-- **`manual-validation-required`.** Not a failure mode — the
+- **`test-steps-required`.** Not a failure mode — the
   designed-for "needs human" outcome. The PR carries the validation
   steps, the user performs them, the user merges via GitHub UI, and the
   next `flow run <id>` re-enters gate, observes `state: MERGED`, and

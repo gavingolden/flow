@@ -200,7 +200,7 @@ retries.
                        gating  ──────► (script: parse PR body)
                          │
               ┌──────────┴──────────┐
-              │ manual_validation   │ manual_validation
+              │ test_steps   │ test_steps
               │ = false             │ = true
               ▼                     ▼
            merging               needs-human   (user merges manually)
@@ -304,7 +304,7 @@ implementPhase({ taskPath, mode })
     claude -p "/new-feature
       Read task.md at <path>. Read the plan section. Implement.
       Run verify locally before opening the PR. Open the PR with
-      structured body including ## Manual validation."
+      structured body including ## Test Steps."
 
   mode = "fix":
     claude -p "/new-feature
@@ -830,13 +830,14 @@ in any Claude Code session opened in the repo.
 ### 8.9 When the gate kicks back to a human
 
 Some changes are too risky to auto-merge. The implementer flags them
-in the PR's `## Manual validation` section; the gate phase reads the
-section and pauses for human review.
+in the PR's `## Test Steps` section as unchecked `- [ ]` items; the
+gate phase reads the section and pauses for human review when any
+items remain unchecked.
 
 ```
 [pipeline runs through review, gate parses PR body]
 
-[notification: "flow: csv-export needs manual validation"]
+[notification: "flow: csv-export needs test steps verified"]
 
 user: /flow status
 
@@ -844,7 +845,7 @@ Claude:
   2026-04-28-csv-export is at gated.
 
   PR: #189 (https://github.com/user/repo/pull/189)
-  Manual validation needed:
+  Test Steps remaining:
     - Test export with a portfolio containing >1000 rows
     - Verify CSV opens correctly in Excel and Google Sheets
     - Check that hidden columns are correctly excluded
@@ -934,7 +935,7 @@ T+5:05  review phase (claude -p /pr-review, fresh ctx):
         - status: reviewed
 
 T+5:30  gate phase (script):
-        - reads PR body, manual_validation section is empty
+        - reads PR body, test_steps section is empty
         - status: gating → merging
 
 T+5:32  merge phase (script):

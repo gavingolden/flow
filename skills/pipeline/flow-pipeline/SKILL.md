@@ -533,13 +533,13 @@ Do not silently re-invent the override claim — if the doc still says
 
 After three failed outer attempts, escalate `NEEDS HUMAN:
 verify-exhausted`. Surface the final failure log on the PR body's
-`## Manual validation` section as a `> [!CAUTION]` block (idempotent —
+`## Test Steps` section as a `> [!CAUTION]` block (idempotent —
 edit-in-place, do not stack):
 
 ```bash
 mkdir -p "$WORKTREE/.flow-tmp"
 gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
-# upsert caution block under ## Manual validation, then
+# upsert caution block under ## Test Steps, then
 gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
@@ -734,14 +734,15 @@ fails, escalate `NEEDS HUMAN: review-failed`.
 **Phase:** `gating`
 
 The heading contract — which heading to look for, what counts as
-empty / non-empty / missing — lives in **`references/auto-merge-rubric.md`**
-(single source of truth). Read it once if the section parsing isn't
-already cached in your head; otherwise apply it inline.
+no-unchecked-items / has-unchecked-items / missing — lives in
+**`references/auto-merge-rubric.md`** (single source of truth). Read
+it once if the section parsing isn't already cached in your head;
+otherwise apply it inline.
 
 Fetch the PR body, state, and merge commit; the rubric's four-step
-parse turns the body into one of `empty` / `non-empty` / `missing`.
-The decision matrix below combines that result with PR state and
-this pipeline's `autoMerge` opt-out:
+parse turns the body into one of `no-unchecked` / `has-unchecked` /
+`missing`. The decision matrix below combines that result with PR
+state and this pipeline's `autoMerge` opt-out:
 
 ```bash
 gh pr view "$PR" --json body,state,mergeCommit
@@ -753,18 +754,18 @@ AUTO_MERGE=$(jq -r '.autoMerge // true' ~/.flow/state/"$SLUG".json)
 `OPEN` PR routes to **gated** regardless of section content. `MERGED`
 and `CLOSED` states still take their normal branches.
 
-| State | Section after trim | autoMerge | Action |
+| State | Unchecked items | autoMerge | Action |
 |---|---|---|---|
-| `OPEN` | empty | `true` (default) | Go to step 10 (auto-merge). |
-| `OPEN` | empty | `false` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "auto-merge opted out"`. Print: `GATED:`, the PR URL, and `merge with: gh pr merge --squash <PR>`. End. |
-| `OPEN` | non-empty | (any) | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "<first validation step>"`. Print: `GATED:`, the PR URL, the validation steps verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
+| `OPEN` | `0` | `true` (default) | Go to step 10 (auto-merge). |
+| `OPEN` | `0` | `false` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "auto-merge opted out"`. Print: `GATED:`, the PR URL, and `merge with: gh pr merge --squash <PR>`. End. |
+| `OPEN` | `> 0` | (any) | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "<first unchecked item>"`. Print: `GATED:`, the PR URL, the unchecked items verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
 | `MERGED` | (any) | (any) | Already merged externally. Go to step 10.5 (post-merge sweep) — **do not** run `gh pr merge`. After 10.5 returns, run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged ...`, print `MERGED`. End. |
 | `CLOSED` | (any) | (any) | Call `flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 
 **Defensive cases** (full list in the rubric):
 
-- Manual-validation heading missing → escalate `NEEDS HUMAN:
-  manual-validation-section-missing`. Don't treat as empty.
+- Test Steps heading missing → escalate `NEEDS HUMAN:
+  test-steps-section-missing`. Don't treat as no-unchecked.
 - `gh` non-zero or unparseable JSON → escalate `NEEDS HUMAN:
   gh-error <stderr>`.
 
@@ -790,7 +791,7 @@ for inspection.
 **Phase:** `housekeeping`
 
 Run the helper unconditionally on every successful merge — not gated
-by the Manual-validation rubric. The helper edits `docs/roadmap.md`
+by the Test Steps rubric. The helper edits `docs/roadmap.md`
 on `main` via `gh api PUT /contents/...`, flipping the merged PR's
 table row + `Status:` line to `✅ shipped (#$PR)`. Idempotent: if
 the row is already `✅ shipped (#$PR)` the helper is a no-op.

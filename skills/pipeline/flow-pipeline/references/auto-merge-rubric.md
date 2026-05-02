@@ -5,41 +5,73 @@ perform validation steps before merging? The whole rule turns on a single
 section of the PR body.
 
 This file is the **single source of truth for the heading contract**:
-which heading the gate keys on, what "empty" means, what the gate does on
-missing vs. empty vs. non-empty. The supervisor's SKILL.md step 9 holds
-only the operational decision matrix (PR state × autoMerge opt-out ×
-section verdict → action) and points back here for the parse contract.
-`/product-planning` and `/new-feature` PR-description templates also
-defer to this file for the canonical heading.
+which heading the gate keys on, what counts as "needs a human" vs.
+"clear to ship", what the gate does on missing vs. empty vs. populated.
+The supervisor's SKILL.md step 9 holds only the operational decision
+matrix (PR state × autoMerge opt-out × section verdict → action) and
+points back here for the parse contract. `/product-planning` and
+`/new-feature` PR-description templates also defer to this file for
+the canonical heading. The hand-author scaffold at
+`.github/PULL_REQUEST_TEMPLATE.md` mirrors the same contract.
 
-## The contract: `## Manual validation`
+## The contract: `## Test Steps`
 
 Every PR opened by `/new-feature` (and every PR-description draft from
-`/product-planning`) includes a `## Manual validation` section,
-**unconditionally**. The heading must always be present — it doubles as
-the test plan for reviewers and as the gate signal. The body is empty
-or populated based on whether human verification is required:
+`/product-planning`) includes a `## Test Steps` section, **unconditionally**.
+The heading must always be present — it doubles as the test plan for
+reviewers and as the gate signal. The section spans both automated
+verification (e.g. `npm run verify`) and manual smoke steps; one heading,
+one place to look.
 
-- **Empty body** (just an HTML-comment placeholder, or nothing) — the
-  change is pure-internal (refactor, infra, doc fix, generated-code
-  regen) and no human verification is required.
-- **Populated body** (`- [ ]` items) — the change touches something
-  risky (DB migration, external API integration, UI behaviour change,
-  security-touching code, anything user-observable) and a human must
-  walk the items before merge.
+The gate does **not** look at whole-section emptiness. It looks at one
+question: are there any **unchecked `- [ ]` items** in the section?
 
-The gate reads this section and decides:
+- **No unchecked items** (empty body, only prose, only `- [x]` items,
+  only `<details>` evidence blocks injected by `/pr-review`) — the
+  change is either pure-internal (refactor, infra, doc fix,
+  generated-code regen) or every item the author asked for has already
+  been verified. Either way, no human action remains.
+- **Has unchecked `- [ ]` items** — at least one verification step
+  hasn't completed. A human must walk those items before merge.
 
-- **Empty** → auto-merge.
-- **Non-empty** → gated; surface the checklist to the user.
+The gate decides:
+
+- **No unchecked items** → auto-merge.
+- **Has unchecked items** → gated; surface the checklist to the user.
 - **Heading missing entirely** → escalate
-  `NEEDS HUMAN: manual-validation-section-missing`. A missing heading
+  `NEEDS HUMAN: test-steps-section-missing`. A missing heading
   signals an upstream regression (template drift, hand-edited PR), not
-  an "empty" state — silently auto-merging would ship PRs the user
-  expected to be gated.
+  a "no items left" state — silently auto-merging would ship PRs the
+  user expected to be gated.
 
-The user-facing rule is: "if you put validation steps in the PR body,
-flow waits for you. If you don't, it ships."
+The user-facing rule is: "if you put unchecked validation steps in the
+PR body, flow waits for you. If you don't (or once they're all
+ticked), it ships."
+
+### Why bullet-driven instead of body-emptiness
+
+The gate used to fire on any non-empty content. That worked when nothing
+else wrote to the section. Once `/pr-review` started injecting `<details>`
+evidence blocks (captured stdout/stderr from each runnable item), a
+naive "non-empty ⇒ gated" rule would always trip the gate — the
+evidence makes the section non-empty by design.
+
+Two alternatives were considered and rejected:
+
+- **Hide evidence in HTML comments.** Defeats the point — comments
+  don't render to humans. The whole reason to inject evidence is so a
+  reader of the merged PR sees what was tested and what came back.
+- **Tag evidence blocks with a marker the gate strips.** Workable but
+  fragile — every new evidence consumer needs to register its marker
+  shape. The bullet-driven rule is robust to any future evidence
+  format because it doesn't ask "is there content?", it asks "is there
+  an action item?"
+
+Bullet-driven also aligns with the canonical convention. Every flow-emitted
+template (`/new-feature`, `/product-planning`, `.github/PULL_REQUEST_TEMPLATE.md`)
+already mandates `- [ ]` items; pr-review's drafting rules in 11e mandate
+the same. The new gate just keys on the convention that was already in
+force.
 
 ## How to extract the section
 
@@ -50,65 +82,72 @@ gh pr view <pr> --json body --jq '.body'
 ```
 
 Then apply this **four-step contract** — the heading-presence check is
-not optional, because steps 2-4 alone cannot distinguish "section
-exists but trims to empty" (auto-merge) from "section is missing
-entirely" (escalate, per the defensive cases below).
+not optional, because the unchecked-count check alone cannot distinguish
+"section exists but has no unchecked items" (auto-merge) from "section
+is missing entirely" (escalate, per the defensive cases below).
 
 1. **Confirm the heading exists.** Grep the body for a column-0
-   `^## Manual validation\s*$`. If not found, do **not** treat this
-   as empty — escalate `NEEDS HUMAN: manual-validation-section-missing`
-   and end. A missing heading means a hand-edited PR or an upstream
-   regression in the implement skill, and silently auto-merging would
-   ship a PR the user might have expected to be gated.
+   `^## Test Steps\s*$`. If not found, do **not** treat this as
+   "no unchecked items" — escalate
+   `NEEDS HUMAN: test-steps-section-missing` and end. A missing
+   heading means a hand-edited PR or an upstream regression in the
+   implement skill, and silently auto-merging would ship a PR the
+   user might have expected to be gated.
 2. **Find the section.** Match the heading at column 0:
-   `^## Manual validation\s*$`. The section runs to the next `## `
-   heading at column 0, or to end-of-input.
+   `^## Test Steps\s*$`. The section runs to the next `## ` heading
+   at column 0, or to end-of-input.
 3. **Strip HTML comments.** Remove every `<!-- ... -->` block
-   (multi-line, non-greedy). The implement skill sometimes leaves
-   instructional comments inside the section that the user never
-   sees rendered — they don't count as content.
-4. **Trim.** Empty result after trim ⇒ auto-merge. Non-empty ⇒ gated.
+   (multi-line, non-greedy). Templates leave instructional comments
+   inside the section that the user never sees rendered — they don't
+   count toward the unchecked count.
+4. **Count unchecked checkboxes.** Match `^[[:space:]]*- \[ \]` at
+   the start of any line in the stripped section body. Zero matches
+   ⇒ auto-merge. One or more matches ⇒ gated.
 
-A one-liner that does all four — note the explicit
-`grep -q` heading-presence check before the awk extraction, so a
-missing heading exits non-zero and routes to escalation rather than
-falling through to "empty ⇒ auto-merge":
+A one-liner that does all four — note the explicit `grep -q`
+heading-presence check before extraction, so a missing heading exits
+non-zero and routes to escalation rather than falling through to the
+auto-merge path:
 
 ```bash
 body=$(gh pr view <pr> --json body --jq '.body')
 
-# Step 1: heading-presence check. Must run first; awk's flag-loop
-# returns the same empty output for "heading missing" and "heading
-# present but section empty", so we cannot disambiguate downstream.
-if ! printf '%s' "$body" | grep -Eq '^## Manual validation[[:space:]]*$'; then
-  # Escalate: NEEDS HUMAN: manual-validation-section-missing
+# Step 1: heading-presence check. Must run first; the count below
+# returns 0 for both "heading missing" and "heading present but no
+# unchecked items", so we cannot disambiguate downstream.
+if ! printf '%s' "$body" | grep -Eq '^## Test Steps[[:space:]]*$'; then
+  # Escalate: NEEDS HUMAN: test-steps-section-missing
   exit 2
 fi
 
-# Steps 2-4: extract, strip comments, trim.
-extracted=$(printf '%s' "$body" \
-  | awk '/^## Manual validation[[:space:]]*$/{flag=1; next} /^## /{flag=0} flag' \
+# Steps 2-4: extract, strip comments, count unchecked items.
+unchecked=$(printf '%s' "$body" \
+  | awk '/^## Test Steps[[:space:]]*$/{flag=1; next} /^## /{flag=0} flag' \
   | perl -0pe 's/<!--.*?-->//gs' \
-  | tr -d '[:space:]')
+  | grep -cE '^[[:space:]]*- \[ \]' || true)
 
-# extracted=""  ⇒ auto-merge
-# extracted=*   ⇒ gated
+# unchecked == 0  ⇒ auto-merge
+# unchecked > 0   ⇒ gated
 ```
 
 If `grep -q` failed: heading missing → escalate (do **not** treat as
-empty). If it passed and `extracted` is empty: section is empty →
-auto-merge. If `extracted` is non-empty: gated.
+"no unchecked items"). If it passed and `unchecked == 0`: auto-merge.
+If `unchecked > 0`: gated.
+
+`grep -c` exits non-zero when its count is zero, hence the trailing
+`|| true` so the whole pipeline doesn't trip `set -e` on the
+auto-merge path.
 
 ## The four PR states
 
 `gh pr view <pr> --json state` returns one of `OPEN`, `MERGED`,
-`CLOSED`. Combine with the section result:
+`CLOSED`. Combine with the unchecked-count result:
 
-| PR state | Section | Decision | Action |
+| PR state | Unchecked count | Decision | Action |
 |---|---|---|---|
-| `OPEN` | empty | **auto-merge** | `gh pr merge --squash --delete-branch <pr>`, then `flow-remove-worktree`, then write `phase: merged`, print `MERGED`, end. |
-| `OPEN` | non-empty | **gated** | Write `phase: gated`. Print the validation checklist, the PR URL, and the manual-merge verb (`gh pr merge --squash <pr>`). End. |
-| `MERGED` | (any) | **already-merged** | The user merged externally (gated → merged path). Run `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end. |
+| `OPEN` | `0` | **auto-merge** | `gh pr merge --squash --delete-branch <pr>`, then step 10.5, then `flow-remove-worktree`, then write `phase: merged`, print `MERGED`, end. |
+| `OPEN` | `> 0` | **gated** | Write `phase: gated`. Print the validation checklist, the PR URL, and the manual-merge verb (`gh pr merge --squash <pr>`). End. |
+| `MERGED` | (any) | **already-merged** | The user merged externally (gated → merged path). Run step 10.5, then `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end. |
 | `CLOSED` | (any) | **closed-without-merge** | Escalate: `NEEDS HUMAN: pr-closed-without-merge <url>`. Leave worktree intact (the user may want to reopen). End. |
 
 ## Defensive cases
@@ -117,40 +156,60 @@ These shouldn't happen on the happy path. If they do, escalate rather
 than guess.
 
 - **PR number missing.** The supervisor's step 5 (implement) captures
-  the PR number from `gh pr view --json number`. If it's empty here,
-  something went wrong upstream — escalate `NEEDS HUMAN: pr-missing`.
-- **Manual-validation heading missing.** The implement skill always
-  writes the heading (empty or full). A missing heading means a
-  hand-edited PR or an upstream regression. Escalate `NEEDS HUMAN:
-  manual-validation-section-missing`. Treating a missing heading as
-  empty would silently ship hand-edited PRs that the user might have
-  expected to be gated.
+  the PR number from `flow-open-pr`. If it's empty here, something
+  went wrong upstream — escalate `NEEDS HUMAN: pr-missing`.
+- **Test-Steps heading missing.** The implement skill always writes
+  the heading (with or without `- [ ]` items). A missing heading
+  means a hand-edited PR or an upstream regression. Escalate
+  `NEEDS HUMAN: test-steps-section-missing`. Treating a missing
+  heading as "no unchecked items" would silently ship hand-edited PRs
+  that the user might have expected to be gated.
 - **`gh` non-zero exit or unparseable JSON.** Escalate `NEEDS HUMAN:
   gh-error <stderr>`. Don't retry — gh failures here are typically
   auth or repo-permission issues that need human attention.
 
 ## Worked examples
 
-**Auto-merge.** Refactor PR; section reads:
+**Auto-merge — empty section.** Pure-internal refactor; section reads:
 
 ```
-## Manual validation
+## Test Steps
 
-<!-- Document any validation the reviewer should perform manually. Empty if none. -->
+<!-- No human verification needed — pure-internal refactor. -->
 ```
 
-After strip-and-trim: empty. Decision: auto-merge.
+After strip-and-count: 0 unchecked items. Decision: auto-merge.
 
-**Gated.** DB-migration PR; section reads:
+**Auto-merge — pr-review-completed section.** Section reads:
 
 ```
-## Manual validation
+## Test Steps
 
-- Confirm the migration ran cleanly against staging.
-- Verify no rows lost from `users.email_verified`.
+- [x] `npm run verify` — pass
+  <details><summary>Output (auto-captured 2026-05-02T12:34:56Z)</summary>
+
+  PASS bin/flow-foo.test.ts
+  ✓ does the thing (4 ms)
+
+  </details>
 ```
 
-After strip-and-trim: non-empty. Decision: gated. Print:
+After strip-and-count: 0 unchecked items (the only checkbox is
+`- [x]`, the `<details>` block contains no checkboxes). Decision:
+auto-merge. The injected evidence is informational and does not gate.
+
+**Gated.** UI-feature PR; section reads:
+
+```
+## Test Steps
+
+- [x] `npm run verify` — pass
+  <details>...</details>
+- [ ] Open `/portfolio` with the seeded user — allocation chart renders
+- [ ] Switch the time range to 1y — chart updates without a full reload
+```
+
+After strip-and-count: 2 unchecked items. Decision: gated. Print:
 
 ```
 GATED: manual validation required
@@ -158,8 +217,8 @@ GATED: manual validation required
 PR: https://github.com/org/repo/pull/142
 
 Steps:
-  - Confirm the migration ran cleanly against staging.
-  - Verify no rows lost from `users.email_verified`.
+  - Open `/portfolio` with the seeded user — allocation chart renders
+  - Switch the time range to 1y — chart updates without a full reload
 
 After validating, merge with: gh pr merge --squash 142
 ```
@@ -171,5 +230,5 @@ End the turn.
 The gate's whole job is one parse of one section. Anything richer
 (checks for "this PR touches a migration file", "did the test suite
 include integration tests", etc.) belongs in the implement skill's
-own decision about whether to populate the section — not here.
-The implement skill knows the diff; the gate doesn't need to.
+own decision about which `- [ ]` items to seed in the section — not
+here. The implement skill knows the diff; the gate doesn't need to.

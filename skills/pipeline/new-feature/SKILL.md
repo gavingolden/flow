@@ -156,23 +156,26 @@ If the change is pure-internal (refactor, infra, no user-observable delta), writ
 word `none` under the heading. Never delete the heading — `none` is an explicit author
 affirmation, while a missing heading is ambiguous between "no change" and "author forgot".>
 
-## Manual validation
+## Test Steps
 
-<Verification steps a human must perform before this PR can merge. The heading is also the
-auto-merge gate signal — see
+<Verification steps for this PR — both automated and manual smoke. The heading is also
+the auto-merge gate signal — see
 `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md` for the full contract.
-The short version: empty section ⇒ auto-merge; non-empty ⇒ gated.
+The short version: zero unchecked `- [ ]` items ⇒ auto-merge; one or more ⇒ gated.
 
 Always emit the heading. Decide the body based on the change:
 
 - Pure-internal change (refactor, infra, doc fix, generated-code regen) with no
   user-observable delta — leave the section empty under just a placeholder HTML
-  comment. The rubric strips HTML comments before checking emptiness, so this is the
-  auto-merge state.
+  comment. The rubric strips HTML comments before counting, so zero unchecked items
+  ⇒ auto-merge.
 - Otherwise — derive `- [ ]` items from the it.todo() specs. Each item is something a
   reviewer must run, click, or read to confirm the change is safe. Include the test command
-  as one of the items. Use as many items as the change warrants — a one-line fix may need
-  one or two; a new integration may need a dozen. Don't pad and don't truncate.
+  as one of the items. The pr-review skill will run any item that's a deterministic shell
+  command, tick the box on success, and inject the captured output as a `<details>` block
+  under the item; remaining `- [ ]` items are what gates the merge. Use as many items as
+  the change warrants — a one-line fix may need one or two; a new integration may need a
+  dozen. Don't pad and don't truncate.
 
 Example (auto-merge — empty section):
 
@@ -201,11 +204,12 @@ proceeding to implementation.
 - "User-facing changes" must be phrased in user terms (what someone running the tool will
   see or do differently), not implementation terms. If the PR has no user-observable
   delta, write `none` under the heading — never omit the heading itself.
-- Always emit the `## Manual validation` heading, even for refactors. The auto-merge gate
-  treats a missing heading as an upstream regression and escalates `NEEDS HUMAN`. An
-  empty body under the heading is the auto-merge state; a populated body is the gate state.
-- Render every "Manual validation" step as a `- [ ]` markdown checkbox so reviewers can tick
-  items off as they verify.
+- Always emit the `## Test Steps` heading, even for refactors. The auto-merge gate
+  treats a missing heading as an upstream regression and escalates `NEEDS HUMAN`. Zero
+  unchecked items under the heading is the auto-merge state; one or more unchecked
+  `- [ ]` items is the gate state.
+- Render every "Test Steps" entry as a `- [ ]` markdown checkbox so reviewers can tick
+  items off as they verify and the auto-merge gate can count them.
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
   and let the renderer wrap it. Hard wraps go ragged the moment a sentence is edited and
   add no value on GitHub, which renders one long line as one flowing paragraph.

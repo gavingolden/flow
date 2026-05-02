@@ -159,7 +159,7 @@ CLI emits the dollar amount pre-computed.
 | 4 | verify | headless (in worktree) | `/verify` | retry up to 3x; then `needs-human` |
 | 5 | ci-wait | script | poll `gh pr checks` until terminal; collect bot reviews from a configurable list (default `["Copilot"]`, configurable per repo) | on red, loop back to implement(fix) with the failure log; cap 3 |
 | 6 | review | headless | `/pr-review` in fresh `claude -p` context, with bot reviews from phase 5 passed in as second-opinion artefacts | on critical findings, loop back to implement(fix); cap 2 |
-| 7 | gate | script | parse PR body's "Manual validation" section | n/a — outcome is the decision |
+| 7 | gate | script | parse PR body's "Test Steps" section | n/a — outcome is the decision |
 | 8 | merge | script | `gh pr merge --squash --delete-branch` + remove worktree + archive task file | abort with clear status |
 
 Phases 2, 3, 4, 6 are headless Claude Code subprocess invocations of

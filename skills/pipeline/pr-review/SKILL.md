@@ -54,7 +54,7 @@ Reference files (read on demand, not upfront):
   issue/todo/question) with decorations. Read at Step 3 when preparing agent context.
 - `references/agent-prompts.md` — prompt templates for the 4 specialized review agents.
   Read at Step 3 when spawning agents.
-- `references/manual-test-rubric.md` — depth rubric for the "Manual validation" criterion
+- `references/manual-test-rubric.md` — depth rubric for the "Test Steps" criterion
   (happy/unhappy/edges + PR-type scenario menus). Read at Step 11 when evaluating
   description Testability.
 - `references/report-template.md` — output format for the final report. Read at Step 12.
@@ -305,22 +305,24 @@ prevent.
 ### 8c. Run every runnable verification item and tick the boxes
 
 After 8b's commit + push, run every runnable `- [ ]` item in the PR body, **regardless
-of which section it lives under** — `Manual validation` is the canonical heading flow
-templates emit, but legacy or hand-edited PRs may still use `How to test`, `Manual smoke`,
-or other variants. The classification below is per-item, not per-section. The format note
-in 11b promises reviewers that checkbox state means something — leaving every box
-unticked after a successful run breaks that contract and forces the next reviewer
-(human or agent) to re-run everything from scratch.
+of which section it lives under** — `Test Steps` is the canonical heading flow
+templates emit, but legacy or hand-edited PRs may still use `Manual validation`,
+`How to test`, `Manual smoke`, or other variants. The classification below is
+per-item, not per-section. The format note in 11b promises reviewers that
+checkbox state means something — leaving every box unticked after a successful
+run breaks that contract and forces the next reviewer (human or agent) to
+re-run everything from scratch.
 
-> **Headings do not exempt items.** A section called "Manual validation" does not
-> mean its items are off-limits to automation. The author's choice of heading
-> reflects intent ("a human should sanity-check this end-to-end"), not
-> impossibility. The architectural reason `## Manual validation` is the canonical
-> heading is that the auto-merge gate parses it: empty section ⇒ auto-merge,
-> non-empty ⇒ gated. The heading is load-bearing for the orchestrator, **not** a
-> hands-off signal for the reviewer. Apply the runnable test below to every checkbox
-> in the body. If an item is deterministic and exec'able from a terminal in this
-> repo, you must run it, even when the heading says "Manual".
+> **Headings do not exempt items.** A section called "Test Steps" or any other
+> manual-flavoured heading does not mean its items are off-limits to automation.
+> The author's choice of heading reflects intent ("a human should sanity-check
+> this end-to-end"), not impossibility. The architectural reason `## Test Steps`
+> is the canonical heading is that the auto-merge gate parses it: zero
+> unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated. The heading is
+> load-bearing for the orchestrator, **not** a hands-off signal for the
+> reviewer. Apply the runnable test below to every checkbox in the body. If an
+> item is deterministic and exec'able from a terminal in this repo, you must
+> run it, even when the section heading suggests human-only.
 
 For each `- [ ]` item, classify before running:
 
@@ -344,22 +346,59 @@ from a terminal in this repo? If yes, run it.
 
 For each runnable item:
 
-1. Execute it exactly as written. Same discipline as Step 8 — a non-zero exit means
-   investigate and fix the underlying issue, not explain it away.
+1. Execute it exactly as written, capturing both stdout and stderr to a file
+   (e.g. `bash -c 'cmd 2>&1' | tee .flow-tmp/evidence-<n>.txt; echo $? > .flow-tmp/exit-<n>`).
+   Same discipline as Step 8 — a non-zero exit means investigate and fix the
+   underlying issue, not explain it away.
 2. If a fix is needed, make a **new commit** (do not amend the pushed commit per
    `AGENTS.md`) and `git push` before re-running.
-3. On pass, tick `- [ ]` → `- [x]` in your working copy of the body.
+3. On pass, the box gets ticked AND the captured output gets injected as a
+   `<details>` evidence block immediately under the item — see the next sub-step.
 
-After all runnable items are processed, write the body back in a single edit:
+### 8c.i. Inject evidence under each runnable item
+
+Use `flow-inject-evidence` (installed by `flow setup` and on PATH) to perform
+both the box-tick and the evidence injection in one idempotent edit. Save the
+PR body to scratch first so all items can be applied to the same working copy:
 
 ```bash
-gh pr edit <number> --body-file /dev/stdin <<'EOF'
-<updated description with ticks applied>
-EOF
+mkdir -p .flow-tmp
+gh pr view <number> --json body --jq '.body' > .flow-tmp/body.md
+
+# For each runnable item, after running it:
+flow-inject-evidence \
+  --body-file .flow-tmp/body.md \
+  --item '<regex matching the item line>' \
+  --output-file .flow-tmp/evidence-<n>.txt \
+  --exit-code "$(cat .flow-tmp/exit-<n>)"
 ```
 
-Apply the no-hard-wrap and preserve-existing-wrapping rules from 11e — do not reflow
-prose to flip a checkbox. The minimal diff is `[ ]` → `[x]`.
+The helper:
+
+- Finds the first body line matching `--item` (a JS regex tested per-line).
+- On exit code 0: ticks `- [ ]` → `- [x]`.
+- On any exit code: inserts a `<details><!-- flow:evidence --><summary>Output
+  (auto-captured <ts>; pass|FAILED exit N)</summary>...` block on the line below.
+- On re-run: replaces the existing `<details>` block in place via the
+  `<!-- flow:evidence -->` marker. Idempotent — running twice yields the same
+  body.
+- Trims output > 150 lines to head 100 + tail 50 with a count marker, so the
+  PR body stays under GitHub's 65,536-char limit.
+
+After every runnable item has been processed, write the body back in a single
+edit:
+
+```bash
+gh pr edit <number> --body-file .flow-tmp/body.md
+```
+
+Apply the no-hard-wrap and preserve-existing-wrapping rules from 11e — the
+helper only edits the matched item line and the immediately-following block.
+Everything else in the body is preserved byte-for-byte.
+
+The `<!-- flow:evidence -->` marker is **not** stripped by the auto-merge
+gate. The gate counts unchecked `- [ ]` items only; injected evidence sits
+under ticked items and never affects the gate decision.
 
 Record unticked items in the report with a one-line reason
 ("requires browser session", "needs prod creds", "subjective UI judgment"). Do not
@@ -456,7 +495,7 @@ Check whether the PR description follows the standardized format with these sect
 - **What** — deliverables as capabilities/behaviors
 - **Key decisions** — non-obvious choices with rationale
 - **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs)
-- **Manual validation** — verification steps for reviewers (also the auto-merge gate signal: empty ⇒ auto-merge, non-empty ⇒ gated)
+- **Test Steps** — verification steps for reviewers, automated and manual (also the auto-merge gate signal: zero unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated)
 
 **If the description is empty or missing**: Draft one from the diff and PR title using the
 format above. This is the highest-priority fix in this step.
@@ -480,21 +519,23 @@ Score each criterion as Pass/Fail. If 2+ criteria fail, the description needs an
 
 **Testability has three fail subtypes** — record which one applies so the report reflects it:
 
-- `Fail (missing)` — no "Manual validation" section at all, or a section with no concrete
-  steps where a material change clearly needs them. An empty section under the heading is
-  **not** a failure — it's the explicit "no human verification needed; auto-merge"
-  signal, valid for pure-internal changes (refactors, doc fixes, generated-code regens).
+- `Fail (missing)` — no "Test Steps" section at all, or a section with no concrete
+  steps where a material change clearly needs them. A section with zero unchecked
+  `- [ ]` items under the heading is **not** a failure — it's the explicit "no human
+  verification needed; auto-merge" signal, valid for pure-internal changes (refactors,
+  doc fixes, generated-code regens) and for runs where pr-review has already ticked
+  every item.
 - `Fail (shallow — happy-path only)` — steps exist but only cover the happy path on a
   material change that warrants unhappy/edge scenarios per the rubric
-- `Fail (automatable — manual items should be tests)` — the **Manual validation**
-  section, or **any other section in the body** (legacy `How to test`, `Manual smoke`,
-  etc.), contains scenarios that pass the rubric's automation test (named fixture +
-  deterministic assertion + exit condition, no subjective judgment). Manual is the
-  fallback; default is automation. Scan every checkbox in the body — section
-  heading is irrelevant; the rubric is per-item. Apply this when you can sketch
-  the test in one or two sentences ("a `RUN_INTEGRATION=1` test that spawns the
-  CLI, asserts the file exists and `jq` parses every line, then SIGTERMs the
-  child").
+- `Fail (automatable — manual items should be tests)` — the **Test Steps**
+  section, or **any other section in the body** (legacy `Manual validation`,
+  `How to test`, `Manual smoke`, etc.), contains scenarios that pass the rubric's
+  automation test (named fixture + deterministic assertion + exit condition, no
+  subjective judgment). Manual is the fallback; default is automation. Scan every
+  checkbox in the body — section heading is irrelevant; the rubric is per-item.
+  Apply this when you can sketch the test in one or two sentences ("a
+  `RUN_INTEGRATION=1` test that spawns the CLI, asserts the file exists and `jq`
+  parses every line, then SIGTERMs the child").
 
 Multiple subtypes can apply simultaneously (e.g. shallow *and* automatable). Record each.
 The criterion fails for the 2+ threshold even if only one subtype applies.
@@ -505,11 +546,11 @@ UI features, config changes), and includes the **Automate first** section listin
 safely automatable vs genuinely manual. For non-material changes (pure internal refactors,
 typo fixes), happy-path only is acceptable; do not over-prescribe.
 
-**Format note (advisory, not a rubric criterion):** "Manual validation" should be a
-markdown checklist (`- [ ]` items) so reviewers can tick steps off as they verify. If the
-section is otherwise good but uses plain bullets, do not flag it as a Testability failure
-— but when you draft or edit a "Manual validation" section in Step 11e, always emit
-`- [ ]` items.
+**Format note (advisory, not a rubric criterion):** "Test Steps" should be a markdown
+checklist (`- [ ]` items) so reviewers can tick steps off as they verify and the
+auto-merge gate can count unchecked items. If the section is otherwise good but uses
+plain bullets, do not flag it as a Testability failure — but when you draft or edit a
+"Test Steps" section in Step 11e, always emit `- [ ]` items.
 
 ### 11c. Deployment Follow-Up Check
 
@@ -560,7 +601,7 @@ Compare the current implementation (diff + any changes from Steps 6–7) against
 
 **Drafting conventions** (apply to every drafted/edited description in this step):
 
-- Render "Manual validation" items as `- [ ]` markdown checkboxes.
+- Render "Test Steps" items as `- [ ]` markdown checkboxes.
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
   and let the renderer wrap it. GitHub renders one long line as one flowing paragraph;
   hard wraps go ragged the moment a sentence is edited and add no value.
@@ -589,7 +630,7 @@ on the fail subtype:
 
 - **Fail (shallow — happy-path only)**: Consult `references/manual-test-rubric.md`, pick
   the scenario menu that matches the change type, identify the missing categories (unhappy
-  paths? edge cases?), and propose appending them to the existing "Manual validation"
+  paths? edge cases?), and propose appending them to the existing "Test Steps"
   section.
 
   Show the user the focused diff — just the proposed additions to the test section, not
@@ -603,7 +644,7 @@ on the fail subtype:
   EOF
   ```
 
-- **Fail (missing)**: Draft a minimal "Manual validation" section tailored to the change,
+- **Fail (missing)**: Draft a minimal "Test Steps" section tailored to the change,
   using the rubric's scenario menu for the relevant change type. Do not redraft the rest of
   the description.
 
