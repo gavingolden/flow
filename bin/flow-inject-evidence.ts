@@ -104,6 +104,13 @@ export function buildEvidenceBlock(
   const summary = `Output (auto-captured ${timestamp}; ${status})`;
   const trimmed = trimOutput(output);
   const fence = "`".repeat(pickFenceLength(trimmed));
+  // The trailing empty string yields a blank line after `</details>`
+  // when these are joined with `\n`. GitHub's GFM type 6/7 HTML blocks
+  // only end at a blank line — without one, the next bullet (or the
+  // next `<details>`'s `</details>`) gets absorbed into a chained
+  // raw-HTML block, killing checkbox rendering for everything that
+  // follows. Same pattern as the leading blank between `<summary>` and
+  // the code fence: GFM only re-enters markdown mode after a blank.
   return [
     `<details>${MARKER_OPEN}<summary>${summary}</summary>`,
     "",
@@ -112,6 +119,7 @@ export function buildEvidenceBlock(
     fence,
     "",
     "</details>",
+    "",
   ].join("\n");
 }
 
@@ -210,9 +218,14 @@ export function rewriteBody(
   const blockEnd = findExistingBlockEnd(lines, matchIdx);
   const replaced = blockEnd !== null;
   if (replaced) {
-    // Drop everything from the line after the list item through the
-    // closing </details>, including any blank lines between them.
-    lines.splice(itemEnd + 1, blockEnd - itemEnd);
+    // Drop the prior block: lines from the bullet's end through
+    // </details>, plus a trailing blank line if one was emitted by
+    // a previous run. Without trimming that blank, the freshly
+    // emitted evidence (which carries its own trailing blank) would
+    // stack a second one each time replace runs.
+    let removeEnd = blockEnd;
+    if (lines[removeEnd + 1] === "") removeEnd++;
+    lines.splice(itemEnd + 1, removeEnd - itemEnd);
   }
 
   const ts = args.timestamp ?? new Date().toISOString();

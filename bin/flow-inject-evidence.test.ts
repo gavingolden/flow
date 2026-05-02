@@ -101,7 +101,10 @@ describe("buildEvidenceBlock", () => {
   it("uses a triple-backtick fence when the output has no backtick runs", () => {
     const block = buildEvidenceBlock("plain output\n", 0, TS);
     expect(block).toMatch(/\n```text\n/);
-    expect(block).toMatch(/\n```\n\n<\/details>$/);
+    // The block ends with </details>\n — a trailing newline, joined
+    // by lines.splice() into a blank line so the next bullet starts
+    // in markdown mode (GFM HTML blocks only end at a blank line).
+    expect(block).toMatch(/\n```\n\n<\/details>\n$/);
   });
 });
 
@@ -317,6 +320,75 @@ describe("rewriteBody", () => {
     expect(
       (second.body.match(/<!-- flow:evidence -->/g) ?? []).length,
     ).toBe(1);
+  });
+
+  it("emits a blank line after </details> so the next bullet renders as a list item", () => {
+    // Regression: GFM HTML blocks (type 6/7) end at the next blank
+    // line, not at the matching close tag. Without a trailing blank,
+    // the next `</details>` (and the bullet between them) get
+    // absorbed into a chained raw-HTML block — visible on PR #72
+    // before this fix as bullets rendering as plain text and the
+    // last `<details>` swallowing the unchecked manual items.
+    const result = rewriteBody(
+      [
+        "## Test Steps",
+        "",
+        "- [ ] `npm run verify` — pass",
+        "- [ ] manual smoke",
+      ].join("\n"),
+      {
+        bodyFile: "",
+        outputFile: "",
+        item: "npm run verify",
+        exitCode: 0,
+        timestamp: TS,
+      },
+      "ok",
+    );
+    if (!result.ok) throw new Error(result.error);
+    const lines = result.body.split("\n");
+    const closeIdx = lines.findIndex((l) => l === "</details>");
+    expect(closeIdx).toBeGreaterThan(0);
+    expect(lines[closeIdx + 1]).toBe("");
+    expect(lines[closeIdx + 2]).toBe("- [ ] manual smoke");
+  });
+
+  it("does not stack trailing blank lines on re-runs", () => {
+    const seed = [
+      "## Test Steps",
+      "",
+      "- [ ] `npm run verify` — pass",
+      "- [ ] manual smoke",
+    ].join("\n");
+    const first = rewriteBody(
+      seed,
+      {
+        bodyFile: "",
+        outputFile: "",
+        item: "npm run verify",
+        exitCode: 0,
+        timestamp: "2026-05-02T00:00:00Z",
+      },
+      "first",
+    );
+    if (!first.ok) throw new Error(first.error);
+    const second = rewriteBody(
+      first.body,
+      {
+        bodyFile: "",
+        outputFile: "",
+        item: "npm run verify",
+        exitCode: 0,
+        timestamp: "2026-05-02T01:00:00Z",
+      },
+      "second",
+    );
+    if (!second.ok) throw new Error(second.error);
+    // No three-in-a-row blank lines — at most a single trailing
+    // blank between </details> and the next bullet.
+    expect(second.body).not.toMatch(/\n\n\n\n/);
+    expect(second.body).toContain("second");
+    expect(second.body).not.toContain("first");
   });
 
   it("inserts a fresh block instead of repairing an orphaned open marker", () => {
