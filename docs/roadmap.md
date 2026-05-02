@@ -64,7 +64,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | ✅ shipped (#44) |
 | **Item 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ✅ shipped (#47) |
 | **Item 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
-| **Item 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ⬜ queued |
+| **Item 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ✅ shipped (#51) |
 | **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ✅ shipped (#46) |
 | **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ⬜ queued |
 | **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
@@ -828,17 +828,50 @@ Done when:
 
 ### Item 6 — cost reporting in `flow ls`
 
-Status: ⬜ queued. Carry-forward from queued Phase 5.
+Status: ✅ shipped (#51). Carry-forward from queued Phase 5.
 
 Done when:
 
-- [ ] `flow ls --cost` shows `$ spent` per active window.
-- [ ] Source: scrape `claude --output-format stream-json`-style usage
-  events out of the supervisor session if exposed; otherwise pipe
-  through Claude Code's session-usage API once available.
-- [ ] Cost attribution by model is preserved (Haiku triage vs Opus plan
-  vs Sonnet implement → distinct line items in
-  `flow ls --cost --detail`).
+- [x] `flow ls --cost` shows `$ spent` per active window.
+- [x] Source: parse Claude Code's per-session JSONL on disk
+  (`~/.claude/projects/<encoded-cwd>/<session-id>.jsonl`) — the
+  `usage` block on each `assistant` event already carries every
+  bucket we need. The original spec called out `--output-format
+  stream-json` scraping or a future "session-usage API"; on-disk
+  parsing turned out to be simpler, doesn't require live attachment,
+  and works for already-running sessions.
+- [x] Cost attribution by model is preserved — `flow ls --cost
+  --detail` prints a per-pipeline breakdown line listing each model's
+  contribution.
+
+Design deviations from the original spec:
+
+- **Source: on-disk JSONL, not stream-json.** The roadmap entry
+  hedged between "scrape stream-json events" and "session-usage API
+  once available". Shipped path is neither — the per-session JSONL
+  files Claude Code already writes to `~/.claude/projects/` carry
+  the same `usage` data, are addressable per pipeline by matching
+  the seed prompt, and don't require live session attachment. Result
+  is a snapshot computed on each `flow ls --cost` invocation.
+- **Pipeline → JSONL match by seed-prompt content.** Each `flow new
+  <description>` sends a unique seed (`Use the /flow-pipeline skill
+  for: <description>`); we slugify it back and compare to
+  `state.slug`. No state-schema change, no `flow new` change, no new
+  helper on PATH. Concurrent pipelines disambiguate cleanly because
+  slugs are unique window names by construction.
+- **Pricing pinned in source.** `bin/lib/cost-pricing.ts` carries the
+  current Anthropic public per-model rates with a `// last verified`
+  comment. The pricing file is what reviewers diff when rates change,
+  rather than a config file that drifts silently.
+- **Cache-creation tokens billed at the 5m-ephemeral rate.** The
+  JSONL splits 5m and 1h cache-creation buckets, but the 1h rate is
+  rare enough that the simplification doesn't move the per-pipeline
+  number visibly. Refine if real cost data ever shows a discrepancy.
+- **Unknown-model usage flagged with `~` prefix.** When a model
+  appears in the JSONL that isn't pinned in `cost-pricing.ts`, the
+  row total prints `~$X.XX` and a single-line stderr warning
+  enumerates the unknown ids — the table still renders rather than
+  crashing on a model rev.
 
 ### Item 7 — per-skill model + effort tuning
 
