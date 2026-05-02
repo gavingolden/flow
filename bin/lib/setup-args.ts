@@ -9,22 +9,26 @@ import { runSetup, type SetupOptions } from "./setup";
 export type ParsedSetupArgs = {
   upgrade: boolean;
   force: boolean;
+  noCompletions: boolean;
   flowSource?: string;
 };
 
 export type SetupArgsResult = ParsedSetupArgs | { error: string };
 
-const USAGE = "usage: flow setup [--upgrade] [--force] [--source <path>]";
-const FLAGS = new Set(["--upgrade", "--force"]);
+const USAGE =
+  "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions]";
+const FLAGS = new Set(["--upgrade", "--force", "--no-completions"]);
 
 export function parseSetupArgs(args: string[]): SetupArgsResult {
-  const out: ParsedSetupArgs = { upgrade: false, force: false };
+  const out: ParsedSetupArgs = { upgrade: false, force: false, noCompletions: false };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--upgrade") {
       out.upgrade = true;
     } else if (arg === "--force") {
       out.force = true;
+    } else if (arg === "--no-completions") {
+      out.noCompletions = true;
     } else if (arg === "--source") {
       const value = args[i + 1];
       if (!value || FLAGS.has(value) || value === "--source") {

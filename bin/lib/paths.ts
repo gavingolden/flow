@@ -10,10 +10,12 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
+import { fileURLToPath } from "node:url";
 
 export const HOME = os.homedir();
 export const FLOW_DIR = path.join(HOME, ".flow");
 export const FLOW_STATE_DIR = path.join(FLOW_DIR, "state");
+export const FLOW_COMPLETIONS_DIR = path.join(FLOW_DIR, "completions");
 export const FLOW_MANIFEST = path.join(FLOW_DIR, "installed.json");
 export const FLOW_CONFIG = path.join(FLOW_DIR, "config.json");
 export const SETUP_LOCK_PATH = path.join(FLOW_DIR, "setup.lock");
@@ -35,13 +37,20 @@ function readConfig(): FlowConfig {
 /**
  * Resolves the flow source checkout. Order of precedence:
  *   1. ~/.flow/config.json `source` field
- *   2. The directory two levels up from this module (works because Bun
- *      resolves import.meta.path through symlinks to the canonical file
- *      inside the flow source tree at <flow-source>/bin/lib/paths.ts).
+ *   2. The directory two levels up from this module. Bun resolves
+ *      import.meta.path through symlinks to the canonical file at
+ *      <flow-source>/bin/lib/paths.ts; Node (used by vitest) doesn't
+ *      define `path` on import.meta but does provide a file:// URL, so
+ *      we fall back to fileURLToPath on import.meta.url for portability.
  */
 export function resolveFlowSource(): string {
   const config = readConfig();
   if (config.source) return path.resolve(config.source.replace(/^~/, HOME));
-  // From <flow-source>/bin/lib/paths.ts → up two → <flow-source>
-  return path.resolve(path.dirname(import.meta.path), "..", "..");
+  return path.resolve(path.dirname(modulePath()), "..", "..");
+}
+
+function modulePath(): string {
+  const bunPath = (import.meta as { path?: unknown }).path;
+  if (typeof bunPath === "string") return bunPath;
+  return fileURLToPath(import.meta.url);
 }

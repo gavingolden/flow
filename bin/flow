@@ -18,22 +18,8 @@ import { runDone } from "./lib/done";
 import { runLs } from "./lib/ls";
 import { runMigrate } from "./lib/migrate";
 import { runVersion } from "./lib/version";
-
-const VERBS = new Set([
-  "setup",
-  "new",
-  "ls",
-  "attach",
-  "a",
-  "done",
-  "migrate",
-  "--help",
-  "-h",
-  "help",
-  "--version",
-  "-v",
-  "version",
-]);
+import { runCompletion } from "./lib/completion";
+import { isVerb } from "./lib/verbs";
 
 async function main(): Promise<number> {
   const [, , verb, ...rest] = process.argv;
@@ -43,7 +29,7 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  if (VERBS.has(verb)) {
+  if (isVerb(verb)) {
     return await runVerb(verb, rest);
   }
 
@@ -72,6 +58,8 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
       return await runLsVerb(args);
     case "migrate":
       return runMigrateVerb(args);
+    case "completion":
+      return runCompletion(args[0]);
     case "--version":
     case "-v":
     case "version":
@@ -146,10 +134,11 @@ function printHelp(): void {
   console.log(`flow — tmux-driven pipelines for Claude Code
 
 Usage:
-  flow setup [--upgrade] [--force] [--source <path>]
+  flow setup [--upgrade] [--force] [--source <path>] [--no-completions]
                                         install skills, agents, helpers globally
                                         (--source overrides the install root,
-                                        e.g. for /flow-pipeline step 5.5 in a worktree)
+                                        e.g. for /flow-pipeline step 5.5 in a worktree;
+                                        --no-completions skips rc-file editing)
   flow new [--no-auto-merge] <description>
                                         start a new pipeline in a tmux window
                                         (--no-auto-merge stops at gated regardless of rubric)
@@ -159,12 +148,15 @@ Usage:
   flow done <name>                      close a pipeline window
   flow done --all-merged                close every merged or cancelled window
   flow migrate [--apply] [--scan <p>]   clean up legacy per-repo flow install
+  flow completion <bash|zsh>            print a shell completion script to stdout
 
   flow --version                        print the installed flow version
   flow --help                           this help
 
 Run 'flow setup' once after cloning the flow source. Pipelines run inside
 tmux windows; the supervisor skill (/flow-pipeline) drives each one.
+Shell completions install automatically into ~/.zshrc / ~/.bashrc /
+~/.bash_profile via 'flow setup' — opt out with --no-completions.
 `);
 }
 

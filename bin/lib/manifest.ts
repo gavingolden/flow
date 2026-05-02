@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_MANIFEST } from "./paths";
 
-export type SymlinkKind = "skill" | "agent" | "bin";
+export type SymlinkKind = "skill" | "agent" | "bin" | "completion";
 
 export type SymlinkRecord = {
   source: string;
