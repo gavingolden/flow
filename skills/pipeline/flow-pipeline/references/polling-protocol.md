@@ -16,16 +16,29 @@ calls inside one conversation turn.
 
 ## Cadence
 
-- **Initial cadence:** 30 seconds between polls. (Matches the
-  legacy `ci-wait.ts` baseline; `gh pr checks` JSON is small and
-  GitHub rate limits are generous at this rate.) **Unconditional on
-  the first iteration** — empty `gh` results never short-circuit
-  the wait when presence is affirmed; only the presence checks
-  below can legitimately skip.
-- **Optional back-off:** documented but **not active in PR 2**. If
-  cost telemetry from PR 6 shows the in-turn token cost growing,
-  switch to: 30s for the first 5 polls, then 60s, then 90s. Pinned
-  here so the implementation is one-line when we want it.
+### Cadence schedule
+
+The supervisor's sleep between polls follows a three-tier ramp,
+capped by the 20-min wall-clock budget below:
+
+| Poll number | Sleep before next poll |
+|---|---|
+| 1–5 | 30s |
+| 6–10 | 60s |
+| 11+ | 90s |
+
+`gh pr checks` JSON is small and GitHub rate limits are generous
+even at the 30s baseline; the ramp's purpose is to bound supervisor-
+session token cost as the wait stretches, not to ease load on
+GitHub. The ramp was activated in Item 19 (the response to Item 6
+cost reporting) — before that, the loop sleeped 30s on every
+iteration regardless of `POLLS`.
+
+**Unconditional on the first iteration** — empty `gh` results never
+short-circuit the wait when presence is affirmed; only the presence
+checks below can legitimately skip. This is orthogonal to the ramp:
+the ramp governs *how long* to wait, the presence checks govern
+*whether* to wait at all.
 
 ## Hard cap
 
@@ -40,13 +53,19 @@ reading scrollback (or attaching mid-wait) can see progress at a
 glance:
 
 ```
-CI poll <N>/40, elapsed <X>m<Y>s of 20m
+CI poll <N>, elapsed <X>m<Y>s of 20m, cadence <C>s
 ```
 
-`N` starts at 1 and increments each iteration; `40` is the cap (20
-min ÷ 30s cadence). `<X>m<Y>s` is wall-clock elapsed since the first
-poll began. The line is rendered before the gh calls fire — if the
+`N` starts at 1 and increments each iteration. `<X>m<Y>s` is
+wall-clock elapsed since the first poll began. `<C>` is the current
+ramp tier — `30` for polls 1–5, `60` for polls 6–10, `90` from poll
+11 onward. The line is rendered before the gh calls fire — if the
 calls fail or hang, the user still sees the iteration started.
+
+The line has no fixed `/N` denominator: with the ramp, the
+worst-case poll count is `5 + 5 + ⌈(1200 − 5×30 − 5×60)/90⌉ = 19`
+rather than 40, and printing a hard-coded `/40` would be misleading.
+The 20-min budget is still printed as `elapsed Xm Ys of 20m`.
 
 ## Presence checks
 
@@ -209,21 +228,26 @@ The supervisor's polling loop is a Bash tool call followed by a
 `sleep`, looped inside the supervisor's *own* turn — there is no
 separate "agent invocation" per poll. Every poll's tool result
 appends to the conversation, but the payloads are small (CI JSON +
-reviews JSON ≈ 1-2 KB each). At 30s cadence and a 20-min cap, that's
-~40 polls × 2-4 KB = ~80-160 KB of conversation growth in the worst
-case. Within budget.
+reviews JSON ≈ 1-2 KB each). Under the active ramp (30s × 5, 60s ×
+5, 90s thereafter, 20-min cap), the worst-case poll count is ~19,
+giving ~19 polls × 2-4 KB = ~38-76 KB of conversation growth in the
+worst case — roughly half what the pre-ramp 30s-fixed cadence
+(~40 polls, ~80-160 KB) produced. The ramp is the cost lever Item 19
+activated in response to Item 6 cost reporting; it bounds wait-phase
+token cost without sacrificing CI-failure detection latency
+(failures still surface within the first 30s tier).
 
 The legacy `ci-wait.ts` script ran in a separate process to keep the
 orchestrator stateless. The new design keeps state in the supervisor
-session; the trade-off is conversation growth, which we monitor in
-PR 6.
+session; the trade-off is conversation growth, which the ramp now
+controls.
 
 ## When to revisit this protocol
 
-- PR 6 (cost reporting) surfaces per-pipeline `$` spent. If polling
-  is responsible for a meaningful fraction of cost on idle pipelines,
-  enable the back-off above.
+- If post-Item-19 cost data shows the wait phase is still a
+  meaningful fraction of pipeline spend, raise the baseline tier
+  (e.g. 60s × 5 instead of 30s × 5) or shorten the 20-min cap.
 - If GitHub starts rate-limiting `gh pr checks` at 30s cadence
-  (currently fine), back off to 60s baseline.
+  (currently fine), drop the first tier and start at 60s.
 - If Copilot routinely takes > 10 min after CI terminal, raise the
   Copilot timeout. (Today it's well under 5 min on most repos.)
