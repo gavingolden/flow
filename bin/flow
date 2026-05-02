@@ -2,7 +2,8 @@
 /**
  * `flow` — the shell wrapper for tmux-driven pipelines.
  *
- *   flow setup [--upgrade] [--force]   global install
+ *   flow setup [--upgrade] [--force] [--source <path>]
+ *                                      global install
  *   flow new <description>             create a tmux window + initial state
  *   flow ls [--cost [--detail]]        list active pipelines
  *   flow attach <name>                 tmux attach -t flow:<name>  (alias: a)
@@ -10,7 +11,7 @@
  *   flow migrate [--apply] [--scan <p>] [--include-orchestrator]
  */
 
-import { runSetup } from "./lib/setup";
+import { runSetupCli } from "./lib/setup-args";
 import { runNew } from "./lib/new";
 import { runAttach } from "./lib/attach";
 import { runDone } from "./lib/done";
@@ -138,17 +139,17 @@ function runDoneVerb(args: string[]): number {
 }
 
 function runSetupVerb(args: string[]): number {
-  const upgrade = args.includes("--upgrade");
-  const force = args.includes("--force");
-  runSetup({ upgrade, force });
-  return 0;
+  return runSetupCli(args);
 }
 
 function printHelp(): void {
   console.log(`flow — tmux-driven pipelines for Claude Code
 
 Usage:
-  flow setup [--upgrade] [--force]      install skills, agents, helpers globally
+  flow setup [--upgrade] [--force] [--source <path>]
+                                        install skills, agents, helpers globally
+                                        (--source overrides the install root,
+                                        e.g. for /flow-pipeline step 5.5 in a worktree)
   flow new [--no-auto-merge] <description>
                                         start a new pipeline in a tmux window
                                         (--no-auto-merge stops at gated regardless of rubric)

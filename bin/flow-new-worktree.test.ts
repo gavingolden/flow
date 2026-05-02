@@ -12,17 +12,20 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync, spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { createWorktreeWithRetry } from "./flow-new-worktree";
+import {
+  MAX_SUFFIX_ATTEMPTS,
+  findAvailableSlot,
+  toDirSuffix,
+} from "./lib/worktree-slot";
 import {
   BRANCH_MARKER_FILENAME,
   FLOW_TMP_DIRNAME,
-  MAX_SUFFIX_ATTEMPTS,
-  SYMLINK_FILES,
   ensureFlowTmpExclude,
   ensureGitignoreMarkerEntry,
-  findAvailableSlot,
-  toDirSuffix,
   writeBranchMarker,
-} from "./flow-new-worktree";
+} from "./lib/worktree-marker";
+import { SYMLINK_FILES } from "./lib/worktree-fs";
 
 describe(toDirSuffix, () => {
   it("should replace slashes with hyphens", () => {
@@ -284,6 +287,54 @@ describe(ensureFlowTmpExclude, () => {
     ensureFlowTmpExclude(fx.repoDir);
     const contents = fs.readFileSync(excludePath(), "utf8");
     expect(contents).toContain("*.tmp\n.flow-tmp/\n");
+  });
+});
+
+describe(createWorktreeWithRetry, () => {
+  let fx: Fixture;
+  beforeEach(() => {
+    fx = makeFixture();
+  });
+  afterEach(() => fx.cleanup());
+
+  it("returns the second-attempt slot when gitWorktreeAdd throws on attempt 1 and succeeds on attempt 2", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    const calls: { branchName: string; worktreeDir: string }[] = [];
+    let count = 0;
+    const fakeGitAdd = (worktreeDir: string, branchName: string) => {
+      calls.push({ branchName, worktreeDir });
+      count += 1;
+      if (count === 1) {
+        // Simulate a peer winning the race: take the slot we'd planned to use,
+        // so the next findAvailableSlot call moves on to the next suffix.
+        fs.mkdirSync(worktreeDir, { recursive: true });
+        throw new Error("simulated: directory '" + worktreeDir + "' already exists");
+      }
+    };
+
+    const slot = createWorktreeWithRetry("foo", initialDir, "main", fx.repoDir, fakeGitAdd);
+
+    expect(slot.branchName).toBe("foo-2");
+    expect(slot.worktreeDir).toBe(initialDir + "-2");
+    expect(calls).toHaveLength(2);
+    expect(calls[0].branchName).toBe("foo");
+    expect(calls[1].branchName).toBe("foo-2");
+  });
+
+  it("rethrows the last error when gitWorktreeAdd fails on every attempt", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    let count = 0;
+    const fakeGitAdd = (worktreeDir: string) => {
+      count += 1;
+      // Take the slot so findAvailableSlot picks a fresh one each retry.
+      fs.mkdirSync(worktreeDir, { recursive: true });
+      throw new Error(`simulated failure ${count}`);
+    };
+
+    expect(() =>
+      createWorktreeWithRetry("foo", initialDir, "main", fx.repoDir, fakeGitAdd),
+    ).toThrow(/simulated failure 5/);
+    expect(count).toBe(5);
   });
 });
 

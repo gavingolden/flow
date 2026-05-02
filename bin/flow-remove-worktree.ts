@@ -12,7 +12,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { SYMLINK_FILES } from "./flow-new-worktree";
+import { SYMLINK_FILES } from "./lib/worktree-fs";
 
 // --- Logging ---
 
