@@ -20,7 +20,7 @@ redirect to recover.
 |---|---|---|---|
 | 1 — triage | classification ambiguous after 1 clarifying question | 1 question | Escalate: `NEEDS HUMAN: triage-ambiguous`. End. |
 | 2 — worktree | `flow-new-worktree` non-zero exit | 1 attempt | Escalate: `NEEDS HUMAN: worktree-create-failed <stderr>`. End. |
-| 3 — plan | `/product-planning` exits without writing `<worktree>/plan.md` | 1 retry | Escalate: `NEEDS HUMAN: plan-missing`. End. |
+| 3 — plan | `/product-planning` exits without writing `<worktree>/.flow-tmp/plan.md` | 1 retry | Escalate: `NEEDS HUMAN: plan-missing`. End. |
 | 4 — approval | user input ambiguous | 1 clarifying question | Ask the question; if still unclear, escalate: `NEEDS HUMAN: approval-ambiguous`. End. |
 | 5 — implement | `/new-feature` exits without committing + pushing + opening PR | 1 retry | Escalate: `NEEDS HUMAN: implement-failed`. End. |
 | 6 — verify | `/verify` exits without a clean pass | **3 outer attempts** | Escalate: `NEEDS HUMAN: verify-exhausted`. Surface the last failure log on the PR body's `## Manual validation` as a `> [!CAUTION]` block (idempotent). End. |
@@ -88,7 +88,7 @@ met:
 | Step | Inspect | If true, this step is done |
 |---|---|---|
 | 2 — worktree | the worktree path recorded in `~/.flow/state/<slug>.json` (originally printed by `flow-new-worktree`) exists and is a git checkout | yes |
-| 3 — plan | `<worktree>/plan.md` exists and is non-empty | yes |
+| 3 — plan | `<worktree>/.flow-tmp/plan.md` exists and is non-empty | yes |
 | 4 — approval | `state.json` shows `phase` ∈ {`implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | yes |
 | 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | yes |
 | 5.5 — re-symlink | `state.json` shows `phase` ∈ {`verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} OR the worktree's `git diff --name-only origin/<default-branch>...HEAD` adds nothing under `skills/` or `agents/` (resolve `<default-branch>` from `git symbolic-ref refs/remotes/origin/HEAD`) | yes (idempotent — safe to re-run `flow setup --upgrade` regardless) |
@@ -108,8 +108,8 @@ terminal state — print `MERGED` (or `gated`) and end.
   `triaging` / `worktree-create`.** Treat as resume-from-step-3
   (plan). The worktree was created but the pipeline crashed before
   the planning phase advanced state.
-- **`plan.md` exists but no PR.** Resume at step 4 (approval). The
-  user may have approved before the crash; the supervisor re-prints
+- **`.flow-tmp/plan.md` exists but no PR.** Resume at step 4 (approval).
+  The user may have approved before the crash; the supervisor re-prints
   the plan and waits for the user to re-confirm. We don't replay an
   approval the user gave to a now-dead session.
 - **PR exists but `state.json` is stale (e.g. still shows

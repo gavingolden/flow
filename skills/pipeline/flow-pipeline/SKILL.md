@@ -315,10 +315,15 @@ request as the argument:
 ```
 
 `/product-planning` produces a PRD + task breakdown + PR-description
-draft and writes the consolidated artifact to `<worktree>/plan.md`.
+draft and writes the consolidated artifact to
+`<worktree>/.flow-tmp/plan.md` (the skill creates `.flow-tmp/` on
+demand). The path lives under `.flow-tmp/` so the post-merge
+`git worktree remove` at step 10.5 doesn't choke on a stray untracked
+file at the worktree root — same reason the supervisor itself writes
+all scratch under `$WORKTREE/.flow-tmp/`.
 
-After it returns, **read `<worktree>/plan.md`** and print a 3-5
-line summary to chat (just the problem statement and the task
+After it returns, **read `<worktree>/.flow-tmp/plan.md`** and print a
+3-5 line summary to chat (just the problem statement and the task
 titles — the user reads scrollback).
 
 **End conditions:**
@@ -331,9 +336,9 @@ titles — the user reads scrollback).
   still exists on disk for traceability, but the user wasn't asked
   to ratify it.
 
-If `/product-planning` doesn't write `plan.md`, re-invoke once with
-an explicit instruction to write the consolidated artifact. If the
-second attempt also fails, escalate `NEEDS HUMAN: plan-missing`.
+If `/product-planning` doesn't write `.flow-tmp/plan.md`, re-invoke
+once with an explicit instruction to write the consolidated artifact.
+If the second attempt also fails, escalate `NEEDS HUMAN: plan-missing`.
 
 ## Step 4 — Approval handling
 
@@ -376,8 +381,10 @@ PR number (from the state.json the helper just wrote):
 
 ```bash
 mkdir -p "$WORKTREE/.flow-tmp"
-# Compose the PR body (typically copied from pr-description-draft.md
-# that /new-feature wrote, then templated with the final commit list).
+# Compose the PR body (typically copied from .flow-tmp/pr-description-draft.md
+# that /new-feature wrote, then templated with the final commit list). Both
+# the source draft and the rendered body live under .flow-tmp/ so the
+# worktree root stays clean for step 10.5's git worktree remove.
 PR_URL=$(flow-open-pr "$SLUG" \
   --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
   --title "<conventional-commit summary>")
@@ -866,7 +873,7 @@ done?" without any in-process memory.
 | Step | "Done" check | Notes |
 |---|---|---|
 | 2 — worktree | `$WORKTREE` is set in state.json **and** the directory exists and is a git checkout | If unset / missing, recreate via `flow-new-worktree`. |
-| 3 — plan | `<worktree>/plan.md` exists and is non-empty | If missing, re-invoke `/product-planning`. |
+| 3 — plan | `<worktree>/.flow-tmp/plan.md` exists and is non-empty | If missing, re-invoke `/product-planning`. |
 | 4 — approval | state.json shows `phase` ∈ {`implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
 | 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | If no PR, re-invoke `/new-feature`. |
 | 5.5 — re-symlink | state.json shows `phase` ∈ {`verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} OR `git diff --name-only origin/<default-branch>...HEAD \| grep -E '^(skills\|agents)/'` returns nothing (resolve `<default-branch>` from `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `main`) | If false (additions exist and we crashed before phase advanced), re-run `flow setup --upgrade` and re-check the summary for `<N> blocked`. Idempotent — safe to re-run. |
@@ -890,8 +897,8 @@ step. If every row is `true`, the pipeline is in a terminal state
   `triaging` / `worktree-create`.** Treat as resume-from-step-3
   (plan). The worktree was created but the pipeline crashed before
   the planning phase advanced state.
-- **`plan.md` exists but no PR.** Resume at step 4 (approval). The
-  user may have approved before the crash; re-print the plan and
+- **`.flow-tmp/plan.md` exists but no PR.** Resume at step 4 (approval).
+  The user may have approved before the crash; re-print the plan and
   wait for the user to re-confirm. Don't replay an approval the
   user gave to a now-dead session.
 - **PR exists but state.json is stale (e.g. still shows
