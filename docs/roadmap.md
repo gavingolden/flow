@@ -1048,6 +1048,34 @@ conventional-comments format, the auto-fix-vs-defer bar, the
 retrospective-and-checklist-evolution mechanic — none of that
 changes. This is a control-flow simplification only.
 
+#### Known issues / follow-ups (carried forward from PR #46 + PR #57)
+
+- **Task-tool contract collision between `/pr-review` step 4 and
+  `/flow-pipeline` hard rules.** `/pr-review` step 4 instructs the
+  orchestrator to spawn 4 review agents in parallel (the inline-prompt
+  shape restored by PR #57, and equivalently the promoted-subagent
+  shape that PR #46 introduced). Both shapes require the `Task` /
+  `Agent` tool. `/flow-pipeline`'s hard rules
+  (`skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" block and the
+  step-10 verification "The supervisor never invoked the `Task` /
+  `Agent` tool") forbid the supervisor from ever using `Task`. When
+  `/flow-pipeline` step 8 loads `/pr-review` in-process, the
+  supervisor's own hard rule blocks the multi-agent fan-out — the
+  pipeline review phase is not runnable as written. **Revisit
+  trigger:** before Item 11 lands — Item 11 re-touches step 4 (and
+  also step 11, the inline-comment posting), which is the natural
+  point to either (a) carve out an explicit Task exception in
+  `/flow-pipeline` for the review phase, (b) document a no-Task
+  fallback path in `/pr-review` that runs the 4 reviews sequentially
+  in-process when invoked by the supervisor, or (c) restructure the
+  multi-agent review to live behind a helper script that doesn't need
+  an LLM-spawning fan-out. Why deferred: picking between the three
+  requires a design decision on whether the supervisor's "single LLM
+  container" invariant survives or evolves; the choice rewrites the
+  step-4 contract, so it belongs in Item 11 alongside the unified-mode
+  collapse rather than as a standalone fix on this revert PR.
+  Originally surfaced on PR #46; re-raised by Copilot on PR #57.
+
 ### Item 12 — fix cross-pipeline worktree contamination (high priority)
 
 Status: ⬜ queued — high priority.
