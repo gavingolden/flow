@@ -82,7 +82,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional · ❌ cance
 | **Item 20 — global-by-default stack skills + disciplined frontmatter** | Decide open question #6 in favour of Option A: stack skills install globally via `flow setup`. Drop per-project `flow stack add/remove/list` and the managed-`.gitignore` block. Tighten each stack skill's frontmatter `description:` so Claude Code only auto-loads them in matching contexts. | ⬜ queued |
 | **Item 21 — `flow-new-worktree` refactor + missing test coverage** | Split `bin/flow-new-worktree.ts` (388 lines) into `bin/lib/worktree-slot.ts` + `bin/lib/worktree-marker.ts`; lift duplicated `BRANCH_MARKER_FILENAME` constant to one source of truth; add unit test that injects a `git worktree add` failure to cover the retry catch block. Bundles all three PR 53 followups. | ✅ shipped (#66) |
 | **Item 22 — `.flow-tmp/` contract enforcement (skill compliance + worktree-remove cleanup)** | Item 15 (#61) shipped the per-pipeline scratch dir but two sub-skills (`/product-planning`, `/new-feature`) kept writing `plan.md` and `pr-description-draft.md` at the worktree root, and `flow-remove-worktree` had no awareness of the scratch path either way — so `/flow-pipeline` step 10.5 reliably escalated `NEEDS HUMAN: worktree-remove-failed`. Move the writes under `.flow-tmp/`; have the helper `rm -rf <worktree>/.flow-tmp` before `git worktree remove` (no `--force`, scope strictly to the documented path so other untracked files still trip the refusal). | ✅ shipped (#68) |
-| **Item 23 — PR template + `## Test Steps` rename** | Consolidate the multiple test-related sections into a single `## Test Steps` heading covering automation and smoke; create `.github/PULL_REQUEST_TEMPLATE.md`; refine the auto-merge gate to count unchecked `- [ ]` items (was: any non-empty body), so pr-review can inject `<details>` evidence blocks under each runnable item without tripping the gate. New helper `bin/flow-inject-evidence` performs the idempotent box-tick + evidence injection. Updates every flow-emitted reference to the canonical heading. | 🚧 in review |
+| **Item 23 — PR template + `## Test Steps` rename** | Consolidate the multiple test-related sections into a single `## Test Steps` heading covering automation and smoke; create `.github/PULL_REQUEST_TEMPLATE.md`; refine the auto-merge gate to count unchecked `- [ ]` items (was: any non-empty body), so pr-review can inject `<details>` evidence blocks under each runnable item without tripping the gate. New helper `bin/flow-inject-evidence` performs the idempotent box-tick + evidence injection. Updates every flow-emitted reference to the canonical heading. | ✅ shipped (#72) |
 
 ---
 
@@ -775,7 +775,7 @@ Done when:
   outline above; reference docs land under `references/`.
 - [ ] A real-repo end-to-end pass: `flow new "trivial test feature"`
   from a scratch branch produces a merged PR (or a `gated` PR if the
-  manual-validation section was filled), with no other commands
+  Test Steps section has unchecked items), with no other commands
   needed.
 - [x] The skill never spawns nested agents; it only loads sub-skills
   in-process and invokes scripts as tool calls.

@@ -16,6 +16,13 @@
  * Usage:
  *   flow-inject-evidence --body-file <path> --item <regex> \
  *     --output-file <path> --exit-code <N> [--timestamp <iso>]
+ *
+ * `--item` is interpreted as a JS regex via `new RegExp(args.item)`,
+ * tested per body line. Pass a discriminating substring (` `npm run
+ * verify` `) rather than the entire item text — characters like `()`,
+ * `[]`, `{}`, `?`, `+`, `*`, `|`, `\` carry regex meaning and must be
+ * escaped (or scoped out of the pattern) by the caller. Backticks,
+ * spaces, dashes, slashes, equals signs are all literal.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 
@@ -73,6 +80,21 @@ export function trimOutput(raw: string): string {
   ].join("\n");
 }
 
+/**
+ * Pick a code-fence length safe for the captured output. Per
+ * CommonMark/GFM, a fence of N backticks closes only on a run of
+ * >= N backticks. We pick `max(3, longest_run + 1)` so any run in
+ * the output is shorter than the surrounding fence and cannot break
+ * out — `npm test` printing a markdown ``` block is a real case.
+ */
+function pickFenceLength(output: string): number {
+  let longest = 0;
+  for (const match of output.matchAll(/`+/g)) {
+    if (match[0].length > longest) longest = match[0].length;
+  }
+  return Math.max(3, longest + 1);
+}
+
 export function buildEvidenceBlock(
   output: string,
   exitCode: number,
@@ -81,12 +103,13 @@ export function buildEvidenceBlock(
   const status = exitCode === 0 ? "pass" : `FAILED exit ${exitCode}`;
   const summary = `Output (auto-captured ${timestamp}; ${status})`;
   const trimmed = trimOutput(output);
+  const fence = "`".repeat(pickFenceLength(trimmed));
   return [
     `<details>${MARKER_OPEN}<summary>${summary}</summary>`,
     "",
-    "```text",
+    `${fence}text`,
     trimmed,
-    "```",
+    fence,
     "",
     "</details>",
   ].join("\n");
@@ -100,7 +123,11 @@ function findExistingBlockEnd(lines: string[], matchIdx: number): number | null 
     if (lines[i].includes("</details>")) return i;
     i++;
   }
-  return matchIdx;
+  // Marker present but no closing `</details>` — body was hand-edited
+  // or a prior write was interrupted. Don't try to repair it; treat
+  // as "no existing block" so the caller inserts a fresh one and
+  // leaves the orphan visible for the human to clean up.
+  return null;
 }
 
 /**

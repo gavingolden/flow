@@ -54,7 +54,7 @@ user actually wants at each stage and how the system can fail them.
 | **Plan** | spec + repo state | PRD + task breakdown | a believable outline that *cites the actual code* | invents abstractions; ignores existing patterns |
 | **Implement** | plan + clean worktree | code + tests + PR | passes locally first try | plausible-looking code that doesn't compile |
 | **Verify** | implementation | green test/lint/types | distinguishes "real fail" from "flake" | hides errors; pretends to fix |
-| **Open PR / CI** | green commit | PR with structured body, CI running | descriptive body, manual-validation section honest | CI red; bot reviewers trip on noise |
+| **Open PR / CI** | green commit | PR with structured body, CI running | descriptive body, Test Steps section honest | CI red; bot reviewers trip on noise |
 | **Self-review** | open PR | inline findings the implementer missed | high signal-to-noise | performative comments; review theater |
 | **Gate** | reviewed PR | "merge now" or "human, please look" | calibrated trust — risky things flagged, trivial things flow | over-cautious or over-confident |
 | **Merge** | gated PR | squash, delete branch, prune worktree | invisible | leaves debris |

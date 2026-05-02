@@ -81,6 +81,28 @@ describe("buildEvidenceBlock", () => {
     const block = buildEvidenceBlock("boom", 1, TS);
     expect(block).toContain(`Output (auto-captured ${TS}; FAILED exit 1)`);
   });
+
+  it("uses a longer fence when the output contains backticks", () => {
+    // Captured output that itself contains a triple-backtick fence — e.g.
+    // `npm test` printing a markdown failure summary.
+    const inner = "preamble\n```\nfake fence\n```\nepilogue";
+    const block = buildEvidenceBlock(inner, 0, TS);
+    expect(block).toContain("````text");
+    expect(block).toContain("preamble");
+    expect(block).toContain("epilogue");
+    // The inner triple-backtick must not close the outer fence: the
+    // closing four-backtick line should appear only once, and it must
+    // come after the entire inner payload.
+    const closeIdx = block.lastIndexOf("\n````\n");
+    const innerEnd = block.indexOf("epilogue");
+    expect(closeIdx).toBeGreaterThan(innerEnd);
+  });
+
+  it("uses a triple-backtick fence when the output has no backtick runs", () => {
+    const block = buildEvidenceBlock("plain output\n", 0, TS);
+    expect(block).toMatch(/\n```text\n/);
+    expect(block).toMatch(/\n```\n\n<\/details>$/);
+  });
 });
 
 describe("rewriteBody", () => {
@@ -217,5 +239,38 @@ describe("rewriteBody", () => {
     );
     if (!result.ok) throw new Error(result.error);
     expect(result.body).toContain("  - [x] indented item");
+  });
+
+  it("inserts a fresh block instead of repairing an orphaned open marker", () => {
+    // Hand-edited or interrupted prior write: marker is present but the
+    // closing </details> was lost. The helper must not claim to have
+    // replaced a block that has no end; it inserts a fresh one alongside
+    // the orphan so the human sees the corruption.
+    const orphaned = [
+      "## Test Steps",
+      "",
+      "- [ ] `npm run verify` — pass",
+      "<details><!-- flow:evidence --><summary>old</summary>",
+      "",
+      "no closing tag here",
+    ].join("\n");
+    const result = rewriteBody(
+      orphaned,
+      {
+        bodyFile: "",
+        outputFile: "",
+        item: "npm run verify",
+        exitCode: 0,
+        timestamp: TS,
+      },
+      "fresh output",
+    );
+    if (!result.ok) throw new Error(result.error);
+    expect(result.replaced).toBe(false);
+    expect(result.body).toContain("fresh output");
+    // Orphan is preserved (we don't try to repair it).
+    expect(result.body).toContain("no closing tag here");
+    // Exactly one closing </details> from the freshly inserted block.
+    expect((result.body.match(/<\/details>/g) ?? []).length).toBe(1);
   });
 });
