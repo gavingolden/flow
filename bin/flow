@@ -36,6 +36,7 @@ const NEW_VERBS = new Set([
   "a",
   "done",
   "migrate",
+  "eval",
   "--help",
   "-h",
   "help",
@@ -89,6 +90,8 @@ async function runNewVerb(verb: string, args: string[]): Promise<number> {
       return await runLsVerb(args);
     case "migrate":
       return runMigrateVerb(args);
+    case "eval":
+      return await runEvalVerb(args);
     case "--version":
     case "-v":
     case "version":
@@ -160,6 +163,11 @@ function runSetupVerb(args: string[]): number {
   return 0;
 }
 
+async function runEvalVerb(args: string[]): Promise<number> {
+  const { main: runEval } = await import("./flow-eval");
+  return runEval(args);
+}
+
 function passthroughOldVerb(verb: string, args: string[]): number {
   // Bun runs the existing Node/TS CLI source as-is. PR 4 removed every old
   // verb except `install`; PR 5 will delete src/cli.ts and this fallback.
@@ -185,6 +193,8 @@ Usage:
   flow done <name>                      close a pipeline window
   flow done --all-merged                close every merged or cancelled window
   flow migrate [--apply] [--scan <p>]   clean up legacy per-repo flow install
+  flow eval [--fixture <n>] [--config <c>] [--keep-tmpdir]
+                                        run the eval harness (see evals/README.md)
 
   flow --version                        print the installed flow version
   flow --help                           this help

@@ -25,9 +25,11 @@
     "commander": "^12.1.0",
     "execa": "^9.5.1",
     "gray-matter": "^4.0.3",
+    "js-yaml": "^4.1.1",
     "picocolors": "^1.1.1"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.0",
     "bun-types": "^1.1.38",
     "tsx": "^4.19.2",

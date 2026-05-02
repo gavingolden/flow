@@ -1,0 +1,1 @@
+/new-feature add a `--version` (and `-v`) flag to `bin/cli.ts` that reads the version from package.json and prints it on stdout, then exits 0. The flag must work alongside the existing `--help` flag without changing its output. Add a unit test that asserts the printed version matches package.json.

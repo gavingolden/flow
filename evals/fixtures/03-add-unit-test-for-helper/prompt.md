@@ -1,0 +1,1 @@
+/new-feature add a unit test for `src/slugify.ts` using node's built-in `node:test` runner. Cover at least three cases: a normal string, a string with mixed casing, and an empty string. Place the test next to the source as `src/slugify.test.ts`. The test command is `npm test`.

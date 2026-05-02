@@ -1,0 +1,20 @@
+diff --git a/src/slugify.test.ts b/src/slugify.test.ts
+new file mode 100644
+--- /dev/null
++++ b/src/slugify.test.ts
+@@ -0,0 +1,18 @@
++import { test } from "node:test";
++import { strict as assert } from "node:assert";
++import { slugify } from "./slugify.ts";
++
++test("slugifies a normal string", () => {
++  assert.equal(slugify("hello world"), "hello-world");
++});
++
++test("lowercases mixed casing", () => {
++  assert.equal(slugify("Hello World"), "hello-world");
++});
++
++test("returns empty string for empty input", () => {
++  assert.equal(slugify(""), "");
++});

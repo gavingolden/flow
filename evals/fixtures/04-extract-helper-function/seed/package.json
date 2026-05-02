@@ -1,0 +1,9 @@
+{
+  "name": "parser-fixture",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "typescript": "^5.7.2"
+  }
+}

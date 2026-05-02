@@ -1,0 +1,14 @@
+hard:
+  must_pass:
+    - "node --experimental-strip-types bin/cli.ts count | grep -E '^3$'"
+    - "node --experimental-strip-types bin/cli.ts list | grep -q one"
+    - "npm test"
+  must_create: []
+  must_not_modify:
+    - "package.json"
+    - "items.json"
+soft:
+  - "The count subcommand reads items.json (does not hard-code a number)."
+  - "The new dispatch entry follows the same shape as the existing list branch (consistency, no parallel framework introduced)."
+  - "The added test asserts count prints exactly 3 for the seeded items.json."
+  - "list still works unchanged."
