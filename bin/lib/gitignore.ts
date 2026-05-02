@@ -1,9 +1,11 @@
 /**
  * Sync gitignore managed-block parser/writer for the Bun bin.
  *
- * Duplicated from src/util/gitignore.ts (which is async/Node and slated for
- * deletion in PR 4). Keeps the bin self-contained so PR 4 can remove src/
- * without breaking the migrate verb.
+ * Mirrors the async/Node version still living in `src/util/gitignore.ts`.
+ * `src/` is being deleted incrementally; PR 4 removed the orchestrator
+ * core but left the legacy install verb (and its gitignore helper) in
+ * place. Keeping the bin self-contained means a future deletion of
+ * `src/util/gitignore.ts` won't break this module.
  *
  * Block format:
  *   # managed by flow <tag>

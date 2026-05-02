@@ -79,8 +79,8 @@ in-process for skills; shell out for scripts; never delegate.
 > exposed as `$WORKTREE` in this skill). The main worktree is
 > read-only from this skill's perspective.
 
-> **You never run `git branch -m` or `git switch
-> <other-pipeline-branch>`.** Branch renames and cross-branch switches
+> **You never run `git branch -m` or `git switch <other-pipeline-branch>`.**
+> Branch renames and cross-branch switches
 > are the failure mode that opened the door to the 2026-05-01
 > worktree-contamination incident: a peer supervisor renamed this
 > pipeline's branch and committed its own work into this worktree.

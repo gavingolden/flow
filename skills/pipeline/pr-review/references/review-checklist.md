@@ -1039,6 +1039,57 @@ changed-on-main partner (which would suppress the only signal that would catch d
 
 ---
 
+## Markdown Inline Code Spans Split Across Newlines
+
+CommonMark/GFM inline code spans (delimited by single backticks) cannot
+contain unescaped line breaks. When prose authors hard-wrap a long line
+mid-`code span`, the renderer either treats the closing backtick as
+literal text or merges the surrounding tokens, producing garbled output.
+The bug is invisible until the markdown ships to a renderer that
+strictly follows the spec — common for SKILL.md docs, PR descriptions,
+and READMEs.
+
+### What to look for
+
+- `.md` / `.mdx` diffs where a hard-wrap falls inside `` ` `` … `` ` ``
+- Prose paragraphs in skill docs / READMEs that cite a long shell command,
+  variable, or file path inside backticks
+- Blockquoted hard rules (the supervisor SKILL.md style: `> **rule.**
+  body…`) where the rule text wraps mid-code-span
+
+### How to check
+
+1. Grep changed `.md` files for backticks. For each pair, ensure the
+   opening and closing backticks fall on the same line.
+2. If the code span is long, use one of: (a) keep the entire span on a
+   single (un-wrapped) line, accepting the long line; (b) split the
+   intent into two adjacent code spans (`` `git branch -m` `` and
+   `` `git switch <other-branch>` ``); (c) escape with backslash if the
+   surrounding renderer supports continuation (rare — prefer (a)/(b)).
+3. Preview the file in the target renderer (GitHub for repo docs,
+   Claude Code's renderer for SKILL.md) to confirm.
+
+### Example — supervisor hard rule code span split mid-prose (PR #53)
+
+```markdown
+<!-- BAD: code span split across newline; renderers may treat the
+     closing backtick + angle-bracket text as literal. -->
+> **You never run `git branch -m` or `git switch
+> <other-pipeline-branch>`.** Branch renames and ...
+
+<!-- GOOD: keep the code span on one line, wrap the surrounding
+     prose around it. -->
+> **You never run `git branch -m` or `git switch <other-pipeline-branch>`.**
+> Branch renames and ...
+```
+
+**General rule:** When hard-wrapping markdown prose, line breaks must
+fall *outside* every backtick pair. If a single code span is too long
+to keep on one line, split it into two adjacent spans — never wrap
+mid-span.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue

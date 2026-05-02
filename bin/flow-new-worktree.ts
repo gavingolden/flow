@@ -155,6 +155,11 @@ function parseArgs(): WorktreeConfig {
   const positional = args.filter((a) => a !== "--reuse");
 
   const branchName = positional[0];
+  if (!branchName) {
+    log.error("branch name is required");
+    printHelp();
+    process.exit(1);
+  }
   const repoDir = git(["rev-parse", "--show-toplevel"]);
   const repoName = path.basename(repoDir);
   const dirSuffix = toDirSuffix(branchName);

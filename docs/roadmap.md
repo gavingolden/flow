@@ -105,7 +105,8 @@ silently clobbered. Recovery required dropping back to main, hand-
 restoring the lost edits, and opening PR 10 from a third branch —
 none of which is automatable.
 
-Two contributing factors, addressed by **PR 12** (see `### PR 12` below):
+Two contributing factors, addressed by **PR 12** (the row in the
+status table above):
 
 1. Worktree paths are derived deterministically from the slug, not
    from a unique pipeline identifier. Six slugs all starting with
@@ -130,6 +131,41 @@ pane, and silently return the wrong window name when the user
 glances at a sibling window. PR 12 added the
 `-t "$TMUX_PANE"`-required hard rule alongside the branch rule —
 different failure mode, same family.
+
+---
+
+## Followups
+
+Small, opportunistic items deferred from PR-level review reports.
+Each is a one-line note + a concrete revisit trigger so the work
+isn't lost when the originating review report disappears.
+
+### From PR 53 review (PR 12)
+
+- **`bin/flow-new-worktree.ts` is 388 lines vs. the AGENTS.md
+  <200-line target.** Split helpers (slot resolution, retry loop,
+  side-effects post-creation) into `bin/lib/worktree-slot.ts` /
+  `bin/lib/worktree-marker.ts`. Deferred: cross-cutting refactor
+  touching >3 files. *Trigger: address opportunistically next time
+  `flow-new-worktree` is touched, or when a sibling worktree helper
+  is added.*
+- **`BRANCH_MARKER_FILENAME` constant duplicated in
+  `bin/flow-new-worktree.ts` and `bin/flow-state-update.ts`.** Lift
+  into `bin/lib/branch-marker.ts` (or `bin/lib/paths.ts`) so the two
+  readers share a single source of truth. Deferred: would also be
+  rolled into the file-split followup above. *Trigger: address as
+  part of the worktree-helper split, or on the next change to
+  either file.*
+- **`createWorktreeWithRetry` race-retry path is exercised only by
+  the parallel-isolation integration test, which doesn't
+  deterministically force a `git worktree add` failure after
+  `findAvailableSlot` returns.** Add a unit test that injects the
+  race (e.g. a `gitWorktreeAdd` callable parameter, or pre-create
+  the slot directory between calls) so the catch-and-retry block is
+  covered explicitly. Deferred: needs a small refactor for
+  testability. *Trigger: address opportunistically if the retry
+  loop's bound (`MAX_RACE_RETRIES`) ever changes, or alongside the
+  file-split followup above.*
 
 ---
 

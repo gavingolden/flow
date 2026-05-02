@@ -312,4 +312,12 @@ describe("flow-new-worktree (integration)", () => {
     expect(second.exitCode).not.toBe(0);
     expect(second.stderr).toContain("expected 'foo'");
   });
+
+  it("--reuse with no slug exits non-zero with a clear missing-branch-name error", async () => {
+    // Regression: previously crashed inside toDirSuffix() with an unhelpful
+    // "Cannot read property 'replace' of undefined" TypeError.
+    const r = await spawnHelper(["--reuse"], fx.repoDir);
+    expect(r.exitCode).not.toBe(0);
+    expect(r.stderr).toContain("branch name is required");
+  });
 });
