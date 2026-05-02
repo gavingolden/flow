@@ -17,8 +17,11 @@ _flow_complete_dirs() {
     if declare -F _filedir >/dev/null 2>&1; then
         _filedir -d
     else
-        # shellcheck disable=SC2207
-        COMPREPLY=( $(compgen -d -- "$cur") )
+        # `mapfile -t`, not `COMPREPLY=( $(compgen ...) )`: command-substitution
+        # word-splits on whitespace, so paths like `~/My Projects/flow-src` would
+        # split into two completion candidates. mapfile reads one path per line
+        # verbatim, preserving spaces.
+        mapfile -t COMPREPLY < <(compgen -d -- "$cur")
     fi
 }
 
