@@ -145,20 +145,26 @@ in-process for skills; shell out for scripts; never delegate.
 > above (it would not have prevented 2026-05-01) but adjacent — both
 > are parallel-pipelines self-identification hazards.
 
-> **You never end the turn between sub-skills and the next step.** The
-> supervisor walks each non-feature pipeline (intent ∈
+> **You never end the turn between sub-skills and the next step.**
+> The rule scope is **a change pipeline** — i.e. once step 1 has
+> classified the request as `change` and (for ambiguous input) the
+> single clarifying question has been answered. Step 1's `no-change`
+> outcome answers the user inline and ends the turn before the
+> change-pipeline contract activates; that is *not* a violation of
+> this rule, it is the pre-pipeline branch. Inside a change pipeline
+> the supervisor walks each non-feature run (intent ∈
 > `bug` / `refactor` / `docs` / `infra` / `chore`) from triage to a
 > terminal end-state in **one uninterrupted run**, and walks each
-> feature pipeline in two runs (kickoff → `plan-pending-review`,
-> then approval → terminal). Every other step transition stays in
-> the same turn. The hazard this rule closes: sub-skill tails and
+> feature run in two runs (kickoff → `plan-pending-review`, then
+> approval → terminal). Every other step transition stays in the
+> same turn. The hazard this rule closes: sub-skill tails and
 > long-script tails *look* like natural turn-ends — `/product-planning`
 > step 9 ends with "share with user and iterate" and a CTA to invoke
 > `/new-feature`; `/verify` and `/pr-review` print summaries that read
 > conversationally; `flow-state-update` prints nothing and feels like a
 > stopping point. None of these are turn boundaries. The supervisor
 > reads them as model-generated text and must keep going. The **only**
-> legitimate turn-end points in a `/flow-pipeline` run are:
+> legitimate turn-end points inside a change pipeline are:
 >
 > 1. **Step 3 → step 4 handoff for feature intent.** When intent is
 >    `feature`, step 3 writes `phase: plan-pending-review` and ends
@@ -178,12 +184,13 @@ in-process for skills; shell out for scripts; never delegate.
 >    instead of asking again.
 >
 > Every other transition — step 2 → step 3, the non-feature step 3 →
-> step 5 path, step 5 → step 5.5, step 5.5 → step 6, step 6 → step 7,
-> step 7 → step 8 (or → step 5 mode=fix), step 8 → step 7 (or →
-> step 9), step 9 → step 10, step 10 → step 10.5 — happens in the
-> same turn. The continue-immediately sentences inline at each step's
-> End-condition stanza are the localised reminder; this Hard rule is
-> the global invariant.
+> step 5 path, the step 4 affirmative → step 5 path, step 5 → step
+> 5.5, step 5.5 → step 6, step 6 → step 7, step 7 → step 8 (or →
+> step 5 mode=fix), step 8 → step 7 (or → step 9), step 9 → step 10,
+> step 10 → step 10.5 — happens in the same turn. The
+> continue-immediately sentences inline at each step's End-condition
+> stanza are the localised reminder; this Hard rule is the global
+> invariant.
 
 # Notifications
 

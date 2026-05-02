@@ -104,6 +104,25 @@ describe("flow-pipeline supervisor SKILL.md", () => {
       expect(hardRules).toMatch(/triage-ambiguous/);
       expect(hardRules).toMatch(/approval-ambiguous/);
     });
+
+    it("guard scopes itself to the change pipeline and acknowledges step 1 no-change as pre-pipeline", () => {
+      // Closes the contradiction reported on PR #69: the previous
+      // wording said "the only legitimate turn-end points in a
+      // /flow-pipeline run are…", but Step 1's no-change branch
+      // explicitly ends the turn after answering the user. The
+      // resolution scopes the rule to "a change pipeline" so the
+      // pre-classification no-change path is not a violation.
+      expect(hardRules).toMatch(/change\s+pipeline/);
+      expect(hardRules).toMatch(/no-change/);
+    });
+
+    it("guard's every-other-transition list includes step 4 affirmative → step 5", () => {
+      // Closes the second pr-review #69 finding: the "Every other
+      // transition" enumeration must list step 4 affirmative → step
+      // 5 (the second-turn approval branch) so the rule's scope is
+      // exhaustive within a change pipeline.
+      expect(hardRules).toMatch(/step\s+4\s+affirmative/);
+    });
   });
 
   describe("inline continue-immediately sentences at audited step boundaries", () => {
