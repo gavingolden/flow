@@ -264,13 +264,30 @@ write the literal word `none` under the heading. Never delete the heading — `n
 explicit author affirmation, while a missing heading is ambiguous between "no change" and
 "author forgot".>
 
-## How to test
+## Manual validation
 
-<Derive from the acceptance criteria in User Stories. The verification steps a reviewer
-would follow, rendered as a markdown checklist. Each item starts with `- [ ]`. Prefer
-manual steps over "run the tests" — but include the test command as one of the items if
-tests exist. Use as many items as the change warrants — don't pad to look thorough and
-don't truncate to look concise. Example:
+<Verification steps a human must perform before this PR can merge. The heading is also the
+auto-merge gate signal — see
+`skills/pipeline/flow-pipeline/references/auto-merge-rubric.md` for the full contract.
+The short version: empty section ⇒ auto-merge; non-empty ⇒ gated.
+
+Always emit the heading. Decide the body based on the PRD:
+
+- If the PRD describes a pure-internal change (refactor, infra, doc fix, generated-code regen)
+  with no user-observable delta — leave the section empty under just the placeholder HTML
+  comment. The rubric strips HTML comments before checking emptiness, so this is the
+  auto-merge state.
+- Otherwise — populate with `- [ ]` items derived from the acceptance criteria in User
+  Stories. Each item is something a reviewer must run, click, or read to confirm the change
+  is safe. Prefer manual steps over "run the tests" — but include the test command as one
+  of the items if tests exist. Use as many items as the change warrants — don't pad to look
+  thorough and don't truncate to look concise.
+
+Example (auto-merge — empty section):
+
+<!-- No human verification needed — pure-internal change. -->
+
+Example (gated — non-empty section):
 
 - [ ] Run `npm run test -- <test-file>` — all specs pass.
 - [ ] Open /portfolio with the seeded user — allocation chart renders.
@@ -289,7 +306,10 @@ don't truncate to look concise. Example:
 - "User-facing changes" must be phrased in user terms (what someone running the tool will
   see or do differently), not implementation terms. If the PRD has no user-observable
   delta, write `none` under the heading — never omit the heading itself.
-- Render every "How to test" step as a `- [ ]` markdown checkbox so reviewers can tick
+- Always emit the `## Manual validation` heading, even for refactors. The auto-merge gate
+  treats a missing heading as an upstream regression and escalates `NEEDS HUMAN`. An
+  empty body under the heading is the auto-merge state; a populated body is the gate state.
+- Render every "Manual validation" step as a `- [ ]` markdown checkbox so reviewers can tick
   items off as they verify.
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
   and let the renderer wrap it. Hard wraps go ragged the moment a sentence is edited and
@@ -312,7 +332,7 @@ to `plan.md` in the working directory. Single artifact, three sections in this o
 
 # PR description draft
 
-<the Why / What / Key decisions / User-facing changes / How to test from step 7>
+<the Why / What / Key decisions / User-facing changes / Manual validation from step 7>
 ```
 
 This file is the predictable handoff for the `/flow-pipeline` supervisor — it reads
@@ -359,7 +379,7 @@ Common failure modes during planning:
 - Tasks are ordered by dependency (no task references an output that hasn't been produced yet)
 - No task is too large for a single focused session (if it seems large, split it)
 - Skill recommendations reference skills that actually exist in `.claude/skills/`
-- PR description draft follows the standardized format (Why / What / Key decisions / User-facing changes / How to test)
+- PR description draft follows the standardized format (Why / What / Key decisions / User-facing changes / Manual validation)
 - `plan.md` was written to the working directory with PRD + Task breakdown + PR description draft sections in that order
 
 # Constraints
