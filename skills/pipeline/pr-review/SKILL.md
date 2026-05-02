@@ -350,7 +350,7 @@ For each `- [ ]` item, classify before running:
   invocation and an assertion on disk state, exit code, or stdout/stderr. Examples:
   `npm run test`, `npm run typecheck`, `RUN_INTEGRATION=1 npm run test -- foo`,
   `./scripts/foo.ts`, `curl localhost:3000/x` paired with a documented assertion,
-  "edit `.gitignore`, create symlink, run `flow install --upgrade`, confirm `1
+  "edit `.gitignore`, create symlink, run `flow setup --upgrade`, confirm `1
   removed` and the symlink is gone."
 - **Not runnable**: requires a browser, a deploy target, real human/UI judgment ("the
   modal animates smoothly"), production credentials, or external services (Slack post,

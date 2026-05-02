@@ -5,112 +5,93 @@ description: >-
   running, where each is stuck, and how much each has cost. Use when the user
   says "flow status", "what tasks are running", "pipeline status", "task cost",
   "what's stuck", or asks how a specific pipeline is doing.
-argument-hint: "[<task-id>] [--all]"
+argument-hint: "[<task-id>]"
 ---
 
 # Goal
 
-Show the user the current state of their flow pipelines — which tasks are active, where each is in the pipeline, whether any are stuck, and how much each has cost so far. Render the CLI's table inline in chat, then add a one-line quantitative summary plus an anomaly callout for any task that needs human attention.
+Show the user the current state of their flow pipelines. In the
+tmux-driven design each pipeline is one tmux window; `flow ls` reads
+`tmux list-windows` and the per-pipeline state files at
+`~/.flow/state/<slug>.json`. This skill is a thin shell over `flow ls`
+that adds an anomaly callout for pipelines that need human attention.
 
 # When to Use
 
 - "flow status", "what tasks are running", "what's stuck", "pipeline status"
 - "how much did <task> cost", "task cost", "cost-to-date"
-- The user just kicked off `flow run --detach` and wants to know where the headless pipeline is now
+- The user just kicked off `flow new` and wants to know where the pipeline is now
 - Any time the user references a task by id and wants a current snapshot
 
 # When NOT to Use
 
-- The user wants live-tailing or `--follow`-style streaming → that's `/flow-watch` (PR 11), not this
-- The user wants to read raw jsonl logs → that's `flow log --raw`
-- The user wants to *change* state (approve, abort, retry) → those are the dedicated mutation skills
+- The user wants live-tailing of the pipeline's current activity → that's `/flow-watch`, not this
+- The user wants to *change* state (approve a plan, redirect, abort) → those happen by typing into the supervisor's tmux window. See `/flow-approve` and `/flow-revise`.
 
 # Context
 
-- The CLI lives at `flow status` — installed on `PATH` via `npm link` or a release install.
-- Default scope is **active** tasks only (`.orchestrator/tasks/*.md`). Pass `--all` to also include archived tasks under `.orchestrator/tasks/archive/`.
-- `flow status <id>` drills into one task — frontmatter pointers, phase log, per-phase cost block. The `<id>` lookup resolves in both the active and archive directories, so this still works after a task is archived.
-- Cost is summed from each task's `<taskDir>/logs/*.jsonl`. Phases that ran more than once (verify retries, review→implement loop-backs) sum across all attempts; the drill-down annotates `(N attempts)` when N > 1.
-- This skill is read-only. Never invoke it as part of a chain that mutates task state.
+- `flow ls` lists active pipelines as a table: `NAME PHASE PR LAST ACTIVITY`. It reads tmux directly, so a pipeline only shows up while its window exists.
+- `flow ls --cost` adds a `$` column summed across the supervisor session and any spawned subskills. `flow ls --cost --detail` breaks the cost down per model.
+- Per-pipeline state lives at `~/.flow/state/<slug>.json` — written by the supervisor via `flow-state-update` on each phase transition.
+- This skill is read-only. Never invoke it as part of a chain that mutates pipeline state.
 
 # Instructions
 
 ## 1. Run the CLI for the table
 
-If the user asked about a specific task id:
+For the roster view:
 
 ```bash
-flow status <id>
+flow ls
 ```
 
-Otherwise (the default — roster view):
+If the user asked about cost, add `--cost` (and `--detail` if they asked for the per-model breakdown):
 
 ```bash
-flow status
+flow ls --cost
+flow ls --cost --detail
 ```
 
-If the user asked about archived/merged tasks too, add `--all`:
+If the user asked about a specific id, run `flow ls` plus print that pipeline's state file so they see the absolute paths:
 
 ```bash
-flow status --all
+flow ls
+cat ~/.flow/state/<id>.json
 ```
 
-Insert the CLI's output verbatim into the chat as a fenced code block. Do not re-format or trim columns — the renderer already aligns them.
+Insert the CLI's output verbatim into chat as a fenced code block. Do not re-format or trim columns.
 
-## 2. Pull structured data for the narrative summary
+## 2. Anomaly callouts
 
-Run the same command with `--json` (passing the same `<id>` and/or `--all` if used above) and parse the output. Use it to compute:
+Walk the `flow ls` output. For each pipeline whose `PHASE` is one of `plan-pending-review`, `gated`, or `needs-human`, add a one-line callout below the table:
 
-- **N active**: number of tasks in the result whose status is not in `{merged, aborted}`.
-- **M need-human**: number of tasks whose status is `needs-human`.
-- **K gated**: number of tasks whose status is `gated`.
-
-Print one line:
-
-```
-Summary: N active, M need-human, K gated
-```
-
-## 3. Anomaly callouts
-
-Pick the wording per status — they mean different things:
-
-- **`needs-human`**: the pipeline bailed out and is waiting on a human. Print:
+- **`plan-pending-review`** — the supervisor finished the plan and is waiting on the user. Print:
 
   ```
-  ⚠️ <id> needs human: <reason>
+  ⏸ <id> waiting on plan review — `flow attach <id>` and type approval, or run `/flow-approve <id>`
   ```
 
-  The `<reason>` comes from the most recent line in the task's `## Phase log` that mentions the transition into `needs-human` (e.g. `verifying → needs-human (timed out)` → reason is `timed out`). If no parenthesized reason is present, omit the colon and trailing reason.
-
-- **`gated`**: the PR is open and waiting on review approval. There is generally no `needs-human` transition for a gated task, so don't try to source a reason from one. Print:
+- **`gated`** — the PR is open and waiting on review approval. Print:
 
   ```
-  ⚠️ <id> gated (waiting on review)
+  ⏸ <id> gated (PR open, waiting on review)
   ```
 
-- **`aborted`**: the pipeline gave up on this task. Print:
+- **`needs-human`** — the supervisor escalated. Print:
 
   ```
-  ⚠️ <id> aborted: <reason>
+  ⚠️ <id> needs human — `flow attach <id>` to read the escalation
   ```
-
-  Source `<reason>` the same way as `needs-human` — the most recent transition into `aborted` in the `## Phase log`, parenthesized suffix only. Omit the colon if absent.
 
 If there are no anomalies, omit this section entirely — don't print "no anomalies" boilerplate.
-
-## 4. For the `<id>` form
-
-Skip step 2 and step 3 — the drill-down already shows the per-task detail. Just print the CLI output verbatim.
 
 # Verification
 
 - The CLI output is reproduced exactly, with no truncation or column reflow.
-- The summary line matches the `--json` output's task counts.
-- Every `needs-human`/`gated` task in the table has a corresponding `⚠️` line below the summary.
+- Every `plan-pending-review`/`gated`/`needs-human` row in the table has a corresponding callout below it.
 
 # Constraints
 
-- NEVER edit task files, kick off phases, or invoke any other `flow` subcommand from this skill — it is strictly read-only.
-- NEVER re-parse `.orchestrator/tasks/*.md` directly. Use `flow status --json` so the cost computation and phase-label derivation stay consistent with the CLI.
-- NEVER fall back to `cat`-ing log files when `flow status` itself fails — surface the error to the user instead.
+- NEVER edit pipeline state, kick off phases, or invoke any other `flow` subcommand from this skill — it is strictly read-only.
+- NEVER hand-parse `tmux list-windows` directly. Use `flow ls` so the renderer stays consistent.
+- NEVER invent activity for a pipeline whose window is gone — `flow ls` is the authoritative roster.
