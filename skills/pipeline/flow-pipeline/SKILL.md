@@ -546,11 +546,20 @@ gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 Sleep + poll loop. Cadence + cap from
 `references/polling-protocol.md`:
 
-- 30s between polls. **Unconditional on the first iteration** —
-  empty results from `gh pr checks` or `gh pr view --json reviews`
-  mean "not yet posted," never "skip the wait." Only the presence
-  checks below can legitimately short-circuit.
-- 20-min hard cap from first poll → max 40 polls.
+- **Cadence ramp:** 30s for polls 1–5, 60s for polls 6–10, 90s
+  thereafter. The full schedule (and the rationale for the tier
+  boundaries) lives in `references/polling-protocol.md` §
+  "Cadence schedule" — that file is the single source of truth.
+- **Unconditional on the first iteration** — empty results from
+  `gh pr checks` or `gh pr view --json reviews` mean "not yet
+  posted," never "skip the wait." Only the presence checks below
+  can legitimately short-circuit. Orthogonal to the ramp.
+- 20-min hard cap from first poll. Worst-case poll count under the
+  ramp is ~20 — the 19th poll fires at elapsed ≈ 1170s
+  (`5×30 + 5×60 + 8×90`) and the 20th is the iteration whose
+  start-of-loop cap check (`ELAPSED >= 1200`) finally trips. See
+  `references/polling-protocol.md` § "Per-poll counter" for the
+  derivation.
 - Bot review timeout: 10 min after CI goes terminal.
 
 ### One-shot presence checks (before the first poll)
@@ -607,19 +616,26 @@ lesson behind this.
 ### Per-poll counter
 
 Print one line per iteration so the user reading scrollback sees
-progress without guessing. Compute the elapsed split with arithmetic
-expansion — these are runnable Bash:
+progress without guessing. Compute the elapsed split and the current
+ramp tier with arithmetic expansion — these are runnable Bash:
 
 ```bash
 ELAPSED=$(( $(date +%s) - START ))   # seconds since the first poll
 MIN=$(( ELAPSED / 60 ))
 SEC=$(( ELAPSED % 60 ))
-echo "CI poll $POLLS/40, elapsed ${MIN}m${SEC}s of 20m"
+if   [ "$POLLS" -le 5 ];  then CADENCE=30
+elif [ "$POLLS" -le 10 ]; then CADENCE=60
+else                            CADENCE=90
+fi
+echo "CI poll $POLLS, elapsed ${MIN}m${SEC}s of 20m, cadence ${CADENCE}s"
 ```
 
-`POLLS` increments from 1 each iteration; the printed denominator
-`40` reflects the 20-min ÷ 30s budget (the actual cap is the 20-min
-wall-clock check below, not a poll-count guard).
+`POLLS` increments from 1 each iteration. `cadence ${CADENCE}s`
+shows the active ramp tier (30/60/90); the formal schedule lives in
+`references/polling-protocol.md` § "Cadence schedule". There's no
+fixed `/N` denominator on the line because the worst-case poll count
+varies with the ramp (~20 at the cap, not 40). The actual cap is the
+20-min wall-clock check below, not a poll-count guard.
 
 ### Loop body (in the supervisor's own turn)
 
@@ -637,7 +653,8 @@ run the one-shot presence checks above
 while true:
   POLLS += 1
   ELAPSED = $(date +%s) - START
-  print "CI poll $POLLS/40, elapsed $((ELAPSED/60))m$((ELAPSED%60))s of 20m"
+  CADENCE = (POLLS <= 5) ? 30 : (POLLS <= 10) ? 60 : 90
+  print "CI poll $POLLS, elapsed $((ELAPSED/60))m$((ELAPSED%60))s of 20m, cadence ${CADENCE}s"
 
   poll:
     if CI_CONFIGURED == 0: treat checks as [] without calling gh
@@ -659,7 +676,7 @@ while true:
     ci_passed && copilot_posted                                   → break, go to step 8
     ci_passed && !copilot_posted && ($(date +%s) - CI_TERMINAL_AT) >= 600 → break, go to step 8 (no bot review)
     ELAPSED >= 1200                                               → escalate ci-hang
-    else                                                          → sleep 30s, loop
+    else                                                          → sleep $CADENCE, loop
 ```
 
 When `CI_CONFIGURED=1` and `gh pr checks` returns `[]`, that means
