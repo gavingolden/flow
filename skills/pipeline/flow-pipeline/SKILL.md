@@ -565,14 +565,29 @@ the `## Manual validation` section, strip HTML comments, trim:
 gh pr view "$PR" --json body,state,mergeCommit
 ```
 
+**Per-pipeline opt-out.** Before consulting the rubric, read
+`autoMerge` from state.json:
+
+```bash
+AUTO_MERGE=$(jq -r '.autoMerge // true' ~/.flow/state/"$SLUG".json)
+```
+
+If `AUTO_MERGE === false` (the user passed `flow new --no-auto-merge`,
+or `flow-state-update --no-auto-merge` was issued mid-flight), every
+`OPEN` PR routes to **gated** regardless of the Manual-validation
+content. The override is intentional: the user explicitly opted out
+of the auto-merge contract for this pipeline. `MERGED` and `CLOSED`
+states still take their normal branches below.
+
 Decision matrix:
 
-| State | Section after trim | Action |
-|---|---|---|
-| `OPEN` | empty | Go to step 10 (auto-merge). |
-| `OPEN` | non-empty | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "<first validation step>"`. Print: `GATED:`, the PR URL, the validation steps verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
-| `MERGED` | (any) | Already merged externally. Run `flow-remove-worktree <slug>`. Write `phase: merged`. Call `flow-notify --status merged --slug "$SLUG" --url "<pr-url>"`. Print `MERGED`. End. |
-| `CLOSED` | (any) | Call `flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
+| State | Section after trim | autoMerge | Action |
+|---|---|---|---|
+| `OPEN` | empty | `true` (default) | Go to step 10 (auto-merge). |
+| `OPEN` | empty | `false` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "auto-merge opted out"`. Print: `GATED:`, the PR URL, and `merge with: gh pr merge --squash <PR>`. End. |
+| `OPEN` | non-empty | (any) | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "<first validation step>"`. Print: `GATED:`, the PR URL, the validation steps verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
+| `MERGED` | (any) | (any) | Already merged externally. Go to step 10.5 (post-merge sweep) — **do not** run `gh pr merge`. After 10.5 returns, run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged ...`, print `MERGED`. End. |
+| `CLOSED` | (any) | (any) | Call `flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 
 **Defensive cases:**
 
@@ -589,24 +604,62 @@ Decision matrix:
 gh pr merge --squash --delete-branch "$PR"
 ```
 
-Then:
+On `gh pr merge` failure: retry once. If still failing, call
+`flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "merge-failed"`,
+then escalate `NEEDS HUMAN: merge-failed`. Leave the worktree intact
+(do not proceed to step 10.5).
+
+On success, continue to step 10.5 (post-merge sweep) **before**
+removing the worktree — so a sweep failure leaves the worktree intact
+for inspection.
+
+## Step 10.5 — Post-merge roadmap sweep
+
+**Phase:** `housekeeping`
+
+Run the helper unconditionally on every successful merge — not gated
+by the Manual-validation rubric. The helper edits `docs/roadmap.md`
+on `main` via `gh api PUT /contents/...`, flipping the merged PR's
+table row + `Status:` line to `✅ shipped (#$PR)`. Idempotent: if
+the row is already `✅ shipped (#$PR)` the helper is a no-op.
+
+```bash
+flow-state-update "$SLUG" --phase housekeeping
+flow-roadmap-mark-shipped --pr "$PR"
+```
+
+**Failure handling: best-effort, non-blocking.** The merge already
+succeeded; metadata sweep that fails should not gate the pipeline's
+terminal state. On non-zero exit:
+
+- Retry once.
+- On second failure, print `WARN: roadmap-sweep-failed code=<N>
+  (manual flip needed)` — include the helper's exit code so the user
+  knows which class of fix applies (see exit-code semantics below).
+  Continue to terminal `MERGED` — do **not** escalate `NEEDS HUMAN`.
+  The user can re-run the helper by hand (`flow-roadmap-mark-shipped
+  --pr <N>`) once the underlying issue (auth, transient 5xx, missing
+  self-mark) clears.
+
+Exit-code semantics from the helper:
+
+- `0` — success (changed or no-op).
+- `2` — argument / no-row / ambiguity. The PR's diff didn't annotate
+  the row, or two rows reference the same PR number. Print the
+  `WARN:` line and continue.
+- `3` — 409 conflict twice. Same handling as `2`: warn and continue.
+- `4` — gh API failure (auth, 5xx). Same handling.
+
+After step 10.5 returns (success or warn), then:
 
 ```bash
 flow-remove-worktree <slug>
-```
-
-Then write `phase: merged`, call
-
-```bash
+flow-state-update "$SLUG" --phase merged
 flow-notify --status merged --slug "$SLUG" --url "<pr-url>"
 ```
 
-(the PR URL is available from `gh pr view "$PR" --json url -q .url`),
-and print `MERGED` on its own line. End.
-
-On `gh pr merge` failure: retry once. If still failing, call
-`flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "merge-failed"`,
-then escalate `NEEDS HUMAN: merge-failed`. Leave the worktree intact.
+(the PR URL is available from `gh pr view "$PR" --json url -q .url`).
+Print `MERGED` on its own line. End.
 
 # Resume mode
 
@@ -650,13 +703,14 @@ done?" without any in-process memory.
 |---|---|---|
 | 2 — worktree | `$WORKTREE` is set in state.json **and** the directory exists and is a git checkout | If unset / missing, recreate via `flow-new-worktree`. |
 | 3 — plan | `<worktree>/plan.md` exists and is non-empty | If missing, re-invoke `/product-planning`. |
-| 4 — approval | state.json shows `phase` ∈ {`implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
+| 4 — approval | state.json shows `phase` ∈ {`implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
 | 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | If no PR, re-invoke `/new-feature`. |
-| 6 — verify | state.json shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | If false, re-invoke `/verify`. |
+| 6 — verify | state.json shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-invoke `/verify`. |
 | 7 — ci-wait | PR's checks all reached terminal state | If still pending, re-enter the poll loop. |
 | 8 — review | PR has a `pr-review` commit on HEAD (look for the commit subject prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | If false, re-invoke `/pr-review <PR>`. |
-| 9 — gate | (PR is `MERGED` **and** worktree directory removed) **or** state.json shows `phase: gated` | If false: when PR is `MERGED` but the worktree still exists, re-enter step 9's `MERGED` branch (run `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end) — **do not** fall through to step 10 and re-run `gh pr merge` on an already-merged PR. Otherwise re-evaluate the gate. |
-| 10 — merge | PR is `MERGED` **and** worktree directory removed | Terminal. Print `MERGED` and end. |
+| 9 — gate | (PR is `MERGED` **and** worktree directory removed) **or** state.json shows `phase: gated` | If false: when PR is `MERGED` but the worktree still exists, re-enter step 9's `MERGED` branch (route to step 10.5, then `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end) — **do not** fall through to step 10 and re-run `gh pr merge` on an already-merged PR. Otherwise re-evaluate the gate. |
+| 10 — merge | PR is `MERGED` (state.json may show `merging` if the supervisor crashed between merge and step 10.5) | If false, re-evaluate the gate; if `MERGED`, jump to step 10.5. |
+| 10.5 — housekeeping | `gh api /repos/.../contents/docs/roadmap.md?ref=main` returns content where the merged PR's row is `✅ shipped (#$PR)` | If false, re-invoke `flow-roadmap-mark-shipped --pr "$PR"` (idempotent — safe to re-run). On warn, continue. |
 
 The first row whose "done" condition is **false** is your re-entry
 step. If every row is `true`, the pipeline is in a terminal state
@@ -692,12 +746,19 @@ step. If every row is `true`, the pipeline is in a terminal state
 - It does not auto-merge a PR that's already in `gated` state — the
   user gated it intentionally.
 - It does not delete a worktree on entry. Worktree cleanup is a
-  step-9-or-step-10 effect (whichever ran cleanup last); if neither
-  ran, the worktree stays.
+  step-10.5 effect (or step-9 when the PR was merged externally); if
+  neither ran, the worktree stays.
 - It does not re-run `gh pr merge` on a PR that is already `MERGED`.
   An already-merged PR with the worktree still present resumes into
-  step 9's `MERGED` cleanup branch (`flow-remove-worktree` + write
-  `phase: merged` + print `MERGED`), not step 10.
+  step 9's `MERGED` cleanup branch (route into step 10.5 sweep, then
+  `flow-remove-worktree` + write `phase: merged` + print `MERGED`),
+  not step 10.
+- It does not skip step 10.5 on resume just because phase advanced
+  past `housekeeping`. The roadmap-sweep helper is idempotent — re-
+  running on an already-shipped row is a no-op — so resume always
+  invokes it before declaring `MERGED`. This guarantees a partial-
+  sweep crash (PUT failed mid-pipeline) gets retried on resume
+  without manual intervention.
 - It does not rewrite state.json on entry. The first transition you
   make from your re-entry step is what updates phase.
 
@@ -786,6 +847,7 @@ ci-wait
 reviewing
 gating
 merging
+housekeeping            (post-merge roadmap sweep; non-blocking)
 merged                  (terminal)
 ```
 

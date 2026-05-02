@@ -183,3 +183,17 @@ no compile step.
     and narrow: no other skill or agent flow is authorised to bypass the
     default. If a future skill needs the same license, add it here by
     name rather than generalising the rule.
+  - **Auto-merge exemption: `/flow-pipeline` step 10 + 10.5.** The
+    `/flow-pipeline` skill is exempt from the no-auto-commit / no-auto-
+    push default for two narrow, named operations: (1) the documented
+    `gh pr merge --squash --delete-branch <PR>` call inside step 10,
+    only when the auto-merge gate fires (Manual-validation section
+    empty) and only on a PR opened by `/flow-pipeline` itself; and (2)
+    the post-merge roadmap-sweep commit inside step 10.5
+    (`flow-roadmap-mark-shipped`), which runs unconditionally on
+    successful merge to flip the PR's roadmap row from
+    `🚧 in review (#N)` to `✅ shipped (#N)`. Invoking `/flow-pipeline`
+    is itself the user's authorisation; opt out per-pipeline with
+    `flow new --no-auto-merge` (the supervisor stops at the gated state
+    regardless of the gate verdict). Same narrow-and-named contract as
+    the `/pr-review` exemption above.

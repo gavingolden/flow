@@ -9,6 +9,7 @@
  *
  * Usage:
  *   flow-state-update <slug> [--phase <phase>] [--pr <number>] [--worktree <path>]
+ *                            [--auto-merge | --no-auto-merge]
  *
  * - At least one update flag is required.
  * - The slug must already have a state file (created by `flow new`).
@@ -29,6 +30,7 @@ type Args = {
   phase?: string;
   pr?: number;
   worktree?: string;
+  autoMerge?: boolean;
 };
 
 /**
@@ -90,6 +92,10 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Args = { slug };
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i];
+    if (flag === "--auto-merge" || flag === "--no-auto-merge") {
+      out.autoMerge = flag === "--auto-merge";
+      continue;
+    }
     const value = rest[i + 1];
     if (value === undefined || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -114,8 +120,15 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     }
     i++;
   }
-  if (out.phase === undefined && out.pr === undefined && out.worktree === undefined) {
-    return { error: "at least one of --phase, --pr, --worktree is required" };
+  if (
+    out.phase === undefined &&
+    out.pr === undefined &&
+    out.worktree === undefined &&
+    out.autoMerge === undefined
+  ) {
+    return {
+      error: "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge is required",
+    };
   }
   return out;
 }
@@ -126,6 +139,7 @@ export function applyUpdate(existing: PipelineState, args: Args): PipelineState 
     phase: args.phase ?? existing.phase,
     pr: args.pr ?? existing.pr,
     worktree: args.worktree ?? existing.worktree,
+    autoMerge: args.autoMerge ?? existing.autoMerge,
     updatedAt: nowIso(),
   };
 }
@@ -135,7 +149,8 @@ export function runUpdate(argv: string[], dir = FLOW_STATE_DIR): number {
   if ("error" in parsed) {
     console.error(`flow-state-update: ${parsed.error}`);
     console.error(
-      "usage: flow-state-update <slug> [--phase <phase>] [--pr <number>] [--worktree <path>]",
+      "usage: flow-state-update <slug> [--phase <phase>] [--pr <number>] [--worktree <path>]\n" +
+        "                              [--auto-merge | --no-auto-merge]",
     );
     return 2;
   }
