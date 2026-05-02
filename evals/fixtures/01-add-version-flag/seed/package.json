@@ -1,9 +1,0 @@
-{
-  "name": "tinycli",
-  "version": "0.3.1",
-  "type": "module",
-  "private": true,
-  "scripts": {
-    "test": "node --test --experimental-strip-types"
-  }
-}

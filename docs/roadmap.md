@@ -66,7 +66,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
 | **Item 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ✅ shipped (#51) |
 | **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ✅ shipped (#46) |
-| **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ✅ shipped (#52) |
+| **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ⬜ queued |
 | **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
 | **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ✅ shipped (#53) |
 | **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | ⬜ queued |
@@ -1025,41 +1025,17 @@ Done when:
 
 ### Item 8 — eval harness
 
-Status: ✅ shipped (#52). Carry-forward from queued Phase 5 Item 21.
+Status: ⬜ queued. Carry-forward from queued Phase 5 Item 21.
 
 Done when:
 
-- [x] 5–10 fixture features under `evals/` with expected diffs +
-  rubrics. (Five fixtures shipped: add-version-flag, fix-readme-typo,
-  add-unit-test-for-helper, extract-helper-function, add-cli-subcommand.)
-- [x] `flow eval` runs each fixture under two model configs (Claude Code
+- [ ] 5–10 fixture features under `evals/` with expected diffs +
+  rubrics.
+- [ ] `flow eval` runs each fixture under two model configs (Claude Code
   defaults vs the per-skill picks from Item 7), captures pass/fail and
-  $/run, prints a delta. (Implementor cost is reported separately from
-  judge cost so only implementor cost participates in the regression
-  decision.)
-- [x] Pass-rate regression of >1 fixture between configs exits non-zero
-  (CI-friendly). (See `bin/lib/eval-report.ts` `decideExitCode`.)
-
-Design deviations from the original spec:
-
-- **LLM-graded soft rubrics shipped in v1, not v2.** User redirect at
-  the plan-pending-review checkpoint: "include llm graded rubrics. They
-  should be judged by the most effective model (opus 4.7 xhigh?)". The
-  rubric format expanded to `hard:` (deterministic checks) +
-  `soft:` (YES/NO criteria for the judge). Judge model is hard-coded
-  to Claude Opus 4.7 at xhigh effort — same judge for both configs by
-  design, since we measure the implementor, not the judge.
-- **Cost split implementor vs judge.** The regression-decision compares
-  only implementor cost; judge cost is overhead and identical-by-design
-  across configs.
-- **Five fixtures, not the spec's 5–10 upper bound.** Five exercises
-  every code path; more can be added incrementally without code
-  changes (the runner picks them up by directory).
-- **Pricing is hard-coded as 2026-Q2 estimates** in `bin/lib/eval-cost.ts`.
-  Item 6 (cost reporting in `flow ls`) will productize this; for v1 the
-  authoritative source is Claude Code's own `result.total_cost_usd` event
-  in stream-json output, with the price map only as a fallback for
-  truncated streams.
+  $/run, prints a delta.
+- [ ] Pass-rate regression of >1 fixture between configs exits non-zero
+  (CI-friendly).
 
 ### Item 11 — `pr-review` unified mode (collapse Address vs Review)
 

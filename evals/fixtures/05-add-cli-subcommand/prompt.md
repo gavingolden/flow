@@ -1,1 +1,0 @@
-/new-feature add a `count` subcommand to `bin/cli.ts`. The CLI already has `list` (prints items.json contents). The new `count` subcommand reads the same `items.json` and prints just the count of items as a number. Wire it into the existing argv-based dispatch (don't restructure the dispatch). Add a unit test that asserts `count` prints "3" for the seeded items.json.
