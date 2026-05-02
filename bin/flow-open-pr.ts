@@ -83,35 +83,62 @@ const defaultGh: GhRunner = (argv) => {
 };
 
 /**
- * Resolves a PR for the current branch. Used both as the post-create read
- * (idempotent — returns the same data whether `gh pr create` just succeeded
- * or returned "already exists") and as the test seam for the helper.
+ * Result of probing for the current branch's PR.
+ *   - "found": a PR exists; carries number + url.
+ *   - "none":  no PR exists for this branch (gh's no-pr exit; happy path
+ *              for a fresh-create).
+ *   - "error": gh failed for some other reason; carries stderr.
+ *
+ * Why a discriminated union: the previous design used `gh pr create` first
+ * and parsed its stderr text for "already exists" to detect resume cases.
+ * That coupled correctness to gh's English error wording. The probe-first
+ * design checks for the PR up front via `gh pr view`, so the resume vs
+ * fresh-create branch is decided on a structured signal, not a string match.
  */
-export function readCurrentPr(gh: GhRunner): PrInfo | { error: string } {
+type ProbeResult =
+  | { kind: "found"; number: number; url: string }
+  | { kind: "none" }
+  | { kind: "error"; message: string };
+
+/**
+ * Resolves the PR for the current branch (or determines that none exists).
+ * Used both as the resume probe (called before `gh pr create`) and the
+ * post-create read (called after a fresh create succeeds).
+ *
+ * `gh pr view` exits non-zero when no PR is associated with the current
+ * branch. We distinguish that "expected absence" from a real gh failure by
+ * scanning stderr for the canonical "no pull requests found" message —
+ * absent that, we treat any non-zero exit as a real error rather than
+ * silently returning "none".
+ */
+export function probePr(gh: GhRunner): ProbeResult {
   const r = gh(["pr", "view", "--json", "number,url"]);
   if (r.exitCode !== 0) {
-    return { error: r.stderr.trim() || `gh pr view failed (${r.exitCode})` };
+    if (/no pull requests? found|no pull request associated/i.test(r.stderr)) {
+      return { kind: "none" };
+    }
+    return { kind: "error", message: r.stderr.trim() || `gh pr view failed (${r.exitCode})` };
   }
   try {
     const parsed = JSON.parse(r.stdout) as { number?: number; url?: string };
     if (typeof parsed.number !== "number" || typeof parsed.url !== "string") {
-      return { error: `gh pr view returned unexpected JSON: ${r.stdout}` };
+      return { kind: "error", message: `gh pr view returned unexpected JSON: ${r.stdout}` };
     }
-    return { number: parsed.number, url: parsed.url };
+    return { kind: "found", number: parsed.number, url: parsed.url };
   } catch (e) {
-    return { error: `gh pr view returned non-JSON: ${(e as Error).message}` };
+    return { kind: "error", message: `gh pr view returned non-JSON: ${(e as Error).message}` };
   }
 }
 
 /**
- * The "already exists" condition is the only `gh pr create` failure that's
- * a fall-through (resume case): a previous `flow-open-pr` opened the PR but
- * crashed before writing state. Any other non-zero exit is a real failure.
+ * Back-compat shape used by tests: `{ number, url } | { error }`. Adapts
+ * `probePr` for callers that only care about the "PR exists" path.
  */
-function isAlreadyExists(r: GhResult): boolean {
-  if (r.exitCode === 0) return false;
-  const text = (r.stderr + "\n" + r.stdout).toLowerCase();
-  return text.includes("a pull request for branch") && text.includes("already exists");
+export function readCurrentPr(gh: GhRunner): PrInfo | { error: string } {
+  const probe = probePr(gh);
+  if (probe.kind === "found") return { number: probe.number, url: probe.url };
+  if (probe.kind === "none") return { error: "no PR exists for the current branch" };
+  return { error: probe.message };
 }
 
 export type Deps = {
@@ -133,16 +160,32 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 2;
   }
 
-  const created = gh(buildCreateArgv(parsed));
-  if (created.exitCode !== 0 && !isAlreadyExists(created)) {
-    if (created.stderr) process.stderr.write(created.stderr);
-    if (created.stdout) process.stderr.write(created.stdout);
-    return created.exitCode === -1 ? 1 : created.exitCode;
-  }
-
-  const pr = readCurrentPr(gh);
-  if ("error" in pr) {
-    console.error(`flow-open-pr: ${pr.error}`);
+  // Probe first: if a PR already exists for this branch (resume case), skip
+  // `gh pr create` entirely. Avoids parsing gh's "already exists" stderr
+  // message — the structured `pr view` signal is what we branch on.
+  const probe = probePr(gh);
+  let pr: PrInfo;
+  if (probe.kind === "found") {
+    pr = { number: probe.number, url: probe.url };
+  } else if (probe.kind === "none") {
+    const created = gh(buildCreateArgv(parsed));
+    if (created.exitCode !== 0) {
+      if (created.stderr) process.stderr.write(created.stderr);
+      if (created.stdout) process.stderr.write(created.stdout);
+      return created.exitCode === -1 ? 1 : created.exitCode;
+    }
+    // Re-probe to capture the number + url for the freshly-created PR.
+    const after = probePr(gh);
+    if (after.kind !== "found") {
+      console.error(
+        `flow-open-pr: gh pr create succeeded but no PR resolves for the current branch ` +
+          `(${after.kind === "error" ? after.message : "no PR found"})`,
+      );
+      return 1;
+    }
+    pr = { number: after.number, url: after.url };
+  } else {
+    console.error(`flow-open-pr: ${probe.message}`);
     return 1;
   }
 

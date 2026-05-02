@@ -102,10 +102,20 @@ describe(readCurrentPr, () => {
     expect(r).toEqual({ number: 99, url: "https://github.com/x/y/pull/99" });
   });
 
-  it("returns an error when gh exits non-zero", () => {
-    const gh = vi.fn(() => ({ stdout: "", stderr: "no PR", exitCode: 1 }));
+  it("returns an error when gh fails for a non-absent reason", () => {
+    const gh = vi.fn(() => ({ stdout: "", stderr: "gh: authentication required", exitCode: 4 }));
     const r = readCurrentPr(gh) as { error: string };
-    expect(r.error).toMatch(/no PR/);
+    expect(r.error).toMatch(/authentication required/);
+  });
+
+  it("returns 'no PR exists' when gh reports the absence (no PR for current branch)", () => {
+    const gh = vi.fn(() => ({
+      stdout: "",
+      stderr: "no pull requests found for branch \"feature\"",
+      exitCode: 1,
+    }));
+    const r = readCurrentPr(gh) as { error: string };
+    expect(r.error).toMatch(/no PR exists/);
   });
 
   it("returns an error on non-JSON stdout", () => {
@@ -116,76 +126,100 @@ describe(readCurrentPr, () => {
 });
 
 describe("flow-open-pr run()", () => {
-  it("creates a PR, reads the number, and writes it to state.json", () => {
-    seedState("alpha");
-    const { updater } = makeUpdater();
+  /**
+   * Builds a gh mock that replays a queue of {match, response} pairs in order.
+   * Each call consumes the first matching entry. This is more robust than
+   * branching on argv shape inline because the new probe-first design calls
+   * `pr view` twice on the fresh-create path (probe, then re-probe), and
+   * inline branching gave the same response to both.
+   */
+  function makeGhSequence(steps: Array<{ matches: (argv: string[]) => boolean; response: GhResponse }>) {
     const calls: string[][] = [];
+    let cursor = 0;
     const gh = vi.fn((argv: string[]) => {
       calls.push(argv);
-      if (argv[0] === "pr" && argv[1] === "create") {
-        return {
-          stdout: "https://github.com/x/y/pull/142\n",
-          stderr: "",
-          exitCode: 0,
-        };
+      const step = steps[cursor];
+      if (!step) throw new Error(`unexpected gh call (no step left): ${argv.join(" ")}`);
+      if (!step.matches(argv)) {
+        throw new Error(`gh call ${cursor} did not match: got ${argv.join(" ")}`);
       }
-      return {
-        stdout: JSON.stringify({ number: 142, url: "https://github.com/x/y/pull/142" }),
-        stderr: "",
-        exitCode: 0,
-      };
+      cursor++;
+      return step.response;
     });
+    return { gh, calls };
+  }
+
+  const NO_PR: GhResponse = {
+    stdout: "",
+    stderr: "no pull requests found for the current branch",
+    exitCode: 1,
+  };
+
+  const isView = (argv: string[]) => argv[0] === "pr" && argv[1] === "view";
+  const isCreate = (argv: string[]) => argv[0] === "pr" && argv[1] === "create";
+
+  it("creates a PR, reads the number, and writes it to state.json (fresh-create path)", () => {
+    seedState("alpha");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 142, url: "https://github.com/x/y/pull/142" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "https://github.com/x/y/pull/142\n", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
 
     const exit = run(["alpha", "--body-file", bodyFile, "--title", "feat: x"], { gh, updater });
     expect(exit).toBe(0);
-    expect(calls[0]).toEqual([
-      "pr",
-      "create",
-      "--body-file",
-      bodyFile,
-      "--title",
-      "feat: x",
-    ]);
+    expect(calls[1]).toEqual(["pr", "create", "--body-file", bodyFile, "--title", "feat: x"]);
     expect(readState("alpha").pr).toBe(142);
   });
 
-  it("falls through to gh pr view when gh pr create says 'already exists' (resume case)", () => {
+  it("skips gh pr create when the branch already has a PR (resume case, no stderr parsing)", () => {
     seedState("beta");
     const { updater } = makeUpdater();
-    const gh = vi.fn((argv: string[]) => {
-      if (argv[0] === "pr" && argv[1] === "create") {
-        return {
-          stdout: "",
-          stderr:
-            "a pull request for branch \"beta\" into branch \"main\" already exists:\n  https://github.com/x/y/pull/77\n",
-          exitCode: 1,
-        };
-      }
-      return {
-        stdout: JSON.stringify({ number: 77, url: "https://github.com/x/y/pull/77" }),
-        stderr: "",
-        exitCode: 0,
-      };
-    });
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 77, url: "https://github.com/x/y/pull/77" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      // Probe-first: pr view returns the existing PR; pr create is never invoked.
+      { matches: isView, response: prJson },
+    ]);
 
     const exit = run(["beta", "--body-file", bodyFile], { gh, updater });
     expect(exit).toBe(0);
     expect(readState("beta").pr).toBe(77);
+    expect(calls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(false);
   });
 
   it("propagates a real gh pr create failure (auth error etc.)", () => {
     seedState("gamma");
     const { updater } = makeUpdater();
-    const gh = vi.fn((argv: string[]) => {
-      if (argv[0] === "pr" && argv[1] === "create") {
-        return { stdout: "", stderr: "gh: authentication required\n", exitCode: 4 };
-      }
-      throw new Error("should not reach pr view");
-    });
+    const { gh } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "gh: authentication required\n", exitCode: 4 } },
+    ]);
 
     const exit = run(["gamma", "--body-file", bodyFile], { gh, updater });
     expect(exit).toBe(4);
     expect(readState("gamma").pr).toBeUndefined();
+  });
+
+  it("returns 1 when the initial pr view fails for a non-absent reason", () => {
+    seedState("eta");
+    const { updater } = makeUpdater();
+    const { gh } = makeGhSequence([
+      { matches: isView, response: { stdout: "", stderr: "gh: authentication required", exitCode: 4 } },
+    ]);
+
+    const exit = run(["eta", "--body-file", bodyFile], { gh, updater });
+    expect(exit).toBe(1);
+    expect(readState("eta").pr).toBeUndefined();
   });
 
   it("returns 2 with usage when --body-file is missing", () => {
@@ -196,38 +230,39 @@ describe("flow-open-pr run()", () => {
   it("forwards --draft and --base to gh pr create", () => {
     seedState("epsilon");
     const { updater } = makeUpdater();
-    const calls: string[][] = [];
-    const gh = vi.fn((argv: string[]) => {
-      calls.push(argv);
-      if (argv[0] === "pr" && argv[1] === "create") {
-        return { stdout: "", stderr: "", exitCode: 0 };
-      }
-      return {
-        stdout: JSON.stringify({ number: 5, url: "https://github.com/x/y/pull/5" }),
-        stderr: "",
-        exitCode: 0,
-      };
-    });
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 5, url: "https://github.com/x/y/pull/5" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
     run(["epsilon", "--body-file", bodyFile, "--draft", "--base", "develop"], { gh, updater });
-    expect(calls[0]).toContain("--draft");
-    const baseIdx = calls[0].indexOf("--base");
-    expect(calls[0][baseIdx + 1]).toBe("develop");
+    const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
+    expect(createCall).toContain("--draft");
+    const baseIdx = createCall.indexOf("--base");
+    expect(createCall[baseIdx + 1]).toBe("develop");
   });
 
   it("returns the updater's exit code when state-write fails (e.g. missing state file)", () => {
     // No seedState — the updater will exit 1.
     const { updater } = makeUpdater();
-    const gh = vi.fn((argv: string[]) => {
-      if (argv[0] === "pr" && argv[1] === "create") {
-        return { stdout: "", stderr: "", exitCode: 0 };
-      }
-      return {
-        stdout: JSON.stringify({ number: 5, url: "https://github.com/x/y/pull/5" }),
-        stderr: "",
-        exitCode: 0,
-      };
-    });
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 5, url: "https://github.com/x/y/pull/5" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
     const exit = run(["zeta", "--body-file", bodyFile], { gh, updater });
     expect(exit).toBe(1);
   });
 });
+
+type GhResponse = { stdout: string; stderr: string; exitCode: number };

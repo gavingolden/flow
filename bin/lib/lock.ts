@@ -54,11 +54,18 @@ export function withFileLock<T>(lockPath: string, fn: () => T, opts: LockOptions
 
 function tryAcquire(lockPath: string): boolean {
   try {
-    const fd = fs.openSync(lockPath, "wx");
+    // Atomic publish: write the PID into a per-PID temp file, then link()
+    // it onto lockPath. link() is atomic-create-or-fail on POSIX, so the
+    // lock file is never observable to another process in an empty state.
+    // Without this, a peer's reclaimIfStale that races between our open()
+    // and our write() reads "" → Number("") === 0 → "garbage" branch and
+    // unlinks our lock mid-acquire, letting both processes "hold" it.
+    const tmpPath = `${lockPath}.${process.pid}.tmp`;
+    fs.writeFileSync(tmpPath, String(process.pid));
     try {
-      fs.writeSync(fd, String(process.pid));
+      fs.linkSync(tmpPath, lockPath);
     } finally {
-      fs.closeSync(fd);
+      try { fs.unlinkSync(tmpPath); } catch { /* best-effort cleanup */ }
     }
     return true;
   } catch (e) {
@@ -85,11 +92,11 @@ function reclaimIfStale(lockPath: string): boolean {
   }
   if (!Number.isFinite(pid) || pid <= 0) {
     // garbage contents — treat as stale
-    try { fs.unlinkSync(lockPath); } catch { /* race with another reclaimer */ }
+    release(lockPath);
     return true;
   }
   if (isProcessAlive(pid)) return false;
-  try { fs.unlinkSync(lockPath); } catch { /* race with another reclaimer */ }
+  release(lockPath);
   return true;
 }
 

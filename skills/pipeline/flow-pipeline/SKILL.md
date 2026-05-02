@@ -346,15 +346,17 @@ supervisor's job, not the implement skill's** — the supervisor calls
 `flow-open-pr` so the PR number lands in state.json atomically.
 
 Write the PR body to the worktree's scratch dir, then call
-`flow-open-pr`:
+`flow-open-pr` once and capture both the URL (from stdout) and the
+PR number (from the state.json the helper just wrote):
 
 ```bash
 mkdir -p "$WORKTREE/.flow-tmp"
 # Compose the PR body (typically copied from pr-description-draft.md
 # that /new-feature wrote, then templated with the final commit list).
-flow-open-pr "$SLUG" \
+PR_URL=$(flow-open-pr "$SLUG" \
   --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
-  --title "<conventional-commit summary>"
+  --title "<conventional-commit summary>")
+PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json)
 ```
 
 `flow-open-pr` runs `gh pr create`, reads the PR number back via
@@ -362,13 +364,6 @@ flow-open-pr "$SLUG" \
 step. It is **idempotent**: if the branch already has a PR (resume
 after a crash), the helper falls through to the read-back path
 instead of failing on `gh pr create`'s "already exists" error.
-The PR URL is printed on stdout — capture it for the rest of the
-pipeline:
-
-```bash
-PR_URL=$(flow-open-pr "$SLUG" --body-file "$WORKTREE/.flow-tmp/pr-body.md" --title "...")
-PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json)
-```
 
 Do **not** call `gh pr create` directly and do **not** call
 `flow-state-update --pr` separately — both are subsumed by

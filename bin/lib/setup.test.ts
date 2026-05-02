@@ -147,7 +147,7 @@ describe("flow setup", () => {
 
   it("reclaims a stale setup lock left by a dead process", () => {
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-    fs.writeFileSync(lockPath, "999999");
+    fs.writeFileSync(lockPath, String(pickDeadPid()));
     const summary = setup({ lockTimeoutMs: 1000 });
     expect(summary.created).toBeGreaterThan(0);
     expect(fs.existsSync(lockPath)).toBe(false);
@@ -199,4 +199,22 @@ function buildFakeFlowSource(root: string): void {
   fs.writeFileSync(path.join(binDir, "flow-helper.ts"), "#!/usr/bin/env bun\n// helper\n");
   fs.writeFileSync(path.join(binDir, "flow-helper.test.ts"), "// test\n");
   fs.writeFileSync(path.join(binDir, "flow"), "#!/usr/bin/env bun\n// wrapper\n");
+}
+
+/**
+ * Returns a PID guaranteed not to be live on this host. Tries a small set of
+ * high-numbered candidates and uses the first one process.kill(0) reports as
+ * ESRCH. Mirrors the same helper in lock.test.ts — duplicated rather than
+ * shared because pulling in a test-utils module just for this one helper
+ * isn't worth the extra import surface.
+ */
+function pickDeadPid(): number {
+  for (const candidate of [999999, 998123, 987654]) {
+    try {
+      process.kill(candidate, 0);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ESRCH") return candidate;
+    }
+  }
+  throw new Error("could not find a dead PID for the test");
 }

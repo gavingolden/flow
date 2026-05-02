@@ -77,6 +77,24 @@ describe(withFileLock, () => {
     expect(ran).toBe(true);
   });
 
+  it("does not publish the lock file in an empty state (atomic-publish via link)", () => {
+    // Regression: previously tryAcquire openSync'd the lock with "wx" then
+    // wrote the PID after, leaving a microsecond window where the file was
+    // observable to a peer's reclaimIfStale as empty content. Number("") is
+    // 0, which tripped the "garbage contents" branch and unlinked the
+    // in-flight lock — letting both processes "hold" it. The fix writes the
+    // PID into a per-PID temp file and link()s it onto the lock path, so
+    // the lock never exists in an empty state.
+    //
+    // We can't reliably reproduce the race window in a unit test, but we
+    // can verify the post-condition: the published lock file always has
+    // the PID written into it, never empty.
+    withFileLock(lockPath, () => {
+      const contents = fs.readFileSync(lockPath, "utf8");
+      expect(contents).toBe(String(process.pid));
+    });
+  });
+
   it("serializes nested holds: a non-recursive lock blocks itself if held", () => {
     // Confirms the lock is process-aware, not thread-local: holding it twice
     // in the same process from a re-entered call would self-deadlock until
