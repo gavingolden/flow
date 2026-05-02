@@ -70,7 +70,7 @@ If there were no review comments: "No review comments were found on this PR."
 
 ---
 
-### How to Test (from PR description)
+### Manual Validation (from PR description)
 
 Mirror the PR body's checklist with verification status. One line per item.
 
