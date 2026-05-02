@@ -145,6 +145,53 @@ in-process for skills; shell out for scripts; never delegate.
 > above (it would not have prevented 2026-05-01) but adjacent — both
 > are parallel-pipelines self-identification hazards.
 
+> **You never end the turn between sub-skills and the next step.**
+> The rule scope is **a change pipeline** — i.e. once step 1 has
+> classified the request as `change` and (for ambiguous input) the
+> single clarifying question has been answered. Step 1's `no-change`
+> outcome answers the user inline and ends the turn before the
+> change-pipeline contract activates; that is *not* a violation of
+> this rule, it is the pre-pipeline branch. Inside a change pipeline
+> the supervisor walks each non-feature run (intent ∈
+> `bug` / `refactor` / `docs` / `infra` / `chore`) from triage to a
+> terminal end-state in **one uninterrupted run**, and walks each
+> feature run in two runs (kickoff → `plan-pending-review`, then
+> approval → terminal). Every other step transition stays in the
+> same turn. The hazard this rule closes: sub-skill tails and
+> long-script tails *look* like natural turn-ends — `/product-planning`
+> step 9 ends with "share with user and iterate" and a CTA to invoke
+> `/new-feature`; `/verify` and `/pr-review` print summaries that read
+> conversationally; `flow-state-update` prints nothing and feels like a
+> stopping point. None of these are turn boundaries. The supervisor
+> reads them as model-generated text and must keep going. The **only**
+> legitimate turn-end points inside a change pipeline are:
+>
+> 1. **Step 3 → step 4 handoff for feature intent.** When intent is
+>    `feature`, step 3 writes `phase: plan-pending-review` and ends
+>    the turn. The next turn re-enters at step 4 after the user
+>    attaches and responds. Bug / refactor / docs / infra / chore
+>    intents skip this entirely — they continue to step 5 in the same
+>    turn.
+> 2. **The four documented terminal end-states.** `MERGED`,
+>    `GATED: <url>`, `NEEDS HUMAN: <reason>`, and `cancelled` —
+>    each printed on its own line, after which the turn ends.
+> 3. **The single clarifying question allowed in step 1
+>    (`triage-ambiguous`) and step 4 (`approval-ambiguous`).** Each
+>    step is permitted *one* clarifying question if the user input
+>    is genuinely unparseable; the turn ends after the question and
+>    re-enters when the user answers. If the answer is still
+>    ambiguous, escalate `NEEDS HUMAN: <triage|approval>-ambiguous`
+>    instead of asking again.
+>
+> Every other transition — step 2 → step 3, the non-feature step 3 →
+> step 5 path, the step 4 affirmative → step 5 path, step 5 → step
+> 5.5, step 5.5 → step 6, step 6 → step 7, step 7 → step 8 (or →
+> step 5 mode=fix), step 8 → step 7 (or → step 9), step 9 → step 10,
+> step 10 → step 10.5 — happens in the same turn. The
+> continue-immediately sentences inline at each step's End-condition
+> stanza are the localised reminder; this Hard rule is the global
+> invariant.
+
 # Notifications
 
 When the pipeline reaches a terminal end-state (`MERGED`, `GATED`,
@@ -334,7 +381,11 @@ titles — the user reads scrollback).
 - Non-feature intent (`bug`/`refactor`/`docs`/`infra`/`chore`) →
   skip the checkpoint and continue directly to step 5. The plan
   still exists on disk for traceability, but the user wasn't asked
-  to ratify it.
+  to ratify it. **Continue immediately to step 5 in the same turn —
+  do not end the turn.** `/product-planning`'s tail message
+  ("share with user and iterate" + CTA to invoke `/new-feature`) is
+  correct for manual invocation but is *not* a turn boundary inside
+  a `/flow-pipeline` run.
 
 If `/product-planning` doesn't write `.flow-tmp/plan.md`, re-invoke
 once with an explicit instruction to write the consolidated artifact.
@@ -501,7 +552,9 @@ maps `summary.blocked > 0` to exit 1; parser errors map to 2):
 retry once. If the retry also fails, escalate
 `NEEDS HUMAN: flow-setup-upgrade-failed <stderr>` — the supervisor
 cannot safely continue to step 6 without the new skill/agent files
-visible.
+visible. On success: **continue immediately to step 6 in the same
+turn — do not end the turn.** `flow setup --upgrade`'s summary
+output is informational, not a stopping point.
 
 ## Step 6 — Local verify
 
@@ -544,7 +597,9 @@ gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
 **End condition:** `/verify` exits clean (an outer attempt 1, 2, or
-3 succeeds).
+3 succeeds). **Continue immediately to step 7 in the same turn — do
+not end the turn.** `/verify`'s success summary is the localised
+end of one phase, not a session boundary.
 
 ## Step 7 — CI + Copilot wait
 
@@ -694,7 +749,16 @@ When `CI_CONFIGURED=1` and `gh pr checks` returns `[]`, that means
 After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
 
 **End condition:** decision is "proceed to review", "merged
-externally", or escalation.
+externally", "ci-failed → step 5 mode=fix", or escalation. On
+"proceed to review": **continue immediately to step 8 in the same
+turn — do not end the turn.** On "merged externally": **continue
+immediately to step 10.5 in the same turn — do not end the turn**
+(route into the post-merge sweep, then `flow-remove-worktree`,
+write `phase: merged`, print `MERGED`, end). On "ci-failed → step 5
+mode=fix" (subject to the 3-loop fix-loop cap above): **continue
+immediately to step 5 in the same turn — do not end the turn.** The
+red-CI summary printed by `gh pr checks` is a localised end of one
+poll cycle, not a session boundary.
 
 ## Step 8 — Review
 
@@ -717,14 +781,20 @@ state and:
 
 **Fix-loop cap: 2 total review-fix loops.** If `/pr-review`
 surfaces critical findings that it can't auto-fix, loop back to
-step 5 with mode=fix and the finding details. After the second
+step 5 with mode=fix and the finding details. **Continue immediately
+to step 5 in the same turn — do not end the turn.** After the second
 loop-back, escalate `NEEDS HUMAN: review-fix-exhausted`.
 
 After `/pr-review` commits + pushes, **return to step 7** (CI
 wait), not directly to step 9. The fix commit may have changed CI.
+**Continue immediately to step 7 in the same turn — do not end the
+turn.** `/pr-review`'s post-push summary reads conversationally but
+is not a turn boundary.
 
 **End condition:** `/pr-review` returns clean (no critical
-findings outstanding) AND the most recent CI cycle is green.
+findings outstanding) AND the most recent CI cycle is green. On
+this clean state: **continue immediately to step 9 in the same turn
+— do not end the turn.**
 
 On non-zero exit from `/pr-review`: retry once. If the retry also
 fails, escalate `NEEDS HUMAN: review-failed`.
