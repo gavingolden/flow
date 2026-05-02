@@ -14,8 +14,10 @@ import { spawnSync, spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BRANCH_MARKER_FILENAME,
+  FLOW_TMP_DIRNAME,
   MAX_SUFFIX_ATTEMPTS,
   SYMLINK_FILES,
+  ensureFlowTmpExclude,
   ensureGitignoreMarkerEntry,
   findAvailableSlot,
   toDirSuffix,
@@ -238,6 +240,53 @@ describe(ensureGitignoreMarkerEntry, () => {
   });
 });
 
+describe(ensureFlowTmpExclude, () => {
+  let fx: Fixture;
+  beforeEach(() => {
+    fx = makeFixture();
+  });
+  afterEach(() => fx.cleanup());
+
+  function excludePath(): string {
+    return path.join(fx.repoDir, ".git", "info", "exclude");
+  }
+
+  it("appends .flow-tmp/ to the worktree's .git/info/exclude", () => {
+    if (fs.existsSync(excludePath())) fs.unlinkSync(excludePath());
+    ensureFlowTmpExclude(fx.repoDir);
+    const contents = fs.readFileSync(excludePath(), "utf8");
+    expect(contents.split("\n")).toContain(FLOW_TMP_DIRNAME.replace(/\/$/, "/"));
+  });
+
+  it("is idempotent — second call does not duplicate the line", () => {
+    ensureFlowTmpExclude(fx.repoDir);
+    const after1 = fs.readFileSync(excludePath(), "utf8");
+    ensureFlowTmpExclude(fx.repoDir);
+    const after2 = fs.readFileSync(excludePath(), "utf8");
+    expect(after2).toBe(after1);
+    const matches = after2.match(/^\.flow-tmp\/$/gm) ?? [];
+    expect(matches.length).toBe(1);
+  });
+
+  it("preserves existing exclude content", () => {
+    fs.mkdirSync(path.dirname(excludePath()), { recursive: true });
+    fs.writeFileSync(excludePath(), "# Pre-existing user content\n*.tmp\n");
+    ensureFlowTmpExclude(fx.repoDir);
+    const contents = fs.readFileSync(excludePath(), "utf8");
+    expect(contents).toContain("# Pre-existing user content");
+    expect(contents).toContain("*.tmp");
+    expect(contents).toContain(FLOW_TMP_DIRNAME);
+  });
+
+  it("normalizes a missing trailing newline before appending", () => {
+    fs.mkdirSync(path.dirname(excludePath()), { recursive: true });
+    fs.writeFileSync(excludePath(), "*.tmp"); // no trailing newline
+    ensureFlowTmpExclude(fx.repoDir);
+    const contents = fs.readFileSync(excludePath(), "utf8");
+    expect(contents).toContain("*.tmp\n.flow-tmp/\n");
+  });
+});
+
 // --- Integration tests against a real git fixture ---------------------------
 
 describe("flow-new-worktree (integration)", () => {
@@ -257,6 +306,13 @@ describe("flow-new-worktree (integration)", () => {
       "foo",
     );
     expect(fs.readFileSync(path.join(fx.repoDir, ".gitignore"), "utf8")).toContain(".flow-branch");
+
+    // The new worktree's per-checkout exclude (under .git/worktrees/<name>/info/exclude)
+    // must list .flow-tmp/ so the supervisor's scratch dir stays untracked.
+    const wtName = path.basename(expectedDir);
+    const wtExclude = path.join(fx.repoDir, ".git", "worktrees", wtName, "info", "exclude");
+    expect(fs.existsSync(wtExclude)).toBe(true);
+    expect(fs.readFileSync(wtExclude, "utf8")).toContain(".flow-tmp/");
   });
 
   it("two parallel calls with the same slug return distinct paths and branches", async () => {

@@ -30,6 +30,13 @@ export type CheckReport = {
   scopes: Scope[];
   results: CheckResult[];
   allPassed: boolean;
+  /**
+   * The file list scope detection saw, when available. Empty for the
+   * `--scope <list>` path where the user named scopes explicitly and there
+   * is no "changed files" diff to report. Used by formatReport to print
+   * the per-scope enumeration so a no-op pass is loud rather than silent.
+   */
+  changedFiles?: string[];
 };
 
 export type PrePushRef = {
@@ -284,6 +291,27 @@ export function getChangedFilesForPush(refs: PrePushRef[], git: GitOps = default
 /** Formats a CheckReport as human-readable output. */
 export function formatReport(report: CheckReport): string {
   const lines: string[] = [];
+  const matched = new Set<Scope>(report.scopes);
+
+  // Loud preamble: enumerate every considered scope with a per-scope status.
+  // Without this, "No relevant scopes detected" is indistinguishable from a
+  // real bug — the user can't tell whether the helper saw the diff and
+  // matched nothing, or whether detection silently broke.
+  if (report.changedFiles !== undefined) {
+    const n = report.changedFiles.length;
+    lines.push(`flow-pre-commit: ${n} changed file${n === 1 ? "" : "s"}; checking scopes…`);
+  } else {
+    lines.push("flow-pre-commit: checking explicitly-requested scopes…");
+  }
+  for (const scope of VALID_SCOPES) {
+    const prefixes = SCOPE_PREFIXES[scope].join(", ");
+    if (matched.has(scope)) {
+      lines.push(`  ${scope.padEnd(8)} → matched (${prefixes})`);
+    } else {
+      lines.push(`  ${scope.padEnd(8)} — no changes under ${prefixes}`);
+    }
+  }
+  lines.push("");
 
   if (report.scopes.length === 0) {
     lines.push("No relevant scopes detected — nothing to check.");
@@ -362,6 +390,7 @@ async function main(): Promise<void> {
 
   const prePush = args.includes("--pre-push");
   let scopes: Scope[];
+  let changedFiles: string[] | undefined;
   const scopeIdx = args.indexOf("--scope");
   const prIdx = args.indexOf("--pr");
 
@@ -379,12 +408,8 @@ async function main(): Promise<void> {
     if (refs.length === 0) {
       process.exit(0);
     }
-    const files = getChangedFilesForPush(refs);
-    scopes = detectScopesFromFiles(files);
-    if (scopes.length === 0) {
-      console.log("No relevant scopes detected — skipping checks.");
-      process.exit(0);
-    }
+    changedFiles = getChangedFilesForPush(refs);
+    scopes = detectScopesFromFiles(changedFiles);
   } else if (scopeIdx !== -1) {
     const value = args[scopeIdx + 1];
     if (!value) {
@@ -392,6 +417,7 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     scopes = parseScopes(value);
+    // Explicit-scope path: no changed-files diff to print.
   } else if (prIdx !== -1) {
     const value = args[prIdx + 1];
     if (!value) {
@@ -403,11 +429,11 @@ async function main(): Promise<void> {
       console.error(`Error: Invalid PR number: ${value}`);
       process.exit(1);
     }
-    const files = getChangedFilesForPr(prNumber);
-    scopes = detectScopesFromFiles(files);
+    changedFiles = getChangedFilesForPr(prNumber);
+    scopes = detectScopesFromFiles(changedFiles);
   } else {
-    const files = getChangedFiles();
-    scopes = detectScopesFromFiles(files);
+    changedFiles = getChangedFiles();
+    scopes = detectScopesFromFiles(changedFiles);
   }
 
   const definedScripts = loadDefinedNpmScripts();
@@ -430,6 +456,7 @@ async function main(): Promise<void> {
     scopes,
     results,
     allPassed: results.every((r) => r.passed),
+    changedFiles,
   };
 
   console.log(formatReport(report));

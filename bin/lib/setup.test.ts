@@ -11,17 +11,20 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runSetup } from "./setup";
 import { readManifest } from "./manifest";
+import { LockTimeoutError } from "./lock";
 
 let scratch!: string;
 let flowSource!: string;
 let homeDir!: string;
 let manifestPath!: string;
+let lockPath!: string;
 
 beforeEach(() => {
   scratch = fs.mkdtempSync(path.join(os.tmpdir(), "flow-setup-"));
   flowSource = path.join(scratch, "flow-src");
   homeDir = path.join(scratch, "home");
   manifestPath = path.join(homeDir, ".flow", "installed.json");
+  lockPath = path.join(homeDir, ".flow", "setup.lock");
   buildFakeFlowSource(flowSource);
 });
 
@@ -37,13 +40,14 @@ function targets() {
   };
 }
 
-function setup(opts: { upgrade?: boolean; force?: boolean } = {}) {
+function setup(opts: { upgrade?: boolean; force?: boolean; lockTimeoutMs?: number } = {}) {
   return runSetup({
     ...opts,
     flowSource,
     targets: targets(),
     skipPreflight: true,
     manifestPath,
+    lockPath,
     quiet: true,
   });
 }
@@ -129,6 +133,26 @@ describe("flow setup", () => {
     expect(fs.existsSync(path.join(t.skillsDir, "beta"))).toBe(true);
   });
 
+  it("acquires the setup lock and releases it on success", () => {
+    setup();
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
+  it("times out instead of stomping when another live process holds the setup lock", () => {
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(lockPath, String(process.pid));
+    expect(() => setup({ lockTimeoutMs: 200 })).toThrow(LockTimeoutError);
+    fs.unlinkSync(lockPath);
+  });
+
+  it("reclaims a stale setup lock left by a dead process", () => {
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(lockPath, String(pickDeadPid()));
+    const summary = setup({ lockTimeoutMs: 1000 });
+    expect(summary.created).toBeGreaterThan(0);
+    expect(fs.existsSync(lockPath)).toBe(false);
+  });
+
   it("--upgrade refuses to delete an unmanaged symlink (points outside flow source)", () => {
     setup();
     const t = targets();
@@ -175,4 +199,22 @@ function buildFakeFlowSource(root: string): void {
   fs.writeFileSync(path.join(binDir, "flow-helper.ts"), "#!/usr/bin/env bun\n// helper\n");
   fs.writeFileSync(path.join(binDir, "flow-helper.test.ts"), "// test\n");
   fs.writeFileSync(path.join(binDir, "flow"), "#!/usr/bin/env bun\n// wrapper\n");
+}
+
+/**
+ * Returns a PID guaranteed not to be live on this host. Tries a small set of
+ * high-numbered candidates and uses the first one process.kill(0) reports as
+ * ESRCH. Mirrors the same helper in lock.test.ts — duplicated rather than
+ * shared because pulling in a test-utils module just for this one helper
+ * isn't worth the extra import surface.
+ */
+function pickDeadPid(): number {
+  for (const candidate of [999999, 998123, 987654]) {
+    try {
+      process.kill(candidate, 0);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ESRCH") return candidate;
+    }
+  }
+  throw new Error("could not find a dead PID for the test");
 }

@@ -171,10 +171,18 @@ describe("runNew (fresh)", () => {
     expect(errors[0]).toMatch(/description is required/);
   });
 
-  it("rejects descriptions that slugify to nothing", () => {
-    const code = runNew("---", { stateDir });
-    expect(code).toBe(1);
-    expect(errors[0]).toMatch(/produces an empty slug/);
+  it("falls back to a deterministic task-<hash8> slug for purely-punctuation input", () => {
+    // Item 15: aggressive slugify never returns "" — when stop-word filtering
+    // (or in this case, dashing of pure punctuation) leaves nothing, slugify
+    // returns task-<sha256[0..8]>(input). `flow new` should accept that slug
+    // rather than refuse with the old "produces an empty slug" error, so
+    // any input the user types is always actionable.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNew("---", { stateDir, cwd: repoDir, command: ["true"] });
+    expect(code).toBe(0);
+    const files = fs.readdirSync(stateDir);
+    const matched = files.find((f) => /^task-[0-9a-f]{8}\.json$/.test(f));
+    expect(matched, `expected a task-<hash8>.json in ${files.join(",")}`).toBeDefined();
   });
 
   it("does not persist autoMerge by default (absent ≡ true)", () => {

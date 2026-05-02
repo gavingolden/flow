@@ -75,10 +75,14 @@ describe(seedMatchesSlug, () => {
     ).toBe(false);
   });
 
-  it("matches when the description is long and slug is truncated to 40 chars", () => {
+  it("matches a long description against its aggressive-slugify result", () => {
+    // Item 15 made slugify drop English stop-words + cap at 5 tokens, so the
+    // same long seed prompt now condenses to a much shorter slug. This test
+    // pins seedMatchesSlug + slugify in agreement so cost lookups don't drift
+    // when slugify's heuristics change again.
     const desc =
       "Proceed with pr 6 in the roadmap if the prerequisites are complete. make sure the roadmap gets updated when done";
-    const slug = "proceed-with-pr-6-in-the-roadmap-if-the";
+    const slug = "proceed-pr-6-roadmap-prerequisites";
     expect(seedMatchesSlug(`Use the /flow-pipeline skill for: ${desc}`, slug)).toBe(true);
   });
 

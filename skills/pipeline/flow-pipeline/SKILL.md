@@ -112,6 +112,22 @@ in-process for skills; shell out for scripts; never delegate.
 > phase transition (`branch-mismatch`), but don't rely on the guard
 > as a license to run the dangerous command in the first place.
 
+> **You write every scratch file under `$WORKTREE/.flow-tmp/`.** Every
+> transient file the supervisor or a sub-skill produces — PR body
+> drafts, commit-message scratch, intermediate logs, mocked-input
+> fixtures — lives at `$WORKTREE/.flow-tmp/<name>` rather than `/tmp/`.
+> `/tmp` is shared across every parallel pipeline on the host and was
+> the source of the Item 7 cross-pipeline body-file overwrite (PR opened
+> with stale content from another window's prior session). The
+> per-worktree path inherits the worktree's isolation guarantees for
+> free. The directory is created lazily by whoever writes first
+> (`mkdir -p "$WORKTREE/.flow-tmp"`); cleanup is automatic — `git
+> worktree remove` (run by `flow-remove-worktree` at step 10.5) deletes
+> the whole worktree tree, scratch dir included. The path is registered
+> in the worktree's per-checkout `.git/info/exclude` by
+> `flow-new-worktree`, so it stays untracked without polluting the
+> consumer repo's `.gitignore`.
+
 > **You anchor every tmux self-query on `$TMUX_PANE`.** When you need
 > to read or target your own tmux window — pane id, window name,
 > session name, sending keys to yourself, gating logic on "is this
@@ -240,8 +256,11 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
 
 - **No-change** → answer the user's question in chat directly. End
   the turn. Do NOT proceed to step 2.
-- **Change** → derive a 3-5 word kebab-case **slug** from the
-  request (e.g. `csv-export`, `version-flag`). Continue to step 2.
+- **Change** → continue to step 2. The **slug** was already finalized
+  by `flow new`'s aggressive slugify (`bin/lib/slug.ts`: stop-word
+  filter + 5-token cap + `task-<hash8>` fallback) and is the basename
+  of `$SLUG` / the tmux window name. The supervisor never re-derives
+  or renames it.
 
 If classification is ambiguous after one clarifying question,
 escalate `NEEDS HUMAN: triage-ambiguous` and end.
@@ -344,18 +363,42 @@ pass the user's request:
 ```
 
 The skill writes code + tests, runs verify internally as a
-pre-commit gate, commits, pushes, and opens the PR via `gh`.
-Capture the PR number after it returns:
+pre-commit gate, commits, and pushes. **Opening the PR is the
+supervisor's job, not the implement skill's** — the supervisor calls
+`flow-open-pr` so the PR number lands in state.json atomically.
+
+Write the PR body to the worktree's scratch dir, then call
+`flow-open-pr` once and capture both the URL (from stdout) and the
+PR number (from the state.json the helper just wrote):
 
 ```bash
-gh pr view --json number --jq '.number'
+mkdir -p "$WORKTREE/.flow-tmp"
+# Compose the PR body (typically copied from pr-description-draft.md
+# that /new-feature wrote, then templated with the final commit list).
+PR_URL=$(flow-open-pr "$SLUG" \
+  --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
+  --title "<conventional-commit summary>")
+PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json)
 ```
 
-Set `$PR` to this for the rest of the pipeline. Then record it in
-the global state (the only step where `--pr` is set):
+`flow-open-pr` runs `gh pr create`, reads the PR number back via
+`gh pr view`, and writes it to `~/.flow/state/<slug>.json` in one
+step. It is **idempotent**: if the branch already has a PR (resume
+after a crash), the helper falls through to the read-back path
+instead of failing on `gh pr create`'s "already exists" error.
+
+Do **not** call `gh pr create` directly and do **not** call
+`flow-state-update --pr` separately — both are subsumed by
+`flow-open-pr`. Bypassing the helper is the regression Item 15
+closed: the previous three-call sequence stranded PRs in `pr: —`
+when the supervisor crashed between `gh pr create` and the state
+write.
+
+Then transition the phase (preserving the `pr` field the helper
+just wrote):
 
 ```bash
-flow-state-update "$SLUG" --phase implementing --pr "$PR"
+flow-state-update "$SLUG" --phase implementing
 ```
 
 **Re-entry from a fix loop** (called from step 7 ci-red or step 8
@@ -500,9 +543,10 @@ verify-exhausted`. Surface the final failure log on the PR body's
 edit-in-place, do not stack):
 
 ```bash
-gh pr view "$PR" --json body --jq '.body' > /tmp/body.md
+mkdir -p "$WORKTREE/.flow-tmp"
+gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
 # upsert caution block under ## Manual validation, then
-gh pr edit "$PR" --body-file /tmp/body.md
+gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
 **End condition:** `/verify` exits clean (an outer attempt 1, 2, or

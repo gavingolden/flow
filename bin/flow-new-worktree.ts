@@ -253,6 +253,32 @@ export function writeBranchMarker(worktreeDir: string, branchName: string): void
   fs.writeFileSync(path.join(worktreeDir, BRANCH_MARKER_FILENAME), branchName + "\n", "utf8");
 }
 
+/** Filename used for the supervisor + sub-skill scratch directory inside each worktree. */
+export const FLOW_TMP_DIRNAME = ".flow-tmp/";
+
+/**
+ * Adds `.flow-tmp/` to the worktree's per-checkout `.git/info/exclude` so the
+ * supervisor's scratch dir stays untracked without polluting the user's
+ * repo-tracked `.gitignore`. Idempotent — only writes when the line is missing.
+ *
+ * Uses `git rev-parse --git-dir` from inside the worktree so the right
+ * `info/exclude` resolves under `.git/worktrees/<name>/info/exclude` for
+ * secondary worktrees, not the primary repo's `.git/info/exclude`.
+ */
+export function ensureFlowTmpExclude(worktreeDir: string): void {
+  const gitDir = git(["rev-parse", "--git-dir"], worktreeDir);
+  const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(worktreeDir, gitDir);
+  const excludePath = path.join(absGitDir, "info", "exclude");
+  fs.mkdirSync(path.dirname(excludePath), { recursive: true });
+
+  const existing = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf8") : "";
+  const lines = existing.split("\n");
+  if (lines.some((line) => line.trim() === FLOW_TMP_DIRNAME)) return;
+
+  const trailingNewline = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+  fs.writeFileSync(excludePath, existing + trailingNewline + FLOW_TMP_DIRNAME + "\n", "utf8");
+}
+
 /**
  * Ensures the primary repo's .gitignore contains a `# managed by flow runtime`
  * block listing the branch-marker filename. Idempotent — replaces the block in
@@ -360,6 +386,7 @@ function main(): void {
   // version of this script, and the gitignore block may not yet exist.
   writeBranchMarker(chosen.worktreeDir, chosen.branchName);
   ensureGitignoreMarkerEntry(primaryDir);
+  ensureFlowTmpExclude(chosen.worktreeDir);
 
   // Summary — always prints the *actual* chosen pair so the supervisor parses
   // the right values when auto-suffix kicks in.
