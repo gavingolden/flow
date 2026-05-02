@@ -84,6 +84,17 @@ default — see "Bot reviewer name" below) appears in the list,
 treats `copilot_posted` as vacuously true and never waits the 10-min
 bot timeout.
 
+The fetched list is normalized to lowercase via `ascii_downcase`. The
+configured login on the local side **must also be lowercased** before
+matching (the `case` example in `SKILL.md` uses
+`tr '[:upper:]' '[:lower:]'` to do this). Lowercasing both sides is
+how the "case-insensitive exact match" promised under "Bot reviewer
+name" is mechanically enforced; matching a normalized list against an
+un-normalized constant only happens to work when the constant is
+already lowercase, and breaks the moment the constant is replaced
+with a value pulled from `~/.flow/config.json` that may carry mixed
+case.
+
 ### Why per-PR `reviewRequests` and not `gh api .../installations`
 
 The intuitive alternative — `gh api repos/<owner>/<repo>/installations`
@@ -112,7 +123,9 @@ bot reviewer configured.
 
 ## Per-poll commands
 
-Run both each iteration. Both are read-only and idempotent.
+Both are read-only and idempotent. The reviews call runs every
+iteration; the checks call is **skipped when `CI_CONFIGURED=0`** per
+the override rule above (no workflows on disk → nothing to poll for).
 
 ```bash
 # CI check status — terminal states are SUCCESS, FAILURE, CANCELLED,
@@ -121,9 +134,13 @@ Run both each iteration. Both are read-only and idempotent.
 # `conclusion` JSON field — `state` already encodes the verdict, and
 # requesting `conclusion` triggers an `Unknown JSON field` error from
 # `gh` (see `scripts/ci-wait.ts` for the same hard-won lesson).
+# Run only when CI_CONFIGURED=1.
 gh pr checks <pr> --json name,state
 
-# Reviews from any source (Copilot, humans, other bots).
+# Reviews from any source (Copilot, humans, other bots). Run every
+# iteration regardless of presence flags — review state is also where
+# `pr_state` (OPEN/MERGED/CLOSED) is sourced from, which the decision
+# matrix needs even for repos with no CI configured.
 gh pr view <pr> --json reviews,state
 ```
 

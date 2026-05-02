@@ -437,12 +437,17 @@ else
 fi
 
 # Copilot: was the bot login requested as a reviewer on this PR?
-COPILOT_LOGIN="copilot-pull-request-reviewer"
+# Both sides of the comparison are lowercased so the match is a true
+# case-insensitive exact match — see polling-protocol.md "Bot reviewer
+# name" for the case-insensitive contract. Without the local-side
+# tolower, swapping COPILOT_LOGIN for a value with mixed case (e.g.
+# from ~/.flow/config.json) would silently fail to match.
+COPILOT_LOGIN_NORMALIZED=$(printf '%s' "${COPILOT_LOGIN:-copilot-pull-request-reviewer}" | tr '[:upper:]' '[:lower:]')
 REQUESTED_REVIEWERS=$(gh pr view "$PR" --json reviewRequests \
   --jq '[.reviewRequests[].login] | map(ascii_downcase) | join(",")')
 case ",$REQUESTED_REVIEWERS," in
-  *",$COPILOT_LOGIN,"*) COPILOT_REQUESTED=1 ;;
-  *)                    COPILOT_REQUESTED=0 ;;  # bot not requested → don't wait
+  *",$COPILOT_LOGIN_NORMALIZED,"*) COPILOT_REQUESTED=1 ;;
+  *)                               COPILOT_REQUESTED=0 ;;  # bot not requested → don't wait
 esac
 
 echo "CI configured: $CI_CONFIGURED  |  Copilot requested: $COPILOT_REQUESTED"
@@ -469,25 +474,37 @@ lesson behind this.
 ### Per-poll counter
 
 Print one line per iteration so the user reading scrollback sees
-progress without guessing:
+progress without guessing. Compute the elapsed split with arithmetic
+expansion — these are runnable Bash:
 
 ```bash
+ELAPSED=$(( $(date +%s) - START ))   # seconds since the first poll
+MIN=$(( ELAPSED / 60 ))
+SEC=$(( ELAPSED % 60 ))
 echo "CI poll $POLLS/40, elapsed ${MIN}m${SEC}s of 20m"
 ```
 
-`POLLS` increments from 1 each iteration; max is 40 (20 min ÷ 30s).
+`POLLS` increments from 1 each iteration; the printed denominator
+`40` reflects the 20-min ÷ 30s budget (the actual cap is the 20-min
+wall-clock check below, not a poll-count guard).
 
 ### Loop body (in the supervisor's own turn)
 
-```
-initialize POLLS=0, START=now, CI_TERMINAL_AT=""
+The block below is **pseudocode**, not runnable Bash — `POLLS += 1`,
+the `case decision:` arrow notation, and the `→` rules describe the
+control flow the supervisor follows in its own turn. Use the runnable
+Bash from "Per-poll counter" above for the per-iteration printout;
+use the gh calls from "Each poll runs" for the actual API reads.
+
+```text
+initialize POLLS=0, START=$(date +%s), CI_TERMINAL_AT=""
 
 run the one-shot presence checks above
 
 while true:
   POLLS += 1
-  ELAPSED = now - START
-  print "CI poll $POLLS/40, elapsed ${ELAPSED//60}m${ELAPSED%60}s of 20m"
+  ELAPSED = $(date +%s) - START
+  print "CI poll $POLLS/40, elapsed $((ELAPSED/60))m$((ELAPSED%60))s of 20m"
 
   poll:
     if CI_CONFIGURED == 0: treat checks as [] without calling gh
@@ -500,15 +517,15 @@ while true:
     if CI_CONFIGURED == 0:    ci_terminal = true, ci_passed = true, ci_failed = false
     if COPILOT_REQUESTED == 0: copilot_posted = true   # vacuous — never wait the 10m bot timeout
 
-  if ci_terminal and CI_TERMINAL_AT == "": CI_TERMINAL_AT = now
+  if ci_terminal and CI_TERMINAL_AT == "": CI_TERMINAL_AT = $(date +%s)
 
   case decision:
     pr_state == MERGED                                            → break, run flow-remove-worktree, MERGED
     pr_state == CLOSED                                            → escalate pr-closed-mid-flight
     ci_failed                                                     → break, go to step 5 with mode=fix
     ci_passed && copilot_posted                                   → break, go to step 8
-    ci_passed && !copilot_posted && (now - CI_TERMINAL_AT) >= 10m → break, go to step 8 (no bot review)
-    ELAPSED >= 20m                                                → escalate ci-hang
+    ci_passed && !copilot_posted && ($(date +%s) - CI_TERMINAL_AT) >= 600 → break, go to step 8 (no bot review)
+    ELAPSED >= 1200                                               → escalate ci-hang
     else                                                          → sleep 30s, loop
 ```
 
