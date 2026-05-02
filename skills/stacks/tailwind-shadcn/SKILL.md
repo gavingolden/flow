@@ -1,11 +1,20 @@
 ---
 name: tailwind-shadcn
 description: >-
-  Use when building or modifying UI layouts, styling components, implementing
-  shadcn-svelte patterns, or working with Tailwind CSS v4. Use when user says
-  "style this", "add dark mode", "tailwind", "shadcn", "layout", "responsive
-  design", "theme", "design tokens", "design this", "make this look good",
-  "improve the design", or "UI critique".
+  Build or modify UI layouts, style components, implement shadcn-svelte
+  patterns, or work with Tailwind CSS v4. TRIGGER when: files matching
+  `tailwind.config.{ts,js,cjs}`; CSS files containing
+  `@import "tailwindcss"` or `@theme` directives; imports from
+  `tailwind-merge`, `clsx`, `class-variance-authority`, `bits-ui`,
+  `lucide-svelte`, or `$lib/components/ui/*` (shadcn-svelte primitives);
+  `class=` attributes with Tailwind utility classes; user mentions
+  "Tailwind", "shadcn", "shadcn-svelte", "dark mode", "design tokens",
+  "responsive design", "style this", "make this look good". SKIP when:
+  file imports `@mui/material`, `@chakra-ui/react`, `bootstrap`, `bulma`,
+  `styled-components`, `@emotion/*`, or `@vanilla-extract/*`; the
+  project's UI layer is Material UI, Chakra, Bootstrap, or any
+  non-Tailwind design system; pure CSS Modules / CSS-in-JS with no
+  Tailwind context.
 ---
 
 # Goal
