@@ -7,36 +7,6 @@ dist/
 .env.local
 .idea/
 
-# managed by flow install-skills
-# (symlinks resolve to absolute paths and rendered skills embed machine-local paths — neither is portable)
-/.claude/skills/add-worktree
-/.claude/skills/flow-add
-/.claude/skills/flow-approve
-/.claude/skills/flow-revise
-/.claude/skills/flow-status
-/.claude/skills/flow-watch
-/.claude/skills/new-feature
-/.claude/skills/pr-review
-/.claude/skills/product-planning
-/.claude/skills/refactoring
-/.claude/skills/remove-worktree
-/.claude/skills/skill-creator
-/.claude/skills/testing
-/.claude/skills/verify
-# end flow install-skills
-
-# managed by flow install-scripts
-# (symlinks resolve to absolute paths and aren't portable)
-/scripts/ci-wait.ts
-/scripts/fetch-pr-review.ts
-/scripts/flow-add.ts
-/scripts/flow-watch.ts
-/scripts/new-agent-worktree.ts
-/scripts/pre-commit-checks.ts
-/scripts/remove-agent-worktree.ts
-/scripts/reply-pr-comments.ts
-# end flow install-scripts
-
 # managed by flow runtime
 .flow-branch
 # end flow runtime
