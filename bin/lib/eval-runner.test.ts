@@ -145,4 +145,34 @@ describe("runFixture", () => {
     expect(r.soft.pass).toBe(true);
     expect(r.implCost.usd).toBe(0);
   });
+
+  it("uses a stripped skill mirror under defaults config", async () => {
+    const r = await runFixture({
+      fixtureDir,
+      config: "defaults",
+      flowSource,
+      artefactsDir,
+      invokeImplementor: async (_p, repoDir) => {
+        fs.mkdirSync(path.join(repoDir, "bin"), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, "bin", "cli.ts"), "");
+        return "";
+      },
+    });
+
+    expect(r.config).toBe("defaults");
+    // The runner should have built a per-run mirror at <artefactsDir>/skills-mirror.
+    const mirror = path.join(artefactsDir, "skills-mirror", "new-feature", "SKILL.md");
+    expect(fs.existsSync(mirror)).toBe(true);
+    const md = fs.readFileSync(mirror, "utf8");
+    // Frontmatter `model:` was stripped; original beforeEach seed had `model: x`.
+    expect(md).not.toContain("model:");
+    expect(md).toContain("name: new-feature");
+
+    // The repo's `.claude/skills/new-feature` symlink should resolve into the
+    // mirror, not the live skills tree.
+    const link = path.join(artefactsDir, "repo", ".claude", "skills", "new-feature");
+    expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+    const target = fs.readlinkSync(link);
+    expect(target).toBe(path.join(artefactsDir, "skills-mirror", "new-feature"));
+  });
 });

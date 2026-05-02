@@ -138,10 +138,14 @@ export async function main(argv: string[]): Promise<number> {
 
   if (!args.keepTmpdir) {
     // Per-run repos are large (node_modules, etc. if any). Drop them but keep
-    // the artefact files (jsonl logs, diffs, verdicts) for post-mortem.
+    // the artefact files (jsonl logs, diffs, verdicts) for post-mortem. The
+    // skills-mirror/ tree (a full copy of skills/pipeline/ for `defaults`) is
+    // also disposable — it's deterministic from the live skills directory.
     for (const r of results) {
-      const repo = path.join(r.artefactsDir, "repo");
-      if (fs.existsSync(repo)) fs.rmSync(repo, { recursive: true, force: true });
+      for (const sub of ["repo", "skills-mirror"]) {
+        const dir = path.join(r.artefactsDir, sub);
+        if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+      }
     }
   }
 

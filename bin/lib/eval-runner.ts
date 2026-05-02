@@ -16,7 +16,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { buildSkillSet, type Config } from "./eval-config";
+import { buildSkillSet, SKILL_NAMES, type Config } from "./eval-config";
 import { parseRubric, runHardChecks, type HardResult } from "./eval-rubric";
 import { parseStreamJsonText, type CostResult, emptyCost } from "./eval-cost";
 import { runSoftChecks, type SoftResult } from "./eval-judge";
@@ -41,8 +41,6 @@ export type RunOptions = {
   /** Override for tests (and an escape hatch). Receives prompt + repoDir, returns raw stream-json. */
   invokeImplementor?: (prompt: string, repoDir: string) => Promise<string>;
 };
-
-const SKILL_NAMES = ["flow-pipeline", "product-planning", "new-feature", "verify", "pr-review"];
 
 export async function runFixture(opts: RunOptions): Promise<RunResult> {
   const start = Date.now();

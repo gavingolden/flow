@@ -18,7 +18,13 @@ import * as path from "node:path";
 
 export type Config = "pr7" | "defaults";
 
-const SKILL_NAMES = [
+/**
+ * The pipeline skills the eval harness mirrors / symlinks into each scratch
+ * repo. Exported because both `eval-config.buildSkillSet` (mirror builder)
+ * and `eval-runner.symlinkSkills` (per-repo symlink wiring) need to agree on
+ * the set; defining it once here keeps the two in lockstep.
+ */
+export const SKILL_NAMES = [
   "flow-pipeline",
   "product-planning",
   "new-feature",

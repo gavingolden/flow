@@ -2,7 +2,7 @@ hard:
   must_pass:
     - "grep -E 'export function validateConfig' src/parser.ts"
     - "grep -E 'validateConfig\\(' src/parser.ts"
-    - "tsc --noEmit src/parser.ts"
+    - "npm install --silent && npx --no-install tsc --noEmit src/parser.ts"
   must_create: []
   must_not_modify:
     - "package.json"
