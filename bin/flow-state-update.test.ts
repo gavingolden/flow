@@ -42,7 +42,7 @@ describe("parseArgs", () => {
 
   it("requires at least one update flag", () => {
     expect(parseArgs(["foo"])).toEqual({
-      error: "at least one of --phase, --pr, --worktree is required",
+      error: "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge is required",
     });
   });
 
@@ -78,6 +78,28 @@ describe("parseArgs", () => {
       phase: "implementing",
       pr: 142,
       worktree: "/tmp/w",
+    });
+  });
+
+  it("parses --auto-merge as autoMerge: true", () => {
+    expect(parseArgs(["foo", "--auto-merge"])).toEqual({
+      slug: "foo",
+      autoMerge: true,
+    });
+  });
+
+  it("parses --no-auto-merge as autoMerge: false", () => {
+    expect(parseArgs(["foo", "--no-auto-merge"])).toEqual({
+      slug: "foo",
+      autoMerge: false,
+    });
+  });
+
+  it("accepts --no-auto-merge alongside other flags", () => {
+    expect(parseArgs(["foo", "--phase", "gating", "--no-auto-merge"])).toEqual({
+      slug: "foo",
+      phase: "gating",
+      autoMerge: false,
     });
   });
 });
@@ -144,6 +166,22 @@ describe("runUpdate", () => {
     expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
     const got = readState("csv-export", dir);
     expect(got?.phase).toBe("implementing");
+  });
+
+  it("persists autoMerge: false when --no-auto-merge is set, then flips back with --auto-merge", () => {
+    seed("csv-export");
+    expect(runUpdate(["csv-export", "--no-auto-merge"], dir)).toBe(0);
+    expect(readState("csv-export", dir)?.autoMerge).toBe(false);
+    expect(runUpdate(["csv-export", "--auto-merge"], dir)).toBe(0);
+    expect(readState("csv-export", dir)?.autoMerge).toBe(true);
+  });
+
+  it("preserves autoMerge across phase-only updates", () => {
+    seed("csv-export", { autoMerge: false });
+    expect(runUpdate(["csv-export", "--phase", "gating"], dir)).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.autoMerge).toBe(false);
+    expect(got?.phase).toBe("gating");
   });
 
   it("returns 3 and does not update state when the worktree's branch does not match the marker", () => {

@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock tmux primitives so the resume happy/refusal paths don't shell out.
@@ -174,5 +175,26 @@ describe("runNew (fresh)", () => {
     const code = runNew("---", { stateDir });
     expect(code).toBe(1);
     expect(errors[0]).toMatch(/produces an empty slug/);
+  });
+
+  it("does not persist autoMerge by default (absent ≡ true)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNew("CSV export", { stateDir, cwd: repoDir, command: ["true"] });
+    expect(code).toBe(0);
+    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+    expect(raw).not.toHaveProperty("autoMerge");
+  });
+
+  it("persists autoMerge: false when noAutoMerge: true is passed", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      noAutoMerge: true,
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+    expect(raw.autoMerge).toBe(false);
   });
 });
