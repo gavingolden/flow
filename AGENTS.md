@@ -99,7 +99,9 @@ is one Claude Code chat session, sub-skills (`/product-planning`,
 `/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses. This sidesteps two limits at once:
+`claude -p ...` subprocesses, **with one named exception** — see the
+"Task-tool exemption: `/flow-pipeline` → `/pr-review` step 4" entry
+under `## Don'ts` below. This sidesteps two limits at once:
 
 1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
 2. A long-running supervisor with sub-agents would bloat past the
@@ -169,7 +171,9 @@ no compile step.
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above.
+- Don't spawn sub-agents from the supervisor. See above. The single
+  named exception is `/pr-review` step 4 — covered by the "Task-tool
+  exemption" bullet below; no other skill or step may call Task.
 - Don't add features beyond the current roadmap item's scope. The
   roadmap is ordered for a reason; later items depend on constraints
   earlier ones impose.
@@ -200,3 +204,20 @@ no compile step.
     `flow new --no-auto-merge` (the supervisor stops at the gated state
     regardless of the gate verdict). Same narrow-and-named contract as
     the `/pr-review` exemption above.
+  - **Task-tool exemption: `/flow-pipeline` → `/pr-review` step 4.**
+    `/flow-pipeline`'s "Hard rules" section forbids the supervisor
+    from calling the `Task` / `Agent` tool, with one named exception:
+    when `/flow-pipeline` step 8 loads `/pr-review`, `/pr-review`'s
+    step 4 ("Independent Multi-Agent Review") spawns four review
+    agents in parallel via the Task tool. Rationale: the supervisor
+    is itself a top-level Claude Code session (started by `flow new`
+    opening tmux + `claude`), so the one-level sub-agent cap doesn't
+    apply to *its* Task calls; and `/pr-review` step 4 is one-shot,
+    not long-running, so the context-bloat constraint also doesn't
+    apply. This is the **only** authorised Task-tool fan-out from
+    `/flow-pipeline`; no other skill or step may call Task. The
+    contract is documented bidirectionally in
+    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
+    `skills/pipeline/pr-review/SKILL.md` step 4 preamble. Same
+    narrow-and-named contract as the `/pr-review` and `/flow-pipeline`
+    exemptions above.

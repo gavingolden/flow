@@ -70,7 +70,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
 | **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ✅ shipped (#53) |
 | **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | 🚧 in review (#55) |
-| **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
+| **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule (named exception); document that verify-retry escalation is prompt-side only (model + effort do not change per-invocation); re-symlink between phases when the worktree adds skills/agents | ✅ shipped (#58) |
 | **Item 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
 | **Item 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ✅ shipped (#54) |
 | **Item 17 — auto-merge rubric template alignment** | `/product-planning` emits `## How to test`; supervisor's auto-merge rubric requires `## Manual validation`. Mismatch escalates by default. Pick one heading and align both ends. | ✅ shipped (#59) |
@@ -167,6 +167,33 @@ isn't lost when the originating review report disappears.
   testability. *Trigger: address opportunistically if the retry
   loop's bound (`MAX_RACE_RETRIES`) ever changes, or alongside the
   file-split followup above.*
+
+### From PR 58 review
+
+- **`flow setup --upgrade` ignores worktree-local source for PRs
+  against flow itself.** `bin/lib/setup.ts` accepts a programmatic
+  `flowSource` override, but `runSetupVerb` in `bin/flow` does not
+  expose it. `resolveFlowSource()` (`bin/lib/paths.ts`) derives the
+  source from the *installed* binary's canonical path, so step 5.5's
+  re-symlink reads from the original install root and silently misses
+  any new skills/agents added in the worktree. Add `flow setup
+  --source <path>` (or an env override picked up before
+  `resolveFlowSource()`) and have `/flow-pipeline` step 5.5 pass
+  `--source "$WORKTREE"`. Deferred: meaningful design decision (flag
+  vs env vs config) plus a code change that touches `bin/flow` +
+  `bin/lib/setup.ts` + tests. *Trigger: before the next flow PR that
+  adds a new skill or agent, or alongside Item 15(c)'s flock work
+  since both touch the setup CLI shape.*
+- **`flow setup --upgrade` exits 0 on `summary.blocked > 0`.**
+  `bin/flow:140-145` returns 0 unconditionally regardless of
+  `runSetup`'s summary. Step 5.5 currently parses the printed
+  `<N> blocked` token to detect this; once the verb wires
+  `summary.blocked > 0 → exit 1`, the supervisor's
+  blocked-summary parsing in step 5.5 can collapse back to a plain
+  exit-code check. Deferred: small but separable change; better as
+  its own commit so step 5.5's contract change is visible in isolation.
+  *Trigger: bundle with the `--source` flag work above, or the next
+  time `bin/flow` setup-handling is touched.*
 
 ---
 
@@ -1189,7 +1216,7 @@ Done when:
 
 ### Item 14 — supervisor↔skill contract correctness
 
-Status: ⬜ queued.
+Status: ✅ shipped (#58).
 
 Why: Item 7's `/pr-review` invocation surfaced three contract-level
 issues between `/flow-pipeline` and the sub-skills it loads in-
@@ -1219,20 +1246,33 @@ exercises the agent" needs a re-symlink step inside the supervisor.
 
 Done when:
 
-- [ ] Pick one resolution for (a) and apply it: (i) carve a named
+- [x] Pick one resolution for (a) and apply it: (i) carve a named
   Task-tool exception for `/pr-review` in `/flow-pipeline`'s hard
   rule, (ii) refactor `/pr-review` to fan out via in-process skill
   loads, or (iii) drop the supervisor's hard rule. Most likely (i).
   Document the rationale inline in both SKILL.md files.
-- [ ] (b) is resolved either by citing a real per-invocation override
+  *Resolved (i): named Task-tool exemption for `/pr-review` step 4
+  documented in `flow-pipeline/SKILL.md` "Hard rules", cross-
+  referenced in `pr-review/SKILL.md` step 4, and added as the third
+  bullet in `AGENTS.md`'s exemptions block.*
+- [x] (b) is resolved either by citing a real per-invocation override
   syntax (Skill-tool model param, `/skill --model`, env var picked
   up by Claude Code), or by rewriting step 6 to do something
   concrete (split verify into two skills, escalate via a different
   mechanism).
-- [ ] `/flow-pipeline` runs `flow setup --upgrade` between step 5
+  *Resolved by doc-only honesty edit: step 6 now states explicitly
+  that retries don't change model or effort; escalation is prompt-
+  side only (failure log appended). Item 7's revert removed the
+  aspirational override claim; the new note prevents it from
+  creeping back. If a per-invocation override mechanism becomes
+  available, step 6 is the place to document it.*
+- [x] `/flow-pipeline` runs `flow setup --upgrade` between step 5
   (implement) and step 6 (verify) when the worktree's diff adds
   files under `skills/` or `agents/`. Detect via `git diff --name-only
   origin/main...HEAD | grep -E '^(skills|agents)/'`.
+  *Resolved as new step 5.5 (`installing-skills` phase). Race with
+  parallel pipelines acknowledged inline; Item 15(c) lands the
+  flock.*
 
 ### Item 15 — pipeline ergonomics + scratch hygiene
 
