@@ -67,7 +67,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional · ❌ cance
 | **Item 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ✅ shipped (#51) |
 | **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ❌ cancelled (reverted in #57) |
 | **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ❌ cancelled (reverted in #57) |
-| **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | 🚧 in review (#60) |
+| **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ✅ shipped (#60) |
 | **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ✅ shipped (#53) |
 | **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | ✅ shipped (#55) |
 | **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule (named exception); document that verify-retry escalation is prompt-side only (model + effort do not change per-invocation); re-symlink between phases when the worktree adds skills/agents | ✅ shipped (#58) |
@@ -1042,7 +1042,7 @@ Done when:
 
 ### Item 11 — `pr-review` unified mode (collapse Address vs Review)
 
-Status: 🚧 in review (#60).
+Status: ✅ shipped (#60).
 
 Why: Item 3 dropped the orchestrator-driven machine mode but left the
 older Address-vs-Review dichotomy in place. That dichotomy is largely
