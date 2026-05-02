@@ -5,7 +5,7 @@
  * New verbs (handled here):
  *   flow setup [--upgrade] [--force]   global install
  *   flow new <description>             create a tmux window + initial state
- *   flow ls                            list active pipelines
+ *   flow ls [--cost [--detail]]        list active pipelines
  *   flow attach <name>                 tmux attach -t flow:<name>  (alias: a)
  *   flow done <name> | --all-merged    kill window + remove state
  *   flow migrate [--apply] [--scan <p>] [--include-orchestrator]
@@ -87,7 +87,7 @@ async function runNewVerb(verb: string, args: string[]): Promise<number> {
     case "done":
       return runDoneVerb(args);
     case "ls":
-      return runLs();
+      return await runLsVerb(args);
     case "migrate":
       return runMigrateVerb(args);
     case "eval":
@@ -98,6 +98,24 @@ async function runNewVerb(verb: string, args: string[]): Promise<number> {
       return runVersion();
   }
   return 1;
+}
+
+async function runLsVerb(args: string[]): Promise<number> {
+  const allowed = new Set(["--cost", "--detail"]);
+  for (const arg of args) {
+    if (!allowed.has(arg)) {
+      console.error(`flow ls: unknown option '${arg}'`);
+      console.error("usage: flow ls [--cost [--detail]]");
+      return 2;
+    }
+  }
+  const cost = args.includes("--cost");
+  const detail = args.includes("--detail");
+  if (detail && !cost) {
+    console.error("flow ls: --detail requires --cost");
+    return 2;
+  }
+  return await runLs({ cost, detail });
 }
 
 function dispatchNew(args: string[]): number {
@@ -170,7 +188,7 @@ Usage:
   flow setup [--upgrade] [--force]      install skills, agents, helpers globally
   flow new <description>                start a new pipeline in a tmux window
   flow new --resume <name>              resume a crashed pipeline in its existing window
-  flow ls                               list active pipelines
+  flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach <name>                    attach to a pipeline window  (alias: a)
   flow done <name>                      close a pipeline window
   flow done --all-merged                close every merged or cancelled window
