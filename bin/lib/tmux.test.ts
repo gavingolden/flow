@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAliveStatus } from "./tmux";
+import { buildNewWindowArgs, parseAliveStatus } from "./tmux";
 
 describe(parseAliveStatus, () => {
   it("returns true when pane_dead is 0 and pid probe succeeds", () => {
@@ -29,5 +29,26 @@ describe(parseAliveStatus, () => {
   it("only inspects the first pane (the one we always launch into)", () => {
     const stdout = "0 4242\n1 9999\n";
     expect(parseAliveStatus(stdout, () => true)).toBe(true);
+  });
+});
+
+describe(buildNewWindowArgs, () => {
+  // Regression: bare `-t flow` resolves against the active window in some
+  // tmux configs, so `new-window -t flow` from inside an existing flow
+  // window fails with "index N in use" instead of picking the lowest free
+  // slot. The trailing colon forces session-target semantics.
+  it("targets the session with a trailing colon", () => {
+    expect(buildNewWindowArgs("flow", "my-win", "/tmp", ["echo", "hi"])).toEqual([
+      "new-window",
+      "-t",
+      "flow:",
+      "-n",
+      "my-win",
+      "-c",
+      "/tmp",
+      "--",
+      "echo",
+      "hi",
+    ]);
   });
 });

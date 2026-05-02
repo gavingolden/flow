@@ -28,14 +28,26 @@ export type TmuxWindow = {
   activity: number;
 };
 
+// A bare `-t flow` can resolve against the current *window* depending on
+// tmux config and command — `new-window -t flow` then tries to create at
+// the active window's index, failing with "index N in use" when N is
+// occupied. `flow:` (trailing colon) forces session-target semantics.
+const sessionTarget = (s: string) => `${s}:`;
+
 export function sessionExists(session = FLOW_SESSION): boolean {
-  return tmux(["has-session", "-t", session]).exitCode === 0;
+  return tmux(["has-session", "-t", sessionTarget(session)]).exitCode === 0;
 }
 
 /** Lists windows in the flow session. Returns [] when the session doesn't exist. */
 export function listWindows(session = FLOW_SESSION): TmuxWindow[] {
   if (!sessionExists(session)) return [];
-  const r = tmux(["list-windows", "-t", session, "-F", "#{window_name}\t#{window_activity}"]);
+  const r = tmux([
+    "list-windows",
+    "-t",
+    sessionTarget(session),
+    "-F",
+    "#{window_name}\t#{window_activity}",
+  ]);
   if (r.exitCode !== 0) return [];
   return r.stdout
     .split("\n")
@@ -75,8 +87,27 @@ export function createWindow(
     ]);
     return { ok: r.exitCode === 0, stderr: r.stderr };
   }
-  const r = tmux(["new-window", "-t", session, "-n", name, "-c", cwd, "--", ...command]);
+  const r = tmux(buildNewWindowArgs(session, name, cwd, command));
   return { ok: r.exitCode === 0, stderr: r.stderr };
+}
+
+export function buildNewWindowArgs(
+  session: string,
+  name: string,
+  cwd: string,
+  command: string[],
+): string[] {
+  return [
+    "new-window",
+    "-t",
+    sessionTarget(session),
+    "-n",
+    name,
+    "-c",
+    cwd,
+    "--",
+    ...command,
+  ];
 }
 
 export function killWindow(name: string, session = FLOW_SESSION): boolean {
