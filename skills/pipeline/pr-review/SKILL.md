@@ -54,7 +54,7 @@ Reference files (read on demand, not upfront):
   issue/todo/question) with decorations. Read at Step 4 when preparing agent context.
 - `references/agent-prompts.md` — prompt templates for the 4 specialized review agents.
   Read at Step 4 when spawning agents.
-- `references/manual-test-rubric.md` — depth rubric for the "How to test" criterion
+- `references/manual-test-rubric.md` — depth rubric for the "Manual validation" criterion
   (happy/unhappy/edges + PR-type scenario menus). Read at Step 12 when evaluating
   description Testability.
 - `references/report-template.md` — output format for the final report. Read at Step 13.
@@ -103,6 +103,13 @@ Both modes share the independent review (Steps 4-5) and diverge after.
 This is the core of the skill. You will spawn 4 specialized review agents in parallel,
 each examining the PR from a different angle. Their independent perspectives catch more
 than any single reviewer could.
+
+**Task-tool fan-out is intentional.** Step 4 spawns the four review agents via the Task
+tool. When `/pr-review` is loaded in-process by `/flow-pipeline` (the supervisor's step
+8), this fan-out is permitted by the named Task-tool exception in
+`skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section. Outside the supervisor
+context (e.g. invoked directly from a user session), the Task tool is unrestricted, so
+the fan-out runs identically. Either path: four agents in parallel, then merge.
 
 **Preparation** (before spawning):
 
@@ -306,8 +313,9 @@ prevent.
 ### 9c. Run every runnable verification item and tick the boxes
 
 After 9b's commit + push, run every runnable `- [ ]` item in the PR body, **regardless
-of which section it lives under** — `How to test`, `Manual validation`, or any other
-heading. The classification below is per-item, not per-section. The format note
+of which section it lives under** — `Manual validation` is the canonical heading flow
+templates emit, but legacy or hand-edited PRs may still use `How to test`, `Manual smoke`,
+or other variants. The classification below is per-item, not per-section. The format note
 in 12b promises reviewers that checkbox state means something — leaving every box
 unticked after a successful run breaks that contract and forces the next reviewer
 (human or agent) to re-run everything from scratch.
@@ -315,12 +323,12 @@ unticked after a successful run breaks that contract and forces the next reviewe
 > **Headings do not exempt items.** A section called "Manual validation" does not
 > mean its items are off-limits to automation. The author's choice of heading
 > reflects intent ("a human should sanity-check this end-to-end"), not
-> impossibility. The architectural reason `## Manual validation` exists in flow PRs
-> is that the gate phase parses it for risky-change heuristics — the heading is
-> load-bearing for the orchestrator, **not** a hands-off signal for the reviewer.
-> Apply the runnable test below to every checkbox in the body. If an item is
-> deterministic and exec'able from a terminal in this repo, you must run it, even
-> when the heading says "Manual".
+> impossibility. The architectural reason `## Manual validation` is the canonical
+> heading is that the auto-merge gate parses it: empty section ⇒ auto-merge,
+> non-empty ⇒ gated. The heading is load-bearing for the orchestrator, **not** a
+> hands-off signal for the reviewer. Apply the runnable test below to every checkbox
+> in the body. If an item is deterministic and exec'able from a terminal in this
+> repo, you must run it, even when the heading says "Manual".
 
 For each `- [ ]` item, classify before running:
 
@@ -453,7 +461,7 @@ Check whether the PR description follows the standardized format with these sect
 - **What** — deliverables as capabilities/behaviors
 - **Key decisions** — non-obvious choices with rationale
 - **User-facing changes** — concrete user-observable deltas (or the literal `none` for pure-internal PRs)
-- **How to test** — verification steps for reviewers
+- **Manual validation** — verification steps for reviewers (also the auto-merge gate signal: empty ⇒ auto-merge, non-empty ⇒ gated)
 
 **If the description is empty or missing**: Draft one from the diff and PR title using the
 format above. This is the highest-priority fix in this step.
@@ -477,12 +485,15 @@ Score each criterion as Pass/Fail. If 2+ criteria fail, the description needs an
 
 **Testability has three fail subtypes** — record which one applies so the report reflects it:
 
-- `Fail (missing)` — no "How to test" section at all, or a section with no concrete steps
+- `Fail (missing)` — no "Manual validation" section at all, or a section with no concrete
+  steps where a material change clearly needs them. An empty section under the heading is
+  **not** a failure — it's the explicit "no human verification needed; auto-merge"
+  signal, valid for pure-internal changes (refactors, doc fixes, generated-code regens).
 - `Fail (shallow — happy-path only)` — steps exist but only cover the happy path on a
   material change that warrants unhappy/edge scenarios per the rubric
-- `Fail (automatable — manual items should be tests)` — the **How to test**
-  section, or **any other section in the body** (typically `## Manual validation`),
-  contains scenarios that pass the rubric's automation test (named fixture +
+- `Fail (automatable — manual items should be tests)` — the **Manual validation**
+  section, or **any other section in the body** (legacy `How to test`, `Manual smoke`,
+  etc.), contains scenarios that pass the rubric's automation test (named fixture +
   deterministic assertion + exit condition, no subjective judgment). Manual is the
   fallback; default is automation. Scan every checkbox in the body — section
   heading is irrelevant; the rubric is per-item. Apply this when you can sketch
@@ -499,10 +510,11 @@ UI features, config changes), and includes the **Automate first** section listin
 safely automatable vs genuinely manual. For non-material changes (pure internal refactors,
 typo fixes), happy-path only is acceptable; do not over-prescribe.
 
-**Format note (advisory, not a rubric criterion):** "How to test" should be a markdown
-checklist (`- [ ]` items) so reviewers can tick steps off as they verify. If the section
-is otherwise good but uses plain bullets, do not flag it as a Testability failure — but
-when you draft or edit a "How to test" section in Step 12e, always emit `- [ ]` items.
+**Format note (advisory, not a rubric criterion):** "Manual validation" should be a
+markdown checklist (`- [ ]` items) so reviewers can tick steps off as they verify. If the
+section is otherwise good but uses plain bullets, do not flag it as a Testability failure
+— but when you draft or edit a "Manual validation" section in Step 12e, always emit
+`- [ ]` items.
 
 ### 12c. Deployment Follow-Up Check
 
@@ -553,7 +565,7 @@ Compare the current implementation (diff + any changes from Steps 7–8) against
 
 **Drafting conventions** (apply to every drafted/edited description in this step):
 
-- Render "How to test" items as `- [ ]` markdown checkboxes.
+- Render "Manual validation" items as `- [ ]` markdown checkboxes.
 - Do not hard-wrap prose at a fixed column width. Write each paragraph as a single line
   and let the renderer wrap it. GitHub renders one long line as one flowing paragraph;
   hard wraps go ragged the moment a sentence is edited and add no value.
@@ -582,7 +594,8 @@ on the fail subtype:
 
 - **Fail (shallow — happy-path only)**: Consult `references/manual-test-rubric.md`, pick
   the scenario menu that matches the change type, identify the missing categories (unhappy
-  paths? edge cases?), and propose appending them to the existing "How to test" section.
+  paths? edge cases?), and propose appending them to the existing "Manual validation"
+  section.
 
   Show the user the focused diff — just the proposed additions to the test section, not
   the full description — with a one-sentence explanation of which categories are being
@@ -595,9 +608,9 @@ on the fail subtype:
   EOF
   ```
 
-- **Fail (missing)**: Draft a minimal "How to test" section tailored to the change, using
-  the rubric's scenario menu for the relevant change type. Do not redraft the rest of the
-  description.
+- **Fail (missing)**: Draft a minimal "Manual validation" section tailored to the change,
+  using the rubric's scenario menu for the relevant change type. Do not redraft the rest of
+  the description.
 
   Show the user the focused diff — just the new test section — with a one-sentence
   explanation of why the added section is sufficient. On confirmation, edit the PR by

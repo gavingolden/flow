@@ -55,9 +55,31 @@ in-process for skills; shell out for scripts; never delegate.
 # Hard rules
 
 > **You are never a sub-agent.** Never call the `Task` / `Agent`
-> tool from this skill. Never spawn a separate `claude -p`
-> subprocess. The supervisor's only fan-out is (a) loading
-> sub-skills in-process and (b) Bash tool calls.
+> tool from this skill — **except for the named exception below**.
+> Never spawn a separate `claude -p` subprocess. The supervisor's
+> only fan-out is (a) loading sub-skills in-process, (b) Bash tool
+> calls, and (c) the narrowly-named Task-tool exception that follows.
+>
+> **Task-tool exemption: `/pr-review` step 4.** When the supervisor
+> invokes `/pr-review` in step 8, `/pr-review`'s step 4 ("Independent
+> Multi-Agent Review") spawns four review agents in parallel via the
+> Task tool. This is the **only** authorised Task-tool fan-out from
+> this supervisor; no other skill or step may call Task. Rationale:
+> the two constraints behind the rule above are (1) sub-agents can't
+> spawn sub-agents (one-level cap) and (2) a long-running supervisor
+> with sub-agents would bloat past the context window. The supervisor
+> is itself a top-level Claude Code session (started by `flow new`
+> opening tmux + `claude`), so constraint (1) does not apply to *its*
+> Task calls — it applies to *its* sub-agents. Constraint (2) requires
+> the fan-out to be long-running; `/pr-review` step 4 is one-shot
+> (four parallel agents return JSON findings, then the parent skill
+> merges and exits). Refactoring `/pr-review` to use in-process skill
+> loads instead would lose the parallelism and the isolated-context
+> benefit each review agent gets; dropping the rule entirely is too
+> broad. Same narrow-and-named contract as the `/pr-review` auto-push
+> and `/flow-pipeline` auto-merge exemptions in `AGENTS.md`. If a
+> future skill needs the same license, add it here by name rather
+> than generalising the rule.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -399,6 +421,94 @@ On non-zero exit without a PR: retry once with the failure context
 appended. If the retry also fails, escalate `NEEDS HUMAN:
 implement-failed`.
 
+## Step 5.5 — Re-symlink if worktree adds skills/agents
+
+**Phase:** `installing-skills`
+
+Sub-skills loaded by the supervisor in steps 6–8 (`/verify`,
+`/pr-review`) are read from `~/.claude/skills/` and `~/.claude/agents/`
+— populated by `flow setup` (and `flow setup --upgrade`) via symlink.
+A worktree that adds new files under `skills/` or `agents/` in step 5
+does not get those files symlinked automatically; the same supervisor
+session cannot use them downstream until `flow setup --upgrade` runs.
+This step closes that gap.
+
+```bash
+flow-state-update "$SLUG" --phase installing-skills
+
+# Resolve the default branch dynamically — same approach as
+# flow-new-worktree.ts and flow-pre-commit.ts. Hardcoding origin/main
+# silently breaks on any repo whose default is `master` (or anything
+# else): `git diff origin/main...HEAD` would fail, `|| true` would
+# swallow the error, and the re-symlink would be silently skipped.
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
+                  | sed 's|^refs/remotes/origin/||')
+DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
+
+ADDED=$(git diff --name-only "origin/$DEFAULT_BRANCH...HEAD" | \
+          grep -E '^(skills|agents)/' || true)
+
+if [ -n "$ADDED" ]; then
+  echo "Detected new skill/agent files; re-symlinking:"
+  echo "$ADDED" | sed 's/^/  /'
+  flow setup --upgrade 2>&1 | tee /tmp/flow-setup-upgrade-${SLUG}.log
+  if grep -qE '[0-9]+ blocked' /tmp/flow-setup-upgrade-${SLUG}.log; then
+    echo "WARN: flow setup --upgrade reported blocked symlinks — see log above"
+    # treat as failure for the retry/escalation contract below
+    false
+  fi
+else
+  echo "No skill/agent additions; skipping re-symlink."
+fi
+```
+
+The detection grep matches `docs/roadmap.md` Item 14(c) shape —
+`--name-only` plus the triple-dot range so the comparison reflects
+the worktree's diff against the merge-base, not the absolute set of
+changed files. The default-branch resolution mirrors
+`bin/flow-new-worktree.ts` and `bin/flow-pre-commit.ts`; do not
+hardcode `origin/main`.
+
+**`flow setup --upgrade` exit-code caveat.** The CLI verb currently
+returns 0 even when one or more symlinks are `blocked` (a real file
+sits at the install target — e.g. a previous orphaned copy). The
+end-condition below therefore parses the printed summary for the
+`<N> blocked` token in addition to the exit code. A future change
+should wire the verb to exit non-zero on `summary.blocked > 0` so
+the parsing dance can be deleted; tracked in `docs/roadmap.md`
+Followups under "From PR 58 review".
+
+**Install-source caveat (PRs against flow itself).** `flow setup
+--upgrade` reads the source tree from `resolveFlowSource()` (see
+`bin/lib/paths.ts`), which derives the source from the *installed*
+binary's canonical path — i.e. wherever the user originally ran
+`flow setup` from. Inside a worktree at
+`<repo>.worktrees/<slug>/`, that resolution still points at the
+original install root, **not** the worktree. So a PR that adds a
+new skill under flow's own `skills/` and tries to use it in the
+same supervisor session will not see the new skill until the
+install-source override lands (tracked under Item 14 followups in
+`docs/roadmap.md`). For PRs against repos *other than flow*, this
+caveat doesn't apply — flow's source is already the original
+install root and the worktree is an unrelated repo's tree.
+
+**Race condition footnote.** Two parallel pipelines that both add
+skills/agents can race on `~/.claude/skills/` and `~/.claude/agents/`
+symlinks. Item 15(c) wraps `flow setup --upgrade` in
+`flock ~/.flow/setup.lock` to serialise concurrent invocations. Until
+that lands, the race is acknowledged but bounded — the window is
+millisecond-scale during symlink creation, no data loss possible
+(symlinks are atomic per-file via `ln -sf`; the worst case is one
+pipeline's symlink wins). Do **not** add an ad-hoc lock here; let
+Item 15(c) own the fix so there's a single chokepoint.
+
+**End condition:** the helper exits 0 **and** the printed summary
+contains no `<N> blocked` token. On non-zero exit *or* a non-zero
+blocked count: retry once. If the retry also fails, escalate
+`NEEDS HUMAN: flow-setup-upgrade-failed <stderr>` — the supervisor
+cannot safely continue to step 6 without the new skill/agent files
+visible.
+
 ## Step 6 — Local verify
 
 **Phase:** `verifying`
@@ -416,6 +526,16 @@ log appended to the prompt:
 PRIOR ATTEMPT FAILED — failure log:
 <truncated log; cap 200 lines / 100 matched-error lines>
 ```
+
+**Retries do not change model or effort.** The Skill tool has no
+per-invocation override for either today, so the escalation between
+attempts is *prompt-side only* — the prior failure log narrows the
+search space, but the underlying model and reasoning effort are the
+same on attempt 3 as on attempt 1. If a per-invocation override
+mechanism becomes available (Item 7 revisited, or a future harness
+primitive), document the syntax here and gate it on attempt count.
+Do not silently re-invent the override claim — if the doc still says
+"prompt-side only" but the harness has changed, fix the doc.
 
 After three failed outer attempts, escalate `NEEDS HUMAN:
 verify-exhausted`. Surface the final failure log on the PR body's
@@ -602,28 +722,25 @@ fails, escalate `NEEDS HUMAN: review-failed`.
 
 **Phase:** `gating`
 
-Apply `references/auto-merge-rubric.md`. Read the PR body, extract
-the `## Manual validation` section, strip HTML comments, trim:
+The heading contract — which heading to look for, what counts as
+empty / non-empty / missing — lives in **`references/auto-merge-rubric.md`**
+(single source of truth). Read it once if the section parsing isn't
+already cached in your head; otherwise apply it inline.
+
+Fetch the PR body, state, and merge commit; the rubric's four-step
+parse turns the body into one of `empty` / `non-empty` / `missing`.
+The decision matrix below combines that result with PR state and
+this pipeline's `autoMerge` opt-out:
 
 ```bash
 gh pr view "$PR" --json body,state,mergeCommit
-```
-
-**Per-pipeline opt-out.** Before consulting the rubric, read
-`autoMerge` from state.json:
-
-```bash
 AUTO_MERGE=$(jq -r '.autoMerge // true' ~/.flow/state/"$SLUG".json)
 ```
 
-If `AUTO_MERGE === false` (the user passed `flow new --no-auto-merge`,
-or `flow-state-update --no-auto-merge` was issued mid-flight), every
-`OPEN` PR routes to **gated** regardless of the Manual-validation
-content. The override is intentional: the user explicitly opted out
-of the auto-merge contract for this pipeline. `MERGED` and `CLOSED`
-states still take their normal branches below.
-
-Decision matrix:
+`AUTO_MERGE === false` means the user passed `flow new --no-auto-merge`
+(or `flow-state-update --no-auto-merge` was issued mid-flight): every
+`OPEN` PR routes to **gated** regardless of section content. `MERGED`
+and `CLOSED` states still take their normal branches.
 
 | State | Section after trim | autoMerge | Action |
 |---|---|---|---|
@@ -633,7 +750,7 @@ Decision matrix:
 | `MERGED` | (any) | (any) | Already merged externally. Go to step 10.5 (post-merge sweep) — **do not** run `gh pr merge`. After 10.5 returns, run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged ...`, print `MERGED`. End. |
 | `CLOSED` | (any) | (any) | Call `flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 
-**Defensive cases:**
+**Defensive cases** (full list in the rubric):
 
 - Manual-validation heading missing → escalate `NEEDS HUMAN:
   manual-validation-section-missing`. Don't treat as empty.
@@ -747,8 +864,9 @@ done?" without any in-process memory.
 |---|---|---|
 | 2 — worktree | `$WORKTREE` is set in state.json **and** the directory exists and is a git checkout | If unset / missing, recreate via `flow-new-worktree`. |
 | 3 — plan | `<worktree>/plan.md` exists and is non-empty | If missing, re-invoke `/product-planning`. |
-| 4 — approval | state.json shows `phase` ∈ {`implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
+| 4 — approval | state.json shows `phase` ∈ {`implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
 | 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | If no PR, re-invoke `/new-feature`. |
+| 5.5 — re-symlink | state.json shows `phase` ∈ {`verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} OR `git diff --name-only origin/<default-branch>...HEAD \| grep -E '^(skills\|agents)/'` returns nothing (resolve `<default-branch>` from `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `main`) | If false (additions exist and we crashed before phase advanced), re-run `flow setup --upgrade` and re-check the summary for `<N> blocked`. Idempotent — safe to re-run. |
 | 6 — verify | state.json shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `housekeeping`, `merged`, `gated`} | If false, re-invoke `/verify`. |
 | 7 — ci-wait | PR's checks all reached terminal state | If still pending, re-enter the poll loop. |
 | 8 — review | PR has a `pr-review` commit on HEAD (look for the commit subject prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | If false, re-invoke `/pr-review <PR>`. |
@@ -886,6 +1004,7 @@ worktree-create
 planning
 plan-pending-review     (feature only; ends turn)
 implementing
+installing-skills       (only if worktree adds skills/agents; otherwise skipped)
 verifying
 ci-wait
 reviewing
@@ -906,7 +1025,9 @@ After each phase transition:
   fresh `updatedAt`.
 - `flow ls` (run from any terminal) shows the right phase **and PR
   number** for this pipeline's window.
-- The supervisor never invoked the `Task` / `Agent` tool.
+- The supervisor never invoked the `Task` / `Agent` tool, **except**
+  via the named `/pr-review` step 4 exception in "Hard rules" above —
+  no other skill or step may call Task.
 - The supervisor never spawned a `claude -p` subprocess.
 
 When the pipeline ends, scrollback contains exactly one of `MERGED`

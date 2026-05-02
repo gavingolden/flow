@@ -4,17 +4,39 @@ The gate decision: should this PR auto-merge, or does it need a human to
 perform validation steps before merging? The whole rule turns on a single
 section of the PR body.
 
+This file is the **single source of truth for the heading contract**:
+which heading the gate keys on, what "empty" means, what the gate does on
+missing vs. empty vs. non-empty. The supervisor's SKILL.md step 9 holds
+only the operational decision matrix (PR state × autoMerge opt-out ×
+section verdict → action) and points back here for the parse contract.
+`/product-planning` and `/new-feature` PR-description templates also
+defer to this file for the canonical heading.
+
 ## The contract: `## Manual validation`
 
-Every PR opened by `/new-feature` includes a `## Manual validation`
-section. The implement skill fills it with steps when heuristics flag
-the change as risky (DB migration, external API integration, UI
-behaviour change, security-touching code) and leaves it empty otherwise.
+Every PR opened by `/new-feature` (and every PR-description draft from
+`/product-planning`) includes a `## Manual validation` section,
+**unconditionally**. The heading must always be present — it doubles as
+the test plan for reviewers and as the gate signal. The body is empty
+or populated based on whether human verification is required:
+
+- **Empty body** (just an HTML-comment placeholder, or nothing) — the
+  change is pure-internal (refactor, infra, doc fix, generated-code
+  regen) and no human verification is required.
+- **Populated body** (`- [ ]` items) — the change touches something
+  risky (DB migration, external API integration, UI behaviour change,
+  security-touching code, anything user-observable) and a human must
+  walk the items before merge.
 
 The gate reads this section and decides:
 
 - **Empty** → auto-merge.
 - **Non-empty** → gated; surface the checklist to the user.
+- **Heading missing entirely** → escalate
+  `NEEDS HUMAN: manual-validation-section-missing`. A missing heading
+  signals an upstream regression (template drift, hand-edited PR), not
+  an "empty" state — silently auto-merging would ship PRs the user
+  expected to be gated.
 
 The user-facing rule is: "if you put validation steps in the PR body,
 flow waits for you. If you don't, it ships."
