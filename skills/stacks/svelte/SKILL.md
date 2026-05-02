@@ -1,11 +1,17 @@
 ---
 name: svelte
 description: >-
-  Use whenever creating, modifying, or reviewing Svelte components (.svelte),
-  Svelte reactive state files (.svelte.ts), or store/repository patterns. Use
-  when user says "create component", "svelte runes", "migrate to svelte 5",
-  "reactive state", "reactive class", "store pattern", references a .svelte
-  file, or works with SvelteKit routes (+page.svelte, +layout.svelte).
+  Use whenever creating, modifying, or reviewing Svelte components, reactive
+  state, or store/repository patterns. TRIGGER when: files with `.svelte` or
+  `.svelte.ts` extension; SvelteKit route files (`+page.svelte`,
+  `+layout.svelte`, `+page.server.ts`, `+server.ts`); imports from `svelte`,
+  `svelte/store`, `svelte/transition`, or `@sveltejs/kit`; runes (`$state`,
+  `$derived`, `$effect`, `$props`); user mentions "Svelte", "SvelteKit",
+  "runes", "reactive class", "store pattern", "migrate to Svelte 5". SKIP
+  when: file imports `react`, `react-dom`, `vue`, `solid-js`,
+  `@angular/core`, or other competing component frameworks; `.tsx`, `.jsx`,
+  or `.vue` files; the project's view layer is React, Vue, Solid, or
+  Angular.
 ---
 
 # Goal
