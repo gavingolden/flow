@@ -73,7 +73,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
 | **Item 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
 | **Item 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ✅ shipped (#54) |
-| **Item 17 — auto-merge rubric template alignment** | `/product-planning` emits `## How to test`; supervisor's auto-merge rubric requires `## Manual validation`. Mismatch escalates by default. Pick one heading and align both ends. | 🚧 in review (#59) |
+| **Item 17 — auto-merge rubric template alignment** | `/product-planning` emits `## How to test`; supervisor's auto-merge rubric requires `## Manual validation`. Mismatch escalates by default. Pick one heading and align both ends. | ✅ shipped (#59) |
 | **Item 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
 | **Item 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped Item 17. | ✅ shipped (#48) |
 
@@ -1330,7 +1330,7 @@ Done when:
 
 ### Item 17 — auto-merge rubric template alignment
 
-Status: 🚧 in review (#59).
+Status: ✅ shipped (#59).
 
 Why: Item 13's run (PR #55) hit a heading-mismatch bug at step 9
 (gating). `/product-planning`'s PR-description template emits
