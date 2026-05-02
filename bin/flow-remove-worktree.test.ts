@@ -186,4 +186,29 @@ describe("flow-remove-worktree (integration: scratch cleanup)", () => {
     expect(fs.existsSync(wtDir)).toBe(true);
     expect(fs.existsSync(path.join(wtDir, "user-scratch.txt"))).toBe(true);
   });
+
+  it("hybrid: cleans .flow-tmp/ but still refuses when other untracked files coexist", async () => {
+    // Pins the documented order of operations: scratch is cleaned unconditionally
+    // before `git worktree remove` runs, so a failed removal leaves the worktree
+    // partially cleaned (scratch gone, user-dropped files preserved). The contract
+    // is acceptable — scratch is transient by design — but the test exists to make
+    // the behaviour explicit so a future refactor doesn't silently invert it.
+    const wtDir = path.join(path.dirname(fx.repoDir), "repo-feature-baz");
+    mustGit(["worktree", "add", "-b", "feature-baz", wtDir], fx.repoDir);
+
+    const flowTmp = path.join(wtDir, ".flow-tmp");
+    fs.mkdirSync(flowTmp, { recursive: true });
+    fs.writeFileSync(path.join(flowTmp, "plan.md"), "# PRD\n");
+    fs.writeFileSync(path.join(wtDir, "user-scratch.txt"), "oops\n");
+
+    const r = await runHelper(["feature-baz"], fx.repoDir);
+    expect(r.exitCode, `expected non-zero, stdout: ${r.stdout}`).not.toBe(0);
+
+    // Worktree and the user's untracked file both survive — no auto-force.
+    expect(fs.existsSync(wtDir)).toBe(true);
+    expect(fs.existsSync(path.join(wtDir, "user-scratch.txt"))).toBe(true);
+
+    // .flow-tmp/ was already cleaned before git refused — documented contract.
+    expect(fs.existsSync(flowTmp)).toBe(false);
+  });
 });
