@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { spawnSync } from "node:child_process";
+import { git } from "./git";
 
 /** Maximum auto-suffix attempts before giving up on collision avoidance. */
 export const MAX_SUFFIX_ATTEMPTS = 100;
@@ -7,15 +7,6 @@ export const MAX_SUFFIX_ATTEMPTS = 100;
 /** Converts a branch name to a directory-safe suffix (e.g. feature/foo → feature-foo). */
 export function toDirSuffix(branchName: string): string {
   return branchName.replace(/\//g, "-");
-}
-
-function git(args: string[], cwd?: string): string {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-  if (result.status !== 0) {
-    const stderr = (result.stderr ?? "").trim();
-    throw new Error(stderr || `git ${args[0]} failed with exit code ${result.status}`);
-  }
-  return (result.stdout ?? "").trim();
 }
 
 /** Returns true when the named branch ref exists locally. */

@@ -7,6 +7,7 @@
 
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { git } from "./lib/git";
 import { findAvailableSlot, toDirSuffix } from "./lib/worktree-slot";
 import {
   ensureFlowTmpExclude,
@@ -37,15 +38,6 @@ const log = {
   error: (msg: string) => console.error(`❌ ${msg}`),
   warn: (msg: string) => console.warn(`⚠️  ${msg}`),
 };
-
-function git(args: string[], cwd?: string): string {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-  if (result.status !== 0) {
-    const stderr = (result.stderr ?? "").trim();
-    throw new Error(stderr || `git ${args[0]} failed with exit code ${result.status}`);
-  }
-  return (result.stdout ?? "").trim();
-}
 
 function run(argv: string[], cwd?: string): void {
   const [cmd, ...rest] = argv;

@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
+import { git } from "./git";
 import { applyManagedBlock, readGitignore, writeGitignore } from "./gitignore";
 
 /** Filename of the worktree-local branch marker, read by flow-state-update's guard. */
@@ -8,15 +8,6 @@ export const BRANCH_MARKER_FILENAME = ".flow-branch";
 
 /** Filename used for the supervisor + sub-skill scratch directory inside each worktree. */
 export const FLOW_TMP_DIRNAME = ".flow-tmp/";
-
-function git(args: string[], cwd?: string): string {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-  if (result.status !== 0) {
-    const stderr = (result.stderr ?? "").trim();
-    throw new Error(stderr || `git ${args[0]} failed with exit code ${result.status}`);
-  }
-  return (result.stdout ?? "").trim();
-}
 
 /** Writes the worktree-local branch-name marker that flow-state-update reads. */
 export function writeBranchMarker(worktreeDir: string, branchName: string): void {

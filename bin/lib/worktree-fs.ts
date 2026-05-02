@@ -1,6 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
+import { git } from "./git";
 
 /** Files symlinked from the primary repo into each new worktree. */
 export const SYMLINK_FILES = [".env", ".claude/settings.local.json"];
@@ -9,15 +9,6 @@ const log = {
   success: (msg: string) => console.log(`✅ ${msg}`),
   warn: (msg: string) => console.warn(`⚠️  ${msg}`),
 };
-
-function git(args: string[], cwd?: string): string {
-  const result = spawnSync("git", args, { cwd, encoding: "utf8" });
-  if (result.status !== 0) {
-    const stderr = (result.stderr ?? "").trim();
-    throw new Error(stderr || `git ${args[0]} failed with exit code ${result.status}`);
-  }
-  return (result.stdout ?? "").trim();
-}
 
 /** Returns the primary (main) worktree directory, even when run from a secondary worktree. */
 export function getPrimaryDir(repoDir: string): string {
