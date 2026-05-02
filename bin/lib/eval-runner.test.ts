@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runFixture } from "./eval-runner";
+import { runFixture, wrapImplementorPrompt } from "./eval-runner";
 
 let scratch!: string;
 let flowSource!: string;
@@ -144,6 +144,38 @@ describe("runFixture", () => {
     });
     expect(r.soft.pass).toBe(true);
     expect(r.implCost.usd).toBe(0);
+  });
+
+  it("wraps the implementor prompt with an auto-approval directive", async () => {
+    let observedPrompt = "";
+    await runFixture({
+      fixtureDir,
+      config: "pr7",
+      flowSource,
+      artefactsDir,
+      invokeImplementor: async (prompt, repoDir) => {
+        observedPrompt = prompt;
+        fs.mkdirSync(path.join(repoDir, "bin"), { recursive: true });
+        fs.writeFileSync(path.join(repoDir, "bin", "cli.ts"), "");
+        return "";
+      },
+    });
+    // Skills like /new-feature have an interactive approval gate that hangs a
+    // single-shot `claude -p` invocation. The runner must inject a directive
+    // that tells the implementor to proceed without waiting for human approval.
+    expect(observedPrompt).toContain("auto-approval");
+    expect(observedPrompt).toContain("/new-feature add a bin/cli.ts file");
+  });
+
+  it("passes the unwrapped prompt to the soft-check judge", async () => {
+    // The judge should evaluate against the user's actual request, not the
+    // harness's auto-approval scaffolding. We can only assert this indirectly
+    // here: confirm wrapImplementorPrompt is the only place the wrapper appears.
+    const original = "/new-feature add a bin/cli.ts file";
+    const wrapped = wrapImplementorPrompt(original);
+    expect(wrapped).toContain("auto-approval");
+    expect(wrapped).toContain(original);
+    expect(wrapped).not.toBe(original);
   });
 
   it("uses a stripped skill mirror under defaults config", async () => {

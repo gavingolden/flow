@@ -10,11 +10,33 @@
  * out to whatever `claude` is on PATH.
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { parseStreamJsonText, type CostResult } from "./eval-cost";
 
 export const JUDGE_MODEL = "claude-opus-4-7";
 export const JUDGE_EFFORT = "xhigh";
+
+// Why no `--bare`: that flag forbids keychain reads, which kills OAuth/subscription
+// auth (the default for Claude Code users). The harness instead achieves the same
+// "no surprise context" goal by running the judge in an empty cwd (no CLAUDE.md to
+// auto-discover) and disabling tools + slash commands explicitly below.
+export const JUDGE_FLAGS: readonly string[] = [
+  "-p",
+  "--model",
+  JUDGE_MODEL,
+  "--effort",
+  JUDGE_EFFORT,
+  "--output-format",
+  "stream-json",
+  "--verbose",
+  "--no-session-persistence",
+  "--disable-slash-commands",
+  "--tools",
+  "",
+];
 
 export type Verdict = {
   criterion: string;
@@ -92,38 +114,30 @@ export async function runSoftChecks(input: JudgeInput): Promise<SoftResult> {
 /**
  * Spawn `claude -p` (or the test stub) and return the raw stream-json output.
  *
- * The judge gets `--bare` (no hooks/plugins/CLAUDE.md auto-discovery), tools
- * disabled (judge never needs to run code), slash commands disabled (no risk
- * of accidentally invoking a skill), and `--no-session-persistence` (a
- * one-shot inference, nothing to resume).
+ * Tools disabled (judge never needs to run code), slash commands disabled (no
+ * risk of accidentally invoking a skill), and `--no-session-persistence` (a
+ * one-shot inference, nothing to resume). cwd is an empty tmpdir so no
+ * CLAUDE.md or `.claude/` from the parent process leaks into the judge's
+ * context.
  */
 export async function invokeClaude(prompt: string): Promise<string> {
   const bin = process.env.FLOW_EVAL_CLAUDE_BIN ?? "claude";
-  const args = [
-    "-p",
-    "--model",
-    JUDGE_MODEL,
-    "--effort",
-    JUDGE_EFFORT,
-    "--output-format",
-    "stream-json",
-    "--verbose",
-    "--bare",
-    "--no-session-persistence",
-    "--disable-slash-commands",
-    "--tools",
-    "",
-  ];
-  const r = spawnSync(bin, args, {
-    input: prompt,
-    stdio: ["pipe", "pipe", "pipe"],
-    encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  if (r.status !== 0) {
-    throw new Error(`judge invocation failed (exit ${r.status}): ${(r.stderr ?? "").trim() || "(no stderr)"}`);
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flow-eval-judge-"));
+  try {
+    const r = spawnSync(bin, [...JUDGE_FLAGS], {
+      input: prompt,
+      cwd: tmp,
+      stdio: ["pipe", "pipe", "pipe"],
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (r.status !== 0) {
+      throw new Error(`judge invocation failed (exit ${r.status}): ${(r.stderr ?? "").trim() || "(no stderr)"}`);
+    }
+    return r.stdout ?? "";
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
-  return r.stdout ?? "";
 }
 
 /** Walk the stream-json events and concatenate every assistant text block. */

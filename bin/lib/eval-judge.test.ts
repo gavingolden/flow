@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildJudgePrompt,
   extractAssistantText,
+  JUDGE_FLAGS,
   parseVerdicts,
   runSoftChecks,
 } from "./eval-judge";
@@ -159,5 +160,39 @@ describe("runSoftChecks", () => {
     await expect(runSoftChecks({ prompt: "x", diff: "y", criteria: ["a"] })).rejects.toThrow(
       /judge invocation failed/,
     );
+  });
+});
+
+describe("JUDGE_FLAGS", () => {
+  // Regression: --bare disables keychain reads, breaking OAuth/subscription
+  // auth (the default for Claude Code users). The judge must run with normal
+  // auth-discovery, isolated from project context via cwd instead.
+  it("does not include --bare", () => {
+    expect(JUDGE_FLAGS).not.toContain("--bare");
+  });
+
+  it("disables tools, slash commands, and session persistence", () => {
+    expect(JUDGE_FLAGS).toContain("--no-session-persistence");
+    expect(JUDGE_FLAGS).toContain("--disable-slash-commands");
+    expect(JUDGE_FLAGS).toContain("--tools");
+  });
+
+  it("runs the judge in an empty cwd so worktree CLAUDE.md does not leak in", async () => {
+    // The stub captures its cwd via $PWD into a sentinel file the test reads.
+    const cwdFile = path.join(scratch, "cwd.txt");
+    const stubPath = path.join(scratch, "claude-cwd");
+    fs.writeFileSync(
+      stubPath,
+      `#!/bin/sh\necho "$PWD" > ${JSON.stringify(cwdFile)}\necho '${resultEvent(0)}'\n`,
+      { mode: 0o755 },
+    );
+    process.env.FLOW_EVAL_CLAUDE_BIN = stubPath;
+
+    await runSoftChecks({ prompt: "x", diff: "y", criteria: ["a"] });
+
+    const recordedCwd = fs.readFileSync(cwdFile, "utf8").trim();
+    expect(recordedCwd).not.toBe(process.cwd());
+    // The harness creates a flow-eval-judge-* tmpdir per invocation.
+    expect(path.basename(recordedCwd)).toMatch(/^flow-eval-judge-/);
   });
 });

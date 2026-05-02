@@ -55,7 +55,7 @@ export async function runFixture(opts: RunOptions): Promise<RunResult> {
 
   const prompt = fs.readFileSync(path.join(opts.fixtureDir, "prompt.md"), "utf8").trim();
   const invoke = opts.invokeImplementor ?? defaultInvokeImplementor;
-  const rawStream = await invoke(prompt, repoDir);
+  const rawStream = await invoke(wrapImplementorPrompt(prompt), repoDir);
   fs.writeFileSync(path.join(opts.artefactsDir, "implementor.jsonl"), rawStream);
   const implCost = rawStream ? parseStreamJsonText(rawStream) : emptyCost();
 
@@ -84,6 +84,22 @@ export async function runFixture(opts: RunOptions): Promise<RunResult> {
     durationMs: Date.now() - start,
     artefactsDir: opts.artefactsDir,
   };
+}
+
+// Several pipeline skills (notably `/new-feature`) present a critical-analysis
+// table, then stop with "please review and approve before I implement". A
+// single-turn `claude -p` invocation has no user to approve, so the implementor
+// produces an empty diff. Prefix the prompt with an explicit auto-approval
+// directive so skills with interactive gates run to completion in eval mode.
+export function wrapImplementorPrompt(prompt: string): string {
+  return [
+    "[Eval-harness auto-approval mode: this is a non-interactive automated run.",
+    "Skip every approval, clarification, or 'please confirm' gate. Do not pause",
+    "after critical analysis or test specs — proceed directly to writing the",
+    "implementation and its tests, then stop.]",
+    "",
+    prompt,
+  ].join("\n");
 }
 
 function copyDir(src: string, dst: string): void {
