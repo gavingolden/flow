@@ -77,6 +77,10 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional · ❌ cance
 | **Item 17 — auto-merge rubric template alignment** | `/product-planning` emits `## How to test`; supervisor's auto-merge rubric requires `## Manual validation`. Mismatch escalates by default. Pick one heading and align both ends. | ✅ shipped (#59) |
 | **Item 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
 | **Item 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped Item 17. | ✅ shipped (#48) |
+| **Item 18 — `flow setup` CLI hardening** | `flow setup --source <path>` so step 5.5 re-symlinks from a worktree; `flow setup --upgrade` exits 1 on `summary.blocked > 0` so step 5.5 can collapse stdout-parsing to an exit-code check. Bundles both PR 58 followups. | ⬜ queued |
+| **Item 19 — supervisor poll cadence optimization** | Activate the 30s → 60s → 90s ramp documented in `polling-protocol.md`; surface current cadence in scrollback; verify cost delta via `flow ls --cost`. | ⬜ queued |
+| **Item 20 — global-by-default stack skills + disciplined frontmatter** | Decide open question #6 in favour of Option A: stack skills install globally via `flow setup`. Drop per-project `flow stack add/remove/list` and the managed-`.gitignore` block. Tighten each stack skill's frontmatter `description:` so Claude Code only auto-loads them in matching contexts. | ⬜ queued |
+| **Item 21 — `flow-new-worktree` refactor + missing test coverage** | Split `bin/flow-new-worktree.ts` (388 lines) into `bin/lib/worktree-slot.ts` + `bin/lib/worktree-marker.ts`; lift duplicated `BRANCH_MARKER_FILENAME` constant to one source of truth; add unit test that injects a `git worktree add` failure to cover the retry catch block. Bundles all three PR 53 followups. | ⬜ queued |
 
 ---
 
@@ -138,63 +142,20 @@ different failure mode, same family.
 
 ## Followups
 
-Small, opportunistic items deferred from PR-level review reports.
-Each is a one-line note + a concrete revisit trigger so the work
-isn't lost when the originating review report disappears.
+Items deferred from PR-level review reports. Promoted to numbered
+roadmap items below; this section is kept as a provenance index so
+the originating review context isn't lost.
 
 ### From PR 53 review (PR 12)
 
-- **`bin/flow-new-worktree.ts` is 388 lines vs. the AGENTS.md
-  <200-line target.** Split helpers (slot resolution, retry loop,
-  side-effects post-creation) into `bin/lib/worktree-slot.ts` /
-  `bin/lib/worktree-marker.ts`. Deferred: cross-cutting refactor
-  touching >3 files. *Trigger: address opportunistically next time
-  `flow-new-worktree` is touched, or when a sibling worktree helper
-  is added.*
-- **`BRANCH_MARKER_FILENAME` constant duplicated in
-  `bin/flow-new-worktree.ts` and `bin/flow-state-update.ts`.** Lift
-  into `bin/lib/branch-marker.ts` (or `bin/lib/paths.ts`) so the two
-  readers share a single source of truth. Deferred: would also be
-  rolled into the file-split followup above. *Trigger: address as
-  part of the worktree-helper split, or on the next change to
-  either file.*
-- **`createWorktreeWithRetry` race-retry path is exercised only by
-  the parallel-isolation integration test, which doesn't
-  deterministically force a `git worktree add` failure after
-  `findAvailableSlot` returns.** Add a unit test that injects the
-  race (e.g. a `gitWorktreeAdd` callable parameter, or pre-create
-  the slot directory between calls) so the catch-and-retry block is
-  covered explicitly. Deferred: needs a small refactor for
-  testability. *Trigger: address opportunistically if the retry
-  loop's bound (`MAX_RACE_RETRIES`) ever changes, or alongside the
-  file-split followup above.*
+- **`bin/flow-new-worktree.ts` 388-line file split** → Item 21.
+- **Duplicated `BRANCH_MARKER_FILENAME` constant** → Item 21.
+- **Missing unit test for `createWorktreeWithRetry` race-retry path** → Item 21.
 
 ### From PR 58 review
 
-- **`flow setup --upgrade` ignores worktree-local source for PRs
-  against flow itself.** `bin/lib/setup.ts` accepts a programmatic
-  `flowSource` override, but `runSetupVerb` in `bin/flow` does not
-  expose it. `resolveFlowSource()` (`bin/lib/paths.ts`) derives the
-  source from the *installed* binary's canonical path, so step 5.5's
-  re-symlink reads from the original install root and silently misses
-  any new skills/agents added in the worktree. Add `flow setup
-  --source <path>` (or an env override picked up before
-  `resolveFlowSource()`) and have `/flow-pipeline` step 5.5 pass
-  `--source "$WORKTREE"`. Deferred: meaningful design decision (flag
-  vs env vs config) plus a code change that touches `bin/flow` +
-  `bin/lib/setup.ts` + tests. *Trigger: before the next flow PR that
-  adds a new skill or agent, or alongside Item 15(c)'s flock work
-  since both touch the setup CLI shape.*
-- **`flow setup --upgrade` exits 0 on `summary.blocked > 0`.**
-  `bin/flow:140-145` returns 0 unconditionally regardless of
-  `runSetup`'s summary. Step 5.5 currently parses the printed
-  `<N> blocked` token to detect this; once the verb wires
-  `summary.blocked > 0 → exit 1`, the supervisor's
-  blocked-summary parsing in step 5.5 can collapse back to a plain
-  exit-code check. Deferred: small but separable change; better as
-  its own commit so step 5.5's contract change is visible in isolation.
-  *Trigger: bundle with the `--source` flag work above, or the next
-  time `bin/flow` setup-handling is touched.*
+- **`flow setup --upgrade` ignores worktree-local source** → Item 18.
+- **`flow setup --upgrade` exits 0 on `summary.blocked > 0`** → Item 18.
 
 ---
 
@@ -1455,6 +1416,140 @@ Done when:
 - [x] `cancelled` is intentionally not a notify status — cancellation
   is user-initiated.
 
+### Item 18 — `flow setup` CLI hardening
+
+Status: ⬜ queued.
+
+Why: Two adjacent gaps surfaced on PR 58. Both touch `bin/flow`
+setup-handling and `bin/lib/setup.ts`; bundling them avoids
+re-touching the same surface twice.
+
+(a) **`flow setup --upgrade` ignores worktree-local source.**
+`bin/lib/setup.ts` accepts a programmatic `flowSource` override, but
+`runSetupVerb` in `bin/flow` doesn't expose it. `resolveFlowSource()`
+(`bin/lib/paths.ts`) derives the source from the *installed*
+binary's canonical path, so when `/flow-pipeline` step 5.5
+re-symlinks during a flow-on-flow PR, it reads the original install
+root and silently misses any new skills/agents added in the worktree.
+
+(b) **`flow setup --upgrade` exits 0 on `summary.blocked > 0`.**
+`bin/flow:140-145` returns 0 unconditionally regardless of
+`runSetup`'s summary. Step 5.5 currently parses the printed
+`<N> blocked` token to detect failure; once the verb wires
+`summary.blocked > 0 → exit 1`, the supervisor's blocked-summary
+parsing in step 5.5 collapses to a plain exit-code check.
+
+Done when:
+
+- [ ] `flow setup --source <path>` accepted by `runSetupVerb` in
+  `bin/flow`, passed through to `runSetup`'s programmatic
+  `flowSource` override. (Flag form preferred over env override —
+  more discoverable, easier to surface in `--help`.)
+- [ ] `/flow-pipeline` step 5.5 invokes
+  `flow setup --upgrade --source "$WORKTREE"` so the re-symlink
+  reads the in-flight worktree, not the original install root.
+- [ ] `flow setup` (with or without `--upgrade`) exits 1 when
+  `summary.blocked > 0`. Existing exit-0 success path unchanged.
+- [ ] Step 5.5's blocked-summary detection collapses from
+  stdout-parsing to a plain exit-code check.
+- [ ] Tests cover the `--source` plumbing and the new exit-code
+  contract.
+
+### Item 19 — supervisor poll cadence optimization
+
+Status: ⬜ queued.
+
+Why: Open question #1 carried this from Item 2's design phase. The
+supervisor's CI/Copilot poll runs at fixed 30s cadence with a 20-min
+cap — ~40 tool-call iterations per pipeline sharing one supervisor
+turn. Token cost per iteration is small (sleep + `gh pr` JSON), but
+bounded growth deserves measurement now that Item 6 cost reporting
+exists. `polling-protocol.md` already documents an optional
+30s → 60s → 90s ramp after 5 failed polls but ships with fixed 30s.
+Activate the ramp.
+
+Done when:
+
+- [ ] `polling-protocol.md` ramp policy made the active policy:
+  30s for the first 5 polls, then 60s for the next 5, then 90s
+  thereafter, capped at the existing 20-min wall-clock budget.
+- [ ] Same ramp applies to the Copilot-review wait, not just CI.
+- [ ] The poll-counter line in scrollback (Item 16) shows current
+  cadence: e.g. `CI poll 7/N, elapsed 4m30s of 20m, cadence 60s`.
+- [ ] Cost delta is measurable: a `flow ls --cost --detail` run on
+  a pipeline that completed under the new policy shows lower
+  supervisor-token usage on the wait phase than a comparable
+  pre-ramp baseline.
+
+### Item 20 — global-by-default stack skills + disciplined frontmatter
+
+Status: ⬜ queued.
+
+Why: Open question #6 left stack-skill placement undecided between
+Option A (global symlink via `flow setup --stack`) and Option B
+(per-project `flow stack add`). Decision: **Option A — stack skills
+install globally** alongside pipeline + universal skills. The
+"polluting every project's skill resolution" cost is bounded by
+tightening each stack skill's frontmatter `description:` so Claude
+Code's skill-matcher only auto-loads it in matching contexts. The
+managed-`.gitignore` block + per-project symlink pattern goes away
+entirely.
+
+Done when:
+
+- [ ] `flow setup` symlinks `skills/stacks/{svelte,supabase,
+  tailwind-shadcn}/` into `~/.claude/skills/` alongside pipeline
+  and universal skills. Recorded in `~/.flow/installed.json` so
+  `flow setup --upgrade` reaps orphans correctly.
+- [ ] `flow stack add`, `flow stack remove`, `flow stack list`
+  removed from `bin/flow` and `--help`. The managed-`.gitignore`
+  block under `.claude/skills/` is no longer written by anything.
+- [ ] Each stack skill's `description:` frontmatter rewritten to
+  be specific enough that Claude Code's skill-matcher only loads
+  it in relevant contexts. The bar: (a) name explicit triggers
+  (import strings, file extensions, framework keywords),
+  (b) name explicit anti-triggers (`SKIP when…`), (c) sanity-check
+  by glancing at how each skill matches in unrelated repos and
+  confirming it doesn't surface noise.
+- [ ] Roadmap "Stack skills" subsection (under "Installation UX")
+  rewritten to describe the chosen design — the A/B hedge is gone.
+- [ ] Open question #6 marked resolved with a back-pointer to
+  this item.
+- [ ] `AGENTS.md` "Stack skills" / installation references updated
+  to match. The `bin/flow` "zero per-repo footprint" claim becomes
+  literal again — the stack-skill exception is retired.
+
+### Item 21 — `flow-new-worktree` refactor + missing test coverage
+
+Status: ⬜ queued.
+
+Why: PR 53 (the cross-pipeline isolation fix) left three
+opportunistic followups in the same area. Bundling them is cheaper
+than touching `bin/flow-new-worktree.ts` three times.
+
+Done when:
+
+- [ ] `bin/flow-new-worktree.ts` (currently 388 lines, over the
+  AGENTS.md <200-line target) split into:
+  - `bin/lib/worktree-slot.ts` — slot resolution
+    (`findAvailableSlot`, suffix collisions).
+  - `bin/lib/worktree-marker.ts` — post-creation marker writes
+    and branch-marker assertions.
+  - The remaining `bin/flow-new-worktree.ts` orchestrates and
+    sits under the 200-line target.
+- [ ] `BRANCH_MARKER_FILENAME` constant lifted into one source of
+  truth (`bin/lib/branch-marker.ts` or the new
+  `bin/lib/worktree-marker.ts`); `bin/flow-new-worktree.ts` and
+  `bin/flow-state-update.ts` both import from it.
+- [ ] Unit test for `createWorktreeWithRetry` injects a
+  `git worktree add` failure after `findAvailableSlot` returns
+  (e.g. via a `gitWorktreeAdd` callable parameter, or a
+  pre-created slot directory between calls), so the catch-and-retry
+  block is covered without relying on the parallel-isolation
+  integration test's race timing.
+- [ ] All existing tests still pass (`npm run test` clean); per-file
+  size goes down, file count goes up, behaviour unchanged.
+
 ---
 
 ## Roadmap items dropped from the queue
@@ -1473,13 +1568,11 @@ Done when:
 
 ## Open questions
 
-1. **Polling cost.** A 20-minute Copilot/CI poll inside one
-   supervisor turn means dozens of tool-call iterations sharing one
-   conversation context. Token cost per iteration is small (sleep +
-   gh JSON), but bounded growth deserves measurement before treating
-   it as free. Item 6's cost reporting will surface this; if it's
-   meaningful, the supervisor can drop polling intervals (e.g. start
-   at 30s and back off to 60s, 90s) at the cost of latency.
+1. **Polling cost.** *Resolved: promoted to Item 19.* A 20-minute
+   Copilot/CI poll inside one supervisor turn means dozens of
+   tool-call iterations sharing one conversation context. The
+   30s → 60s → 90s ramp documented in `polling-protocol.md` is now
+   slated to ship; see Item 19 for the contract.
 2. **Multi-machine.** Design B is single-machine by design (see
    [`alternate-architecture.md`](./alternate-architecture.md)
    Comparison table). If multi-machine ever returns as a requirement,
