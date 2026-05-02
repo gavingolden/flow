@@ -24,6 +24,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { readState, writeState, nowIso, type PipelineState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
+import { BRANCH_MARKER_FILENAME } from "./lib/worktree-marker";
 
 type Args = {
   slug: string;
@@ -40,9 +41,6 @@ type Args = {
  *                  NOT updated; supervisor escalates `NEEDS HUMAN: branch-mismatch`.
  */
 type GuardResult = { kind: "ok" } | { kind: "mismatch"; expected: string; actual: string };
-
-/** Filename of the worktree-local marker; mirrors flow-new-worktree's BRANCH_MARKER_FILENAME. */
-const BRANCH_MARKER_FILENAME = ".flow-branch";
 
 /**
  * Asserts that the worktree's current branch matches the marker file written by
