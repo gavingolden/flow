@@ -23,7 +23,7 @@ redirect to recover.
 | 3 — plan | `/product-planning` exits without writing `<worktree>/.flow-tmp/plan.md` | 1 retry | Escalate: `NEEDS HUMAN: plan-missing`. End. |
 | 4 — approval | user input ambiguous | 1 clarifying question | Ask the question; if still unclear, escalate: `NEEDS HUMAN: approval-ambiguous`. End. |
 | 5 — implement | `/new-feature` exits without committing + pushing + opening PR | 1 retry | Escalate: `NEEDS HUMAN: implement-failed`. End. |
-| 6 — verify | `/verify` exits without a clean pass | **3 outer attempts** | Escalate: `NEEDS HUMAN: verify-exhausted`. Surface the last failure log on the PR body's `## Manual validation` as a `> [!CAUTION]` block (idempotent). End. |
+| 6 — verify | `/verify` exits without a clean pass | **3 outer attempts** | Escalate: `NEEDS HUMAN: verify-exhausted`. Surface the last failure log on the PR body's `## Test Steps` as a `> [!CAUTION]` block (idempotent). End. |
 | 7 — ci-wait | hard cap reached, CI still pending | 20 min cap | Escalate: `NEEDS HUMAN: ci-hang`. End. |
 | 7 — ci-wait | CI red | **3 fix-loops total** | Escalate: `NEEDS HUMAN: ci-fix-exhausted`. End. |
 | 8 — review | `/pr-review` finds critical issues | **2 fix-loops total** | Escalate: `NEEDS HUMAN: review-fix-exhausted`. End. |

@@ -15,18 +15,21 @@ export function writeBranchMarker(worktreeDir: string, branchName: string): void
 }
 
 /**
- * Adds `.flow-tmp/` to the worktree's per-checkout `.git/info/exclude` so the
- * supervisor's scratch dir stays untracked without polluting the user's
- * repo-tracked `.gitignore`. Idempotent — only writes when the line is missing.
+ * Adds `.flow-tmp/` to the shared `.git/info/exclude` so the supervisor's
+ * scratch dir stays untracked without polluting the user's repo-tracked
+ * `.gitignore`. Idempotent — only writes when the line is missing.
  *
- * Uses `git rev-parse --git-dir` from inside the worktree so the right
- * `info/exclude` resolves under `.git/worktrees/<name>/info/exclude` for
- * secondary worktrees, not the primary repo's `.git/info/exclude`.
+ * Resolves via `git rev-parse --git-common-dir`, not `--git-dir`. Git reads
+ * `info/exclude` from the *common* dir (the primary repo's `.git/info/`),
+ * never from a secondary worktree's `.git/worktrees/<name>/info/`, so writing
+ * to the per-worktree path is a silent no-op — `git status` would still list
+ * `.flow-tmp/` as untracked. The idempotency check above also makes the shared
+ * file safe under N concurrent worktrees: each one greps before appending.
  */
 export function ensureFlowTmpExclude(worktreeDir: string): void {
-  const gitDir = git(["rev-parse", "--git-dir"], worktreeDir);
-  const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(worktreeDir, gitDir);
-  const excludePath = path.join(absGitDir, "info", "exclude");
+  const commonDir = git(["rev-parse", "--git-common-dir"], worktreeDir);
+  const absCommonDir = path.isAbsolute(commonDir) ? commonDir : path.join(worktreeDir, commonDir);
+  const excludePath = path.join(absCommonDir, "info", "exclude");
   fs.mkdirSync(path.dirname(excludePath), { recursive: true });
 
   const existing = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf8") : "";

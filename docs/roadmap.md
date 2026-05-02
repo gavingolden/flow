@@ -83,7 +83,8 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional · ❌ cance
 | **Item 21 — `flow-new-worktree` refactor + missing test coverage** | Split `bin/flow-new-worktree.ts` (388 lines) into `bin/lib/worktree-slot.ts` + `bin/lib/worktree-marker.ts`; lift duplicated `BRANCH_MARKER_FILENAME` constant to one source of truth; add unit test that injects a `git worktree add` failure to cover the retry catch block. Bundles all three PR 53 followups. | ✅ shipped (#66) |
 | **Item 22 — `.flow-tmp/` contract enforcement (skill compliance + worktree-remove cleanup)** | Item 15 (#61) shipped the per-pipeline scratch dir but two sub-skills (`/product-planning`, `/new-feature`) kept writing `plan.md` and `pr-description-draft.md` at the worktree root, and `flow-remove-worktree` had no awareness of the scratch path either way — so `/flow-pipeline` step 10.5 reliably escalated `NEEDS HUMAN: worktree-remove-failed`. Move the writes under `.flow-tmp/`; have the helper `rm -rf <worktree>/.flow-tmp` before `git worktree remove` (no `--force`, scope strictly to the documented path so other untracked files still trip the refusal). | ✅ shipped (#68) |
 | **Item 23 — `/pr-review` owns roadmap-mark + sweep; remove `flow-roadmap-mark-shipped` helper** | Move roadmap-marking from the post-merge helper into `/pr-review` step 7.5 so the marker lands in the PR's own diff (matching the "PR self-marks shipped before merge" convention). The new step also sweeps drifted `🚧 in review (#N)` rows whose PR is already merged on `main`. Deletes `bin/flow-roadmap-mark-shipped.ts` + test, `/flow-pipeline` step 10.5, and the corresponding AGENTS.md auto-merge exemption clause. | ✅ shipped (#71) |
-| **Item 24 — shell completions with auto-install via `flow setup`** | Hand-written `completions/flow.{bash,zsh}` scripts cover verbs, per-verb flags, dynamic pipeline-slug completion (read live from `~/.flow/state/*.json`), and path-valued flags. `flow setup` auto-installs by symlinking into `~/.flow/completions/` and writing a `# managed by flow completions` block into `~/.zshrc` / `~/.bashrc` / `~/.bash_profile` (whichever exist). `flow setup --no-completions` is the symmetric opt-out. New `flow completion <shell>` subcommand is the escape hatch for read-only homedirs / CI. New `bin/lib/rc-block.ts` mirrors the gitignore managed-block convention for shell rc files. | ✅ shipped (#74) |
+| **Item 24 — PR template + `## Test Steps` rename** | Consolidate the multiple test-related sections into a single `## Test Steps` heading covering automation and smoke; create `.github/PULL_REQUEST_TEMPLATE.md`; refine the auto-merge gate to count unchecked `- [ ]` items (was: any non-empty body), so pr-review can inject `<details>` evidence blocks under each runnable item without tripping the gate. New helper `bin/flow-inject-evidence` performs the idempotent box-tick + evidence injection. Updates every flow-emitted reference to the canonical heading. | ✅ shipped (#72) |
+| **Item 25 — shell completions with auto-install via `flow setup`** | Hand-written `completions/flow.{bash,zsh}` scripts cover verbs, per-verb flags, dynamic pipeline-slug completion (read live from `~/.flow/state/*.json`), and path-valued flags. `flow setup` auto-installs by symlinking into `~/.flow/completions/` and writing a `# managed by flow completions` block into `~/.zshrc` / `~/.bashrc` / `~/.bash_profile` (whichever exist). `flow setup --no-completions` is the symmetric opt-out. New `flow completion <shell>` subcommand is the escape hatch for read-only homedirs / CI. New `bin/lib/rc-block.ts` mirrors the gitignore managed-block convention for shell rc files. | ✅ shipped (#74) |
 
 ---
 
@@ -207,10 +208,10 @@ making a judgment.
    pushes.
 9. **Supervisor (LLM)**: reads the auto-merge gate — same heuristic
    as today's `gate` phase, expressed in the skill prompt:
-   - `## Manual validation` section in the PR body **empty** → run
+   - `## Test Steps` section with no unchecked `- [ ]` items → run
      `gh pr merge --squash --delete-branch`. Run
      `flow-remove-worktree`. Print `MERGED` and end.
-   - Section **non-empty** → print the validation checklist, the PR
+   - Has unchecked items → print the validation checklist, the PR
      URL, the verb to merge manually (`gh pr merge --squash <pr>`),
      and end. The user merges from GitHub when ready.
 
@@ -652,11 +653,11 @@ Skill content (SKILL.md outline):
 8. **Review**. Invoke `/pr-review <PR>` natively. Trust the skill.
 9. **Auto-merge gate**. Apply rubric in
    `references/auto-merge-rubric.md`:
-   - `## Manual validation` section empty → `gh pr merge --squash
-     --delete-branch`, then `flow-remove-worktree`, then print
-     `MERGED`. End.
-   - Non-empty → print validation checklist + PR URL + manual-merge
-     verb. End.
+   - `## Test Steps` section with no unchecked `- [ ]` items → `gh
+     pr merge --squash --delete-branch`, then `flow-remove-worktree`,
+     then print `MERGED`. End.
+   - Has unchecked items → print validation checklist + PR URL +
+     manual-merge verb. End.
 10. **Failure paths**: print a clear `NEEDS HUMAN: <reason>` line,
     leave the worktree + PR intact, end. The user attaches and
     redirects.
@@ -776,7 +777,7 @@ Done when:
   outline above; reference docs land under `references/`.
 - [ ] A real-repo end-to-end pass: `flow new "trivial test feature"`
   from a scratch branch produces a merged PR (or a `gated` PR if the
-  manual-validation section was filled), with no other commands
+  Test Steps section has unchecked items), with no other commands
   needed.
 - [x] The skill never spawns nested agents; it only loads sub-skills
   in-process and invokes scripts as tool calls.
