@@ -73,6 +73,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
 | **Item 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
 | **Item 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ✅ shipped (#54) |
+| **Item 17 — auto-merge rubric template alignment** | `/product-planning` emits `## How to test`; supervisor's auto-merge rubric requires `## Manual validation`. Mismatch escalates by default. Pick one heading and align both ends. | ⬜ queued |
 | **Item 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
 | **Item 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped Item 17. | ✅ shipped (#48) |
 
@@ -1360,6 +1361,41 @@ Done when:
 - [x] Surface a concrete poll counter in scrollback ("CI poll 3/40,
   elapsed 1m30s of 20m") so the user can see the wait progressing
   rather than guessing.
+
+### Item 17 — auto-merge rubric template alignment
+
+Status: ⬜ queued.
+
+Why: Item 13's run (PR #55) hit a heading-mismatch bug at step 9
+(gating). `/product-planning`'s PR-description template emits
+`## How to test`, but the supervisor's auto-merge rubric
+(`skills/pipeline/flow-pipeline/references/auto-merge-rubric.md`)
+hard-codes `^## Manual validation\s*$` as the heading-presence
+check. A PR opened via the documented happy path therefore lacks
+the heading the rubric expects, escalating
+`NEEDS HUMAN: manual-validation-section-missing` even though no
+genuine validation gating signal was given. The supervisor for
+Item 13 deviated from the strict rubric and gated on the unchecked
+items in `## How to test` instead — the right user-facing outcome,
+but the doc and the template still disagree.
+
+Done when:
+
+- [ ] Pick the canonical heading and apply it consistently across
+  `/product-planning`'s PR-description template, `/new-feature`'s PR
+  body draft, the `auto-merge-rubric.md` reference, and the
+  supervisor's step-9 decision matrix in
+  `skills/pipeline/flow-pipeline/SKILL.md`. Most likely
+  `## Manual validation` (the rubric is more recent and the heading
+  more accurately names what the gate keys on); migrate the template
+  to match.
+- [ ] Document the contract in one place: which heading, what
+  "empty" means, what the gate does on missing vs. empty vs.
+  non-empty. The current split (rubric reference + skill prose) is
+  what let the mismatch happen.
+- [ ] Backfill: any PR opened by `/new-feature` after this Item
+  ships includes the heading by default. Existing in-flight PRs are
+  out of scope (rare and self-correcting on the next push).
 
 ### Item 9 — `flow new --resume <name>`
 
