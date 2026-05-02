@@ -37,7 +37,7 @@ tmux-driven supervisor is complete: `src/`, the per-repo `flow install`,
 and the orchestrator-only skills (`flow-add`, `flow-approve`,
 `flow-revise`, `flow-watch`, `flow-status`) are deleted. The wrapper at
 `bin/flow` is Bun; it dispatches verbs natively (`new`, `ls`, `attach`,
-`done`, `setup`, `migrate`, `eval`) with no passthrough fallback.
+`done`, `setup`, `migrate`) with no passthrough fallback.
 
 Note: `docs/phases/m2-plan.md`, `docs/phases/m3-plan.md`, and the rest
 of `docs/phases/` describe the deleted orchestrator's phase contracts
@@ -66,9 +66,9 @@ Item / Phase numbering from `docs/roadmap.md`.
 Source for shipped helper binaries lives in **`bin/`**. The user-callable
 helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-state-update`,
-`flow-notify`, `flow-eval` — live there with `.ts` extensions, Bun
-shebangs, and tests next door (`<name>.test.ts`). `flow setup` symlinks
-each into `~/.local/bin/<name>` (extensionless on PATH).
+`flow-notify` — live there with `.ts` extensions, Bun shebangs, and
+tests next door (`<name>.test.ts`). `flow setup` symlinks each into
+`~/.local/bin/<name>` (extensionless on PATH).
 
 The `flow` wrapper itself is also Bun, at `bin/flow`. It dispatches every
 verb natively — there is no passthrough or legacy entry point.

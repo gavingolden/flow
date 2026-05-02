@@ -65,8 +65,8 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ✅ shipped (#47) |
 | **Item 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ✅ shipped (#56) |
 | **Item 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ✅ shipped (#51) |
-| **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ✅ shipped (#46) |
-| **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ✅ shipped (#52) |
+| **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ⬜ queued |
+| **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ⬜ queued |
 | **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
 | **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ✅ shipped (#53) |
 | **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | 🚧 in review (#55) |
@@ -389,13 +389,11 @@ supervisor window.
   skill-creator/
 
 ~/.claude/agents/                # Claude Code user-level agents (auto-loaded everywhere)
-  pr-bug-detection.md            # → symlinks to ~/code/flow/agents/*
-  pr-security.md
-  pr-pattern.md
-  pr-test-coverage.md
-  skill-grader.md
+  skill-grader.md                # (not flow — populated by other Claude tooling)
   skill-comparator.md
   skill-analyzer.md
+  # `flow setup` will populate this directory with `pr-*.md` agents
+  # once Item 7 ships; today, flow ships no agents.
 
 ~/.local/bin/                    # on PATH; helper binaries callable from any repo
   flow                           # the wrapper (new, ls, attach, done, setup, migrate)
@@ -980,11 +978,11 @@ Design deviations from the original spec:
 
 ### Item 7 — per-skill model + effort tuning
 
-Status: ✅ shipped (#46). Carry-forward from queued Phase 5 Item 20.
+Status: ⬜ queued. Carry-forward from queued Phase 5 Item 20.
 
 Done when:
 
-- [x] Skills under `skills/pipeline/` and agents under `agents/` declare
+- [ ] Skills under `skills/pipeline/` and agents under `agents/` declare
   `model:` and `effort:` in frontmatter where it matters:
   - `flow-pipeline` — Sonnet 4.6, `medium` (orchestration; control-
     flow judgment doesn't need Opus).
@@ -994,86 +992,26 @@ Done when:
   - `pr-review` sub-agents (promoted to `agents/`): Opus for
     bug+security at `xhigh`; Sonnet for pattern+test-coverage at
     `high`/`medium`.
-- [x] The `agents/` directory is symlinked by `flow setup` into
-  `~/.claude/agents/` (the symlink wiring shipped with Item 1's
-  `flow setup`; Item 7 is the first PR to actually populate the
-  directory, so a `flow setup --upgrade` after merge lights up the
-  4 promoted agents in `~/.claude/agents/`).
-- [x] Verify-retry escalation: when `/verify` fails inside the
+- [ ] The `agents/` directory is symlinked by `flow setup` into
+  `~/.claude/agents/`.
+- [ ] Verify-retry escalation: when `/verify` fails inside the
   supervisor's loop, the next attempt runs at Opus/`xhigh`. Logic
-  lives in `/flow-pipeline`'s SKILL.md step 6, since Node retry no
-  longer exists. The override is passed per-invocation (model +
-  effort overrides on the skill call) and does not mutate the
-  skill's frontmatter — Sonnet/medium remains the default for
-  attempt 1.
-
-#### Known issues / follow-ups (surfaced by `/pr-review` on PR #46)
-
-- **Task-tool contract collision between `/pr-review` step 4 and
-  `/flow-pipeline` hard rules.** `pr-review`'s step 4 now invokes the
-  4 promoted agents via the `Task` / `Agent` tool, but `flow-pipeline`'s
-  hard rules (SKILL.md lines 57-60) and verification (SKILL.md line 545)
-  forbid the supervisor from ever using `Task`. When step 8 of the
-  pipeline loads `/pr-review` in-process, the supervisor's own hard
-  rule blocks the new fan-out. **Revisit trigger:** before Item 11
-  (`pr-review` unified mode) — that PR re-touches step 4 and is the
-  natural point to either (a) carve out an explicit Task exception in
-  `flow-pipeline` for the review phase or (b) document a
-  no-Task fallback path in `pr-review` for both supervisor and
-  standalone-without-Task contexts. Why deferred: picking between
-  the two requires a design decision on whether the supervisor's
-  "single LLM container" invariant survives or evolves.
-- **Per-invocation model/effort override syntax for `/verify` retry
-  is asserted but not specified.** `flow-pipeline` SKILL.md step 6
-  and the Item 7 done-when bullet describe escalating attempts 2-3 to
-  Opus/`xhigh` "by passing those overrides when invoking the skill"
-  but do not show the syntax Claude Code actually parses (the example
-  prompt-line annotation `(model: …, effort: …)` is an in-prose
-  comment, not a parsed flag). **Revisit trigger:** first time the
-  retry path actually fires in production, or when Item 8 (eval harness)
-  exercises retry loops — verify the override is honoured by checking
-  the model recorded in the per-attempt usage line. Why deferred:
-  resolution depends on Claude Code harness behaviour outside this
-  repo; either the syntax exists and the doc just needs to cite it,
-  or it doesn't and the escalation claim must be removed.
+  lives in `/flow-pipeline`'s SKILL.md, since Node retry no longer
+  exists.
 
 ### Item 8 — eval harness
 
-Status: ✅ shipped (#52). Carry-forward from queued Phase 5 Item 21.
+Status: ⬜ queued. Carry-forward from queued Phase 5 Item 21.
 
 Done when:
 
-- [x] 5–10 fixture features under `evals/` with expected diffs +
-  rubrics. (Five fixtures shipped: add-version-flag, fix-readme-typo,
-  add-unit-test-for-helper, extract-helper-function, add-cli-subcommand.)
-- [x] `flow eval` runs each fixture under two model configs (Claude Code
+- [ ] 5–10 fixture features under `evals/` with expected diffs +
+  rubrics.
+- [ ] `flow eval` runs each fixture under two model configs (Claude Code
   defaults vs the per-skill picks from Item 7), captures pass/fail and
-  $/run, prints a delta. (Implementor cost is reported separately from
-  judge cost so only implementor cost participates in the regression
-  decision.)
-- [x] Pass-rate regression of >1 fixture between configs exits non-zero
-  (CI-friendly). (See `bin/lib/eval-report.ts` `decideExitCode`.)
-
-Design deviations from the original spec:
-
-- **LLM-graded soft rubrics shipped in v1, not v2.** User redirect at
-  the plan-pending-review checkpoint: "include llm graded rubrics. They
-  should be judged by the most effective model (opus 4.7 xhigh?)". The
-  rubric format expanded to `hard:` (deterministic checks) +
-  `soft:` (YES/NO criteria for the judge). Judge model is hard-coded
-  to Claude Opus 4.7 at xhigh effort — same judge for both configs by
-  design, since we measure the implementor, not the judge.
-- **Cost split implementor vs judge.** The regression-decision compares
-  only implementor cost; judge cost is overhead and identical-by-design
-  across configs.
-- **Five fixtures, not the spec's 5–10 upper bound.** Five exercises
-  every code path; more can be added incrementally without code
-  changes (the runner picks them up by directory).
-- **Pricing is hard-coded as 2026-Q2 estimates** in `bin/lib/eval-cost.ts`.
-  Item 6 (cost reporting in `flow ls`) will productize this; for v1 the
-  authoritative source is Claude Code's own `result.total_cost_usd` event
-  in stream-json output, with the price map only as a fallback for
-  truncated streams.
+  $/run, prints a delta.
+- [ ] Pass-rate regression of >1 fixture between configs exits non-zero
+  (CI-friendly).
 
 ### Item 11 — `pr-review` unified mode (collapse Address vs Review)
 
@@ -1110,6 +1048,34 @@ Out of scope: the multi-agent review architecture, the
 conventional-comments format, the auto-fix-vs-defer bar, the
 retrospective-and-checklist-evolution mechanic — none of that
 changes. This is a control-flow simplification only.
+
+#### Known issues / follow-ups (carried forward from PR #46 + PR #57)
+
+- **Task-tool contract collision between `/pr-review` step 4 and
+  `/flow-pipeline` hard rules.** `/pr-review` step 4 instructs the
+  orchestrator to spawn 4 review agents in parallel (the inline-prompt
+  shape restored by PR #57, and equivalently the promoted-subagent
+  shape that PR #46 introduced). Both shapes require the `Task` /
+  `Agent` tool. `/flow-pipeline`'s hard rules
+  (`skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" block and the
+  step-10 verification "The supervisor never invoked the `Task` /
+  `Agent` tool") forbid the supervisor from ever using `Task`. When
+  `/flow-pipeline` step 8 loads `/pr-review` in-process, the
+  supervisor's own hard rule blocks the multi-agent fan-out — the
+  pipeline review phase is not runnable as written. **Revisit
+  trigger:** before Item 11 lands — Item 11 re-touches step 4 (and
+  also step 11, the inline-comment posting), which is the natural
+  point to either (a) carve out an explicit Task exception in
+  `/flow-pipeline` for the review phase, (b) document a no-Task
+  fallback path in `/pr-review` that runs the 4 reviews sequentially
+  in-process when invoked by the supervisor, or (c) restructure the
+  multi-agent review to live behind a helper script that doesn't need
+  an LLM-spawning fan-out. Why deferred: picking between the three
+  requires a design decision on whether the supervisor's "single LLM
+  container" invariant survives or evolves; the choice rewrites the
+  step-4 contract, so it belongs in Item 11 alongside the unified-mode
+  collapse rather than as a standalone fix on this revert PR.
+  Originally surfaced on PR #46; re-raised by Copilot on PR #57.
 
 ### Item 12 — fix cross-pipeline worktree contamination (high priority)
 

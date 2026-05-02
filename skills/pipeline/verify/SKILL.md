@@ -5,8 +5,6 @@ description: >-
   when user says "verify", "run checks", "check my changes", "pre-commit", or
   before committing changes.
 argument-hint: "[--scope frontend,backend,scripts] [--pr <number>]"
-model: claude-sonnet-4-6
-effort: medium
 ---
 
 # Goal
