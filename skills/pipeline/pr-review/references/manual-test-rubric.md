@@ -1,9 +1,10 @@
 # Manual Test Rubric
 
-A PR description's "How to test" section is the reviewer's verification hook. Automated
-tests catch regressions; manual tests catch things the automated suite was never written
-to check — integrations, failure-mode UX, config gates, anything that only surfaces when
-the feature actually runs.
+A PR description's "Manual validation" section is the reviewer's verification hook (legacy
+PRs may use `How to test`, `Manual smoke`, or other variants — the rubric is heading-tolerant).
+Automated tests catch regressions; manual tests catch things the automated suite was never
+written to check — integrations, failure-mode UX, config gates, anything that only surfaces
+when the feature actually runs.
 
 When AI writes both the code and the test plan, the risk is a plan that looks plausible
 but only exercises the happy path. This rubric gives Step 12b a depth-aware definition
@@ -16,13 +17,13 @@ human cost — for the author, the reviewer, and every future contributor who ru
 before merging a related change. When a scenario can be expressed as "run command X, assert
 condition Y," it should be an automated test, not a manual checklist item.
 
-> **Section headings do not exempt items from this rubric.** A section titled
-> "Manual validation", "Smoke test", or anything similar is the author's signal of
-> intent, not a verdict on automatability. Apply the rubric to each checkbox
-> individually — if it passes the automation test below, it should either be run
-> by the reviewer right now (per Step 9c of the pr-review skill) **or** converted
-> to a real test (per Step 12b's `Fail (automatable)` resolution). The presence of
-> a "Manual" heading is not a reason to skip either path.
+> **Section headings do not exempt items from this rubric.** "Manual validation" is the
+> author's signal of intent (and the auto-merge gate signal), not a verdict on
+> automatability. Apply the rubric to each checkbox individually — if it passes the
+> automation test below, it should either be run by the reviewer right now (per Step 9c
+> of the pr-review skill) **or** converted to a real test (per Step 12b's
+> `Fail (automatable)` resolution). The presence of a "Manual" heading is not a reason
+> to skip either path.
 
 Apply the **automation test** to every entry in the proposed manual section:
 

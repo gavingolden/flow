@@ -558,28 +558,25 @@ fails, escalate `NEEDS HUMAN: review-failed`.
 
 **Phase:** `gating`
 
-Apply `references/auto-merge-rubric.md`. Read the PR body, extract
-the `## Manual validation` section, strip HTML comments, trim:
+The heading contract — which heading to look for, what counts as
+empty / non-empty / missing — lives in **`references/auto-merge-rubric.md`**
+(single source of truth). Read it once if the section parsing isn't
+already cached in your head; otherwise apply it inline.
+
+Fetch the PR body, state, and merge commit; the rubric's four-step
+parse turns the body into one of `empty` / `non-empty` / `missing`.
+The decision matrix below combines that result with PR state and
+this pipeline's `autoMerge` opt-out:
 
 ```bash
 gh pr view "$PR" --json body,state,mergeCommit
-```
-
-**Per-pipeline opt-out.** Before consulting the rubric, read
-`autoMerge` from state.json:
-
-```bash
 AUTO_MERGE=$(jq -r '.autoMerge // true' ~/.flow/state/"$SLUG".json)
 ```
 
-If `AUTO_MERGE === false` (the user passed `flow new --no-auto-merge`,
-or `flow-state-update --no-auto-merge` was issued mid-flight), every
-`OPEN` PR routes to **gated** regardless of the Manual-validation
-content. The override is intentional: the user explicitly opted out
-of the auto-merge contract for this pipeline. `MERGED` and `CLOSED`
-states still take their normal branches below.
-
-Decision matrix:
+`AUTO_MERGE === false` means the user passed `flow new --no-auto-merge`
+(or `flow-state-update --no-auto-merge` was issued mid-flight): every
+`OPEN` PR routes to **gated** regardless of section content. `MERGED`
+and `CLOSED` states still take their normal branches.
 
 | State | Section after trim | autoMerge | Action |
 |---|---|---|---|
@@ -589,7 +586,7 @@ Decision matrix:
 | `MERGED` | (any) | (any) | Already merged externally. Go to step 10.5 (post-merge sweep) — **do not** run `gh pr merge`. After 10.5 returns, run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged ...`, print `MERGED`. End. |
 | `CLOSED` | (any) | (any) | Call `flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 
-**Defensive cases:**
+**Defensive cases** (full list in the rubric):
 
 - Manual-validation heading missing → escalate `NEEDS HUMAN:
   manual-validation-section-missing`. Don't treat as empty.

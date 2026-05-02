@@ -118,8 +118,11 @@ helper script that doesn't need an LLM at all.
   `refactor:`, `test:`). Imperative summary ≤ 50 chars. Body explains
   *why* — motivation, non-obvious choices, what was tried and didn't work.
   Trivial changes (typo, dep bump) may omit the body.
-- **PRs:** Why / What / Key decisions / User-facing changes / How to test,
-  in that order. The Why must read as a problem statement, not a feature spec.
+- **PRs:** Why / What / Key decisions / User-facing changes / Manual validation,
+  in that order. The Why must read as a problem statement, not a feature spec. The
+  Manual validation section is also the auto-merge gate signal — empty body ⇒
+  auto-merge, populated `- [ ]` items ⇒ gated. See
+  `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md` for the contract.
 - **Never amend pushed commits.** Make a new commit instead.
 - **Never force-push** without explicit user request.
 

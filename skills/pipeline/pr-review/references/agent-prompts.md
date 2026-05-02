@@ -256,8 +256,9 @@ Your concern is: **will the test suite catch regressions in the changed code?**
    - Are mocks correct — do they match the real interface? Could they mask a bug?
    - Is test data realistic or just placeholder values that skip interesting cases?
 6. Check the review checklist Test Environment section for vitest/SvelteKit-specific issues.
-7. Scan the PR description's "Manual smoke" / "How to test" section. For each manual
-   bullet, apply the **Automate first** test from `references/manual-test-rubric.md`:
+7. Scan the PR description's "Manual validation" section (legacy PRs may use "How to test"
+   or "Manual smoke"). For each manual bullet, apply the **Automate first** test from
+   `references/manual-test-rubric.md`:
    if the scenario can be expressed as fixture + deterministic assertion + exit
    condition without subjective judgment, it should be a test, not a manual checkbox.
    Flag each safely-automatable manual item with a sketch of the assertion and the
