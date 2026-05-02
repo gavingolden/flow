@@ -29,11 +29,12 @@ existing high-quality skills (`/product-planning`, `/new-feature`,
 
 A second simplification rides along: **flow installs globally under
 `~/.claude/`** rather than per-repo. No more `flow install` in each
-consumer repo, no managed `.gitignore` blocks, no per-repo symlinks
-for core flow. The single named exception is stack skills (svelte,
-supabase, tailwind-shadcn) under option B — see "Stack skills" in the
-Installation UX section; those are scoped per-project on purpose so
-they don't pollute every repo's skill resolution.
+consumer repo, no managed `.gitignore` blocks, no per-repo symlinks.
+Stack skills (svelte, supabase, tailwind-shadcn) install alongside
+pipeline + universal skills under the same `flow setup` step; their
+frontmatter `description:` triggers and `SKIP when` anti-triggers
+are the matching gate that keeps them from auto-loading in unrelated
+repos — see "Stack skills" in the Installation UX section.
 
 See [`alternate-architecture.md`](./alternate-architecture.md) for the
 full reasoning behind picking Design B over Designs A (GitHub-native)
@@ -376,16 +377,11 @@ flow attach <name>                tmux attach to a window  (alias: flow a)
 flow done <name>                  kill a window once the user is finished
 flow done --all-merged            kill every window in a terminal phase
 
-flow setup                        symlink skills, agents, scripts globally
+flow setup                        symlink skills (pipeline + universal + stacks), agents, scripts globally
 flow setup --upgrade              re-symlink, drop orphans
-flow setup --stack <name>         add a stack-specific skill bundle (e.g. svelte)
 flow migrate                      (per-repo) reverse old per-repo install (dry-run)
 flow migrate --apply              actually apply the cleanup
 flow migrate --scan <path>        dry-run across every git repo under a path
-
-flow stack add <name>             (per-repo) add a stack skill to one project (Item 1, option B)
-flow stack remove <name>
-flow stack list
 
 flow --help                       command help
 ```
@@ -471,10 +467,13 @@ flow setup
    `flow setup --upgrade` and the future `flow uninstall` know
    exactly what to reap.
 
-**No per-repo step for core flow.** Open any repo in Claude Code →
-all flow skills are already available. Stack skills (option B below)
-are the named exception: they install per-project on demand because
-they're stack-specific and shouldn't autoload everywhere.
+**No per-repo step.** Open any repo in Claude Code → all flow skills
+are already available, including the three stack skills. Each stack
+skill's frontmatter `description:` declares explicit `TRIGGER when`
+signals (file extensions, import strings, framework keywords) and
+`SKIP when` anti-triggers (competing-stack imports) so Claude Code's
+matcher only auto-loads them in matching contexts — see "Stack
+skills" below.
 
 ### Updating
 
@@ -489,20 +488,34 @@ manifest. No project gets touched — flow's own repo and `~/.claude/`
 
 ### Stack skills (svelte, supabase, tailwind-shadcn)
 
-These shouldn't be globally autoloaded — they'd pollute every
-project's skill resolution. Two options to be picked during Item 1:
+Stack skills install globally under `~/.claude/skills/` alongside
+pipeline + universal skills — `flow setup` discovers
+`skills/stacks/{svelte,supabase,tailwind-shadcn}/` via the same
+`SKILL_TIERS` constant in `bin/lib/sources.ts` that handles the
+other two tiers, and records each entry in `~/.flow/installed.json`
+so `flow setup --upgrade` reaps orphans correctly.
 
-- **A:** `flow setup --stack svelte` symlinks the stack into
-  `~/.claude/skills/` globally. Simple but pulls in stack skills for
-  *every* project.
-- **B (preferred):** `flow stack add svelte` (run inside a project)
-  symlinks `~/code/flow/skills/stacks/svelte/` into
-  `<repo>/.claude/skills/svelte/` and records it in a small managed
-  `.gitignore` block. **This is the one explicit exception to the
-  "zero per-repo footprint" goal stated above.** Stack skills are
-  scoped where they belong — the managed-block + symlink pattern is
-  retained from old flow's `flow install` because it's the right
-  shape for stack scoping, just narrowed to opt-in stack skills only.
+Scoping happens at the matcher layer rather than the install layer.
+Each stack skill's frontmatter `description:` follows a
+`<purpose>. TRIGGER when: <signals>. SKIP when: <anti-signals>`
+shape, where:
+
+- **TRIGGER** names file extensions, import strings, and framework
+  keywords that should match (e.g. `.svelte` files, imports from
+  `@supabase/supabase-js`, `tailwind-merge` / `clsx` imports).
+- **SKIP when** names competing stacks the skill must NOT match
+  (e.g. `react`/`vue` for `svelte`; `prisma`/`drizzle` for
+  `supabase`; `@mui/material`/`@chakra-ui/react` for
+  `tailwind-shadcn`).
+
+The trigger/anti-trigger contract is locked in by a regression test
+at `bin/lib/stack-skill-frontmatter.test.ts` so future edits can't
+silently relax it. See each skill's `SKILL.md` for the canonical
+description:
+
+- [`skills/stacks/svelte/SKILL.md`](../skills/stacks/svelte/SKILL.md)
+- [`skills/stacks/supabase/SKILL.md`](../skills/stacks/supabase/SKILL.md)
+- [`skills/stacks/tailwind-shadcn/SKILL.md`](../skills/stacks/tailwind-shadcn/SKILL.md)
 
 ### Per-machine config
 
@@ -1492,10 +1505,12 @@ Done when:
    attach -t flow:csv-export:planning` is ambiguous to the tmux
    parser. The status-file approach also avoids a `tmux rename-window`
    call on every phase transition.
-6. **Stack skill placement.** Per-machine global symlink (`flow
-   setup --stack`) vs per-project on-demand (`flow stack add`). Item 1
-   picks one; the rest of the doc currently treats option B as
-   preferred but either is implementable.
+6. **Stack skill placement.** *Resolved: Item 20.* Stack skills
+   install globally via `flow setup` alongside pipeline + universal
+   skills; tightened frontmatter `description:` triggers and
+   `SKIP when` anti-triggers are the matching gate, not a per-project
+   install step. See the "Stack skills" subsection under
+   "Installation UX" for the chosen design.
 
 ---
 

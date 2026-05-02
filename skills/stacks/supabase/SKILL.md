@@ -1,10 +1,17 @@
 ---
 name: supabase
 description: >-
-  Modify the PostgreSQL database schema, write Supabase migrations, add indexes,
-  configure RLS policies, or regenerate TypeScript types. Use when user says
-  "create migration", "add column", "schema change", "generate types", "add RLS",
-  "database index", or "update seed data".
+  Modify the PostgreSQL database schema, write Supabase migrations, add
+  indexes, configure RLS policies, or regenerate TypeScript types. TRIGGER
+  when: files under `supabase/migrations/*.sql`, `supabase/seed.sql`, or
+  `supabase/config.toml`; imports from `@supabase/supabase-js`,
+  `@supabase/ssr`, or `@supabase/auth-helpers-*`; references to the
+  generated `database.types.ts`; keywords "Supabase", "RLS", "Postgres
+  migration", "RPC", "pgvector", "create migration", "add column",
+  "generate types". SKIP when: file imports `@prisma/client`,
+  `drizzle-orm`, `typeorm`, `mongoose`, `kysely`, `mysql2`, `mariadb`, or
+  `sqlite3`; the project's database layer is Prisma, Drizzle, TypeORM,
+  Mongoose, or any non-Postgres engine.
 ---
 
 # Goal
