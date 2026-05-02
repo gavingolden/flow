@@ -157,7 +157,7 @@ The runner's `unfinishedStatuses` arrays for the new phases:
 
 On retry, append the prior failure log (truncated to last 200 lines + lines matching `/error|fail|panic/i`, both bounded to 4 KB combined) to the next attempt's prompt — same shape as M2's existing `lastFailure` mechanism in `implement.ts`.
 
-On 3-attempt exhaustion: write the failure log to `## Phase outputs > verify`, set `paused_at_phase: "verify"`, transition to `needs-human` with reason `verify cap 3 exhausted; counts: verify=N ci=N implement=N review=N`. Per the triage's "still open the PR" rule, the PR is already open from phase 3; verify-failure inside the loop just records the failure on the task — it never blocks a PR from existing. (The "open PR with failing verify in Manual validation" rule applies only to the Phase 3 amendment, where the PR has not yet opened.)
+On 3-attempt exhaustion: write the failure log to `## Phase outputs > verify`, set `paused_at_phase: "verify"`, transition to `needs-human` with reason `verify cap 3 exhausted; counts: verify=N ci=N implement=N review=N`. Per the triage's "still open the PR" rule, the PR is already open from phase 3; verify-failure inside the loop just records the failure on the task — it never blocks a PR from existing. (The "open PR with failing verify in Test Steps" rule applies only to the Phase 3 amendment, where the PR has not yet opened.)
 
 When verify passes on attempt > 1, append a flake note to `## Phase outputs > verify`: e.g. `verify: 2/3 passed (1 retry — suspected flake)`.
 
@@ -226,7 +226,7 @@ On red CI:
 
 ### Posting findings
 
-Per `feedback_pr_review_comment_style` (user memory): findings post as **individual inline comments**, not a formal review (`gh pr review` with `--request-changes`). Each finding becomes a `gh api` POST to `/repos/.../pulls/<pr>/comments`. The `/pr-review` skill already supports this output mode; M3 invokes it with the right flag (or wrapping prompt instruction, mirroring how `implement.ts` injects the Manual validation rule).
+Per `feedback_pr_review_comment_style` (user memory): findings post as **individual inline comments**, not a formal review (`gh pr review` with `--request-changes`). Each finding becomes a `gh api` POST to `/repos/.../pulls/<pr>/comments`. The `/pr-review` skill already supports this output mode; M3 invokes it with the right flag (or wrapping prompt instruction, mirroring how `implement.ts` injects the Test Steps rule).
 
 ### Critical detection
 
@@ -244,7 +244,7 @@ The `/pr-review` skill itself produces a markdown report — not a parseable JSO
 ]
 ```
 
-This mirrors how `implement.ts` injects the Manual validation rule via prompt suffix. The contract is owned by `runReviewPhase` (it builds the prompt and parses the result); if the skill's report format ever evolves to natively emit JSON, the wrapping prompt becomes a no-op.
+This mirrors how `implement.ts` injects the Test Steps rule via prompt suffix. The contract is owned by `runReviewPhase` (it builds the prompt and parses the result); if the skill's report format ever evolves to natively emit JSON, the wrapping prompt becomes a no-op.
 
 If the JSON block is missing or unparseable, the phase fails with `failed` (not `needs-human`) — the runner's retry budget for review covers a one-attempt re-prompt before escalating.
 

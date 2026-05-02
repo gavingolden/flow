@@ -26,13 +26,13 @@ Status transitions: `worktree-ready → implementing → pr-open`.
 `pr-open` is the M2 terminal status — M3 phases (verify, ci, review)
 take over from there.
 
-## Wrapping prompt — the Manual validation rule
+## Wrapping prompt — the Test Steps rule
 
 `/new-feature` doesn't know about flow's auto-merge rule. The implement
 phase wraps the slash-command invocation with an instruction (the
-`MANUAL_VALIDATION_RULE` constant in
+`TEST_STEPS_RULE` constant in
 `src/pipeline/phases/implement.ts`) telling the skill to populate a
-`## Manual validation` section in the PR body when the diff matches
+`## Test Steps` section in the PR body when the diff matches
 risky-change heuristics:
 
 - a database migration

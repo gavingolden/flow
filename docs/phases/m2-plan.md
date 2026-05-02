@@ -220,7 +220,7 @@ spawned Claude session:
 
 1. The skill writes code, tests, commits, pushes a branch.
 2. It opens a GitHub PR using `gh pr create`.
-3. The PR description includes the **Manual validation** section with
+3. The PR description includes the **Test Steps** section with
    either populated steps (UI / DB / external API / behaviour change)
    or empty (refactor / docs).
 
@@ -268,11 +268,11 @@ export async function runImplementPhase(task: Task): Promise<PhaseResult> {
 `detectOpenedPr` runs `gh pr list --head <branch> --json number,headRefName`
 in the worktree and returns the first match.
 
-### Wrapping prompt — the Manual validation rule
+### Wrapping prompt — the Test Steps rule
 
 Append something like this to the `/new-feature` invocation:
 
-> When you write the PR description, include a `## Manual validation`
+> When you write the PR description, include a `## Test Steps`
 > section. Populate it with concrete steps if any of these apply: a
 > database migration, a new external API integration, a UI change
 > (`.svelte` files in `src/lib/`), or a behaviour change to a critical
@@ -322,7 +322,7 @@ export interface TaskFrontmatter {
   worktree: string | null;
   branch: string | null;
   pr: number | null;
-  manual_validation: boolean | null;
+  test_steps: boolean | null;
 }
 
 export interface Task {
@@ -440,9 +440,9 @@ pipeline list in M3 (verify, ci, review).
 
 - `flow run <id>` on a `triaged` task produces a PR on GitHub.
 - The task's frontmatter ends with: `status: pr-open`, `worktree`,
-  `branch`, `pr` populated. `manual_validation` still null (M4 sets
+  `branch`, `pr` populated. `test_steps` still null (M4 sets
   that).
-- The PR body has a `## Manual validation` section, populated or empty
+- The PR body has a `## Test Steps` section, populated or empty
   per heuristics.
 - Re-running `flow run <id>` on a `pr-open` task is a no-op (returns
   ok, exits cleanly, updates nothing).
@@ -475,7 +475,7 @@ cat .orchestrator/tasks/<id>.md  # status: pr-open, pr: 184 (or similar)
 git -C ../econ-data-add-badge log -1  # commit on the feature branch
 
 # Verify on GitHub:
-gh pr view 184  # has Manual validation section
+gh pr view 184  # has Test Steps section
 ```
 
 For each open question, capture the resolution in `phases/plan.md`,

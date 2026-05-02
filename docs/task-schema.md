@@ -56,7 +56,7 @@ target_repo: /Users/gavin/code/me/econ-data
 worktree: /Users/gavin/code/me/econ-data-add-portfolio-chart
 branch: gavin/add-portfolio-chart
 pr: 184
-manual_validation: false
+test_steps: false
 merge_commit: null
 ---
 ```
@@ -71,7 +71,7 @@ merge_commit: null
 | `worktree` | absolute path \| `null` | worktree phase | Created in M2. Null until phase 2 runs. |
 | `branch` | string \| `null` | worktree phase | Branch name created in the target repo. |
 | `pr` | integer \| `null` | implement phase | GitHub PR number. Null until phase 3 opens it. |
-| `manual_validation` | bool \| `null` | gate phase | True if the PR's "Manual validation" section is non-empty. Null before the gate runs. |
+| `test_steps` | bool \| `null` | gate phase | True if the PR's "Test Steps" section is non-empty. Null before the gate runs. |
 | `merge_commit` | string \| `null` | merge phase | SHA of the squash-merge commit on the base branch. Hard to recover after the fact (branch deleted, PR squashed) so we capture it explicitly. Null until M4's merge phase runs. |
 | `review_cycles` | integer \| `null` | review phase | Number of review→implement(fix) loop-backs that completed successfully (i.e. `implement(fix)` returned ok). Null until review runs the first time, then 0; increments only after a successful fix, so a failed fix does not consume budget and resume re-runs the same cycle. Capped at 2; reaching the cap with critical-code findings still present escalates to `needs-human (review-cycles-exhausted)`. Persists across crashes so resume-mid-loop continues from the right cycle. |
 
@@ -127,7 +127,7 @@ nameWithOwner` call) and storing both numbers and URLs invites drift.
                                                                        │
                               ┌────────────────────────────────────────┤
                               ▼                                        ▼
-                   gated  (manual_validation = true)         merging  (manual_validation = false)
+                   gated  (test_steps = true)         merging  (test_steps = false)
                               │                                        │
                               ▼ (user merges PR; flow run resumes)     │
                            merging                                     │
@@ -246,7 +246,7 @@ other phases' subsections.
 - Files changed: src/lib/domain/dashboard/portfolio-chart.svelte, …
 - Tests added: 4
 - PR: #184
-- Manual validation flagged: yes (UI change)
+- Test Steps flagged: yes (UI change)
 
 ### verify
 - 1230/1230 PASS, lint clean

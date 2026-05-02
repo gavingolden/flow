@@ -69,7 +69,7 @@ If there were no review comments: "No review comments were found on this PR."
 
 ---
 
-### Manual Validation (from PR description)
+### Test Steps (from PR description)
 
 Mirror the PR body's checklist with verification status. One line per item.
 
@@ -78,7 +78,8 @@ Mirror the PR body's checklist with verification status. One line per item.
 - [ ] `<item as written>` — not run: <one-line reason: requires browser, needs prod creds, subjective UI judgment, etc.>
 
 If every item was ticked: "All items ticked — PR body updated."
-If the section was missing: "No 'Manual validation' section to verify; flagged in 11b." If the section was empty (auto-merge state per the rubric): "Manual validation section empty — auto-merge state, no items to verify."
+If the section was missing: "No 'Test Steps' section to verify; flagged in 11b."
+If the section had no unchecked items (auto-merge state per the rubric): "Test Steps section had no unchecked items — auto-merge state, no items to verify."
 
 ---
 

@@ -160,18 +160,24 @@ describe("flow-pipeline supervisor SKILL.md", () => {
       expect(step6).toMatch(SAME_TURN_GLOSS);
     });
 
-    it("step 7 End-condition tells supervisor to continue to step 8 (proceed-to-review), step 10.5 (merged externally), and step 5 (ci-failed mode=fix), all in the same turn", () => {
+    it("step 7 End-condition tells supervisor to continue to step 8 (proceed-to-review) and step 5 (ci-failed mode=fix) in the same turn; finalizes merged-externally inline", () => {
       const step7 = sliceStep(readSkill(), "## Step 7 ");
       // proceed-to-review
       expect(step7).toMatch(continueToStep("8"));
-      // merged externally → post-merge sweep
-      expect(step7).toMatch(continueToStep("10.5"));
       // ci-failed → step 5 mode=fix (subject to fix-loop cap)
       expect(step7).toMatch(continueToStep("5"));
-      // All three transitions need the same-turn gloss; counting
-      // occurrences keeps the test honest if a future edit drops one.
+      // merged externally is now a terminal: no continue-to-step
+      // because step 10.5 was removed (#71). The cleanup
+      // (`flow-remove-worktree`, write `phase: merged`, print
+      // `MERGED`) all runs in the same turn, then ends.
+      expect(step7).toMatch(/merged externally/i);
+      expect(step7).toMatch(/flow-remove-worktree/);
+      expect(step7).toMatch(/print `MERGED`/);
+      // The two "continue to step X" transitions need the same-turn
+      // gloss; counting keeps the test honest if a future edit drops
+      // one.
       const matches = step7.match(new RegExp(SAME_TURN_GLOSS, "g")) ?? [];
-      expect(matches.length).toBeGreaterThanOrEqual(3);
+      expect(matches.length).toBeGreaterThanOrEqual(2);
     });
 
     it("step 3 feature-intent branch still ends the turn at plan-pending-review (the do-not-end-turn rule must not break this)", () => {

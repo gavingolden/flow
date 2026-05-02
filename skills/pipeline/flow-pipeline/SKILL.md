@@ -186,11 +186,10 @@ in-process for skills; shell out for scripts; never delegate.
 > Every other transition — step 2 → step 3, the non-feature step 3 →
 > step 5 path, the step 4 affirmative → step 5 path, step 5 → step
 > 5.5, step 5.5 → step 6, step 6 → step 7, step 7 → step 8 (or →
-> step 5 mode=fix), step 8 → step 7 (or → step 9), step 9 → step 10,
-> step 10 → step 10.5 — happens in the same turn. The
-> continue-immediately sentences inline at each step's End-condition
-> stanza are the localised reminder; this Hard rule is the global
-> invariant.
+> step 5 mode=fix), step 8 → step 7 (or → step 9), step 9 → step 10
+> — happens in the same turn. The continue-immediately sentences
+> inline at each step's End-condition stanza are the localised
+> reminder; this Hard rule is the global invariant.
 
 # Notifications
 
@@ -586,13 +585,13 @@ Do not silently re-invent the override claim — if the doc still says
 
 After three failed outer attempts, escalate `NEEDS HUMAN:
 verify-exhausted`. Surface the final failure log on the PR body's
-`## Manual validation` section as a `> [!CAUTION]` block (idempotent —
+`## Test Steps` section as a `> [!CAUTION]` block (idempotent —
 edit-in-place, do not stack):
 
 ```bash
 mkdir -p "$WORKTREE/.flow-tmp"
 gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
-# upsert caution block under ## Manual validation, then
+# upsert caution block under ## Test Steps, then
 gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
@@ -751,14 +750,14 @@ After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
 **End condition:** decision is "proceed to review", "merged
 externally", "ci-failed → step 5 mode=fix", or escalation. On
 "proceed to review": **continue immediately to step 8 in the same
-turn — do not end the turn.** On "merged externally": **continue
-immediately to step 10.5 in the same turn — do not end the turn**
-(route into the post-merge sweep, then `flow-remove-worktree`,
-write `phase: merged`, print `MERGED`, end). On "ci-failed → step 5
-mode=fix" (subject to the 3-loop fix-loop cap above): **continue
-immediately to step 5 in the same turn — do not end the turn.** The
-red-CI summary printed by `gh pr checks` is a localised end of one
-poll cycle, not a session boundary.
+turn — do not end the turn.** On "merged externally": run
+`flow-remove-worktree`, write `phase: merged`, print `MERGED`, end —
+the roadmap row was already self-marked in the PR's diff by
+`/pr-review` step 7.5, so no post-merge sweep is required. On
+"ci-failed → step 5 mode=fix" (subject to the 3-loop fix-loop cap
+above): **continue immediately to step 5 in the same turn — do not
+end the turn.** The red-CI summary printed by `gh pr checks` is a
+localised end of one poll cycle, not a session boundary.
 
 ## Step 8 — Review
 
@@ -804,14 +803,15 @@ fails, escalate `NEEDS HUMAN: review-failed`.
 **Phase:** `gating`
 
 The heading contract — which heading to look for, what counts as
-empty / non-empty / missing — lives in **`references/auto-merge-rubric.md`**
-(single source of truth). Read it once if the section parsing isn't
-already cached in your head; otherwise apply it inline.
+no-unchecked-items / has-unchecked-items / missing — lives in
+**`references/auto-merge-rubric.md`** (single source of truth). Read
+it once if the section parsing isn't already cached in your head;
+otherwise apply it inline.
 
 Fetch the PR body, state, and merge commit; the rubric's four-step
-parse turns the body into one of `empty` / `non-empty` / `missing`.
-The decision matrix below combines that result with PR state and
-this pipeline's `autoMerge` opt-out:
+parse turns the body into one of `no-unchecked` / `has-unchecked` /
+`missing`. The decision matrix below combines that result with PR
+state and this pipeline's `autoMerge` opt-out:
 
 ```bash
 gh pr view "$PR" --json body,state,mergeCommit
@@ -823,18 +823,18 @@ AUTO_MERGE=$(jq -r '.autoMerge // true' ~/.flow/state/"$SLUG".json)
 `OPEN` PR routes to **gated** regardless of section content. `MERGED`
 and `CLOSED` states still take their normal branches.
 
-| State | Section after trim | autoMerge | Action |
+| State | Unchecked items | autoMerge | Action |
 |---|---|---|---|
-| `OPEN` | empty | `true` (default) | Go to step 10 (auto-merge). |
-| `OPEN` | empty | `false` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "auto-merge opted out"`. Print: `GATED:`, the PR URL, and `merge with: gh pr merge --squash <PR>`. End. |
-| `OPEN` | non-empty | (any) | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "<first validation step>"`. Print: `GATED:`, the PR URL, the validation steps verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
+| `OPEN` | `0` | `true` (default) | Go to step 10 (auto-merge). |
+| `OPEN` | `0` | `false` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "auto-merge opted out"`. Print: `GATED:`, the PR URL, and `merge with: gh pr merge --squash <PR>`. End. |
+| `OPEN` | `> 0` | (any) | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "<first unchecked item>"`. Print: `GATED:`, the PR URL, the unchecked items verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
 | `MERGED` | (any) | (any) | Already merged externally. **Do not** run `gh pr merge`. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged ...`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
 | `CLOSED` | (any) | (any) | Call `flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 
 **Defensive cases** (full list in the rubric):
 
-- Manual-validation heading missing → escalate `NEEDS HUMAN:
-  manual-validation-section-missing`. Don't treat as empty.
+- Test Steps heading missing → escalate `NEEDS HUMAN:
+  test-steps-section-missing`. Don't treat as no-unchecked.
 - `gh` non-zero or unparseable JSON → escalate `NEEDS HUMAN:
   gh-error <stderr>`.
 
