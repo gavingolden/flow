@@ -31,7 +31,7 @@ capped by the 20-min wall-clock budget below:
 even at the 30s baseline; the ramp's purpose is to bound supervisor-
 session token cost as the wait stretches, not to ease load on
 GitHub. The ramp was activated in Item 19 (the response to Item 6
-cost reporting) — before that, the loop sleeped 30s on every
+cost reporting) — before that, the loop slept 30s on every
 iteration regardless of `POLLS`.
 
 **Unconditional on the first iteration** — empty `gh` results never
@@ -63,9 +63,12 @@ ramp tier — `30` for polls 1–5, `60` for polls 6–10, `90` from poll
 calls fail or hang, the user still sees the iteration started.
 
 The line has no fixed `/N` denominator: with the ramp, the
-worst-case poll count is `5 + 5 + ⌈(1200 − 5×30 − 5×60)/90⌉ = 19`
-rather than 40, and printing a hard-coded `/40` would be misleading.
-The 20-min budget is still printed as `elapsed Xm Ys of 20m`.
+worst-case poll count is ~20 — the 19th poll fires at elapsed ≈
+1170s (`5×30 + 5×60 + 8×90`) and the 20th is the iteration whose
+start-of-loop cap check (`ELAPSED >= 1200`) finally trips, versus
+40 under the pre-ramp 30s-fixed cadence. Printing a hard-coded
+`/40` would be misleading. The 20-min budget is still printed as
+`elapsed Xm Ys of 20m`.
 
 ## Presence checks
 
@@ -229,8 +232,8 @@ The supervisor's polling loop is a Bash tool call followed by a
 separate "agent invocation" per poll. Every poll's tool result
 appends to the conversation, but the payloads are small (CI JSON +
 reviews JSON ≈ 1-2 KB each). Under the active ramp (30s × 5, 60s ×
-5, 90s thereafter, 20-min cap), the worst-case poll count is ~19,
-giving ~19 polls × 2-4 KB = ~38-76 KB of conversation growth in the
+5, 90s thereafter, 20-min cap), the worst-case poll count is ~20,
+giving ~20 polls × 2-4 KB = ~40-80 KB of conversation growth in the
 worst case — roughly half what the pre-ramp 30s-fixed cadence
 (~40 polls, ~80-160 KB) produced. The ramp is the cost lever Item 19
 activated in response to Item 6 cost reporting; it bounds wait-phase

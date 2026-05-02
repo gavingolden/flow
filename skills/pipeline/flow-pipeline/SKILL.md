@@ -571,7 +571,11 @@ Sleep + poll loop. Cadence + cap from
   posted," never "skip the wait." Only the presence checks below
   can legitimately short-circuit. Orthogonal to the ramp.
 - 20-min hard cap from first poll. Worst-case poll count under the
-  ramp is ~19 (5 × 30s + 5 × 60s + 9 × 90s ≈ 1200s).
+  ramp is ~20 — the 19th poll fires at elapsed ≈ 1170s
+  (`5×30 + 5×60 + 8×90`) and the 20th is the iteration whose
+  start-of-loop cap check (`ELAPSED >= 1200`) finally trips. See
+  `references/polling-protocol.md` § "Per-poll counter" for the
+  derivation.
 - Bot review timeout: 10 min after CI goes terminal.
 
 ### One-shot presence checks (before the first poll)
@@ -646,7 +650,7 @@ echo "CI poll $POLLS, elapsed ${MIN}m${SEC}s of 20m, cadence ${CADENCE}s"
 shows the active ramp tier (30/60/90); the formal schedule lives in
 `references/polling-protocol.md` § "Cadence schedule". There's no
 fixed `/N` denominator on the line because the worst-case poll count
-varies with the ramp (~19 at the cap, not 40). The actual cap is the
+varies with the ramp (~20 at the cap, not 40). The actual cap is the
 20-min wall-clock check below, not a poll-count guard.
 
 ### Loop body (in the supervisor's own turn)
