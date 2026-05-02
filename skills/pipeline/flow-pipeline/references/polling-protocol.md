@@ -18,7 +18,10 @@ calls inside one conversation turn.
 
 - **Initial cadence:** 30 seconds between polls. (Matches the
   legacy `ci-wait.ts` baseline; `gh pr checks` JSON is small and
-  GitHub rate limits are generous at this rate.)
+  GitHub rate limits are generous at this rate.) **Unconditional on
+  the first iteration** — empty `gh` results never short-circuit
+  the wait when presence is affirmed; only the presence checks
+  below can legitimately skip.
 - **Optional back-off:** documented but **not active in PR 2**. If
   cost telemetry from PR 6 shows the in-turn token cost growing,
   switch to: 30s for the first 5 polls, then 60s, then 90s. Pinned
@@ -29,6 +32,83 @@ calls inside one conversation turn.
 **20 minutes from the first poll.** If neither CI nor a bot review
 has reached a terminal state by then, escalate `NEEDS HUMAN: ci-hang
 <url>` and end. The PR + worktree are preserved.
+
+## Per-poll counter
+
+Each iteration prints exactly one summary line on stdout so the user
+reading scrollback (or attaching mid-wait) can see progress at a
+glance:
+
+```
+CI poll <N>/40, elapsed <X>m<Y>s of 20m
+```
+
+`N` starts at 1 and increments each iteration; `40` is the cap (20
+min ÷ 30s cadence). `<X>m<Y>s` is wall-clock elapsed since the first
+poll began. The line is rendered before the gh calls fire — if the
+calls fail or hang, the user still sees the iteration started.
+
+## Presence checks
+
+The first poll on a freshly-opened PR may legitimately return empty
+results because nothing has been posted yet. To distinguish "not
+posted yet" (keep polling) from "not configured" (legitimately skip
+the wait), the supervisor runs two one-shot presence checks **once at
+loop entry**, before the first poll:
+
+### CI workflows
+
+```bash
+find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) \
+  -print -quit 2>/dev/null
+```
+
+Non-empty stdout → at least one workflow file exists → `CI_CONFIGURED=1`.
+Empty → `CI_CONFIGURED=0`; the supervisor treats `ci_passed` as vacuously
+true and never calls `gh pr checks`.
+
+This is a filesystem check, not an API call: the supervisor is already
+inside the worktree, the answer is deterministic from disk, and a
+filesystem stat costs nothing.
+
+### Copilot reviewer
+
+```bash
+gh pr view "$PR" --json reviewRequests \
+  --jq '[.reviewRequests[].login] | map(ascii_downcase) | join(",")'
+```
+
+If the configured Copilot login (`copilot-pull-request-reviewer` by
+default — see "Bot reviewer name" below) appears in the list,
+`COPILOT_REQUESTED=1`. Otherwise `COPILOT_REQUESTED=0`; the supervisor
+treats `copilot_posted` as vacuously true and never waits the 10-min
+bot timeout.
+
+### Why per-PR `reviewRequests` and not `gh api .../installations`
+
+The intuitive alternative — `gh api repos/<owner>/<repo>/installations`
+— requires a GitHub App JWT to authenticate. User tokens (which `gh`
+issues by default) get `401: A JSON web token could not be decoded`
+from that endpoint. Per-PR requested-reviewers is the right
+substitute: it answers a strictly more useful question ("is Copilot
+expected on **this** PR?") with no auth ceremony, and `scripts/ci-wait.ts`
+already uses the same approach via `prRequestedReviewers`.
+
+### Override semantics
+
+Once both presence flags are resolved, the per-poll derivations of
+`ci_passed` / `ci_failed` / `copilot_posted` are **overridden** as
+follows on every iteration:
+
+- `CI_CONFIGURED == 0` → `ci_passed := true`, `ci_failed := false`,
+  `ci_terminal := true` (vacuous; the `gh pr checks` call is also
+  skipped for the iteration).
+- `COPILOT_REQUESTED == 0` → `copilot_posted := true` (vacuous; the
+  10-minute bot-timeout branch in the decision matrix is unreachable).
+
+When both flags are 0 the loop exits on its first iteration without
+waiting, which is the correct behaviour for a repo with no CI and no
+bot reviewer configured.
 
 ## Per-poll commands
 
@@ -63,7 +143,10 @@ pr_state        := <`OPEN`, `MERGED`, `CLOSED`>
 
 ## Decision matrix
 
-Re-evaluate after each poll:
+Re-evaluate after each poll. The `ci_passed` / `ci_failed` /
+`copilot_posted` columns are the **post-override** values — see
+"Presence checks" above for how `CI_CONFIGURED=0` and
+`COPILOT_REQUESTED=0` short-circuit the corresponding waits.
 
 | `ci_passed` | `ci_failed` | `copilot_posted` | Elapsed | Decision |
 |---|---|---|---|---|
