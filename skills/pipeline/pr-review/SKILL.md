@@ -49,15 +49,15 @@ Reference files (read on demand, not upfront):
 
 - `references/review-checklist.md` — 3-part checklist: Universal (security, performance),
   Project-Specific (SvelteKit patterns), and Learned Patterns (grows from retrospectives).
-  Read at Step 4 when preparing agent context.
+  Read at Step 3 when preparing agent context.
 - `references/conventional-comments.md` — labeling framework (praise/nitpick/suggestion/
-  issue/todo/question) with decorations. Read at Step 4 when preparing agent context.
+  issue/todo/question) with decorations. Read at Step 3 when preparing agent context.
 - `references/agent-prompts.md` — prompt templates for the 4 specialized review agents.
-  Read at Step 4 when spawning agents.
+  Read at Step 3 when spawning agents.
 - `references/manual-test-rubric.md` — depth rubric for the "Manual validation" criterion
-  (happy/unhappy/edges + PR-type scenario menus). Read at Step 12 when evaluating
+  (happy/unhappy/edges + PR-type scenario menus). Read at Step 11 when evaluating
   description Testability.
-- `references/report-template.md` — output format for the final report. Read at Step 13.
+- `references/report-template.md` — output format for the final report. Read at Step 12.
 
 # Instructions
 
@@ -84,32 +84,20 @@ Then perform pre-flight checks on the output:
    - 1000+ lines: note as an `issue (non-blocking)` recommending the PR be split
 4. Save the full fetch output — you'll need different sections at different steps.
 
-## 3. Determine Mode
-
-The skill operates in two modes:
-
-- **Address mode**: The fetch output contains inline review comments (look for the
-  "Inline Comments" section with actual comments). This is the default when comments exist.
-- **Review mode**: No inline review comments exist, OR the user explicitly asked for a
-  "review" or "code review" (not "address comments" or "fix review comments").
-
-If the PR has comments but the user's phrasing suggests they want a fresh review rather
-than addressing comments, ask which mode they want.
-
-Both modes share the independent review (Steps 4-5) and diverge after.
-
-## 4. Independent Multi-Agent Review
+## 3. Independent Multi-Agent Review
 
 This is the core of the skill. You will spawn 4 specialized review agents in parallel,
 each examining the PR from a different angle. Their independent perspectives catch more
 than any single reviewer could.
 
-**Task-tool fan-out is intentional.** Step 4 spawns the four review agents via the Task
-tool. When `/pr-review` is loaded in-process by `/flow-pipeline` (the supervisor's step
-8), this fan-out is permitted by the named Task-tool exception in
-`skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section. Outside the supervisor
-context (e.g. invoked directly from a user session), the Task tool is unrestricted, so
-the fan-out runs identically. Either path: four agents in parallel, then merge.
+**Task-tool fan-out is intentional.** This step ("Independent Multi-Agent Review")
+spawns the four review agents via the Task tool. When `/pr-review` is loaded in-process
+by `/flow-pipeline` (the supervisor's step 8), this fan-out is permitted by the named
+Task-tool exception in `skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section
+(itself anchored on this step's heading name, not its number, so it survives future
+renumbering). Outside the supervisor context (e.g. invoked directly from a user session),
+the Task tool is unrestricted, so the fan-out runs identically. Either path: four agents
+in parallel, then merge.
 
 **Preparation** (before spawning):
 
@@ -122,7 +110,7 @@ the fan-out runs identically. Either path: four agents in parallel, then merge.
    Per `AGENTS.md`, commit bodies are expected to capture the **why**, non-obvious design
    choices, and approaches that were tried and rejected. Use these as primary context for
    the review — they explain intent that the diff alone cannot convey. If a commit body
-   is missing or only restates the diff, flag it in Step 12 as a `suggestion` so the
+   is missing or only restates the diff, flag it in Step 11 as a `suggestion` so the
    author can backfill context in the PR description.
 4. Read `references/agent-prompts.md` for the prompt templates.
 
@@ -152,7 +140,7 @@ Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `l
 
 Wait for all 4 agents to complete before proceeding.
 
-## 5. Merge and Filter Findings
+## 4. Merge and Filter Findings
 
 Collect all agent findings and apply these filters:
 
@@ -170,9 +158,11 @@ Collect all agent findings and apply these filters:
    when no specific positive observation can be made.
 4. **Sort**: Blocking findings first, then by file path, then by line number.
 
-## 6. Retrospective (Address mode only)
+## 5. Retrospective
 
-NOW read the review comments from Step 2's fetch output. This is the self-improvement step.
+If the fetch output contained no inline review comments, this step is a no-op — record "No reviewer comments to retrospect against" for the report and skip to Step 6.
+
+Otherwise, read the review comments from Step 2's fetch output. This is the self-improvement step.
 
 1. **Map findings to comments**: For each reviewer comment, check if any agent finding
    covers the same file + line region and the same issue. A "match" means agents independently
@@ -186,10 +176,10 @@ NOW read the review comments from Step 2's fetch output. This is the self-improv
    template at the bottom of the checklist. Include the PR number for traceability.
 5. Record coverage stats for the report: "X of Y reviewer findings independently caught."
 
-## 7. Address Agent Findings (Both modes)
+## 6. Address Agent Findings
 
 The multi-agent review exists to catch real issues — not to produce a report. For every
-finding in the filtered set (Step 5), you must either fix it now or escalate it to a
+finding in the filtered set (Step 4), you must either fix it now or escalate it to a
 durable tracker. Silently listing findings in the report without action is a failure mode.
 
 **Pre-flight mode assertion (do not skip).** You are in fix-now mode — you MUST attempt
@@ -256,9 +246,11 @@ After addressing, record for the report:
   without a tracker reference is a verification failure — go back and add the entry before
   producing the report.
 
-## 8. Address Each Review Comment (Address mode only)
+## 7. Address Each Review Comment
 
-For each inline comment from the fetch output:
+If the fetch output contained no inline comments, this step is a no-op — skip to Step 8.
+
+Otherwise, for each inline comment from the fetch output:
 
 1. Open the referenced file at the specified line.
 2. Read surrounding context to understand the comment fully.
@@ -269,7 +261,7 @@ For each inline comment from the fetch output:
 Push back on comments that are incorrect or would degrade code quality. Blindly accepting
 every suggestion is worse than thoughtfully declining some.
 
-## 9. Run Pre-Commit Checks and Commit (Both modes)
+## 8. Run Pre-Commit Checks and Commit
 
 Run the pre-commit checks with the PR number:
 
@@ -284,15 +276,15 @@ A non-zero exit code means a check failed. Do not explain it away — investigat
 issue, and re-run. Repeat until all checks pass. Run each check individually; never chain
 with `&&`.
 
-### 9b. Commit and push changes — auto, do not ask
+### 8b. Commit and push changes — auto, do not ask
 
-Once checks are green, **commit and push any uncommitted changes from Steps 7/8
+Once checks are green, **commit and push any uncommitted changes from Steps 6/7
 immediately**. Do not leave the working tree dirty for the user to clean up, and
 do not stop after `git commit` waiting for confirmation to push. Both halves are
 explicitly authorised by the `Auto-push exemption: pr-review` clause in `AGENTS.md`
 — invoking `/pr-review` *is* the user's explicit instruction to commit *and* push.
 The global no-auto-push default does not apply here; do not ask the user to
-confirm. Failing to push leaves the inline-comment replies in Step 10 anchored to
+confirm. Failing to push leaves the inline-comment replies in Step 9 anchored to
 a SHA the GitHub UI no longer has, which is the bug this exemption exists to
 prevent.
 
@@ -302,7 +294,7 @@ prevent.
   `(pr-review #<N>)` suffix in the subject, body explains the *why* (what the finding
   was), referencing the agent's category (e.g. "Bug-Detection", "Pattern-Consistency").
 - If the PR is **still open**: commit on the PR's branch and `git push` to it — the
-  inline comments in Step 11 will then anchor to a head SHA the new commit doesn't
+  inline comments in Step 10 will then anchor to a head SHA the new commit doesn't
   invalidate (use the pre-commit head SHA captured at Step 2).
 - If the PR is **already merged**: switch to `main`, pull, commit there, and `git push`.
   Do not leave fixes stranded on a merged branch.
@@ -310,13 +302,13 @@ prevent.
   protection, network) — in that case, surface the error to the user. "I wasn't sure
   if I should push" is not a valid reason; the exemption removes the ambiguity.
 
-### 9c. Run every runnable verification item and tick the boxes
+### 8c. Run every runnable verification item and tick the boxes
 
-After 9b's commit + push, run every runnable `- [ ]` item in the PR body, **regardless
+After 8b's commit + push, run every runnable `- [ ]` item in the PR body, **regardless
 of which section it lives under** — `Manual validation` is the canonical heading flow
 templates emit, but legacy or hand-edited PRs may still use `How to test`, `Manual smoke`,
 or other variants. The classification below is per-item, not per-section. The format note
-in 12b promises reviewers that checkbox state means something — leaving every box
+in 11b promises reviewers that checkbox state means something — leaving every box
 unticked after a successful run breaks that contract and forces the next reviewer
 (human or agent) to re-run everything from scratch.
 
@@ -352,7 +344,7 @@ from a terminal in this repo? If yes, run it.
 
 For each runnable item:
 
-1. Execute it exactly as written. Same discipline as Step 9 — a non-zero exit means
+1. Execute it exactly as written. Same discipline as Step 8 — a non-zero exit means
    investigate and fix the underlying issue, not explain it away.
 2. If a fix is needed, make a **new commit** (do not amend the pushed commit per
    `AGENTS.md`) and `git push` before re-running.
@@ -366,7 +358,7 @@ gh pr edit <number> --body-file /dev/stdin <<'EOF'
 EOF
 ```
 
-Apply the no-hard-wrap and preserve-existing-wrapping rules from 12e — do not reflow
+Apply the no-hard-wrap and preserve-existing-wrapping rules from 11e — do not reflow
 prose to flip a checkbox. The minimal diff is `[ ]` → `[x]`.
 
 Record unticked items in the report with a one-line reason
@@ -375,13 +367,15 @@ invent excuses for items you should run; the bar is "I literally cannot exec thi
 from a terminal in this repo."
 
 If the PR has no checklist items in any section, this step is a no-op — the
-missing-section case is handled by Step 12b/12e. If 12e later drafts new
+missing-section case is handled by Step 11b/11e. If 11e later drafts new
 items into either section, return here once on user confirmation to attempt to tick
 the new items before producing the final report.
 
-## 10. Reply to PR Comments (Address mode only)
+## 9. Reply to PR Comments
 
-Construct a JSON array of replies and pipe it to the reply helper:
+If there are no inline comments to reply to, this step is a no-op — skip to Step 10.
+
+Otherwise, construct a JSON array of replies and pipe it to the reply helper:
 
 ```bash
 echo '<json-array>' | flow-reply-pr-comments <pr-number>
@@ -397,13 +391,14 @@ Use a leading emoji for scannability:
 
 Keep replies to 1-2 sentences. Don't repeat the comment back.
 
-## 11. Post Findings to PR (Review mode only)
+## 10. Post Findings to PR
+
+This step runs on every invocation, including PRs that already have human or bot reviewer comments. Agents catch a different miss profile than human reviewers; suppressing them when comments exist would force readers to scrape the diff to discover what the agents found.
 
 Post each finding as an **individual inline review comment**, not as a batched formal
 review with an event wrapper. The formal-review wrapper creates a heavier-weight
 "X reviewed your PR" entry with an Approved / Requested-changes / Commented banner that
-is overkill for self-review and looks odd when findings are already addressed in the
-same run.
+is overkill for self-review.
 
 For each per-line finding, POST to the **comments** endpoint (not the **reviews**
 endpoint):
@@ -439,13 +434,13 @@ If there are any `blocking` findings, say so explicitly in the summary body — 
 inline-comments approach has no equivalent of `event="REQUEST_CHANGES"`, so the user
 needs to see the blocking flag in the summary itself.
 
-## 12. PR Description Quality Check (Both modes)
+## 11. PR Description Quality Check
 
 Evaluate the PR description for both accuracy and intent clarity. The description is the
 first thing a reviewer reads — if it's missing, vague, or misleading, the review starts
 from a deficit. This step acts as a safety net regardless of which skill created the description.
 
-**Cross-check against commit messages.** The commit bodies from Step 4 should capture the
+**Cross-check against commit messages.** The commit bodies from Step 3 should capture the
 **why**, design-choice rationale, and dead ends. If a commit body states a meaningful
 design decision (e.g. "chose X over Y because Z") and that rationale is missing from the
 PR description's **Key decisions** section, flag it for inclusion — reviewers shouldn't
@@ -453,7 +448,7 @@ have to read commit-by-commit to reconstruct intent. Conversely, if commit bodie
 uniformly one-liners on a non-trivial PR, note it as a `suggestion` that future commits
 should capture rationale inline (per `AGENTS.md` Committing rules).
 
-### 12a. Structure Check
+### 11a. Structure Check
 
 Check whether the PR description follows the standardized format with these sections:
 
@@ -467,9 +462,9 @@ Check whether the PR description follows the standardized format with these sect
 format above. This is the highest-priority fix in this step.
 
 **If the description exists but doesn't follow the format**: Do NOT restructure it. Instead,
-evaluate it against the criteria in 12b using its existing structure.
+evaluate it against the criteria in 11b using its existing structure.
 
-### 12b. Intent Clarity Evaluation
+### 11b. Intent Clarity Evaluation
 
 Evaluate the description (regardless of format) against these criteria:
 
@@ -513,10 +508,10 @@ typo fixes), happy-path only is acceptable; do not over-prescribe.
 **Format note (advisory, not a rubric criterion):** "Manual validation" should be a
 markdown checklist (`- [ ]` items) so reviewers can tick steps off as they verify. If the
 section is otherwise good but uses plain bullets, do not flag it as a Testability failure
-— but when you draft or edit a "Manual validation" section in Step 12e, always emit
+— but when you draft or edit a "Manual validation" section in Step 11e, always emit
 `- [ ]` items.
 
-### 12c. Deployment Follow-Up Check
+### 11c. Deployment Follow-Up Check
 
 Scan the diff for changes that require manual follow-up outside the codebase. For each item
 found, include exact commands (with `<PLACEHOLDER>` values matching `DEPLOYING.md` conventions)
@@ -547,12 +542,12 @@ so the deployer can copy-paste rather than hunt for syntax.
 - **Database migrations**: `supabase db push` against the linked remote project.
 
 If any follow-up items are found, include a **Deployment follow-up** section in the PR
-description (Step 12e) listing each action with the exact commands. This prevents "works
+description (Step 11e) listing each action with the exact commands. This prevents "works
 locally, breaks in prod" gaps.
 
-### 12d. Accuracy Sync
+### 11d. Accuracy Sync
 
-Compare the current implementation (diff + any changes from Steps 7–8) against the description:
+Compare the current implementation (diff + any changes from Steps 6–7) against the description:
 
 - Files or modules added that the description doesn't mention (only flag if they represent
   significant new capabilities, not supporting files)
@@ -561,7 +556,7 @@ Compare the current implementation (diff + any changes from Steps 7–8) against
 - Architectural approach that differs from what was described (e.g., description says
   "client-side only" but implementation adds a server endpoint)
 
-### 12e. Resolution
+### 11e. Resolution
 
 **Drafting conventions** (apply to every drafted/edited description in this step):
 
@@ -651,12 +646,12 @@ changing (focused on just the affected section is fine) and getting confirmation
 description is the author's voice — edits should improve clarity, not impose a rigid
 template.
 
-**After any 12e edit that adds `- [ ]` test items** (fail-shallow or fail-missing
-branches), re-run Step 9c against the newly added items to tick the runnable ones
+**After any 11e edit that adds `- [ ]` test items** (fail-shallow or fail-missing
+branches), re-run Step 8c against the newly added items to tick the runnable ones
 before producing the final report. fail-automatable runs its own tests inline and
 prunes the bullets, so it does not require re-entry.
 
-## 13. Structured Report (Both modes)
+## 12. Structured Report
 
 Read `references/report-template.md` and produce the full report. This is the most
 important output — the user needs a clear, at-a-glance summary of everything that happened.
@@ -664,10 +659,10 @@ important output — the user needs a clear, at-a-glance summary of everything t
 Always produce this report, even when there are no findings or comments. The report format
 covers: summary, findings (each annotated as **Addressed** or **Deferred with reason**),
 review comments addressed, pre-commit check results, PR description quality, and
-retrospective (address mode).
+retrospective.
 
 **The report MUST explicitly separate addressed vs deferred findings.** Never leave the
-reader guessing which findings were silently skipped — every finding surfaced in Step 5
+reader guessing which findings were silently skipped — every finding surfaced in Step 4
 must appear in one of the two buckets. If no findings were deferred, say so explicitly
 ("No findings deferred").
 
@@ -684,7 +679,7 @@ Commit any changes with a clear message referencing the PR number, then present 
 - **Vague feedback**: "This could be better" without a concrete suggestion is unhelpful.
   Every issue must include a fix.
 - **Duplicate findings across agents**: The merge step exists to prevent this. If you see
-  duplicates in the final output, the filtering in Step 5 failed.
+  duplicates in the final output, the filtering in Step 4 failed.
 - **Suppressing all findings on small PRs**: Even a 10-line PR can have a security
   vulnerability. Size doesn't determine review depth.
 
@@ -700,16 +695,13 @@ Commit any changes with a clear message referencing the PR number, then present 
   concrete reason (no silent skips)**
 - **Every deferred finding has a corresponding entry in a durable tracker (`ROADMAP.md`,
   GitHub Issue, Linear, etc.) committed in this run — the review report is not a tracker**
-- (Address mode) Retrospective in report comparing agent vs. reviewer findings
-- (Address mode) Review checklist updated if gaps identified
-- (Address mode) All review comments addressed or explicitly skipped with reason
-- (Address mode) Replies posted to each review comment
-- (Review mode) Findings posted as PR review via gh api
+- When inline review comments existed: every comment is addressed or explicitly skipped with reason, replies are posted, and the retrospective + checklist update appear in the report (or the report records "No reviewer comments to retrospect against" when none existed)
+- Findings posted as individual inline review comments via `gh api` on every invocation, including PRs that already have reviewer comments
 - Pre-commit checks pass (run individually, not chained)
 - PR description quality check completed
 - Structured report produced using the template format
 - **Report clearly labels each finding as Addressed or Deferred (+ reason) — no finding is
-  silently dropped between Step 5 and the report**
+  silently dropped between Step 4 and the report**
 
 # Constraints
 
@@ -735,5 +727,5 @@ Commit any changes with a clear message referencing the PR number, then present 
   in this run or explicitly deferred with a reason. The report must make that split visible.
 - NEVER defer a finding without writing a corresponding tracker entry (`ROADMAP.md`, GitHub
   Issue, Linear ticket, etc.) in the same run. Default to fix-now; deferral is reserved for
-  work that legitimately warrants a separate standalone agent session per the bar in Step 7.
+  work that legitimately warrants a separate standalone agent session per the bar in Step 6.
   A deferral that lives only in the review report will be lost when the PR merges.

@@ -54,7 +54,7 @@ and C (Claude Code supervisor session).
 
 ## Status table
 
-Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
+Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional · ❌ cancelled
 
 | Block | Adds | Status |
 |---|---|---|
@@ -65,11 +65,11 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ✅ shipped (#47) |
 | **Item 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ✅ shipped (#56) |
 | **Item 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ✅ shipped (#51) |
-| **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ⬜ queued |
-| **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ⬜ queued |
-| **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
+| **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ❌ cancelled (reverted in #57) |
+| **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ❌ cancelled (reverted in #57) |
+| **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | 🚧 in review (#60) |
 | **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ✅ shipped (#53) |
-| **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | 🚧 in review (#55) |
+| **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | ✅ shipped (#55) |
 | **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule (named exception); document that verify-retry escalation is prompt-side only (model + effort do not change per-invocation); re-symlink between phases when the worktree adds skills/agents | ✅ shipped (#58) |
 | **Item 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; file-lock-guarded `flow setup --upgrade` (`bin/lib/lock.ts`); crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ✅ shipped (#61) |
 | **Item 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ✅ shipped (#54) |
@@ -1005,7 +1005,7 @@ Design deviations from the original spec:
 
 ### Item 7 — per-skill model + effort tuning
 
-Status: ⬜ queued. Carry-forward from queued Phase 5 Item 20.
+Status: ❌ cancelled (reverted in #57). Carry-forward from queued Phase 5 Item 20.
 
 Done when:
 
@@ -1028,7 +1028,7 @@ Done when:
 
 ### Item 8 — eval harness
 
-Status: ⬜ queued. Carry-forward from queued Phase 5 Item 21.
+Status: ❌ cancelled (reverted in #57). Carry-forward from queued Phase 5 Item 21.
 
 Done when:
 
@@ -1042,14 +1042,14 @@ Done when:
 
 ### Item 11 — `pr-review` unified mode (collapse Address vs Review)
 
-Status: ⬜ queued.
+Status: 🚧 in review (#60).
 
 Why: Item 3 dropped the orchestrator-driven machine mode but left the
 older Address-vs-Review dichotomy in place. That dichotomy is largely
-cosmetic — Steps 6, 8, 10 already no-op when there are no inline
-comments to operate on. The one real divergence is that Step 11 (post
-agent findings as inline comments) is **suppressed** in Address mode,
-on the rationale "don't add noise when humans/Copilot have already
+cosmetic — most mode-gated steps already no-op when there are no
+inline comments to operate on. The one real divergence is that the
+post-agent-findings step is **suppressed** in Address mode, on the
+rationale "don't add noise when humans/Copilot have already
 commented." That trade-off is wrong: the agent's independent findings
 genuinely complement reviewer comments (different angles, different
 miss profiles), and forcing readers to scrape the diff to discover
@@ -1057,19 +1057,22 @@ what the agent caught is worse than a few extra inline comments.
 
 Done when:
 
-- [ ] `skills/pipeline/pr-review/SKILL.md` no longer has Step 3
-  ("Determine Mode") or any "(Address mode only)" / "(Review mode
-  only)" gating headings. Steps 6, 8, 10, 11 always run, with no-op
-  fallthrough when no inline comments exist.
-- [ ] Step 11 (post agent findings as inline review comments) runs on
-  **every** invocation — both when reviewer comments already exist
-  and when they don't.
-- [ ] Reference docs (`report-template.md`, etc.) reflect a single
+- [x] `skills/pipeline/pr-review/SKILL.md` no longer has a "Determine
+  Mode" step or any "(Address mode only)" / "(Review mode only)"
+  gating headings. The retrospective, address-each-comment, reply,
+  and post-findings steps always run, with no-op fallthrough when no
+  inline comments exist.
+- [x] The "Post Findings to PR" step (post agent findings as inline
+  review comments) runs on **every** invocation — both when reviewer
+  comments already exist and when they don't.
+- [x] Reference docs (`report-template.md`, etc.) reflect a single
   output flow with no mode-conditional sections.
-- [ ] Skill prompt is shorter (target: ≥ 30 lines net deletion just
-  from removing mode-conditional gating).
-- [ ] Any eval fixtures that pin mode-detection behaviour are
-  updated.
+- [x] Skill prompt is shorter (target: ≥ 30 lines net deletion just
+  from removing mode-conditional gating). Note: the actual net
+  deletion is ~10 lines; padding to hit a vanity number was declined.
+  See PR #60 commit body for the honest accounting.
+- [x] Any eval fixtures that pin mode-detection behaviour are
+  updated. (None existed at PR #60 time.)
 
 Out of scope: the multi-agent review architecture, the
 conventional-comments format, the auto-fix-vs-defer bar, the
@@ -1078,31 +1081,24 @@ changes. This is a control-flow simplification only.
 
 #### Known issues / follow-ups (carried forward from PR #46 + PR #57)
 
-- **Task-tool contract collision between `/pr-review` step 4 and
-  `/flow-pipeline` hard rules.** `/pr-review` step 4 instructs the
-  orchestrator to spawn 4 review agents in parallel (the inline-prompt
-  shape restored by PR #57, and equivalently the promoted-subagent
-  shape that PR #46 introduced). Both shapes require the `Task` /
-  `Agent` tool. `/flow-pipeline`'s hard rules
+- **Task-tool contract collision between `/pr-review`'s Independent
+  Multi-Agent Review and `/flow-pipeline` hard rules.** `/pr-review`
+  instructs the orchestrator to spawn 4 review agents in parallel (the
+  inline-prompt shape restored by PR #57, and equivalently the
+  promoted-subagent shape that PR #46 introduced). Both shapes require
+  the `Task` / `Agent` tool. `/flow-pipeline`'s hard rules
   (`skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" block and the
   step-10 verification "The supervisor never invoked the `Task` /
   `Agent` tool") forbid the supervisor from ever using `Task`. When
   `/flow-pipeline` step 8 loads `/pr-review` in-process, the
   supervisor's own hard rule blocks the multi-agent fan-out — the
-  pipeline review phase is not runnable as written. **Revisit
-  trigger:** before Item 11 lands — Item 11 re-touches step 4 (and
-  also step 11, the inline-comment posting), which is the natural
-  point to either (a) carve out an explicit Task exception in
-  `/flow-pipeline` for the review phase, (b) document a no-Task
-  fallback path in `/pr-review` that runs the 4 reviews sequentially
-  in-process when invoked by the supervisor, or (c) restructure the
-  multi-agent review to live behind a helper script that doesn't need
-  an LLM-spawning fan-out. Why deferred: picking between the three
-  requires a design decision on whether the supervisor's "single LLM
-  container" invariant survives or evolves; the choice rewrites the
-  step-4 contract, so it belongs in Item 11 alongside the unified-mode
-  collapse rather than as a standalone fix on this revert PR.
-  Originally surfaced on PR #46; re-raised by Copilot on PR #57.
+  pipeline review phase was not runnable as written. **Resolved in
+  PR #60** by option (a): a narrow, named Task-tool exemption in both
+  `AGENTS.md` and `skills/pipeline/flow-pipeline/SKILL.md`, anchored
+  on the step heading name ("Independent Multi-Agent Review") rather
+  than its mutable number, mirroring the auto-push and auto-merge
+  exemption pattern. Originally surfaced on PR #46; re-raised by
+  Copilot on PR #57.
 
 ### Item 12 — fix cross-pipeline worktree contamination (high priority)
 
@@ -1178,7 +1174,7 @@ run pipelines serially.
 
 ### Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep
 
-Status: 🚧 in review (#55).
+Status: ✅ shipped (#55).
 
 Why: Item 7's run surfaced two adjacent gaps in how `/flow-pipeline`
 finishes a pipeline.
@@ -1224,12 +1220,12 @@ process:
 
 (a) **Task-tool conflict.** `/flow-pipeline`'s hard rule: "the
 supervisor never invokes the Task / Agent tool" (one-level cap).
-`/pr-review`'s step 4 spawns four named subagents via Task. When
-the supervisor loads `/pr-review`, the rule transitively breaks.
-Item 7 saw the empirical fallback: the Task tool wasn't exposed in-
-session, and `/pr-review` collapsed to a single-reviewer pass.
-Tracker entry posted on PR #46 already names this; this PR resolves
-it.
+`/pr-review`'s "Independent Multi-Agent Review" step spawns four
+named subagents via Task. When the supervisor loads `/pr-review`,
+the rule transitively breaks. Item 7 saw the empirical fallback:
+the Task tool wasn't exposed in-session, and `/pr-review` collapsed
+to a single-reviewer pass. Tracker entry posted on PR #46 already
+names this; this PR resolves it.
 
 (b) **Verify-retry escalation is aspirational.** `/flow-pipeline`
 step 6 documents "pass model+effort overrides per-invocation" on
