@@ -247,8 +247,8 @@ decision + a brief rationale. Include scope exclusions that a reviewer might won
 
 ## User-facing changes
 
-<Concrete user-observable deltas — phrase in user terms ("you can now run `flow log <id>`"),
-not implementation terms ("added log subcommand to the CLI router"). Each user story's
+<Concrete user-observable deltas — phrase in user terms ("you can now run `flow ls --cost`"),
+not implementation terms ("added cost column to the ls renderer"). Each user story's
 externally observable change becomes a bullet here: walk the Stories section and, for every
 story whose acceptance criteria assert something a user sees or does differently, emit a
 bullet. Categories to consider: new CLI commands or subcommands, new flags or changed
@@ -258,8 +258,8 @@ changed file locations users interact with.
 Format: freeform bullets. For renames or removals, use a `Before → After` bullet so the
 delta reads at a glance. Example:
 
-- New command: `flow log <id>` opens the per-phase jsonl log for a task.
-- Before → After: `flow status` (removed) → `flow tasks` (lists all tasks with status column).
+- New flag: `flow ls --cost` adds a `$` column summed across the supervisor session.
+- Before → After: `flow install` (removed) → `flow setup` (global install via symlink).
 
 If the PRD describes a pure-internal change (refactor, infra, no user-observable delta),
 write the literal word `none` under the heading. Never delete the heading — `none` is an

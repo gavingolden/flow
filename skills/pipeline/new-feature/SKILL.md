@@ -33,7 +33,7 @@ acceptance criteria as `it.todo()` test specs, and mandatory test implementation
 - Skill consultation: before writing `.svelte` files, read the `svelte` skill. Before writing
   tests, read the `testing` skill. Before UI/layout work, read the `tailwind-shadcn` skill.
   Before database/migrations, read the `supabase` skill. (Names assume the canonical stack
-  skills installed by `flow install`; substitute whatever your project uses.)
+  skills installed by `flow setup`; substitute whatever your project uses.)
 
 # Instructions
 
@@ -139,8 +139,8 @@ body per `AGENTS.md` — so future reviewers and agents don't retrace dead ends.
 
 ## User-facing changes
 
-<Concrete user-observable deltas — phrase in user terms ("you can now run `flow log <id>`"),
-not implementation terms ("added log subcommand to the CLI router"). Consider these
+<Concrete user-observable deltas — phrase in user terms ("you can now run `flow ls --cost`"),
+not implementation terms ("added cost column to the ls renderer"). Consider these
 categories: new CLI commands or subcommands, new flags or changed defaults,
 renamed/removed commands, changed prompts or output formats, new env vars, and changed
 file locations users interact with. Derive each bullet from the matching `it.todo()` spec
@@ -150,8 +150,8 @@ surface, or a side effect users can see should produce a bullet here.
 Format: freeform bullets. For renames or removals, use a `Before → After` bullet so the
 delta reads at a glance. Example:
 
-- New command: `flow log <id>` opens the per-phase jsonl log for a task.
-- Before → After: `flow status` (removed) → `flow tasks` (lists all tasks with status column).
+- New flag: `flow ls --cost` adds a `$` column summed across the supervisor session.
+- Before → After: `flow install` (removed) → `flow setup` (global install via symlink).
 
 If the change is pure-internal (refactor, infra, no user-observable delta), write the literal
 word `none` under the heading. Never delete the heading — `none` is an explicit author

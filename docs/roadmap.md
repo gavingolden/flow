@@ -72,7 +72,7 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | ⬜ queued |
 | **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
 | **Item 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
-| **Item 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ⬜ queued |
+| **Item 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ✅ shipped (#54) |
 | **Item 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
 | **Item 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped Item 17. | ✅ shipped (#48) |
 
@@ -1329,7 +1329,7 @@ Done when:
 
 ### Item 16 — supervisor polling discipline
 
-Status: ⬜ queued.
+Status: ✅ shipped (#54).
 
 Why: Item 7's CI/Copilot wait step terminated after a single empty
 poll. Both `gh pr checks` and `gh pr view --json reviews` returned
@@ -1344,18 +1344,20 @@ The supervisor must respect them.
 
 Done when:
 
-- [ ] Step 7's poll loop in `flow-pipeline/SKILL.md` makes the 30s
+- [x] Step 7's poll loop in `flow-pipeline/SKILL.md` makes the 30s
   cadence + 20-min cap unconditional on the first iteration. Empty
   results on the first poll mean "not yet posted," never "skip the
   wait."
-- [ ] Distinguish "no CI workflow exists" (presence check on
+- [x] Distinguish "no CI workflow exists" (presence check on
   `.github/workflows/*.yml`) from "CI hasn't reported yet" (gh API
   returned empty). The former legitimately skips the wait; the
   latter does not.
-- [ ] Same distinction for Copilot: check repo settings / app
-  installation (e.g. via `gh api repos/<owner>/<repo>/installations`),
-  not just the empty review list.
-- [ ] Surface a concrete poll counter in scrollback ("CI poll 3/40,
+- [x] Same distinction for Copilot: check requested reviewers on the
+  PR (`gh pr view --json reviewRequests`) rather than the
+  `installations` API — that endpoint requires a GitHub App JWT and
+  401s for user tokens. The `reviewRequests` approach matches what
+  `scripts/ci-wait.ts` already uses.
+- [x] Surface a concrete poll counter in scrollback ("CI poll 3/40,
   elapsed 1m30s of 20m") so the user can see the wait progressing
   rather than guessing.
 
