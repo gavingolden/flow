@@ -212,7 +212,7 @@ auto-merge. The injected evidence is informational and does not gate.
 After strip-and-count: 2 unchecked items. Decision: gated. Print:
 
 ```
-GATED: manual validation required
+GATED: test steps remaining
 
 PR: https://github.com/org/repo/pull/142
 
