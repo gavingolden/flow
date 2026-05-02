@@ -26,6 +26,7 @@ import {
 } from "./sources";
 import { ensureSymlink, removeIfManagedSymlink, type LinkResult } from "./symlink";
 import { withFileLock } from "./lock";
+import { applyShellRcCompletions } from "./setup-rc";
 
 export type SetupOptions = {
   upgrade?: boolean;
@@ -44,6 +45,17 @@ export type SetupOptions = {
   lockPath?: string;
   /** Lock-acquisition timeout in ms (test-only; default: 30000). */
   lockTimeoutMs?: number;
+  /**
+   * If true, skip the rc-file editing step. If rc files already carry the
+   * managed `completions` block from a prior run, the existing blocks are
+   * removed (set/unset is symmetric).
+   */
+  noCompletions?: boolean;
+  /**
+   * Override the home directory used to resolve shell rc files. Test-only.
+   * Production reads from os.homedir().
+   */
+  homeDir?: string;
 };
 
 export type SetupSummary = {
@@ -92,6 +104,16 @@ function runUnderLock(
   if (options.upgrade) {
     summary.removed = reapOrphans(flowSource, entries, options.manifestPath, log);
   }
+
+  // Edit the user's shell rc files to source the completion scripts. Run
+  // before the manifest write so a failure here doesn't leave a manifest
+  // claiming files that aren't wired up. The helper is a no-op when no rc
+  // files exist and logs its own actions.
+  applyShellRcCompletions(
+    targets,
+    { remove: options.noCompletions, homeDir: options.homeDir },
+    log,
+  );
 
   // Write the manifest as the union of "what we just installed" + entries
   // that still exist from a prior run that we didn't reap (they remain valid

@@ -43,6 +43,40 @@ Each pipeline is a tmux window inside a `flow` session. Inside the window, Claud
 
 The supervisor pauses for plan approval on `feature`-intent tasks (type `approved`, a redirection, or `cancel` into the chat). Non-feature intents (`bug`, `refactor`, `docs`, `infra`, `chore`) run straight through. Every pipeline ends with one of `MERGED`, `GATED: <url>`, `NEEDS HUMAN: <reason>`, or `cancelled` printed to the window's scrollback.
 
+## Shell completions
+
+`flow setup` installs bash and zsh tab completion automatically. The completion scripts ship under `completions/` in this repo and are symlinked into `~/.flow/completions/flow.<shell>`. To wire them into your shell, `flow setup` writes a small managed block into each of these rc files **if they already exist** (it never creates an rc file you don't already have):
+
+- `~/.zshrc`
+- `~/.bashrc`
+- `~/.bash_profile`
+
+The block looks like this and is bracketed by markers so `flow setup --upgrade` can rewrite it in place and a future `flow setup --no-completions` can remove it cleanly:
+
+```sh
+# managed by flow completions
+[ -f "/Users/<you>/.flow/completions/flow.zsh" ] && source "/Users/<you>/.flow/completions/flow.zsh"
+# end flow completions
+```
+
+After the install, open a fresh shell and:
+
+- `flow <TAB>` lists every verb.
+- `flow attach <TAB>` / `flow done <TAB>` / `flow new --resume <TAB>` complete from your active pipelines (`~/.flow/state/*.json`).
+- Per-verb flag completion works for every flag the wrapper accepts.
+
+To opt out (or to remove a previously installed block), run `flow setup --no-completions`. Set/unset is symmetric: this removes the block from any rc files that currently have it and leaves the rest of the file byte-identical to the pre-install state.
+
+For environments where editing rc files isn't viable (read-only homedirs, NixOS / Guix, CI), use the escape hatch:
+
+```sh
+# bash
+eval "$(flow completion bash)"
+
+# zsh
+eval "$(flow completion zsh)"
+```
+
 ## Migrate a repo off the legacy per-repo install
 
 The old `flow install` command was deleted in PR 5. Repos that were set up with it still carry the per-repo footprint (managed gitignore blocks, symlinks under `.claude/skills/` and `scripts/`). To clean it up:

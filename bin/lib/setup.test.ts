@@ -37,10 +37,18 @@ function targets() {
     skillsDir: path.join(homeDir, ".claude", "skills"),
     agentsDir: path.join(homeDir, ".claude", "agents"),
     binDir: path.join(homeDir, ".local", "bin"),
+    completionsDir: path.join(homeDir, ".flow", "completions"),
   };
 }
 
-function setup(opts: { upgrade?: boolean; force?: boolean; lockTimeoutMs?: number } = {}) {
+function setup(
+  opts: {
+    upgrade?: boolean;
+    force?: boolean;
+    lockTimeoutMs?: number;
+    noCompletions?: boolean;
+  } = {},
+) {
   return runSetup({
     ...opts,
     flowSource,
@@ -48,6 +56,7 @@ function setup(opts: { upgrade?: boolean; force?: boolean; lockTimeoutMs?: numbe
     skipPreflight: true,
     manifestPath,
     lockPath,
+    homeDir,
     quiet: true,
   });
 }
@@ -153,6 +162,110 @@ describe("flow setup", () => {
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
+  describe("shell rc-file completions", () => {
+    function rcPath(name: string): string {
+      return path.join(homeDir, name);
+    }
+
+    function seedRc(name: string, contents: string): void {
+      fs.mkdirSync(homeDir, { recursive: true });
+      fs.writeFileSync(rcPath(name), contents);
+    }
+
+    it("symlinks completion scripts into ~/.flow/completions/", () => {
+      setup();
+      const completionsDir = targets().completionsDir;
+      expect(fs.lstatSync(path.join(completionsDir, "flow.bash")).isSymbolicLink()).toBe(true);
+      expect(fs.lstatSync(path.join(completionsDir, "flow.zsh")).isSymbolicLink()).toBe(true);
+    });
+
+    it("records completion symlinks in the manifest with kind 'completion'", () => {
+      setup();
+      const manifest = readManifest(manifestPath);
+      const completionEntries = manifest.symlinks.filter((s) => s.kind === "completion");
+      expect(completionEntries.map((s) => path.basename(s.target)).sort()).toEqual([
+        "flow.bash",
+        "flow.zsh",
+      ]);
+    });
+
+    it("inserts the managed block into ~/.zshrc when it exists", () => {
+      seedRc(".zshrc", "alias ll='ls -la'\n");
+      setup();
+      const after = fs.readFileSync(rcPath(".zshrc"), "utf8");
+      expect(after).toContain("# managed by flow completions");
+      expect(after).toContain("flow.zsh");
+      expect(after).toContain("# end flow completions");
+      // Original content preserved.
+      expect(after).toContain("alias ll='ls -la'");
+    });
+
+    it("inserts the managed block into ~/.bashrc when it exists", () => {
+      seedRc(".bashrc", "export EDITOR=vim\n");
+      setup();
+      const after = fs.readFileSync(rcPath(".bashrc"), "utf8");
+      expect(after).toContain("# managed by flow completions");
+      expect(after).toContain("flow.bash");
+    });
+
+    it("inserts the managed block into ~/.bash_profile when it exists", () => {
+      seedRc(".bash_profile", "# bash login config\n");
+      setup();
+      const after = fs.readFileSync(rcPath(".bash_profile"), "utf8");
+      expect(after).toContain("# managed by flow completions");
+      expect(after).toContain("flow.bash");
+    });
+
+    it("does not create rc files that don't already exist", () => {
+      setup();
+      expect(fs.existsSync(rcPath(".zshrc"))).toBe(false);
+      expect(fs.existsSync(rcPath(".bashrc"))).toBe(false);
+      expect(fs.existsSync(rcPath(".bash_profile"))).toBe(false);
+    });
+
+    it("is idempotent: a second run leaves rc files byte-identical to the first", () => {
+      seedRc(".zshrc", "alias ll='ls -la'\n");
+      setup();
+      const afterFirst = fs.readFileSync(rcPath(".zshrc"), "utf8");
+      setup();
+      const afterSecond = fs.readFileSync(rcPath(".zshrc"), "utf8");
+      expect(afterSecond).toBe(afterFirst);
+    });
+
+    it("--no-completions on a fresh run does not edit any rc file", () => {
+      seedRc(".zshrc", "alias ll='ls -la'\n");
+      const before = fs.readFileSync(rcPath(".zshrc"), "utf8");
+      setup({ noCompletions: true });
+      const after = fs.readFileSync(rcPath(".zshrc"), "utf8");
+      expect(after).toBe(before);
+    });
+
+    it("--no-completions on a system that already has the block removes it cleanly", () => {
+      const original = "alias ll='ls -la'\nexport EDITOR=vim\n";
+      seedRc(".zshrc", original);
+      setup();
+      // Block is present after first run.
+      expect(fs.readFileSync(rcPath(".zshrc"), "utf8")).toContain(
+        "# managed by flow completions",
+      );
+      // Run again with --no-completions; rc returns to pre-install state.
+      setup({ noCompletions: true });
+      expect(fs.readFileSync(rcPath(".zshrc"), "utf8")).toBe(original);
+    });
+
+    it("--upgrade reaps an orphaned completion symlink when source is gone", () => {
+      setup();
+      const completionsDir = targets().completionsDir;
+      // Remove the bash script from the source — its target should be reaped.
+      fs.rmSync(path.join(flowSource, "completions", "flow.bash"));
+      const summary = setup({ upgrade: true });
+      expect(summary.removed).toBeGreaterThanOrEqual(1);
+      expect(fs.existsSync(path.join(completionsDir, "flow.bash"))).toBe(false);
+      // Zsh script still installed.
+      expect(fs.existsSync(path.join(completionsDir, "flow.zsh"))).toBe(true);
+    });
+  });
+
   it("--upgrade refuses to delete an unmanaged symlink (points outside flow source)", () => {
     setup();
     const t = targets();
@@ -199,6 +312,12 @@ function buildFakeFlowSource(root: string): void {
   fs.writeFileSync(path.join(binDir, "flow-helper.ts"), "#!/usr/bin/env bun\n// helper\n");
   fs.writeFileSync(path.join(binDir, "flow-helper.test.ts"), "// test\n");
   fs.writeFileSync(path.join(binDir, "flow"), "#!/usr/bin/env bun\n// wrapper\n");
+
+  // completions/flow.bash + completions/flow.zsh
+  const completionsDir = path.join(root, "completions");
+  fs.mkdirSync(completionsDir, { recursive: true });
+  fs.writeFileSync(path.join(completionsDir, "flow.bash"), "# fake bash completion\n");
+  fs.writeFileSync(path.join(completionsDir, "flow.zsh"), "#compdef flow\n# fake\n");
 }
 
 /**
