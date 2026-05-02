@@ -413,35 +413,125 @@ gh pr edit "$PR" --body-file /tmp/body.md
 Sleep + poll loop. Cadence + cap from
 `references/polling-protocol.md`:
 
-- 30s between polls.
-- 20-min hard cap from first poll.
+- 30s between polls. **Unconditional on the first iteration** —
+  empty results from `gh pr checks` or `gh pr view --json reviews`
+  mean "not yet posted," never "skip the wait." Only the presence
+  checks below can legitimately short-circuit.
+- 20-min hard cap from first poll → max 40 polls.
 - Bot review timeout: 10 min after CI goes terminal.
 
-Each poll runs:
+### One-shot presence checks (before the first poll)
+
+Run these once at loop entry. They distinguish "not configured"
+(legitimately skip) from "not yet posted" (keep polling). See
+`references/polling-protocol.md` § "Presence checks" for the
+rationale and the rejected `installations`-API alternative.
 
 ```bash
-# `gh pr checks` does not expose a `conclusion` JSON field — `state`
-# already encodes the verdict. See `references/polling-protocol.md`
-# and the matching note in `scripts/ci-wait.ts` for the hard-won
-# lesson behind this.
-gh pr checks "$PR" --json name,state
+# CI: are there any workflows in this worktree?
+if find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) \
+     -print -quit 2>/dev/null | grep -q .; then
+  CI_CONFIGURED=1
+else
+  CI_CONFIGURED=0    # no workflows → ci_passed is vacuously true; never poll for checks
+fi
+
+# Copilot: was the bot login requested as a reviewer on this PR?
+# Both sides of the comparison are lowercased so the match is a true
+# case-insensitive exact match — see polling-protocol.md "Bot reviewer
+# name" for the case-insensitive contract. Without the local-side
+# tolower, swapping COPILOT_LOGIN for a value with mixed case (e.g.
+# from ~/.flow/config.json) would silently fail to match.
+COPILOT_LOGIN_NORMALIZED=$(printf '%s' "${COPILOT_LOGIN:-copilot-pull-request-reviewer}" | tr '[:upper:]' '[:lower:]')
+REQUESTED_REVIEWERS=$(gh pr view "$PR" --json reviewRequests \
+  --jq '[.reviewRequests[].login] | map(ascii_downcase) | join(",")')
+case ",$REQUESTED_REVIEWERS," in
+  *",$COPILOT_LOGIN_NORMALIZED,"*) COPILOT_REQUESTED=1 ;;
+  *)                               COPILOT_REQUESTED=0 ;;  # bot not requested → don't wait
+esac
+
+echo "CI configured: $CI_CONFIGURED  |  Copilot requested: $COPILOT_REQUESTED"
+```
+
+Per-PR `reviewRequests` is the deliberate Copilot-detection mechanism;
+`gh api repos/<owner>/<repo>/installations` requires a GitHub App JWT
+and 401s for user tokens. `scripts/ci-wait.ts` uses the same per-PR
+approach (`prRequestedReviewers`).
+
+### Each poll runs
+
+```bash
+# Skip the checks call entirely when CI_CONFIGURED=0.
+gh pr checks "$PR" --json name,state          # only if CI_CONFIGURED=1
 gh pr view "$PR" --json reviews,state
 ```
 
-Loop body (in the supervisor's own turn):
+`gh pr checks` does not expose a `conclusion` JSON field — `state`
+already encodes the verdict. See `references/polling-protocol.md`
+and the matching note in `scripts/ci-wait.ts` for the hard-won
+lesson behind this.
 
+### Per-poll counter
+
+Print one line per iteration so the user reading scrollback sees
+progress without guessing. Compute the elapsed split with arithmetic
+expansion — these are runnable Bash:
+
+```bash
+ELAPSED=$(( $(date +%s) - START ))   # seconds since the first poll
+MIN=$(( ELAPSED / 60 ))
+SEC=$(( ELAPSED % 60 ))
+echo "CI poll $POLLS/40, elapsed ${MIN}m${SEC}s of 20m"
 ```
-while elapsed < 20m:
-  poll
-  case decision (see references/polling-protocol.md decision matrix):
-    ci_passed && copilot_posted        → break, go to step 8
-    ci_passed && copilot_timed_out     → break, go to step 8 (no bot review)
-    ci_failed                          → break, go to step 5 with mode=fix
-    pr_state == MERGED                 → break, run flow-remove-worktree, MERGED
-    pr_state == CLOSED                 → escalate pr-closed-mid-flight
-    still_pending && elapsed < 20m     → sleep 30s, poll again
-    still_pending && elapsed >= 20m    → escalate ci-hang
+
+`POLLS` increments from 1 each iteration; the printed denominator
+`40` reflects the 20-min ÷ 30s budget (the actual cap is the 20-min
+wall-clock check below, not a poll-count guard).
+
+### Loop body (in the supervisor's own turn)
+
+The block below is **pseudocode**, not runnable Bash — `POLLS += 1`,
+the `case decision:` arrow notation, and the `→` rules describe the
+control flow the supervisor follows in its own turn. Use the runnable
+Bash from "Per-poll counter" above for the per-iteration printout;
+use the gh calls from "Each poll runs" for the actual API reads.
+
+```text
+initialize POLLS=0, START=$(date +%s), CI_TERMINAL_AT=""
+
+run the one-shot presence checks above
+
+while true:
+  POLLS += 1
+  ELAPSED = $(date +%s) - START
+  print "CI poll $POLLS/40, elapsed $((ELAPSED/60))m$((ELAPSED%60))s of 20m"
+
+  poll:
+    if CI_CONFIGURED == 0: treat checks as [] without calling gh
+    else:                  gh pr checks "$PR" --json name,state
+    gh pr view "$PR" --json reviews,state
+
+  derive per references/polling-protocol.md decision matrix:
+    ci_terminal, ci_passed, ci_failed, copilot_posted, pr_state
+  apply presence overrides:
+    if CI_CONFIGURED == 0:    ci_terminal = true, ci_passed = true, ci_failed = false
+    if COPILOT_REQUESTED == 0: copilot_posted = true   # vacuous — never wait the 10m bot timeout
+
+  if ci_terminal and CI_TERMINAL_AT == "": CI_TERMINAL_AT = $(date +%s)
+
+  case decision:
+    pr_state == MERGED                                            → break, run flow-remove-worktree, MERGED
+    pr_state == CLOSED                                            → escalate pr-closed-mid-flight
+    ci_failed                                                     → break, go to step 5 with mode=fix
+    ci_passed && copilot_posted                                   → break, go to step 8
+    ci_passed && !copilot_posted && ($(date +%s) - CI_TERMINAL_AT) >= 600 → break, go to step 8 (no bot review)
+    ELAPSED >= 1200                                               → escalate ci-hang
+    else                                                          → sleep 30s, loop
 ```
+
+When `CI_CONFIGURED=1` and `gh pr checks` returns `[]`, that means
+"CI hasn't reported yet" — keep polling. Same for Copilot when
+`COPILOT_REQUESTED=1` and no review is in the list.
 
 **Fix-loop cap: 3 total ci-fix loops** across the whole pipeline.
 After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
