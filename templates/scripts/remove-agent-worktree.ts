@@ -1,1 +1,0 @@
-../../bin/flow-remove-worktree.ts

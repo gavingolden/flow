@@ -1,9 +1,10 @@
 # Migrating off the legacy per-repo `flow install`
 
 flow's redesign installs once globally rather than per-repo (see
-[`docs/roadmap.md`](roadmap.md)). Repos that ran `flow install` before
-PR 1 have a footprint inside them that needs cleanup. This is a one-shot,
-fully scripted migration.
+[`docs/roadmap.md`](roadmap.md)). The legacy `flow install` command
+itself was deleted in PR 5; repos that ran it earlier still carry a
+footprint inside them that needs cleanup. `flow migrate` is the
+fully-scripted one-shot.
 
 ## What's getting cleaned up
 

@@ -3,36 +3,24 @@
   "version": "0.0.1",
   "description": "Multi-phase AI agent dev orchestration: triage → plan → implement → verify → CI → review → merge",
   "type": "module",
-  "bin": {
-    "flow": "./dist/cli.js"
-  },
   "files": [
     "bin",
-    "dist",
     "templates"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('dist/cli.js', 0o755)\"",
-    "dev": "tsx src/cli.ts",
-    "typecheck": "tsc --noEmit",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run typecheck && npm run typecheck:scripts && npm run test",
-    "prepare": "npm run build"
+    "verify": "npm run typecheck:scripts && npm run test"
   },
   "dependencies": {
-    "commander": "^12.1.0",
     "execa": "^9.5.1",
-    "gray-matter": "^4.0.3",
-    "js-yaml": "^4.1.1",
-    "picocolors": "^1.1.1"
+    "js-yaml": "^4.1.1"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.10.0",
     "bun-types": "^1.1.38",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.5"
   },

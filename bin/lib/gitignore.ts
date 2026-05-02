@@ -1,11 +1,8 @@
 /**
- * Sync gitignore managed-block parser/writer for the Bun bin.
- *
- * Mirrors the async/Node version still living in `src/util/gitignore.ts`.
- * `src/` is being deleted incrementally; PR 4 removed the orchestrator
- * core but left the legacy install verb (and its gitignore helper) in
- * place. Keeping the bin self-contained means a future deletion of
- * `src/util/gitignore.ts` won't break this module.
+ * Sync gitignore managed-block parser/writer for the Bun bin. Used by
+ * `flow migrate` to detect and strip the two managed blocks
+ * (`install-skills`, `install-scripts`) that the legacy per-repo
+ * `flow install` left behind in target repos.
  *
  * Block format:
  *   # managed by flow <tag>

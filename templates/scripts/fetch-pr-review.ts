@@ -1,1 +1,0 @@
-../../bin/flow-fetch-pr-review.ts
