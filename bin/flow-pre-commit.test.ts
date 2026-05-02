@@ -343,4 +343,61 @@ describe(formatReport, () => {
     const output = formatReport(report);
     expect(output).toContain("Scopes: src, scripts");
   });
+
+  it("enumerates considered scopes with skip reasons on a no-op", () => {
+    const report = createReport({
+      scopes: [],
+      results: [],
+      changedFiles: ["docs/foo.md", "README.md", "package.json"],
+    });
+    const output = formatReport(report);
+    expect(output).toContain("3 changed files; checking scopes…");
+    expect(output).toContain("src");
+    expect(output).toContain("scripts");
+    expect(output).toContain("no changes under src/");
+    expect(output).toContain("no changes under scripts/");
+    expect(output).toContain("No relevant scopes detected — nothing to check.");
+  });
+
+  it("uses singular 'changed file' when exactly one file changed", () => {
+    const report = createReport({
+      scopes: [],
+      results: [],
+      changedFiles: ["docs/only.md"],
+    });
+    expect(formatReport(report)).toContain("1 changed file;");
+  });
+
+  it("annotates matched scopes with → matched on the success path", () => {
+    const report = createReport({
+      scopes: ["src", "scripts"] as Scope[],
+      results: [createResult({ scope: "src", passed: true })],
+      changedFiles: ["src/index.ts", "scripts/x.ts"],
+    });
+    const output = formatReport(report);
+    expect(output).toContain("src      → matched");
+    expect(output).toContain("scripts  → matched");
+  });
+
+  it("annotates only the matched scopes when others were unchanged", () => {
+    const report = createReport({
+      scopes: ["src"] as Scope[],
+      results: [createResult({ scope: "src", passed: true })],
+      changedFiles: ["src/index.ts"],
+    });
+    const output = formatReport(report);
+    expect(output).toContain("src      → matched");
+    expect(output).toContain("scripts  — no changes under scripts/");
+  });
+
+  it("falls back to the explicit-scopes preamble when no diff is available", () => {
+    const report = createReport({
+      scopes: ["src"] as Scope[],
+      results: [createResult({ scope: "src", passed: true })],
+      // no changedFiles — exercising the --scope path
+    });
+    const output = formatReport(report);
+    expect(output).toContain("checking explicitly-requested scopes…");
+    expect(output).not.toContain("changed file");
+  });
 });

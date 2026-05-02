@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { resolveFlowSource } from "./paths";
+import { resolveFlowSource, SETUP_LOCK_PATH } from "./paths";
 import {
   readManifest,
   writeManifest,
@@ -25,6 +25,7 @@ import {
   type SourceEntry,
 } from "./sources";
 import { ensureSymlink, removeIfManagedSymlink, type LinkResult } from "./symlink";
+import { withFileLock } from "./lock";
 
 export type SetupOptions = {
   upgrade?: boolean;
@@ -39,6 +40,10 @@ export type SetupOptions = {
   manifestPath?: string;
   /** Suppress stdout output. */
   quiet?: boolean;
+  /** Setup-lock path override (test-only; default: ~/.flow/setup.lock). */
+  lockPath?: string;
+  /** Lock-acquisition timeout in ms (test-only; default: 30000). */
+  lockTimeoutMs?: number;
 };
 
 export type SetupSummary = {
@@ -56,6 +61,22 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
 
   if (!options.skipPreflight) preflight(targets);
 
+  // Serialize symlink + manifest writes against any concurrent `flow setup`
+  // invocation. Without the lock, two parallel pipelines that both run
+  // `flow setup --upgrade` can race on the same skill/agent symlink.
+  return withFileLock(
+    options.lockPath ?? SETUP_LOCK_PATH,
+    () => runUnderLock(flowSource, targets, log, options),
+    { timeoutMs: options.lockTimeoutMs },
+  );
+}
+
+function runUnderLock(
+  flowSource: string,
+  targets: InstallTargets,
+  log: (msg: string) => void,
+  options: SetupOptions,
+): SetupSummary {
   const entries = discoverAll(flowSource, targets);
   const summary: SetupSummary = { created: 0, updated: 0, skipped: 0, blocked: 0, removed: 0 };
 
