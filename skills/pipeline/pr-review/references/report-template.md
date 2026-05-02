@@ -1,17 +1,16 @@
 # PR Review Report Template
 
-Use this format for the structured report at the end of every PR review. Sections marked
-with a mode apply only to that mode — include all unmarked sections in both modes.
+Use this format for the structured report at the end of every PR review.
 
 ```
 ## PR Review Report — #<number>
 
 ### Summary
 
-- **Mode**: Address / Review
 - **PR size**: +<additions> -<deletions> across <N> files
 - **Agents**: 4 ran, <M> findings above 80 confidence, <P> praise observations
 - **Blocking issues**: <count>
+- **Inline review comments addressed**: <count> (or "none" when the PR had none)
 
 ---
 
@@ -49,9 +48,9 @@ If Deferred is 0, say so explicitly: "All findings addressed in this run."
 
 ---
 
-### Review Comments (<count> total)  [Address mode only]
+### Review Comments (<count> total)
 
-For each comment, include:
+For each existing inline review comment, include:
 - **File / line**: `path/to/file.ts:42`
 - **Reviewer**: who left the comment (e.g. "Copilot", a GitHub username)
 - **Comment**: one-line summary of what they said
@@ -79,7 +78,7 @@ Mirror the PR body's checklist with verification status. One line per item.
 - [ ] `<item as written>` — not run: <one-line reason: requires browser, needs prod creds, subjective UI judgment, etc.>
 
 If every item was ticked: "All items ticked — PR body updated."
-If the section was missing: "No 'Manual validation' section to verify; flagged in 12b." If the section was empty (auto-merge state per the rubric): "Manual validation section empty — auto-merge state, no items to verify."
+If the section was missing: "No 'Manual validation' section to verify; flagged in 11b." If the section was empty (auto-merge state per the rubric): "Manual validation section empty — auto-merge state, no items to verify."
 
 ---
 
@@ -97,9 +96,9 @@ If the section was missing: "No 'Manual validation' section to verify; flagged i
 
 ---
 
-### Retrospective  [Address mode only]
+### Retrospective
 
-Compare the multi-agent independent review findings against the reviewer comments.
+Compare the multi-agent independent review findings against any existing reviewer comments.
 
 - **Agent coverage**: <X> of <Y> reviewer findings were independently caught by agents
 - **Gaps identified**: <count>
@@ -107,7 +106,7 @@ Compare the multi-agent independent review findings against the reviewer comment
 - **Learning note**: <1 sentence summarizing what this review taught the checklist>
 
 If no gaps: "No gaps identified — all reviewer findings were independently caught."
-If this is a Review mode run: omit this section entirely.
+If the PR had no inline review comments: "No reviewer comments to retrospect against."
 ```
 
 ## Size Warning Templates

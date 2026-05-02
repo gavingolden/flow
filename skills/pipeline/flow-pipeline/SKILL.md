@@ -60,26 +60,29 @@ in-process for skills; shell out for scripts; never delegate.
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
 > calls, and (c) the narrowly-named Task-tool exception that follows.
 >
-> **Task-tool exemption: `/pr-review` step 4.** When the supervisor
-> invokes `/pr-review` in step 8, `/pr-review`'s step 4 ("Independent
-> Multi-Agent Review") spawns four review agents in parallel via the
-> Task tool. This is the **only** authorised Task-tool fan-out from
-> this supervisor; no other skill or step may call Task. Rationale:
-> the two constraints behind the rule above are (1) sub-agents can't
-> spawn sub-agents (one-level cap) and (2) a long-running supervisor
-> with sub-agents would bloat past the context window. The supervisor
-> is itself a top-level Claude Code session (started by `flow new`
-> opening tmux + `claude`), so constraint (1) does not apply to *its*
-> Task calls — it applies to *its* sub-agents. Constraint (2) requires
-> the fan-out to be long-running; `/pr-review` step 4 is one-shot
-> (four parallel agents return JSON findings, then the parent skill
-> merges and exits). Refactoring `/pr-review` to use in-process skill
-> loads instead would lose the parallelism and the isolated-context
-> benefit each review agent gets; dropping the rule entirely is too
-> broad. Same narrow-and-named contract as the `/pr-review` auto-push
-> and `/flow-pipeline` auto-merge exemptions in `AGENTS.md`. If a
-> future skill needs the same license, add it here by name rather
-> than generalising the rule.
+> **Task-tool exemption: `/pr-review` Independent Multi-Agent Review.**
+> When the supervisor invokes `/pr-review` in step 8, `/pr-review`'s
+> "Independent Multi-Agent Review" step spawns four review agents in
+> parallel via the Task tool. This is the **only** authorised
+> Task-tool fan-out from this supervisor; no other skill or step may
+> call Task. The exemption is anchored on the step heading name
+> rather than its number so it survives future `/pr-review`
+> renumbering. Rationale: the two constraints behind the rule above
+> are (1) sub-agents can't spawn sub-agents (one-level cap) and (2) a
+> long-running supervisor with sub-agents would bloat past the
+> context window. The supervisor is itself a top-level Claude Code
+> session (started by `flow new` opening tmux + `claude`), so
+> constraint (1) does not apply to *its* Task calls — it applies to
+> *its* sub-agents. Constraint (2) requires the fan-out to be
+> long-running; the multi-agent review is one-shot (four parallel
+> agents return JSON findings, then the parent skill merges and
+> exits). Refactoring `/pr-review` to use in-process skill loads
+> instead would lose the parallelism and the isolated-context benefit
+> each review agent gets; dropping the rule entirely is too broad.
+> Same narrow-and-named contract as the `/pr-review` auto-push and
+> `/flow-pipeline` auto-merge exemptions in `AGENTS.md`. If a future
+> skill needs the same license, add it here by name rather than
+> generalising the rule.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -1026,8 +1029,9 @@ After each phase transition:
 - `flow ls` (run from any terminal) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the named `/pr-review` step 4 exception in "Hard rules" above —
-  no other skill or step may call Task.
+  via the named `/pr-review` "Independent Multi-Agent Review"
+  exception in "Hard rules" above — no other skill or step may call
+  Task.
 - The supervisor never spawned a `claude -p` subprocess.
 
 When the pipeline ends, scrollback contains exactly one of `MERGED`
