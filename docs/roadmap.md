@@ -68,13 +68,104 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 | **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ✅ shipped (#46) |
 | **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ⬜ queued |
 | **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
-| **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ⬜ queued — high priority |
+| **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ✅ shipped (#53) |
 | **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | ⬜ queued |
 | **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
 | **Item 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
 | **Item 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ⬜ queued |
 | **Item 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
 | **Item 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped Item 17. | ✅ shipped (#48) |
+
+---
+
+## Incidents
+
+A running record of parallel-pipelines safety bugs that motivated
+fixes. Each entry is a short narrative + reflog/log evidence so the
+*context* survives the patch — code-level fixes and tests live with
+their PRs, but the "why this exists" thread does not without a place
+to anchor it.
+
+### 2026-05-01 — cross-pipeline worktree contamination
+
+The user kicked off six parallel `flow new` pipelines for PRs
+4 / 6 / 7 / 8 / 9 / 10. The PR 10 supervisor created its worktree
+at `flow-proceed-with-pr-10-in-the-roadmap-if-the` on branch
+`proceed-with-pr-10-in-the-roadmap-if-the` (correct). The PR 4
+supervisor — running concurrently in a different tmux window — then
+**renamed PR 10's branch** to `pr4-delete-orchestrator`:
+
+```
+Branch: renamed refs/heads/proceed-with-pr-10-in-the-roadmap-if-the to refs/heads/pr4-delete-orchestrator
+```
+
+It then **committed PR 4's work into PR 10's worktree**. The PR 10
+supervisor's in-flight edits to `SKILL.md` and `docs/roadmap.md` were
+silently clobbered. Recovery required dropping back to main, hand-
+restoring the lost edits, and opening PR 10 from a third branch —
+none of which is automatable.
+
+Two contributing factors, addressed by **PR 12** (the row in the
+status table above):
+
+1. Worktree paths are derived deterministically from the slug, not
+   from a unique pipeline identifier. Six slugs all starting with
+   `proceed-with-pr-` looked visually similar enough to confuse the
+   supervisor's `cd` step.
+2. The supervisor LLM has no `cwd` lock. Every Bash call resolves
+   `cwd` independently. A single fat-fingered tab-complete landed PR
+   4's commands in PR 10's filesystem — irreversible after the agent
+   moved on.
+
+PR 12 fixed both: `flow-new-worktree` now auto-suffixes on collision,
+writes a `.flow-branch` marker, and `flow-state-update` mechanically
+refuses any phase transition where the worktree's current branch
+disagrees with the marker. A paired SKILL.md hard rule forbids
+`git branch -m` and `git switch <other-pipeline-branch>` to defend
+against the LLM-confusion failure mode the bug originated from.
+
+A separately-witnessed parallel-flow run revealed a second
+self-identification hazard: untargeted `tmux display-message` queries
+resolve against tmux's *current client*, not the supervisor's own
+pane, and silently return the wrong window name when the user
+glances at a sibling window. PR 12 added the
+`-t "$TMUX_PANE"`-required hard rule alongside the branch rule —
+different failure mode, same family.
+
+---
+
+## Followups
+
+Small, opportunistic items deferred from PR-level review reports.
+Each is a one-line note + a concrete revisit trigger so the work
+isn't lost when the originating review report disappears.
+
+### From PR 53 review (PR 12)
+
+- **`bin/flow-new-worktree.ts` is 388 lines vs. the AGENTS.md
+  <200-line target.** Split helpers (slot resolution, retry loop,
+  side-effects post-creation) into `bin/lib/worktree-slot.ts` /
+  `bin/lib/worktree-marker.ts`. Deferred: cross-cutting refactor
+  touching >3 files. *Trigger: address opportunistically next time
+  `flow-new-worktree` is touched, or when a sibling worktree helper
+  is added.*
+- **`BRANCH_MARKER_FILENAME` constant duplicated in
+  `bin/flow-new-worktree.ts` and `bin/flow-state-update.ts`.** Lift
+  into `bin/lib/branch-marker.ts` (or `bin/lib/paths.ts`) so the two
+  readers share a single source of truth. Deferred: would also be
+  rolled into the file-split followup above. *Trigger: address as
+  part of the worktree-helper split, or on the next change to
+  either file.*
+- **`createWorktreeWithRetry` race-retry path is exercised only by
+  the parallel-isolation integration test, which doesn't
+  deterministically force a `git worktree add` failure after
+  `findAvailableSlot` returns.** Add a unit test that injects the
+  race (e.g. a `gitWorktreeAdd` callable parameter, or pre-create
+  the slot directory between calls) so the catch-and-retry block is
+  covered explicitly. Deferred: needs a small refactor for
+  testability. *Trigger: address opportunistically if the retry
+  loop's bound (`MAX_RACE_RETRIES`) ever changes, or alongside the
+  file-split followup above.*
 
 ---
 

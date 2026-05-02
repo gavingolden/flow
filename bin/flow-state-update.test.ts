@@ -1,8 +1,9 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyUpdate, parseArgs, runUpdate } from "./flow-state-update";
+import { applyUpdate, checkWorktreeBranch, parseArgs, runUpdate } from "./flow-state-update";
 import { readState, writeState, type PipelineState } from "./lib/state";
 
 let dir!: string;
@@ -143,5 +144,91 @@ describe("runUpdate", () => {
     expect(runUpdate(["csv-export", "--phase", "implementing"], dir)).toBe(0);
     const got = readState("csv-export", dir);
     expect(got?.phase).toBe("implementing");
+  });
+
+  it("returns 3 and does not update state when the worktree's branch does not match the marker", () => {
+    const fx = makeWorktreeFixture("expected-branch", "actual-branch");
+    seed("csv-export", { worktree: fx.worktreeDir });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "implementing"], dir);
+    errSpy.mockRestore();
+    expect(code).toBe(3);
+    // State must not have advanced past 'starting'.
+    const got = readState("csv-export", dir);
+    expect(got?.phase).toBe("starting");
+    fx.cleanup();
+  });
+
+  it("returns 0 when the marker matches the worktree's current branch", () => {
+    const fx = makeWorktreeFixture("matching-branch", "matching-branch");
+    seed("csv-export", { worktree: fx.worktreeDir });
+    const code = runUpdate(["csv-export", "--phase", "implementing"], dir);
+    expect(code).toBe(0);
+    fx.cleanup();
+  });
+});
+
+// --- checkWorktreeBranch + worktree fixture --------------------------------
+
+type WorktreeFixture = { worktreeDir: string; cleanup: () => void };
+
+/**
+ * Builds a tmpdir with a real (single-worktree) git repo on `actualBranch`,
+ * and a `.flow-branch` marker claiming the branch is `expectedBranch`. When
+ * the two differ, the guard should report mismatch.
+ */
+function makeWorktreeFixture(expectedBranch: string, actualBranch: string): WorktreeFixture {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "flow-guard-"));
+  const worktreeDir = path.join(root, "wt");
+  fs.mkdirSync(worktreeDir);
+  spawnSync("git", ["init", "-b", actualBranch], { cwd: worktreeDir });
+  spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: worktreeDir });
+  spawnSync("git", ["config", "user.name", "Test"], { cwd: worktreeDir });
+  spawnSync("git", ["commit", "--allow-empty", "-m", "initial"], { cwd: worktreeDir });
+  fs.writeFileSync(path.join(worktreeDir, ".flow-branch"), expectedBranch + "\n");
+  return {
+    worktreeDir,
+    cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+describe(checkWorktreeBranch, () => {
+  it("returns ok when the worktree path is undefined (early phases)", () => {
+    expect(checkWorktreeBranch(undefined)).toEqual({ kind: "ok" });
+  });
+
+  it("returns ok with a warning when the worktree directory is missing", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = checkWorktreeBranch("/tmp/does-not-exist-flow-guard-test-xyz");
+    expect(result).toEqual({ kind: "ok" });
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("does not exist");
+    errSpy.mockRestore();
+  });
+
+  it("returns ok with a warning when the marker file is missing", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flow-guard-noMarker-"));
+    spawnSync("git", ["init", "-b", "main"], { cwd: tmp });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = checkWorktreeBranch(tmp);
+    expect(result).toEqual({ kind: "ok" });
+    expect(errSpy.mock.calls.flat().join("\n")).toContain(".flow-branch missing");
+    errSpy.mockRestore();
+    fs.rmSync(tmp, { recursive: true, force: true });
+  });
+
+  it("returns ok when marker and current branch match", () => {
+    const fx = makeWorktreeFixture("foo", "foo");
+    expect(checkWorktreeBranch(fx.worktreeDir)).toEqual({ kind: "ok" });
+    fx.cleanup();
+  });
+
+  it("returns mismatch with both branch names when they diverge", () => {
+    const fx = makeWorktreeFixture("expected", "actual");
+    expect(checkWorktreeBranch(fx.worktreeDir)).toEqual({
+      kind: "mismatch",
+      expected: "expected",
+      actual: "actual",
+    });
+    fx.cleanup();
   });
 });

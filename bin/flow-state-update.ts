@@ -18,6 +18,9 @@
  *   every call.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { spawnSync } from "node:child_process";
 import { readState, writeState, nowIso, type PipelineState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 
@@ -27,6 +30,54 @@ type Args = {
   pr?: number;
   worktree?: string;
 };
+
+/**
+ * Result of the worktree-branch guard:
+ *   - "ok"      — guard passed (or skipped: no worktree path, dir missing, marker missing).
+ *   - "mismatch" — worktree on a different branch than the marker says. State.json is
+ *                  NOT updated; supervisor escalates `NEEDS HUMAN: branch-mismatch`.
+ */
+type GuardResult = { kind: "ok" } | { kind: "mismatch"; expected: string; actual: string };
+
+/** Filename of the worktree-local marker; mirrors flow-new-worktree's BRANCH_MARKER_FILENAME. */
+const BRANCH_MARKER_FILENAME = ".flow-branch";
+
+/**
+ * Asserts that the worktree's current branch matches the marker file written by
+ * `flow-new-worktree`. Best-effort: if the worktree directory is gone or the
+ * marker file is missing (e.g. created by an older flow-new-worktree), logs a
+ * one-line warning and returns ok. Only an *active* mismatch returns mismatch.
+ */
+export function checkWorktreeBranch(worktreePath: string | undefined): GuardResult {
+  if (!worktreePath) return { kind: "ok" };
+  if (!fs.existsSync(worktreePath)) {
+    console.error(
+      `flow-state-update: worktree path '${worktreePath}' does not exist; skipping branch guard`,
+    );
+    return { kind: "ok" };
+  }
+  const markerPath = path.join(worktreePath, BRANCH_MARKER_FILENAME);
+  if (!fs.existsSync(markerPath)) {
+    console.error(
+      `flow-state-update: ${BRANCH_MARKER_FILENAME} missing in '${worktreePath}'; skipping branch guard ` +
+        `(worktree predates the branch-marker fix or was created externally)`,
+    );
+    return { kind: "ok" };
+  }
+  const expected = fs.readFileSync(markerPath, "utf8").trim();
+  const result = spawnSync("git", ["-C", worktreePath, "branch", "--show-current"], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    console.error(
+      `flow-state-update: 'git branch --show-current' failed in '${worktreePath}'; skipping branch guard`,
+    );
+    return { kind: "ok" };
+  }
+  const actual = result.stdout.trim();
+  if (actual !== expected) return { kind: "mismatch", expected, actual };
+  return { kind: "ok" };
+}
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   if (argv.length === 0) {
@@ -96,6 +147,23 @@ export function runUpdate(argv: string[], dir = FLOW_STATE_DIR): number {
     );
     return 1;
   }
+
+  // The branch guard is the supervisor's mechanical defense against the
+  // 2026-05-01 worktree-contamination failure mode: a peer pipeline renames
+  // this worktree's branch and the next phase transition lands commits on the
+  // wrong ref. Refuse to write state — supervisor escalates branch-mismatch.
+  const guard = checkWorktreeBranch(existing.worktree);
+  if (guard.kind === "mismatch") {
+    console.error(
+      `flow-state-update: branch-mismatch in worktree '${existing.worktree}'\n` +
+        `  expected (${BRANCH_MARKER_FILENAME}): ${guard.expected}\n` +
+        `  actual (git branch --show-current): ${guard.actual}\n` +
+        `  Refusing to update state. The supervisor should escalate ` +
+        `'NEEDS HUMAN: branch-mismatch' rather than continue.`,
+    );
+    return 3;
+  }
+
   const next = applyUpdate(existing, parsed);
   writeState(next, dir);
   return 0;
