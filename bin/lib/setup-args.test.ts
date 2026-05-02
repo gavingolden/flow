@@ -6,34 +6,57 @@ import { parseSetupArgs, runSetupCli } from "./setup-args";
 
 describe("parseSetupArgs", () => {
   it("returns all-false defaults for an empty arg list", () => {
-    expect(parseSetupArgs([])).toEqual({ upgrade: false, force: false });
+    expect(parseSetupArgs([])).toEqual({ upgrade: false, force: false, noCompletions: false });
   });
 
   it("recognizes --upgrade", () => {
-    expect(parseSetupArgs(["--upgrade"])).toEqual({ upgrade: true, force: false });
+    expect(parseSetupArgs(["--upgrade"])).toEqual({
+      upgrade: true,
+      force: false,
+      noCompletions: false,
+    });
   });
 
   it("recognizes --force", () => {
-    expect(parseSetupArgs(["--force"])).toEqual({ upgrade: false, force: true });
+    expect(parseSetupArgs(["--force"])).toEqual({
+      upgrade: false,
+      force: true,
+      noCompletions: false,
+    });
+  });
+
+  it("recognizes --no-completions", () => {
+    expect(parseSetupArgs(["--no-completions"])).toEqual({
+      upgrade: false,
+      force: false,
+      noCompletions: true,
+    });
   });
 
   it("captures the path argument after --source", () => {
     expect(parseSetupArgs(["--source", "/abs/path"])).toEqual({
       upgrade: false,
       force: false,
+      noCompletions: false,
       flowSource: "/abs/path",
     });
   });
 
-  it("combines all three flags in any order", () => {
-    expect(parseSetupArgs(["--upgrade", "--force", "--source", "/x"])).toEqual({
+  it("combines all flags in any order", () => {
+    expect(
+      parseSetupArgs(["--upgrade", "--force", "--no-completions", "--source", "/x"]),
+    ).toEqual({
       upgrade: true,
       force: true,
+      noCompletions: true,
       flowSource: "/x",
     });
-    expect(parseSetupArgs(["--source", "/x", "--force", "--upgrade"])).toEqual({
+    expect(
+      parseSetupArgs(["--source", "/x", "--force", "--upgrade", "--no-completions"]),
+    ).toEqual({
       upgrade: true,
       force: true,
+      noCompletions: true,
       flowSource: "/x",
     });
   });
@@ -47,6 +70,13 @@ describe("parseSetupArgs", () => {
 
   it("errors when --source is followed by another flag instead of a path", () => {
     const result = parseSetupArgs(["--source", "--upgrade"]);
+    expect(result).toEqual({
+      error: "flow setup: --source requires a path argument",
+    });
+  });
+
+  it("errors when --source is followed by --no-completions instead of a path", () => {
+    const result = parseSetupArgs(["--source", "--no-completions"]);
     expect(result).toEqual({
       error: "flow setup: --source requires a path argument",
     });
@@ -92,6 +122,7 @@ describe("runSetupCli", () => {
       skillsDir: path.join(homeDir, ".claude", "skills"),
       agentsDir: path.join(homeDir, ".claude", "agents"),
       binDir: path.join(homeDir, ".local", "bin"),
+      completionsDir: path.join(homeDir, ".flow", "completions"),
     };
   }
 
@@ -123,7 +154,7 @@ describe("runSetupCli", () => {
     expect(code).toBe(2);
     expect(errSpy).toHaveBeenCalledWith("flow setup: unknown option '--bogus'");
     expect(errSpy).toHaveBeenCalledWith(
-      "usage: flow setup [--upgrade] [--force] [--source <path>]",
+      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions]",
     );
     errSpy.mockRestore();
   });

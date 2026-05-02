@@ -6,10 +6,16 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CLAUDE_AGENTS_DIR, CLAUDE_SKILLS_DIR, LOCAL_BIN_DIR } from "./paths";
+import {
+  CLAUDE_AGENTS_DIR,
+  CLAUDE_SKILLS_DIR,
+  FLOW_COMPLETIONS_DIR,
+  LOCAL_BIN_DIR,
+} from "./paths";
 import type { SymlinkKind, SymlinkRecord } from "./manifest";
 
 const SKILL_TIERS = ["pipeline", "universal", "stacks"] as const;
+const COMPLETION_SHELLS = ["bash", "zsh"] as const;
 
 export type SourceEntry = {
   source: string;
@@ -23,12 +29,14 @@ export type InstallTargets = {
   skillsDir: string;
   agentsDir: string;
   binDir: string;
+  completionsDir: string;
 };
 
 export const DEFAULT_TARGETS: InstallTargets = {
   skillsDir: CLAUDE_SKILLS_DIR,
   agentsDir: CLAUDE_AGENTS_DIR,
   binDir: LOCAL_BIN_DIR,
+  completionsDir: FLOW_COMPLETIONS_DIR,
 };
 
 /** Lists every skill directory across all tiers under <flow-source>/skills/. */
@@ -103,12 +111,39 @@ export function flowWrapperEntry(
   };
 }
 
+/**
+ * Lists shell completion scripts under <flow-source>/completions/. Each shell
+ * we ship a script for becomes a `completion`-kind entry, symlinked into
+ * ~/.flow/completions/flow.<shell>.
+ */
+export function discoverCompletions(
+  flowSource: string,
+  targets = DEFAULT_TARGETS,
+): SourceEntry[] {
+  const completionsDir = path.join(flowSource, "completions");
+  if (!existsDir(completionsDir)) return [];
+  const entries: SourceEntry[] = [];
+  for (const shell of COMPLETION_SHELLS) {
+    const filename = `flow.${shell}`;
+    const source = path.join(completionsDir, filename);
+    if (!fs.existsSync(source)) continue;
+    entries.push({
+      source,
+      target: path.join(targets.completionsDir, filename),
+      kind: "completion",
+      displayName: filename,
+    });
+  }
+  return entries;
+}
+
 /** All entries `flow setup` should install, in display order. */
 export function discoverAll(flowSource: string, targets = DEFAULT_TARGETS): SourceEntry[] {
   const all = [
     ...discoverSkills(flowSource, targets),
     ...discoverAgents(flowSource, targets),
     ...discoverHelpers(flowSource, targets),
+    ...discoverCompletions(flowSource, targets),
   ];
   const wrapper = flowWrapperEntry(flowSource, targets);
   if (wrapper) all.push(wrapper);
