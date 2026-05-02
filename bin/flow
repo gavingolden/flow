@@ -2,25 +2,15 @@
 /**
  * `flow` — the shell wrapper for tmux-driven pipelines.
  *
- * New verbs (handled here):
  *   flow setup [--upgrade] [--force]   global install
  *   flow new <description>             create a tmux window + initial state
  *   flow ls [--cost [--detail]]        list active pipelines
  *   flow attach <name>                 tmux attach -t flow:<name>  (alias: a)
  *   flow done <name> | --all-merged    kill window + remove state
  *   flow migrate [--apply] [--scan <p>] [--include-orchestrator]
- *
- * Old verbs (passthrough to src/cli.ts via Bun until PR 4 deletes them):
- *   flow install
- *
- * Bun runs the existing Node/TS source as-is, so the passthrough is one
- * spawn. When PR 4 removes src/cli.ts, the passthrough errors out and old
- * verbs disappear cleanly.
  */
 
-import * as path from "node:path";
 import { runSetup } from "./lib/setup";
-import { resolveFlowSource } from "./lib/paths";
 import { runNew } from "./lib/new";
 import { runAttach } from "./lib/attach";
 import { runDone } from "./lib/done";
@@ -28,7 +18,7 @@ import { runLs } from "./lib/ls";
 import { runMigrate } from "./lib/migrate";
 import { runVersion } from "./lib/version";
 
-const NEW_VERBS = new Set([
+const VERBS = new Set([
   "setup",
   "new",
   "ls",
@@ -44,10 +34,6 @@ const NEW_VERBS = new Set([
   "version",
 ]);
 
-const OLD_VERBS = new Set([
-  "install",
-]);
-
 async function main(): Promise<number> {
   const [, , verb, ...rest] = process.argv;
 
@@ -56,12 +42,8 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  if (NEW_VERBS.has(verb)) {
-    return await runNewVerb(verb, rest);
-  }
-
-  if (OLD_VERBS.has(verb)) {
-    return passthroughOldVerb(verb, rest);
+  if (VERBS.has(verb)) {
+    return await runVerb(verb, rest);
   }
 
   console.error(`flow: unknown verb '${verb}'`);
@@ -69,7 +51,7 @@ async function main(): Promise<number> {
   return 1;
 }
 
-async function runNewVerb(verb: string, args: string[]): Promise<number> {
+async function runVerb(verb: string, args: string[]): Promise<number> {
   switch (verb) {
     case "--help":
     case "-h":
@@ -158,19 +140,6 @@ function runSetupVerb(args: string[]): number {
   const force = args.includes("--force");
   runSetup({ upgrade, force });
   return 0;
-}
-
-function passthroughOldVerb(verb: string, args: string[]): number {
-  // Bun runs the existing Node/TS CLI source as-is. PR 4 removed every old
-  // verb except `install`; PR 5 will delete src/cli.ts and this fallback.
-  const source = resolveFlowSource();
-  const cliEntry = path.join(source, "src", "cli.ts");
-  const result = Bun.spawnSync(["bun", cliEntry, verb, ...args], {
-    stdout: "inherit",
-    stderr: "inherit",
-    stdin: "inherit",
-  });
-  return result.exitCode ?? 1;
 }
 
 function printHelp(): void {

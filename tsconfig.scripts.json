@@ -8,12 +8,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["bin/**/*.ts", "templates/scripts/**/*.ts"],
-  "exclude": [
-    "templates/scripts/new-agent-worktree.ts",
-    "templates/scripts/remove-agent-worktree.ts",
-    "templates/scripts/pre-commit-checks.ts",
-    "templates/scripts/fetch-pr-review.ts",
-    "templates/scripts/reply-pr-comments.ts"
-  ]
+  "include": ["bin/**/*.ts"]
 }

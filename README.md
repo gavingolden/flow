@@ -7,14 +7,14 @@
 
 ## Status
 
-flow has finished its move to the tmux-driven supervisor design. The Node-based orchestrator (`flow run`, `flow start`, `flow log`, `flow status`, `flow approve`, `flow revise`) was removed in PR 4. `flow install` is the last legacy verb still in `src/cli.ts`; it ships in service of repos that haven't migrated to `flow setup` yet and is removed in PR 5. See [`docs/roadmap.md`](docs/roadmap.md).
+flow has finished its move to the tmux-driven supervisor design. The Node-based orchestrator (`flow run`, `flow start`, `flow log`, `flow status`, `flow approve`, `flow revise`) was removed in PR 4. The legacy per-repo `flow install` was removed in PR 5; `flow setup` is the only install entry point. See [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Install
 
 ```sh
 git clone https://github.com/<user>/flow ~/code/flow
 cd ~/code/flow
-npm install     # `prepare` builds dist/ for the legacy `install` verb
+npm install
 bun bin/flow setup
 ```
 
@@ -45,7 +45,7 @@ The supervisor pauses for plan approval on `feature`-intent tasks (type `approve
 
 ## Migrate a repo off the legacy per-repo install
 
-Repos that were set up with the old `flow install` keep working until PR 5 deletes the verb. To clean up the per-repo footprint now:
+The old `flow install` command was deleted in PR 5. Repos that were set up with it still carry the per-repo footprint (managed gitignore blocks, symlinks under `.claude/skills/` and `scripts/`). To clean it up:
 
 ```sh
 cd <some-repo>
@@ -84,13 +84,3 @@ Inside a flow window, the Claude Code session is the single LLM container. Sub-s
 | The supervisor skill itself | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
 | Project rules for agents working on flow | [`AGENTS.md`](AGENTS.md) |
 
-## Install (legacy, dev-only)
-
-The old `npm link` path still works for hacking on `src/`:
-
-```sh
-npm install     # `prepare` builds dist/ automatically
-npm link        # makes `flow install` available on PATH (overwritten by `flow setup`)
-```
-
-`flow install` (the only verb left under `src/`) symlinks skills + scripts into a target repo. PR 5 will remove it once `flow setup` + `flow stack add` cover every install pathway.
