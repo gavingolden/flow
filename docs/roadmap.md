@@ -58,23 +58,23 @@ Legend: ✅ shipped · 🚧 in review · ⬜ queued · ⏸ optional
 
 | Block | Adds | Status |
 |---|---|---|
-| **Old orchestrator (Phases 1–4 PRs 13–17)** | Full Node-based pipeline, chat-first entry, parallelism, notifications | ✅ shipped — being deprecated. History preserved in this file's "Old roadmap" appendix. |
-| **PR 1 — global install + shell wrapper** | `flow setup`, `flow new`, `flow ls`, `flow attach`, `flow done`, `flow migrate` | ✅ shipped (#41) |
-| **PR 2 — `/flow-pipeline` supervisor skill** | The new pipeline-as-skill that replaces the Node runner + 8 phases | ✅ shipped (#42) |
-| **PR 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | ✅ shipped (#44) |
-| **PR 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ✅ shipped (#47) |
-| **PR 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
-| **PR 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ✅ shipped (#51) |
-| **PR 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 PR 20 | ✅ shipped (#46) |
-| **PR 8 — eval harness** | Carries forward queued Phase 5 PR 21 | ⬜ queued |
-| **PR 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
-| **PR 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ⬜ queued — high priority |
-| **PR 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | ⬜ queued |
-| **PR 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
-| **PR 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
-| **PR 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ⬜ queued |
-| **PR 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
-| **PR 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped PR 17. | ✅ shipped (#48) |
+| **Old orchestrator (Phases 1–4 Items 13–17)** | Full Node-based pipeline, chat-first entry, parallelism, notifications | ✅ shipped — being deprecated. History preserved in this file's "Old roadmap" appendix. |
+| **Item 1 — global install + shell wrapper** | `flow setup`, `flow new`, `flow ls`, `flow attach`, `flow done`, `flow migrate` | ✅ shipped (#41) |
+| **Item 2 — `/flow-pipeline` supervisor skill** | The new pipeline-as-skill that replaces the Node runner + 8 phases | ✅ shipped (#42) |
+| **Item 3 — `pr-review` machine-mode removal** | Drop `RESULT_JSON_PATH` opt-in; use native mode-detection (subsumes the queued Phase 2 follow-up) | ✅ shipped (#44) |
+| **Item 4 — delete the orchestrator** | Remove `src/pipeline/`, `src/log/`, and orchestrator CLI verbs | ✅ shipped (#47) |
+| **Item 5 — delete obsolete pipeline skills + retire per-repo install** | Remove `/flow-add`, `/flow-approve`, `/flow-revise`, `/flow-watch`, `/flow-status`, plus `src/install/` | ⬜ queued |
+| **Item 6 — cost reporting in `flow ls`** | `flow ls --cost` per pipeline | ✅ shipped (#51) |
+| **Item 7 — per-skill model + effort tuning** | Carries forward queued Phase 5 Item 20 | ✅ shipped (#46) |
+| **Item 8 — eval harness** | Carries forward queued Phase 5 Item 21 | ⬜ queued |
+| **Item 11 — `pr-review` unified mode (collapse Address vs Review)** | Always run retrospective + always post agent findings as inline comments; drop the explicit mode dichotomy | ⬜ queued |
+| **Item 12 — fix cross-pipeline worktree contamination (high priority)** | Parallel `/flow-pipeline` runs can rename branches and commit into each other's worktrees. Worktrees + branches are not currently isolated by pipeline identity. | ⬜ queued — high priority |
+| **Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep** | Carve out a named auto-merge exemption in `AGENTS.md` for `/flow-pipeline` step 10; auto-flip a merged PR's roadmap row from "🚧 in review" to "✅ shipped (#N)" instead of letting it drift | ⬜ queued |
+| **Item 14 — supervisor↔skill contract correctness** | Resolve `/pr-review`'s Task-tool fan-out vs `/flow-pipeline`'s "no Task tool" rule; make verify-retry escalation real (currently aspirational); re-symlink between phases when the worktree adds skills/agents | ⬜ queued |
+| **Item 15 — pipeline ergonomics + scratch hygiene** | Aggressive slug derivation; per-pipeline scratch dir replaces shared `/tmp`; `flock`-guarded `flow setup --upgrade`; crash-safe `gh pr create` writes PR# to state.json atomically; loud `flow-pre-commit` no-op output | ⬜ queued |
+| **Item 16 — supervisor polling discipline** | Step-7 poll loop must respect 30s/20m cap unconditionally; distinguish "no CI workflow exists" from "CI hasn't reported yet"; same for Copilot | ⬜ queued |
+| **Item 9 — `flow new --resume <name>`** | Recover a crashed Claude Code session in an existing window | ✅ shipped (#50) |
+| **Item 10 — notifications** | macOS notifications on `NEEDS HUMAN`, `MERGED`, `gated`. Carries forward shipped Item 17. | ✅ shipped (#48) |
 
 ---
 
@@ -182,7 +182,7 @@ which lives in the tmux window.
 
 The single failure mode: if Claude Code crashes inside the window,
 the session is lost. The PR and worktree survive on disk. The user
-can `flow new --resume <name>` (PR 9): re-launches Claude Code into
+can `flow new --resume <name>` (Item 9): re-launches Claude Code into
 the same window with the resume seed prompt that tells the
 supervisor to inspect state.json + the worktree + the PR and pick
 up from whatever phase looks done.
@@ -236,9 +236,9 @@ agents.
 | `/pr-review` findings | Yes | inline PR comments + scrollback |
 | Auto-merge decision | Yes | scrollback |
 | Status of all pipelines | Yes | `flow ls` (any terminal) |
-| Per-pipeline cost | Yes | `flow ls --cost` (PR 6) |
+| Per-pipeline cost | Yes | `flow ls --cost` (Item 6) |
 | Approval surface | Yes | the user types in the tmux window itself |
-| Notifications on `NEEDS HUMAN` | Optional | terminal bell + macOS notification (PR 10) |
+| Notifications on `NEEDS HUMAN` | Optional | terminal bell + macOS notification (Item 10) |
 
 There is **no hidden state**: the supervisor session, scrollback,
 PR, and worktree are the only places state lives, and all four are
@@ -250,9 +250,9 @@ inspectable directly. No `.orchestrator/` directory to learn.
 
 ```
 flow new <description>            create a window and start a pipeline
-flow new --resume <name>          recover a crashed session in an existing window (PR 9)
+flow new --resume <name>          recover a crashed session in an existing window (Item 9)
 flow ls                           list all flow tmux windows + phase + PR
-flow ls --cost                    same, with $ spent per pipeline (PR 6)
+flow ls --cost                    same, with $ spent per pipeline (Item 6)
 flow attach <name>                tmux attach to a window  (alias: flow a)
 flow done <name>                  kill a window once the user is finished
 flow done --all-merged            kill every window in a terminal phase
@@ -264,14 +264,14 @@ flow migrate                      (per-repo) reverse old per-repo install (dry-r
 flow migrate --apply              actually apply the cleanup
 flow migrate --scan <path>        dry-run across every git repo under a path
 
-flow stack add <name>             (per-repo) add a stack skill to one project (PR 1, option B)
+flow stack add <name>             (per-repo) add a stack skill to one project (Item 1, option B)
 flow stack remove <name>
 flow stack list
 
 flow --help                       command help
 ```
 
-**Removed verbs** (PR 4): `flow start`, `flow run`, `flow run --all`,
+**Removed verbs** (Item 4): `flow start`, `flow run`, `flow run --all`,
 `flow log`, `flow status`, `flow approve`, `flow revise`,
 `flow install`, `flow tui`. Their job is now done by tmux directly
 (`tmux attach`, `tmux ls`, `Ctrl-b d`) or by typing into the
@@ -373,7 +373,7 @@ manifest. No project gets touched — flow's own repo and `~/.claude/`
 ### Stack skills (svelte, supabase, tailwind-shadcn)
 
 These shouldn't be globally autoloaded — they'd pollute every
-project's skill resolution. Two options to be picked during PR 1:
+project's skill resolution. Two options to be picked during Item 1:
 
 - **A:** `flow setup --stack svelte` symlinks the stack into
   `~/.claude/skills/` globally. Simple but pulls in stack skills for
@@ -577,7 +577,7 @@ Each step's prompt-fragment goes in SKILL.md, not in code.
 
 ## Code deletions
 
-### Fully delete (PR 4 + PR 5)
+### Fully delete (Item 4 + Item 5)
 
 ```
 src/pipeline/                     # runner.ts + 8 phases + retry + cost + claim + headless
@@ -611,27 +611,27 @@ templates/scripts/reply-pr-comments.ts     →  bin/flow-reply-pr-comments
 
 `#!/usr/bin/env bun` shebang preserved (no Bun → Node port). Skills
 that referenced these scripts via `./scripts/<name>.ts` are amended
-(PR 3) to call the global binary `flow-<name>` instead.
+(Item 3) to call the global binary `flow-<name>` instead.
 
-### Add (PR 1 + PR 2)
+### Add (Item 1 + Item 2)
 
 ```
 bin/flow                          # the wrapper itself: new, ls, attach, done, setup, migrate
 bin/flow-*                        # the migrated helper scripts above
-skills/pipeline/flow-pipeline/    # the new supervisor skill (PR 2)
-agents/                           # promoted .claude/agents/ tier (PR 7)
+skills/pipeline/flow-pipeline/    # the new supervisor skill (Item 2)
+agents/                           # promoted .claude/agents/ tier (Item 7)
 ```
 
 The `.orchestrator/` directory is no longer written by anything.
-`flow migrate` (PR 1) offers to delete it during the per-repo
+`flow migrate` (Item 1) offers to delete it during the per-repo
 cleanup. The supervisor never reads it, so any files left behind
 are inert.
 
 ---
 
-## PRs in detail
+## Items in detail
 
-### PR 1 — global install + shell wrapper
+### Item 1 — global install + shell wrapper
 
 Status: ✅ shipped (#41).
 
@@ -654,15 +654,15 @@ Done when:
   so window names stay parseable as `tmux attach -t flow:<name>`
   targets — see also the resolved open question #5 below.
 - [x] `~/.flow/state/<slug>.json` schema pinned. `flow new` creates the
-  file with `phase: "starting"`, `slug`, `repo`. PR 2's supervisor
+  file with `phase: "starting"`, `slug`, `repo`. Item 2's supervisor
   updates `phase` + `worktree` + `pr` + `updatedAt` at every transition
   via `flow-state-update`. `flow ls` reads `phase` and renders **LAST
   ACTIVITY** from `updatedAt` (`<N>s ago`, `<N>m ago`, `<N>h ago`,
   `<N>d ago`); tolerates a missing or malformed file by rendering
   `phase: —` and `LAST ACTIVITY: —` rather than crashing the row.
-  (Originally PR 1 also pinned a per-worktree `<worktree>/.flow-status`
-  text file as the live phase source; PR 2 collapsed both surfaces into
-  state.json — see PR 2 design deviations.)
+  (Originally Item 1 also pinned a per-worktree `<worktree>/.flow-status`
+  text file as the live phase source; Item 2 collapsed both surfaces into
+  state.json — see Item 2 design deviations.)
 - [x] `flow attach <name>` runs `tmux attach -t flow:<name>`.
 - [x] `flow done <name>` kills the window after a confirmation prompt.
 - [x] `flow migrate` (with dry-run default and `--apply` to commit)
@@ -673,10 +673,10 @@ Done when:
 - [x] `flow migrate --scan <path>` runs the dry-run across every git
   repo under a path.
 - [x] Old verbs (`run`, `start`, `install`, etc.) still work in this
-  PR — they're removed in PR 4. This PR is additive so users can
+  PR — they're removed in Item 4. This PR is additive so users can
   migrate at their own pace.
 
-### PR 2 — `/flow-pipeline` supervisor skill
+### Item 2 — `/flow-pipeline` supervisor skill
 
 Status: ✅ shipped (#42).
 
@@ -691,22 +691,22 @@ Done when:
 - [x] The skill never spawns nested agents; it only loads sub-skills
   in-process and invokes scripts as tool calls.
 - [x] The `references/failure-recovery.md` decision tree is pinned for
-  use in PR 9 (`flow new --resume`).
+  use in Item 9 (`flow new --resume`).
 
 Design deviations from the original spec:
 
-- **State surface consolidated to `state.json` only.** Original PR 1
+- **State surface consolidated to `state.json` only.** Original Item 1
   spec called for two state surfaces: `<worktree>/.flow-status`
   (per-worktree text, the "live source") and `~/.flow/state/<slug>.json`
-  (global, post-merge fallback). PR 2's smoke test surfaced two
+  (global, post-merge fallback). Item 2's smoke test surfaced two
   related problems: (a) `bin/lib/ls.ts` read phase only from
   `.flow-status`, so `flow ls` showed `phase: —` for the entire
   pre-worktree window of every fresh pipeline (Claude Code
   cold-start, step 1 triage, moments before `flow-new-worktree`
-  returns), and (b) PR 1 didn't ship a CLI writer for `state.json`
-  even though `bin/lib/state.ts:6-9` documented that as PR 2's
+  returns), and (b) Item 1 didn't ship a CLI writer for `state.json`
+  even though `bin/lib/state.ts:6-9` documented that as Item 2's
   responsibility, so `flow ls` would have shown `pr: —` for every
-  active pipeline. PR 2 fixes both by: shipping
+  active pipeline. Item 2 fixes both by: shipping
   `bin/flow-state-update` (auto-symlinked by `flow setup`'s
   `discoverHelpers`) for atomic JSON merge writes; deleting
   `bin/lib/flow-status.{ts,test.ts}` and the per-worktree text file
@@ -722,7 +722,7 @@ Design deviations from the original spec:
   phrasing from auto-triggering the skill in unrelated chats; in the
   new tmux supervisor session that collision concern is gone, and
   the supervisor genuinely needs to invoke `/new-feature`
-  programmatically. PR 2 drops the flag from
+  programmatically. Item 2 drops the flag from
   `skills/pipeline/new-feature/SKILL.md`. The skill's description is
   specific enough to keep auto-invocation tame without it. The
   other three pipeline sub-skills (`/product-planning`, `/verify`,
@@ -740,16 +740,16 @@ Design deviations from the original spec:
 - **Polling back-off documented but not active.** Spec doesn't pin
   a back-off policy. Shipped `polling-protocol.md` documents an
   optional 30s → 60s → 90s ramp after 5 failed polls but ships with
-  fixed 30s cadence. Activate when PR 6 cost telemetry justifies it.
+  fixed 30s cadence. Activate when Item 6 cost telemetry justifies it.
 - **`plan-pending-review` phase value added.** Spec lists the
   lifecycle phases but doesn't enumerate the feature-only checkpoint
   phase. Shipped SKILL.md uses `plan-pending-review` as its
   `state.json` phase value during the approval checkpoint so `flow
   ls` distinguishes "waiting on user" from `planning` and
   `implementing`.
-- **Frontmatter omits `model:` / `effort:`.** Roadmap PR 7 specifies
-  `flow-pipeline → Sonnet 4.6, medium`. PR 2 ships without the
-  frontmatter; PR 7 adds it. Documented to avoid the appearance of
+- **Frontmatter omits `model:` / `effort:`.** Roadmap Item 7 specifies
+  `flow-pipeline → Sonnet 4.6, medium`. Item 2 ships without the
+  frontmatter; Item 7 adds it. Documented to avoid the appearance of
   drift.
 - **Open question #4 resolved in-skill.** Spec flagged "after
   `/pr-review` fix-commit, supervisor must loop back to ci-wait,
@@ -758,11 +758,11 @@ Design deviations from the original spec:
   resolved.
 - **Bot-reviewer config key not yet read.** `polling-protocol.md`
   references `~/.flow/config.json`'s bot-reviewer name with a
-  `Copilot` fallback. PR 1's per-machine config is documented but
+  `Copilot` fallback. Item 1's per-machine config is documented but
   the key isn't wired into a script in this PR — fallback is the
-  active path until PR 7 (or earlier) wires the read.
+  active path until Item 7 (or earlier) wires the read.
 
-### PR 3 — `pr-review` machine-mode removal + global-binary references
+### Item 3 — `pr-review` machine-mode removal + global-binary references
 
 Status: ✅ shipped (#44).
 
@@ -781,14 +781,14 @@ Done when:
 - [x] This subsumes the previously-queued Phase 2 follow-up; it ships
   in service of the redesign rather than the old runner.
 
-### PR 4 — delete the orchestrator
+### Item 4 — delete the orchestrator
 
 Status: ✅ shipped (#47).
 
 Done when:
 
 - [x] All files listed under "Fully delete" above are removed (except
-  `src/install/` which goes in PR 5). Also removes the support modules
+  `src/install/` which goes in Item 5). Also removes the support modules
   that became dead code once the pipeline went away —
   `src/state/`, `src/status/`, `src/cost.ts`, `src/cost.fixtures/`,
   `src/util/{notify,jsonl-sink,respawn,run-all-logger,logger}.ts`,
@@ -797,7 +797,7 @@ Done when:
   is still used by `install`).
 - [x] `src/cli.ts` no longer registers `start`, `run`, `run-all`,
   `approve`, `revise`, `log`, `status`. Only the `install` command
-  remains (deleted in PR 5).
+  remains (deleted in Item 5).
 - [x] `bin/flow` wrapper's `OLD_VERBS` set trimmed to just `install`,
   so `flow start` / `flow run` / etc. now print
   `flow: unknown verb '<verb>'` from the wrapper itself rather than
@@ -806,7 +806,7 @@ Done when:
   test` are clean (381 tests pass).
 - [x] README is rewritten around the tmux flow.
 
-### PR 5 — delete obsolete pipeline skills + retire per-repo install
+### Item 5 — delete obsolete pipeline skills + retire per-repo install
 
 Status: ⬜ queued.
 
@@ -819,14 +819,14 @@ Done when:
 - [ ] `src/commands/install.ts`, `src/install/scripts.ts`,
   `src/install/skills.ts`, `templates/scripts/` (the directory)
   and any related tests are deleted. The per-repo install pattern is
-  retired in favour of the global install from PR 1.
+  retired in favour of the global install from Item 1.
 - [ ] A subsequent `flow setup --upgrade` reaps the orphan symlinks for
   the deleted skills/scripts from `~/.claude/skills/` and
   `~/.local/bin/`.
-- [ ] `flow migrate` (PR 1) handles cleanup of legacy per-repo installs
+- [ ] `flow migrate` (Item 1) handles cleanup of legacy per-repo installs
   in any target repo that still has them.
 
-### PR 6 — cost reporting in `flow ls`
+### Item 6 — cost reporting in `flow ls`
 
 Status: ✅ shipped (#51). Carry-forward from queued Phase 5.
 
@@ -873,9 +873,9 @@ Design deviations from the original spec:
   enumerates the unknown ids — the table still renders rather than
   crashing on a model rev.
 
-### PR 7 — per-skill model + effort tuning
+### Item 7 — per-skill model + effort tuning
 
-Status: ✅ shipped (#46). Carry-forward from queued Phase 5 PR 20.
+Status: ✅ shipped (#46). Carry-forward from queued Phase 5 Item 20.
 
 Done when:
 
@@ -890,8 +890,8 @@ Done when:
     bug+security at `xhigh`; Sonnet for pattern+test-coverage at
     `high`/`medium`.
 - [x] The `agents/` directory is symlinked by `flow setup` into
-  `~/.claude/agents/` (the symlink wiring shipped with PR 1's
-  `flow setup`; PR 7 is the first PR to actually populate the
+  `~/.claude/agents/` (the symlink wiring shipped with Item 1's
+  `flow setup`; Item 7 is the first PR to actually populate the
   directory, so a `flow setup --upgrade` after merge lights up the
   4 promoted agents in `~/.claude/agents/`).
 - [x] Verify-retry escalation: when `/verify` fails inside the
@@ -910,7 +910,7 @@ Done when:
   hard rules (SKILL.md lines 57-60) and verification (SKILL.md line 545)
   forbid the supervisor from ever using `Task`. When step 8 of the
   pipeline loads `/pr-review` in-process, the supervisor's own hard
-  rule blocks the new fan-out. **Revisit trigger:** before PR 11
+  rule blocks the new fan-out. **Revisit trigger:** before Item 11
   (`pr-review` unified mode) — that PR re-touches step 4 and is the
   natural point to either (a) carve out an explicit Task exception in
   `flow-pipeline` for the review phase or (b) document a
@@ -920,37 +920,37 @@ Done when:
   "single LLM container" invariant survives or evolves.
 - **Per-invocation model/effort override syntax for `/verify` retry
   is asserted but not specified.** `flow-pipeline` SKILL.md step 6
-  and the PR 7 done-when bullet describe escalating attempts 2-3 to
+  and the Item 7 done-when bullet describe escalating attempts 2-3 to
   Opus/`xhigh` "by passing those overrides when invoking the skill"
   but do not show the syntax Claude Code actually parses (the example
   prompt-line annotation `(model: …, effort: …)` is an in-prose
   comment, not a parsed flag). **Revisit trigger:** first time the
-  retry path actually fires in production, or when PR 8 (eval harness)
+  retry path actually fires in production, or when Item 8 (eval harness)
   exercises retry loops — verify the override is honoured by checking
   the model recorded in the per-attempt usage line. Why deferred:
   resolution depends on Claude Code harness behaviour outside this
   repo; either the syntax exists and the doc just needs to cite it,
   or it doesn't and the escalation claim must be removed.
 
-### PR 8 — eval harness
+### Item 8 — eval harness
 
-Status: ⬜ queued. Carry-forward from queued Phase 5 PR 21.
+Status: ⬜ queued. Carry-forward from queued Phase 5 Item 21.
 
 Done when:
 
 - [ ] 5–10 fixture features under `evals/` with expected diffs +
   rubrics.
 - [ ] `flow eval` runs each fixture under two model configs (Claude Code
-  defaults vs the per-skill picks from PR 7), captures pass/fail and
+  defaults vs the per-skill picks from Item 7), captures pass/fail and
   $/run, prints a delta.
 - [ ] Pass-rate regression of >1 fixture between configs exits non-zero
   (CI-friendly).
 
-### PR 11 — `pr-review` unified mode (collapse Address vs Review)
+### Item 11 — `pr-review` unified mode (collapse Address vs Review)
 
 Status: ⬜ queued.
 
-Why: PR 3 dropped the orchestrator-driven machine mode but left the
+Why: Item 3 dropped the orchestrator-driven machine mode but left the
 older Address-vs-Review dichotomy in place. That dichotomy is largely
 cosmetic — Steps 6, 8, 10 already no-op when there are no inline
 comments to operate on. The one real divergence is that Step 11 (post
@@ -982,17 +982,17 @@ conventional-comments format, the auto-fix-vs-defer bar, the
 retrospective-and-checklist-evolution mechanic — none of that
 changes. This is a control-flow simplification only.
 
-### PR 12 — fix cross-pipeline worktree contamination (high priority)
+### Item 12 — fix cross-pipeline worktree contamination (high priority)
 
 Status: ⬜ queued — high priority.
 
-The bug, witnessed end-to-end on 2026-05-01: the user kicked off six parallel `flow new` pipelines for PRs 4 / 6 / 7 / 8 / 9 / 10. The PR 10 supervisor created its worktree at `flow-proceed-with-pr-10-in-the-roadmap-if-the` on branch `proceed-with-pr-10-in-the-roadmap-if-the` (correct). The PR 4 supervisor — running concurrently in a different tmux window — then **renamed PR 10's branch** to `pr4-delete-orchestrator`:
+The bug, witnessed end-to-end on 2026-05-01: the user kicked off six parallel `flow new` pipelines for Items 4 / 6 / 7 / 8 / 9 / 10. The Item 10 supervisor created its worktree at `flow-proceed-with-pr-10-in-the-roadmap-if-the` on branch `proceed-with-pr-10-in-the-roadmap-if-the` (correct). The Item 4 supervisor — running concurrently in a different tmux window — then **renamed Item 10's branch** to `pr4-delete-orchestrator`:
 
 ```
 Branch: renamed refs/heads/proceed-with-pr-10-in-the-roadmap-if-the to refs/heads/pr4-delete-orchestrator
 ```
 
-It then **committed PR 4's work into PR 10's worktree**. The PR 10 supervisor's in-flight edits to `SKILL.md` and `docs/roadmap.md` were silently clobbered. Recovery required dropping back to main, hand-restoring the lost edits, and opening PR 10 from a third branch — none of which is automatable.
+It then **committed Item 4's work into Item 10's worktree**. The Item 10 supervisor's in-flight edits to `SKILL.md` and `docs/roadmap.md` were silently clobbered. Recovery required dropping back to main, hand-restoring the lost edits, and opening Item 10 from a third branch — none of which is automatable.
 
 The two contributing factors so far:
 
@@ -1004,11 +1004,11 @@ The two contributing factors so far:
    the supervisor's `cd` step is one fat-fingered tab-complete away
    from landing in a sibling worktree.)*
 2. **The supervisor LLM has no `cwd` lock.** Every Bash call resolves
-   `cwd` independently. If the supervisor for PR 4 ever resolved its
-   `cwd` to PR 10's worktree path (whether via tab-complete, a
+   `cwd` independently. If the supervisor for Item 4 ever resolved its
+   `cwd` to Item 10's worktree path (whether via tab-complete, a
    misremembered absolute path, or a `flow-new-worktree` race), every
    subsequent `git switch / git branch -m / git commit` in that turn
-   landed in PR 10's filesystem, on PR 10's branch, with no diagnostic
+   landed in Item 10's filesystem, on Item 10's branch, with no diagnostic
    that anything was wrong. The branch-rename step in particular is
    irreversible after the agent moves on.
 
@@ -1029,6 +1029,18 @@ Done when:
   and asserts each ends up on its own branch in its own directory,
   with no cross-mutation.
 - [ ] **Supervisor SKILL.md hard rule.** Add a hard rule along the lines of `You never run git branch -m or git switch <other-pipeline-branch>`. Belt-and-braces against the LLM-confusion failure mode that opened the door here in the first place.
+- [ ] **`$TMUX_PANE` self-identification rule.** Add a sibling hard
+  rule in the supervisor SKILL.md: when the supervisor needs to query
+  or target its own tmux window, it must anchor on `$TMUX_PANE` (which
+  tmux pins to the process at spawn time and is immutable for the life
+  of that process) rather than untargeted queries like `tmux
+  display-message -p '#S:#W'` or `#{session_name}`. Untargeted queries
+  resolve against tmux's *current client*, which races across parallel
+  pipelines and was implicated in a separate parallel-flow run where a
+  supervisor misidentified its own window. Different failure mode from
+  the `cwd` / branch confusion above (anchoring on `$TMUX_PANE` would
+  not have prevented the 2026-05-01 incident), but same family —
+  parallel-pipelines self-identification hazard, fix belongs adjacent.
 - [ ] **Postmortem entry under "Open questions" or a new "Incidents"
   section** linking this PR to the 2026-05-01 reflog evidence so the
   context survives the bug fix.
@@ -1038,15 +1050,15 @@ Why this is a blocker for the parallel-pipelines value prop:
 The roadmap repeatedly cites parallel pipelines as the carrying value
 of the redesign (Flow 7, "End-state shape", "no claim primitive
 needed"). If parallel pipelines are *not* in fact isolated, every claim
-about "the OS schedules them" is unsafe. PR 12 has to land before
+about "the OS schedules them" is unsafe. Item 12 has to land before
 parallel use is recommended again. Until it does, the workaround is to
 run pipelines serially.
 
-### PR 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep
+### Item 13 — `/flow-pipeline` auto-merge authorization + post-merge sweep
 
 Status: ⬜ queued.
 
-Why: PR 7's run surfaced two adjacent gaps in how `/flow-pipeline`
+Why: Item 7's run surfaced two adjacent gaps in how `/flow-pipeline`
 finishes a pipeline.
 
 (a) `AGENTS.md`'s blanket "Don't auto-commit or auto-push without an
@@ -1057,8 +1069,8 @@ documented step 10. The runtime denied PR #46's merge on this
 basis. The doc and the skill disagree.
 
 (b) Every PR's diff sets its own roadmap row to "🚧 in review";
-nothing flips it to "✅ shipped (#N)" post-merge. PR 3 (#44) and
-PR 7 (#46) both drifted into stale state until this PR's fix
+nothing flips it to "✅ shipped (#N)" post-merge. Item 3 (#44) and
+Item 7 (#46) both drifted into stale state until this PR's fix
 sweep landed them by hand.
 
 Done when:
@@ -1080,11 +1092,11 @@ Done when:
   Idempotent — re-running on an already-shipped row is a no-op. Runs
   unconditionally on merge, not gated by Manual-validation-empty.
 
-### PR 14 — supervisor↔skill contract correctness
+### Item 14 — supervisor↔skill contract correctness
 
 Status: ⬜ queued.
 
-Why: PR 7's `/pr-review` invocation surfaced three contract-level
+Why: Item 7's `/pr-review` invocation surfaced three contract-level
 issues between `/flow-pipeline` and the sub-skills it loads in-
 process:
 
@@ -1092,9 +1104,9 @@ process:
 supervisor never invokes the Task / Agent tool" (one-level cap).
 `/pr-review`'s step 4 spawns four named subagents via Task. When
 the supervisor loads `/pr-review`, the rule transitively breaks.
-PR 7 saw the empirical fallback: the Task tool wasn't exposed in-
+Item 7 saw the empirical fallback: the Task tool wasn't exposed in-
 session, and `/pr-review` collapsed to a single-reviewer pass.
-Tracker entry posted on PR 46 already names this; this PR resolves
+Tracker entry posted on PR #46 already names this; this PR resolves
 it.
 
 (b) **Verify-retry escalation is aspirational.** `/flow-pipeline`
@@ -1105,7 +1117,7 @@ should cite it, or the claim is currently aspirational and needs
 to be rewritten to do something the harness actually supports.
 
 (c) **New agents/skills aren't live until `flow setup --upgrade`.**
-PR 7 created `agents/pr-*.md` files but didn't symlink them into
+Item 7 created `agents/pr-*.md` files but didn't symlink them into
 `~/.claude/agents/`; the same session's `/pr-review` couldn't see
 them. Self-reference between "this PR adds an agent" and "this PR
 exercises the agent" needs a re-symlink step inside the supervisor.
@@ -1127,30 +1139,30 @@ Done when:
   files under `skills/` or `agents/`. Detect via `git diff --name-only
   origin/main...HEAD | grep -E '^(skills|agents)/'`.
 
-### PR 15 — pipeline ergonomics + scratch hygiene
+### Item 15 — pipeline ergonomics + scratch hygiene
 
 Status: ⬜ queued.
 
-Why: PR 7's run with multiple parallel pipelines surfaced a cluster
+Why: Item 7's run with multiple parallel pipelines surfaced a cluster
 of frictions. None of these are the cross-pipeline data-loss bug
-(PR 12 owns that). They are the smaller papercuts that compound at
+(Item 12 owns that). They are the smaller papercuts that compound at
 scale.
 
-(a) **Slug derivation is too long.** `flow new "Proceed with PR 7
+(a) **Slug derivation is too long.** `flow new "Proceed with Item 7
 in the roadmap if the prerequisites are complete"` produces slug
 `proceed-with-pr-7-in-the-roadmap-if-the`. The supervisor's triage
 step says "derive 3-5 word kebab-case slug" but state.json + tmux
 window already exist by the time triage runs, with no clean rename
 path.
 
-(b) **Parallel agents collide on `/tmp`.** PR 7's body file landed
+(b) **Parallel agents collide on `/tmp`.** Item 7's body file landed
 at `/tmp/pr7-body.md`; the file already existed with stale content
 from a prior session, and `gh pr create --body-file` read the stale
 content. (Recovered with a follow-up `gh pr edit`.) `/tmp` is
 shared across every parallel agent.
 
 (c) **`flow setup --upgrade` race.** Two parallel pipelines that
-each run `flow setup --upgrade` (e.g. as part of the proposed PR 14
+each run `flow setup --upgrade` (e.g. as part of the proposed Item 14
 re-symlink step) can race on `~/.claude/skills/` and
 `~/.claude/agents/` symlinks.
 
@@ -1162,7 +1174,7 @@ number. If the supervisor crashes between `gh pr create` and
 
 (e) **`flow-pre-commit` is silent on no-op.** "No relevant scopes
 detected — nothing to check" exits 0; correct behaviour but
-indistinguishable from a real bug. PR 7's invocation hit this and
+indistinguishable from a real bug. Item 7's invocation hit this and
 the user couldn't tell if anything ran.
 
 Done when:
@@ -1187,11 +1199,11 @@ Done when:
 - [ ] `flow-pre-commit` prints which scopes were considered and why
   each was skipped, so a no-op pass is loud, not silent.
 
-### PR 16 — supervisor polling discipline
+### Item 16 — supervisor polling discipline
 
 Status: ⬜ queued.
 
-Why: PR 7's CI/Copilot wait step terminated after a single empty
+Why: Item 7's CI/Copilot wait step terminated after a single empty
 poll. Both `gh pr checks` and `gh pr view --json reviews` returned
 empty on the first call (Copilot hadn't posted yet), and the
 supervisor mis-inferred "no CI configured + no Copilot configured"
@@ -1219,7 +1231,7 @@ Done when:
   elapsed 1m30s of 20m") so the user can see the wait progressing
   rather than guessing.
 
-### PR 9 — `flow new --resume <name>`
+### Item 9 — `flow new --resume <name>`
 
 Status: ✅ shipped (#50).
 
@@ -1239,9 +1251,9 @@ Done when:
 - [x] Useful primarily for Claude Code crashes; for laptop sleep, the
   session usually resumes naturally.
 
-### PR 10 — notifications
+### Item 10 — notifications
 
-Status: ✅ shipped (#48). Carry-forward from shipped PR 17.
+Status: ✅ shipped (#48). Carry-forward from shipped Item 17.
 
 Done when:
 
@@ -1265,9 +1277,9 @@ Done when:
 
 | Old item | Why dropped |
 |---|---|
-| Phase 4 PR 16 (pause/resume/abort) | tmux already supports this — `Ctrl-b d`, kill the window, free-form chat redirect. No verbs needed. |
-| Phase 4 PR 18 (remove `flow start`) | Subsumed into PR 4 (delete the orchestrator entirely). |
-| Phase 4 PR 19 (`flow tui`) | tmux *is* the TUI. |
+| Phase 4 Item 16 (pause/resume/abort) | tmux already supports this — `Ctrl-b d`, kill the window, free-form chat redirect. No verbs needed. |
+| Phase 4 Item 18 (remove `flow start`) | Subsumed into Item 4 (delete the orchestrator entirely). |
+| Phase 4 Item 19 (`flow tui`) | tmux *is* the TUI. |
 | State-store backend swap (Beads) | The state store is gone — no backend to swap. |
 | Cross-process claim primitive | Each pipeline is its own tmux process; OS-level isolation makes claiming trivial (window-name uniqueness). |
 | Atomic-rename lock primitive | Same. |
@@ -1281,7 +1293,7 @@ Done when:
    supervisor turn means dozens of tool-call iterations sharing one
    conversation context. Token cost per iteration is small (sleep +
    gh JSON), but bounded growth deserves measurement before treating
-   it as free. PR 6's cost reporting will surface this; if it's
+   it as free. Item 6's cost reporting will surface this; if it's
    meaningful, the supervisor can drop polling intervals (e.g. start
    at 30s and back off to 60s, 90s) at the cost of latency.
 2. **Multi-machine.** Design B is single-machine by design (see
@@ -1295,14 +1307,14 @@ Done when:
    (each step has a side-effect that's inspectable: worktree exists?
    `plan.md` written? PR open? CI green? review commit landed?
    merged?). Worth pinning the exact decision tree in
-   `references/failure-recovery.md` during PR 2.
-4. **`pr-review` post-merge cleanup.** *Resolved: encoded in PR 2.*
+   `references/failure-recovery.md` during Item 2.
+4. **`pr-review` post-merge cleanup.** *Resolved: encoded in Item 2.*
    `/pr-review`'s committed-and-pushed fixes retrigger CI; step 8 of
    `skills/pipeline/flow-pipeline/SKILL.md` explicitly returns to step
    7 (CI wait), not step 9, after a review-fix commit lands. The
    supervisor's polling loop covers the next CI cycle.
 5. **Window-name phase encoding vs richer status file.** *Resolved:
-   global state file (post PR 2).* The supervisor calls
+   global state file (post Item 2).* The supervisor calls
    `flow-state-update` to write the phase into
    `~/.flow/state/<slug>.json` at each transition; `flow ls` reads it.
    Reason: encoding phase as a `:<phase>` suffix in the window name
@@ -1311,7 +1323,7 @@ Done when:
    parser. The status-file approach also avoids a `tmux rename-window`
    call on every phase transition.
 6. **Stack skill placement.** Per-machine global symlink (`flow
-   setup --stack`) vs per-project on-demand (`flow stack add`). PR 1
+   setup --stack`) vs per-project on-demand (`flow stack add`). Item 1
    picks one; the rest of the doc currently treats option B as
    preferred but either is implementable.
 
@@ -1319,7 +1331,7 @@ Done when:
 
 ## Verification (end-to-end)
 
-After PR 2:
+After Item 2:
 
 1. From flow's own repo: `flow setup --upgrade` (refreshes the
    global `~/.claude/skills/` symlinks so the new supervisor skill
@@ -1336,13 +1348,13 @@ After PR 2:
    tmux window still open (scrollback retained).
 8. `flow done <name>` to close the window.
 
-After PR 4: `npm run typecheck` and `npm run test` clean against the
+After Item 4: `npm run typecheck` and `npm run test` clean against the
 slimmed `src/`. Re-run the smoke pass to confirm no regression.
 
-After PR 7: re-run the smoke pass. Pipeline should still complete;
+After Item 7: re-run the smoke pass. Pipeline should still complete;
 costs should show distinct model attributions.
 
-After PR 8: `flow eval` runs the fixture suite and exits 0 against
+After Item 8: `flow eval` runs the fixture suite and exits 0 against
 the chosen config.
 
 ---
@@ -1351,7 +1363,7 @@ the chosen config.
 
 - **Multi-machine pipelines.** Single-machine by design.
 - **Web UI / dashboard / status server.** tmux is the UI.
-- **Slack / email / Jira integration.** macOS notifications (PR 10)
+- **Slack / email / Jira integration.** macOS notifications (Item 10)
   are the only notification surface.
 - **Cross-repo coordination.** flow operates on one repo at a time.
 - **Beads (database) state-store backend.** The state store is gone;
@@ -1379,5 +1391,5 @@ These designs are documented in detail in
 [`architecture.md`](./architecture.md),
 [`chat-first-design.md`](./chat-first-design.md), and
 [`task-schema.md`](./task-schema.md). They remain accurate
-descriptions of the orchestrator that exists today; once PR 4 lands,
+descriptions of the orchestrator that exists today; once Item 4 lands,
 they should be archived or rewritten around the tmux design.
