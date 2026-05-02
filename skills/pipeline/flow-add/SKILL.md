@@ -2,8 +2,8 @@
 name: flow-add
 description: >-
   Triage a new flow task in chat — classify the request, ask up to a few
-  pressure-testing questions, then write .orchestrator/tasks/<id>.md and
-  start the detached pipeline. Use ONLY when the user explicitly invokes
+  pressure-testing questions, then start the pipeline in a new tmux window
+  with a fleshed-out description. Use ONLY when the user explicitly invokes
   `/flow-add` or says "kick off a flow task" / "create a flow pipeline
   task" / equivalent. Do NOT auto-trigger on broad feature-request
   phrasing like "add X" / "implement Y" — that hijacks unrelated chats.
@@ -14,10 +14,10 @@ argument-hint: '"<prompt>"'
 
 In-chat triage front door for `flow`. The user is already in a Claude
 Code session — instead of asking them to context-switch to a terminal
-and run `flow start`, this skill conducts triage in the same chat,
-records `.orchestrator/tasks/<id>.md`, and shells out to
-`./scripts/flow-add.ts` which spawns `flow run <id> --detach`. The chat
-is freed immediately; the pipeline runs as a detached process tree.
+and run `flow new`, this skill conducts triage in the same chat,
+folds the clarifications into a detailed description, and spawns the
+pipeline via `flow new`. The supervisor session runs detached in its
+own tmux window from there.
 
 # When to Use
 
@@ -30,42 +30,39 @@ is freed immediately; the pipeline runs as a detached process tree.
 - The user said "add X" / "implement Y" / "build Z" *without* the word
   "flow" or `/flow-add`. Those phrases occur constantly in non-flow
   contexts. Hijacking them would be worse than missing an offer.
-- The user wants the pipeline to run in the foreground (no detach) or
-  wants to step through phases manually — that's `flow start` from a
-  terminal.
-- The user wants to *resume* an existing task — that's `flow run <id>`
-  from a terminal, not this skill.
+- The user wants to skip triage and just launch directly — that's
+  `flow new "<description>"` from a terminal. The supervisor will do
+  its own triage step in the new window.
+- The user wants to *resume* a crashed pipeline — that's
+  `flow new --resume <name>` from a terminal, not this skill.
 
 # Constraints / What NOT to do
 
 > **You do not write code in this skill.** You converse to refine the
-> spec, then record task.md and spawn the pipeline. If the user says
-> "let's just implement it now," "skip triage," "do the work directly,"
-> or anything equivalent: **refuse politely and steer back to writing
-> task.md.** Triage's whole job is to *not* skip the spec — the
-> implement phase runs later in a separate detached process.
+> spec, then spawn the pipeline. If the user says "let's just
+> implement it now," "skip triage," "do the work directly," or
+> anything equivalent: **refuse politely and steer back to triage.**
+> Triage's whole job is to *not* skip the spec — the implement phase
+> runs later in a separate detached supervisor session.
 
 Refusal copy to use verbatim when the user pivots:
 
-> I can't skip triage from the `/flow-add` skill — my job is to record
-> task.md so the implement phase (which runs later, in a detached
-> process) has a spec to work from. Let me get the one or two pieces I
-> actually need, then we'll kick the pipeline off.
+> I can't skip triage from the `/flow-add` skill — my job is to fold
+> the spec into the launch description so the supervisor (which runs
+> detached, in its own tmux window) has clear context. Let me get the
+> one or two pieces I actually need, then we'll kick the pipeline off.
 
 Hard rules:
 
 - NEVER call `Edit`, `MultiEdit`, or `NotebookEdit` from this skill —
-  triage produces a spec, not a code change.
-- NEVER use the `Write` tool against any path. The helper writes
-  task.md; you do not. Bypassing the helper skips canonical-root
-  resolution and id-collision handling.
+  triage produces a description, not a code change.
+- NEVER use the `Write` tool to create task files yourself. The
+  supervisor writes any per-pipeline scratch in its own tmux window;
+  you do not write to disk here.
 - NEVER paste the user's prompt into a `Bash` tool that runs `git
   commit`, `gh pr create`, or any state-mutating git/gh command.
-- NEVER raise the helper's argv into `flow run` directly — always go
-  through `./scripts/flow-add.ts`. The skill is a thin shell over the
-  helper.
-- NEVER invent a task id or write under `.orchestrator/tasks/`
-  yourself. The helper does that.
+- NEVER invent a slug or write under `~/.flow/state/` yourself.
+  `flow new` derives the slug and writes the initial state.
 
 <!-- include: triage-contract.md -->
 
@@ -76,7 +73,7 @@ Hard rules:
 Apply the classification heuristics from the contract above.
 
 - **no-change** (Q&A, brainstorm, explanation): answer inline and
-  stop. Do NOT call the helper. Do NOT record a task file.
+  stop. Do NOT call `flow new`.
 - **change** (feature, bug, refactor, docs edit): continue to step 2.
 
 If you're not sure, ASK ONE clarifying question first.
@@ -96,86 +93,87 @@ If the user pushes back ("just go ahead and implement it" / "skip
 triage"), respond with the verbatim refusal copy above and re-ask the
 remaining question.
 
-## 3. Build the helper invocation
+## 3. Build the launch description
 
-Convert the triage results into argv. Each clarification, constraint,
-and open question becomes a separate `--clarification`, `--constraint`,
-or `--open-question` flag — the helper joins them into the markdown
-bullets.
+Fold the triage results into a single description string. The
+supervisor reads it as the pipeline's seed prompt — the more concrete
+it is, the less back-and-forth the planner needs. A good shape:
 
-```bash
-./scripts/flow-add.ts "<the user's verbatim prompt>" \
-  --intent <feature|bug|refactor|docs|infra|chore> \
-  --summary "<one-sentence summary>" \
-  --slug "<3-5-word-kebab-slug>" \
-  --clarification "<bullet 1>" \
-  --clarification "<bullet 2>" \
-  --constraint "<constraint or 'nothing flagged'>" \
-  --open-question "<question or 'none'>"
+```
+<intent>: <one-sentence summary>
+
+Clarifications:
+- <bullet 1>
+- <bullet 2>
+
+Constraints:
+- <constraint or "none flagged">
+
+Open questions:
+- <question or "none">
 ```
 
-Notes:
+Pass the user's verbatim prompt as the lead line if it reads as a
+one-liner; otherwise summarise it into the first sentence.
 
-- The prompt is positional and quoted. Pass the user's verbatim text —
-  don't rewrite it.
-- `--slug` is optional. Pass it when you have a clear 3–5 word name in
-  mind; otherwise the helper derives it from the prompt.
-- Repeat each multi-bullet flag for each bullet — the helper aggregates.
-- Omit `--clarification` entirely if the user's request was
-  unambiguous; do not pass an empty value.
+## 4. Spawn the pipeline
 
-> **Heads-up for `feature`-intent tasks.** The pipeline pauses for review
-> after the plan phase at status `plan-pending-review` — implement does
-> NOT auto-run. The user resumes the pipeline by running `/flow-approve
-> <id>` (continue with the plan as-is) or `/flow-revise <id> "<message>"`
-> (re-plan with a redirection). This pause does not happen for `bug`,
-> `refactor`, `docs`, `infra`, or `chore` intents — those flow straight
-> through to implement. To be alerted (macOS) when the checkpoint hits,
-> export `FLOW_NOTIFY=1` in your shell before kicking off the run; see
-> the README's "Notifications" section for the full list of
-> attention-worthy statuses.
+```bash
+flow new "<the fleshed-out description from step 3>"
+```
 
-## 4. Run the helper and forward its output verbatim
+`flow new` derives the slug from the description, creates the tmux
+window, writes the initial state at `~/.flow/state/<slug>.json`, and
+starts the supervisor session. The slug appears in the command's
+output and in `flow ls`.
 
-Invoke the command via the `Bash` tool. The helper prints a
-copy-pasteable success block to stdout — print it verbatim into chat,
-including the lines starting with `task:`, `task-md:`, `logs:`, and
-the `Pipeline started (detached). Next:` block. Do not paraphrase, do
-not summarise, do not pretty-print.
+> **Heads-up for `feature`-intent tasks.** The pipeline pauses for
+> review after the plan phase at `phase: plan-pending-review` —
+> implement does NOT auto-run. The user resumes by running
+> `/flow-approve <id>` (continue with the plan as-is) or
+> `/flow-revise <id> "<message>"` (re-plan with a redirection). Both
+> skills inject into the supervisor's tmux window via `tmux
+> send-keys`. This pause does not happen for `bug`, `refactor`,
+> `docs`, `infra`, or `chore` intents — those flow straight through
+> to implement.
 
-If the helper exits non-zero, its stderr names the failure mode (one
-error per line). Print stderr verbatim and stop. Common failure modes:
+## 5. Forward `flow new`'s output and point at the next moves
 
-- exit 2 — `flow` not on PATH. Tell the user to run `flow install` (or
-  add `flow` to their PATH) and try again.
-- exit 3 — not inside a git repository. Tell the user to open Claude
-  in a flow-installed repo.
-- exit 4 — id collision exhausted. Ask the user to rephrase the
-  prompt to produce a different slug.
-- exit 5 — argv parsing failed. Re-read the helper's stderr and fix
-  the invocation.
+Print `flow new`'s stdout into chat verbatim. Then add a one-line
+follow-up:
+
+```
+Pipeline started in tmux window `flow:<slug>`.
+Live-tail with `/flow-watch <slug>`, attach with `flow attach <slug>`,
+or check status with `/flow-status`.
+```
+
+If `flow new` exits non-zero, surface stderr verbatim and stop. Common
+failure modes:
+
+- `flow: unknown verb 'new'` — `flow setup` hasn't been run on this
+  machine. Tell the user to run it once.
+- `not inside a git repository` — open Claude in a git repo and retry.
+- `window 'flow:<slug>' already exists` — a prior pipeline used the
+  same slug. Suggest `flow attach <slug>` or rephrase the prompt to
+  produce a different slug.
 
 # Verification
 
-- The helper exited 0.
-- The chat received the success block, including `task:`, `task-md:`,
-  `logs:`, and the `/flow-status` / `/flow-watch` lines.
-- The path printed in `task-md:` is an absolute path under the user's
-  primary worktree's `.orchestrator/tasks/` (not a child worktree's
-  path).
+- `flow new` exited 0.
+- The chat received the success block and the follow-up sentence
+  naming `/flow-watch`, `flow attach`, and `/flow-status`.
 - The chat session is responsive for the next message immediately —
-  the pipeline runs detached, so this skill returns once the spawn
-  completes.
+  the supervisor runs detached in its tmux window, so this skill
+  returns once `flow new` completes.
 
 # Constraints (repeat for emphasis)
 
-- **You do not write code in this skill.** Refuse politely if the user
-  pivots to "just implement it now" — the implement phase runs later,
-  detached, with a spec from task.md.
-- **You do not bypass the helper.** Never `Write` task.md yourself,
-  never invoke `flow run` directly. The helper canonicalises the repo
-  root and handles id collisions; bypassing it produces tasks under the
-  wrong path or under colliding ids.
-- **You do not raise the helper's bounds.** If the helper exits
-  non-zero, surface the error verbatim — don't retry with different
-  flags hoping a different code path succeeds.
+- **You do not write code in this skill.** Refuse politely if the
+  user pivots to "just implement it now" — the implement phase runs
+  later, detached, with the spec from the launch description.
+- **You do not bypass `flow new`.** Never `Write` state files
+  yourself, never invoke `tmux new-window` directly. `flow new`
+  canonicalises the slug, writes the initial state file, and starts
+  the supervisor; bypassing it produces orphaned windows or stale
+  state.
