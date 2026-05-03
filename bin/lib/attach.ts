@@ -4,7 +4,13 @@
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";
-import { execAttach, listWindows, sessionExists, FLOW_SESSION } from "./tmux";
+import {
+  execAttach,
+  findWindowBySlug,
+  listWindows,
+  sessionExists,
+  FLOW_SESSION,
+} from "./tmux";
 
 /**
  * CLI shim for `bin/flow`'s `attach` verb. Intercepts --help / -h before
@@ -27,19 +33,23 @@ export function runAttach(name?: string): number {
   const windows = listWindows();
   if (!name) {
     if (windows.length === 1) {
-      execAttach(windows[0].name);
+      // Prefer the slug (canonical identifier) so execAttach's
+      // slug-keyed resolver finds it via @flow-slug. Fall back to the
+      // display name for pre-upgrade windows that don't carry the
+      // option yet.
+      execAttach(windows[0].slug || windows[0].name);
     }
     if (windows.length === 0) {
       console.error(`flow attach: no windows in the '${FLOW_SESSION}' session.`);
       return 1;
     }
     console.error(`flow attach: multiple windows — pick one:`);
-    for (const w of windows) console.error(`  ${w.name}`);
+    for (const w of windows) console.error(`  ${w.slug || w.name}`);
     return 1;
   }
 
-  if (!windows.some((w) => w.name === name)) {
-    console.error(`flow attach: window '${FLOW_SESSION}:${name}' not found.`);
+  if (!findWindowBySlug(windows, name)) {
+    console.error(`flow attach: pipeline '${name}' not found in '${FLOW_SESSION}' session.`);
     return 1;
   }
 

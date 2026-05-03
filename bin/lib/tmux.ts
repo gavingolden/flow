@@ -1,9 +1,19 @@
 /**
  * Thin wrappers around the tmux CLI. The `flow` session is the single
- * container for every pipeline window; window names are slugs.
+ * container for every pipeline window.
+ *
+ * Identity vs display: every window flow creates carries a `@flow-slug`
+ * tmux user option. That option is the canonical pipeline identifier;
+ * the `window_name` is purely the user-visible title and may change
+ * (the user can `tmux ,` rename it; the supervisor sets a descriptive
+ * title during triage). Every helper resolves a slug → `window_id`
+ * once, then issues the follow-up tmux command by id, so renames don't
+ * unreachable-ify the pipeline. Pre-upgrade windows that don't have
+ * the option set fall back to name-matching.
  */
 
 export const FLOW_SESSION = "flow";
+const FLOW_SLUG_OPTION = "@flow-slug";
 
 type SpawnResult = { stdout: string; stderr: string; exitCode: number };
 
@@ -23,7 +33,12 @@ function tmux(args: string[]): SpawnResult {
 }
 
 export type TmuxWindow = {
+  /** Stable tmux window id (e.g. `@7`) — survives renames *and* index shifts. */
+  id: string;
+  /** User-visible display name. May differ from `slug` after a rename. */
   name: string;
+  /** Pipeline slug from the `@flow-slug` user option. Empty for non-flow windows. */
+  slug: string;
   /** Unix epoch seconds of last activity in any pane of the window. */
   activity: number;
 };
@@ -38,6 +53,8 @@ export function sessionExists(session = FLOW_SESSION): boolean {
   return tmux(["has-session", "-t", sessionTarget(session)]).exitCode === 0;
 }
 
+const LIST_WINDOWS_FORMAT = `#{window_id}\t#{window_name}\t#{${FLOW_SLUG_OPTION}}\t#{window_activity}`;
+
 /** Lists windows in the flow session. Returns [] when the session doesn't exist. */
 export function listWindows(session = FLOW_SESSION): TmuxWindow[] {
   if (!sessionExists(session)) return [];
@@ -46,49 +63,79 @@ export function listWindows(session = FLOW_SESSION): TmuxWindow[] {
     "-t",
     sessionTarget(session),
     "-F",
-    "#{window_name}\t#{window_activity}",
+    LIST_WINDOWS_FORMAT,
   ]);
   if (r.exitCode !== 0) return [];
-  return r.stdout
+  return parseWindowList(r.stdout);
+}
+
+export function parseWindowList(stdout: string): TmuxWindow[] {
+  return stdout
     .split("\n")
     .filter((line) => line.length > 0)
     .map((line) => {
-      const [name, activityStr] = line.split("\t");
-      return { name: name ?? "", activity: Number(activityStr) || 0 };
+      const [id, name, slug, activityStr] = line.split("\t");
+      return {
+        id: id ?? "",
+        name: name ?? "",
+        slug: slug ?? "",
+        activity: Number(activityStr) || 0,
+      };
     });
 }
 
-export function windowExists(name: string, session = FLOW_SESSION): boolean {
-  return listWindows(session).some((w) => w.name === name);
+/**
+ * Resolves a slug to the window that owns it. First match wins; the
+ * slug-keyed pass runs before the name fallback so a renamed window's
+ * old display name can't accidentally shadow a different pipeline.
+ */
+export function findWindowBySlug(
+  windows: TmuxWindow[],
+  slug: string,
+): TmuxWindow | undefined {
+  return (
+    windows.find((w) => w.slug && w.slug === slug) ??
+    windows.find((w) => !w.slug && w.name === slug)
+  );
+}
+
+export function windowExists(slug: string, session = FLOW_SESSION): boolean {
+  return findWindowBySlug(listWindows(session), slug) !== undefined;
 }
 
 /**
  * Creates the named window inside the flow session, creating the session if
- * needed. The window starts with the given command running in its first pane.
+ * needed. The window starts with the given command running in its first pane,
+ * and carries the `@flow-slug` user option so subsequent lookups survive a
+ * display-name rename.
  */
 export function createWindow(
-  name: string,
+  slug: string,
   cwd: string,
   command: string[],
   session = FLOW_SESSION,
 ): { ok: boolean; stderr: string } {
-  if (!sessionExists(session)) {
-    const r = tmux([
-      "new-session",
-      "-d",
-      "-s",
-      session,
-      "-n",
-      name,
-      "-c",
-      cwd,
-      "--",
-      ...command,
-    ]);
-    return { ok: r.exitCode === 0, stderr: r.stderr };
+  const args = sessionExists(session)
+    ? buildNewWindowArgs(session, slug, cwd, command)
+    : buildNewSessionArgs(session, slug, cwd, command);
+  const r = tmux(args);
+  if (r.exitCode !== 0) return { ok: false, stderr: r.stderr };
+  // Output of `-P -F '#{window_id}'` is the new window's id (e.g. `@7`).
+  const windowId = r.stdout.trim();
+  if (!windowId) {
+    return {
+      ok: false,
+      stderr: `tmux ${args[0]} succeeded but printed no window id`,
+    };
   }
-  const r = tmux(buildNewWindowArgs(session, name, cwd, command));
-  return { ok: r.exitCode === 0, stderr: r.stderr };
+  const opt = tmux(["set-option", "-w", "-t", windowId, FLOW_SLUG_OPTION, slug]);
+  if (opt.exitCode !== 0) {
+    return {
+      ok: false,
+      stderr: `set-option ${FLOW_SLUG_OPTION} failed: ${opt.stderr}`,
+    };
+  }
+  return { ok: true, stderr: "" };
 }
 
 export function buildNewWindowArgs(
@@ -105,13 +152,41 @@ export function buildNewWindowArgs(
     name,
     "-c",
     cwd,
+    "-P",
+    "-F",
+    "#{window_id}",
     "--",
     ...command,
   ];
 }
 
-export function killWindow(name: string, session = FLOW_SESSION): boolean {
-  return tmux(["kill-window", "-t", `${session}:${name}`]).exitCode === 0;
+export function buildNewSessionArgs(
+  session: string,
+  name: string,
+  cwd: string,
+  command: string[],
+): string[] {
+  return [
+    "new-session",
+    "-d",
+    "-s",
+    session,
+    "-n",
+    name,
+    "-c",
+    cwd,
+    "-P",
+    "-F",
+    "#{window_id}",
+    "--",
+    ...command,
+  ];
+}
+
+export function killWindow(slug: string, session = FLOW_SESSION): boolean {
+  const window = findWindowBySlug(listWindows(session), slug);
+  if (!window) return false;
+  return tmux(["kill-window", "-t", window.id]).exitCode === 0;
 }
 
 /**
@@ -120,16 +195,20 @@ export function killWindow(name: string, session = FLOW_SESSION): boolean {
  * preserves the pane id so the user's tmux scrollback addressing stays valid.
  */
 export function respawnWindow(
-  name: string,
+  slug: string,
   cwd: string,
   command: string[],
   session = FLOW_SESSION,
 ): { ok: boolean; stderr: string } {
+  const window = findWindowBySlug(listWindows(session), slug);
+  if (!window) {
+    return { ok: false, stderr: `window not found for slug '${slug}'` };
+  }
   const r = tmux([
     "respawn-window",
     "-k",
     "-t",
-    `${session}:${name}`,
+    window.id,
     "-c",
     cwd,
     "--",
@@ -145,12 +224,13 @@ export function respawnWindow(
  * `pane_dead` flips to 1 only when tmux has `remain-on-exit on`; otherwise
  * the window disappears on exit, so we also probe the pid directly.
  */
-export function isPaneAlive(name: string, session = FLOW_SESSION): boolean {
-  if (!windowExists(name, session)) return false;
+export function isPaneAlive(slug: string, session = FLOW_SESSION): boolean {
+  const window = findWindowBySlug(listWindows(session), slug);
+  if (!window) return false;
   const r = tmux([
     "list-panes",
     "-t",
-    `${session}:${name}`,
+    window.id,
     "-F",
     "#{pane_dead} #{pane_pid}",
   ]);
@@ -181,14 +261,27 @@ function pidIsAlive(pid: number): boolean {
 }
 
 /** Replaces the current process with `tmux attach`. Never returns on success. */
-export function execAttach(name: string, session = FLOW_SESSION): never {
-  // execvp via Bun.spawn doesn't replace the parent process, so use the
-  // shell to hand the foreground over and exit cleanly. Stdio inherited so
-  // tmux owns the terminal until the user detaches.
-  const r = Bun.spawnSync(["tmux", "attach", "-t", `${session}:${name}`], {
+export function execAttach(slug: string, session = FLOW_SESSION): never {
+  const window = findWindowBySlug(listWindows(session), slug);
+  if (!window) {
+    console.error(`flow attach: window for slug '${slug}' not found.`);
+    process.exit(1);
+  }
+  // Focus the right window before attaching — tmux operates on the server,
+  // so select-window works even with no client attached. Then hand the
+  // foreground over via attach. stdio inherited so tmux owns the terminal.
+  Bun.spawnSync(["tmux", "select-window", "-t", window.id], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const r = Bun.spawnSync(["tmux", "attach", "-t", sessionTarget(session)], {
     stdout: "inherit",
     stderr: "inherit",
     stdin: "inherit",
   });
   process.exit(r.exitCode ?? 1);
+}
+
+export function buildRenameArgs(windowId: string, title: string): string[] {
+  return ["rename-window", "-t", windowId, title];
 }

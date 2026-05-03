@@ -21,7 +21,14 @@ function state(overrides: Partial<PipelineState>): PipelineState {
 }
 
 function window(overrides: Partial<TmuxWindow>): TmuxWindow {
-  return { name: "csv-export", activity: NOW / 1000, ...overrides };
+  const name = overrides.name ?? "csv-export";
+  return {
+    id: `@${name}`,
+    name,
+    slug: name,
+    activity: NOW / 1000,
+    ...overrides,
+  };
 }
 
 describe(buildRows, () => {
@@ -116,6 +123,48 @@ describe(buildRows, () => {
       NOW,
     );
     expect(rows[0].lastActivity).toBe("—");
+  });
+
+  it("joins state to a renamed window via @flow-slug, not display name", async () => {
+    // The user ran `tmux ,` and renamed the display from `csv-export` to
+    // something more readable. The @flow-slug option is unchanged; the
+    // join must still find the window.
+    const rows = await buildRows(
+      [state({ slug: "csv-export", phase: "verifying" })],
+      [
+        window({
+          id: "@5",
+          name: "csv export prototype",
+          slug: "csv-export",
+        }),
+      ],
+      NOW,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe("csv-export");
+    expect(rows[0].annotation).toBe("");
+  });
+
+  it("falls back to display name when @flow-slug is empty (pre-upgrade window)", async () => {
+    const rows = await buildRows(
+      [state({ slug: "legacy", phase: "implementing" })],
+      [window({ id: "@1", name: "legacy", slug: "" })],
+      NOW,
+    );
+    expect(rows[0].annotation).toBe("");
+  });
+
+  it("does not double-count a renamed window as both state row and (no state) row", async () => {
+    // Regression: if buildRows used `state.slug ↔ window.name` to gate the
+    // (no state) emit, a renamed window would appear twice — once as the
+    // matched state row, once as an unmanaged "(no state)" row.
+    const rows = await buildRows(
+      [state({ slug: "csv-export" })],
+      [window({ id: "@5", name: "renamed-by-user", slug: "csv-export" })],
+      NOW,
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].annotation).toBe("");
   });
 });
 
