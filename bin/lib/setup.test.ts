@@ -293,6 +293,31 @@ describe("flow setup", () => {
     fs.rmSync(userTarget, { recursive: true, force: true });
   });
 
+  it("--upgrade reaps a dangling user-replaced symlink at our managed target", () => {
+    // Documents the relaxed-reaper's deliberate aggressive behavior: when an
+    // on-disk symlink at a target we recorded in the manifest no longer
+    // resolves to *anything* on disk, it gets reaped — regardless of whether
+    // the dangling pointer was something we wrote or something the user
+    // replaced ours with. The user-replacement-still-resolves case is
+    // preserved by the test above.
+    setup();
+    const t = targets();
+
+    // User replaces our `alpha` symlink with their own pointing somewhere else.
+    const userTarget = fs.mkdtempSync(path.join(os.tmpdir(), "user-"));
+    fs.unlinkSync(path.join(t.skillsDir, "alpha"));
+    fs.symlinkSync(userTarget, path.join(t.skillsDir, "alpha"));
+
+    // Drop alpha from the source so it qualifies as an orphan in the manifest.
+    fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), { recursive: true });
+    // And remove the user's replacement target so the symlink is dangling.
+    fs.rmSync(userTarget, { recursive: true, force: true });
+
+    const summary = setup({ upgrade: true });
+    expect(summary.removed).toBeGreaterThanOrEqual(1);
+    expect(fs.existsSync(path.join(t.skillsDir, "alpha"))).toBe(false);
+  });
+
   describe("--source <worktree> recording + cleanup", () => {
     it("records install-root paths in the manifest when flowSource diverges from installRoot", () => {
       // Build a fake worktree alongside the install-root fixture, with one
