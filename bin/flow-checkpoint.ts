@@ -23,7 +23,8 @@
  *   flow-checkpoint --from step-3 --to step-5 --note "/product-planning returned"
  */
 
-const REMINDER_LINE = "DO NOT END THIS TURN";
+const REMINDER_LINE = "DO NOT END THE TURN";
+const KNOWN_FLAGS = new Set(["--from", "--to", "--note"]);
 
 type Args = {
   from: string;
@@ -35,6 +36,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    if (!KNOWN_FLAGS.has(flag)) {
+      return { error: `unknown flag: ${flag}` };
+    }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -49,8 +53,6 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--note":
         out.note = value;
         break;
-      default:
-        return { error: `unknown flag: ${flag}` };
     }
     i++;
   }

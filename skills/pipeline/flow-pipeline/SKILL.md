@@ -193,7 +193,7 @@ in-process for skills; shell out for scripts; never delegate.
 > entry); the existing **continue-immediately sentences** inline at
 > each step's End-condition stanza (the last thing you read on step
 > exit); and an inline **`flow-checkpoint`** Bash call after every
-> sub-skill return that prints `DO NOT END THIS TURN` to stderr (the
+> sub-skill return that prints `DO NOT END THE TURN` to stderr (the
 > freshest signal in scrollback when the model decides what to do
 > next). The leading blockquote is the load-bearing layer because
 > sub-skill tail messages — `/product-planning` step 9's "share with
@@ -207,7 +207,7 @@ in-process for skills; shell out for scripts; never delegate.
 # Continuation reminders (`flow-checkpoint`)
 
 `flow-checkpoint` is a tiny Bun helper whose only job is to print a
-two-line `DO NOT END THIS TURN` reminder to stderr. Call it as a
+two-line `DO NOT END THE TURN` reminder to stderr. Call it as a
 Bash tool call after every sub-skill return inside a change pipeline
 — most importantly after `/product-planning` (step 3), `/new-feature`
 (step 5), `/verify` (step 6), and `/pr-review` (step 8). The helper
@@ -219,7 +219,7 @@ flow-checkpoint --from <step-label> --to <step-label> \
 # stderr:
 #   flow-checkpoint: returning from <from> → continuing to <to>
 #   note: <text>          # only when --note was passed
-#   DO NOT END THIS TURN
+#   DO NOT END THE TURN
 ```
 
 The helper closes the gap that the leading-blockquote layer alone
@@ -234,7 +234,7 @@ making it the freshest signal.
 Skip the call only at the four legitimate turn-end points
 documented in the "You never end the turn between sub-skills and
 the next step" Hard rule above — at those points, ending the turn
-is the desired behaviour, and a `DO NOT END THIS TURN` reminder
+is the desired behaviour, and a `DO NOT END THE TURN` reminder
 would be misleading.
 
 # Notifications
@@ -801,12 +801,27 @@ state and:
 
 **Fix-loop cap: 2 total review-fix loops.** If `/pr-review`
 surfaces critical findings that it can't auto-fix, loop back to
-step 5 with mode=fix and the finding details. **Continue immediately
-to step 5 in the same turn — do not end the turn.** After the second
-loop-back, escalate `NEEDS HUMAN: review-fix-exhausted`.
+step 5 with mode=fix and the finding details. Fire the continuation
+reminder before re-invoking `/new-feature`:
+
+```bash
+flow-checkpoint --from step-8 --to step-5 \
+                --note "/pr-review surfaced critical findings; mode=fix"
+```
+
+**Continue immediately to step 5 in the same turn — do not end the
+turn.** After the second loop-back, escalate `NEEDS HUMAN:
+review-fix-exhausted`.
 
 After `/pr-review` commits + pushes, **return to step 7** (CI
 wait), not directly to step 9. The fix commit may have changed CI.
+Fire the continuation reminder before re-invoking `flow-ci-wait`:
+
+```bash
+flow-checkpoint --from step-8 --to step-7 \
+                --note "/pr-review pushed review-fix; re-checking CI"
+```
+
 **Continue immediately to step 7 in the same turn — do not end the
 turn.** `/pr-review`'s post-push summary reads conversationally but
 is not a turn boundary.

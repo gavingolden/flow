@@ -14,6 +14,13 @@ describe("parseArgs", () => {
     expect(parseArgs(["--bogus", "x"])).toEqual({ error: "unknown flag: --bogus" });
   });
 
+  it("rejects an unknown flag even when no value follows it", () => {
+    // Without the unknown-flag check running before the value-presence check,
+    // `["--bogus"]` would mis-report `--bogus requires a value` and bury the
+    // real cause (the flag is unrecognised, value or no value).
+    expect(parseArgs(["--bogus"])).toEqual({ error: "unknown flag: --bogus" });
+  });
+
   it("rejects a flag with no value", () => {
     expect(parseArgs(["--from"])).toEqual({ error: "--from requires a value" });
   });
@@ -51,7 +58,7 @@ describe("buildLines", () => {
   it("emits the transition line and the reminder line", () => {
     expect(buildLines({ from: "step-3", to: "step-5" })).toEqual([
       "flow-checkpoint: returning from step-3 → continuing to step-5",
-      "DO NOT END THIS TURN",
+      "DO NOT END THE TURN",
     ]);
   });
 
@@ -65,7 +72,7 @@ describe("buildLines", () => {
     ).toEqual([
       "flow-checkpoint: returning from step-3 → continuing to step-5",
       "note: /product-planning returned",
-      "DO NOT END THIS TURN",
+      "DO NOT END THE TURN",
     ]);
   });
 
@@ -79,14 +86,14 @@ describe("buildLines", () => {
     ).toEqual([
       "flow-checkpoint: returning from step-6 → continuing to step-7",
       "note: verify passed on third try",
-      "DO NOT END THIS TURN",
+      "DO NOT END THE TURN",
     ]);
   });
 
   it("ignores a whitespace-only note", () => {
     expect(buildLines({ from: "step-3", to: "step-5", note: "   " })).toEqual([
       "flow-checkpoint: returning from step-3 → continuing to step-5",
-      "DO NOT END THIS TURN",
+      "DO NOT END THE TURN",
     ]);
   });
 });
@@ -101,7 +108,7 @@ describe("run", () => {
     expect(exit).toBe(0);
     expect(writes).toEqual([
       "flow-checkpoint: returning from step-3 → continuing to step-5\n",
-      "DO NOT END THIS TURN\n",
+      "DO NOT END THE TURN\n",
     ]);
   });
 
