@@ -6,6 +6,7 @@ import {
   isHelpFlag,
   printTopHelp,
   printVerbHelp,
+  runHelpVerb,
 } from "./help";
 
 describe("isHelpFlag", () => {
@@ -51,6 +52,18 @@ describe("argsContainHelp", () => {
 
   it("returns false when no --help / -h appears", () => {
     expect(argsContainHelp(["--no-auto-merge", "fix the thing"])).toBe(false);
+  });
+
+  it("stops scanning at `--` so a literal -h after the sentinel is treated as data", () => {
+    // `flow new -- fix the -h crash` should NOT short-circuit to help — the
+    // user's description happens to contain `-h` as a literal token.
+    expect(argsContainHelp(["--", "fix", "the", "-h", "crash"])).toBe(false);
+    expect(argsContainHelp(["--", "--help"])).toBe(false);
+  });
+
+  it("still recognises --help / -h that appear before `--`", () => {
+    expect(argsContainHelp(["--help", "--", "rest"])).toBe(true);
+    expect(argsContainHelp(["-h", "--", "rest"])).toBe(true);
   });
 });
 
@@ -123,5 +136,71 @@ describe("printVerbHelp", () => {
     expect(err).toHaveBeenCalledWith("flow help: unknown verb 'nonsense'");
     log.mockRestore();
     err.mockRestore();
+  });
+});
+
+describe("runHelpVerb", () => {
+  it("prints top-level help when no args are passed", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const code = runHelpVerb([]);
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledWith(HELP_TOP);
+    log.mockRestore();
+  });
+
+  for (const self of ["help", "--help", "-h"]) {
+    it(`collapses self-reference '${self}' to top-level help`, () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const code = runHelpVerb([self]);
+      expect(code).toBe(0);
+      expect(log).toHaveBeenCalledWith(HELP_TOP);
+      log.mockRestore();
+    });
+  }
+
+  it("canonicalises 'a' to 'attach'", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const code = runHelpVerb(["a"]);
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledWith(HELP_TEXT.attach);
+    log.mockRestore();
+  });
+
+  for (const alias of ["-v", "--version"]) {
+    it(`canonicalises '${alias}' to 'version'`, () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const code = runHelpVerb([alias]);
+      expect(code).toBe(0);
+      expect(log).toHaveBeenCalledWith(HELP_TEXT.version);
+      log.mockRestore();
+    });
+  }
+
+  it("returns 1 for an unknown target", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const code = runHelpVerb(["nonsense"]);
+    expect(code).toBe(1);
+    expect(log).not.toHaveBeenCalled();
+    expect(err).toHaveBeenCalledWith("flow help: unknown verb 'nonsense'");
+    log.mockRestore();
+    err.mockRestore();
+  });
+
+  it.each([
+    "new",
+    "ls",
+    "attach",
+    "done",
+    "migrate",
+    "setup",
+    "completion",
+    "version",
+  ])("'flow help %s' prints the same body as the verb's --help intercept", (verb) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const code = runHelpVerb([verb]);
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledWith(HELP_TEXT[verb]);
+    log.mockRestore();
   });
 });

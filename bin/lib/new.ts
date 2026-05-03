@@ -69,7 +69,15 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     return runNew(rest[0], { ...options, resume: true });
   }
   const noAutoMerge = args.includes("--no-auto-merge");
-  const description = args.filter((a) => a !== "--no-auto-merge").join(" ");
+  // Drop a leading `--` end-of-options sentinel so descriptions written
+  // with `flow new -- fix the -h crash` round-trip without the literal
+  // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
+  const ddIdx = args.indexOf("--");
+  const descriptionArgs =
+    ddIdx >= 0
+      ? [...args.slice(0, ddIdx), ...args.slice(ddIdx + 1)]
+      : args;
+  const description = descriptionArgs.filter((a) => a !== "--no-auto-merge").join(" ");
   return runNew(description, { ...options, noAutoMerge });
 }
 

@@ -14,7 +14,16 @@ export function isHelpFlag(arg: string | undefined): boolean {
 }
 
 export function argsContainHelp(args: string[]): boolean {
-  return args.some((a) => HELP_FLAGS.has(a));
+  // Stop scanning at `--` (POSIX end-of-options) so a literal `-h` or
+  // `--help` inside a `flow new <description>` body — e.g. `flow new -- fix
+  // the -h crash` — isn't mistaken for a help flag and doesn't suppress the
+  // pipeline. Without this, `argsContainHelp(["fix", "-h", "crash"])` would
+  // return true and short-circuit a real run.
+  for (const a of args) {
+    if (a === "--") return false;
+    if (HELP_FLAGS.has(a)) return true;
+  }
+  return false;
 }
 
 export const HELP_TOP = `flow — tmux-driven pipelines for Claude Code
@@ -30,7 +39,7 @@ Usage:
                                         (--no-auto-merge stops at gated regardless of rubric)
   flow new --resume <name>              resume a crashed pipeline in its existing window
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
-  flow attach <name>                    attach to a pipeline window  (alias: a)
+  flow attach [<name>]                  attach to a pipeline window  (alias: a)
   flow done <name>                      close a pipeline window
   flow done --all-merged                close every merged or cancelled window
   flow migrate [--apply] [--scan <p>]   clean up legacy per-repo flow install
@@ -135,4 +144,33 @@ export function printVerbHelp(verb: string): number {
   }
   console.log(text);
   return 0;
+}
+
+/**
+ * `flow help` (no args) → top-level help.
+ * `flow help <verb>`    → that verb's usage block.
+ * `flow help <unknown>` → error, exit 1.
+ *
+ * Self-references (`help`, `--help`, `-h`) collapse to top-level. Aliases
+ * (`a` → `attach`, `-v` / `--version` → `version`) canonicalize to the
+ * verb name registered in `HELP_TEXT`. Lives here (not `bin/flow`) so the
+ * canonicalization + dispatch is unit-testable without spawning Bun.
+ */
+export function runHelpVerb(args: string[]): number {
+  if (args.length === 0) {
+    printTopHelp();
+    return 0;
+  }
+  const target = args[0];
+  if (target === "help" || target === "--help" || target === "-h") {
+    printTopHelp();
+    return 0;
+  }
+  const canonical =
+    target === "a"
+      ? "attach"
+      : target === "-v" || target === "--version"
+        ? "version"
+        : target;
+  return printVerbHelp(canonical);
 }

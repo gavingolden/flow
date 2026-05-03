@@ -248,4 +248,25 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(code).toBe(0);
     expect(errors).toEqual([]);
   });
+
+  it("treats -h after `--` as part of the description, not a help flag", () => {
+    // Regression for the over-eager argsContainHelp scan: a description body
+    // that happens to contain `-h` (e.g. `flow new -- fix the -h crash`)
+    // must not be intercepted as `flow new --help`. Pipeline runs, slug
+    // derives from the words after `--`.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(
+      ["--", "fix", "the", "-h", "crash"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(0);
+    // Slug derives from the description after `--`; exact form depends on
+    // slugify's stop-word rules, but a state file must exist (the regression
+    // bug suppressed pipeline creation entirely).
+    const files = fs.readdirSync(stateDir);
+    expect(files).toHaveLength(1);
+    expect(files[0].endsWith(".json")).toBe(true);
+    // Sanity-check no help text leaked to logs (would indicate intercept).
+    expect(logs.join("\n")).not.toMatch(/^flow new — start a new pipeline/m);
+  });
 });
