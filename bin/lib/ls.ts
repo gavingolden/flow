@@ -15,6 +15,7 @@
 
 import { computeCost, defaultProjectsRoot, EMPTY_COST, type CostBreakdown } from "./cost";
 import { friendlyName } from "./cost-pricing";
+import { argsContainHelp, printVerbHelp } from "./help";
 import { listStates, type PipelineState } from "./state";
 import { relativeTime } from "./time";
 import { listWindows, type TmuxWindow } from "./tmux";
@@ -34,6 +35,33 @@ export type Row = {
   annotation: "" | "(no window)" | "(no state)";
   cost?: CostBreakdown;
 };
+
+/**
+ * CLI shim for `bin/flow`'s `ls` verb. Intercepts --help / -h before any
+ * state/tmux read, then parses --cost / --detail and dispatches to
+ * `runLs`. The previous inline `runLsVerb` lived in `bin/flow`.
+ */
+export async function runLsCli(args: string[]): Promise<number> {
+  if (argsContainHelp(args)) {
+    printVerbHelp("ls");
+    return 0;
+  }
+  const allowed = new Set(["--cost", "--detail"]);
+  for (const arg of args) {
+    if (!allowed.has(arg)) {
+      console.error(`flow ls: unknown option '${arg}'`);
+      console.error("usage: flow ls [--cost [--detail]]");
+      return 2;
+    }
+  }
+  const cost = args.includes("--cost");
+  const detail = args.includes("--detail");
+  if (detail && !cost) {
+    console.error("flow ls: --detail requires --cost");
+    return 2;
+  }
+  return await runLs({ cost, detail });
+}
 
 export async function runLs(opts: LsOptions = {}): Promise<number> {
   const states = listStates();

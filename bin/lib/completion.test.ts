@@ -57,6 +57,34 @@ describe("flow completion", () => {
     expect(stderrCaptured[0]).toBe("flow completion: shell argument is required");
     expect(stderrCaptured[1]).toBe("usage: flow completion <bash|zsh>");
   });
+
+  for (const flag of ["--help", "-h"]) {
+    it(`exits 0 with verb-specific help for '${flag}' (no fs read)`, () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const code = runCompletion(flag, { out });
+      expect(code).toBe(0);
+      expect(captured).toBe("");
+      expect(log).toHaveBeenCalled();
+      expect(log.mock.calls[0][0]).toMatch(/^flow completion — print a shell completion/);
+      expect(stderrCaptured).toEqual([]);
+      log.mockRestore();
+    });
+
+    it(`exits 0 and prints help for 'bash ${flag}' (no script emitted)`, () => {
+      // Regression: `flow completion bash --help` previously printed the
+      // bash completion script because runCompletion only inspected the
+      // first arg. Every other verb honours --help anywhere — completion
+      // must match.
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const code = runCompletion("bash", { out }, [flag]);
+      expect(code).toBe(0);
+      expect(captured).toBe("");
+      expect(log).toHaveBeenCalled();
+      expect(log.mock.calls[0][0]).toMatch(/^flow completion — print a shell completion/);
+      expect(stderrCaptured).toEqual([]);
+      log.mockRestore();
+    });
+  }
 });
 
 describe("completion scripts stay in sync with VERBS", () => {

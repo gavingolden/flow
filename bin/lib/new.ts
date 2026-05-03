@@ -11,6 +11,7 @@
 
 import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import { argsContainHelp, printVerbHelp } from "./help";
 import { slugify } from "./slug";
 import {
   createWindow,
@@ -37,6 +38,47 @@ export type NewOptions = {
 export function runNew(input: string, options: NewOptions = {}): number {
   if (options.resume) return runResume(input, options);
   return runFresh(input, options);
+}
+
+/**
+ * CLI shim for `bin/flow`'s `new` verb. Intercepts --help / -h before any
+ * side-effect (slug computation, tmux window create, state file write),
+ * then dispatches the parsed args to `runNew`. The previous inline
+ * `dispatchNew` lived in `bin/flow`; moving it here makes the help-flag
+ * short-circuit unit-testable and avoids the catastrophic
+ * `flow new --help` → phantom 'help' pipeline regression.
+ */
+export function runNewCli(args: string[], options: NewOptions = {}): number {
+  if (argsContainHelp(args)) {
+    printVerbHelp("new");
+    return 0;
+  }
+  const resumeIdx = args.indexOf("--resume");
+  if (resumeIdx >= 0) {
+    const rest = [...args.slice(0, resumeIdx), ...args.slice(resumeIdx + 1)];
+    if (rest.length === 0) {
+      console.error("flow new --resume: <name> is required.");
+      console.error("usage: flow new --resume <name>");
+      return 1;
+    }
+    if (rest.length > 1) {
+      console.error("flow new --resume: takes a single <name> argument.");
+      console.error(`  got: ${rest.join(" ")}`);
+      return 1;
+    }
+    return runNew(rest[0], { ...options, resume: true });
+  }
+  const noAutoMerge = args.includes("--no-auto-merge");
+  // Drop a leading `--` end-of-options sentinel so descriptions written
+  // with `flow new -- fix the -h crash` round-trip without the literal
+  // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
+  const ddIdx = args.indexOf("--");
+  const descriptionArgs =
+    ddIdx >= 0
+      ? [...args.slice(0, ddIdx), ...args.slice(ddIdx + 1)]
+      : args;
+  const description = descriptionArgs.filter((a) => a !== "--no-auto-merge").join(" ");
+  return runNew(description, { ...options, noAutoMerge });
 }
 
 function runFresh(description: string, options: NewOptions): number {

@@ -159,6 +159,22 @@ describe("runSetupCli", () => {
     errSpy.mockRestore();
   });
 
+  it("prints help and returns 0 for --help / -h, before parseSetupArgs runs", () => {
+    // Regression: parseSetupArgs(["--help"]) returns an unknown-option error.
+    // The CLI shim must intercept --help/-h before delegating to the parser.
+    for (const flag of ["--help", "-h"]) {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const code = runSetupCli([flag]);
+      expect(code).toBe(0);
+      expect(log).toHaveBeenCalled();
+      expect(log.mock.calls[0][0]).toMatch(/^flow setup — install skills/);
+      expect(err).not.toHaveBeenCalled();
+      log.mockRestore();
+      err.mockRestore();
+    }
+  });
+
   it("forwards --source to runSetup as flowSource", () => {
     // Move flow-src under a fresh location and target it via --source.
     // On macOS, /tmp is a symlink to /private/tmp, so compare via realpath

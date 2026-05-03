@@ -1,8 +1,8 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildRows, formatCostCell } from "./ls";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildRows, formatCostCell, runLsCli } from "./ls";
 import { encodeProjectSegment } from "./cost";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
@@ -202,3 +202,22 @@ describe(formatCostCell, () => {
   });
 });
 
+
+describe("runLsCli (--help / -h short-circuit)", () => {
+  // The help check must precede every state read and tmux query so the
+  // shim is safe to invoke even when ~/.flow/state/ is unreadable.
+
+  for (const flag of ["--help", "-h"]) {
+    it(`exits 0 and prints help when args is ['${flag}']`, async () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const code = await runLsCli([flag]);
+      expect(code).toBe(0);
+      expect(err).not.toHaveBeenCalled();
+      expect(log).toHaveBeenCalled();
+      expect(log.mock.calls[0][0]).toMatch(/^flow ls — list active pipelines/);
+      log.mockRestore();
+      err.mockRestore();
+    });
+  }
+});

@@ -15,7 +15,7 @@ const tmuxMock = vi.hoisted(() => ({
 }));
 vi.mock("./tmux", () => tmuxMock);
 
-import { runNew } from "./new";
+import { runNew, runNewCli } from "./new";
 import { writeState } from "./state";
 
 let stateDir!: string;
@@ -204,5 +204,69 @@ describe("runNew (fresh)", () => {
     expect(code).toBe(0);
     const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
     expect(raw.autoMerge).toBe(false);
+  });
+});
+
+describe("runNewCli (--help / -h short-circuit)", () => {
+  // Regression for the catastrophic bug: `flow new --help` previously
+  // slugified `--help` to `help`, spawned a tmux window, and wrote
+  // ~/.flow/state/help.json. The CLI shim must intercept the flag before
+  // any side-effect.
+
+  for (const flag of ["--help", "-h"]) {
+    it(`exits 0 and writes no state file when args is ['${flag}']`, () => {
+      const code = runNewCli([flag], { stateDir });
+      expect(code).toBe(0);
+      expect(fs.readdirSync(stateDir)).toEqual([]);
+    });
+
+    it(`prints help to stdout (not stderr) for '${flag}'`, () => {
+      runNewCli([flag], { stateDir });
+      expect(logs.length).toBeGreaterThan(0);
+      expect(logs.join("\n")).toMatch(/^flow new — start a new pipeline/);
+    });
+
+    it(`does not invoke tmux for '${flag}'`, () => {
+      runNewCli([flag], { stateDir });
+      expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+      expect(tmuxMock.respawnWindow).not.toHaveBeenCalled();
+      expect(tmuxMock.windowExists).not.toHaveBeenCalled();
+    });
+  }
+
+  it("short-circuits even when --help follows --no-auto-merge", () => {
+    const code = runNewCli(["--no-auto-merge", "--help"], { stateDir });
+    expect(code).toBe(0);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits even when --help follows --resume", () => {
+    // --resume normally requires a single <name>; with --help present the
+    // shim must print help instead of erroring on missing <name>.
+    const code = runNewCli(["--resume", "--help"], { stateDir });
+    expect(code).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+  it("treats -h after `--` as part of the description, not a help flag", () => {
+    // Regression for the over-eager argsContainHelp scan: a description body
+    // that happens to contain `-h` (e.g. `flow new -- fix the -h crash`)
+    // must not be intercepted as `flow new --help`. Pipeline runs, slug
+    // derives from the words after `--`.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(
+      ["--", "fix", "the", "-h", "crash"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(0);
+    // Slug derives from the description after `--`; exact form depends on
+    // slugify's stop-word rules, but a state file must exist (the regression
+    // bug suppressed pipeline creation entirely).
+    const files = fs.readdirSync(stateDir);
+    expect(files).toHaveLength(1);
+    expect(files[0].endsWith(".json")).toBe(true);
+    // Sanity-check no help text leaked to logs (would indicate intercept).
+    expect(logs.join("\n")).not.toMatch(/^flow new — start a new pipeline/m);
   });
 });

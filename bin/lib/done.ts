@@ -8,6 +8,7 @@
  */
 
 import * as fs from "node:fs";
+import { argsContainHelp, printVerbHelp } from "./help";
 import { killWindow, listWindows, windowExists, FLOW_SESSION } from "./tmux";
 import { deleteState, listStates, readState } from "./state";
 
@@ -17,6 +18,23 @@ export type DoneOptions = {
   allMerged?: boolean;
   yes?: boolean;
 };
+
+/**
+ * CLI shim for `bin/flow`'s `done` verb. Intercepts --help / -h before any
+ * tmux query or state read, then parses --all-merged / --yes / -y and
+ * dispatches to `runDone`. The previous inline `runDoneVerb` lived in
+ * `bin/flow`.
+ */
+export function runDoneCli(args: string[]): number {
+  if (argsContainHelp(args)) {
+    printVerbHelp("done");
+    return 0;
+  }
+  const allMerged = args.includes("--all-merged");
+  const yes = args.includes("--yes") || args.includes("-y");
+  const positional = args.filter((a) => !a.startsWith("-"));
+  return runDone(positional[0], { allMerged, yes });
+}
 
 export function runDone(name: string | undefined, options: DoneOptions = {}): number {
   if (options.allMerged) return runDoneAllMerged(options);

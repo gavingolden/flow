@@ -9,23 +9,29 @@
  *   flow attach <name>                 tmux attach -t flow:<name>  (alias: a)
  *   flow done <name> | --all-merged    kill window + remove state
  *   flow migrate [--apply] [--scan <p>] [--include-orchestrator]
+ *
+ * Per-verb argument parsing lives in `bin/lib/<verb>.ts` as `run<Verb>Cli`.
+ * Each shim short-circuits `--help` / `-h` before producing side-effects so
+ * `flow new --help` (and friends) print usage instead of slugifying the flag
+ * into a phantom pipeline.
  */
 
-import { runSetupCli } from "./lib/setup-args";
-import { runNew } from "./lib/new";
-import { runAttach } from "./lib/attach";
-import { runDone } from "./lib/done";
-import { runLs } from "./lib/ls";
-import { runMigrate } from "./lib/migrate";
-import { runVersion } from "./lib/version";
+import { runAttachCli } from "./lib/attach";
 import { runCompletion } from "./lib/completion";
+import { printTopHelp, runHelpVerb } from "./lib/help";
+import { runDoneCli } from "./lib/done";
+import { runLsCli } from "./lib/ls";
+import { runMigrateCli } from "./lib/migrate";
+import { runNewCli } from "./lib/new";
+import { runSetupCli } from "./lib/setup-args";
+import { runVersionCli } from "./lib/version";
 import { isVerb } from "./lib/verbs";
 
 async function main(): Promise<number> {
   const [, , verb, ...rest] = process.argv;
 
   if (!verb) {
-    printHelp();
+    printTopHelp();
     return 0;
   }
 
@@ -43,121 +49,28 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
     case "--help":
     case "-h":
     case "help":
-      printHelp();
-      return 0;
+      return runHelpVerb(args);
     case "setup":
-      return runSetupVerb(args);
+      return runSetupCli(args);
     case "new":
-      return dispatchNew(args);
+      return runNewCli(args);
     case "attach":
     case "a":
-      return runAttach(args[0]);
+      return runAttachCli(args);
     case "done":
-      return runDoneVerb(args);
+      return runDoneCli(args);
     case "ls":
-      return await runLsVerb(args);
+      return await runLsCli(args);
     case "migrate":
-      return runMigrateVerb(args);
+      return runMigrateCli(args);
     case "completion":
-      return runCompletion(args[0]);
+      return runCompletion(args[0], {}, args.slice(1));
     case "--version":
     case "-v":
     case "version":
-      return runVersion();
+      return runVersionCli(args);
   }
   return 1;
-}
-
-async function runLsVerb(args: string[]): Promise<number> {
-  const allowed = new Set(["--cost", "--detail"]);
-  for (const arg of args) {
-    if (!allowed.has(arg)) {
-      console.error(`flow ls: unknown option '${arg}'`);
-      console.error("usage: flow ls [--cost [--detail]]");
-      return 2;
-    }
-  }
-  const cost = args.includes("--cost");
-  const detail = args.includes("--detail");
-  if (detail && !cost) {
-    console.error("flow ls: --detail requires --cost");
-    return 2;
-  }
-  return await runLs({ cost, detail });
-}
-
-function dispatchNew(args: string[]): number {
-  const resumeIdx = args.indexOf("--resume");
-  if (resumeIdx >= 0) {
-    const rest = [...args.slice(0, resumeIdx), ...args.slice(resumeIdx + 1)];
-    if (rest.length === 0) {
-      console.error("flow new --resume: <name> is required.");
-      console.error("usage: flow new --resume <name>");
-      return 1;
-    }
-    if (rest.length > 1) {
-      console.error("flow new --resume: takes a single <name> argument.");
-      console.error(`  got: ${rest.join(" ")}`);
-      return 1;
-    }
-    return runNew(rest[0], { resume: true });
-  }
-  const noAutoMerge = args.includes("--no-auto-merge");
-  const description = args.filter((a) => a !== "--no-auto-merge").join(" ");
-  return runNew(description, { noAutoMerge });
-}
-
-function runMigrateVerb(args: string[]): number {
-  const apply = args.includes("--apply");
-  const includeOrchestrator = args.includes("--include-orchestrator");
-  const scanIdx = args.indexOf("--scan");
-  const scan = scanIdx >= 0 ? args[scanIdx + 1] : undefined;
-  if (scanIdx >= 0 && !scan) {
-    console.error("flow migrate: --scan requires a path argument.");
-    return 1;
-  }
-  return runMigrate({ apply, includeOrchestrator, scan });
-}
-
-function runDoneVerb(args: string[]): number {
-  const allMerged = args.includes("--all-merged");
-  const yes = args.includes("--yes") || args.includes("-y");
-  const positional = args.filter((a) => !a.startsWith("-"));
-  return runDone(positional[0], { allMerged, yes });
-}
-
-function runSetupVerb(args: string[]): number {
-  return runSetupCli(args);
-}
-
-function printHelp(): void {
-  console.log(`flow — tmux-driven pipelines for Claude Code
-
-Usage:
-  flow setup [--upgrade] [--force] [--source <path>] [--no-completions]
-                                        install skills, agents, helpers globally
-                                        (--source overrides the install root,
-                                        e.g. for /flow-pipeline step 5.5 in a worktree;
-                                        --no-completions skips rc-file editing)
-  flow new [--no-auto-merge] <description>
-                                        start a new pipeline in a tmux window
-                                        (--no-auto-merge stops at gated regardless of rubric)
-  flow new --resume <name>              resume a crashed pipeline in its existing window
-  flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
-  flow attach <name>                    attach to a pipeline window  (alias: a)
-  flow done <name>                      close a pipeline window
-  flow done --all-merged                close every merged or cancelled window
-  flow migrate [--apply] [--scan <p>]   clean up legacy per-repo flow install
-  flow completion <bash|zsh>            print a shell completion script to stdout
-
-  flow --version                        print the installed flow version
-  flow --help                           this help
-
-Run 'flow setup' once after cloning the flow source. Pipelines run inside
-tmux windows; the supervisor skill (/flow-pipeline) drives each one.
-Shell completions install automatically into ~/.zshrc / ~/.bashrc /
-~/.bash_profile via 'flow setup' — opt out with --no-completions.
-`);
 }
 
 main().then((code) => process.exit(code));

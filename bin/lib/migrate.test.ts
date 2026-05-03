@@ -8,8 +8,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { execaSync } from "execa";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runMigrate, buildPlan } from "./migrate";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildPlan, runMigrate, runMigrateCli } from "./migrate";
 
 let repoRoot!: string;
 
@@ -153,5 +153,52 @@ describe("flow migrate", () => {
     fs.mkdirSync(path.join(repoRoot, ".orchestrator", "tasks"), { recursive: true });
     runMigrate({ apply: true }, repoRoot);
     expect(fs.existsSync(path.join(repoRoot, ".orchestrator"))).toBe(true);
+  });
+});
+
+describe("runMigrateCli (--help / -h short-circuit)", () => {
+  // The help check must precede buildPlan / readGitignore so the shim is
+  // safe to call from any cwd (including a non-git directory).
+
+  for (const flag of ["--help", "-h"]) {
+    it(`exits 0 and prints help when args is ['${flag}']`, () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      // Pass a non-git tmpdir for cwd; if the help check regresses, the
+      // call would otherwise fail with a "not a git repository" error.
+      const code = runMigrateCli([flag], repoRoot);
+      expect(code).toBe(0);
+      expect(log).toHaveBeenCalled();
+      expect(log.mock.calls[0][0]).toMatch(/^flow migrate — exit ramp/);
+      expect(err).not.toHaveBeenCalled();
+      log.mockRestore();
+      err.mockRestore();
+    });
+  }
+
+  it("short-circuits before applying when --apply is followed by --help", () => {
+    // Seed a managed gitignore + a real symlink so that --apply, if it ran,
+    // would actually delete files. The help check must fire before that.
+    fs.writeFileSync(
+      path.join(repoRoot, ".gitignore"),
+      [
+        "# managed by flow install-skills",
+        "# (flow-managed; do not edit by hand)",
+        "/.claude/skills/foo",
+        "# end flow install-skills",
+        "",
+      ].join("\n"),
+    );
+    const symlinkPath = path.join(repoRoot, ".claude", "skills", "foo");
+    fs.mkdirSync(path.dirname(symlinkPath), { recursive: true });
+    fs.symlinkSync("/nonexistent/source", symlinkPath);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = runMigrateCli(["--apply", "--help"], repoRoot);
+
+    expect(code).toBe(0);
+    // Symlink should still be present — --apply did not run.
+    expect(fs.lstatSync(symlinkPath).isSymbolicLink()).toBe(true);
+    log.mockRestore();
   });
 });
