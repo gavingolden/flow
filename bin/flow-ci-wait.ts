@@ -230,6 +230,12 @@ export type Deps = {
   readWorkflowsDir?: () => boolean;
   /** Returns the configured Copilot login (default: "copilot-pull-request-reviewer"). */
   readCopilotLogin?: () => string;
+  /**
+   * Returns true iff the configured Copilot login has reviewed any recent merged
+   * PR on the current repo. Default uses fetchHistoricalBotReview against the
+   * injected `gh`. Tests inject a fake to avoid sequencing list+view calls.
+   */
+  readHistoricalBotReview?: (login: string) => boolean;
   /** Test-only: override the cwd used by readWorkflowsDir. */
   cwd?: string;
 };
@@ -280,6 +286,55 @@ export function fetchRequestedReviewers(prNumber: number, gh: GhRunner): string[
   } catch {
     return [];
   }
+}
+
+/**
+ * Detects whether the configured Copilot login has reviewed any of the
+ * recent merged PRs on the current repo. Used as a fallback when the
+ * in-flight PR's `reviewRequests` list is empty: org / repo-level
+ * auto-review configurations don't populate `reviewRequests` even when
+ * Copilot is guaranteed to post a review, and the supervisor must not
+ * race past it (the PR #78 / 2026-05-03 incident).
+ *
+ * Implementation: list the last `n` merged PRs (`gh pr list --state
+ * merged --limit n --json number`), then per-PR `gh pr view --json
+ * reviews` and short-circuit on first match. `gh pr list --json` does
+ * not expose `reviews`, so a single-call solution is unavailable; the
+ * list+view pattern is repo-agnostic and reuses the injected `gh`
+ * runner. Errors and malformed JSON collapse to `false`.
+ */
+export function fetchHistoricalBotReview(
+  login: string,
+  gh: GhRunner,
+  n = 5,
+): boolean {
+  const target = login.toLowerCase();
+  const list = gh(["pr", "list", "--state", "merged", "--limit", String(n), "--json", "number"]);
+  if (list.exitCode !== 0) return false;
+  let prs: Array<{ number: number }>;
+  try {
+    const parsed = JSON.parse(list.stdout) as Array<{ number?: number }>;
+    if (!Array.isArray(parsed)) return false;
+    prs = parsed.filter((p): p is { number: number } => typeof p.number === "number");
+  } catch {
+    return false;
+  }
+  for (const pr of prs) {
+    const view = gh(["pr", "view", String(pr.number), "--json", "reviews"]);
+    if (view.exitCode !== 0) continue;
+    try {
+      const parsed = JSON.parse(view.stdout) as {
+        reviews?: Array<{ author?: { login?: string } }>;
+      };
+      const matched = (parsed.reviews ?? []).some(
+        (rv) => typeof rv.author?.login === "string" && rv.author.login.toLowerCase() === target,
+      );
+      if (matched) return true;
+    } catch {
+      continue;
+    }
+  }
+  return false;
 }
 
 type PrObservation = { state: PrState; url: string; reviews: Review[] };
@@ -399,6 +454,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const cwd = deps.cwd ?? process.cwd();
   const readWorkflowsDir = deps.readWorkflowsDir ?? (() => defaultReadWorkflowsDir(cwd));
   const readCopilotLogin = deps.readCopilotLogin ?? defaultReadCopilotLogin;
+  const readHistoricalBotReview =
+    deps.readHistoricalBotReview ?? ((login: string) => fetchHistoricalBotReview(login, gh));
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -417,7 +474,16 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
 
   const ciConfigured = readWorkflowsDir();
   const requestedReviewers = fetchRequestedReviewers(parsed.pr, gh);
-  const copilotConfigured = requestedReviewers.includes(copilotLogin.toLowerCase());
+  // Two signals for "is Copilot expected to review?": the in-flight PR's
+  // reviewRequests, and the repo's recent PR history. Org / repo-level
+  // auto-review configurations don't populate reviewRequests, so a single
+  // signal misses them and the supervisor races past Copilot (PR #78,
+  // 2026-05-03). The history fallback runs only when reviewRequests is
+  // negative — the common case (Copilot explicitly requested) stays a
+  // single gh call.
+  const copilotConfigured =
+    requestedReviewers.includes(copilotLogin.toLowerCase()) ||
+    readHistoricalBotReview(copilotLogin);
 
   const startMs = now();
   let pollNum = 0;
