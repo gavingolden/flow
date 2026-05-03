@@ -18,7 +18,7 @@ import { friendlyName } from "./cost-pricing";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { listStates, type PipelineState } from "./state";
 import { relativeTime } from "./time";
-import { listWindows, type TmuxWindow } from "./tmux";
+import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
 
 export type LsOptions = {
   cost?: boolean;
@@ -85,8 +85,6 @@ export async function buildRows(
   nowMs: number,
   opts: LsOptions = {},
 ): Promise<Row[]> {
-  const windowByName = new Map(windows.map((w) => [w.name, w] as const));
-  const stateBySlug = new Map(states.map((s) => [s.slug, s] as const));
   const projectsRoot = opts.projectsRoot ?? defaultProjectsRoot();
 
   const rows: Row[] = [];
@@ -98,9 +96,14 @@ export async function buildRows(
     ? await Promise.all(states.map((s) => computeCost(s, projectsRoot)))
     : null;
 
+  // The state↔window join keys off the @flow-slug user option (with a
+  // name fallback for pre-upgrade windows). Joining by display name
+  // would silently drop after a `tmux ,` rename.
+  const matchedWindowIds = new Set<string>();
   for (let i = 0; i < states.length; i++) {
     const state = states[i];
-    const window = windowByName.get(state.slug);
+    const window = findWindowBySlug(windows, state.slug);
+    if (window) matchedWindowIds.add(window.id);
     rows.push({
       name: state.slug,
       phase: state.phase || "—",
@@ -111,11 +114,12 @@ export async function buildRows(
     });
   }
 
-  // Surface windows that lack a state file. They're not pipelines flow
-  // owns, so fall back to the tmux-reported activity so the user still
-  // sees something.
+  // Surface windows that no state row claimed. They're not pipelines
+  // flow owns, so fall back to the tmux-reported activity so the user
+  // still sees something. Display the user-visible window name (the
+  // slug column would be empty for unmanaged windows).
   for (const window of windows) {
-    if (stateBySlug.has(window.name)) continue;
+    if (matchedWindowIds.has(window.id)) continue;
     rows.push({
       name: window.name,
       phase: "—",

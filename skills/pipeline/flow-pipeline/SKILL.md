@@ -292,8 +292,10 @@ and refreshes `updatedAt`. It exits non-zero if the slug has no
 state file, surfacing drift instead of papering over it.
 
 `$PHASE` must be one of the values listed in the phase table below.
-`$SLUG` is the worktree directory's basename (e.g. `csv-export`) —
-matches the tmux window name.
+`$SLUG` is the worktree directory's basename (e.g. `csv-export`) and
+matches the tmux window's `@flow-slug` user option — *not* its
+display name, which the supervisor renames to a readable title in
+step 1 and which the user may further rename via `tmux ,`.
 
 ## Additional fields to set once
 
@@ -341,6 +343,28 @@ instead of the stale `starting` from `flow new`:
 flow-state-update "$SLUG" --phase triaging
 ```
 
+Then set a readable tmux window title so the user can scan their
+status bar at a glance instead of squinting at the slug. The slug
+stays the canonical lookup key (it's stored in tmux's `@flow-slug`
+user option, set when `flow new` created the window) — the rename
+only changes the display:
+
+```bash
+flow-rename-window "$SLUG" "<short descriptive title>"
+```
+
+Pick a 20–30-character title from the user's verbatim description.
+Strip imperative verbs and articles (`make`, `add`, `the`, `a`),
+keep the topic noun phrase. Examples:
+
+- `"Make tmux window renames safe …"` → `"safe tmux window renames"`
+- `"Add CSV export to portfolio page"` → `"CSV export"`
+- `"Fix the flow-ci-wait copilot detection bug"` → `"copilot detection fix"`
+
+Fire `flow-rename-window` exactly **once** in this step. If the user
+later runs `tmux ,` to rename to something else, do **not** re-rename
+in subsequent steps — the user's choice wins.
+
 Then classify. Apply the heuristics from `flow-add` /
 `docs/phases/triage.md`:
 
@@ -361,8 +385,13 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
 - **Change** → continue to step 2. The **slug** was already finalized
   by `flow new`'s aggressive slugify (`bin/lib/slug.ts`: stop-word
   filter + 5-token cap + `task-<hash8>` fallback) and is the basename
-  of `$SLUG` / the tmux window name. The supervisor never re-derives
-  or renames it.
+  of `$SLUG`. The supervisor never re-derives or renames the slug;
+  it is the canonical pipeline identifier (stored in the window's
+  `@flow-slug` tmux option) and changing it would orphan the state
+  file, the worktree branch, and `flow attach`/`flow done` lookups.
+  The display-title rename above (`flow-rename-window`) is the only
+  permitted exception, fires exactly once here in step 1, and never
+  touches the slug.
 
 If classification is ambiguous after one clarifying question,
 escalate `NEEDS HUMAN: triage-ambiguous` and end.

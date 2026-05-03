@@ -9,7 +9,13 @@
 
 import * as fs from "node:fs";
 import { argsContainHelp, printVerbHelp } from "./help";
-import { killWindow, listWindows, windowExists, FLOW_SESSION } from "./tmux";
+import {
+  findWindowBySlug,
+  killWindow,
+  listWindows,
+  windowExists,
+  FLOW_SESSION,
+} from "./tmux";
 import { deleteState, listStates, readState } from "./state";
 
 const TERMINAL_PHASES = new Set(["merged", "cancelled"]);
@@ -93,9 +99,9 @@ function runDoneAllMerged(options: DoneOptions): number {
     }
   }
 
-  const liveWindows = new Set(listWindows().map((w) => w.name));
+  const windows = listWindows();
   for (const s of states) {
-    if (liveWindows.has(s.slug)) killWindow(s.slug);
+    if (findWindowBySlug(windows, s.slug)) killWindow(s.slug);
     deleteState(s.slug);
     console.log(`closed: ${s.slug}`);
   }
