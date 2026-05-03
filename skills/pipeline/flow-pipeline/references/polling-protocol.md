@@ -138,6 +138,16 @@ keep the existing single-poll-exit behaviour. Errors and malformed JSON
 in the fallback collapse to negative; a transient `gh` hiccup must not
 synthesise false confidence that the bot will review this PR.
 
+The fallback is deliberately a heuristic, not a proof of auto-review
+configuration. A user who once **manually** requested a Copilot review on a
+single past PR will look identical to an org-level auto-review setup, so
+subsequent PRs in that repo will wait the 10-min Copilot timeout even
+though Copilot is not actually configured to auto-review them. This
+asymmetry is intentional: the worst case of a false positive is a 10-min
+wait that the existing timeout already caps; the worst case of a false
+negative is the PR #78 incident — merging before the bot review posts.
+The fallback prefers the cheaper failure mode.
+
 ### Why per-PR `reviewRequests` and not `gh api .../installations`
 
 The intuitive alternative — `gh api repos/<owner>/<repo>/installations`
