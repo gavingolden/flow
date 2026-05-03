@@ -604,160 +604,51 @@ end of one phase, not a session boundary.
 
 **Phase:** `ci-wait`
 
-Sleep + poll loop. Cadence + cap from
-`references/polling-protocol.md`:
-
-- **Cadence ramp:** 30s for polls 1–5, 60s for polls 6–10, 90s
-  thereafter. The full schedule (and the rationale for the tier
-  boundaries) lives in `references/polling-protocol.md` §
-  "Cadence schedule" — that file is the single source of truth.
-- **Unconditional on the first iteration** — empty results from
-  `gh pr checks` or `gh pr view --json reviews` mean "not yet
-  posted," never "skip the wait." Only the presence checks below
-  can legitimately short-circuit. Orthogonal to the ramp.
-- 20-min hard cap from first poll. Worst-case poll count under the
-  ramp is ~20 — the 19th poll fires at elapsed ≈ 1170s
-  (`5×30 + 5×60 + 8×90`) and the 20th is the iteration whose
-  start-of-loop cap check (`ELAPSED >= 1200`) finally trips. See
-  `references/polling-protocol.md` § "Per-poll counter" for the
-  derivation.
-- Bot review timeout: 10 min after CI goes terminal.
-
-### One-shot presence checks (before the first poll)
-
-Run these once at loop entry. They distinguish "not configured"
-(legitimately skip) from "not yet posted" (keep polling). See
-`references/polling-protocol.md` § "Presence checks" for the
-rationale and the rejected `installations`-API alternative.
+`flow-ci-wait` consolidates the entire poll loop (one-shot presence
+checks → cadence ramp → 20-min wall-clock cap → 10-min Copilot
+timeout → CI/Copilot/PR-state decision matrix) into a single Bash
+call that returns one JSON verdict on stdout. The contract —
+terminal-state taxonomy, cadence ramp, lowercased Copilot login on
+both sides, the `not configured` overrides, the Copilot timeout
+relative to the first ci-terminal poll — lives in
+`references/polling-protocol.md` and is unit-tested at
+`bin/flow-ci-wait.test.ts`. Per-iteration progress (`CI poll N,
+elapsed XmYYs of 20m, cadence Zs`) is written to stderr so the JSON
+on stdout is cleanly capturable.
 
 ```bash
-# CI: are there any workflows in this worktree?
-if find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) \
-     -print -quit 2>/dev/null | grep -q .; then
-  CI_CONFIGURED=1
-else
-  CI_CONFIGURED=0    # no workflows → ci_passed is vacuously true; never poll for checks
-fi
-
-# Copilot: was the bot login requested as a reviewer on this PR?
-# Both sides of the comparison are lowercased so the match is a true
-# case-insensitive exact match — see polling-protocol.md "Bot reviewer
-# name" for the case-insensitive contract. Without the local-side
-# tolower, swapping COPILOT_LOGIN for a value with mixed case (e.g.
-# from ~/.flow/config.json) would silently fail to match.
-COPILOT_LOGIN_NORMALIZED=$(printf '%s' "${COPILOT_LOGIN:-copilot-pull-request-reviewer}" | tr '[:upper:]' '[:lower:]')
-REQUESTED_REVIEWERS=$(gh pr view "$PR" --json reviewRequests \
-  --jq '[.reviewRequests[].login] | map(ascii_downcase) | join(",")')
-case ",$REQUESTED_REVIEWERS," in
-  *",$COPILOT_LOGIN_NORMALIZED,"*) COPILOT_REQUESTED=1 ;;
-  *)                               COPILOT_REQUESTED=0 ;;  # bot not requested → don't wait
-esac
-
-echo "CI configured: $CI_CONFIGURED  |  Copilot requested: $COPILOT_REQUESTED"
+RESULT=$(flow-ci-wait "$PR")
+DECISION=$(printf '%s' "$RESULT" | jq -r '.decision')
 ```
 
-Per-PR `reviewRequests` is the deliberate Copilot-detection mechanism;
-`gh api repos/<owner>/<repo>/installations` requires a GitHub App JWT
-and 401s for user tokens. `scripts/ci-wait.ts` uses the same per-PR
-approach (`prRequestedReviewers`).
+Branch on `.decision`:
 
-### Each poll runs
+| `.decision` | Action |
+|---|---|
+| `proceed-to-review` | **Continue immediately to step 8 in the same turn — do not end the turn.** |
+| `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal. |
+| `ci-failed` | **Continue immediately to step 5 mode=fix in the same turn — do not end the turn.** Pass `.ciFailedChecks` from the JSON as the failure log. Subject to the 3-loop ci-fix cap below. |
+| `merged-externally` | PR was merged externally mid-flight. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged --slug "$SLUG" --url "<.prUrl>"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
+| `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
+| `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
 
-```bash
-# Skip the checks call entirely when CI_CONFIGURED=0.
-gh pr checks "$PR" --json name,state          # only if CI_CONFIGURED=1
-gh pr view "$PR" --json reviews,state
-```
-
-`gh pr checks` does not expose a `conclusion` JSON field — `state`
-already encodes the verdict. See `references/polling-protocol.md`
-and the matching note in `scripts/ci-wait.ts` for the hard-won
-lesson behind this.
-
-### Per-poll counter
-
-Print one line per iteration so the user reading scrollback sees
-progress without guessing. Compute the elapsed split and the current
-ramp tier with arithmetic expansion — these are runnable Bash:
-
-```bash
-ELAPSED=$(( $(date +%s) - START ))   # seconds since the first poll
-MIN=$(( ELAPSED / 60 ))
-SEC=$(( ELAPSED % 60 ))
-if   [ "$POLLS" -le 5 ];  then CADENCE=30
-elif [ "$POLLS" -le 10 ]; then CADENCE=60
-else                            CADENCE=90
-fi
-echo "CI poll $POLLS, elapsed ${MIN}m${SEC}s of 20m, cadence ${CADENCE}s"
-```
-
-`POLLS` increments from 1 each iteration. `cadence ${CADENCE}s`
-shows the active ramp tier (30/60/90); the formal schedule lives in
-`references/polling-protocol.md` § "Cadence schedule". There's no
-fixed `/N` denominator on the line because the worst-case poll count
-varies with the ramp (~20 at the cap, not 40). The actual cap is the
-20-min wall-clock check below, not a poll-count guard.
-
-### Loop body (in the supervisor's own turn)
-
-The block below is **pseudocode**, not runnable Bash — `POLLS += 1`,
-the `case decision:` arrow notation, and the `→` rules describe the
-control flow the supervisor follows in its own turn. Use the runnable
-Bash from "Per-poll counter" above for the per-iteration printout;
-use the gh calls from "Each poll runs" for the actual API reads.
-
-```text
-initialize POLLS=0, START=$(date +%s), CI_TERMINAL_AT=""
-
-run the one-shot presence checks above
-
-while true:
-  POLLS += 1
-  ELAPSED = $(date +%s) - START
-  CADENCE = (POLLS <= 5) ? 30 : (POLLS <= 10) ? 60 : 90
-  print "CI poll $POLLS, elapsed $((ELAPSED/60))m$((ELAPSED%60))s of 20m, cadence ${CADENCE}s"
-
-  poll:
-    if CI_CONFIGURED == 0: treat checks as [] without calling gh
-    else:                  gh pr checks "$PR" --json name,state
-    gh pr view "$PR" --json reviews,state
-
-  derive per references/polling-protocol.md decision matrix:
-    ci_terminal, ci_passed, ci_failed, copilot_posted, pr_state
-  apply presence overrides:
-    if CI_CONFIGURED == 0:    ci_terminal = true, ci_passed = true, ci_failed = false
-    if COPILOT_REQUESTED == 0: copilot_posted = true   # vacuous — never wait the 10m bot timeout
-
-  if ci_terminal and CI_TERMINAL_AT == "": CI_TERMINAL_AT = $(date +%s)
-
-  case decision:
-    pr_state == MERGED                                            → break, run flow-remove-worktree, MERGED
-    pr_state == CLOSED                                            → escalate pr-closed-mid-flight
-    ci_failed                                                     → break, go to step 5 with mode=fix
-    ci_passed && copilot_posted                                   → break, go to step 8
-    ci_passed && !copilot_posted && ($(date +%s) - CI_TERMINAL_AT) >= 600 → break, go to step 8 (no bot review)
-    ELAPSED >= 1200                                               → escalate ci-hang
-    else                                                          → sleep $CADENCE, loop
-```
-
-When `CI_CONFIGURED=1` and `gh pr checks` returns `[]`, that means
-"CI hasn't reported yet" — keep polling. Same for Copilot when
-`COPILOT_REQUESTED=1` and no review is in the list.
+`--copilot-login <login>` overrides the bot login (default reads
+`~/.flow/config.json` `bots.copilot`, falling back to
+`copilot-pull-request-reviewer`). The helper applies the
+`CI_CONFIGURED=0` and `COPILOT_REQUESTED=0` presence overrides
+internally — no workflows in `.github/workflows/` collapses to
+vacuously-passing CI; bot not requested as a reviewer collapses to
+vacuously-posted (skipping the 10-min timeout).
 
 **Fix-loop cap: 3 total ci-fix loops** across the whole pipeline.
 After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
 
-**End condition:** decision is "proceed to review", "merged
-externally", "ci-failed → step 5 mode=fix", or escalation. On
-"proceed to review": **continue immediately to step 8 in the same
-turn — do not end the turn.** On "merged externally": run
-`flow-remove-worktree`, write `phase: merged`, print `MERGED`, end —
-the roadmap row was already self-marked in the PR's diff by
-`/pr-review` step 7.5, so no post-merge sweep is required. On
-"ci-failed → step 5 mode=fix" (subject to the 3-loop fix-loop cap
-above): **continue immediately to step 5 in the same turn — do not
-end the turn.** The red-CI summary printed by `gh pr checks` is a
-localised end of one poll cycle, not a session boundary.
+**End condition:** the helper exits 0 with one of the decisions
+above. On `proceed-to-review` / `proceed-to-review-no-bot`, continue
+to step 8 in the same turn. On `ci-failed`, continue to step 5
+mode=fix in the same turn. On `merged-externally`, run cleanup and
+end. On `pr-closed` / `ci-hang`, escalate and end. The decision
+printout is a localised end of one phase, not a session boundary.
 
 ## Step 8 — Review
 
@@ -802,41 +693,42 @@ fails, escalate `NEEDS HUMAN: review-failed`.
 
 **Phase:** `gating`
 
-The heading contract — which heading to look for, what counts as
+`flow-gate-decide` consolidates the four-step rubric parse
+(heading-presence grep → section extract → HTML-comment strip →
+unchecked-`- [ ]`-count) and the four-state matrix (PR state ×
+autoMerge opt-out × section verdict) into one call. The heading
+contract — which heading to look for, what counts as
 no-unchecked-items / has-unchecked-items / missing — lives in
-**`references/auto-merge-rubric.md`** (single source of truth). Read
-it once if the section parsing isn't already cached in your head;
-otherwise apply it inline.
-
-Fetch the PR body, state, and merge commit; the rubric's four-step
-parse turns the body into one of `no-unchecked` / `has-unchecked` /
-`missing`. The decision matrix below combines that result with PR
-state and this pipeline's `autoMerge` opt-out:
+**`references/auto-merge-rubric.md`** (single source of truth) and
+is unit-tested at `bin/flow-gate-decide.test.ts`. The
+heading-presence check is load-bearing: silently treating a missing
+heading as "no unchecked items" would ship a PR the user expected
+to be gated, so the helper escalates that case explicitly rather
+than collapsing it to auto-merge.
 
 ```bash
-gh pr view "$PR" --json body,state,mergeCommit
-AUTO_MERGE=$(jq -r '.autoMerge // true' ~/.flow/state/"$SLUG".json)
+RESULT=$(flow-gate-decide "$PR" --slug "$SLUG")
+DECISION=$(printf '%s' "$RESULT" | jq -r '.decision')
+PR_URL=$(printf '%s' "$RESULT" | jq -r '.prUrl // empty')
 ```
 
-`AUTO_MERGE === false` means the user passed `flow new --no-auto-merge`
-(or `flow-state-update --no-auto-merge` was issued mid-flight): every
-`OPEN` PR routes to **gated** regardless of section content. `MERGED`
+The helper reads `autoMerge` from `~/.flow/state/<slug>.json`
+itself (defaulting to `true` when absent). `autoMerge: false` —
+the user passed `flow new --no-auto-merge`, or
+`flow-state-update --no-auto-merge` was issued mid-flight — routes
+every `OPEN` PR to `gated` regardless of section content. `MERGED`
 and `CLOSED` states still take their normal branches.
 
-| State | Unchecked items | autoMerge | Action |
-|---|---|---|---|
-| `OPEN` | `0` | `true` (default) | Go to step 10 (auto-merge). |
-| `OPEN` | `0` | `false` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "auto-merge opted out"`. Print: `GATED:`, the PR URL, and `merge with: gh pr merge --squash <PR>`. End. |
-| `OPEN` | `> 0` | (any) | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "<pr-url>" --reason "<first unchecked item>"`. Print: `GATED:`, the PR URL, the unchecked items verbatim, and `merge with: gh pr merge --squash <PR>`. End. |
-| `MERGED` | (any) | (any) | Already merged externally. **Do not** run `gh pr merge`. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged ...`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
-| `CLOSED` | (any) | (any) | Call `flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
+Branch on `.decision`:
 
-**Defensive cases** (full list in the rubric):
-
-- Test Steps heading missing → escalate `NEEDS HUMAN:
-  test-steps-section-missing`. Don't treat as no-unchecked.
-- `gh` non-zero or unparseable JSON → escalate `NEEDS HUMAN:
-  gh-error <stderr>`.
+| `.decision` | Action |
+|---|---|
+| `auto-merge` | Continue to step 10 (auto-merge). |
+| `gated` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "$PR_URL" --reason "<.reason>"` (the helper sets `.reason` to the first `.validationItems` entry, or `auto-merge opted out (--no-auto-merge)` when `autoMerge: false` with zero unchecked items). Print: `GATED:`, the PR URL, the `.validationItems` array verbatim (one per line), and `merge with: gh pr merge --squash <PR>`. End. |
+| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged --slug "$SLUG" --url "$PR_URL"`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
+| `closed-no-merge` | Call `flow-notify --status needs-human --slug "$SLUG" --url "$PR_URL" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
+| `escalate-heading-missing` | Escalate `NEEDS HUMAN: test-steps-section-missing`. |
+| `escalate-gh-error` | Escalate `NEEDS HUMAN: gh-error <.reason>`. |
 
 ## Step 10 — Merge
 
@@ -874,50 +766,48 @@ Use the /flow-pipeline skill in --resume mode for: <slug>
 ```
 
 `flow new --resume <name>` writes that prompt; nothing else does.
-On detecting it, **do not** start at step 1. Instead, walk the
-resume-from-disk decision tree below and re-enter at the first step
-whose precondition is **not** met. Each step in the 10-step
-pipeline has at least one inspectable side-effect on disk or on
-GitHub, so the supervisor can always answer "what was already
-done?" without any in-process memory.
+On detecting it, **do not** start at step 1. Call `flow-resume-decide`
+to walk the resume-from-disk decision tree:
 
-## First-turn protocol
+```bash
+RESULT=$(flow-resume-decide "$SLUG")
+RESUME_AT=$(printf '%s' "$RESULT" | jq -r '.resumeAt')
+REASON=$(printf '%s' "$RESULT" | jq -r '.reason')
+WORKTREE=$(printf '%s' "$RESULT" | jq -r '.context.worktree // empty')
+PR=$(printf '%s' "$RESULT" | jq -r '.context.pr // empty')
+```
 
-1. Read `~/.flow/state/<slug>.json`. The wrapper already verified it
-   exists, but if you find it missing now, escalate
-   `NEEDS HUMAN: state-missing-on-resume` and end — something
-   removed it between the wrapper check and your turn.
-2. Set `$SLUG` to the value from the prompt (and from state.json —
-   they must match).
-3. Set `$WORKTREE` to `state.worktree` if present.
-4. Set `$PR` to `state.pr` if present.
-5. Walk the table top-down; resume at the first row whose "done"
-   column is `false`.
-6. Print `RESUMING AT: <step name> (<reason>)` on its own line
-   before re-entering the step, so the user reading scrollback can
-   confirm.
-7. From that step onward, behave exactly as the normal pipeline —
-   the same phase transitions, the same `flow-state-update` calls,
-   the same caps.
+The helper reads `~/.flow/state/<slug>.json`, probes the worktree +
+plan + PR + CI + HEAD commit, and returns one of the values below.
+Each step in the 10-step pipeline has at least one inspectable
+side-effect on disk or on GitHub, so the helper can always answer
+"what was already done?" without any in-process memory; the contract
+is unit-tested at `bin/flow-resume-decide.test.ts`. The full per-row
+precondition table lives in `references/failure-recovery.md`
+section (b).
 
-## Decision tree
+Print `RESUMING AT: <resumeAt> (<reason>)` on its own line before
+re-entering the step, so the user reading scrollback can confirm.
+From that step onward, behave exactly as the normal pipeline — the
+same phase transitions, the same `flow-state-update` calls, the same
+caps.
 
-| Step | "Done" check | Notes |
-|---|---|---|
-| 2 — worktree | `$WORKTREE` is set in state.json **and** the directory exists and is a git checkout | If unset / missing, recreate via `flow-new-worktree`. |
-| 3 — plan | `<worktree>/.flow-tmp/plan.md` exists and is non-empty | If missing, re-invoke `/product-planning`. |
-| 4 — approval | state.json shows `phase` ∈ {`implementing`, `installing-skills`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | If false, re-print the plan and wait for the user — we never replay an approval the user gave to a now-dead session. |
-| 5 — implement | `gh pr view` for the worktree's branch returns a PR (any state) | If no PR, re-invoke `/new-feature`. |
-| 5.5 — re-symlink | state.json shows `phase` ∈ {`verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} OR `git diff --name-only origin/<default-branch>...HEAD \| grep -E '^(skills\|agents)/'` returns nothing (resolve `<default-branch>` from `git symbolic-ref refs/remotes/origin/HEAD`, falling back to `main`) | If false (additions exist and we crashed before phase advanced), re-run `flow setup --upgrade --source "$WORKTREE"` and check the exit code per step 5.5's end-condition (exit 0 ⇒ done; non-zero ⇒ retry once, then escalate `NEEDS HUMAN: flow-setup-upgrade-failed`). Idempotent — safe to re-run. |
-| 6 — verify | state.json shows `phase` ∈ {`ci-wait`, `reviewing`, `gating`, `merging`, `merged`, `gated`} | If false, re-invoke `/verify`. |
-| 7 — ci-wait | PR's checks all reached terminal state | If still pending, re-enter the poll loop. |
-| 8 — review | PR has a `pr-review` commit on HEAD (look for the commit subject prefix `review:` or the trailer `Co-Authored-By: ... pr-review`) | If false, re-invoke `/pr-review <PR>`. |
-| 9 — gate | (PR is `MERGED` **and** worktree directory removed) **or** state.json shows `phase: gated` | If false: when PR is `MERGED` but the worktree still exists, re-enter step 9's `MERGED` branch (run `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end) — **do not** fall through to step 10 and re-run `gh pr merge` on an already-merged PR. Otherwise re-evaluate the gate. |
-| 10 — merge | PR is `MERGED` (state.json may still show `merging` if the supervisor crashed between merge and worktree cleanup) | If false, re-evaluate the gate. The MERGED-with-worktree-still-present case is owned by row 9's `MERGED` branch above, not by re-entering step 10. |
+Branch on `.resumeAt`:
 
-The first row whose "done" condition is **false** is your re-entry
-step. If every row is `true`, the pipeline is in a terminal state
-— print `MERGED` (or `gated`) and end without re-running anything.
+| `.resumeAt` | Action |
+|---|---|
+| `step-2` | Re-enter step 2 (worktree). Recreate via `flow-new-worktree`. |
+| `step-3` | Re-enter step 3 (plan). Re-invoke `/product-planning`. |
+| `step-4` | Re-enter step 4 (approval). Re-print the plan and wait — never replay an approval the user gave to a now-dead session. |
+| `step-5` | Re-enter step 5 (implement). Re-invoke `/new-feature`. |
+| `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow setup --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
+| `step-6` | Re-enter step 6 (verify). Re-invoke `/verify`. |
+| `step-7` | Re-enter step 7 (ci-wait). Re-enter the poll loop via `flow-ci-wait`. |
+| `step-8` | Re-enter step 8 (review). Re-invoke `/pr-review <PR>`. |
+| `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 9's MERGED-cleanup branch — `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
+| `terminal` | Already in a terminal state. Print the corresponding line (`MERGED` / `gated` / `cancelled`) and end without re-running anything. |
+| `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
+| `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |
 
 ## Edge cases (verbatim from `references/failure-recovery.md` section (b))
 
