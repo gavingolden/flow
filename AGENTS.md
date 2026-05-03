@@ -61,6 +61,49 @@ Item / Phase numbering from `docs/roadmap.md`.
   justify it.
 - **No backwards-compat shims.** flow has no users yet. Refactor freely.
 
+## Output style
+
+Token-efficient response guidelines for any agent working in this repo.
+Ordered by token-savings impact (highest first); rules #1 and #4 are the
+two highest-leverage rules not already covered by Claude Code's built-in
+prompt. Source: research consensus from leaked Claude Code, Cursor, and
+Aider system prompts plus Anthropic's prompting docs.
+
+- **Don't echo file contents or full diffs into chat.** Read with tools
+  and reference findings as `path:line`. The user can open the file;
+  pasting it back wastes tokens and clutters scrollback.
+- **No preambles.** Skip "Let me…", "I'll go ahead and…", "First, I'm
+  going to…". State the action in one sentence and call the tool.
+- **No end-of-turn summary unless asked.** The diff and the tool calls
+  are the record. A trailing recap of what the user just watched you
+  do is noise.
+- **Calibrate length to task.** Prose paragraphs over bullets for
+  analyses and explanations — bullets fragment reasoning that flows
+  better as connected sentences. One-line answers for one-line
+  questions. Don't expand a yes/no into a structured response.
+- **No sycophantic openers.** "Great question", "Excellent point",
+  "You're absolutely right" add nothing. Same for self-celebratory
+  updates ("Successfully implemented…", "I've now perfectly…").
+- **No emojis unless the user uses them first.** Match the user's
+  register; don't introduce decoration they didn't invite.
+- **Don't apologize for errors — just correct.** "Sorry, you're right,
+  let me fix that" is filler. Make the correction.
+- **Don't narrate internal deliberation.** Think between tool calls,
+  not in chat. The user does not need to read your reasoning loop;
+  they need the conclusion and the next action.
+- **Default to no code comments.** Add one only when the *why* is
+  non-obvious (a constraint, a workaround, a subtle invariant).
+  Restating what the code does is noise. (Same rule as `## Code
+  conventions` above; repeated here because comment-bloat is one of
+  the top sources of agent token waste.)
+- **Implement fully — no `// rest of code` placeholders.** Stay in
+  scope: don't refactor unrelated code, don't introduce new
+  abstractions the task didn't ask for, don't half-finish.
+- **Fenced blocks only for multi-line runnable code.** Use inline
+  backticks for paths, identifiers, flags, and short snippets. A
+  fenced block around a single command or filename is visual
+  overhead.
+
 ## Scripts: Bun runtime, distributed via symlinks
 
 Source for shipped helper binaries lives in **`bin/`**. The user-callable
