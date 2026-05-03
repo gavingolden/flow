@@ -41,7 +41,8 @@ Usage:
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach [<name>]                  attach to a pipeline window  (alias: a)
   flow done <name>                      close a pipeline window
-  flow done --all-merged                close every merged or cancelled window
+  flow done --merged                    close every merged or cancelled window
+  flow done --orphans                   close every state file whose tmux window is gone
   flow migrate [--apply] [--scan <p>]   clean up legacy per-repo flow install
   flow completion <bash|zsh>            print a shell completion script to stdout
 
@@ -86,10 +87,12 @@ Otherwise <name> must match a window in the 'flow' tmux session.`,
 
 Usage:
   flow done <name>
-  flow done --all-merged
+  flow done --merged
+  flow done --orphans
 
 Options:
-  --all-merged          close every pipeline whose phase is 'merged' or 'cancelled'
+  --merged              close every pipeline whose phase is 'merged' or 'cancelled'
+  --orphans             close every pipeline whose state file has no matching tmux window
   --yes, -y             skip the confirmation prompt`,
 
   migrate: `flow migrate — exit ramp from per-repo 'flow install'

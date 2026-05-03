@@ -66,7 +66,8 @@ _flow() {
                     ;;
                 done)
                     _arguments \
-                        '--all-merged[close every merged or cancelled window]' \
+                        '--merged[close every merged or cancelled window]' \
+                        '--orphans[close every state file whose tmux window is gone]' \
                         '(--yes -y)'{--yes,-y}'[skip confirmation]' \
                         '*::pipeline:_flow_slugs'
                     ;;

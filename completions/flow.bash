@@ -87,7 +87,7 @@ _flow() {
         done)
             if [[ "$cur" == -* ]]; then
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--all-merged --yes -y" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--merged --orphans --yes -y" -- "$cur") )
             else
                 # shellcheck disable=SC2207
                 COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )

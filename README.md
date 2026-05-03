@@ -36,7 +36,8 @@ flow new "add CSV export"        # creates tmux window flow:add-csv-export
 flow ls                          # lists active pipelines
 flow attach add-csv-export       # tmux attach (alias: flow a)
 flow done add-csv-export         # close the window when finished
-flow done --all-merged           # sweep terminal-state windows
+flow done --merged               # sweep terminal-state windows
+flow done --orphans              # sweep state files whose tmux window is gone
 ```
 
 Each pipeline is a tmux window inside a `flow` session. Inside the window, Claude Code loads the `/flow-pipeline` skill and supervises the run from triage to merge. State lives at `~/.flow/state/<slug>.json` (one JSON per pipeline) plus the worktree on disk plus the PR. There is no `.orchestrator/` directory.
