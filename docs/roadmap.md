@@ -8,12 +8,11 @@ out.
 
 ## Status table
 
-Legend: ⬜ queued · ⏸ optional
+Legend: ⬜ queued
 
 | Item | Adds | Status |
 |---|---|---|
 | **Item 26 — `flow setup --upgrade` orphan-pruning + worktree-rooted source paths** | Two symbiotic symlink-hygiene bugs witnessed on the econ-data PR #192 pipeline. **Symptom A:** when an upstream helper or skill is deleted, `flow setup --upgrade` does not prune the corresponding `~/.local/bin/` or `~/.claude/skills/` symlink. **Symptom B:** `flow setup --upgrade --source "$WORKTREE"` records worktree-lifetime paths in the install manifest. Shared root cause — worktree paths used as symlink targets. | ⬜ queued |
-| **Doc-to-helper contract sync test** | Cross-check the supervisor SKILL.md decision strings (e.g. `proceed-to-review`, `ci-passed`) against the helper's exported union types so doc drift can't silently route the supervisor to the wrong action. | ⏸ optional |
 
 ---
 
@@ -50,24 +49,6 @@ Done when:
 - [ ] Delete or update the supervisor's step-5.5 install-source caveat
   docstring (`skills/pipeline/flow-pipeline/SKILL.md` lines 527-537)
   once the recording behaviour lands.
-
----
-
-## Doc-to-helper contract sync test (optional)
-
-Deferred from PR 77 pr-review.
-`skills/pipeline/flow-pipeline/SKILL.md`'s step-7 / step-9 /
-Resume-mode tables enumerate the `.decision` and `.resumeAt` strings
-the supervisor branches on. If a helper renames a decision (e.g.
-`proceed-to-review` → `ci-passed`) the doc would silently drift and
-the supervisor would fall through to the wrong action.
-
-Optional because the fix needs new test infra (parse the SKILL.md
-table cells, cross-check against the helper's exported union types)
-and architectural decisions about how strict to be (regex on the first
-column? import the TypeScript union via a generated JSON?). Pick up
-opportunistically when the next helper-rename PR lands, or before any
-new decision-emitting helper is added — not cold.
 
 ---
 
