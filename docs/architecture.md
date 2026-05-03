@@ -3,8 +3,7 @@
 The whole design exists to satisfy three constraints. Everything else
 follows. For the rationale, user flows, alternatives considered, and the
 deepest "what is flow for?" framing, see
-[`chat-first-design.md`](./chat-first-design.md). For the PR-by-PR
-implementation plan, see [`roadmap.md`](./roadmap.md).
+[`chat-first-design.md`](./chat-first-design.md).
 
 ## The three constraints
 
@@ -203,7 +202,7 @@ Why markdown and not a database:
 When this becomes painful (large queues, multi-machine, dependency
 graphs across tasks) we swap in Steve Yegge's
 [Beads](https://github.com/steveyegge/beads) behind a state-store
-interface (see [`roadmap.md`](./roadmap.md#future-stretch--out-of-scope) "Future stretch / out of scope").
+interface.
 
 ## Auto-merge rule
 

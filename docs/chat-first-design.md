@@ -1,14 +1,12 @@
 # Chat-first design
 
-> **Audience:** future agents (LLM and human) picking up a PR from
-> [`roadmap.md`](./roadmap.md). This is *not* a getting-started doc and
-> not a tutorial. It assumes the reader is implementing or reviewing a
-> specific PR and needs the rationale behind the design — the *why*
-> behind every load-bearing choice.
+> **Audience:** future agents (LLM and human) picking up the design
+> rationale behind flow. This is *not* a getting-started doc and not a
+> tutorial. It assumes the reader is implementing or reviewing a
+> specific change and needs the *why* behind every load-bearing choice.
 >
 > For the high-level architecture shape, see
-> [`architecture.md`](./architecture.md). For the PR-by-PR plan, see
-> [`roadmap.md`](./roadmap.md).
+> [`architecture.md`](./architecture.md).
 
 ---
 
@@ -153,9 +151,8 @@ retries.
 > names there are the source of truth (e.g. `verifying`, `ci`,
 > `gated`). The diagram uses descriptive names like `local-verifying`,
 > `ci-wait`, `gating` for readability — when the schema and the
-> diagram disagree on naming, the schema wins. PRs in
-> [`roadmap.md`](./roadmap.md) that introduce new transitions are
-> expected to update both.
+> diagram disagree on naming, the schema wins. PRs that introduce new
+> transitions are expected to update both.
 
 ```
                       triaged
@@ -414,7 +411,7 @@ the rejected `flowd` design](#102-event-driven-daemon-flowd)).
 
 The user wants to: see Claude work, walk away, run parallel tasks,
 stay terminal-native. Seven options were considered; the ranking
-below drives the roadmap.
+below drives the chosen sequencing.
 
 ### 7.1 Option 1 (DEFAULT, PR 6): jsonl logs + `flow log <id> --follow`
 
@@ -497,8 +494,8 @@ No streaming; `flow status` shows current state + last activity line.
 A reasonable minimum: **Option 1 + 3 + 4** gives replay, snapshots,
 and event alerts with zero exotic dependencies. Tmux/TUI become
 opt-in upgrades once you find yourself wanting "active session
-attach" specifically. The roadmap lands the minimum first (PR 6 +
-PR 11 + PR 17), defers the dependencies-required upgrades (tmux
+attach" specifically. The plan was to land the minimum first (PR 6 +
+PR 11 + PR 17), defer the dependencies-required upgrades (tmux
 indefinitely; TUI as PR 19, "only if reached for").
 
 ---
@@ -1121,8 +1118,7 @@ executes the DAG; skills are pluggable.
 
 ## 11. Migration plan summary
 
-The full PR-by-PR plan lives in [`roadmap.md`](./roadmap.md). The
-shape, in four phases:
+The original PR-by-PR plan was structured in four phases:
 
 - **Phase 1 — foundation (PRs 1-3).** Logging plumbing, detached
   subprocesses, cross-process claim primitive, implement create/fix
