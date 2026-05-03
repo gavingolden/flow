@@ -172,13 +172,10 @@ export function decideOnPoll(state: PollState): PollVerdict {
   if (state.prState === "MERGED") return { verdict: "exit", decision: "merged-externally" };
   if (state.prState === "CLOSED") return { verdict: "exit", decision: "pr-closed" };
 
-  // Apply overrides so the rest of the matrix reads cleanly.
+  // Apply overrides so the rest of the matrix reads cleanly. 'failed' is
+  // also CI-terminal but routes via the dedicated ci-failed branch below.
   const ciFailed = state.ciConfigured && state.ci.kind === "failed";
-  const ciPassed =
-    !state.ciConfigured ||
-    state.ci.kind === "all-passed" ||
-    // 'failed' is *also* terminal but is caught above; do not collapse.
-    false;
+  const ciPassed = !state.ciConfigured || state.ci.kind === "all-passed";
   const effectiveCopilotPosted = !state.copilotConfigured || state.copilotPosted;
 
   if (ciFailed) {
@@ -199,7 +196,14 @@ export function decideOnPoll(state: PollState): PollVerdict {
     return { verdict: "exit", decision: "proceed-to-review-no-bot" };
   }
 
-  if (state.elapsedSec >= state.maxElapsed) {
+  // Wall-clock cap. Per polling-protocol.md the cap row in the decision
+  // matrix only applies when ci_passed=false AND ci_failed=false (i.e. CI
+  // hasn't reached terminal yet). If CI already passed, fall through to
+  // loop and let the 10-min copilot-timeout branch above eventually exit.
+  // Otherwise a slow-but-eventually-passing CI that finishes near minute 18
+  // would race the 20-min cap and ship 'ci-hang' instead of waiting the
+  // documented 10 minutes for Copilot.
+  if (!ciPassed && state.elapsedSec >= state.maxElapsed) {
     return { verdict: "exit", decision: "ci-hang" };
   }
 

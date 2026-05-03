@@ -134,10 +134,13 @@ export function fetchHeadSha(prNumber: number, gh: GhRunner): string {
  * verbatim from pr-review SKILL.md step 10 — `-f` for strings (path,
  * side, body), `-F` for numbers (line, start_line). Multi-line ranges
  * also need `start_side` per GitHub's API; default it to the same side
- * as `side`.
+ * as `side`. gh's API uses `start_line < line` (line is the bottom of
+ * the range), so when `f.end_line` is present we emit `line=end_line`
+ * and `start_line=line`.
  */
 export function buildPostArgv(prNumber: number, headSha: string, f: Finding): string[] {
   const side = f.side ?? "RIGHT";
+  const lineEnd = f.end_line ?? f.line;
   const argv = [
     "api",
     `repos/{owner}/{repo}/pulls/${prNumber}/comments`,
@@ -146,22 +149,14 @@ export function buildPostArgv(prNumber: number, headSha: string, f: Finding): st
     "-f",
     `path=${f.file}`,
     "-F",
-    `line=${f.line}`,
+    `line=${lineEnd}`,
     "-f",
     `side=${side}`,
-    "-f",
-    `body=${f.body}`,
   ];
   if (f.end_line !== undefined) {
-    // gh's API uses start_line < line for the "anchor at the bottom of the
-    // range" convention. We've already normalized `line` as the end of the
-    // range and `end_line` as inclusive, so swap to start_line=line and
-    // line=end_line.
-    const startIdx = argv.indexOf("line=" + f.line);
-    argv[startIdx] = `line=${f.end_line}`;
-    argv.push("-F", `start_line=${f.line}`);
-    argv.push("-f", `start_side=${side}`);
+    argv.push("-F", `start_line=${f.line}`, "-f", `start_side=${side}`);
   }
+  argv.push("-f", `body=${f.body}`);
   return argv;
 }
 

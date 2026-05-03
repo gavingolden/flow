@@ -211,6 +211,24 @@ describe("decideOnPoll — ci-hang (20-min cap)", () => {
     );
     expect(v).toEqual({ verdict: "exit", decision: "ci-hang" });
   });
+
+  it("does NOT fire ci-hang when CI already passed but copilot timeout has not elapsed", () => {
+    // Per polling-protocol.md the ci-hang row only applies when ci_passed=false
+    // AND ci_failed=false. CI passed at minute 18 and copilot has not posted —
+    // the loop must keep going until the 10-min copilot-after-ci-terminal
+    // window elapses, not bail at the 20-min wall-clock cap.
+    const v = decideOnPoll(
+      makePollState({
+        ci: { kind: "all-passed" },
+        copilotPosted: false,
+        copilotConfigured: true,
+        ciTerminalAt: 1100,
+        elapsedSec: 1200,
+        pollNum: 20,
+      }),
+    );
+    expect(v.verdict).toBe("loop");
+  });
 });
 
 describe("decideOnPoll — presence overrides", () => {
