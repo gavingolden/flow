@@ -65,9 +65,22 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should ignore files outside known scopes", () => {
-    expect(detectScopesFromFiles(["AGENTS.md", ".claude/skills/tailwind-shadcn/SKILL.md"])).toEqual(
-      [],
-    );
+    expect(detectScopesFromFiles(["package-lock.json", "vitest.config.ts"])).toEqual([]);
+  });
+
+  it("should detect docs scope from a root-level .md file", () => {
+    expect(detectScopesFromFiles(["AGENTS.md"])).toEqual(["docs"]);
+  });
+
+  it("should detect docs scope from a deeply-nested .md file", () => {
+    expect(detectScopesFromFiles(["skills/stacks/svelte/SKILL.md"])).toEqual(["docs"]);
+  });
+
+  it("should detect both scripts and docs from a mixed change", () => {
+    expect(detectScopesFromFiles(["bin/flow-md-validate.ts", "docs/x.md"])).toEqual([
+      "scripts",
+      "docs",
+    ]);
   });
 
   it("should deduplicate scopes", () => {
@@ -84,7 +97,8 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should ignore files that contain but don't start with scope prefixes", () => {
-    expect(detectScopesFromFiles(["docs/src/guide.md"])).toEqual([]);
+    // The .md still trips docs scope; the embedded "src/" must not trip src.
+    expect(detectScopesFromFiles(["docs/src/guide.md"])).toEqual(["docs"]);
   });
 });
 
@@ -112,6 +126,14 @@ describe(parseScopes, () => {
   it("should maintain canonical order regardless of input order", () => {
     expect(parseScopes("scripts,src")).toEqual(["src", "scripts"]);
   });
+
+  it("should accept the docs scope", () => {
+    expect(parseScopes("docs")).toEqual(["docs"]);
+  });
+
+  it("should round-trip src,scripts,docs", () => {
+    expect(parseScopes("docs,scripts,src")).toEqual(["src", "scripts", "docs"]);
+  });
 });
 
 describe(checksForScope, () => {
@@ -125,6 +147,11 @@ describe(checksForScope, () => {
     const checks = checksForScope("scripts");
     expect(checks).toHaveLength(2);
     expect(checks.map((c) => c.name)).toEqual(["npm run typecheck:scripts", "npm run test"]);
+  });
+
+  it("should return flow-md-validate for docs", () => {
+    const checks = checksForScope("docs");
+    expect(checks).toEqual([{ name: "flow-md-validate .", argv: ["flow-md-validate", "."] }]);
   });
 });
 

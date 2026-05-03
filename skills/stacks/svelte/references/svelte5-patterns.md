@@ -5,7 +5,7 @@ Extended examples for Svelte 5 patterns. Loaded on-demand from the `svelte` skil
 ## Table of Contents
 
 - [Reactive Class Pattern](#reactive-class-pattern)
-- [$state.snapshot Usage](#statesnap-usage)
+- [$state.snapshot Usage](#statesnapshot-usage)
 - [$state.raw for Performance](#stateraw-for-performance)
 - [$effect Cleanup Pattern](#effect-cleanup-pattern)
 - [Async Data: $effect vs $derived](#async-data-effect-vs-derived)
@@ -14,7 +14,7 @@ Extended examples for Svelte 5 patterns. Loaded on-demand from the `svelte` skil
 - [HMR Disposal](#hmr-disposal)
 - [state_unsafe_mutation Error](#state_unsafe_mutation-error)
 - [$effect.root Memory Leak](#effectroot-memory-leak)
-- [Svelte 4 to 5 Migration Cheat Sheet](#svelte-4--5-migration-cheat-sheet)
+- [Svelte 4 to 5 Migration Cheat Sheet](#svelte-4-to-5-migration-cheat-sheet)
 - [Snippet Patterns](#snippet-patterns)
 
 ---
@@ -356,7 +356,7 @@ or an equivalent lifecycle hook.
 
 ---
 
-## Svelte 4 -> 5 Migration Cheat Sheet
+## Svelte 4 to 5 Migration Cheat Sheet
 
 | Svelte 4                             | Svelte 5 Equivalent                                  |
 | ------------------------------------ | ---------------------------------------------------- |
