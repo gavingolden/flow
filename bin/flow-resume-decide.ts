@@ -35,8 +35,13 @@
  *   }
  *
  * Exit codes:
- *   0 — decision computed (any kind including escalate/terminal)
- *   1 — state.json missing for the slug (resumeAt: "abort" still printed)
+ *   0 — decision computed (any kind including abort/escalate/terminal). The
+ *       supervisor doc captures stdout via `RESULT=$(flow-resume-decide "$SLUG")`
+ *       and branches on `.resumeAt`; a non-zero exit on the abort case would
+ *       trip strict-shell callers before they could read the JSON, so abort
+ *       (state.json missing) also exits 0 and surfaces via the JSON verdict.
+ *       Same exit-0-for-every-decision contract as `flow-ci-wait` and
+ *       `flow-gate-decide`.
  *   2 — bad CLI args
  */
 
@@ -528,7 +533,7 @@ export function run(argv: string[], deps: Deps = {}): number {
       context: { slug: parsed.slug, phase: "" },
     };
     process.stdout.write(JSON.stringify(result) + "\n");
-    return 1;
+    return 0;
   }
 
   const inputs = gatherInputs(parsed.slug, state, gh, git);

@@ -619,6 +619,8 @@ on stdout is cleanly capturable.
 ```bash
 RESULT=$(flow-ci-wait "$PR")
 DECISION=$(printf '%s' "$RESULT" | jq -r '.decision')
+PR_URL=$(printf '%s' "$RESULT" | jq -r '.prUrl // empty')
+CI_FAILED_CHECKS=$(printf '%s' "$RESULT" | jq -r '.ciFailedChecks // empty')
 ```
 
 Branch on `.decision`:
@@ -627,8 +629,8 @@ Branch on `.decision`:
 |---|---|
 | `proceed-to-review` | **Continue immediately to step 8 in the same turn — do not end the turn.** |
 | `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal. |
-| `ci-failed` | **Continue immediately to step 5 mode=fix in the same turn — do not end the turn.** Pass `.ciFailedChecks` from the JSON as the failure log. Subject to the 3-loop ci-fix cap below. |
-| `merged-externally` | PR was merged externally mid-flight. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged --slug "$SLUG" --url "<.prUrl>"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
+| `ci-failed` | **Continue immediately to step 5 mode=fix in the same turn — do not end the turn.** Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
+| `merged-externally` | PR was merged externally mid-flight. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged --slug "$SLUG" --url "$PR_URL"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
 | `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
 
@@ -710,6 +712,8 @@ than collapsing it to auto-merge.
 RESULT=$(flow-gate-decide "$PR" --slug "$SLUG")
 DECISION=$(printf '%s' "$RESULT" | jq -r '.decision')
 PR_URL=$(printf '%s' "$RESULT" | jq -r '.prUrl // empty')
+REASON=$(printf '%s' "$RESULT" | jq -r '.reason // empty')
+VALIDATION_ITEMS=$(printf '%s' "$RESULT" | jq -r '.validationItems[]? // empty')
 ```
 
 The helper reads `autoMerge` from `~/.flow/state/<slug>.json`
@@ -724,7 +728,7 @@ Branch on `.decision`:
 | `.decision` | Action |
 |---|---|
 | `auto-merge` | Continue to step 10 (auto-merge). |
-| `gated` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "$PR_URL" --reason "<.reason>"` (the helper sets `.reason` to the first `.validationItems` entry, or `auto-merge opted out (--no-auto-merge)` when `autoMerge: false` with zero unchecked items). Print: `GATED:`, the PR URL, the `.validationItems` array verbatim (one per line), and `merge with: gh pr merge --squash <PR>`. End. |
+| `gated` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "$PR_URL" --reason "$REASON"` (the helper sets `.reason` to the first `.validationItems` entry, or `auto-merge opted out (--no-auto-merge)` when `autoMerge: false` with zero unchecked items). Print: `GATED:`, the PR URL, `$VALIDATION_ITEMS` (one per line, already newline-separated by the jq above), and `merge with: gh pr merge --squash <PR>`. End. |
 | `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged --slug "$SLUG" --url "$PR_URL"`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
 | `closed-no-merge` | Call `flow-notify --status needs-human --slug "$SLUG" --url "$PR_URL" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 | `escalate-heading-missing` | Escalate `NEEDS HUMAN: test-steps-section-missing`. |

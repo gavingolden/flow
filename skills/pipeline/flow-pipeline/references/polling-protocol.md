@@ -48,9 +48,10 @@ has reached a terminal state by then, escalate `NEEDS HUMAN: ci-hang
 
 ## Per-poll counter
 
-Each iteration prints exactly one summary line on stdout so the user
-reading scrollback (or attaching mid-wait) can see progress at a
-glance:
+Each iteration prints exactly one summary line on **stderr** so the
+user reading scrollback (or attaching mid-wait) can see progress at a
+glance — and so the final JSON verdict on stdout stays cleanly
+capturable via `RESULT=$(flow-ci-wait "$PR")`:
 
 ```
 CI poll <N>, elapsed <X>m<Y>s of 20m, cadence <C>s

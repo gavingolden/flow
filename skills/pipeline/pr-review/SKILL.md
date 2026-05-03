@@ -525,8 +525,13 @@ Each entry: `{"file": "src/foo.ts", "line": 42, "end_line": 48, "side": "RIGHT",
 
 - `file` is the PR path (gh's wire field is `path`; the helper accepts either).
 - `line` is the post-fix line number (the line as it appears in the PR's "after" view).
-- `end_line` is optional; include for multi-line ranges (the helper builds `start_line` /
-  `start_side` correctly).
+  For a single-line comment, this is *the* line. For a multi-line range, this is the
+  range's **start** line (the top of the highlighted region).
+- `end_line` is optional; include for multi-line ranges. When present, it must be `>= line`
+  and is the **end** line (the bottom of the highlighted region). The helper maps these to
+  GitHub's wire shape — `start_line=line` and `line=end_line` — and emits `start_side`
+  matching `side`. Don't try to invert the order: passing the bottom as `line` and the top
+  as `end_line` is rejected with `"end_line" must be >= "line"`.
 - `side` is optional, default `"RIGHT"` (the new file). Use `"LEFT"` only when commenting
   on a removed line.
 - `body` uses the conventional comments format (label + decoration + subject + body). Do

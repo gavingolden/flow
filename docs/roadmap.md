@@ -162,6 +162,18 @@ the originating review context isn't lost.
 - **`flow setup --upgrade` does not prune symlinks for upstream-removed helpers/skills** → Item 26.
 - **`flow setup --upgrade --source "$WORKTREE"` records worktree-lifetime paths in the install manifest** → Item 26.
 
+### From PR 77 pr-review (post-merge)
+
+- **No doc-to-helper contract sync test** — `skills/pipeline/flow-pipeline/SKILL.md`'s
+  step-7 / step-9 / Resume-mode tables enumerate the `.decision` and `.resumeAt` strings
+  the supervisor branches on. If a helper renames a decision (e.g. `proceed-to-review`
+  → `ci-passed`) the doc would silently drift and the supervisor would fall through to
+  the wrong action. Deferred because the fix needs new test infra (parse the SKILL.md
+  table cells, cross-check against the helper's exported union types) and architectural
+  decisions about how strict to be (regex on the first column? import the TypeScript
+  union via a generated JSON?). Revisit trigger: open opportunistically when the next
+  helper-rename PR lands, or before any new decision-emitting helper is added.
+
 ---
 
 ## User flows

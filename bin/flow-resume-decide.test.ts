@@ -396,11 +396,16 @@ function captureStdout(): { writes: string[]; restore: () => void } {
 }
 
 describe("run() integration", () => {
-  it("exits 1 with abort JSON when state.json is missing", () => {
+  it("exits 0 with abort JSON when state.json is missing", () => {
+    // Same exit-0-for-every-decision contract as flow-ci-wait /
+    // flow-gate-decide — supervisor doc captures stdout via
+    // RESULT=$(flow-resume-decide "$SLUG") and branches on .resumeAt;
+    // a non-zero exit would trip strict-shell callers before they
+    // could read the abort JSON.
     const { writes, restore } = captureStdout();
     const exit = run(["nonexistent-slug"], { stateDir, gh: vi.fn(), git: vi.fn() });
     restore();
-    expect(exit).toBe(1);
+    expect(exit).toBe(0);
     const result = JSON.parse(writes.join("")) as DecisionResult;
     expect(result.resumeAt).toBe("abort");
     expect(result.reason).toBe("state-missing-on-resume");
