@@ -4,6 +4,7 @@
  * the library file (already over the < 200-line target).
  */
 
+import { argsContainHelp, printVerbHelp } from "./help";
 import { runSetup, type SetupOptions } from "./setup";
 
 export type ParsedSetupArgs = {
@@ -56,6 +57,10 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
  * through arg parsing.
  */
 export function runSetupCli(args: string[], extraOptions?: SetupOptions): number {
+  if (argsContainHelp(args)) {
+    printVerbHelp("setup");
+    return 0;
+  }
   const parsed = parseSetupArgs(args);
   if ("error" in parsed) {
     console.error(parsed.error);

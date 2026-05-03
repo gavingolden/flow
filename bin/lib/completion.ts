@@ -12,6 +12,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isHelpFlag, printVerbHelp } from "./help";
 import { resolveFlowSource } from "./paths";
 
 export const SUPPORTED_SHELLS = ["bash", "zsh"] as const;
@@ -24,6 +25,10 @@ export type CompletionOptions = {
 };
 
 export function runCompletion(shell: string | undefined, opts: CompletionOptions = {}): number {
+  if (isHelpFlag(shell)) {
+    printVerbHelp("completion");
+    return 0;
+  }
   if (!shell) {
     console.error("flow completion: shell argument is required");
     console.error(`usage: flow completion <${SUPPORTED_SHELLS.join("|")}>`);

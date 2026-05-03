@@ -27,6 +27,7 @@ import {
   removeManagedBlock,
   writeGitignore,
 } from "./gitignore";
+import { argsContainHelp, printVerbHelp } from "./help";
 
 export type MigrateOptions = {
   apply?: boolean;
@@ -44,6 +45,28 @@ export type MigratePlan = {
 };
 
 const MANAGED_BLOCKS = ["install-skills", "install-scripts"] as const;
+
+/**
+ * CLI shim for `bin/flow`'s `migrate` verb. Intercepts --help / -h before
+ * any gitignore parse or repo scan, then parses --apply / --scan /
+ * --include-orchestrator and dispatches to `runMigrate`. The previous
+ * inline `runMigrateVerb` lived in `bin/flow`.
+ */
+export function runMigrateCli(args: string[], cwd?: string): number {
+  if (argsContainHelp(args)) {
+    printVerbHelp("migrate");
+    return 0;
+  }
+  const apply = args.includes("--apply");
+  const includeOrchestrator = args.includes("--include-orchestrator");
+  const scanIdx = args.indexOf("--scan");
+  const scan = scanIdx >= 0 ? args[scanIdx + 1] : undefined;
+  if (scanIdx >= 0 && !scan) {
+    console.error("flow migrate: --scan requires a path argument.");
+    return 1;
+  }
+  return runMigrate({ apply, includeOrchestrator, scan }, cwd);
+}
 
 export function runMigrate(options: MigrateOptions = {}, cwd = process.cwd()): number {
   if (options.scan) return runScan(options.scan, options);

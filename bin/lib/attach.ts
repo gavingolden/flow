@@ -3,7 +3,20 @@
  * exactly one window exists, attach to it. Otherwise error.
  */
 
+import { argsContainHelp, printVerbHelp } from "./help";
 import { execAttach, listWindows, sessionExists, FLOW_SESSION } from "./tmux";
+
+/**
+ * CLI shim for `bin/flow`'s `attach` verb. Intercepts --help / -h before
+ * any tmux query, then dispatches the first positional arg to `runAttach`.
+ */
+export function runAttachCli(args: string[]): number {
+  if (argsContainHelp(args)) {
+    printVerbHelp("attach");
+    return 0;
+  }
+  return runAttach(args[0]);
+}
 
 export function runAttach(name?: string): number {
   if (!sessionExists()) {

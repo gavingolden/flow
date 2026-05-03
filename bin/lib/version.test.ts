@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runVersion } from "./version";
+import { runVersion, runVersionCli } from "./version";
 
 let scratch!: string;
 
@@ -70,4 +70,23 @@ describe("runVersion", () => {
     expect(String(err.mock.calls[0][0])).toContain("no 'version' field");
     err.mockRestore();
   });
+});
+
+describe("runVersionCli (--help / -h short-circuit)", () => {
+  // Point flowSource at a directory with no package.json. If the help check
+  // regresses, runVersion would log a "cannot read" error and return 1.
+
+  for (const flag of ["--help", "-h"]) {
+    it(`exits 0 and prints help when args is ['${flag}'] (no package.json read)`, () => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const code = runVersionCli([flag], { flowSource: scratch });
+      expect(code).toBe(0);
+      expect(log).toHaveBeenCalled();
+      expect(log.mock.calls[0][0]).toMatch(/^flow version — print the installed/);
+      expect(err).not.toHaveBeenCalled();
+      log.mockRestore();
+      err.mockRestore();
+    });
+  }
 });

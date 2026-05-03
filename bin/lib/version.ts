@@ -6,12 +6,25 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { argsContainHelp, printVerbHelp } from "./help";
 import { resolveFlowSource } from "./paths";
 
 export type VersionOptions = {
   /** Override the flow source root (test-only). */
   flowSource?: string;
 };
+
+/**
+ * CLI shim for `bin/flow`'s `version` / `--version` / `-v` verb. Intercepts
+ * --help / -h before any fs read, then dispatches to `runVersion`.
+ */
+export function runVersionCli(args: string[], opts: VersionOptions = {}): number {
+  if (argsContainHelp(args)) {
+    printVerbHelp("version");
+    return 0;
+  }
+  return runVersion(opts);
+}
 
 export function runVersion(opts: VersionOptions = {}): number {
   const source = opts.flowSource ?? resolveFlowSource();
