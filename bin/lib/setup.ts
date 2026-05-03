@@ -33,6 +33,15 @@ export type SetupOptions = {
   force?: boolean;
   /** Override the flow source root (default: derived from this module's path). */
   flowSource?: string;
+  /**
+   * Override the canonical install root recorded in the manifest. Distinct
+   * from `flowSource`: when `flow setup --source <worktree>` is used,
+   * `flowSource` points at the per-pipeline worktree (so discovery picks up
+   * its in-flight skills/agents) while `installRoot` stays on the canonical
+   * install location. Defaults to `resolveFlowSource()` in production —
+   * tests override to keep manifest paths inside the fixture.
+   */
+  installRoot?: string;
   /** Override install target directories (default: ~/.claude/, ~/.local/bin/). */
   targets?: InstallTargets;
   /** Skip the tmux-on-PATH preflight (test-only). */
@@ -68,6 +77,7 @@ export type SetupSummary = {
 
 export function runSetup(options: SetupOptions = {}): SetupSummary {
   const flowSource = options.flowSource ?? resolveFlowSource();
+  const installRoot = options.installRoot ?? resolveFlowSource();
   const targets = options.targets ?? DEFAULT_TARGETS;
   const log = options.quiet ? () => undefined : (msg: string) => console.log(msg);
 
@@ -78,13 +88,14 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   // `flow setup --upgrade` can race on the same skill/agent symlink.
   return withFileLock(
     options.lockPath ?? SETUP_LOCK_PATH,
-    () => runUnderLock(flowSource, targets, log, options),
+    () => runUnderLock(flowSource, installRoot, targets, log, options),
     { timeoutMs: options.lockTimeoutMs },
   );
 }
 
 function runUnderLock(
   flowSource: string,
+  installRoot: string,
   targets: InstallTargets,
   log: (msg: string) => void,
   options: SetupOptions,
@@ -102,7 +113,7 @@ function runUnderLock(
   }
 
   if (options.upgrade) {
-    summary.removed = reapOrphans(flowSource, entries, options.manifestPath, log);
+    summary.removed = reapOrphans(entries, options.manifestPath, log);
   }
 
   // Edit the user's shell rc files to source the completion scripts. Run
@@ -118,7 +129,7 @@ function runUnderLock(
   // Write the manifest as the union of "what we just installed" + entries
   // that still exist from a prior run that we didn't reap (they remain valid
   // claims). On a fresh install the union is just the new entries.
-  const manifest = mergeManifest(entries);
+  const manifest = mergeManifest(entries, flowSource, installRoot);
   writeManifest(manifest, options.manifestPath);
 
   printSummary(summary, log);
@@ -145,7 +156,6 @@ function preflight(targets: InstallTargets): void {
 }
 
 function reapOrphans(
-  flowSource: string,
   currentEntries: SourceEntry[],
   manifestPath: string | undefined,
   log: (msg: string) => void,
@@ -155,7 +165,7 @@ function reapOrphans(
   let removed = 0;
   for (const record of previous.symlinks) {
     if (currentTargets.has(record.target)) continue;
-    if (removeIfManagedSymlink(record.target, flowSource)) {
+    if (removeIfManagedSymlink(record.target, record.source)) {
       log(`  - ${path.basename(record.target)}  (orphan removed)`);
       removed++;
     }
@@ -163,8 +173,12 @@ function reapOrphans(
   return removed;
 }
 
-function mergeManifest(entries: SourceEntry[]): Manifest {
-  const records: SymlinkRecord[] = entries.map(entryToRecord);
+function mergeManifest(
+  entries: SourceEntry[],
+  flowSource: string,
+  installRoot: string,
+): Manifest {
+  const records: SymlinkRecord[] = entries.map((e) => entryToRecord(e, flowSource, installRoot));
   return { version: 1, symlinks: records };
 }
 

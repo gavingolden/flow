@@ -45,27 +45,48 @@ export function ensureSymlink(target: string, source: string, force: boolean): L
 }
 
 /**
- * Removes `target` only if it's a symlink whose resolved path lives under
- * `flowSource`. Returns true if removed, false otherwise (so a user's own
- * symlink to an unrelated location is never reaped). flowSource is
- * realpath'd before comparison so platform-level path canonicalization
- * (e.g. /var → /private/var on macOS) doesn't yield false negatives.
+ * Removes `target` only if it's a symlink we own per the manifest's recorded
+ * source. Returns true if removed, false otherwise.
+ *
+ * The check has two branches:
+ *   1. The on-disk symlink points at the recorded source (with realpath
+ *      canonicalization on both sides — `ensureSymlink` writes realpath'd
+ *      pointers, and platform-level canonicalization like /var → /private/var
+ *      on macOS would otherwise yield false negatives). Remove — still ours.
+ *   2. The symlink is dangling (link target does not exist on disk). Remove —
+ *      we recorded this target and the file the link pointed at is gone, so
+ *      reaping it is safe even if the pointer no longer references the
+ *      recorded source. This is the cleanup path for legacy damage left by
+ *      prior `--source <worktree>` runs whose worktree was removed
+ *      post-merge.
+ *
+ * Working symlinks pointing somewhere unexpected (the user replaced ours
+ * with their own that still resolves) are preserved.
  */
-export function removeIfManagedSymlink(target: string, flowSource: string): boolean {
+export function removeIfManagedSymlink(target: string, recordedSource: string): boolean {
   const link = readSymlink(target);
   if (link === null) return false;
   const resolved = path.resolve(path.dirname(target), link);
-  const realFlow = (() => {
-    try {
-      return fs.realpathSync(flowSource);
-    } catch {
-      return flowSource;
-    }
-  })();
-  const matches = resolved === realFlow || resolved.startsWith(realFlow + path.sep);
-  if (!matches) return false;
-  fs.unlinkSync(target);
-  return true;
+
+  const recordedAbs = path.resolve(recordedSource);
+  let recordedReal: string | null = null;
+  try {
+    recordedReal = fs.realpathSync(recordedSource);
+  } catch {
+    // Recorded source no longer exists — fall through to the dangling check.
+  }
+
+  if (resolved === recordedAbs || (recordedReal !== null && resolved === recordedReal)) {
+    fs.unlinkSync(target);
+    return true;
+  }
+
+  if (!fs.existsSync(resolved)) {
+    fs.unlinkSync(target);
+    return true;
+  }
+
+  return false;
 }
 
 function readSymlink(p: string): string | null {

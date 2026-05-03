@@ -47,11 +47,19 @@ function setup(
     force?: boolean;
     lockTimeoutMs?: number;
     noCompletions?: boolean;
+    flowSourceOverride?: string;
   } = {},
 ) {
+  const { flowSourceOverride, ...rest } = opts;
+  // installRoot defaults to flowSource so the existing test fixtures
+  // (which only override flowSource) keep recording fixture-rooted paths
+  // in the manifest. Tests that exercise the worktree → install-root
+  // divergence pass `flowSourceOverride` to drive flowSource away from
+  // the canonical install-root fixture.
   return runSetup({
-    ...opts,
-    flowSource,
+    ...rest,
+    flowSource: flowSourceOverride ?? flowSource,
+    installRoot: flowSource,
     targets: targets(),
     skipPreflight: true,
     manifestPath,
@@ -279,10 +287,106 @@ describe("flow setup", () => {
     fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), { recursive: true });
 
     const summary = setup({ upgrade: true });
-    expect(summary.removed).toBe(0); // refused — not pointing at flow source
+    expect(summary.removed).toBe(0); // refused — replacement still resolves
     expect(fs.existsSync(path.join(t.skillsDir, "alpha"))).toBe(true);
 
     fs.rmSync(userTarget, { recursive: true, force: true });
+  });
+
+  describe("--source <worktree> recording + cleanup", () => {
+    it("records install-root paths in the manifest when flowSource diverges from installRoot", () => {
+      // Build a fake worktree alongside the install-root fixture, with one
+      // extra skill that only exists in the worktree.
+      const worktree = path.join(scratch, "worktree");
+      buildFakeFlowSource(worktree);
+      fs.mkdirSync(path.join(worktree, "skills", "pipeline", "epsilon"), { recursive: true });
+      fs.writeFileSync(
+        path.join(worktree, "skills", "pipeline", "epsilon", "SKILL.md"),
+        "# epsilon\n",
+      );
+
+      setup({ flowSourceOverride: worktree });
+
+      const manifest = readManifest(manifestPath);
+      // Every recorded source path must live under the install-root fixture,
+      // never under the worktree — even for the new `epsilon` skill that
+      // only physically exists in the worktree.
+      for (const record of manifest.symlinks) {
+        expect(record.source.startsWith(flowSource)).toBe(true);
+        expect(record.source.startsWith(worktree)).toBe(false);
+      }
+      // Spot-check that epsilon got recorded under install-root.
+      const epsilon = manifest.symlinks.find((s) => path.basename(s.target) === "epsilon");
+      expect(epsilon?.source).toBe(path.join(flowSource, "skills", "pipeline", "epsilon"));
+    });
+
+    it("symlinks still point at the worktree's content during the in-flight session", () => {
+      // The recording change must not break step-5.5's purpose: in-flight
+      // worktree files have to be reachable through the install target.
+      const worktree = path.join(scratch, "worktree");
+      buildFakeFlowSource(worktree);
+      fs.mkdirSync(path.join(worktree, "skills", "pipeline", "epsilon"), { recursive: true });
+      fs.writeFileSync(
+        path.join(worktree, "skills", "pipeline", "epsilon", "SKILL.md"),
+        "# epsilon\n",
+      );
+
+      setup({ flowSourceOverride: worktree });
+
+      const t = targets();
+      // realpath on both sides — ensureSymlink writes realpath'd targets, and
+      // /var → /private/var canonicalization on macOS would otherwise yield a
+      // string mismatch.
+      expect(fs.realpathSync(path.join(t.skillsDir, "epsilon"))).toBe(
+        fs.realpathSync(path.join(worktree, "skills", "pipeline", "epsilon")),
+      );
+    });
+
+    it("reaps dangling symlinks left behind when a prior --source <worktree> worktree is gone", () => {
+      // (a) Build a worktree with one helper that doesn't exist in the
+      // install-root fixture — the realistic "PR adds a new skill/helper"
+      // scenario.
+      const worktree = path.join(scratch, "worktree");
+      buildFakeFlowSource(worktree);
+      fs.writeFileSync(
+        path.join(worktree, "bin", "flow-pipeline-only.ts"),
+        "#!/usr/bin/env bun\n// only in worktree\n",
+      );
+
+      // (b) Simulate the supervisor's step-5.5: setup --upgrade --source $WORKTREE.
+      setup({ flowSourceOverride: worktree, upgrade: true });
+      const t = targets();
+      // The new helper symlink exists and resolves to the worktree file.
+      const link = path.join(t.binDir, "flow-pipeline-only");
+      expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(link)).toBe(
+        fs.realpathSync(path.join(worktree, "bin", "flow-pipeline-only.ts")),
+      );
+      // And the manifest recorded the install-root path (not the worktree path).
+      const manifestBefore = readManifest(manifestPath);
+      const recordBefore = manifestBefore.symlinks.find(
+        (s) => path.basename(s.target) === "flow-pipeline-only",
+      );
+      expect(recordBefore?.source).toBe(path.join(flowSource, "bin", "flow-pipeline-only.ts"));
+
+      // (c) Simulate `flow-remove-worktree` — the worktree directory is gone.
+      fs.rmSync(worktree, { recursive: true, force: true });
+
+      // (d) Re-run setup --upgrade from the install-root fixture (no --source).
+      // The install-root has no `flow-pipeline-only.ts` (the PR was never
+      // merged), so the manifest's stale entry is an orphan and the on-disk
+      // symlink is dangling.
+      const summary = setup({ upgrade: true });
+
+      // (e) The orphan got reaped despite the dangling pointer landing
+      // outside flowSource (the worktree path) — that's the relaxed-reaper fix.
+      expect(summary.removed).toBeGreaterThanOrEqual(1);
+      expect(fs.existsSync(link)).toBe(false);
+      const manifestAfter = readManifest(manifestPath);
+      expect(
+        manifestAfter.symlinks.some((s) => path.basename(s.target) === "flow-pipeline-only"),
+      ).toBe(false);
+    });
   });
 });
 
