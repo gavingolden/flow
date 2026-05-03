@@ -20,8 +20,8 @@ Read it once at the start of a session.
 
 | You want | Read |
 |---|---|
-| The current end-state architecture | `docs/roadmap.md` "End-state shape" + the supervisor SKILL at `skills/pipeline/flow-pipeline/SKILL.md` |
-| Milestone status + what's next | `docs/roadmap.md` |
+| The supervisor's behaviour and contracts | `skills/pipeline/flow-pipeline/SKILL.md` |
+| Queued work + what's next | `docs/roadmap.md` |
 | The skill library structure | `skills/` (categorized: `pipeline/`, `universal/`, `stacks/`) |
 | Generic engineering rules to copy into a new repo | `templates/AGENTS.md.template` |
 | Historical context on the old Node orchestrator (deleted) | `docs/architecture.md`, `docs/phases/*.md` (kept as historical artefacts) |
@@ -32,12 +32,12 @@ helper.
 
 ## Current state
 
-See `docs/roadmap.md`. The redesign from a Node orchestrator to a
-tmux-driven supervisor is complete: `src/`, the per-repo `flow install`,
-and the orchestrator-only skills (`flow-add`, `flow-approve`,
-`flow-revise`, `flow-watch`, `flow-status`) are deleted. The wrapper at
-`bin/flow` is Bun; it dispatches verbs natively (`new`, `ls`, `attach`,
-`done`, `setup`, `migrate`) with no passthrough fallback.
+The redesign from a Node orchestrator to a tmux-driven supervisor is
+complete: `src/`, the per-repo `flow install`, and the orchestrator-
+only skills (`flow-add`, `flow-approve`, `flow-revise`, `flow-watch`,
+`flow-status`) are deleted. The wrapper at `bin/flow` is Bun; it
+dispatches verbs natively (`new`, `ls`, `attach`, `done`, `setup`,
+`migrate`) with no passthrough fallback.
 
 Note: `docs/phases/m2-plan.md`, `docs/phases/m3-plan.md`, and the rest
 of `docs/phases/` describe the deleted orchestrator's phase contracts
@@ -182,7 +182,7 @@ no compile step.
 - Don't introduce a database. Markdown plan files plus
   `~/.flow/state/<slug>.json` are the state store until the queue gets
   unwieldy (then we swap in Beads via an adapter — see `docs/roadmap.md`
-  "Future stretch").
+  "Future stretch / out of scope").
 - Don't auto-commit or auto-push outside an explicit user instruction —
   this default always holds on `main` (or any base branch). **On a
   feature/PR branch, a user invoking a code-editing skill

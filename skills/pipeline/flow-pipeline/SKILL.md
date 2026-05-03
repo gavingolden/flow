@@ -517,12 +517,11 @@ else
 fi
 ```
 
-The detection grep matches `docs/roadmap.md` Item 14(c) shape —
-`--name-only` plus the triple-dot range so the comparison reflects
-the worktree's diff against the merge-base, not the absolute set of
-changed files. The default-branch resolution mirrors
-`bin/flow-new-worktree.ts` and `bin/flow-pre-commit.ts`; do not
-hardcode `origin/main`.
+The detection grep uses `--name-only` plus the triple-dot range so
+the comparison reflects the worktree's diff against the merge-base,
+not the absolute set of changed files. The default-branch resolution
+mirrors `bin/flow-new-worktree.ts` and `bin/flow-pre-commit.ts`; do
+not hardcode `origin/main`.
 
 The `--source "$WORKTREE"` argument forces `flow setup` to read its
 source tree from the in-flight worktree rather than the original
@@ -536,15 +535,11 @@ so passing `--source "$WORKTREE"` would point at a tree that has no
 `skills/` or `agents/` directories. The detection guard above keeps
 this branch from running in that case.
 
-**Race condition footnote.** Two parallel pipelines that both add
-skills/agents can race on `~/.claude/skills/` and `~/.claude/agents/`
-symlinks. Item 15(c) wraps `flow setup --upgrade` in
-`flock ~/.flow/setup.lock` to serialise concurrent invocations. Until
-that lands, the race is acknowledged but bounded — the window is
-millisecond-scale during symlink creation, no data loss possible
-(symlinks are atomic per-file via `ln -sf`; the worst case is one
-pipeline's symlink wins). Do **not** add an ad-hoc lock here; let
-Item 15(c) own the fix so there's a single chokepoint.
+**Concurrency.** `flow setup` wraps its symlink work in
+`~/.flow/setup.lock` (`bin/lib/lock.ts`), so parallel pipelines that
+both add skills/agents serialise here rather than racing on
+`~/.claude/skills/` and `~/.claude/agents/`. Do not add an ad-hoc
+lock at this call site.
 
 **End condition:** the helper exits 0. On non-zero exit (the verb
 maps `summary.blocked > 0` to exit 1; parser errors map to 2):
