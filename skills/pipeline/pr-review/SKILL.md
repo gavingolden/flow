@@ -514,25 +514,29 @@ review with an event wrapper. The formal-review wrapper creates a heavier-weight
 "X reviewed your PR" entry with an Approved / Requested-changes / Commented banner that
 is overkill for self-review.
 
-For each per-line finding, POST to the **comments** endpoint (not the **reviews**
-endpoint):
+Build a JSON array of findings (one entry per inline comment) and pipe it to
+`flow-post-findings`:
 
 ```bash
-gh api repos/{owner}/{repo}/pulls/<number>/comments \
-  -f commit_id="<head-sha>" \
-  -f path="file.ts" \
-  -F line=42 \
-  -f side="RIGHT" \
-  -f body="<conventional-comment-body>"
+echo '<findings-json>' | flow-post-findings <pr-number>
 ```
 
-- `commit_id` is the PR head SHA (`gh pr view <n> --json headRefOid -q .headRefOid`).
+Each entry: `{"file": "src/foo.ts", "line": 42, "end_line": 48, "side": "RIGHT", "body": "<conventional-comment-body>"}`.
+
+- `file` is the PR path (gh's wire field is `path`; the helper accepts either).
 - `line` is the post-fix line number (the line as it appears in the PR's "after" view).
-- `side="RIGHT"` anchors to the new file; use `"LEFT"` only when commenting on a
-  removed line.
-- For multi-line ranges, add `-F start_line=<n>` and `-f start_side="RIGHT"`.
-- Format each body using the conventional comments format (label + decoration + subject
-  + body). Do NOT include the confidence score in PR comments — it's internal.
+- `end_line` is optional; include for multi-line ranges (the helper builds `start_line` /
+  `start_side` correctly).
+- `side` is optional, default `"RIGHT"` (the new file). Use `"LEFT"` only when commenting
+  on a removed line.
+- `body` uses the conventional comments format (label + decoration + subject + body). Do
+  NOT include the confidence score in PR comments — it's internal.
+
+The helper resolves the PR's head SHA via `gh pr view --json headRefOid` (override with
+`--head-sha <sha>` for tests), POSTs each finding to the
+`repos/{owner}/{repo}/pulls/<n>/comments` endpoint with the right `-f` / `-F` flag mix,
+and prints a per-finding pass/fail summary. Exit 0 when every finding posted, exit 1 when
+any failed.
 
 For the top-level review summary (counts by label, suppression note, conventional-comments
 link), use a regular issue comment:
