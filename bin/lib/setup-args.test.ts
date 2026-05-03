@@ -133,6 +133,7 @@ describe("runSetupCli", () => {
       skipPreflight: true,
       manifestPath,
       lockPath,
+      homeDir,
       quiet: true,
     });
   }
@@ -188,6 +189,7 @@ describe("runSetupCli", () => {
       skipPreflight: true,
       manifestPath,
       lockPath,
+      homeDir,
       quiet: true,
     });
     expect(code).toBe(0);
@@ -195,6 +197,36 @@ describe("runSetupCli", () => {
     const linkRealpath = fs.realpathSync(path.join(t.skillsDir, "alpha"));
     const altRealpath = fs.realpathSync(altSource);
     expect(linkRealpath.startsWith(altRealpath)).toBe(true);
+  });
+
+  it("vitest.setup.ts's global net redirects process.env.HOME under os.tmpdir()", () => {
+    // Replaces a manual "temporarily console.log(process.env.HOME) and revert"
+    // step from the PR Test Steps. If vitest.config.ts ever drops setupFiles,
+    // or vitest.setup.ts's beforeAll ever fails to flip HOME, this assertion
+    // catches it without a human edit-and-revert.
+    const home = process.env.HOME;
+    expect(home).toBeDefined();
+    const tmpReal = fs.realpathSync(os.tmpdir());
+    const homeReal = fs.realpathSync(home as string);
+    expect(homeReal.startsWith(tmpReal)).toBe(true);
+    expect(path.basename(home as string)).toMatch(/^flow-vitest-home-/);
+  });
+
+  it("writes the completions rc-block inside the sandboxed homeDir, not the real $HOME", () => {
+    // Regression for the leak that stamped a stale `/var/folders/.../flow-cli-…`
+    // path into a real ~/.zshrc. If `cli()` ever drops `homeDir`, the block
+    // lands in the real home and this assertion fails — because the sandboxed
+    // .zshrc gets nothing.
+    fs.mkdirSync(homeDir, { recursive: true });
+    const sandboxedZshrc = path.join(homeDir, ".zshrc");
+    fs.writeFileSync(sandboxedZshrc, "");
+
+    expect(cli([])).toBe(0);
+
+    const expectedSourceLine = path.join(targets().completionsDir, "flow.zsh");
+    const after = fs.readFileSync(sandboxedZshrc, "utf8");
+    expect(after).toContain("# managed by flow completions");
+    expect(after).toContain(expectedSourceLine);
   });
 });
 
