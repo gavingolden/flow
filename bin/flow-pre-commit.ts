@@ -2,8 +2,8 @@
 /**
  * Runs verification checks with automatic scope detection.
  *
- * Detects which project areas have changes (src, scripts) and runs the
- * appropriate checks for each.
+ * Detects which project areas have changes (src, scripts, docs) and runs
+ * the appropriate checks for each.
  *
  * Usage:
  *   flow-pre-commit                    # auto-detect from git diff
@@ -16,7 +16,12 @@ import { readFileSync } from "node:fs";
 
 // --- Types ---
 
-export type Scope = "src" | "scripts";
+export type Scope = "src" | "scripts" | "docs";
+
+export type ScopeMatcher = {
+  prefixes?: string[];
+  extensions?: string[];
+};
 
 export type CheckResult = {
   name: string;
@@ -59,16 +64,21 @@ type CheckDef = {
 
 // --- Constants ---
 
-const VALID_SCOPES: Scope[] = ["src", "scripts"];
+const VALID_SCOPES: Scope[] = ["src", "scripts", "docs"];
 const ZERO_SHA = "0000000000000000000000000000000000000000";
 
 // `scripts/` is the install location in target repos; `bin/` is the canonical
 // source location for shipped helper binaries in flow itself; `templates/scripts/`
 // holds the remaining orchestrator-only scripts and backward-compat symlinks.
 // All three trip the scripts scope so flow's own pre-commit run picks up edits.
-const SCOPE_PREFIXES: Record<Scope, string[]> = {
-  src: ["src/"],
-  scripts: ["scripts/", "templates/scripts/", "bin/"],
+//
+// `docs` matches by extension (.md), not prefix — markdown files live everywhere
+// (root-level READMEs, docs/, skills/.../SKILL.md). Prefix matching would miss
+// most of them.
+const SCOPE_MATCHERS: Record<Scope, ScopeMatcher> = {
+  src: { prefixes: ["src/"] },
+  scripts: { prefixes: ["scripts/", "templates/scripts/", "bin/"] },
+  docs: { extensions: [".md"] },
 };
 
 // --- Helpers ---
@@ -98,13 +108,26 @@ export function detectScopesFromFiles(files: string[]): Scope[] {
 
   for (const file of files) {
     for (const scope of VALID_SCOPES) {
-      if (SCOPE_PREFIXES[scope].some((prefix) => file.startsWith(prefix))) {
+      if (matchesScope(file, SCOPE_MATCHERS[scope])) {
         detected.add(scope);
       }
     }
   }
 
   return VALID_SCOPES.filter((s) => detected.has(s));
+}
+
+function matchesScope(file: string, matcher: ScopeMatcher): boolean {
+  if (matcher.prefixes?.some((p) => file.startsWith(p))) return true;
+  if (matcher.extensions?.some((e) => file.endsWith(e))) return true;
+  return false;
+}
+
+function describeMatcher(matcher: ScopeMatcher): string {
+  const parts: string[] = [];
+  if (matcher.prefixes) parts.push(...matcher.prefixes);
+  if (matcher.extensions) parts.push(...matcher.extensions.map((e) => `*${e}`));
+  return parts.join(", ");
 }
 
 /** Parses a comma-separated scope string (e.g. "src,scripts"). */
@@ -138,6 +161,8 @@ export function checksForScope(scope: Scope): CheckDef[] {
         { name: "npm run typecheck:scripts", argv: ["npm", "run", "typecheck:scripts"] },
         { name: "npm run test", argv: ["npm", "run", "test"] },
       ];
+    case "docs":
+      return [{ name: "flow-md-validate .", argv: ["flow-md-validate", "."] }];
   }
 }
 
@@ -304,11 +329,11 @@ export function formatReport(report: CheckReport): string {
     lines.push("flow-pre-commit: checking explicitly-requested scopes…");
   }
   for (const scope of VALID_SCOPES) {
-    const prefixes = SCOPE_PREFIXES[scope].join(", ");
+    const description = describeMatcher(SCOPE_MATCHERS[scope]);
     if (matched.has(scope)) {
-      lines.push(`  ${scope.padEnd(8)} → matched (${prefixes})`);
+      lines.push(`  ${scope.padEnd(8)} → matched (${description})`);
     } else {
-      lines.push(`  ${scope.padEnd(8)} — no changes under ${prefixes}`);
+      lines.push(`  ${scope.padEnd(8)} — no changes under ${description}`);
     }
   }
   lines.push("");
@@ -364,7 +389,7 @@ Runs verification checks with automatic scope detection.
 Detects which project areas have changes and runs the appropriate checks.
 
 Options:
-  --scope <scopes>   Comma-separated scopes: src, scripts
+  --scope <scopes>   Comma-separated scopes: src, scripts, docs
   --pr <number>      Detect scopes from PR changed files
   --pre-push         Read refs from stdin (used by .githooks/pre-push)
   --help, -h         Show this help message
@@ -374,6 +399,7 @@ When no flags are given, scopes are auto-detected from \`git diff HEAD\`.
 Check mapping:
   src:      npm run typecheck, npm run test
   scripts:  npm run typecheck:scripts, npm run test
+  docs:     flow-md-validate .
 
 The same checks may run multiple times if multiple scopes are detected.
 Each check is run independently and reports its own pass/fail.
