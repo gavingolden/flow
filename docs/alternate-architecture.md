@@ -7,10 +7,9 @@ interface lives*, which is the most consequential axis for how the system
 feels day-to-day.
 
 This document captures the pre-decision landscape. **Design B (tmux as the
-interface) has since been chosen** as flow's path forward — see
-[`roadmap.md`](./roadmap.md) for the committed plan. Designs A and C remain
-recorded here as the alternatives that were considered, so the trade-offs
-are recoverable later if the question is reopened.
+interface) has since been chosen** as flow's path forward. Designs A and C
+remain recorded here as the alternatives that were considered, so the
+trade-offs are recoverable later if the question is reopened.
 
 ## Why this exists
 

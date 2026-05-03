@@ -21,14 +21,9 @@ Read it once at the start of a session.
 | You want | Read |
 |---|---|
 | The supervisor's behaviour and contracts | `skills/pipeline/flow-pipeline/SKILL.md` |
-| Queued work + what's next | `docs/roadmap.md` |
 | The skill library structure | `skills/` (categorized: `pipeline/`, `universal/`, `stacks/`) |
 | Generic engineering rules to copy into a new repo | `templates/AGENTS.md.template` |
 | Historical context on the old Node orchestrator (deleted) | `docs/architecture.md`, `docs/phases/*.md` (kept as historical artefacts) |
-
-If you're picking up a roadmap item, the order is: `roadmap.md` →
-`skills/pipeline/flow-pipeline/SKILL.md` → the relevant sub-skill or
-helper.
 
 ## Current state
 
@@ -41,8 +36,7 @@ dispatches verbs natively (`new`, `ls`, `attach`, `done`, `setup`,
 
 Note: `docs/phases/m2-plan.md`, `docs/phases/m3-plan.md`, and the rest
 of `docs/phases/` describe the deleted orchestrator's phase contracts
-— historical artefacts kept for context. New work uses the sequential
-Item / Phase numbering from `docs/roadmap.md`.
+— historical artefacts kept for context.
 
 ## Code conventions
 
@@ -219,13 +213,11 @@ no compile step.
   named exception is `/pr-review`'s Independent Multi-Agent Review
   step — covered by the "Task-tool exemption" bullet below; no other
   skill or step may call Task.
-- Don't add features beyond the current roadmap item's scope. The
-  roadmap is ordered for a reason; later items depend on constraints
-  earlier ones impose.
+- Don't add features beyond the task's stated scope.
 - Don't introduce a database. Markdown plan files plus
-  `~/.flow/state/<slug>.json` are the state store until the queue gets
-  unwieldy (then we swap in Beads via an adapter — see `docs/roadmap.md`
-  "Future stretch / out of scope").
+  `~/.flow/state/<slug>.json` are the state store; if the queue ever
+  outgrows that, swap in Beads via an adapter rather than building
+  bespoke storage.
 - Don't auto-commit or auto-push outside an explicit user instruction —
   this default always holds on `main` (or any base branch). **On a
   feature/PR branch, a user invoking a code-editing skill
@@ -256,10 +248,6 @@ no compile step.
     out per-pipeline with `flow new --no-auto-merge` (the supervisor
     stops at the gated state regardless of the gate verdict). Same
     narrow-and-named contract as the `/pr-review` exemption above.
-    (Roadmap self-marking — flipping `🚧 in review (#N)` to `✅ shipped
-    (#N)` — happens pre-merge inside `/pr-review` step 7.5 and is
-    covered by the `/pr-review` auto-push exemption above; no separate
-    post-merge sweep exemption is needed.)
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
     Multi-Agent Review.** `/flow-pipeline`'s "Hard rules" section
     forbids the supervisor from calling the `Task` / `Agent` tool,

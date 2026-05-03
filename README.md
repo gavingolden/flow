@@ -7,7 +7,7 @@
 
 ## Status
 
-flow has finished its move to the tmux-driven supervisor design. The Node-based orchestrator and the legacy per-repo `flow install` are gone; `flow setup` is the only install entry point. Queued work lives in [`docs/roadmap.md`](docs/roadmap.md).
+flow has finished its move to the tmux-driven supervisor design. The Node-based orchestrator and the legacy per-repo `flow install` are gone; `flow setup` is the only install entry point.
 
 ## Install
 
@@ -114,7 +114,6 @@ Inside a flow window, the Claude Code session is the single LLM container. Sub-s
 | You want | Read |
 |---|---|
 | The architectural rationale | [`docs/architecture.md`](docs/architecture.md) |
-| Queued work | [`docs/roadmap.md`](docs/roadmap.md) |
 | The supervisor skill itself | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
 | Project rules for agents working on flow | [`AGENTS.md`](AGENTS.md) |
 

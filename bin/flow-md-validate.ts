@@ -69,9 +69,9 @@ export function slugifyHeading(text: string): string {
 
 /**
  * Replace fenced code blocks and inline-code spans with whitespace, preserving
- * line numbers and column offsets. Required because `roadmap.md` and
- * `architecture.md` carry code samples whose `[…](…)` content would otherwise
- * trip the link scanner.
+ * line numbers and column offsets. Required because docs like `architecture.md`
+ * carry code samples whose `[…](…)` content would otherwise trip the link
+ * scanner.
  */
 export function stripCode(source: string): string {
   const lines = source.split("\n");

@@ -1,6 +1,6 @@
 # M3 — verify, ci, review (plan)
 
-Read first: `architecture.md`, `task-schema.md`, `phases/m2-plan.md`, and the M3 row of `roadmap.md`.
+Read first: `architecture.md`, `task-schema.md`, `phases/m2-plan.md`.
 
 ## Context
 
@@ -395,15 +395,11 @@ skills/pipeline/
     └── references/...
 
 docs/
-├── task-schema.md                          # extend: document `phase_counts` +
-│                                           # `paused_at_phase` frontmatter;
-│                                           # add `verified` and `ci-passed`
-│                                           # to the status state machine
-│                                           # (lands in PR 2)
-└── roadmap.md                              # M3 row + done-criteria sync
-                                            # (CI hard timeout 30 min, not 60;
-                                            # any other deltas vs the plan)
-                                            # (touch up alongside PR 6)
+└── task-schema.md                          # extend: document `phase_counts` +
+                                            # `paused_at_phase` frontmatter;
+                                            # add `verified` and `ci-passed`
+                                            # to the status state machine
+                                            # (lands in PR 2)
 ```
 
 ## PR sequence
