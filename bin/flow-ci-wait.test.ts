@@ -4,6 +4,7 @@ import {
   decideOnPoll,
   deriveCheckState,
   deriveCopilotPosted,
+  fetchHistoricalBotReview,
   parseArgs,
   run,
   type Check,
@@ -113,6 +114,128 @@ describe(deriveCopilotPosted, () => {
   it("accepts COMMENTED reviews", () => {
     const reviews: Review[] = [{ author: { login: LOGIN }, state: "COMMENTED" }];
     expect(deriveCopilotPosted(reviews, LOGIN)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3b. fetchHistoricalBotReview — repo-history fallback for Copilot detection
+// ---------------------------------------------------------------------------
+
+describe(fetchHistoricalBotReview, () => {
+  const LOGIN = "copilot-pull-request-reviewer";
+
+  function ghFromQueue(queue: Array<{ stdout: string; exitCode: number }>): GhRunner & {
+    calls: string[][];
+  } {
+    const calls: string[][] = [];
+    let cursor = 0;
+    const fn = ((argv: string[]) => {
+      calls.push(argv);
+      const next = queue[cursor++];
+      if (!next) return { stdout: "", stderr: "", exitCode: 1 };
+      return { stdout: next.stdout, stderr: "", exitCode: next.exitCode };
+    }) as GhRunner & { calls: string[][] };
+    fn.calls = calls;
+    return fn;
+  }
+
+  it("returns false when 'gh pr list' exits non-zero", () => {
+    const gh = ghFromQueue([{ stdout: "", exitCode: 1 }]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(false);
+    expect(gh.calls).toHaveLength(1); // never reaches per-PR view
+  });
+
+  it("returns false when 'gh pr list' returns malformed JSON", () => {
+    const gh = ghFromQueue([{ stdout: "not-json{", exitCode: 0 }]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(false);
+  });
+
+  it("returns false when the merged-PR list is empty", () => {
+    const gh = ghFromQueue([{ stdout: "[]", exitCode: 0 }]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(false);
+    expect(gh.calls).toHaveLength(1);
+  });
+
+  it("returns true when any recent merged PR has a review by the configured login", () => {
+    const gh = ghFromQueue([
+      { stdout: JSON.stringify([{ number: 78 }, { number: 77 }]), exitCode: 0 },
+      // Pr 78: no copilot review
+      { stdout: JSON.stringify({ reviews: [{ author: { login: "alice" } }] }), exitCode: 0 },
+      // Pr 77: copilot review
+      {
+        stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }),
+        exitCode: 0,
+      },
+    ]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(true);
+  });
+
+  it("matches the login case-insensitively (mixed case in the API response)", () => {
+    const gh = ghFromQueue([
+      { stdout: JSON.stringify([{ number: 1 }]), exitCode: 0 },
+      {
+        stdout: JSON.stringify({
+          reviews: [{ author: { login: "Copilot-Pull-Request-Reviewer" } }],
+        }),
+        exitCode: 0,
+      },
+    ]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(true);
+  });
+
+  it("short-circuits on the first match (does not view PRs past the hit)", () => {
+    const gh = ghFromQueue([
+      { stdout: JSON.stringify([{ number: 1 }, { number: 2 }, { number: 3 }]), exitCode: 0 },
+      // Pr 1 already matches
+      { stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }), exitCode: 0 },
+    ]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(true);
+    // 1 list call + 1 view call; PR 2 / PR 3 never queried.
+    expect(gh.calls).toHaveLength(2);
+  });
+
+  it("returns false when no merged PR has a review by the configured login", () => {
+    const gh = ghFromQueue([
+      { stdout: JSON.stringify([{ number: 1 }, { number: 2 }]), exitCode: 0 },
+      { stdout: JSON.stringify({ reviews: [{ author: { login: "alice" } }] }), exitCode: 0 },
+      { stdout: JSON.stringify({ reviews: [] }), exitCode: 0 },
+    ]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(false);
+  });
+
+  it("skips PRs whose 'gh pr view' fails and continues scanning", () => {
+    const gh = ghFromQueue([
+      { stdout: JSON.stringify([{ number: 1 }, { number: 2 }]), exitCode: 0 },
+      // Pr 1 view errors
+      { stdout: "", exitCode: 1 },
+      // Pr 2 has the review
+      { stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }), exitCode: 0 },
+    ]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(true);
+  });
+
+  it("skips PRs whose 'gh pr view' returns malformed JSON and continues scanning", () => {
+    const gh = ghFromQueue([
+      { stdout: JSON.stringify([{ number: 1 }, { number: 2 }]), exitCode: 0 },
+      { stdout: "not-json{", exitCode: 0 },
+      { stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }), exitCode: 0 },
+    ]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(true);
+  });
+
+  it("passes the limit through to 'gh pr list'", () => {
+    const gh = ghFromQueue([{ stdout: "[]", exitCode: 0 }]);
+    fetchHistoricalBotReview(LOGIN, gh, 7);
+    expect(gh.calls[0]).toEqual([
+      "pr",
+      "list",
+      "--state",
+      "merged",
+      "--limit",
+      "7",
+      "--json",
+      "number",
+    ]);
   });
 });
 
@@ -434,6 +557,7 @@ describe("run() integration", () => {
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -456,6 +580,7 @@ describe("run() integration", () => {
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -478,6 +603,7 @@ describe("run() integration", () => {
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -500,6 +626,7 @@ describe("run() integration", () => {
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -532,6 +659,7 @@ describe("run() integration", () => {
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -561,6 +689,7 @@ describe("run() integration", () => {
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -583,6 +712,7 @@ describe("run() integration", () => {
       sleep: clock.sleep,
       readWorkflowsDir: () => false, // CI not configured
       readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -611,6 +741,7 @@ describe("run() integration", () => {
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -633,6 +764,7 @@ describe("run() integration", () => {
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
     });
     cap.restore();
     // Final JSON on stdout; progress on stderr.
@@ -649,8 +781,135 @@ describe("run() integration", () => {
       sleep: async () => {},
       readWorkflowsDir: () => false,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
     });
     errSpy.mockRestore();
     expect(exit).toBe(2);
+  });
+
+  // -------------------------------------------------------------------------
+  // Historical-PR Copilot fallback (PR #78 / 2026-05-03 incident).
+  // Repos with org/repo-level auto-review configurations don't add Copilot
+  // to reviewRequests, so the supervisor must consult the recent-PR history
+  // before deciding the bot is "not configured".
+  // -------------------------------------------------------------------------
+
+  it("respects the historical-PR fallback when reviewRequests is empty: copilot review pending → wait, not exit poll 1", async () => {
+    const clock = makeFakeClock();
+    // CI is all-passed from poll 1; copilot has not yet posted. The fallback
+    // resolves copilotConfigured=true, so the loop must NOT exit poll 1 with
+    // proceed-to-review — it must wait for the bot review or its 10-min timeout.
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+    ];
+    for (let i = 0; i < 15; i++) {
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", []) });
+      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+    }
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => true, // historical fallback HIT
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.copilotConfigured).toBe(true);
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
+    expect(result.polls).toBeGreaterThan(1);
+  });
+
+  it("preserves COPILOT_REQUESTED=0 semantics when the historical-PR fallback misses", async () => {
+    const clock = makeFakeClock();
+    // No copilot in reviewRequests AND no historical reviews → fallback misses,
+    // copilotConfigured stays false, copilot_posted treated as vacuously true,
+    // helper exits on poll 1 once CI is terminal.
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false, // historical fallback MISS
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.copilotConfigured).toBe(false);
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.polls).toBe(1);
+  });
+
+  it("does NOT invoke the historical-PR fallback when Copilot is already in reviewRequests", async () => {
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    let fallbackCalls = 0;
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => {
+        fallbackCalls++;
+        return true;
+      },
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    expect(fallbackCalls).toBe(0); // short-circuited before the fallback
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.copilotConfigured).toBe(true);
+    expect(result.decision).toBe("proceed-to-review");
+  });
+
+  it("collapses fallback errors to false (transient gh failure must not synthesise bot configured)", async () => {
+    const clock = makeFakeClock();
+    // Default fallback uses fetchHistoricalBotReview, which collapses gh
+    // failures to false. Simulate by injecting a fake gh that rejects the
+    // 'pr list' call; the helper must return copilotConfigured=false and
+    // proceed without waiting the 10-min timeout.
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      // Default fallback fires here: 'gh pr list ...' fails.
+      {
+        matches: (argv) => argv[0] === "pr" && argv[1] === "list",
+        response: { stdout: "", stderr: "boom", exitCode: 1 },
+      },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      // No readHistoricalBotReview — exercises the default that uses gh.
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.copilotConfigured).toBe(false);
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.polls).toBe(1);
   });
 });

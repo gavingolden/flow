@@ -118,6 +118,26 @@ already lowercase, and breaks the moment the constant is replaced
 with a value pulled from `~/.flow/config.json` that may carry mixed
 case.
 
+#### Historical-PR fallback
+
+`reviewRequests` is the right signal when Copilot is explicitly added as
+a reviewer, but it misses the most common production configuration:
+Copilot enabled at the org / repo level to **auto-review every PR**
+without ever populating `reviewRequests`. This is the failure observed
+on PR #78 / 2026-05-03 — the supervisor saw `COPILOT_REQUESTED=0`,
+proceeded straight through review, and merged before Copilot's review
+posted ~30s later. When `reviewRequests` does not include the configured
+login, `flow-ci-wait` falls back to scanning the last 5 merged PRs on
+the current repo (`gh pr list --state merged --limit 5 --json number`,
+then per-PR `gh pr view --json reviews`); a single match by the
+configured login on any of those PRs flips `COPILOT_REQUESTED=1` and
+the normal 10-min timeout applies. If both signals are negative (no
+explicit request and no historical reviews) the `COPILOT_REQUESTED=0`
+override above still applies — repos where Copilot has never reviewed
+keep the existing single-poll-exit behaviour. Errors and malformed JSON
+in the fallback collapse to negative; a transient `gh` hiccup must not
+synthesise false confidence that the bot will review this PR.
+
 ### Why per-PR `reviewRequests` and not `gh api .../installations`
 
 The intuitive alternative — `gh api repos/<owner>/<repo>/installations`
