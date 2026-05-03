@@ -187,9 +187,55 @@ in-process for skills; shell out for scripts; never delegate.
 > step 5 path, the step 4 affirmative → step 5 path, step 5 → step
 > 5.5, step 5.5 → step 6, step 6 → step 7, step 7 → step 8 (or →
 > step 5 mode=fix), step 8 → step 7 (or → step 9), step 9 → step 10
-> — happens in the same turn. The continue-immediately sentences
-> inline at each step's End-condition stanza are the localised
-> reminder; this Hard rule is the global invariant.
+> — happens in the same turn. Three layers of localised reminder
+> reinforce this Hard rule: a **leading blockquote** at the top of
+> every non-terminal step heading (the first thing you read on step
+> entry); the existing **continue-immediately sentences** inline at
+> each step's End-condition stanza (the last thing you read on step
+> exit); and an inline **`flow-checkpoint`** Bash call after every
+> sub-skill return that prints `DO NOT END THIS TURN` to stderr (the
+> freshest signal in scrollback when the model decides what to do
+> next). The leading blockquote is the load-bearing layer because
+> sub-skill tail messages — `/product-planning` step 9's "share with
+> user and iterate" CTA, `/verify`'s success summary, `/pr-review`'s
+> post-push recap — read as natural turn boundaries when only the
+> trailing reminder is in view. The blockquote is also lint-enforced:
+> `bin/skill-md-lint.test.ts` walks every `## Step ` heading in this
+> file and fails CI if any non-terminal step's first content line is
+> not a continuation blockquote.
+
+# Continuation reminders (`flow-checkpoint`)
+
+`flow-checkpoint` is a tiny Bun helper whose only job is to print a
+two-line `DO NOT END THIS TURN` reminder to stderr. Call it as a
+Bash tool call after every sub-skill return inside a change pipeline
+— most importantly after `/product-planning` (step 3), `/new-feature`
+(step 5), `/verify` (step 6), and `/pr-review` (step 8). The helper
+exits 0 unconditionally; it is advisory, never a gate.
+
+```bash
+flow-checkpoint --from <step-label> --to <step-label> \
+                [--note "<one-line context>"]
+# stderr:
+#   flow-checkpoint: returning from <from> → continuing to <to>
+#   note: <text>          # only when --note was passed
+#   DO NOT END THIS TURN
+```
+
+The helper closes the gap that the leading-blockquote layer alone
+cannot: when a sub-skill returns, the freshest signal in scrollback
+is whatever the sub-skill printed last (e.g. `/product-planning`'s
+"share with user and iterate" CTA). The blockquote at the top of
+the *next* step is correct but further up; the model's attention
+lands on the sub-skill tail. Running `flow-checkpoint` immediately
+after the sub-skill returns puts the reminder *below* the tail,
+making it the freshest signal.
+
+Skip the call only at the four legitimate turn-end points
+documented in the "You never end the turn between sub-skills and
+the next step" Hard rule above — at those points, ending the turn
+is the desired behaviour, and a `DO NOT END THIS TURN` reminder
+would be misleading.
 
 # Notifications
 
@@ -278,6 +324,13 @@ state.json, and the PR are the state.
 
 ## Step 1 — Triage
 
+> **Pipeline entry — first step of a new change pipeline.** The only
+> legitimate turn-end inside this step is the `no-change` branch
+> (answer the user's question and stop, before the change-pipeline
+> contract activates). Every `change` branch — including after the
+> single permitted clarifying question — continues into step 2 in
+> the same turn. **DO NOT END THE TURN** otherwise.
+
 **Phase:** `triaging`
 
 **First action of the supervisor.** Before classifying, write the
@@ -316,6 +369,11 @@ escalate `NEEDS HUMAN: triage-ambiguous` and end.
 
 ## Step 2 — Worktree
 
+> **Continue immediately from step 1 — DO NOT END THE TURN.** You
+> arrived here via the `change` classification (or after the single
+> permitted clarifying question resolved). Create the worktree and
+> walk into step 3 in the same turn.
+
 **Phase:** `worktree-create`
 
 First, advertise the phase before doing the work — `flow-new-worktree`
@@ -351,6 +409,16 @@ On non-zero exit: escalate `NEEDS HUMAN: worktree-create-failed
 
 ## Step 3 — Plan
 
+> **Continue immediately from step 2 — DO NOT END THE TURN.** This
+> step *does* have one legitimate turn-end — the `feature`-intent
+> path that writes `phase: plan-pending-review` and waits for the
+> user to attach + approve. Every other intent
+> (`bug`/`refactor`/`docs`/`infra`/`chore`) continues directly to
+> step 5 in the same turn, regardless of how `/product-planning`'s
+> tail message reads. The skill ends with a "share with user and
+> iterate" CTA designed for manual invocation; that CTA is **not** a
+> turn boundary inside `/flow-pipeline`.
+
 **Phase:** `planning`
 
 Invoke `/product-planning` in-process with the user's verbatim
@@ -384,13 +452,28 @@ titles — the user reads scrollback).
   do not end the turn.** `/product-planning`'s tail message
   ("share with user and iterate" + CTA to invoke `/new-feature`) is
   correct for manual invocation but is *not* a turn boundary inside
-  a `/flow-pipeline` run.
+  a `/flow-pipeline` run. Fire the continuation reminder before
+  invoking `/new-feature`:
+
+  ```bash
+  flow-checkpoint --from step-3 --to step-5 \
+                  --note "/product-planning returned (non-feature intent)"
+  ```
 
 If `/product-planning` doesn't write `.flow-tmp/plan.md`, re-invoke
 once with an explicit instruction to write the consolidated artifact.
 If the second attempt also fails, escalate `NEEDS HUMAN: plan-missing`.
 
 ## Step 4 — Approval handling
+
+> **New turn — user just replied to the plan-pending-review
+> checkpoint.** The previous turn legitimately ended at step 3 for
+> `feature` intent; you are now re-entering with the user's reply in
+> scrollback. Classify the reply (affirmative / redirect / cancel /
+> ambiguous) and continue into step 5 (or loop back to step 3) in
+> *this* turn. **DO NOT END THE TURN AGAIN** unless the reply is
+> ambiguous and the single permitted clarifying question has not yet
+> been asked.
 
 **Phase:** `plan-pending-review` (set by step 3 for feature intent)
 
@@ -410,6 +493,14 @@ typed something into the tmux chat. Classify the input using
   escalate `NEEDS HUMAN: approval-ambiguous`.
 
 ## Step 5 — Implement
+
+> **Continue immediately from step 3 (non-feature intent), step 4
+> (feature post-approval), step 7 (`ci-failed` re-entry), or step 8
+> (review-fix re-entry) — DO NOT END THE TURN.** `/new-feature`'s
+> tail message is not a turn boundary; neither is `flow-open-pr`'s
+> URL print. After `/new-feature` returns, run `flow-checkpoint
+> --from step-5 --to step-5.5` (defined below) to refresh the
+> reminder in scrollback before continuing.
 
 **Phase:** `implementing`
 
@@ -461,6 +552,13 @@ just wrote):
 flow-state-update "$SLUG" --phase implementing
 ```
 
+Fire the continuation reminder before walking into step 5.5:
+
+```bash
+flow-checkpoint --from step-5 --to step-5.5 \
+                --note "/new-feature returned; PR #$PR opened"
+```
+
 **Re-entry from a fix loop** (called from step 7 ci-red or step 8
 review-critical): pass mode=fix and the failure log:
 
@@ -482,6 +580,11 @@ appended. If the retry also fails, escalate `NEEDS HUMAN:
 implement-failed`.
 
 ## Step 5.5 — Re-symlink if worktree adds skills/agents
+
+> **Continue immediately from step 5 — DO NOT END THE TURN.**
+> `flow setup --upgrade`'s summary output is informational, not a
+> stopping point. Whether the helper actually re-symlinks or the
+> grep skips it, walk into step 6 in the same turn.
 
 **Phase:** `installing-skills`
 
@@ -552,6 +655,12 @@ output is informational, not a stopping point.
 
 ## Step 6 — Local verify
 
+> **Continue immediately from step 5.5 — DO NOT END THE TURN.**
+> `/verify`'s success summary reads conversationally but is the
+> localised end of one phase, not a session boundary. After
+> `/verify` returns clean, run `flow-checkpoint --from step-6 --to
+> step-7` to refresh the reminder before invoking `flow-ci-wait`.
+
 **Phase:** `verifying`
 
 Invoke `/verify` in-process inside the worktree.
@@ -591,11 +700,26 @@ gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
 **End condition:** `/verify` exits clean (an outer attempt 1, 2, or
-3 succeeds). **Continue immediately to step 7 in the same turn — do
-not end the turn.** `/verify`'s success summary is the localised
-end of one phase, not a session boundary.
+3 succeeds). Fire the continuation reminder before invoking
+`flow-ci-wait`:
+
+```bash
+flow-checkpoint --from step-6 --to step-7 \
+                --note "/verify clean"
+```
+
+**Continue immediately to step 7 in the same turn — do not end the
+turn.** `/verify`'s success summary is the localised end of one
+phase, not a session boundary.
 
 ## Step 7 — CI + Copilot wait
+
+> **Continue immediately from step 6 (verify-clean) or step 8
+> (review-pushed) — DO NOT END THE TURN.** `flow-ci-wait` blocks
+> until CI is terminal and prints a single JSON verdict; the wait
+> can stretch to the 20-min wall-clock cap, but the supervisor is
+> still in the same turn the whole time. When the helper returns,
+> branch on `.decision` and continue in this turn.
 
 **Phase:** `ci-wait`
 
@@ -649,6 +773,15 @@ printout is a localised end of one phase, not a session boundary.
 
 ## Step 8 — Review
 
+> **Continue immediately from step 7 (`proceed-to-review` /
+> `proceed-to-review-no-bot`) — DO NOT END THE TURN.** `/pr-review`'s
+> post-push summary is not a turn boundary. After it returns, you
+> either loop back to step 5 mode=fix (review-critical), step 7 (CI
+> re-check after pushed fix), or walk into step 9 — all in this
+> turn. Run `flow-checkpoint --from step-8 --to step-7` (or
+> `--to step-9`, depending on the branch) to refresh the reminder
+> before continuing.
+
 **Phase:** `reviewing`
 
 Invoke `/pr-review` in-process with the PR number:
@@ -679,14 +812,27 @@ turn.** `/pr-review`'s post-push summary reads conversationally but
 is not a turn boundary.
 
 **End condition:** `/pr-review` returns clean (no critical
-findings outstanding) AND the most recent CI cycle is green. On
-this clean state: **continue immediately to step 9 in the same turn
-— do not end the turn.**
+findings outstanding) AND the most recent CI cycle is green. Fire
+the continuation reminder before invoking `flow-gate-decide`:
+
+```bash
+flow-checkpoint --from step-8 --to step-9 \
+                --note "/pr-review clean; CI green"
+```
+
+On this clean state: **continue immediately to step 9 in the same
+turn — do not end the turn.**
 
 On non-zero exit from `/pr-review`: retry once. If the retry also
 fails, escalate `NEEDS HUMAN: review-failed`.
 
 ## Step 9 — Auto-merge gate
+
+> **Continue immediately from step 8 — DO NOT END THE TURN.**
+> `/pr-review` returned clean and the most recent CI cycle is green.
+> Run `flow-gate-decide`, branch on `.decision`, and either continue
+> into step 10 (`auto-merge`) or land on a terminal end-state in
+> this turn.
 
 **Phase:** `gating`
 
@@ -730,6 +876,12 @@ Branch on `.decision`:
 | `escalate-gh-error` | Escalate `NEEDS HUMAN: gh-error <.reason>`. |
 
 ## Step 10 — Merge
+
+> **Continue immediately from step 9 (`auto-merge`) — DO NOT END
+> THE TURN until *after* the terminal `MERGED` line.** Run
+> `gh pr merge`, clean up the worktree, fire the notification,
+> print `MERGED` on its own line, *then* end the turn — the
+> terminal end-state line is itself the legitimate stopping point.
 
 **Phase:** `merging`
 
