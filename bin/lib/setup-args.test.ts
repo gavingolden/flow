@@ -133,6 +133,7 @@ describe("runSetupCli", () => {
       skipPreflight: true,
       manifestPath,
       lockPath,
+      homeDir,
       quiet: true,
     });
   }
@@ -188,6 +189,7 @@ describe("runSetupCli", () => {
       skipPreflight: true,
       manifestPath,
       lockPath,
+      homeDir,
       quiet: true,
     });
     expect(code).toBe(0);
@@ -195,6 +197,23 @@ describe("runSetupCli", () => {
     const linkRealpath = fs.realpathSync(path.join(t.skillsDir, "alpha"));
     const altRealpath = fs.realpathSync(altSource);
     expect(linkRealpath.startsWith(altRealpath)).toBe(true);
+  });
+
+  it("writes the completions rc-block inside the sandboxed homeDir, not the real $HOME", () => {
+    // Regression for the leak that stamped a stale `/var/folders/.../flow-cli-…`
+    // path into a real ~/.zshrc. If `cli()` ever drops `homeDir`, the block
+    // lands in the real home and this assertion fails — because the sandboxed
+    // .zshrc gets nothing.
+    fs.mkdirSync(homeDir, { recursive: true });
+    const sandboxedZshrc = path.join(homeDir, ".zshrc");
+    fs.writeFileSync(sandboxedZshrc, "");
+
+    expect(cli([])).toBe(0);
+
+    const expectedSourceLine = path.join(targets().completionsDir, "flow.zsh");
+    const after = fs.readFileSync(sandboxedZshrc, "utf8");
+    expect(after).toContain("# managed by flow completions");
+    expect(after).toContain(expectedSourceLine);
   });
 });
 
