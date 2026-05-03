@@ -1,31 +1,36 @@
+<!-- Style: terse. Tables for comparison, diagrams for flow. Cut prose that a
+     heading + list could replace. Markdown is structure; structure is legibility. -->
+
 # [Feature Name]
 
 ## Problem Statement
 
-<!-- Explain the user's pain point and why it matters to the product. Focus on the problem,
-     not the solution. Avoid "we need a button that..." — instead explain what users can't
-     do today and why that matters.
-     Bad: "We need a share button on dashboards."
-     Good: "Users have no way to show their dashboards to colleagues who don't have accounts,
-     limiting the product's utility for team collaboration." -->
+<!-- The pain, not the fix. Avoid "we need a button that…". -->
 
 [What problem does this solve? Why does it matter? Who is affected?]
 
 ## Scope Boundary
 
-<!-- Explicitly state what is NOT included. This prevents scope creep and gives the implementer
-     clear limits. If a v2 is likely, mention what it might add — but keep it brief. -->
+<!-- State what's NOT in. Mention v2 only if it's likely. -->
 
-**In scope:** [What this feature covers]
+**In scope:** [what this feature covers]
 
-**Out of scope:** [What this feature does NOT cover, even if related]
+**Out of scope:** [what this feature does NOT cover]
+
+## User-Facing Changes
+
+<!-- What someone running the tool sees or does differently. Before/After
+     table for CLI / flag / output / file-location deltas. Write `none` for
+     pure-internal changes (refactor, infra) — never omit the heading. -->
+
+| Before | After |
+|---|---|
+| `flow install` | `flow setup` |
+| `flow add "<desc>"` | `flow new "<desc>"` |
 
 ## User Stories / Acceptance Criteria
 
-<!-- Each story should have 2-5 Given/When/Then criteria. If a story needs more than 5,
-     it's probably two stories. Criteria must be testable — avoid "works correctly" or
-     "looks good". Reference actual project concepts: dashboards, expressions, graphs,
-     data sources. -->
+<!-- Each story: 2–5 testable Given/When/Then. More than 5 ⇒ split. -->
 
 ### Story 1: [Short Description]
 
@@ -34,51 +39,59 @@
 
 ### Story 2: [Short Description]
 
-- [ ] ...
+- [ ] …
 
 ## Architecture Decisions
 
-<!-- State which layers this feature touches and why. Name the existing patterns being followed.
-     If introducing a new pattern, justify why existing patterns don't fit. Load
-     references/architecture-patterns.md if you need to verify which pattern applies. -->
+<!-- Name the existing pattern, or justify a new one. Load
+     references/architecture-patterns.md to verify. -->
 
-- **Layers touched:** [DB / Go proxy / Domain model / Domain store / UI]
-- **Domain modules:** [Which existing modules are involved, any new ones needed]
-- **Data flow:** [Which data flow pattern — CRUD entity, external data via proxy, or computed]
-- **Pattern:** [Existing pattern being followed, or justification for a new one]
+| Aspect | Decision |
+|---|---|
+| Layers touched | [DB / proxy / domain / store / UI] |
+| Domain modules | [existing involved + any new] |
+| Data flow | [CRUD entity / external via proxy / computed] |
+| Pattern | [existing pattern name, or justification for new] |
+
+<!-- Add a Mermaid `flowchart` when data movement spans 3+ layers or branches
+     non-obviously. Otherwise the table is enough.
+     ```mermaid
+     flowchart LR
+       UI -->|action| Store --> Proxy --> ExternalAPI
+     ```
+-->
 
 ## Technical Constraints
 
-- [Framework, security, performance, or architectural constraints]
-- [e.g., "RLS must enforce that only dashboard owners can manage this"]
-- [e.g., "Must follow the existing Go proxy pattern per `data-provider` skill"]
+- [Framework, security, performance, architectural]
+- [e.g. "RLS must restrict to dashboard owners"]
 
 ## Task Breakdown
 
-<!-- Tasks should follow the layer ordering: DB migration → Go proxy → Domain model →
-     Domain store → UI components → Integration wiring → Tests.
-     Each task should touch 1-3 files in one domain area. If a task spans Go and TypeScript,
-     split it. Always list the skill directory before assigning skills. -->
+<!-- Layer order: DB → types → proxy → domain → store → UI → wiring → tests.
+     One task = 1–3 files in one domain area. Split if it crosses runtimes. -->
 
 ### Task 1: [Short Title]
 
 - **Skill:** `skill-name`
 - **Description:** What to implement
-- **Inputs:** What must exist before this task starts
-- **Outputs:** What this task produces
-- **Acceptance criteria:** How to verify it's done
+- **Inputs:** What must exist first
+- **Outputs:** What this produces
+- **Acceptance:** How to verify
 
 ### Task 2: [Short Title]
 
-- **Skill:** `skill-name`
-- **Description:** ...
-- **Inputs:** ...
-- **Outputs:** ...
-- **Acceptance criteria:** ...
+- …
+
+<!-- For >3 tasks, add a dependency table or short Mermaid graph:
+     | Task | Depends on |
+     |---|---|
+     | 1 | — |
+     | 2 | 1 |
+-->
 
 ## Open Questions
 
-<!-- Anything still unresolved. Mark resolved questions with a decision note so the context
-     is preserved. -->
+<!-- Mark resolved with a decision note so context is preserved. -->
 
-- [ ] [Anything still unresolved that needs user input before implementation]
+- [ ] [Anything still unresolved before implementation]
