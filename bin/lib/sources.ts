@@ -150,8 +150,36 @@ export function discoverAll(flowSource: string, targets = DEFAULT_TARGETS): Sour
   return all;
 }
 
-export function entryToRecord(entry: SourceEntry): SymlinkRecord {
-  return { source: entry.source, target: entry.target, kind: entry.kind };
+/**
+ * Builds the manifest record for an entry. The `source` field captured in the
+ * manifest is the *recorded owner* — the canonical install-root path — not the
+ * *content source* (which may be a per-pipeline worktree when `--source
+ * <worktree>` overrides discovery). When `flowSource` and `installRoot` match
+ * (the common case), the two are identical and the entry's source flows through
+ * unchanged. When they diverge (the `--source <worktree>` case), the recorded
+ * path is rebased onto `installRoot` so the manifest survives the worktree's
+ * post-merge removal.
+ */
+export function entryToRecord(
+  entry: SourceEntry,
+  flowSource: string,
+  installRoot: string,
+): SymlinkRecord {
+  return {
+    source: canonicalizeRecordedSource(entry.source, flowSource, installRoot),
+    target: entry.target,
+    kind: entry.kind,
+  };
+}
+
+export function canonicalizeRecordedSource(
+  source: string,
+  flowSource: string,
+  installRoot: string,
+): string {
+  if (path.resolve(flowSource) === path.resolve(installRoot)) return source;
+  const rel = path.relative(flowSource, source);
+  return path.join(installRoot, rel);
 }
 
 function existsDir(p: string): boolean {

@@ -524,7 +524,7 @@ mirrors `bin/flow-new-worktree.ts` and `bin/flow-pre-commit.ts`; do
 not hardcode `origin/main`.
 
 The `--source "$WORKTREE"` argument forces `flow setup` to read its
-source tree from the in-flight worktree rather than the original
+content tree from the in-flight worktree rather than the original
 install root. Without it, a PR against flow itself that adds a new
 skill under `skills/...` would not see the new files in the same
 supervisor session — `resolveFlowSource()` derives the source from
@@ -534,6 +534,15 @@ original install root and the worktree is an unrelated repo's tree,
 so passing `--source "$WORKTREE"` would point at a tree that has no
 `skills/` or `agents/` directories. The detection guard above keeps
 this branch from running in that case.
+
+The override only swaps the **content source** — the worktree path
+is the location `flow setup` reads files from. The **recorded owner**
+written to `~/.flow/installed.json` stays on the canonical install
+root via `resolveFlowSource()`. That split means a worktree's
+post-merge removal cannot strand worktree-rooted manifest entries,
+and any dangling symlinks left by past `--source <worktree>` runs get
+reaped on the next `flow setup --upgrade` (the relaxed orphan-pruning
+path).
 
 **Concurrency.** `flow setup` wraps its symlink work in
 `~/.flow/setup.lock` (`bin/lib/lock.ts`), so parallel pipelines that
