@@ -21,8 +21,7 @@ import {
 import {
   BRANCH_MARKER_FILENAME,
   FLOW_TMP_DIRNAME,
-  ensureFlowTmpExclude,
-  ensureGitignoreMarkerEntry,
+  ensureFlowExcludes,
   writeBranchMarker,
 } from "./lib/worktree-marker";
 import { SYMLINK_FILES } from "./lib/worktree-fs";
@@ -89,7 +88,8 @@ function makeFixture(): Fixture {
   mustGit(["config", "user.name", "Test"], repoDir);
   // Empty package.json so the helper's `npm install --silent` is a near no-op.
   fs.writeFileSync(path.join(repoDir, "package.json"), "{}\n");
-  // Empty .gitignore so the managed-block writer has a real file to update.
+  // Empty .gitignore tracked from the start so the integration test below can
+  // assert flow-new-worktree leaves it alone (no managed-block pollution).
   fs.writeFileSync(path.join(repoDir, ".gitignore"), "");
   mustGit(["add", "."], repoDir);
   mustGit(["commit", "-m", "initial"], repoDir);
@@ -201,49 +201,7 @@ describe(writeBranchMarker, () => {
   });
 });
 
-describe(ensureGitignoreMarkerEntry, () => {
-  let dir: string;
-  beforeEach(() => {
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-ignore-"));
-  });
-  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-
-  it("creates the managed block in an empty gitignore", () => {
-    fs.writeFileSync(path.join(dir, ".gitignore"), "");
-    ensureGitignoreMarkerEntry(dir);
-    const contents = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-    expect(contents).toContain("# managed by flow runtime");
-    expect(contents).toContain(".flow-branch");
-    expect(contents).toContain("# end flow runtime");
-  });
-
-  it("creates the managed block when no gitignore file exists", () => {
-    ensureGitignoreMarkerEntry(dir);
-    const contents = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-    expect(contents).toContain(".flow-branch");
-  });
-
-  it("is idempotent — calling twice does not duplicate the block", () => {
-    ensureGitignoreMarkerEntry(dir);
-    const after1 = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-    ensureGitignoreMarkerEntry(dir);
-    const after2 = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-    expect(after2).toBe(after1);
-    const blockMatches = after2.match(/# managed by flow runtime/g) ?? [];
-    expect(blockMatches.length).toBe(1);
-  });
-
-  it("preserves unrelated content around the managed block", () => {
-    fs.writeFileSync(path.join(dir, ".gitignore"), "node_modules\ndist/\n");
-    ensureGitignoreMarkerEntry(dir);
-    const contents = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-    expect(contents).toContain("node_modules");
-    expect(contents).toContain("dist/");
-    expect(contents).toContain(".flow-branch");
-  });
-});
-
-describe(ensureFlowTmpExclude, () => {
+describe(ensureFlowExcludes, () => {
   let fx: Fixture;
   beforeEach(() => {
     fx = makeFixture();
@@ -257,58 +215,83 @@ describe(ensureFlowTmpExclude, () => {
     return path.join(fx.repoDir, ".git", "info", "exclude");
   }
 
-  it("appends .flow-tmp/ to the shared .git/info/exclude", () => {
+  it("appends both .flow-tmp/ and .flow-branch to the shared .git/info/exclude", () => {
     if (fs.existsSync(sharedExcludePath())) fs.unlinkSync(sharedExcludePath());
-    ensureFlowTmpExclude(fx.repoDir);
-    const contents = fs.readFileSync(sharedExcludePath(), "utf8");
-    expect(contents.split("\n")).toContain(FLOW_TMP_DIRNAME.replace(/\/$/, "/"));
+    ensureFlowExcludes(fx.repoDir);
+    const lines = fs.readFileSync(sharedExcludePath(), "utf8").split("\n");
+    expect(lines).toContain(FLOW_TMP_DIRNAME);
+    expect(lines).toContain(BRANCH_MARKER_FILENAME);
   });
 
-  it("is idempotent — second call does not duplicate the line", () => {
-    ensureFlowTmpExclude(fx.repoDir);
+  it("creates info/exclude when missing", () => {
+    const dir = path.dirname(sharedExcludePath());
+    if (fs.existsSync(sharedExcludePath())) fs.unlinkSync(sharedExcludePath());
+    if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+    ensureFlowExcludes(fx.repoDir);
+    expect(fs.existsSync(sharedExcludePath())).toBe(true);
+  });
+
+  it("is idempotent — second call does not duplicate either line", () => {
+    ensureFlowExcludes(fx.repoDir);
     const after1 = fs.readFileSync(sharedExcludePath(), "utf8");
-    ensureFlowTmpExclude(fx.repoDir);
+    ensureFlowExcludes(fx.repoDir);
     const after2 = fs.readFileSync(sharedExcludePath(), "utf8");
     expect(after2).toBe(after1);
-    const matches = after2.match(/^\.flow-tmp\/$/gm) ?? [];
-    expect(matches.length).toBe(1);
+    const tmpMatches = after2.match(/^\.flow-tmp\/$/gm) ?? [];
+    const branchMatches = after2.match(/^\.flow-branch$/gm) ?? [];
+    expect(tmpMatches.length).toBe(1);
+    expect(branchMatches.length).toBe(1);
   });
 
   it("preserves existing exclude content", () => {
     fs.mkdirSync(path.dirname(sharedExcludePath()), { recursive: true });
     fs.writeFileSync(sharedExcludePath(), "# Pre-existing user content\n*.tmp\n");
-    ensureFlowTmpExclude(fx.repoDir);
+    ensureFlowExcludes(fx.repoDir);
     const contents = fs.readFileSync(sharedExcludePath(), "utf8");
     expect(contents).toContain("# Pre-existing user content");
     expect(contents).toContain("*.tmp");
     expect(contents).toContain(FLOW_TMP_DIRNAME);
+    expect(contents).toContain(BRANCH_MARKER_FILENAME);
   });
 
   it("normalizes a missing trailing newline before appending", () => {
     fs.mkdirSync(path.dirname(sharedExcludePath()), { recursive: true });
     fs.writeFileSync(sharedExcludePath(), "*.tmp"); // no trailing newline
-    ensureFlowTmpExclude(fx.repoDir);
+    ensureFlowExcludes(fx.repoDir);
     const contents = fs.readFileSync(sharedExcludePath(), "utf8");
-    expect(contents).toContain("*.tmp\n.flow-tmp/\n");
+    expect(contents.startsWith("*.tmp\n")).toBe(true);
+    expect(contents).toContain(`\n${BRANCH_MARKER_FILENAME}\n`);
+    expect(contents).toContain(`\n${FLOW_TMP_DIRNAME}\n`);
   });
 
-  // Regression guard for the bug fixed in this PR: when invoked from inside
-  // a *secondary* worktree, the line must land in the primary's shared
-  // .git/info/exclude (which git actually reads), NOT the per-worktree
-  // .git/worktrees/<name>/info/exclude (which git ignores for exclude
-  // patterns). Under the old --git-dir resolution this test would write to
-  // the per-worktree path and `git check-ignore` would still exit 1.
+  it("only appends the missing entries when one is already present", () => {
+    fs.mkdirSync(path.dirname(sharedExcludePath()), { recursive: true });
+    fs.writeFileSync(sharedExcludePath(), `${FLOW_TMP_DIRNAME}\n`);
+    ensureFlowExcludes(fx.repoDir);
+    const contents = fs.readFileSync(sharedExcludePath(), "utf8");
+    const tmpMatches = contents.match(/^\.flow-tmp\/$/gm) ?? [];
+    const branchMatches = contents.match(/^\.flow-branch$/gm) ?? [];
+    expect(tmpMatches.length).toBe(1);
+    expect(branchMatches.length).toBe(1);
+  });
+
+  // Regression guard for the bug fixed when ensureFlowTmpExclude was first
+  // introduced: when invoked from inside a *secondary* worktree, the lines
+  // must land in the primary's shared .git/info/exclude (which git actually
+  // reads), NOT the per-worktree .git/worktrees/<name>/info/exclude (which git
+  // ignores for exclude patterns).
   it("from a secondary worktree, writes to the primary's shared exclude (not the per-worktree one)", () => {
     const wtDir = path.join(path.dirname(fx.repoDir), "secondary");
     mustGit(["worktree", "add", "-b", "secondary", wtDir], fx.repoDir);
 
     if (fs.existsSync(sharedExcludePath())) fs.unlinkSync(sharedExcludePath());
 
-    ensureFlowTmpExclude(wtDir);
+    ensureFlowExcludes(wtDir);
 
-    // The shared file got the line.
+    // The shared file got both lines.
     const sharedContents = fs.readFileSync(sharedExcludePath(), "utf8");
     expect(sharedContents).toContain(FLOW_TMP_DIRNAME);
+    expect(sharedContents).toContain(BRANCH_MARKER_FILENAME);
 
     // The per-worktree file (if it exists at all) did NOT.
     const perWorktreeExclude = path.join(
@@ -320,15 +303,19 @@ describe(ensureFlowTmpExclude, () => {
       "exclude",
     );
     if (fs.existsSync(perWorktreeExclude)) {
-      expect(fs.readFileSync(perWorktreeExclude, "utf8")).not.toContain(FLOW_TMP_DIRNAME);
+      const perContents = fs.readFileSync(perWorktreeExclude, "utf8");
+      expect(perContents).not.toContain(FLOW_TMP_DIRNAME);
+      expect(perContents).not.toContain(BRANCH_MARKER_FILENAME);
     }
 
-    // And git agrees that .flow-tmp/ is now ignored from inside the worktree.
-    const checkIgnore = spawnSync("git", ["check-ignore", ".flow-tmp/"], {
-      cwd: wtDir,
-      encoding: "utf8",
-    });
-    expect(checkIgnore.status).toBe(0);
+    // And git agrees that both paths are now ignored from inside the worktree.
+    for (const p of [FLOW_TMP_DIRNAME, BRANCH_MARKER_FILENAME]) {
+      const checkIgnore = spawnSync("git", ["check-ignore", p], {
+        cwd: wtDir,
+        encoding: "utf8",
+      });
+      expect(checkIgnore.status, `git check-ignore ${p} stderr: ${checkIgnore.stderr}`).toBe(0);
+    }
   });
 });
 
@@ -398,23 +385,29 @@ describe("flow-new-worktree (integration)", () => {
     expect(fs.readFileSync(path.join(expectedDir, BRANCH_MARKER_FILENAME), "utf8").trim()).toBe(
       "foo",
     );
-    expect(fs.readFileSync(path.join(fx.repoDir, ".gitignore"), "utf8")).toContain(".flow-branch");
+
+    // The user's tracked .gitignore must NOT have been touched — flow-runtime
+    // metadata lives in .git/info/exclude (common dir), not the consumer
+    // repo's tracked ignore rules.
+    expect(fs.readFileSync(path.join(fx.repoDir, ".gitignore"), "utf8")).toBe("");
 
     // The shared .git/info/exclude (the only one git reads patterns from) must
-    // list .flow-tmp/ so the supervisor's scratch dir stays untracked. Writing
-    // to the per-worktree path under .git/worktrees/<name>/info/exclude was the
-    // bug fixed by switching ensureFlowTmpExclude to --git-common-dir; the
-    // assertion below is the integration-level regression guard for that fix.
+    // list both .flow-tmp/ and .flow-branch so they stay untracked across every
+    // worktree of the repo.
     const sharedExclude = path.join(fx.repoDir, ".git", "info", "exclude");
     expect(fs.existsSync(sharedExclude)).toBe(true);
-    expect(fs.readFileSync(sharedExclude, "utf8")).toContain(".flow-tmp/");
+    const sharedExcludeContents = fs.readFileSync(sharedExclude, "utf8");
+    expect(sharedExcludeContents).toContain(FLOW_TMP_DIRNAME);
+    expect(sharedExcludeContents).toContain(BRANCH_MARKER_FILENAME);
 
-    // And git agrees: .flow-tmp/ is ignored inside the new worktree.
-    const checkIgnore = spawnSync("git", ["check-ignore", ".flow-tmp/"], {
-      cwd: expectedDir,
-      encoding: "utf8",
-    });
-    expect(checkIgnore.status, `check-ignore stderr: ${checkIgnore.stderr}`).toBe(0);
+    // And git agrees: both paths are ignored inside the new worktree.
+    for (const p of [FLOW_TMP_DIRNAME, BRANCH_MARKER_FILENAME]) {
+      const checkIgnore = spawnSync("git", ["check-ignore", p], {
+        cwd: expectedDir,
+        encoding: "utf8",
+      });
+      expect(checkIgnore.status, `check-ignore ${p} stderr: ${checkIgnore.stderr}`).toBe(0);
+    }
   });
 
   it("two parallel calls with the same slug return distinct paths and branches", async () => {

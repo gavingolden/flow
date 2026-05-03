@@ -13,7 +13,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { SYMLINK_FILES } from "./lib/worktree-fs";
-import { FLOW_TMP_DIRNAME } from "./lib/worktree-marker";
+import { BRANCH_MARKER_FILENAME, FLOW_TMP_DIRNAME } from "./lib/worktree-marker";
 
 // --- Logging ---
 
@@ -211,17 +211,23 @@ function main(): void {
     }
   }
 
-  // Clean the supervisor's scratch dir before asking git to remove the worktree.
-  // `git worktree remove` refuses when the tree contains untracked files, but
-  // `.flow-tmp/` is the documented scratch path the pipeline owns (registered in
-  // `.git/info/exclude` by `flow-new-worktree`), so removing it preserves the
-  // safety property: any *other* untracked files still trip the refusal.
-  // Scope is strictly this one path — do not pass `--force` to `git worktree
-  // remove` and do not sweep arbitrary untracked files.
+  // Clean flow-owned files before asking git to remove the worktree.
+  // `git worktree remove` refuses when the tree contains untracked files. The
+  // primary defence is `.git/info/exclude` (registered by `flow-new-worktree`
+  // via `ensureFlowExcludes`), which marks both `.flow-tmp/` and `.flow-branch`
+  // as ignored across every worktree of the repo. The cleanup below is the
+  // fallback for older worktrees whose common dir wasn't yet registered. Scope
+  // is strictly these two paths — do not pass `--force` to `git worktree remove`
+  // and do not sweep arbitrary untracked files.
   const flowTmpDir = path.join(info.worktreeDir, FLOW_TMP_DIRNAME.replace(/\/$/, ""));
   if (fs.existsSync(flowTmpDir)) {
     log.info(`Cleaning scratch dir: ${flowTmpDir}`);
     fs.rmSync(flowTmpDir, { recursive: true, force: true });
+  }
+  const branchMarker = path.join(info.worktreeDir, BRANCH_MARKER_FILENAME);
+  if (fs.existsSync(branchMarker)) {
+    log.info(`Cleaning branch marker: ${branchMarker}`);
+    fs.rmSync(branchMarker, { force: true });
   }
 
   // Remove worktree (use primaryDir as cwd in case we're inside the worktree being removed)

@@ -212,3 +212,159 @@ describe("flow-remove-worktree (integration: scratch cleanup)", () => {
     expect(fs.existsSync(flowTmp)).toBe(false);
   });
 });
+
+// --- Integration: .flow-branch sentinel cleanup -----------------------------
+
+const FLOW_NEW_WORKTREE_BIN = path.resolve(__dirname, "flow-new-worktree.ts");
+
+type FreshRepoFixture = {
+  /** Primary worktree of the repo. */
+  repoDir: string;
+  /** Path to the bare remote acting as `origin`. */
+  remoteDir: string;
+  cleanup: () => void;
+};
+
+/**
+ * Builds a fresh repo whose tracked `.gitignore` does NOT contain
+ * `.flow-branch`. This is the consumer-repo state that triggered the original
+ * bug: `flow-new-worktree` used to write `.flow-branch` into the primary's
+ * working `.gitignore`, but the secondary worktree was checked out from
+ * origin/main *before* that edit, so the sentinel showed up as `??` (untracked)
+ * — not `!!` (ignored) — and `git worktree remove` refused.
+ */
+function makeFreshRepoFixture(): FreshRepoFixture {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "flow-branch-cleanup-"));
+  const repoDir = path.join(root, "repo");
+  const remoteDir = path.join(root, "origin.git");
+
+  fs.mkdirSync(repoDir);
+  mustGit(["init", "-b", "main"], repoDir);
+  mustGit(["config", "user.email", "test@example.com"], repoDir);
+  mustGit(["config", "user.name", "Test"], repoDir);
+  // Empty package.json so `npm install --silent` is a near no-op.
+  fs.writeFileSync(path.join(repoDir, "package.json"), "{}\n");
+  // Tracked .gitignore covers the npm-install side-effects (`package-lock.json`
+  // and `node_modules/`) so the only flow-owned untracked-or-ignored file the
+  // test exercises is `.flow-branch`. Crucially, this .gitignore does NOT list
+  // `.flow-branch` — that absence is the consumer-repo state we're testing.
+  fs.writeFileSync(path.join(repoDir, ".gitignore"), "package-lock.json\nnode_modules/\n");
+  mustGit(["add", "."], repoDir);
+  mustGit(["commit", "-m", "initial"], repoDir);
+
+  mustGit(["clone", "--bare", repoDir, remoteDir], path.dirname(repoDir));
+  mustGit(["remote", "add", "origin", remoteDir], repoDir);
+  mustGit(["fetch", "origin"], repoDir);
+  mustGit(["branch", "--set-upstream-to=origin/main", "main"], repoDir);
+  mustGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], repoDir);
+
+  return {
+    repoDir,
+    remoteDir,
+    cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+function runNewWorktree(args: string[], cwd: string): Promise<SpawnResult> {
+  return new Promise((resolve) => {
+    const child = spawn("bun", ["run", FLOW_NEW_WORKTREE_BIN, ...args], {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
+    child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
+    child.on("close", (exitCode) => resolve({ exitCode: exitCode ?? -1, stdout, stderr }));
+  });
+}
+
+describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
+  let fx: FreshRepoFixture;
+  beforeEach(() => {
+    fx = makeFreshRepoFixture();
+  });
+  afterEach(() => fx.cleanup());
+
+  it("on a fresh repo, .flow-branch lands as ignored (not untracked) after flow-new-worktree", async () => {
+    const create = await runNewWorktree(["feat"], fx.repoDir);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    const wtDir = path.join(path.dirname(fx.repoDir), "repo-feat");
+
+    // The marker file exists (flow-state-update's branch-mismatch guard reads it).
+    expect(fs.existsSync(path.join(wtDir, ".flow-branch"))).toBe(true);
+
+    // Git classifies it as ignored (!!), not untracked (??). This is the
+    // root-cause fix: registering `.flow-branch` in the common-dir
+    // `.git/info/exclude` rather than the consumer's tracked `.gitignore`.
+    const status = spawnSync("git", ["status", "--porcelain", "--ignored"], {
+      cwd: wtDir,
+      encoding: "utf8",
+    });
+    expect(status.status, `git status stderr: ${status.stderr}`).toBe(0);
+    const lines = status.stdout.split("\n").filter((l) => l.includes(".flow-branch"));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) {
+      expect(line.startsWith("!! "), `expected '!! ' prefix, got: ${JSON.stringify(line)}`).toBe(
+        true,
+      );
+    }
+
+    // The user's tracked .gitignore was NOT touched — flow-runtime metadata
+    // lives in .git/info/exclude only.
+    const gitignore = fs.readFileSync(path.join(fx.repoDir, ".gitignore"), "utf8");
+    expect(gitignore).not.toContain(".flow-branch");
+  });
+
+  it("on a fresh repo, flow-remove-worktree succeeds without --force", async () => {
+    const create = await runNewWorktree(["feat"], fx.repoDir);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    const wtDir = path.join(path.dirname(fx.repoDir), "repo-feat");
+    expect(fs.existsSync(wtDir)).toBe(true);
+
+    const remove = await runHelper(["feat"], fx.repoDir);
+    expect(remove.exitCode, `stderr: ${remove.stderr}\nstdout: ${remove.stdout}`).toBe(0);
+    expect(fs.existsSync(wtDir)).toBe(false);
+
+    // The worktree is gone from `git worktree list`.
+    const list = mustGit(["worktree", "list", "--porcelain"], fx.repoDir);
+    expect(list).not.toContain(wtDir);
+  });
+
+  it("legacy path: succeeds even when .flow-branch is NOT registered in info/exclude (rm fallback)", async () => {
+    const create = await runNewWorktree(["legacy-feat"], fx.repoDir);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    const wtDir = path.join(path.dirname(fx.repoDir), "repo-legacy-feat");
+
+    // Simulate an older worktree whose common dir's exclude file does NOT yet
+    // list `.flow-branch`. Strip every `.flow-branch` line from
+    // .git/info/exclude — git will now classify the sentinel as ?? (untracked)
+    // and `git worktree remove` would refuse without the rm fallback.
+    const excludePath = path.join(fx.repoDir, ".git", "info", "exclude");
+    if (fs.existsSync(excludePath)) {
+      const stripped = fs
+        .readFileSync(excludePath, "utf8")
+        .split("\n")
+        .filter((l) => l.trim() !== ".flow-branch")
+        .join("\n");
+      fs.writeFileSync(excludePath, stripped, "utf8");
+    }
+
+    // Sanity: the sentinel is now untracked, not ignored.
+    const status = spawnSync("git", ["status", "--porcelain"], {
+      cwd: wtDir,
+      encoding: "utf8",
+    });
+    const untracked = status.stdout
+      .split("\n")
+      .filter((l) => l.startsWith("?? ") && l.includes(".flow-branch"));
+    expect(untracked.length, `expected .flow-branch as untracked, got status:\n${status.stdout}`)
+      .toBeGreaterThan(0);
+
+    // The rm fallback in flow-remove-worktree clears `.flow-branch` before
+    // `git worktree remove`, so removal still succeeds.
+    const remove = await runHelper(["legacy-feat"], fx.repoDir);
+    expect(remove.exitCode, `stderr: ${remove.stderr}\nstdout: ${remove.stdout}`).toBe(0);
+    expect(fs.existsSync(wtDir)).toBe(false);
+  });
+});

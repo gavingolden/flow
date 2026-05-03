@@ -9,11 +9,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { git } from "./lib/git";
 import { findAvailableSlot, toDirSuffix } from "./lib/worktree-slot";
-import {
-  ensureFlowTmpExclude,
-  ensureGitignoreMarkerEntry,
-  writeBranchMarker,
-} from "./lib/worktree-marker";
+import { ensureFlowExcludes, writeBranchMarker } from "./lib/worktree-marker";
 import {
   detectDefaultBranch,
   getPrimaryDir,
@@ -164,8 +160,7 @@ function main(): void {
   // Idempotent on both fresh and reused worktrees — older script versions may
   // have created the worktree without these.
   writeBranchMarker(chosen.worktreeDir, chosen.branchName);
-  ensureGitignoreMarkerEntry(primaryDir);
-  ensureFlowTmpExclude(chosen.worktreeDir);
+  ensureFlowExcludes(chosen.worktreeDir);
 
   console.log(`
 ${config.reuse ? "✅ Worktree reused!" : "✅ Worktree ready!"}
