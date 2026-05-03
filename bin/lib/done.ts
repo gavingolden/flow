@@ -2,9 +2,13 @@
  * `flow done <name>` — kill the window + remove the state file (after a
  * confirmation prompt unless --yes).
  *
- * `flow done --all-merged` — sweep all state files whose phase is `merged`
+ * `flow done --merged` — sweep all state files whose phase is `merged`
  * or `cancelled`, kill matching windows + remove their state. Confirms
  * once with the count + names before acting.
+ *
+ * `flow done --orphans` — sweep all state files whose tmux window is
+ * gone (the rows `flow ls` annotates `(no window)`), regardless of
+ * phase. Mutually exclusive with `--merged`.
  */
 
 import * as fs from "node:fs";
@@ -16,19 +20,20 @@ import {
   windowExists,
   FLOW_SESSION,
 } from "./tmux";
-import { deleteState, listStates, readState } from "./state";
+import { deleteState, listStates, readState, type PipelineState } from "./state";
 
 const TERMINAL_PHASES = new Set(["merged", "cancelled"]);
 
 export type DoneOptions = {
-  allMerged?: boolean;
+  merged?: boolean;
+  orphans?: boolean;
   yes?: boolean;
 };
 
 /**
  * CLI shim for `bin/flow`'s `done` verb. Intercepts --help / -h before any
- * tmux query or state read, then parses --all-merged / --yes / -y and
- * dispatches to `runDone`. The previous inline `runDoneVerb` lived in
+ * tmux query or state read, then parses --merged / --orphans / --yes / -y
+ * and dispatches to `runDone`. The previous inline `runDoneVerb` lived in
  * `bin/flow`.
  */
 export function runDoneCli(args: string[]): number {
@@ -36,17 +41,23 @@ export function runDoneCli(args: string[]): number {
     printVerbHelp("done");
     return 0;
   }
-  const allMerged = args.includes("--all-merged");
+  const merged = args.includes("--merged");
+  const orphans = args.includes("--orphans");
   const yes = args.includes("--yes") || args.includes("-y");
   const positional = args.filter((a) => !a.startsWith("-"));
-  return runDone(positional[0], { allMerged, yes });
+  return runDone(positional[0], { merged, orphans, yes });
 }
 
 export function runDone(name: string | undefined, options: DoneOptions = {}): number {
-  if (options.allMerged) return runDoneAllMerged(options);
+  if (options.merged && options.orphans) {
+    console.error("flow done: --orphans is mutually exclusive with --merged.");
+    return 1;
+  }
+  if (options.orphans) return runDoneOrphans(options);
+  if (options.merged) return runDoneMerged(options);
 
   if (!name) {
-    console.error("flow done: <name> is required (or pass --all-merged).");
+    console.error("flow done: <name> is required (or pass --merged / --orphans).");
     return 1;
   }
 
@@ -82,15 +93,35 @@ export function runDone(name: string | undefined, options: DoneOptions = {}): nu
   return 0;
 }
 
-function runDoneAllMerged(options: DoneOptions): number {
+function runDoneMerged(options: DoneOptions): number {
   const states = listStates().filter((s) => TERMINAL_PHASES.has(s.phase));
   if (states.length === 0) {
     console.log("flow done: no merged or cancelled pipelines to close.");
     return 0;
   }
+  return sweep(states, options, (s) => `  ${s.slug} (${s.phase})`);
+}
 
+function runDoneOrphans(options: DoneOptions): number {
+  const windows = listWindows();
+  const states = listStates().filter((s) => !findWindowBySlug(windows, s.slug));
+  if (states.length === 0) {
+    console.log("flow done: no orphan pipelines to close.");
+    return 0;
+  }
+  return sweep(states, options, (s) => {
+    const pr = s.pr ? ` #${s.pr}` : "";
+    return `  ${s.slug} (${s.phase}${pr})`;
+  });
+}
+
+function sweep(
+  states: PipelineState[],
+  options: DoneOptions,
+  format: (s: PipelineState) => string,
+): number {
   console.log(`will close ${states.length} pipeline(s):`);
-  for (const s of states) console.log(`  ${s.slug} (${s.phase})`);
+  for (const s of states) console.log(format(s));
 
   if (!options.yes) {
     if (!confirm("proceed?")) {

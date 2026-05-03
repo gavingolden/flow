@@ -99,7 +99,7 @@ describe(buildRows, () => {
     expect(rows[0].pr).toBe("—");
   });
 
-  it("renders activity for terminal phases (merged) so flow done --all-merged can audit", async () => {
+  it("renders activity for terminal phases (merged) so flow done --merged can audit", async () => {
     const rows = await buildRows(
       [
         state({
