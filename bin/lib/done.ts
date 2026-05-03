@@ -8,7 +8,12 @@
  *
  * `flow done --orphans` — sweep all state files whose tmux window is
  * gone (the rows `flow ls` annotates `(no window)`), regardless of
- * phase. Mutually exclusive with `--merged`.
+ * phase.
+ *
+ * `flow done --merged --orphans` — compose both filters in one sweep.
+ * The preview tags each row `merged`, `orphan`, or `merged+orphan` so
+ * an in-flight orphan a user meant to `flow new --resume` is visible
+ * before confirming.
  */
 
 import * as fs from "node:fs";
@@ -49,10 +54,7 @@ export function runDoneCli(args: string[]): number {
 }
 
 export function runDone(name: string | undefined, options: DoneOptions = {}): number {
-  if (options.merged && options.orphans) {
-    console.error("flow done: --orphans is mutually exclusive with --merged.");
-    return 1;
-  }
+  if (options.merged && options.orphans) return runDoneCombined(options);
   if (options.orphans) return runDoneOrphans(options);
   if (options.merged) return runDoneMerged(options);
 
@@ -112,6 +114,30 @@ function runDoneOrphans(options: DoneOptions): number {
   return sweep(states, options, (s) => {
     const pr = s.pr ? ` #${s.pr}` : "";
     return `  ${s.slug} (${s.phase}${pr})`;
+  });
+}
+
+function runDoneCombined(options: DoneOptions): number {
+  const windows = listWindows();
+  const reasons = new Map<string, { state: PipelineState; tag: "merged" | "orphan" | "merged+orphan" }>();
+
+  for (const s of listStates()) {
+    const isMerged = TERMINAL_PHASES.has(s.phase);
+    const isOrphan = !findWindowBySlug(windows, s.slug);
+    if (!isMerged && !isOrphan) continue;
+    const tag = isMerged && isOrphan ? "merged+orphan" : isMerged ? "merged" : "orphan";
+    reasons.set(s.slug, { state: s, tag });
+  }
+
+  if (reasons.size === 0) {
+    console.log("flow done: no merged, cancelled, or orphan pipelines to close.");
+    return 0;
+  }
+
+  const states = [...reasons.values()].map((r) => r.state);
+  return sweep(states, options, (s) => {
+    const pr = s.pr ? ` #${s.pr}` : "";
+    return `  ${s.slug} (${s.phase}${pr}) [${reasons.get(s.slug)!.tag}]`;
   });
 }
 
