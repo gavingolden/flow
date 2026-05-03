@@ -203,7 +203,7 @@ Why markdown and not a database:
 When this becomes painful (large queues, multi-machine, dependency
 graphs across tasks) we swap in Steve Yegge's
 [Beads](https://github.com/steveyegge/beads) behind a state-store
-interface (see [`roadmap.md`](./roadmap.md#future-stretch-state-store-backend-swap-beads-adapter)).
+interface (see [`roadmap.md`](./roadmap.md#future-stretch--out-of-scope) "Future stretch / out of scope").
 
 ## Auto-merge rule
 

@@ -7,7 +7,7 @@
 
 ## Status
 
-flow has finished its move to the tmux-driven supervisor design. The Node-based orchestrator (`flow run`, `flow start`, `flow log`, `flow status`, `flow approve`, `flow revise`) was removed in PR 4. The legacy per-repo `flow install` was removed in PR 5; `flow setup` is the only install entry point. See [`docs/roadmap.md`](docs/roadmap.md).
+flow has finished its move to the tmux-driven supervisor design. The Node-based orchestrator and the legacy per-repo `flow install` are gone; `flow setup` is the only install entry point. Queued work lives in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Install
 
@@ -97,7 +97,7 @@ Three categories under `skills/`:
 
 - **`skills/pipeline/`** — invoked by `/flow-pipeline` (`product-planning`, `new-feature`, `verify`, `pr-review`). Used by the supervisor to advance a pipeline phase by phase.
 - **`skills/universal/`** — generic productivity skills (`refactoring`, `skill-creator`, `add-worktree`, etc.).
-- **`skills/stacks/`** — stack-specific (Svelte, Tailwind+shadcn, Supabase). Each carries explicit `TRIGGER when` / `SKIP when` clauses in its frontmatter so Claude Code's matcher only auto-loads it in matching contexts — see [`docs/roadmap.md`](docs/roadmap.md) "Stack skills".
+- **`skills/stacks/`** — stack-specific (Svelte, Tailwind+shadcn, Supabase). Each carries explicit `TRIGGER when` / `SKIP when` clauses in its frontmatter so Claude Code's matcher only auto-loads it in matching contexts.
 
 `flow setup` makes every skill — pipeline, universal, and stack — available in every project. Stack-skill noise in unrelated repos is bounded by the frontmatter triggers/anti-triggers, not by a per-project install step.
 
@@ -114,7 +114,7 @@ Inside a flow window, the Claude Code session is the single LLM container. Sub-s
 | You want | Read |
 |---|---|
 | The architectural rationale | [`docs/architecture.md`](docs/architecture.md) |
-| Roadmap + status of each redesign PR | [`docs/roadmap.md`](docs/roadmap.md) |
+| Queued work | [`docs/roadmap.md`](docs/roadmap.md) |
 | The supervisor skill itself | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
 | Project rules for agents working on flow | [`AGENTS.md`](AGENTS.md) |
 
