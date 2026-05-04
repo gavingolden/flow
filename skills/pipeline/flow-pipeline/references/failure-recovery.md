@@ -110,8 +110,11 @@ terminal state — print `MERGED` (or `gated`) and end.
   the planning phase advanced state.
 - **`.flow-tmp/plan.md` exists but no PR.** Resume at step 4 (approval).
   The user may have approved before the crash; the supervisor re-prints
-  the plan and waits for the user to re-confirm. We don't replay an
-  approval the user gave to a now-dead session.
+  the plan summary, emits the same two markdown bullets as step 3's
+  feature-intent end-condition (worktree absolute path + plan file
+  absolute path, last lines, no trailing punctuation), and waits for the
+  user to re-confirm. We don't replay an approval the user gave to a
+  now-dead session.
 - **PR exists but `state.json` is stale (e.g. still shows
   `implementing`).** Resume at step 6 (verify). The PR survived; the
   phase value didn't catch up before the crash.

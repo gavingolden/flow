@@ -248,31 +248,69 @@ describe("runDone --orphans", () => {
   });
 });
 
-describe("runDone mutual exclusion", () => {
-  it("errors when --orphans and --merged are passed together", () => {
-    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+describe("runDone --merged --orphans (composed)", () => {
+  it("unions the two filters with per-row tags and dedupes the overlap", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.listStates.mockReturnValue([
+      // Merged-only: terminal phase, window still attached.
+      state({ slug: "merged-live", phase: "merged" }),
+      // Orphan-only: in-flight phase, window gone.
+      state({ slug: "orphan-only", phase: "ci-wait", pr: 142 }),
+      // Both: terminal phase AND window gone — must appear once, tagged "merged+orphan".
+      state({ slug: "merged-orphan", phase: "cancelled" }),
+      // Neither: in-flight + window present. Excluded.
+      state({ slug: "live", phase: "implementing" }),
+    ]);
+    tmuxMock.listWindows.mockReturnValue([window("merged-live"), window("live")]);
 
-    const code = runDone(undefined, { orphans: true, merged: true });
+    const code = runDone(undefined, { merged: true, orphans: true, yes: true });
 
-    expect(code).toBe(1);
-    expect(err).toHaveBeenCalledWith(
-      "flow done: --orphans is mutually exclusive with --merged.",
-    );
-    expect(stateMock.listStates).not.toHaveBeenCalled();
-    expect(stateMock.deleteState).not.toHaveBeenCalled();
-    err.mockRestore();
+    expect(code).toBe(0);
+    const messages = log.mock.calls.map((c) => c[0] as string);
+    expect(messages).toContain("will close 3 pipeline(s):");
+    expect(messages).toContain("  merged-live (merged) [merged]");
+    expect(messages).toContain("  orphan-only (ci-wait #142) [orphan]");
+    expect(messages).toContain("  merged-orphan (cancelled) [merged+orphan]");
+    // "live" is excluded entirely.
+    expect(messages.some((m) => m.includes("live (implementing)"))).toBe(false);
+
+    expect(stateMock.deleteState).toHaveBeenCalledWith("merged-live");
+    expect(stateMock.deleteState).toHaveBeenCalledWith("orphan-only");
+    expect(stateMock.deleteState).toHaveBeenCalledWith("merged-orphan");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("live");
+    // Only existing windows get killed; "orphan-only" + "merged-orphan" have no window.
+    expect(tmuxMock.killWindow).toHaveBeenCalledWith("merged-live");
+    expect(tmuxMock.killWindow).not.toHaveBeenCalledWith("orphan-only");
+    expect(tmuxMock.killWindow).not.toHaveBeenCalledWith("merged-orphan");
+    log.mockRestore();
   });
 
-  it("CLI passes both flags through and the runDone guard fires", () => {
-    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+  it("prints empty-sweep message when neither filter matches anything", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.listStates.mockReturnValue([state({ slug: "live", phase: "implementing" })]);
+    tmuxMock.listWindows.mockReturnValue([window("live")]);
 
-    const code = runDoneCli(["--orphans", "--merged"]);
+    const code = runDone(undefined, { merged: true, orphans: true, yes: true });
 
-    expect(code).toBe(1);
-    expect(err).toHaveBeenCalledWith(
-      "flow done: --orphans is mutually exclusive with --merged.",
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledWith(
+      "flow done: no merged, cancelled, or orphan pipelines to close.",
     );
-    err.mockRestore();
+    expect(stateMock.deleteState).not.toHaveBeenCalled();
+    log.mockRestore();
+  });
+
+  it("CLI dispatches both flags into the composed path", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.listStates.mockReturnValue([]);
+
+    const code = runDoneCli(["--merged", "--orphans", "--yes"]);
+
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledWith(
+      "flow done: no merged, cancelled, or orphan pipelines to close.",
+    );
+    log.mockRestore();
   });
 });
 

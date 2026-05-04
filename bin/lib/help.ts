@@ -44,6 +44,7 @@ Usage:
   flow done <name>                      close a pipeline window
   flow done --merged                    close every merged or cancelled window
   flow done --orphans                   close every state file whose tmux window is gone
+  flow done --merged --orphans          compose: close terminal-state OR orphaned pipelines
   flow migrate [--apply] [--scan <p>]   clean up legacy per-repo flow install
   flow completion <bash|zsh>            print a shell completion script to stdout
 
@@ -90,11 +91,15 @@ Usage:
   flow done <name>
   flow done --merged
   flow done --orphans
+  flow done --merged --orphans
 
 Options:
   --merged              close every pipeline whose phase is 'merged' or 'cancelled'
   --orphans             close every pipeline whose state file has no matching tmux window
-  --yes, -y             skip the confirmation prompt`,
+  --yes, -y             skip the confirmation prompt
+
+When both --merged and --orphans are passed, the sweep unions the two filters
+and tags each preview row 'merged', 'orphan', or 'merged+orphan'.`,
 
   migrate: `flow migrate — exit ramp from per-repo 'flow install'
 

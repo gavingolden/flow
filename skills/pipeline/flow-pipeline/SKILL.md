@@ -416,9 +416,23 @@ titles — the user reads scrollback).
 
 **End conditions:**
 
-- Intent is `feature` → write `phase: plan-pending-review` and
-  end the turn. Wait for the user to attach and respond. The next
-  turn re-enters at step 4.
+- Intent is `feature` → write `phase: plan-pending-review`. Then,
+  immediately before ending the turn, emit two markdown bullets on
+  their own lines as the **last** lines of the message — the
+  worktree absolute path first, the plan file's absolute path
+  (`$WORKTREE/.flow-tmp/plan.md`) second. **No trailing punctuation
+  on either bullet line, and no prose after them** — most terminals
+  greedily extend URL auto-detection through trailing dots (and
+  other adjacent punctuation) and break the click target. Rendered
+  example:
+
+  ```
+  - /Users/you/code/me/flow-my-feature
+  - /Users/you/code/me/flow-my-feature/.flow-tmp/plan.md
+  ```
+
+  Then end the turn. Wait for the user to attach and respond.
+  The next turn re-enters at step 4.
 - Non-feature intent (`bug`/`refactor`/`docs`/`infra`/`chore`) →
   continue directly to step 5. The plan still exists on disk for
   traceability, but the user wasn't asked to ratify it.
@@ -837,7 +851,7 @@ Branch on `.resumeAt`:
 |---|---|
 | `step-2` | Re-enter step 2 (worktree). Recreate via `flow-new-worktree`. |
 | `step-3` | Re-enter step 3 (plan). Re-invoke `/product-planning`. |
-| `step-4` | Re-enter step 4 (approval). Re-print the plan and wait — never replay an approval the user gave to a now-dead session. |
+| `step-4` | Re-enter step 4 (approval). Re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/new-feature`. |
 | `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow setup --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
 | `step-6` | Re-enter step 6 (verify). Re-invoke `/verify`. |
@@ -858,9 +872,12 @@ Branch on `.resumeAt`:
   (plan). The worktree was created but the pipeline crashed before
   the planning phase advanced state.
 - **`.flow-tmp/plan.md` exists but no PR.** Resume at step 4 (approval).
-  The user may have approved before the crash; re-print the plan and
-  wait for the user to re-confirm. Don't replay an approval the
-  user gave to a now-dead session.
+  The user may have approved before the crash; re-print the plan
+  summary, emit the same two markdown bullets as step 3's
+  feature-intent end-condition (worktree absolute path + plan file
+  absolute path, last lines, no trailing punctuation), and wait for
+  the user to re-confirm. Don't replay an approval the user gave to
+  a now-dead session.
 - **PR exists but state.json is stale (e.g. still shows
   `implementing`).** Resume at step 6 (verify). The PR survived;
   the phase value didn't catch up before the crash.

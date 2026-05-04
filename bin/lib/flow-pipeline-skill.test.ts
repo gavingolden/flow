@@ -145,6 +145,46 @@ describe("flow-pipeline supervisor SKILL.md", () => {
       expect(step3).toMatch(/end\s+the\s+turn/i);
     });
 
+    it("step 3 feature-intent branch emits clickable worktree + plan.md bullets as the last lines before ending the turn (PR #91)", () => {
+      // Closes the pr-review #91 finding: a future edit could silently
+      // drop the bullets, their order, or the no-trailing-punctuation
+      // requirement without any test failing. Grep-assert each piece.
+      const step3 = sliceStep(readSkill(), "## Step 3 ");
+      // Two markdown bullets as the last lines of the message.
+      expect(step3).toMatch(/two\s+markdown\s+bullets/i);
+      expect(step3).toMatch(/last\*?\*?\s+lines\s+of\s+the\s+message/i);
+      // Worktree absolute path first, plan file second.
+      expect(step3).toMatch(/worktree\s+absolute\s+path\s+first/i);
+      expect(step3).toMatch(/\.flow-tmp\/plan\.md/);
+      // No-trailing-punctuation rule (the whole reason for the bullets
+      // — terminals greedily extend URL detection through trailing dots).
+      expect(step3).toMatch(/no\s+trailing\s+punctuation/i);
+    });
+
+    it("resume step-4 row and edge-case bullet mirror step 3's bullet contract so resumed approval asks get the same handles (PR #91)", () => {
+      // Same finding's second source: the resume-mode dispatch table
+      // row and the matching edge-case bullet must reference step 3's
+      // contract so the three sources stay in sync.
+      const skill = readSkill();
+      const resumeTable = sliceBetween(
+        skill,
+        "| `.resumeAt` | Action |",
+        "## Edge cases",
+      );
+      expect(resumeTable).toMatch(/step-4/);
+      expect(resumeTable).toMatch(/two\s+markdown\s+bullets/i);
+      expect(resumeTable).toMatch(/no\s+trailing\s+punctuation/i);
+
+      const edgeCases = sliceBetween(
+        skill,
+        "## Edge cases",
+        "## What resume mode does NOT do",
+      );
+      expect(edgeCases).toMatch(/`\.flow-tmp\/plan\.md`\s+exists\s+but\s+no\s+PR/i);
+      expect(edgeCases).toMatch(/two\s+markdown\s+bullets/i);
+      expect(edgeCases).toMatch(/no\s+trailing\s+punctuation/i);
+    });
+
     it("step 4 ambiguous branch writes approval-pending-clarification before ending the turn", () => {
       const step4 = sliceStep(readSkill(), "## Step 4 ");
       expect(step4).toMatch(/approval-pending-clarification/);
