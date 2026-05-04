@@ -48,7 +48,8 @@ _flow() {
                         '--upgrade[reap orphan symlinks]' \
                         '--force[overwrite real files at install targets]' \
                         '--source[override flow source root]:source dir:_files -/' \
-                        '--no-completions[skip rc-file editing; remove existing block if present]'
+                        '--no-completions[skip rc-file editing; remove existing block if present]' \
+                        '--no-hooks[skip Stop-hook merge into ~/.claude/settings.json]'
                     ;;
                 new)
                     _arguments \

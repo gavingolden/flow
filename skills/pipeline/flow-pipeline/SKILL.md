@@ -146,96 +146,58 @@ in-process for skills; shell out for scripts; never delegate.
 > are parallel-pipelines self-identification hazards.
 
 > **You never end the turn between sub-skills and the next step.**
-> The rule scope is **a change pipeline** — i.e. once step 1 has
-> classified the request as `change` and (for ambiguous input) the
-> single clarifying question has been answered. Step 1's `no-change`
-> outcome answers the user inline and ends the turn before the
-> change-pipeline contract activates; that is *not* a violation of
-> this rule, it is the pre-pipeline branch. Inside a change pipeline
-> the supervisor walks each non-feature run (intent ∈
-> `bug` / `refactor` / `docs` / `infra` / `chore`) from triage to a
-> terminal end-state in **one uninterrupted run**, and walks each
-> feature run in two runs (kickoff → `plan-pending-review`, then
-> approval → terminal). Every other step transition stays in the
-> same turn. The hazard this rule closes: sub-skill tails and
-> long-script tails *look* like natural turn-ends — `/product-planning`
-> step 9 ends with "share with user and iterate" and a CTA to invoke
-> `/new-feature`; `/verify` and `/pr-review` print summaries that read
-> conversationally; `flow-state-update` prints nothing and feels like a
-> stopping point. None of these are turn boundaries. The supervisor
-> reads them as model-generated text and must keep going. The **only**
-> legitimate turn-end points inside a change pipeline are:
->
-> 1. **Step 3 → step 4 handoff for feature intent.** When intent is
->    `feature`, step 3 writes `phase: plan-pending-review` and ends
->    the turn. The next turn re-enters at step 4 after the user
->    attaches and responds. Bug / refactor / docs / infra / chore
->    intents skip this entirely — they continue to step 5 in the same
->    turn.
-> 2. **The four documented terminal end-states.** `MERGED`,
->    `GATED: <url>`, `NEEDS HUMAN: <reason>`, and `cancelled` —
->    each printed on its own line, after which the turn ends.
-> 3. **The single clarifying question allowed in step 1
->    (`triage-ambiguous`) and step 4 (`approval-ambiguous`).** Each
->    step is permitted *one* clarifying question if the user input
->    is genuinely unparseable; the turn ends after the question and
->    re-enters when the user answers. If the answer is still
->    ambiguous, escalate `NEEDS HUMAN: <triage|approval>-ambiguous`
->    instead of asking again.
->
-> Every other transition — step 2 → step 3, the non-feature step 3 →
-> step 5 path, the step 4 affirmative → step 5 path, step 5 → step
-> 5.5, step 5.5 → step 6, step 6 → step 7, step 7 → step 8 (or →
-> step 5 mode=fix), step 8 → step 7 (or → step 9), step 9 → step 10
-> — happens in the same turn. Three layers of localised reminder
-> reinforce this Hard rule: a **leading blockquote** at the top of
-> every non-terminal step heading (the first thing you read on step
-> entry); the existing **continue-immediately sentences** inline at
-> each step's End-condition stanza (the last thing you read on step
-> exit); and an inline **`flow-checkpoint`** Bash call after every
-> sub-skill return that prints `DO NOT END THE TURN` to stderr (the
-> freshest signal in scrollback when the model decides what to do
-> next). The leading blockquote is the load-bearing layer because
-> sub-skill tail messages — `/product-planning` step 9's "share with
-> user and iterate" CTA, `/verify`'s success summary, `/pr-review`'s
-> post-push recap — read as natural turn boundaries when only the
-> trailing reminder is in view. The blockquote is also lint-enforced:
-> `bin/skill-md-lint.test.ts` walks every `## Step ` heading in this
-> file and fails CI if any non-terminal step's first content line is
-> not a continuation blockquote.
+> Inside a change pipeline (after step 1's `change` classification,
+> ambiguity resolved), the supervisor walks each non-feature run
+> from triage to a terminal end-state in one uninterrupted run, and
+> walks each feature run in two runs (kickoff →
+> `plan-pending-review`, then approval → terminal). The only
+> legitimate turn-end points inside a change pipeline are: (1) the
+> step 3 → step 4 handoff for feature intent, where state writes
+> `phase: plan-pending-review`; (2) the four documented terminal
+> end-states (`MERGED`, `GATED: <url>`, `NEEDS HUMAN: <reason>`,
+> `cancelled`); (3) the single clarifying question allowed in step
+> 1 (state writes `phase: triage-pending-clarification`) and step 4
+> (state writes `phase: approval-pending-clarification`); (4) the
+> no-change branch of step 1 (state writes `phase:
+> triaged-no-change`). Every other step transition stays in the
+> same turn. Harness-level enforcement: `flow-stop-guard`
+> (registered as a Claude Code Stop hook by `flow setup`) reads
+> `~/.flow/state/<slug>.json` and blocks any turn-end whose phase
+> is not in this set. See "Harness-level enforcement (Stop hook)"
+> below for the contract.
 
-# Continuation reminders (`flow-checkpoint`)
+# Harness-level enforcement (Stop hook)
 
-`flow-checkpoint` is a tiny Bun helper whose only job is to print a
-two-line `DO NOT END THE TURN` reminder to stderr. Call it as a
-Bash tool call after every sub-skill return inside a change pipeline
-— most importantly after `/product-planning` (step 3), `/new-feature`
-(step 5), `/verify` (step 6), and `/pr-review` (step 8). The helper
-exits 0 unconditionally; it is advisory, never a gate.
+`flow-stop-guard` is a Claude Code Stop hook installed by
+`flow setup` into `~/.claude/settings.json`. It is the structural
+defence behind the "never end the turn between sub-skills" Hard
+rule above — text-only reminders in this SKILL.md cannot intercept
+a model that has already chosen to stop, but a Stop hook fires
+*at* the model's turn-end signal.
 
-```bash
-flow-checkpoint --from <step-label> --to <step-label> \
-                [--note "<one-line context>"]
-# stderr:
-#   flow-checkpoint: returning from <from> → continuing to <to>
-#   note: <text>          # only when --note was passed
-#   DO NOT END THE TURN
-```
+Contract:
 
-The helper closes the gap that the leading-blockquote layer alone
-cannot: when a sub-skill returns, the freshest signal in scrollback
-is whatever the sub-skill printed last (e.g. `/product-planning`'s
-"share with user and iterate" CTA). The blockquote at the top of
-the *next* step is correct but further up; the model's attention
-lands on the sub-skill tail. Running `flow-checkpoint` immediately
-after the sub-skill returns puts the reminder *below* the tail,
-making it the freshest signal.
+- Reads `~/.flow/state/<slug>.json` (slug from the tmux window's
+  `@flow-slug` user option).
+- Exits 2 with a stderr `DO NOT END THE TURN` reminder when phase
+  is non-terminal-non-pending — the supervisor is mid-pipeline and
+  must continue.
+- Exits 0 (allows the stop) when phase is in the legitimate-end
+  set: any of the four terminals (`merged`, `gated`, `needs-human`,
+  `cancelled`) or the four pending-end phases
+  (`plan-pending-review`, `triaged-no-change`,
+  `triage-pending-clarification`, `approval-pending-clarification`).
+- Self-detects: exits 0 (no-op) outside tmux, in non-flow tmux
+  windows (no `@flow-slug` set), or when state.json is missing.
+  Safe to install in a global Stop hook list.
+- Loop-break: respects Claude Code's `stop_hook_active` payload
+  flag. After one block this turn, subsequent stops exit 0
+  unconditionally so a model that genuinely needs to stop can.
 
-Skip the call only at the four legitimate turn-end points
-documented in the "You never end the turn between sub-skills and
-the next step" Hard rule above — at those points, ending the turn
-is the desired behaviour, and a `DO NOT END THE TURN` reminder
-would be misleading.
+Opt out: `flow setup --no-hooks` skips the merge entirely and
+leaves `~/.claude/settings.json` untouched. The supervisor's
+contract still holds — the hook is the mechanical guardrail, not
+the contract itself.
 
 # Notifications
 
@@ -326,13 +288,6 @@ state.json, and the PR are the state.
 
 ## Step 1 — Triage
 
-> **Pipeline entry — first step of a new change pipeline.** The only
-> legitimate turn-end inside this step is the `no-change` branch
-> (answer the user's question and stop, before the change-pipeline
-> contract activates). Every `change` branch — including after the
-> single permitted clarifying question — continues into step 2 in
-> the same turn. **DO NOT END THE TURN** otherwise.
-
 **Phase:** `triaging`
 
 **First action of the supervisor.** Before classifying, write the
@@ -380,8 +335,10 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
 
 **End conditions:**
 
-- **No-change** → answer the user's question in chat directly. End
-  the turn. Do NOT proceed to step 2.
+- **No-change** → answer the user's question in chat directly,
+  then write `flow-state-update "$SLUG" --phase triaged-no-change`
+  before ending the turn. The phase write is what `flow-stop-guard`
+  reads to recognise the legitimate stop. Do NOT proceed to step 2.
 - **Change** → continue to step 2. The **slug** was already finalized
   by `flow new`'s aggressive slugify (`bin/lib/slug.ts`: stop-word
   filter + 5-token cap + `task-<hash8>` fallback) and is the basename
@@ -392,16 +349,14 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
   The display-title rename above (`flow-rename-window`) is the only
   permitted exception, fires exactly once here in step 1, and never
   touches the slug.
-
-If classification is ambiguous after one clarifying question,
-escalate `NEEDS HUMAN: triage-ambiguous` and end.
+- **Ambiguous** (input is genuinely unparseable) → write
+  `flow-state-update "$SLUG" --phase triage-pending-clarification`,
+  then ask the single clarifying question and end the turn. The
+  next turn re-enters step 1 with the user's reply. If the answer
+  is still ambiguous, escalate `NEEDS HUMAN: triage-ambiguous`
+  (which writes `phase: needs-human`) instead of asking again.
 
 ## Step 2 — Worktree
-
-> **Continue immediately from step 1 — DO NOT END THE TURN.** You
-> arrived here via the `change` classification (or after the single
-> permitted clarifying question resolved). Create the worktree and
-> walk into step 3 in the same turn.
 
 **Phase:** `worktree-create`
 
@@ -437,16 +392,6 @@ On non-zero exit: escalate `NEEDS HUMAN: worktree-create-failed
 <stderr>` and end.
 
 ## Step 3 — Plan
-
-> **Continue immediately from step 2 — DO NOT END THE TURN.** This
-> step *does* have one legitimate turn-end — the `feature`-intent
-> path that writes `phase: plan-pending-review` and waits for the
-> user to attach + approve. Every other intent
-> (`bug`/`refactor`/`docs`/`infra`/`chore`) continues directly to
-> step 5 in the same turn, regardless of how `/product-planning`'s
-> tail message reads. The skill ends with a "share with user and
-> iterate" CTA designed for manual invocation; that CTA is **not** a
-> turn boundary inside `/flow-pipeline`.
 
 **Phase:** `planning`
 
@@ -486,37 +431,17 @@ titles — the user reads scrollback).
   - /Users/you/code/me/flow-my-feature/.flow-tmp/plan.md
   ```
 
-  Then **end the turn**. Wait for the user to attach and respond.
+  Then end the turn. Wait for the user to attach and respond.
   The next turn re-enters at step 4.
 - Non-feature intent (`bug`/`refactor`/`docs`/`infra`/`chore`) →
-  skip the checkpoint and continue directly to step 5. The plan
-  still exists on disk for traceability, but the user wasn't asked
-  to ratify it. **Continue immediately to step 5 in the same turn —
-  do not end the turn.** `/product-planning`'s tail message
-  ("share with user and iterate" + CTA to invoke `/new-feature`) is
-  correct for manual invocation but is *not* a turn boundary inside
-  a `/flow-pipeline` run. Fire the continuation reminder before
-  invoking `/new-feature`:
-
-  ```bash
-  flow-checkpoint --from step-3 --to step-5 \
-                  --note "/product-planning returned (non-feature intent)"
-  ```
+  continue directly to step 5. The plan still exists on disk for
+  traceability, but the user wasn't asked to ratify it.
 
 If `/product-planning` doesn't write `.flow-tmp/plan.md`, re-invoke
 once with an explicit instruction to write the consolidated artifact.
 If the second attempt also fails, escalate `NEEDS HUMAN: plan-missing`.
 
 ## Step 4 — Approval handling
-
-> **New turn — user just replied to the plan-pending-review
-> checkpoint.** The previous turn legitimately ended at step 3 for
-> `feature` intent; you are now re-entering with the user's reply in
-> scrollback. Classify the reply (affirmative / redirect / cancel /
-> ambiguous) and continue into step 5 (or loop back to step 3) in
-> *this* turn. **DO NOT END THE TURN AGAIN** unless the reply is
-> ambiguous and the single permitted clarifying question has not yet
-> been asked.
 
 **Phase:** `plan-pending-review` (set by step 3 for feature intent)
 
@@ -532,18 +457,14 @@ typed something into the tmux chat. Classify the input using
   plan-pending-review): <verbatim>`.
 - **Cancel** ("cancel", "abort") → run `flow-remove-worktree
   <slug>`, write `phase: cancelled`, print `cancelled`, end.
-- **Ambiguous** → ask one clarifying question; if still unclear,
-  escalate `NEEDS HUMAN: approval-ambiguous`.
+- **Ambiguous** → write `flow-state-update "$SLUG" --phase
+  approval-pending-clarification`, then ask the single clarifying
+  question and end the turn. The next turn re-enters step 4 with
+  the user's reply. If the answer is still unclear, escalate
+  `NEEDS HUMAN: approval-ambiguous` (which writes `phase:
+  needs-human`).
 
 ## Step 5 — Implement
-
-> **Continue immediately from step 3 (non-feature intent), step 4
-> (feature post-approval), step 7 (`ci-failed` re-entry), or step 8
-> (review-fix re-entry) — DO NOT END THE TURN.** `/new-feature`'s
-> tail message is not a turn boundary; neither is `flow-open-pr`'s
-> URL print. After `/new-feature` returns, run `flow-checkpoint
-> --from step-5 --to step-5.5` (defined below) to refresh the
-> reminder in scrollback before continuing.
 
 **Phase:** `implementing`
 
@@ -595,13 +516,6 @@ just wrote):
 flow-state-update "$SLUG" --phase implementing
 ```
 
-Fire the continuation reminder before walking into step 5.5:
-
-```bash
-flow-checkpoint --from step-5 --to step-5.5 \
-                --note "/new-feature returned; PR #$PR opened"
-```
-
 **Re-entry from a fix loop** (called from step 7 ci-red or step 8
 review-critical): pass mode=fix and the failure log:
 
@@ -623,11 +537,6 @@ appended. If the retry also fails, escalate `NEEDS HUMAN:
 implement-failed`.
 
 ## Step 5.5 — Re-symlink if worktree adds skills/agents
-
-> **Continue immediately from step 5 — DO NOT END THE TURN.**
-> `flow setup --upgrade`'s summary output is informational, not a
-> stopping point. Whether the helper actually re-symlinks or the
-> grep skips it, walk into step 6 in the same turn.
 
 **Phase:** `installing-skills`
 
@@ -701,17 +610,9 @@ maps `summary.blocked > 0` to exit 1; parser errors map to 2):
 retry once. If the retry also fails, escalate
 `NEEDS HUMAN: flow-setup-upgrade-failed <stderr>` — the supervisor
 cannot safely continue to step 6 without the new skill/agent files
-visible. On success: **continue immediately to step 6 in the same
-turn — do not end the turn.** `flow setup --upgrade`'s summary
-output is informational, not a stopping point.
+visible.
 
 ## Step 6 — Local verify
-
-> **Continue immediately from step 5.5 — DO NOT END THE TURN.**
-> `/verify`'s success summary reads conversationally but is the
-> localised end of one phase, not a session boundary. After
-> `/verify` returns clean, run `flow-checkpoint --from step-6 --to
-> step-7` to refresh the reminder before invoking `flow-ci-wait`.
 
 **Phase:** `verifying`
 
@@ -752,26 +653,9 @@ gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
 **End condition:** `/verify` exits clean (an outer attempt 1, 2, or
-3 succeeds). Fire the continuation reminder before invoking
-`flow-ci-wait`:
-
-```bash
-flow-checkpoint --from step-6 --to step-7 \
-                --note "/verify clean"
-```
-
-**Continue immediately to step 7 in the same turn — do not end the
-turn.** `/verify`'s success summary is the localised end of one
-phase, not a session boundary.
+3 succeeds). Continue to step 7.
 
 ## Step 7 — CI + Copilot wait
-
-> **Continue immediately from step 6 (verify-clean) or step 8
-> (review-pushed) — DO NOT END THE TURN.** `flow-ci-wait` blocks
-> until CI is terminal and prints a single JSON verdict; the wait
-> can stretch to the 20-min wall-clock cap, but the supervisor is
-> still in the same turn the whole time. When the helper returns,
-> branch on `.decision` and continue in this turn.
 
 **Phase:** `ci-wait`
 
@@ -798,9 +682,9 @@ Branch on `.decision`:
 
 | `.decision` | Action |
 |---|---|
-| `proceed-to-review` | **Continue immediately to step 8 in the same turn — do not end the turn.** |
+| `proceed-to-review` | Continue to step 8. |
 | `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal. |
-| `ci-failed` | **Continue immediately to step 5 mode=fix in the same turn — do not end the turn.** Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
+| `ci-failed` | Continue to step 5 mode=fix. Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
 | `merged-externally` | PR was merged externally mid-flight. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged --slug "$SLUG" --url "$PR_URL"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
 | `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
@@ -818,21 +702,11 @@ After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
 
 **End condition:** the helper exits 0 with one of the decisions
 above. On `proceed-to-review` / `proceed-to-review-no-bot`, continue
-to step 8 in the same turn. On `ci-failed`, continue to step 5
-mode=fix in the same turn. On `merged-externally`, run cleanup and
-end. On `pr-closed` / `ci-hang`, escalate and end. The decision
-printout is a localised end of one phase, not a session boundary.
+to step 8. On `ci-failed`, continue to step 5 mode=fix. On
+`merged-externally`, run cleanup and end. On `pr-closed` / `ci-hang`,
+escalate and end.
 
 ## Step 8 — Review
-
-> **Continue immediately from step 7 (`proceed-to-review` /
-> `proceed-to-review-no-bot`) — DO NOT END THE TURN.** `/pr-review`'s
-> post-push summary is not a turn boundary. After it returns, you
-> either loop back to step 5 mode=fix (review-critical), step 7 (CI
-> re-check after pushed fix), or walk into step 9 — all in this
-> turn. Run `flow-checkpoint --from step-8 --to step-7` (or
-> `--to step-9`, depending on the branch) to refresh the reminder
-> before continuing.
 
 **Phase:** `reviewing`
 
@@ -853,53 +727,20 @@ state and:
 
 **Fix-loop cap: 2 total review-fix loops.** If `/pr-review`
 surfaces critical findings that it can't auto-fix, loop back to
-step 5 with mode=fix and the finding details. Fire the continuation
-reminder before re-invoking `/new-feature`:
+step 5 with mode=fix and the finding details. After the second
+loop-back, escalate `NEEDS HUMAN: review-fix-exhausted`.
 
-```bash
-flow-checkpoint --from step-8 --to step-5 \
-                --note "/pr-review surfaced critical findings; mode=fix"
-```
-
-**Continue immediately to step 5 in the same turn — do not end the
-turn.** After the second loop-back, escalate `NEEDS HUMAN:
-review-fix-exhausted`.
-
-After `/pr-review` commits + pushes, **return to step 7** (CI
-wait), not directly to step 9. The fix commit may have changed CI.
-Fire the continuation reminder before re-invoking `flow-ci-wait`:
-
-```bash
-flow-checkpoint --from step-8 --to step-7 \
-                --note "/pr-review pushed review-fix; re-checking CI"
-```
-
-**Continue immediately to step 7 in the same turn — do not end the
-turn.** `/pr-review`'s post-push summary reads conversationally but
-is not a turn boundary.
+After `/pr-review` commits + pushes, return to step 7 (CI wait),
+not directly to step 9. The fix commit may have changed CI.
 
 **End condition:** `/pr-review` returns clean (no critical
-findings outstanding) AND the most recent CI cycle is green. Fire
-the continuation reminder before invoking `flow-gate-decide`:
-
-```bash
-flow-checkpoint --from step-8 --to step-9 \
-                --note "/pr-review clean; CI green"
-```
-
-On this clean state: **continue immediately to step 9 in the same
-turn — do not end the turn.**
+findings outstanding) AND the most recent CI cycle is green.
+Continue to step 9.
 
 On non-zero exit from `/pr-review`: retry once. If the retry also
 fails, escalate `NEEDS HUMAN: review-failed`.
 
 ## Step 9 — Auto-merge gate
-
-> **Continue immediately from step 8 — DO NOT END THE TURN.**
-> `/pr-review` returned clean and the most recent CI cycle is green.
-> Run `flow-gate-decide`, branch on `.decision`, and either continue
-> into step 10 (`auto-merge`) or land on a terminal end-state in
-> this turn.
 
 **Phase:** `gating`
 
@@ -943,12 +784,6 @@ Branch on `.decision`:
 | `escalate-gh-error` | Escalate `NEEDS HUMAN: gh-error <.reason>`. |
 
 ## Step 10 — Merge
-
-> **Continue immediately from step 9 (`auto-merge`) — DO NOT END
-> THE TURN until *after* the terminal `MERGED` line.** Run
-> `gh pr merge`, clean up the worktree, fire the notification,
-> print `MERGED` on its own line, *then* end the turn — the
-> terminal end-state line is itself the legitimate stopping point.
 
 **Phase:** `merging`
 
@@ -1149,7 +984,7 @@ In write-order on the happy path:
 triaging
 worktree-create
 planning
-plan-pending-review     (feature only; ends turn)
+plan-pending-review     (feature only; ends turn — pending phase)
 implementing
 installing-skills       (only if worktree adds skills/agents; otherwise skipped)
 verifying
@@ -1161,6 +996,21 @@ merged                  (terminal)
 ```
 
 Off-path terminals: `gated`, `needs-human`, `cancelled`.
+
+Pending phases (legitimate turn-ends mid-pipeline; recognised by
+`flow-stop-guard`):
+
+```
+plan-pending-review                (step 3 → 4 handoff for feature intent)
+triaged-no-change                  (step 1 no-change branch)
+triage-pending-clarification       (step 1 single clarifying question)
+approval-pending-clarification     (step 4 single clarifying question)
+```
+
+The canonical phase set is exported from `bin/lib/state.ts` as
+`PIPELINE_PHASES`; `flow-state-update --phase` rejects values
+outside that set so a typo can't silently land in state.json and
+defeat the Stop hook.
 
 # Verification (this skill)
 

@@ -11,17 +11,23 @@ export type ParsedSetupArgs = {
   upgrade: boolean;
   force: boolean;
   noCompletions: boolean;
+  noHooks: boolean;
   flowSource?: string;
 };
 
 export type SetupArgsResult = ParsedSetupArgs | { error: string };
 
 const USAGE =
-  "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions]";
-const FLAGS = new Set(["--upgrade", "--force", "--no-completions"]);
+  "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks]";
+const FLAGS = new Set(["--upgrade", "--force", "--no-completions", "--no-hooks"]);
 
 export function parseSetupArgs(args: string[]): SetupArgsResult {
-  const out: ParsedSetupArgs = { upgrade: false, force: false, noCompletions: false };
+  const out: ParsedSetupArgs = {
+    upgrade: false,
+    force: false,
+    noCompletions: false,
+    noHooks: false,
+  };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--upgrade") {
@@ -30,6 +36,8 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
       out.force = true;
     } else if (arg === "--no-completions") {
       out.noCompletions = true;
+    } else if (arg === "--no-hooks") {
+      out.noHooks = true;
     } else if (arg === "--source") {
       const value = args[i + 1];
       if (!value || FLAGS.has(value) || value === "--source") {

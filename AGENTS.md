@@ -103,7 +103,7 @@ Aider system prompts plus Anthropic's prompting docs.
 Source for shipped helper binaries lives in **`bin/`**. The user-callable
 helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-state-update`,
-`flow-notify`, `flow-checkpoint` — live there with `.ts` extensions, Bun
+`flow-notify`, `flow-stop-guard` — live there with `.ts` extensions, Bun
 shebangs, and tests next door (`<name>.test.ts`). `flow setup` symlinks each into
 `~/.local/bin/<name>` (extensionless on PATH).
 

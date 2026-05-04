@@ -3,8 +3,15 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyUpdate, checkWorktreeBranch, parseArgs, runUpdate } from "./flow-state-update";
-import { readState, writeState, type PipelineState } from "./lib/state";
+import {
+  applyUpdate,
+  checkWorktreeBranch,
+  closestPhase,
+  parseArgs,
+  phaseError,
+  runUpdate,
+} from "./flow-state-update";
+import { PIPELINE_PHASES, readState, writeState, type PipelineState } from "./lib/state";
 
 let dir!: string;
 
@@ -101,6 +108,47 @@ describe("parseArgs", () => {
       phase: "gating",
       autoMerge: false,
     });
+  });
+
+  it.each([...PIPELINE_PHASES])("accepts canonical phase %s", (phase) => {
+    expect(parseArgs(["foo", "--phase", phase])).toEqual({
+      slug: "foo",
+      phase,
+    });
+  });
+
+  it("rejects an unknown --phase value with a near-match suggestion", () => {
+    expect(parseArgs(["foo", "--phase", "implmenting"])).toEqual({
+      error: "--phase 'implmenting' is not a valid pipeline phase; did you mean 'implementing'?",
+    });
+  });
+
+  it("rejects an unknown --phase value with no near-match by listing the canonical set", () => {
+    const result = parseArgs(["foo", "--phase", "totally-unknown-string-xyz"]);
+    if (!("error" in result)) throw new Error("expected error");
+    expect(result.error).toContain("not a valid pipeline phase");
+    expect(result.error).toContain("valid phases:");
+    expect(result.error).toContain("implementing");
+  });
+});
+
+describe("phaseError + closestPhase", () => {
+  it("phaseError suggests a single Levenshtein-1 match", () => {
+    expect(phaseError("implmenting")).toContain("'implementing'");
+  });
+
+  it("phaseError lists the canonical set for far-off typos", () => {
+    const msg = phaseError("xxx-not-a-phase-at-all");
+    expect(msg).toContain("valid phases:");
+    for (const p of PIPELINE_PHASES) expect(msg).toContain(p);
+  });
+
+  it("closestPhase returns null when nothing is within distance 2", () => {
+    expect(closestPhase("xxxxxxxxxxxxxxxx")).toBeNull();
+  });
+
+  it("closestPhase finds the nearest neighbour for a 1-char swap", () => {
+    expect(closestPhase("triating")).toBe("triaging");
   });
 });
 
@@ -203,6 +251,16 @@ describe("runUpdate", () => {
     const code = runUpdate(["csv-export", "--phase", "implementing"], dir);
     expect(code).toBe(0);
     fx.cleanup();
+  });
+
+  it("returns 2 and does not write state.json when --phase is a typo", () => {
+    seed("csv-export");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "implmenting"], dir);
+    errSpy.mockRestore();
+    expect(code).toBe(2);
+    const got = readState("csv-export", dir);
+    expect(got?.phase).toBe("starting"); // unchanged from seed
   });
 });
 
