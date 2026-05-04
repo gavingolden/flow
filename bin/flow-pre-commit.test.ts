@@ -4,16 +4,20 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildFailureExcerpt,
   checksForScope,
   detectScopesFromFiles,
   filterDefinedChecks,
+  formatJsonReport,
   formatReport,
   getChangedFilesForPush,
   parsePrePushInput,
   parseScopes,
+  stripAnsi,
   type CheckReport,
   type CheckResult,
   type GitOps,
+  type JsonReport,
   type PrePushRef,
   type Scope,
 } from "./flow-pre-commit";
@@ -426,5 +430,143 @@ describe(formatReport, () => {
     const output = formatReport(report);
     expect(output).toContain("checking explicitly-requested scopes…");
     expect(output).not.toContain("changed file");
+  });
+});
+
+describe(stripAnsi, () => {
+  it("removes a simple ANSI color sequence", () => {
+    expect(stripAnsi("\x1b[31mFAIL\x1b[0m foo")).toBe("FAIL foo");
+  });
+
+  it("preserves non-ANSI text untouched", () => {
+    expect(stripAnsi("plain text")).toBe("plain text");
+  });
+
+  it("removes cursor-movement and erase sequences", () => {
+    expect(stripAnsi("\x1b[2K\x1b[1Aretry")).toBe("retry");
+  });
+
+  it("replaces non-printable control bytes with replacement char", () => {
+    // \x00 (NUL) and \x07 (BEL) are control bytes; \n and \t are preserved.
+    const cleaned = stripAnsi("a\x00b\nc\td\x07e");
+    expect(cleaned).toBe("a�b\nc\td�e");
+  });
+});
+
+describe(buildFailureExcerpt, () => {
+  it("returns the full output when total lines fit head+tail budget", () => {
+    const output = "line 1\nline 2\nERROR: kaboom";
+    const excerpt = buildFailureExcerpt(output);
+    expect(excerpt.totalLines).toBe(3);
+    expect(excerpt.headExcerpt).toBe("line 1\nline 2\nERROR: kaboom");
+    expect(excerpt.tailExcerpt).toBe("");
+  });
+
+  it("caps head and tail at HEAD_LINES + TAIL_LINES on long output", () => {
+    const lines = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`);
+    const excerpt = buildFailureExcerpt(lines.join("\n"));
+    expect(excerpt.totalLines).toBe(5000);
+    // Head 100 lines, tail 100 lines.
+    expect(excerpt.headExcerpt.split("\n")).toHaveLength(100);
+    expect(excerpt.tailExcerpt.split("\n")).toHaveLength(100);
+    expect(excerpt.headExcerpt.split("\n")[0]).toBe("line 1");
+    expect(excerpt.headExcerpt.split("\n")[99]).toBe("line 100");
+    expect(excerpt.tailExcerpt.split("\n")[0]).toBe("line 4901");
+    expect(excerpt.tailExcerpt.split("\n")[99]).toBe("line 5000");
+  });
+
+  it("locates the first error line by 1-based index", () => {
+    const output = "compiling…\ndone\n\nFAIL  src/foo.test.ts > should bar\n  details";
+    const excerpt = buildFailureExcerpt(output);
+    expect(excerpt.firstErrorLine).toBe(4);
+    expect(excerpt.firstErrorText).toBe("FAIL  src/foo.test.ts > should bar");
+  });
+
+  it("matches the ✗ failure marker even though it has no word boundary", () => {
+    const output = "ok\n✗ should foo\n";
+    const excerpt = buildFailureExcerpt(output);
+    expect(excerpt.firstErrorLine).toBe(2);
+    expect(excerpt.firstErrorText).toBe("✗ should foo");
+  });
+
+  it("strips ANSI color sequences before excerpting and matching", () => {
+    const output = "\x1b[31mFAIL\x1b[0m boom\nrest";
+    const excerpt = buildFailureExcerpt(output);
+    expect(excerpt.firstErrorText).toBe("FAIL boom");
+    expect(excerpt.headExcerpt).not.toContain("\x1b[");
+  });
+
+  it("trims firstErrorText to 500 chars", () => {
+    const long = "FAIL " + "x".repeat(2000);
+    const excerpt = buildFailureExcerpt(long);
+    expect(excerpt.firstErrorText.length).toBe(500);
+    expect(excerpt.firstErrorText.startsWith("FAIL ")).toBe(true);
+  });
+
+  it("returns null firstErrorLine when no error marker is present", () => {
+    const excerpt = buildFailureExcerpt("just\ntwo\nlines");
+    expect(excerpt.firstErrorLine).toBeNull();
+    expect(excerpt.firstErrorText).toBe("");
+  });
+
+  it("does not count a trailing newline as an extra empty line", () => {
+    const excerpt = buildFailureExcerpt("a\nb\nc\n");
+    expect(excerpt.totalLines).toBe(3);
+  });
+});
+
+describe(formatJsonReport, () => {
+  it("emits a parseable JSON object for an all-passing report", () => {
+    const report = createReport({
+      results: [createResult({ passed: true })],
+    });
+    const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
+    expect(parsed.allPassed).toBe(true);
+    expect(parsed.results[0].passed).toBe(true);
+    expect(parsed.results[0].failure).toBeUndefined();
+  });
+
+  it("includes a bounded failure excerpt on failed checks", () => {
+    const huge = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`).join("\n");
+    const report = createReport({
+      allPassed: false,
+      results: [createResult({ passed: false, output: `${huge}\nFAIL  src/foo.test.ts` })],
+    });
+    const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
+    expect(parsed.results[0].passed).toBe(false);
+    const failure = parsed.results[0].failure;
+    expect(failure).toBeDefined();
+    expect(failure!.totalLines).toBe(5001);
+    // head + tail capped at 100 each.
+    expect(failure!.headExcerpt.split("\n")).toHaveLength(100);
+    expect(failure!.tailExcerpt.split("\n")).toHaveLength(100);
+    expect(failure!.firstErrorText).toBe("FAIL  src/foo.test.ts");
+  });
+
+  it("omits the failure field for passing checks even on a mixed report", () => {
+    const report = createReport({
+      allPassed: false,
+      results: [
+        createResult({ name: "npm run typecheck", passed: true }),
+        createResult({ name: "npm run test", passed: false, output: "FAIL boom" }),
+      ],
+    });
+    const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
+    expect(parsed.results[0].failure).toBeUndefined();
+    expect(parsed.results[1].failure).toBeDefined();
+  });
+
+  it("preserves changedFiles when present", () => {
+    const report = createReport({
+      changedFiles: ["src/a.ts", "src/b.ts"],
+    });
+    const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
+    expect(parsed.changedFiles).toEqual(["src/a.ts", "src/b.ts"]);
+  });
+
+  it("omits changedFiles entirely when undefined (the --scope path)", () => {
+    const report = createReport({}); // changedFiles defaults to undefined
+    const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
+    expect(parsed).not.toHaveProperty("changedFiles");
   });
 });

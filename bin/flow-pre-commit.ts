@@ -44,6 +44,44 @@ export type CheckReport = {
   changedFiles?: string[];
 };
 
+/**
+ * Bounded failure excerpt emitted in `--json` mode. The point of this shape is
+ * to keep the supervisor's context predictable: a 50–200 KB stack trace is
+ * compressed to a few hundred lines max regardless of the underlying check's
+ * verbosity. See `/flow-pipeline` step 6 for the consumer.
+ */
+export type FailureExcerpt = {
+  /** 1-based index of `firstErrorText` within the un-ANSI'd output. */
+  firstErrorLine: number | null;
+  /** First line in the output matching the error/fail regex, ≤500 chars. */
+  firstErrorText: string;
+  /** First HEAD_LINES lines of the un-ANSI'd output. */
+  headExcerpt: string;
+  /** Last TAIL_LINES lines of the un-ANSI'd output. Empty when total ≤ HEAD+TAIL. */
+  tailExcerpt: string;
+  /** Total line count of the un-ANSI'd output before excerpting. */
+  totalLines: number;
+};
+
+export type JsonResult = {
+  name: string;
+  scope: Scope;
+  passed: boolean;
+  durationMs: number;
+  failure?: FailureExcerpt;
+};
+
+export type JsonReport = {
+  scopes: Scope[];
+  results: JsonResult[];
+  allPassed: boolean;
+  changedFiles?: string[];
+};
+
+const HEAD_LINES = 100;
+const TAIL_LINES = 100;
+const FIRST_ERROR_TEXT_MAX = 500;
+
 export type PrePushRef = {
   localRef: string;
   localSha: string;
@@ -379,6 +417,80 @@ function formatDuration(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+// --- JSON output ---
+
+const ANSI_REGEX = /\x1b\[[0-9;]*[A-Za-z]/g;
+// Matches the most common terminal/runner failure markers. `\b` word
+// boundaries cover error/fail/FAIL (case-insensitive); the symbols ✗ ✘ are
+// matched directly because word boundaries don't apply to non-word codepoints.
+const FIRST_ERROR_REGEX = /\b(?:error|fail)\b|✗|✘/i;
+
+/** Strips ANSI escape sequences and replaces non-printable bytes with `�`. */
+export function stripAnsi(text: string): string {
+  return text.replace(ANSI_REGEX, "").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "�");
+}
+
+/**
+ * Builds a bounded `FailureExcerpt` from a check's raw stdout+stderr. Used by
+ * `--json` mode to produce predictable-size output for downstream consumers
+ * (the `/flow-pipeline` supervisor and `/verify` sub-skill) instead of the
+ * uncapped raw output that `formatReport` indents inline.
+ */
+export function buildFailureExcerpt(rawOutput: string): FailureExcerpt {
+  const cleaned = stripAnsi(rawOutput);
+  const lines = cleaned.split("\n");
+  // A trailing newline produces a final empty element from `split`. Drop it
+  // so `totalLines` reflects content lines, not the artifact of the split.
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+  const totalLines = lines.length;
+
+  let firstErrorLine: number | null = null;
+  let firstErrorText = "";
+  for (let i = 0; i < lines.length; i++) {
+    if (FIRST_ERROR_REGEX.test(lines[i])) {
+      firstErrorLine = i + 1;
+      firstErrorText = lines[i].slice(0, FIRST_ERROR_TEXT_MAX);
+      break;
+    }
+  }
+
+  let headExcerpt: string;
+  let tailExcerpt: string;
+  if (totalLines <= HEAD_LINES + TAIL_LINES) {
+    headExcerpt = lines.join("\n");
+    tailExcerpt = "";
+  } else {
+    headExcerpt = lines.slice(0, HEAD_LINES).join("\n");
+    tailExcerpt = lines.slice(totalLines - TAIL_LINES).join("\n");
+  }
+
+  return { firstErrorLine, firstErrorText, headExcerpt, tailExcerpt, totalLines };
+}
+
+/**
+ * Renders a `CheckReport` as a single JSON object string. Failures get a
+ * bounded `FailureExcerpt`; passing checks omit the `failure` field entirely
+ * to keep the structure compact.
+ */
+export function formatJsonReport(report: CheckReport): string {
+  const json: JsonReport = {
+    scopes: report.scopes,
+    results: report.results.map((r) => {
+      const result: JsonResult = {
+        name: r.name,
+        scope: r.scope,
+        passed: r.passed,
+        durationMs: r.durationMs,
+      };
+      if (!r.passed) result.failure = buildFailureExcerpt(r.output);
+      return result;
+    }),
+    allPassed: report.allPassed,
+  };
+  if (report.changedFiles !== undefined) json.changedFiles = report.changedFiles;
+  return JSON.stringify(json, null, 2);
+}
+
 // --- CLI ---
 
 function printHelp(): void {
@@ -392,6 +504,12 @@ Options:
   --scope <scopes>   Comma-separated scopes: src, scripts, docs
   --pr <number>      Detect scopes from PR changed files
   --pre-push         Read refs from stdin (used by .githooks/pre-push)
+  --json             Emit a single bounded JSON object on stdout instead
+                     of the human-readable report. Failures include a
+                     {firstErrorLine, firstErrorText, headExcerpt,
+                     tailExcerpt, totalLines} excerpt capped at ~200 lines
+                     per check. Consumed by the /verify sub-skill and the
+                     /flow-pipeline step 6 retry prompt.
   --help, -h         Show this help message
 
 When no flags are given, scopes are auto-detected from \`git diff HEAD\`.
@@ -414,6 +532,7 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
+  const json = args.includes("--json");
   const prePush = args.includes("--pre-push");
   let scopes: Scope[];
   let changedFiles: string[] | undefined;
@@ -467,9 +586,11 @@ async function main(): Promise<void> {
   for (const scope of scopes) {
     const checks = filterDefinedChecks(checksForScope(scope), definedScripts);
     if (checks.length === 0) {
-      console.log(
-        `Scope '${scope}': no matching npm scripts defined in package.json — skipping.`,
-      );
+      // In --json mode this diagnostic would corrupt stdout (which must be
+      // a single parseable JSON object), so route it to stderr instead.
+      const skipMsg = `Scope '${scope}': no matching npm scripts defined in package.json — skipping.`;
+      if (json) console.error(skipMsg);
+      else console.log(skipMsg);
       continue;
     }
     for (const check of checks) {
@@ -485,7 +606,7 @@ async function main(): Promise<void> {
     changedFiles,
   };
 
-  console.log(formatReport(report));
+  console.log(json ? formatJsonReport(report) : formatReport(report));
   process.exit(report.allPassed ? 0 : 1);
 }
 

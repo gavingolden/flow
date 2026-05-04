@@ -97,6 +97,12 @@ a missed finding that a human reviewer will catch.
 
 ## Diff
 
+The diff below may be per-file truncated (`flow-pr-diff` caps each block at 300 lines
+by default; large files include a `... [truncated N lines] ...` marker pointing at the
+full `gh pr diff <number>` output). Use the diff for a fast "what changed" pass; for any
+finding that requires more context than the diff shows, Read the changed file in full
+via the changed-files list above — the diff is a hint, not the source of truth.
+
 {{DIFF}}
 ```
 
