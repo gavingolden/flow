@@ -3,9 +3,9 @@
  * so `flow ls` reads one directory and state survives worktree cleanup.
  *
  * Schema is deliberately small. Writers:
- *   - `flow new`        creates with phase: "starting"
- *   - supervisor (PR 2) updates phase + pr at every transition
- *   - `flow done`       removes
+ *   - `flow new`         creates with phase: "starting"
+ *   - `flow-state-update` updates phase / pr / worktree at every transition
+ *   - `flow done`        removes
  */
 
 import * as fs from "node:fs";

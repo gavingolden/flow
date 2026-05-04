@@ -113,6 +113,21 @@ describe("flow-stop-guard short-circuits", () => {
     });
     expect(await run(deps)).toBe(0);
   });
+
+  it("malformed JSON does not bypass the phase check (still blocks mid-pipeline)", async () => {
+    // Regression guard: the malformed-JSON branch falls through to the rest
+    // of the checks rather than short-circuiting like `stop_hook_active`.
+    // If a future refactor accidentally collapses the two, mid-pipeline
+    // turn-ends would silently exit 0 whenever the harness sent garbage.
+    const { deps, errLines } = makeDeps({
+      stdin: "{not json",
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("implementing"),
+    });
+    expect(await run(deps)).toBe(2);
+    expect(errLines.join("")).toContain("DO NOT END THE TURN");
+  });
 });
 
 describe("flow-stop-guard allows legitimate end phases", () => {
