@@ -72,7 +72,7 @@ export async function run(deps: Deps): Promise<number> {
   return 2;
 }
 
-const NEXT_STEP_BY_PHASE: Record<string, string> = {
+export const NEXT_STEP_BY_PHASE: Record<string, string> = {
   starting: "step 1 (triage) — first action should be flow-state-update --phase triaging",
   triaging: "step 2 (worktree-create)",
   "worktree-create": "step 3 (plan)",

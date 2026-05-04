@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
+import { STEP_PHASES } from "./lib/state";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -76,4 +78,38 @@ describe("flow-pipeline SKILL.md structural lint", () => {
         "find the canonical phase set in bin/lib/state.ts.",
     ).toBe(true);
   });
+});
+
+describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-doc lint", () => {
+  it.each(STEP_PHASES.map((phase) => [phase]))(
+    "every `step N(.M)?` reference in NEXT_STEP_BY_PHASE['%s'] maps to a `## Step N — ` heading in SKILL.md",
+    (phase) => {
+      const label = NEXT_STEP_BY_PHASE[phase];
+      expect(
+        label,
+        `flow-stop-guard NEXT_STEP_BY_PHASE is missing an entry for ` +
+          `STEP_PHASES value '${phase}'. Every step phase needs a "next step" ` +
+          `reminder so the Stop hook can tell the supervisor where to go next.`,
+      ).toBeDefined();
+
+      const refs = [...label!.matchAll(/step (\d+(?:\.\d+)?)/gi)].map((m) => m[1]);
+      expect(
+        refs.length,
+        `NEXT_STEP_BY_PHASE['${phase}'] = ${JSON.stringify(label)} contains ` +
+          `no \`step N\` reference; the helper's "continue to ..." reminder ` +
+          `would be uninformative.`,
+      ).toBeGreaterThan(0);
+
+      for (const n of refs) {
+        const needle = `## Step ${n} `;
+        expect(
+          content.includes(needle),
+          `NEXT_STEP_BY_PHASE['${phase}'] = ${JSON.stringify(label)} ` +
+            `references 'step ${n}', but SKILL.md has no '${needle}— ' heading. ` +
+            `A step renumber/rename in SKILL.md has drifted the helper's ` +
+            `reminder text away from the doc.`,
+        ).toBe(true);
+      }
+    },
+  );
 });
