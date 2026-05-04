@@ -96,12 +96,20 @@ export function discoverHelpers(flowSource: string, targets = DEFAULT_TARGETS): 
     }));
 }
 
-/** The flow wrapper itself. Symlinked to <binDir>/flow. */
+/**
+ * The flow wrapper itself. Symlinked to <binDir>/flow.
+ *
+ * Anchored to `installRoot`, never `flowSource`. Bun's `import.meta.path`
+ * resolves the wrapper symlink to derive `resolveFlowSource()`, so pointing
+ * `~/.local/bin/flow` at a worktree's wrapper would (a) dangle the moment
+ * `flow-remove-worktree` runs and (b) poison every subsequent `flow setup`
+ * by collapsing `installRoot` onto the worktree path.
+ */
 export function flowWrapperEntry(
-  flowSource: string,
+  installRoot: string,
   targets = DEFAULT_TARGETS,
 ): SourceEntry | null {
-  const candidate = path.join(flowSource, "bin", "flow");
+  const candidate = path.join(installRoot, "bin", "flow");
   if (!fs.existsSync(candidate)) return null;
   return {
     source: candidate,
@@ -137,15 +145,27 @@ export function discoverCompletions(
   return entries;
 }
 
-/** All entries `flow setup` should install, in display order. */
-export function discoverAll(flowSource: string, targets = DEFAULT_TARGETS): SourceEntry[] {
+/**
+ * All entries `flow setup` should install, in display order.
+ *
+ * Content discovery (skills/agents/helpers/completions) reads from
+ * `flowSource` so step 5.5's `--source <worktree>` can pull in-flight skill
+ * additions; the wrapper entry reads from `installRoot` so
+ * `~/.local/bin/flow` always points at canonical even when discovery is
+ * pointed at a worktree.
+ */
+export function discoverAll(
+  flowSource: string,
+  installRoot: string,
+  targets = DEFAULT_TARGETS,
+): SourceEntry[] {
   const all = [
     ...discoverSkills(flowSource, targets),
     ...discoverAgents(flowSource, targets),
     ...discoverHelpers(flowSource, targets),
     ...discoverCompletions(flowSource, targets),
   ];
-  const wrapper = flowWrapperEntry(flowSource, targets);
+  const wrapper = flowWrapperEntry(installRoot, targets);
   if (wrapper) all.push(wrapper);
   return all;
 }

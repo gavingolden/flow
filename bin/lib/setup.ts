@@ -113,7 +113,7 @@ function runUnderLock(
   log: (msg: string) => void,
   options: SetupOptions,
 ): SetupSummary {
-  const entries = discoverAll(flowSource, targets);
+  const entries = discoverAll(flowSource, installRoot, targets);
   const summary: SetupSummary = { created: 0, updated: 0, skipped: 0, blocked: 0, removed: 0 };
 
   log(`flow: setup`);

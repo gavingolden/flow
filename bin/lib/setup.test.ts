@@ -10,6 +10,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runSetup } from "./setup";
+import { runSetupCli } from "./setup-args";
 import { readManifest } from "./manifest";
 import { LockTimeoutError } from "./lock";
 
@@ -426,6 +427,72 @@ describe("flow setup", () => {
       // realpath on both sides — ensureSymlink writes realpath'd targets, and
       // /var → /private/var canonicalization on macOS would otherwise yield a
       // string mismatch.
+      expect(fs.realpathSync(path.join(t.skillsDir, "epsilon"))).toBe(
+        fs.realpathSync(path.join(worktree, "skills", "pipeline", "epsilon")),
+      );
+    });
+
+    it("the production CLI path keeps installRoot canonical and the wrapper anchored when --source overrides flowSource", () => {
+      // Regression: prior to the fix, runSetup's `installRoot` fell back
+      // through `resolveFlowSource()` whenever the CLI didn't pass it
+      // explicitly. Running from inside a worktree (or after a previous
+      // `--source` poisoned `~/.local/bin/flow`) collapsed `installRoot`
+      // onto the worktree, so `canonicalizeRecordedSource` short-circuited
+      // and the manifest stamped worktree-rooted paths. The wrapper itself
+      // was also anchored to `flowSource`, dangling on worktree removal.
+      //
+      // This test drives setup through `runSetupCli` (the production path)
+      // with a fake `<homeDir>/.flow/config.json` controlling
+      // `resolveFlowSource()`'s output. `installRoot` must be captured at
+      // the CLI seam — not re-derived after the override applies — and the
+      // wrapper symlink must resolve to the install-root fixture, not the
+      // worktree.
+      const worktree = path.join(scratch, "worktree");
+      buildFakeFlowSource(worktree);
+      fs.mkdirSync(path.join(worktree, "skills", "pipeline", "epsilon"), { recursive: true });
+      fs.writeFileSync(
+        path.join(worktree, "skills", "pipeline", "epsilon", "SKILL.md"),
+        "# epsilon\n",
+      );
+
+      // Stand up `~/.flow/config.json` in the fake home so the production
+      // `resolveFlowSource(homeDir)` returns the install-root fixture.
+      fs.mkdirSync(path.join(homeDir, ".flow"), { recursive: true });
+      fs.writeFileSync(
+        path.join(homeDir, ".flow", "config.json"),
+        JSON.stringify({ source: flowSource }),
+      );
+
+      // Drive via `runSetupCli`. Crucially we pass NO `installRoot` —
+      // the CLI seam must compute it from `resolveFlowSource(homeDir)`.
+      const code = runSetupCli(["--source", worktree], {
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        quiet: true,
+      });
+      expect(code).toBe(0);
+
+      // Manifest records install-root paths only.
+      const manifest = readManifest(manifestPath);
+      for (const record of manifest.symlinks) {
+        expect(record.source.startsWith(flowSource)).toBe(true);
+        expect(record.source.startsWith(worktree)).toBe(false);
+      }
+
+      // The wrapper symlink at ~/.local/bin/flow resolves to the
+      // install-root fixture's bin/flow — not the worktree's.
+      const t = targets();
+      const wrapperLink = path.join(t.binDir, "flow");
+      expect(fs.realpathSync(wrapperLink)).toBe(
+        fs.realpathSync(path.join(flowSource, "bin", "flow")),
+      );
+
+      // Sanity: in-flight content (epsilon) still resolves to the worktree
+      // — the fix must not break step 5.5's purpose.
       expect(fs.realpathSync(path.join(t.skillsDir, "epsilon"))).toBe(
         fs.realpathSync(path.join(worktree, "skills", "pipeline", "epsilon")),
       );
