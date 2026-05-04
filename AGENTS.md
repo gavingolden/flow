@@ -136,10 +136,11 @@ is one Claude Code chat session, sub-skills (`/product-planning`,
 `/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses, **with one named exception** — see the
-"Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
-Multi-Agent Review" entry under `## Don'ts` below. This sidesteps two
-limits at once:
+`claude -p ...` subprocesses, **with two narrowly-named exceptions**
+— see the "Task-tool exemption: `/flow-pipeline` → `/pr-review`
+Independent Multi-Agent Review" and "Task-tool exemption:
+`/flow-pipeline` → `/product-planning` Independent Discovery Subagent"
+entries under `## Don'ts` below. This sidesteps two limits at once:
 
 1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
 2. A long-running supervisor with sub-agents would bloat past the
@@ -209,9 +210,10 @@ no compile step.
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The single
-  named exception is `/pr-review`'s Independent Multi-Agent Review
-  step — covered by the "Task-tool exemption" bullet below; no other
+- Don't spawn sub-agents from the supervisor. See above. The two
+  named exceptions are `/pr-review`'s Independent Multi-Agent Review
+  step and `/product-planning`'s Independent Discovery Subagent —
+  both covered by "Task-tool exemption" bullets below; no other
   skill or step may call Task.
 - Don't add features beyond the task's stated scope.
 - Don't introduce a database. Markdown plan files plus
@@ -251,7 +253,7 @@ no compile step.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
     Multi-Agent Review.** `/flow-pipeline`'s "Hard rules" section
     forbids the supervisor from calling the `Task` / `Agent` tool,
-    with one named exception: when `/flow-pipeline` step 8 loads
+    with named exceptions only: when `/flow-pipeline` step 8 loads
     `/pr-review` and `/pr-review` reaches its "Independent
     Multi-Agent Review" step, four review agents are spawned in
     parallel via the Task tool. The exemption is anchored on the
@@ -261,10 +263,34 @@ no compile step.
     + `claude`), so the one-level sub-agent cap doesn't apply to
     *its* Task calls; and the multi-agent review is one-shot, not
     long-running, so the context-bloat constraint also doesn't
-    apply. This is the **only** authorised Task-tool fan-out from
-    `/flow-pipeline`; no other skill or step may call Task. The
-    contract is documented bidirectionally in
+    apply. The contract is documented bidirectionally in
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
     `skills/pipeline/pr-review/SKILL.md`'s Independent Multi-Agent
     Review preamble. Same narrow-and-named contract as the
     `/pr-review` and `/flow-pipeline` exemptions above.
+  - **Task-tool exemption: `/flow-pipeline` → `/product-planning`
+    Independent Discovery Subagent.** When `/flow-pipeline` step 3
+    loads `/product-planning`, the wrapper spawns one discovery
+    agent via the Task tool. The exemption is anchored on the step
+    heading name rather than its number so it survives future
+    `/product-planning` renumbering. Rationale: the same two
+    constraints as above — the supervisor is top-level so the
+    one-level sub-agent cap doesn't apply to *its* Task calls; and
+    the discovery is one-shot, returning artifacts (`.flow-tmp/plan.md`
+    and `.flow-tmp/pr-description-draft.md`) plus a brief summary
+    rather than running long. The reason this exemption exists at
+    all is the context cost: discovery reads the README, scans the
+    skill directory, examines domain models, drafts a PRD — none of
+    which the supervisor refers to in steps 5–10, but all of which
+    would otherwise sit in the supervisor's transcript for the rest
+    of the run. Since the only handoff from `/product-planning` to
+    downstream steps is `.flow-tmp/plan.md` already, isolating the
+    discovery in a subagent costs nothing the supervisor was using.
+    The contract is documented bidirectionally in
+    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
+    `skills/pipeline/product-planning/SKILL.md`'s "Independent
+    Discovery Subagent" preamble. Same narrow-and-named contract as
+    the exemptions above. Together with the `/pr-review`
+    Multi-Agent Review entry, these are the **only two** authorised
+    Task-tool fan-out sites from `/flow-pipeline`; no other skill or
+    step may call Task.
