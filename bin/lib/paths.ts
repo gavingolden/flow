@@ -27,9 +27,10 @@ export const LOCAL_BIN_DIR = path.join(HOME, ".local", "bin");
 
 type FlowConfig = { source?: string };
 
-function readConfig(): FlowConfig {
+function readConfig(homeDir: string): FlowConfig {
+  const configPath = path.join(homeDir, ".flow", "config.json");
   try {
-    return JSON.parse(fs.readFileSync(FLOW_CONFIG, "utf8")) as FlowConfig;
+    return JSON.parse(fs.readFileSync(configPath, "utf8")) as FlowConfig;
   } catch {
     return {};
   }
@@ -37,16 +38,20 @@ function readConfig(): FlowConfig {
 
 /**
  * Resolves the flow source checkout. Order of precedence:
- *   1. ~/.flow/config.json `source` field
+ *   1. <homeDir>/.flow/config.json `source` field
  *   2. The directory two levels up from this module. Bun resolves
  *      import.meta.path through symlinks to the canonical file at
  *      <flow-source>/bin/lib/paths.ts; Node (used by vitest) doesn't
  *      define `path` on import.meta but does provide a file:// URL, so
  *      we fall back to fileURLToPath on import.meta.url for portability.
+ *
+ * The `homeDir` parameter exists so tests can stand up a fake
+ * `~/.flow/config.json` and exercise the production resolution path. Same
+ * pattern as `applyShellRcCompletions` in `setup-rc.ts`.
  */
-export function resolveFlowSource(): string {
-  const config = readConfig();
-  if (config.source) return path.resolve(config.source.replace(/^~/, HOME));
+export function resolveFlowSource(homeDir: string = HOME): string {
+  const config = readConfig(homeDir);
+  if (config.source) return path.resolve(config.source.replace(/^~/, homeDir));
   return path.resolve(path.dirname(modulePath()), "..", "..");
 }
 

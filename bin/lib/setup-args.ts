@@ -5,6 +5,7 @@
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";
+import { resolveFlowSource } from "./paths";
 import { runSetup, type SetupOptions } from "./setup";
 
 export type ParsedSetupArgs = {
@@ -75,6 +76,15 @@ export function runSetupCli(args: string[], extraOptions?: SetupOptions): number
     console.error(USAGE);
     return 2;
   }
-  const summary = runSetup({ ...parsed, ...extraOptions });
+  // Pin installRoot to canonical at the CLI seam when --source is in play.
+  // Without this, runSetup's internal fallback through resolveFlowSource()
+  // would re-derive installRoot after the wrapper symlink was already
+  // poisoned by a prior --source run, collapsing it onto the worktree and
+  // stranding the manifest on the next worktree removal.
+  const opts: SetupOptions = { ...parsed, ...extraOptions };
+  if (parsed.flowSource !== undefined && opts.installRoot === undefined) {
+    opts.installRoot = resolveFlowSource(opts.homeDir);
+  }
+  const summary = runSetup(opts);
   return summary.blocked > 0 ? 1 : 0;
 }
