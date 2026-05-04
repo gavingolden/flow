@@ -12,7 +12,11 @@
  * user expected to be gated. This helper makes the parse mechanical.
  *
  * Usage:
- *   flow-gate-decide <PR> --slug <slug>
+ *   flow-gate-decide <PR> [--slug <slug>]
+ *
+ * `--slug` is optional when invoked from inside a flow tmux pane: it
+ * auto-resolves from `$TMUX_PANE`'s `@flow-slug` window option. The
+ * explicit flag still works for callers outside tmux.
  *
  * Output: a single JSON object on stdout.
  *   {
@@ -34,6 +38,7 @@
 import { spawnSync } from "node:child_process";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
+import { resolveSlugFromPane } from "./lib/tmux";
 
 export type Decision =
   | "auto-merge"
@@ -226,7 +231,7 @@ export function fetchPrInputs(prNumber: number, gh: GhRunner): FetchResult {
 
 // --- CLI -------------------------------------------------------------------
 
-type Args = { pr: number; slug: string };
+type Args = { pr: number; slug?: string };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   if (argv.length === 0) return { error: "PR number is required" };
@@ -248,29 +253,41 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     }
     return { error: `unknown flag: ${flag}` };
   }
-  if (!slug) return { error: "--slug is required" };
+  // --slug is optional: when omitted, the runner falls back to
+  // resolveSlugFromPane(). Keep parseArgs pure — don't shell out here.
   return { pr, slug };
 }
 
 export type Deps = {
   gh?: GhRunner;
   stateDir?: string;
+  resolveSlug?: () => string | null;
 };
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     console.error(`flow-gate-decide: ${parsed.error}`);
-    console.error("usage: flow-gate-decide <PR> --slug <slug>");
+    console.error("usage: flow-gate-decide <PR> [--slug <slug>]");
+    return 2;
+  }
+
+  const slug = parsed.slug ?? resolveSlug();
+  if (!slug) {
+    console.error(
+      "flow-gate-decide: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
+        "  pass --slug <slug>, or run inside a tmux window created by `flow new`.",
+    );
     return 2;
   }
 
   // Read autoMerge from state.json. Absent state file → fall back to default
   // true (matches the documented happy-path default in lib/state.ts).
-  const state = readState(parsed.slug, stateDir);
+  const state = readState(slug, stateDir);
   const autoMerge = state?.autoMerge ?? true;
 
   const fetched = fetchPrInputs(parsed.pr, gh);

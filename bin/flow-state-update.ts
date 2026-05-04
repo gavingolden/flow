@@ -8,10 +8,16 @@
  * the writer the supervisor uses to keep it current.
  *
  * Usage:
- *   flow-state-update <slug> [--phase <phase>] [--pr <number>] [--worktree <path>]
- *                            [--auto-merge | --no-auto-merge]
+ *   flow-state-update [<slug>] [--phase <phase>] [--pr <number>] [--worktree <path>]
+ *                              [--auto-merge | --no-auto-merge]
  *
  * - At least one update flag is required.
+ * - The slug is optional when invoked from inside a flow tmux pane: it
+ *   auto-resolves from `$TMUX_PANE`'s `@flow-slug` window option. The
+ *   supervisor's per-call shell loses any `SLUG=…` it sets between
+ *   Bash tool calls, so the auto-resolve path is the load-bearing one;
+ *   the explicit positional stays for back-compat and for callers
+ *   outside tmux.
  * - The slug must already have a state file (created by `flow new`).
  *   Refuses to invent state out of nowhere — that surfaces drift
  *   instead of papering over it.
@@ -31,10 +37,12 @@ import {
   type PipelineState,
 } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
+import { resolveSlugFromPane } from "./lib/tmux";
 import { BRANCH_MARKER_FILENAME } from "./lib/worktree-marker";
 
 type Args = {
-  slug: string;
+  /** undefined when omitted — runUpdate falls back to resolveSlugFromPane(). */
+  slug?: string;
   phase?: string;
   pr?: number;
   worktree?: string;
@@ -87,14 +95,18 @@ export function checkWorktreeBranch(worktreePath: string | undefined): GuardResu
 }
 
 export function parseArgs(argv: string[]): Args | { error: string } {
-  if (argv.length === 0) {
-    return { error: "slug is required" };
+  // Slug is optional when present-but-leading-with-`--`: the supervisor
+  // calls `flow-state-update --phase <p>` from inside its own pane and
+  // expects auto-resolution. Treat a leading `--` arg as "no slug given"
+  // rather than an error.
+  let rest: string[];
+  const out: Args = {};
+  if (argv.length > 0 && !argv[0].startsWith("--")) {
+    out.slug = argv[0];
+    rest = argv.slice(1);
+  } else {
+    rest = argv;
   }
-  const [slug, ...rest] = argv;
-  if (slug.startsWith("--")) {
-    return { error: "slug must be the first positional argument" };
-  }
-  const out: Args = { slug };
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i];
     if (flag === "--auto-merge" || flag === "--no-auto-merge") {
@@ -152,20 +164,42 @@ export function applyUpdate(existing: PipelineState, args: Args): PipelineState 
   };
 }
 
-export function runUpdate(argv: string[], dir = FLOW_STATE_DIR): number {
+export type RunUpdateDeps = {
+  /**
+   * Slug fallback when the positional arg is omitted. Defaults to
+   * `resolveSlugFromPane()` against the real tmux. Tests inject a
+   * stub.
+   */
+  resolveSlug?: () => string | null;
+};
+
+export function runUpdate(
+  argv: string[],
+  dir = FLOW_STATE_DIR,
+  deps: RunUpdateDeps = {},
+): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     console.error(`flow-state-update: ${parsed.error}`);
     console.error(
-      "usage: flow-state-update <slug> [--phase <phase>] [--pr <number>] [--worktree <path>]\n" +
-        "                              [--auto-merge | --no-auto-merge]",
+      "usage: flow-state-update [<slug>] [--phase <phase>] [--pr <number>] [--worktree <path>]\n" +
+        "                                 [--auto-merge | --no-auto-merge]",
     );
     return 2;
   }
-  const existing = readState(parsed.slug, dir);
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
+  const slug = parsed.slug ?? resolveSlug();
+  if (!slug) {
+    console.error(
+      "flow-state-update: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
+        "  pass <slug> explicitly, or run inside a tmux window created by `flow new`.",
+    );
+    return 2;
+  }
+  const existing = readState(slug, dir);
   if (!existing) {
     console.error(
-      `flow-state-update: no state file for slug '${parsed.slug}'.\n` +
+      `flow-state-update: no state file for slug '${slug}'.\n` +
         "  did you forget to run `flow new`? state files live at ~/.flow/state/<slug>.json.",
     );
     return 1;

@@ -6,6 +6,8 @@ import {
   findWindowBySlug,
   parseAliveStatus,
   parseWindowList,
+  resolveSlugFromPane,
+  type SpawnResult,
   type TmuxWindow,
 } from "./tmux";
 
@@ -185,5 +187,47 @@ describe(findWindowBySlug, () => {
   it("returns undefined when neither slug nor name match", () => {
     const windows = [w({ id: "@1", name: "a", slug: "b" })];
     expect(findWindowBySlug(windows, "missing")).toBeUndefined();
+  });
+});
+
+describe(resolveSlugFromPane, () => {
+  function fakeSpawn(result: SpawnResult): { calls: string[][]; spawnTmux: (args: string[]) => SpawnResult } {
+    const calls: string[][] = [];
+    return {
+      calls,
+      spawnTmux: (args) => {
+        calls.push(args);
+        return result;
+      },
+    };
+  }
+
+  it("returns null when $TMUX_PANE is unset (helper invoked outside tmux)", () => {
+    const { calls, spawnTmux } = fakeSpawn({ stdout: "", stderr: "", exitCode: 0 });
+    expect(resolveSlugFromPane({ env: {}, spawnTmux })).toBeNull();
+    // Don't even shell out — short-circuit on the env miss.
+    expect(calls).toEqual([]);
+  });
+
+  it("returns null when tmux exits non-zero (option unset on the window)", () => {
+    const { spawnTmux } = fakeSpawn({ stdout: "", stderr: "no such option", exitCode: 1 });
+    expect(resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux })).toBeNull();
+  });
+
+  it("returns null when the option resolves to an empty / whitespace string", () => {
+    const { spawnTmux } = fakeSpawn({ stdout: "  \n", stderr: "", exitCode: 0 });
+    expect(resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux })).toBeNull();
+  });
+
+  it("returns the trimmed slug when the option is set on the window", () => {
+    const { calls, spawnTmux } = fakeSpawn({
+      stdout: "csv-export\n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux })).toBe("csv-export");
+    // Targets the pane (not the session) and reads the window-scoped
+    // user option with -v so we get just the value.
+    expect(calls).toEqual([["show-options", "-t", "%42", "-v", "-w", "@flow-slug"]]);
   });
 });

@@ -50,6 +50,7 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { readState, type PipelineState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
+import { resolveSlugFromPane } from "./lib/tmux";
 
 // --- Types -----------------------------------------------------------------
 
@@ -327,6 +328,7 @@ export type Deps = {
   gh?: GhRunner;
   git?: GitRunner;
   stateDir?: string;
+  resolveSlug?: () => string | null;
 };
 
 /** Probes the worktree path's status. Used by the runner to build Inputs.worktree. */
@@ -450,12 +452,20 @@ export function probeCi(prNumber: number, gh: GhRunner): CiState {
 
 // --- CLI -------------------------------------------------------------------
 
-export function parseArgs(argv: string[]): { slug: string } | { error: string } {
-  if (argv.length === 0) return { error: "slug is required" };
+export function parseArgs(argv: string[]): { slug?: string } | { error: string } {
+  // Slug is optional: when omitted, the caller resolves from $TMUX_PANE.
+  // A leading flag is treated as "no slug given" (matches the auto-resolve
+  // contract used by flow-state-update / flow-open-pr).
+  if (argv.length === 0) return {};
+  for (const a of argv) {
+    if (a === "--help" || a === "-h") return { error: "help" };
+  }
   const [first, ...rest] = argv;
-  if (first.startsWith("--")) return { error: "slug must be the first positional argument" };
+  if (first.startsWith("--")) {
+    if (rest.length > 0) return { error: `unknown flag: ${first}` };
+    return { error: `unknown flag: ${first}` };
+  }
   for (const flag of rest) {
-    if (flag === "--help" || flag === "-h") return { error: "help" };
     return { error: `unknown flag: ${flag}` };
   }
   return { slug: first };
@@ -513,30 +523,40 @@ export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const git = deps.git ?? defaultGit;
   const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     if (parsed.error === "help") {
-      console.log("usage: flow-resume-decide <slug>");
+      console.log("usage: flow-resume-decide [<slug>]");
       return 0;
     }
     console.error(`flow-resume-decide: ${parsed.error}`);
-    console.error("usage: flow-resume-decide <slug>");
+    console.error("usage: flow-resume-decide [<slug>]");
     return 2;
   }
 
-  const state = readState(parsed.slug, stateDir);
+  const slug = parsed.slug ?? resolveSlug();
+  if (!slug) {
+    console.error(
+      "flow-resume-decide: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
+        "  pass <slug> explicitly, or run inside a tmux window created by `flow new`.",
+    );
+    return 2;
+  }
+
+  const state = readState(slug, stateDir);
   if (!state) {
     const result: DecisionResult = {
       resumeAt: "abort",
       reason: "state-missing-on-resume",
-      context: { slug: parsed.slug, phase: "" },
+      context: { slug, phase: "" },
     };
     process.stdout.write(JSON.stringify(result) + "\n");
     return 0;
   }
 
-  const inputs = gatherInputs(parsed.slug, state, gh, git);
+  const inputs = gatherInputs(slug, state, gh, git);
   const decision = decide(inputs);
   process.stdout.write(JSON.stringify(decision) + "\n");
   return 0;

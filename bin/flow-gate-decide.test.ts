@@ -297,15 +297,17 @@ describe(parseArgs, () => {
     });
   });
 
-  it("requires --slug", () => {
-    expect(parseArgs(["100"])).toEqual({ error: "--slug is required" });
+  it("treats --slug as optional (auto-resolve path) — parses PR-only", () => {
+    // Previously rejected with '--slug is required'. The supervisor now
+    // relies on this form: the slug auto-resolves from $TMUX_PANE.
+    expect(parseArgs(["100"])).toEqual({ pr: 100 });
   });
 
   it("rejects unknown flags", () => {
     expect(parseArgs(["100", "--bogus", "x"])).toEqual({ error: "unknown flag: --bogus" });
   });
 
-  it("parses a valid invocation", () => {
+  it("parses a valid invocation with explicit slug (back-compat)", () => {
     expect(parseArgs(["142", "--slug", "csv-export"])).toEqual({ pr: 142, slug: "csv-export" });
   });
 });
@@ -403,5 +405,73 @@ describe("run() integration", () => {
     const exit = run([], { gh: vi.fn(), stateDir });
     errSpy.mockRestore();
     expect(exit).toBe(2);
+  });
+
+  it("auto-resolves --slug from $TMUX_PANE when omitted", () => {
+    seedState("delta", false);
+    const gh = vi.fn(() => ({
+      stdout: JSON.stringify({
+        body: "## Test Steps\n\n<!-- empty -->\n",
+        state: "OPEN",
+        url: "https://x/y/pull/2",
+      }),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const writes: string[] = [];
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((s) => {
+      writes.push(s.toString());
+      return true;
+    });
+    const exit = run(["2"], { gh, stateDir, resolveSlug: () => "delta" });
+    writeSpy.mockRestore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(writes.join("")) as DecisionResult;
+    // delta is seeded with autoMerge: false → gated. Confirms the
+    // pane-resolved slug actually fed readState() and surfaced the
+    // recorded autoMerge value.
+    expect(result.decision).toBe("gated");
+    expect(result.autoMerge).toBe(false);
+  });
+
+  it("prefers an explicit --slug over the pane resolver (back-compat)", () => {
+    seedState("epsilon", true);
+    seedState("other-pipeline", false);
+    const gh = vi.fn(() => ({
+      stdout: JSON.stringify({
+        body: "## Test Steps\n\n<!-- empty -->\n",
+        state: "OPEN",
+        url: "https://x/y/pull/3",
+      }),
+      stderr: "",
+      exitCode: 0,
+    }));
+    const writes: string[] = [];
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((s) => {
+      writes.push(s.toString());
+      return true;
+    });
+    const exit = run(["3", "--slug", "epsilon"], {
+      gh,
+      stateDir,
+      // Resolver disagrees — explicit must win, surfacing autoMerge: true.
+      resolveSlug: () => "other-pipeline",
+    });
+    writeSpy.mockRestore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(writes.join("")) as DecisionResult;
+    expect(result.autoMerge).toBe(true);
+  });
+
+  it("returns 2 when no --slug given and pane has none either", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(["4"], {
+      gh: vi.fn(),
+      stateDir,
+      resolveSlug: () => null,
+    });
+    expect(exit).toBe(2);
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
+    errSpy.mockRestore();
   });
 });

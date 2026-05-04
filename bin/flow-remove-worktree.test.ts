@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseWorktreeListOutput } from "./flow-remove-worktree";
+import { parseWorktreeListOutput, resolveInput } from "./flow-remove-worktree";
 
 // --- parseWorktreeListOutput ---
 
@@ -81,6 +81,29 @@ describe(parseWorktreeListOutput, () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].path).toBe("/repo");
     expect(entries[0].branch).toBeUndefined();
+  });
+});
+
+describe(resolveInput, () => {
+  it("returns the explicit positional when given (back-compat)", () => {
+    expect(resolveInput("agent/improve-tooltips", () => "auto-resolved")).toBe(
+      "agent/improve-tooltips",
+    );
+  });
+
+  it("falls back to the pane resolver when positional is undefined", () => {
+    expect(resolveInput(undefined, () => "csv-export")).toBe("csv-export");
+  });
+
+  it("returns null when neither positional nor pane resolve", () => {
+    expect(resolveInput(undefined, () => null)).toBeNull();
+  });
+
+  it("treats an explicit empty string as 'given' (does not auto-resolve)", () => {
+    // The CLI argv layer strips flags but does not pre-validate non-emptiness.
+    // resolveInput is intentionally narrow: positional ?? fallback. Empty
+    // string passes through and downstream resolveWorktree() rejects it.
+    expect(resolveInput("", () => "should-not-be-used")).toBe("");
   });
 });
 

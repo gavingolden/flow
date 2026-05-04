@@ -37,13 +37,18 @@ function seed(slug: string, overrides: Partial<PipelineState> = {}): void {
 }
 
 describe("parseArgs", () => {
-  it("requires a slug", () => {
-    expect(parseArgs([])).toEqual({ error: "slug is required" });
+  it("requires at least one update flag (empty argv)", () => {
+    expect(parseArgs([])).toEqual({
+      error: "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge is required",
+    });
   });
 
-  it("rejects a flag in the slug position", () => {
-    expect(parseArgs(["--phase", "x"])).toEqual({
-      error: "slug must be the first positional argument",
+  it("treats a leading flag as 'slug omitted' (auto-resolve path)", () => {
+    // Previously rejected with 'slug must be the first positional argument'.
+    // The supervisor now relies on this form: `flow-state-update --phase X`
+    // resolves the slug from $TMUX_PANE.
+    expect(parseArgs(["--phase", "implementing"])).toEqual({
+      phase: "implementing",
     });
   });
 
@@ -261,6 +266,37 @@ describe("runUpdate", () => {
     expect(code).toBe(2);
     const got = readState("csv-export", dir);
     expect(got?.phase).toBe("starting"); // unchanged from seed
+  });
+
+  it("auto-resolves the slug from $TMUX_PANE when omitted", () => {
+    seed("csv-export");
+    const code = runUpdate(["--phase", "implementing"], dir, {
+      resolveSlug: () => "csv-export",
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("implementing");
+  });
+
+  it("prefers an explicit slug over the pane-resolved one (back-compat)", () => {
+    seed("csv-export");
+    seed("other-pipeline");
+    const code = runUpdate(["csv-export", "--phase", "implementing"], dir, {
+      // Pane resolver claims a different pipeline — explicit slug must win.
+      resolveSlug: () => "other-pipeline",
+    });
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("implementing");
+    expect(readState("other-pipeline", dir)?.phase).toBe("starting");
+  });
+
+  it("returns 2 with a clear error when no slug given and pane has none either", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["--phase", "implementing"], dir, {
+      resolveSlug: () => null,
+    });
+    expect(code).toBe(2);
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
+    errSpy.mockRestore();
   });
 });
 
