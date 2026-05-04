@@ -55,34 +55,51 @@ in-process for skills; shell out for scripts; never delegate.
 # Hard rules
 
 > **You are never a sub-agent.** Never call the `Task` / `Agent`
-> tool from this skill — **except for the named exception below**.
+> tool from this skill — **except for the named exceptions below**.
 > Never spawn a separate `claude -p` subprocess. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
-> calls, and (c) the narrowly-named Task-tool exception that follows.
+> calls, and (c) the two narrowly-named Task-tool exceptions that
+> follow.
 >
-> **Task-tool exemption: `/pr-review` Independent Multi-Agent Review.**
-> When the supervisor invokes `/pr-review` in step 8, `/pr-review`'s
-> "Independent Multi-Agent Review" step spawns four review agents in
-> parallel via the Task tool. This is the **only** authorised
-> Task-tool fan-out from this supervisor; no other skill or step may
-> call Task. The exemption is anchored on the step heading name
-> rather than its number so it survives future `/pr-review`
-> renumbering. Rationale: the two constraints behind the rule above
-> are (1) sub-agents can't spawn sub-agents (one-level cap) and (2) a
-> long-running supervisor with sub-agents would bloat past the
-> context window. The supervisor is itself a top-level Claude Code
-> session (started by `flow new` opening tmux + `claude`), so
-> constraint (1) does not apply to *its* Task calls — it applies to
-> *its* sub-agents. Constraint (2) requires the fan-out to be
-> long-running; the multi-agent review is one-shot (four parallel
-> agents return JSON findings, then the parent skill merges and
-> exits). Refactoring `/pr-review` to use in-process skill loads
-> instead would lose the parallelism and the isolated-context benefit
-> each review agent gets; dropping the rule entirely is too broad.
-> Same narrow-and-named contract as the `/pr-review` auto-push and
-> `/flow-pipeline` auto-merge exemptions in `AGENTS.md`. If a future
-> skill needs the same license, add it here by name rather than
-> generalising the rule.
+> The two constraints behind the rule above are (1) sub-agents can't
+> spawn sub-agents (one-level cap) and (2) a long-running supervisor
+> with sub-agents would bloat past the context window. The supervisor
+> is itself a top-level Claude Code session (started by `flow new`
+> opening tmux + `claude`), so constraint (1) does not apply to *its*
+> Task calls — it applies to *its* sub-agents. Both exemptions below
+> are also one-shot, not long-running, so constraint (2) doesn't apply
+> either. They are the **only two** authorised Task-tool fan-out sites
+> from this supervisor; no other skill or step may call Task. Each is
+> anchored on its step heading name rather than its number so it
+> survives future renumbering. Same narrow-and-named contract as the
+> `/pr-review` auto-push and `/flow-pipeline` auto-merge exemptions in
+> `AGENTS.md`. If a future skill needs the same license, add it here
+> by name rather than generalising the rule.
+>
+> **Task-tool exemption #1: `/pr-review` Independent Multi-Agent
+> Review.** When the supervisor invokes `/pr-review` in step 8,
+> `/pr-review`'s "Independent Multi-Agent Review" step spawns four
+> review agents in parallel via the Task tool. The multi-agent review
+> is one-shot (four parallel agents return JSON findings, then the
+> parent skill merges and exits). Refactoring `/pr-review` to use
+> in-process skill loads instead would lose the parallelism and the
+> isolated-context benefit each review agent gets; dropping the rule
+> entirely is too broad.
+>
+> **Task-tool exemption #2: `/product-planning` Independent Discovery
+> Subagent.** When the supervisor invokes `/product-planning` in step
+> 3, the wrapper spawns one discovery agent via the Task tool. The
+> rationale is context cost: discovery reads the README, scans the
+> skill directory, examines domain models, drafts a PRD — none of
+> which the supervisor refers to in steps 5–10, but all of which would
+> otherwise sit in the supervisor's transcript for the rest of the
+> run. Since the only handoff from `/product-planning` to downstream
+> steps is `.flow-tmp/plan.md` already, isolating the discovery in a
+> subagent costs nothing the supervisor was using. Like the
+> multi-agent review, the discovery is one-shot — the subagent writes
+> two artifacts on disk (`.flow-tmp/plan.md`,
+> `.flow-tmp/pr-description-draft.md`) and returns a brief summary,
+> then exits.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -402,17 +419,27 @@ request as the argument:
 /product-planning <verbatim user description>
 ```
 
-`/product-planning` produces a PRD + task breakdown + PR-description
-draft and writes the consolidated artifact to
-`<worktree>/.flow-tmp/plan.md` (the skill creates `.flow-tmp/` on
-demand). The path lives under `.flow-tmp/` so the post-merge
-`git worktree remove` (run after step 10's merge) doesn't choke on a
-stray untracked file at the worktree root — same reason the supervisor
-itself writes all scratch under `$WORKTREE/.flow-tmp/`.
+`/product-planning` is itself a thin wrapper that spawns one
+**Independent Discovery Subagent** via the Task tool (the second of
+the two named Task-tool exemptions in "Hard rules" above). The
+subagent does all the discovery in its own isolated context — reading
+the README, scanning the skill directory, examining domain models,
+drafting the PRD — and writes the consolidated artifact to
+`<worktree>/.flow-tmp/plan.md` plus a PR-description draft to
+`<worktree>/.flow-tmp/pr-description-draft.md`. The wrapper creates
+`.flow-tmp/` before spawning so the subagent can write directly. The
+supervisor never sees the discovery transcript, only the wrapper's
+brief return summary. The path lives under `.flow-tmp/` so the
+post-merge `git worktree remove` (run after step 10's merge) doesn't
+choke on a stray untracked file at the worktree root — same reason
+the supervisor itself writes all scratch under `$WORKTREE/.flow-tmp/`.
 
-After it returns, **read `<worktree>/.flow-tmp/plan.md`** and print a
-3-5 line summary to chat (just the problem statement and the task
-titles — the user reads scrollback).
+After the wrapper returns, **read `<worktree>/.flow-tmp/plan.md`**
+and print a 3-5 line summary to chat (just the problem statement and
+the task titles — the user reads scrollback). This is the supervisor's
+single read of the plan file; the wrapper does not pre-read it (that
+would duplicate this read in the same supervisor context and erode the
+context-cost win the subagent fan-out is designed to deliver).
 
 **End conditions:**
 
@@ -1022,8 +1049,9 @@ After each phase transition:
 - `flow ls` (run from any terminal) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the named `/pr-review` "Independent Multi-Agent Review"
-  exception in "Hard rules" above — no other skill or step may call
+  via the two named exceptions in "Hard rules" above — `/pr-review`'s
+  "Independent Multi-Agent Review" and `/product-planning`'s
+  "Independent Discovery Subagent". No other skill or step may call
   Task.
 - The supervisor never spawned a `claude -p` subprocess.
 
