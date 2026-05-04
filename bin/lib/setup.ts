@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { resolveFlowSource, SETUP_LOCK_PATH } from "./paths";
+import { CLAUDE_SETTINGS_PATH, resolveFlowSource, SETUP_LOCK_PATH } from "./paths";
 import {
   readManifest,
   writeManifest,
@@ -27,6 +27,9 @@ import {
 import { ensureSymlink, removeIfManagedSymlink, type LinkResult } from "./symlink";
 import { withFileLock } from "./lock";
 import { applyShellRcCompletions } from "./setup-rc";
+import { ensureStopHook } from "./settings-merge";
+
+const STOP_HOOK_COMMAND = "flow-stop-guard";
 
 export type SetupOptions = {
   upgrade?: boolean;
@@ -60,6 +63,16 @@ export type SetupOptions = {
    * removed (set/unset is symmetric).
    */
   noCompletions?: boolean;
+  /**
+   * If true, skip the Claude Code settings.json hook merge. Users who manage
+   * their settings.json by hand pass `--no-hooks` to avoid the merge.
+   */
+  noHooks?: boolean;
+  /**
+   * Override the path to the Claude Code settings.json file. Test-only.
+   * Production reads from `~/.claude/settings.json`.
+   */
+  settingsPath?: string;
   /**
    * Override the home directory used to resolve shell rc files. Test-only.
    * Production reads from os.homedir().
@@ -125,6 +138,16 @@ function runUnderLock(
     { remove: options.noCompletions, homeDir: options.homeDir },
     log,
   );
+
+  if (!options.noHooks) {
+    const settingsPath = options.settingsPath ?? CLAUDE_SETTINGS_PATH;
+    const result = ensureStopHook(settingsPath, STOP_HOOK_COMMAND);
+    if (result.changed) {
+      log(`  + hooks/Stop:${STOP_HOOK_COMMAND}  (registered in ${settingsPath})`);
+    } else if (result.reason) {
+      log(`  ! hooks/Stop:${STOP_HOOK_COMMAND}  (${result.reason}: ${result.error ?? "no detail"})`);
+    }
+  }
 
   // Write the manifest as the union of "what we just installed" + entries
   // that still exist from a prior run that we didn't reap (they remain valid

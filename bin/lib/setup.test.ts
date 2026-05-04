@@ -41,12 +41,17 @@ function targets() {
   };
 }
 
+function settingsPath(): string {
+  return path.join(homeDir, ".claude", "settings.json");
+}
+
 function setup(
   opts: {
     upgrade?: boolean;
     force?: boolean;
     lockTimeoutMs?: number;
     noCompletions?: boolean;
+    noHooks?: boolean;
     flowSourceOverride?: string;
   } = {},
 ) {
@@ -65,6 +70,7 @@ function setup(
     manifestPath,
     lockPath,
     homeDir,
+    settingsPath: settingsPath(),
     quiet: true,
   });
 }
@@ -316,6 +322,64 @@ describe("flow setup", () => {
     const summary = setup({ upgrade: true });
     expect(summary.removed).toBeGreaterThanOrEqual(1);
     expect(fs.existsSync(path.join(t.skillsDir, "alpha"))).toBe(false);
+  });
+
+  describe("Stop hook merge into Claude Code settings.json", () => {
+    function readSettings(): unknown {
+      return JSON.parse(fs.readFileSync(settingsPath(), "utf8"));
+    }
+
+    function countFlowStopEntries(): number {
+      const settings = readSettings() as {
+        hooks?: { Stop?: Array<{ hooks?: Array<{ command?: string }> }> };
+      };
+      let n = 0;
+      for (const matcher of settings.hooks?.Stop ?? []) {
+        for (const h of matcher.hooks ?? []) {
+          if (h.command === "flow-stop-guard") n++;
+        }
+      }
+      return n;
+    }
+
+    it("registers the Stop hook entry on a fresh setup", () => {
+      setup();
+      expect(countFlowStopEntries()).toBe(1);
+    });
+
+    it("preserves user-authored Stop hook entries when registering", () => {
+      fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
+      fs.writeFileSync(
+        settingsPath(),
+        JSON.stringify({
+          theme: "dark",
+          hooks: {
+            Stop: [{ hooks: [{ type: "command", command: "/usr/local/bin/user-tool.sh" }] }],
+          },
+        }),
+      );
+      setup();
+      const got = readSettings() as {
+        theme: string;
+        hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> };
+      };
+      expect(got.theme).toBe("dark");
+      expect(got.hooks.Stop).toHaveLength(2);
+      expect(got.hooks.Stop[0].hooks[0].command).toBe("/usr/local/bin/user-tool.sh");
+      expect(got.hooks.Stop[1].hooks[0].command).toBe("flow-stop-guard");
+    });
+
+    it("is idempotent: re-running setup does not duplicate the entry", () => {
+      setup();
+      setup();
+      setup();
+      expect(countFlowStopEntries()).toBe(1);
+    });
+
+    it("--no-hooks skips the merge entirely", () => {
+      setup({ noHooks: true });
+      expect(fs.existsSync(settingsPath())).toBe(false);
+    });
   });
 
   describe("--source <worktree> recording + cleanup", () => {

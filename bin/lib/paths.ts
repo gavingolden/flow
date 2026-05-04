@@ -22,6 +22,7 @@ export const SETUP_LOCK_PATH = path.join(FLOW_DIR, "setup.lock");
 
 export const CLAUDE_SKILLS_DIR = path.join(HOME, ".claude", "skills");
 export const CLAUDE_AGENTS_DIR = path.join(HOME, ".claude", "agents");
+export const CLAUDE_SETTINGS_PATH = path.join(HOME, ".claude", "settings.json");
 export const LOCAL_BIN_DIR = path.join(HOME, ".local", "bin");
 
 type FlowConfig = { source?: string };

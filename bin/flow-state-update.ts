@@ -22,7 +22,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { readState, writeState, nowIso, type PipelineState } from "./lib/state";
+import {
+  PIPELINE_PHASES,
+  PIPELINE_PHASE_SET,
+  readState,
+  writeState,
+  nowIso,
+  type PipelineState,
+} from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { BRANCH_MARKER_FILENAME } from "./lib/worktree-marker";
 
@@ -100,6 +107,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     }
     switch (flag) {
       case "--phase":
+        if (!PIPELINE_PHASE_SET.has(value)) {
+          return { error: phaseError(value) };
+        }
         out.phase = value;
         break;
       case "--pr": {
@@ -180,6 +190,49 @@ export function runUpdate(argv: string[], dir = FLOW_STATE_DIR): number {
   const next = applyUpdate(existing, parsed);
   writeState(next, dir);
   return 0;
+}
+
+/**
+ * Builds an error message for an invalid `--phase` value. Suggests the
+ * closest canonical phase by Levenshtein distance ≤ 2 — typos like
+ * `implmenting` map back to `implementing`. Falls back to listing the
+ * full canonical set when no near-match exists.
+ */
+export function phaseError(value: string): string {
+  const suggestion = closestPhase(value);
+  const head = `--phase '${value}' is not a valid pipeline phase`;
+  if (suggestion) return `${head}; did you mean '${suggestion}'?`;
+  return `${head}; valid phases: ${PIPELINE_PHASES.join(", ")}`;
+}
+
+export function closestPhase(value: string): string | null {
+  let best: { phase: string; distance: number } | null = null;
+  for (const p of PIPELINE_PHASES) {
+    const d = levenshtein(value, p);
+    if (d > 2) continue;
+    if (!best || d < best.distance) best = { phase: p, distance: d };
+  }
+  return best?.phase ?? null;
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  const m = a.length;
+  const n = b.length;
+  const prev = new Array<number>(n + 1);
+  const curr = new Array<number>(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    for (let j = 0; j <= n; j++) prev[j] = curr[j];
+  }
+  return prev[n];
 }
 
 if (import.meta.main) {

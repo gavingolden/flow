@@ -6,7 +6,12 @@ import { parseSetupArgs, runSetupCli } from "./setup-args";
 
 describe("parseSetupArgs", () => {
   it("returns all-false defaults for an empty arg list", () => {
-    expect(parseSetupArgs([])).toEqual({ upgrade: false, force: false, noCompletions: false });
+    expect(parseSetupArgs([])).toEqual({
+      upgrade: false,
+      force: false,
+      noCompletions: false,
+      noHooks: false,
+    });
   });
 
   it("recognizes --upgrade", () => {
@@ -14,6 +19,7 @@ describe("parseSetupArgs", () => {
       upgrade: true,
       force: false,
       noCompletions: false,
+      noHooks: false,
     });
   });
 
@@ -22,6 +28,7 @@ describe("parseSetupArgs", () => {
       upgrade: false,
       force: true,
       noCompletions: false,
+      noHooks: false,
     });
   });
 
@@ -30,6 +37,16 @@ describe("parseSetupArgs", () => {
       upgrade: false,
       force: false,
       noCompletions: true,
+      noHooks: false,
+    });
+  });
+
+  it("recognizes --no-hooks", () => {
+    expect(parseSetupArgs(["--no-hooks"])).toEqual({
+      upgrade: false,
+      force: false,
+      noCompletions: false,
+      noHooks: true,
     });
   });
 
@@ -38,25 +55,28 @@ describe("parseSetupArgs", () => {
       upgrade: false,
       force: false,
       noCompletions: false,
+      noHooks: false,
       flowSource: "/abs/path",
     });
   });
 
   it("combines all flags in any order", () => {
     expect(
-      parseSetupArgs(["--upgrade", "--force", "--no-completions", "--source", "/x"]),
+      parseSetupArgs(["--upgrade", "--force", "--no-completions", "--no-hooks", "--source", "/x"]),
     ).toEqual({
       upgrade: true,
       force: true,
       noCompletions: true,
+      noHooks: true,
       flowSource: "/x",
     });
     expect(
-      parseSetupArgs(["--source", "/x", "--force", "--upgrade", "--no-completions"]),
+      parseSetupArgs(["--source", "/x", "--force", "--upgrade", "--no-completions", "--no-hooks"]),
     ).toEqual({
       upgrade: true,
       force: true,
       noCompletions: true,
+      noHooks: true,
       flowSource: "/x",
     });
   });
@@ -77,6 +97,13 @@ describe("parseSetupArgs", () => {
 
   it("errors when --source is followed by --no-completions instead of a path", () => {
     const result = parseSetupArgs(["--source", "--no-completions"]);
+    expect(result).toEqual({
+      error: "flow setup: --source requires a path argument",
+    });
+  });
+
+  it("errors when --source is followed by --no-hooks instead of a path", () => {
+    const result = parseSetupArgs(["--source", "--no-hooks"]);
     expect(result).toEqual({
       error: "flow setup: --source requires a path argument",
     });
@@ -134,6 +161,7 @@ describe("runSetupCli", () => {
       manifestPath,
       lockPath,
       homeDir,
+      settingsPath: path.join(homeDir, ".claude", "settings.json"),
       quiet: true,
     });
   }
@@ -155,7 +183,7 @@ describe("runSetupCli", () => {
     expect(code).toBe(2);
     expect(errSpy).toHaveBeenCalledWith("flow setup: unknown option '--bogus'");
     expect(errSpy).toHaveBeenCalledWith(
-      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions]",
+      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks]",
     );
     errSpy.mockRestore();
   });

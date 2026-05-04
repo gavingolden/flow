@@ -29,11 +29,12 @@ export function argsContainHelp(args: string[]): boolean {
 export const HELP_TOP = `flow — tmux-driven pipelines for Claude Code
 
 Usage:
-  flow setup [--upgrade] [--force] [--source <path>] [--no-completions]
+  flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks]
                                         install skills, agents, helpers globally
                                         (--source overrides the install root,
                                         e.g. for /flow-pipeline step 5.5 in a worktree;
-                                        --no-completions skips rc-file editing)
+                                        --no-completions skips rc-file editing;
+                                        --no-hooks skips the Stop-hook merge into ~/.claude/settings.json)
   flow new [--no-auto-merge] <description>
                                         start a new pipeline in a tmux window
                                         (--no-auto-merge stops at gated regardless of rubric)
@@ -109,13 +110,15 @@ Options:
   setup: `flow setup — install skills, agents, helpers globally
 
 Usage:
-  flow setup [--upgrade] [--force] [--source <path>] [--no-completions]
+  flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks]
 
 Options:
   --upgrade              update existing symlinks to point at the current source
   --force                overwrite user-modified files at managed paths
   --source <path>        override the flow source root (e.g. /flow-pipeline step 5.5)
-  --no-completions       skip rc-file editing for shell completions`,
+  --no-completions       skip rc-file editing for shell completions
+  --no-hooks             skip the Claude Code Stop-hook merge into ~/.claude/settings.json
+                         (use when you manage settings.json by hand)`,
 
   completion: `flow completion — print a shell completion script to stdout
 

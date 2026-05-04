@@ -2,7 +2,20 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { deleteState, listStates, readState, writeState, type PipelineState } from "./state";
+import {
+  deleteState,
+  isLegitimateEndPhase,
+  isPipelinePhase,
+  listStates,
+  PENDING_PHASES,
+  PIPELINE_PHASES,
+  PIPELINE_PHASE_SET,
+  readState,
+  STEP_PHASES,
+  TERMINAL_PHASES,
+  writeState,
+  type PipelineState,
+} from "./state";
 
 let dir!: string;
 
@@ -69,5 +82,51 @@ describe("state", () => {
 
   it("deleteState returns false for missing slug", () => {
     expect(deleteState("missing", dir)).toBe(false);
+  });
+});
+
+describe("phase constants", () => {
+  it("TERMINAL_PHASES, PENDING_PHASES, STEP_PHASES are pairwise disjoint", () => {
+    const pairs: Array<[readonly string[], readonly string[], string]> = [
+      [TERMINAL_PHASES, PENDING_PHASES, "TERMINAL ∩ PENDING"],
+      [TERMINAL_PHASES, STEP_PHASES, "TERMINAL ∩ STEP"],
+      [PENDING_PHASES, STEP_PHASES, "PENDING ∩ STEP"],
+    ];
+    for (const [a, b, label] of pairs) {
+      const overlap = a.filter((v) => b.includes(v));
+      expect(overlap, label).toEqual([]);
+    }
+  });
+
+  it("PIPELINE_PHASES is the union of TERMINAL, PENDING, STEP", () => {
+    const expected = new Set([...STEP_PHASES, ...PENDING_PHASES, ...TERMINAL_PHASES]);
+    expect(new Set(PIPELINE_PHASES)).toEqual(expected);
+  });
+
+  it("PIPELINE_PHASE_SET membership matches PIPELINE_PHASES", () => {
+    for (const p of PIPELINE_PHASES) {
+      expect(PIPELINE_PHASE_SET.has(p)).toBe(true);
+    }
+    expect(PIPELINE_PHASE_SET.has("not-a-phase")).toBe(false);
+  });
+
+  it("includes the new pending-end phases for the Stop hook", () => {
+    expect(PENDING_PHASES).toContain("triaged-no-change");
+    expect(PENDING_PHASES).toContain("triage-pending-clarification");
+    expect(PENDING_PHASES).toContain("approval-pending-clarification");
+  });
+
+  it("isPipelinePhase narrows known phases", () => {
+    expect(isPipelinePhase("implementing")).toBe(true);
+    expect(isPipelinePhase("merged")).toBe(true);
+    expect(isPipelinePhase("plan-pending-review")).toBe(true);
+    expect(isPipelinePhase("implmenting")).toBe(false);
+    expect(isPipelinePhase("")).toBe(false);
+  });
+
+  it("isLegitimateEndPhase is true for terminal + pending only", () => {
+    for (const p of TERMINAL_PHASES) expect(isLegitimateEndPhase(p)).toBe(true);
+    for (const p of PENDING_PHASES) expect(isLegitimateEndPhase(p)).toBe(true);
+    for (const p of STEP_PHASES) expect(isLegitimateEndPhase(p)).toBe(false);
   });
 });

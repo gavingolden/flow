@@ -27,6 +27,65 @@ export type PipelineState = {
   updatedAt: string;
 };
 
+/**
+ * Phases at which the supervisor is permitted to end its turn.
+ * `flow-stop-guard` reads state.json and exits 0 for any phase in
+ * `TERMINAL_PHASES ∪ PENDING_PHASES`; every other phase is blocked
+ * with a stderr reminder.
+ *
+ * Terminal: pipeline is finished. Pending: legitimately waiting for
+ * the user (plan approval, single clarifying question) or the
+ * no-change branch of step 1.
+ */
+export const TERMINAL_PHASES = [
+  "merged",
+  "gated",
+  "needs-human",
+  "cancelled",
+] as const;
+
+export const PENDING_PHASES = [
+  "plan-pending-review",
+  "triaged-no-change",
+  "triage-pending-clarification",
+  "approval-pending-clarification",
+] as const;
+
+export const STEP_PHASES = [
+  "starting",
+  "triaging",
+  "worktree-create",
+  "planning",
+  "implementing",
+  "installing-skills",
+  "verifying",
+  "ci-wait",
+  "reviewing",
+  "gating",
+  "merging",
+] as const;
+
+export const PIPELINE_PHASES = [
+  ...STEP_PHASES,
+  ...PENDING_PHASES,
+  ...TERMINAL_PHASES,
+] as const;
+
+export type PipelinePhase = (typeof PIPELINE_PHASES)[number];
+
+export const PIPELINE_PHASE_SET: ReadonlySet<string> = new Set(PIPELINE_PHASES);
+
+export function isPipelinePhase(value: string): value is PipelinePhase {
+  return PIPELINE_PHASE_SET.has(value);
+}
+
+export function isLegitimateEndPhase(value: string): boolean {
+  return (
+    (TERMINAL_PHASES as readonly string[]).includes(value) ||
+    (PENDING_PHASES as readonly string[]).includes(value)
+  );
+}
+
 export function statePath(slug: string, dir = FLOW_STATE_DIR): string {
   return path.join(dir, `${slug}.json`);
 }

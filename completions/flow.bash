@@ -63,7 +63,7 @@ _flow() {
                     ;;
             esac
             # shellcheck disable=SC2207
-            COMPREPLY=( $(compgen -W "--upgrade --force --source --no-completions" -- "$cur") )
+            COMPREPLY=( $(compgen -W "--upgrade --force --source --no-completions --no-hooks" -- "$cur") )
             ;;
         new)
             case "$prev" in
