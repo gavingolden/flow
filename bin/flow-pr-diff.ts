@@ -27,8 +27,10 @@ Usage:
   flow-pr-diff <pr-number> [options]
 
 Options:
-  --max-lines <n>   Per-file diff line cap (default: 300; head 200 + marker + tail 100).
-                    Set to 0 to disable per-file capping.
+  --max-lines <n>   Per-file source-line budget (default: 300). When a file's
+                    diff exceeds this, it's truncated to head 200 + tail 100
+                    plus one marker line (so a truncated block emits at most
+                    n + 1 lines). Set to 0 to disable per-file capping.
   --max-total <n>   Total output line cap across all files (default: 5000).
                     Set to 0 to disable. Files past the cap are dropped with a footer.
   --help, -h        Show this help message.
@@ -127,10 +129,12 @@ function capBlock(block: string[], maxLines: number, prNumber: number): string[]
 }
 
 /**
- * Pure capping function. Splits the diff into per-file blocks, caps each at
- * `maxLines` (head 2/3 + marker + tail 1/3), then enforces `maxTotal` by
- * dropping trailing files with a footer. `maxLines = 0` disables per-file
- * capping; `maxTotal = 0` disables the total cap.
+ * Pure capping function. Splits the diff into per-file blocks, caps each
+ * file at `maxLines` *source* lines (head 2/3 + tail 1/3) plus one extra
+ * marker line between them — so a truncated block emits at most
+ * `maxLines + 1` lines. Then enforces `maxTotal` by dropping trailing files
+ * with a footer. `maxLines = 0` disables per-file capping; `maxTotal = 0`
+ * disables the total cap.
  */
 export function capDiff(
   diff: string,

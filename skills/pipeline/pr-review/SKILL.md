@@ -39,10 +39,12 @@ Helpers (installed globally by `flow setup` and on PATH):
 - `flow-fetch-pr-review` — fetches PR metadata, description, changed files, review
   summaries, and inline comments from GitHub
 - `flow-pr-diff` — wraps `gh pr diff <number>` and per-file caps each block at 300
-  lines (head 200 + truncation marker + tail 100). Used at Step 3 so the four parallel
-  review agents don't each receive a 50–100 KB raw diff in their prompt context;
-  agents are already instructed to Read the changed files in full for surrounding
-  context, so the diff is a "what changed at a glance" hint, not the source of truth.
+  source lines (head 200 + tail 100) plus one marker line between them, so a
+  truncated block emits at most 301 lines on the wire. Used at Step 3 so the four
+  parallel review agents don't each receive a 50–100 KB raw diff in their prompt
+  context; agents are already instructed to Read the changed files in full for
+  surrounding context, so the diff is a "what changed at a glance" hint, not the
+  source of truth.
 - `flow-pre-commit` — auto-detects scope, runs format + checks, reports pass/fail
 - `flow-reply-pr-comments` — batch-posts replies to PR review comments
 
@@ -110,10 +112,12 @@ in parallel, then merge.
    the review comments section yet — reviewing before seeing others' feedback eliminates
    anchoring bias and lets you independently validate what reviewers found.
 2. Get the diff: `flow-pr-diff <number>`. The output is a per-file capped unified
-   diff (default 300 lines/file; large files get a `... [truncated N lines] ...`
-   marker pointing at `gh pr diff <number>` for the full view). Agents already Read
-   each changed file in full for surrounding context, so capping the diff does not
-   blind them — it just keeps each agent's prompt context bounded when fanning out.
+   diff (default budget 300 source lines/file; truncated files emit head 200 + a
+   `... [truncated N lines] ...` marker + tail 100, so at most 301 lines on the
+   wire, with the marker pointing at `gh pr diff <number>` for the full view).
+   Agents already Read each changed file in full for surrounding context, so
+   capping the diff does not blind them — it just keeps each agent's prompt
+   context bounded when fanning out.
 3. Get the commit history with full messages (not just subjects):
    `gh pr view <number> --json commits -q '.commits[] | "\(.oid[0:7]) \(.messageHeadline)\n\(.messageBody)\n---"'`
    Per `AGENTS.md`, commit bodies are expected to capture the **why**, non-obvious design

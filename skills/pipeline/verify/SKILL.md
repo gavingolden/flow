@@ -107,10 +107,12 @@ context.
 
 Return a compact summary to the caller — at most ≈30 lines per failed check. For each
 failed check include: a one-line PASS/FAIL header (`FAIL  npm run test (4.3s) — src`),
-the `firstErrorText`, and a short head/tail excerpt with an explicit
-`... [N more lines truncated; total M lines] ...` separator if `totalLines > headExcerpt + tailExcerpt`.
-Do **not** re-emit the raw `failure.headExcerpt` and `tailExcerpt` byte-for-byte — pick
-the most informative ~10–15 lines from each.
+the `firstErrorText`, and a short head/tail excerpt. When the helper actually truncated
+the output (i.e. `tailExcerpt` is non-empty, which means `totalLines > 200` — the
+HEAD_LINES + TAIL_LINES budget set in `bin/flow-pre-commit.ts`), include an explicit
+`... [N more lines truncated; total M lines] ...` separator between your head and tail
+slices. Do **not** re-emit the raw `failure.headExcerpt` and `tailExcerpt` byte-for-byte —
+pick the most informative ~10–15 lines from each.
 
 If changes were made to fix failures, briefly list what was fixed (one bullet per fix,
 not a diff).
