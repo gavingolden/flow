@@ -12,6 +12,15 @@ The wrapper passes you these inputs in its spawn prompt:
 
 - The verbatim user feature description.
 - The absolute worktree path (your working directory).
+- The absolute skill base directory (`SKILL_DIR`). Resolve every sibling
+  template/reference path under it — e.g. `<SKILL_DIR>/templates/prd-template.md`,
+  `<SKILL_DIR>/references/architecture-patterns.md`,
+  `<SKILL_DIR>/references/discovery-playbook.md`,
+  `<SKILL_DIR>/references/example-prd.md`. Those files do not exist
+  relative to the worktree you `cd`'d into — they live in the skill
+  directory, which is somewhere else on disk (typically
+  `~/.claude/skills/product-planning/` or
+  `<flow-checkout>/skills/pipeline/product-planning/`).
 - The absolute path to write `plan.md`.
 - The absolute path to write `pr-description-draft.md`.
 
@@ -26,10 +35,10 @@ Before forming an opinion, load background context so your scoping is informed:
 - Check the database schema location (if one exists) when the feature involves persistence.
 - List `.claude/skills/` (or the project's skill directory) to see the current skill set —
   do not hardcode a static list when assigning skills in step 6.
-- If `references/architecture-patterns.md` exists, load it to verify which pattern
-  applies. Otherwise derive patterns from the codebase as you discover them.
-- If `references/example-prd.md` exists, load it to see what "good" looks like for this
-  project.
+- If `<SKILL_DIR>/references/architecture-patterns.md` exists, load it to verify which
+  pattern applies. Otherwise derive patterns from the codebase as you discover them.
+- If `<SKILL_DIR>/references/example-prd.md` exists, load it to see what "good" looks
+  like for this project.
 
 This is read-only background — these reads stay in your context and don't propagate.
 
@@ -98,7 +107,7 @@ Categories worth examining (use them as a checklist, not a question list):
 | **Trade-offs**        | Would a simplification be acceptable for v1?                                                             |
 | **Existing patterns** | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.      |
 
-For deeper techniques, load `references/discovery-playbook.md`.
+For deeper techniques, load `<SKILL_DIR>/references/discovery-playbook.md`.
 
 ## 4. Architecture Checkpoint
 
@@ -111,12 +120,13 @@ become the "Architecture Decisions" section verbatim:
 - **New patterns vs. existing:** Does this follow an existing pattern (name it) or
   introduce a new one (justify it)?
 
-Load `references/architecture-patterns.md` if you need to verify which pattern applies.
+Load `<SKILL_DIR>/references/architecture-patterns.md` if you need to verify which
+pattern applies.
 
 ## 5. Draft the PRD
 
-Synthesize into a structured PRD using `templates/prd-template.md` as the format.
-Sections:
+Synthesize into a structured PRD using `<SKILL_DIR>/templates/prd-template.md` as the
+format. Sections:
 
 - **Problem Statement** — what problem this solves and why it matters (not solution language).
 - **Scope Boundary** — what's in and what's explicitly out.
@@ -125,7 +135,8 @@ Sections:
 - **Technical Constraints** — framework, security, performance needs.
 - **Open Questions** — every assumption you made plus anything still unresolved.
 
-Load `references/example-prd.md` (if present) to match the project's PRD style.
+Load `<SKILL_DIR>/references/example-prd.md` (if present) to match the project's
+PRD style.
 
 ## 6. Task Breakdown
 

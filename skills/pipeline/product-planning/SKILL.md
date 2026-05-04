@@ -82,9 +82,23 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    `pwd`. Define:
    - `PLAN_PATH = <workdir>/.flow-tmp/plan.md`
    - `DRAFT_PATH = <workdir>/.flow-tmp/pr-description-draft.md`
-2. Resolve the discovery instructions path absolutely:
-   `<this-skill-dir>/references/discovery-instructions.md`. The skill base
-   directory is printed at the top of this file when the Skill tool loads it.
+2. Resolve the skill base directory absolutely. The Skill tool prints the
+   "Base directory for this skill" at the top of this SKILL.md when loaded
+   — capture it as `SKILL_DIR`. Then derive:
+   - `INSTRUCTIONS_PATH = <SKILL_DIR>/references/discovery-instructions.md`
+
+   The subagent reads sibling templates and references via absolute paths
+   under `SKILL_DIR` (`templates/prd-template.md`,
+   `references/architecture-patterns.md`, `references/discovery-playbook.md`,
+   `references/example-prd.md`). Pass `SKILL_DIR` so the subagent never
+   has to resolve those relative to its `cd`'d worktree, where they don't
+   exist. Also create the consumer-side `.flow-tmp/` directory now so the
+   subagent never has to:
+
+   ```bash
+   mkdir -p "$WORKTREE/.flow-tmp"
+   ```
+
 3. Make exactly **one** Task-tool call:
 
    ```
@@ -93,10 +107,14 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    prompt:        <the prompt template below, with variables filled in>
    ```
 
-4. When the subagent returns, read `.flow-tmp/plan.md` from disk and print a
-   3–5 line summary to chat (problem statement + task count + top assumption
-   or open question). Do not paste the subagent's full return value — the
-   artifact on disk is the record.
+4. When the subagent returns, treat its 3–5 sentence summary as the
+   chat output. Do **not** read `.flow-tmp/plan.md` from disk in the
+   wrapper — the supervisor (or downstream caller) reads that file
+   directly when it needs the full plan, and reading it twice in the
+   same supervisor session erodes the context-cost win. The wrapper's
+   only post-spawn job is a cheap existence check
+   (`test -s "$PLAN_PATH" && test -s "$DRAFT_PATH"`); on missing artifact,
+   surface the failure to the caller per the Constraints below.
 5. Suggest the next handoff. If the caller is `/flow-pipeline`, the
    supervisor takes over (it knows what to do based on intent). Otherwise,
    suggest `/new-feature <verbatim user description>` for feature-level work,
@@ -104,7 +122,7 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 
 ## Spawn prompt template
 
-Fill in the four `{{...}}` placeholders before passing to the Task tool:
+Fill in the five `{{...}}` placeholders before passing to the Task tool:
 
 ```
 You are the Independent Discovery Subagent for `/product-planning`. You run
@@ -118,6 +136,10 @@ User feature description (verbatim):
 
 Working directory (cd here before reading any project files):
   {{WORKTREE}}
+
+Skill base directory (resolve sibling templates and references against
+this absolute path — they do not exist relative to {{WORKTREE}}):
+  {{SKILL_DIR}}
 
 Write the consolidated plan to (absolute path):
   {{PLAN_PATH}}
@@ -141,14 +163,19 @@ artifacts on disk are the record.
 
 - NEVER do discovery in the wrapper's context — always spawn the subagent.
   The wrapper's job is to compose the prompt, make one Task-tool call, and
-  print the resulting summary. Loading reference docs, reading the codebase,
-  or drafting the PRD inline defeats the entire point of the refactor.
+  forward the subagent's summary. Loading reference docs, reading the
+  codebase, or drafting the PRD inline defeats the entire point of the
+  refactor.
 - NEVER make more than one Task-tool call per invocation. The single fan-out
-  is the named exemption; multi-call fan-out is not authorised.
-- NEVER skip writing both artifacts. If the subagent returns without writing
-  `.flow-tmp/plan.md`, re-spawn it once with an explicit instruction to write
-  the artifact. If the second attempt also fails, surface the error to the
-  caller — do not paper over a missing artifact.
+  is the named exemption; multi-call fan-out is not authorised. If the
+  artifact is missing after the spawn, surface the failure to the caller
+  (e.g. `/flow-pipeline` retries by re-invoking `/product-planning`, which
+  counts as a fresh invocation with its own one-shot Task call). The wrapper
+  itself never retries — that would be a second Task call.
+- NEVER read `.flow-tmp/plan.md` from the wrapper. Forward the subagent's
+  summary, do an existence + non-empty check on both artifact paths, and
+  return. The supervisor (or other caller) reads the full plan when it
+  needs to; reading it here would duplicate that read in the same context.
 
 # Verification
 
@@ -156,7 +183,9 @@ artifacts on disk are the record.
 - `.flow-tmp/plan.md` exists at the resolved absolute path with the three
   expected sections (`# PRD`, `# Task breakdown`, `# PR description draft`).
 - `.flow-tmp/pr-description-draft.md` exists at the resolved absolute path.
-- The wrapper's chat output is a 3–5 line summary, not the full PRD.
+- The wrapper's chat output is the subagent's 3–5 sentence summary plus a
+  next-handoff suggestion — never the full PRD and never the result of a
+  fresh `Read` on `.flow-tmp/plan.md`.
 - The supervisor session's transcript contains no file-read tool calls or
   PRD-drafting prose attributable to this skill — those stayed inside the
   subagent.

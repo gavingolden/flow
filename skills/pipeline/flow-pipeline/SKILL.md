@@ -426,17 +426,20 @@ subagent does all the discovery in its own isolated context — reading
 the README, scanning the skill directory, examining domain models,
 drafting the PRD — and writes the consolidated artifact to
 `<worktree>/.flow-tmp/plan.md` plus a PR-description draft to
-`<worktree>/.flow-tmp/pr-description-draft.md` (the wrapper creates
-`.flow-tmp/` on demand). The supervisor never sees the discovery
-transcript, only the wrapper's brief return summary. The path lives
-under `.flow-tmp/` so the post-merge `git worktree remove` (run after
-step 10's merge) doesn't choke on a stray untracked file at the
-worktree root — same reason the supervisor itself writes all scratch
-under `$WORKTREE/.flow-tmp/`.
+`<worktree>/.flow-tmp/pr-description-draft.md`. The wrapper creates
+`.flow-tmp/` before spawning so the subagent can write directly. The
+supervisor never sees the discovery transcript, only the wrapper's
+brief return summary. The path lives under `.flow-tmp/` so the
+post-merge `git worktree remove` (run after step 10's merge) doesn't
+choke on a stray untracked file at the worktree root — same reason
+the supervisor itself writes all scratch under `$WORKTREE/.flow-tmp/`.
 
-After it returns, **read `<worktree>/.flow-tmp/plan.md`** and print a
-3-5 line summary to chat (just the problem statement and the task
-titles — the user reads scrollback).
+After the wrapper returns, **read `<worktree>/.flow-tmp/plan.md`**
+and print a 3-5 line summary to chat (just the problem statement and
+the task titles — the user reads scrollback). This is the supervisor's
+single read of the plan file; the wrapper does not pre-read it (that
+would duplicate this read in the same supervisor context and erode the
+context-cost win the subagent fan-out is designed to deliver).
 
 **End conditions:**
 
