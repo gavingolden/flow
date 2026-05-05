@@ -24,6 +24,50 @@ acceptance criteria as `it.todo()` test specs, and mandatory test implementation
 - For refactoring without behavior change — use `/refactoring`
 - For adding tests to existing code — use the `testing` skill directly
 
+# How it works
+
+This skill is a thin wrapper around a one-shot **Independent Scout
+Subagent**. The wrapper itself does no codebase scouting — it spawns one
+Task-tool subagent (`subagent_type: general-purpose`), passes the user's
+verbatim description plus the absolute path to write, and waits for the
+subagent to return a brief both-sides summary. The subagent does the
+discovery in its own isolated context: reading source files, scanning
+adjacent modules, identifying tests, surfacing public API surface, and
+flagging anti-patterns / off-limits surfaces. It writes a structured
+artifact to `$WORKTREE/.flow-tmp/scout.md` and returns a short summary.
+
+The supervisor session that loads this skill (typically `/flow-pipeline`
+step 5, but also any direct caller) only ever sees:
+
+1. The prose of this SKILL.md (the wrapper).
+2. The Task-tool call's prompt and brief result envelope.
+3. The one-paragraph summary the subagent returns.
+4. One Read of `.flow-tmp/scout.md` early in Critical Analysis (Step 2).
+
+It never sees the scouting transcript — the source-file reads, the
+adjacent-module scans, the API-surface enumeration. Those stay inside the
+subagent's context. Same context-cost surgery PR #95 applied to
+`/product-planning`'s discovery; this is the analogous fix for
+`/new-feature`.
+
+The trade-off is intentional: the supervisor cannot refer back to the
+scouting exploration in later steps. The contract that absorbs the
+trade-off is `.flow-tmp/scout.md` itself — the supervisor reads it once
+during Critical Analysis and never re-reads.
+
+## Independent Scout Subagent
+
+**Task-tool fan-out is intentional.** This step ("Independent Scout
+Subagent") spawns one scout agent via the Task tool. When `/new-feature`
+is loaded in-process by `/flow-pipeline` (the supervisor's step 5), this
+fan-out is permitted by the named Task-tool exception #3 in
+`skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section (itself
+anchored on this step's heading name, not its number, so it survives
+future renumbering). Outside the supervisor context (e.g. invoked
+directly from a user session), the Task tool is unrestricted, so the
+spawn runs identically. Either path: one subagent, returns artifact on
+disk + a brief summary.
+
 # Context
 
 - Test files live adjacent to the component or module being built
@@ -45,10 +89,110 @@ acceptance criteria as `it.todo()` test specs, and mandatory test implementation
 - Clarify edge cases: empty states, error states, loading states, boundary conditions.
 - Define **scope boundaries** — explicitly state what is out of scope to prevent scope creep.
 
+## 1b. Scout the Codebase
+
+Decide whether to spawn the scout subagent based on the **hybrid threshold**:
+
+- **Trivially scoped features** (≤3 affected files, judged from the
+  verbatim user description) skip the scout entirely. Phrasing
+  signals: a single named file ("fix the colors on Z.svelte"), a
+  single named flag ("rename `--foo` to `--bar`"), a single
+  one-liner ("add a column to X"). Log a one-line reason in chat
+  ("trivial scope: single .svelte file — skipping scout") so the
+  user can audit the decision in scrollback. Proceed inline to Step 2
+  with the existing 1–2-file read budget.
+- **Wider scopes** spawn the scout subagent via the Spawn procedure
+  below. Log a one-line reason ("wider scope: spawning scout") so
+  the user can audit.
+
+### Spawn procedure (wider-scope path only)
+
+1. Resolve the working directory absolutely. If the caller passed a
+   `WORKTREE` value (typical when invoked from `/flow-pipeline`), use it.
+   Otherwise use `pwd`. Define:
+   - `SCOUT_PATH = <workdir>/.flow-tmp/scout.md`
+2. Resolve the skill base directory absolutely. The Skill tool prints
+   the "Base directory for this skill" at the top of this SKILL.md when
+   loaded — capture it as `SKILL_DIR`. Then derive:
+   - `INSTRUCTIONS_PATH = <SKILL_DIR>/references/scout-instructions.md`
+
+   The subagent reads its instructions via this absolute path. Pass
+   `SKILL_DIR` so the subagent never has to resolve sibling references
+   relative to its `cd`'d worktree, where they don't exist. Also create
+   the consumer-side `.flow-tmp/` directory now (single side-effect
+   attribution site) so the subagent never has to:
+
+   ```bash
+   mkdir -p "$WORKTREE/.flow-tmp"
+   ```
+
+3. Make exactly **one** Task-tool call:
+
+   ```
+   subagent_type: general-purpose
+   description:   Scout for /new-feature
+   prompt:        <the prompt template below, with variables filled in>
+   ```
+
+4. When the subagent returns, treat its 3–5-sentence both-sides summary
+   as the chat output. Do **not** read `.flow-tmp/scout.md` from disk in
+   the wrapper — the main session will read it once at the top of Step
+   2 (Critical Analysis), and reading it twice in the same supervisor
+   session erodes the context-cost win. The wrapper's only post-spawn
+   job is a cheap existence check (`test -s "$SCOUT_PATH"`); on missing
+   artifact, surface the failure to the caller per the Constraints
+   below — do not retry, do not re-spawn.
+
+### Spawn prompt template
+
+Fill in the four `{{...}}` placeholders before passing to the Task tool:
+
+```
+You are the Independent Scout Subagent for `/new-feature`. You run in an
+isolated context and return an artifact on disk plus a brief summary.
+
+Read the full instructions at:
+  {{INSTRUCTIONS_PATH}}
+
+User feature description (verbatim):
+  {{USER_DESCRIPTION}}
+
+Working directory (cd here before reading any project files):
+  {{WORKTREE}}
+
+Skill base directory (resolve sibling references against this absolute
+path — they do not exist relative to {{WORKTREE}}):
+  {{SKILL_DIR}}
+
+Write the scout report to (absolute path):
+  {{SCOUT_PATH}}
+
+Follow the scout-instructions.md steps in order. You are one-shot — do
+not ask the user clarifying questions. When the user description leaves
+something unspecified, make a defensible assumption based on the codebase
+and project conventions, and surface every assumption you made in the
+artifact's "## open_questions" section.
+
+Return a one-paragraph summary (3–5 sentences) that surfaces BOTH sides
+of what you learned: at least one positive finding (top affected module,
+recommended strategy, key assumption) AND at least one negative finding
+(top anti-pattern, off-limits surface, rejected approach). A summary
+that names only positive findings fails the contract. Do not paste the
+scout report back; the artifact on disk is the record.
+```
+
 ## 2. Critical Analysis
 
-- Before committing to implementation, perform a brief structured assessment. Present
-  findings to the user as a table:
+- **If the wider-scope path was taken in Step 1b**, read
+  `$WORKTREE/.flow-tmp/scout.md` exactly once at the top of this step.
+  Use the six sections (`affected_modules`, `relevant_tests`,
+  `public_api_surface`, `open_questions`, `recommended_strategy`,
+  `anti_patterns`) as the inputs to the assessment table below. Do
+  not re-read `scout.md` later in this skill — once is the contract.
+- **If the trivial path was taken**, fill the assessment from inline
+  knowledge plus at most 1–2 targeted Read calls on the named files.
+- Before committing to implementation, perform a brief structured
+  assessment. Present findings to the user as a table:
 
   | Criterion            | Assessment                                                          |
   | -------------------- | ------------------------------------------------------------------- |
@@ -68,6 +212,10 @@ acceptance criteria as `it.todo()` test specs, and mandatory test implementation
     These should be pragmatic suggestions, not scope creep.
   - **Rank recommendations** by: perceived customer value, technical complexity, likelihood
     of future debt, and composability.
+  - **Surface scout's anti-patterns.** When the scout's `## anti_patterns`
+    section names off-limits surfaces or rejected approaches that
+    intersect the feature, raise them in the analysis so the user
+    sees the foreclosed paths alongside the recommended one.
 
 ## 3. Write `it.todo()` Test Specs
 
@@ -267,6 +415,14 @@ wasn't used for a UI-only change.
 - Test specs were reviewed and approved by the user before implementation
 - Any new environment variables have been added to `.env.example` with comments and safe defaults
 - PR description draft exists (`.flow-tmp/pr-description-draft.md`) or user explicitly deferred it
+- For wider-scope features: exactly one Task-tool call was made with
+  `subagent_type: general-purpose`; `.flow-tmp/scout.md` exists with the
+  six expected sections (`## affected_modules`, `## relevant_tests`,
+  `## public_api_surface`, `## open_questions`, `## recommended_strategy`,
+  `## anti_patterns`); the wrapper's chat output is the subagent's
+  3–5-sentence both-sides summary (not a paste of the artifact).
+- For trivially scoped features: no Task-tool call was made; `scout.md`
+  was not written; the wrapper logged a one-line trivial-scope reason.
 
 # Constraints
 
@@ -274,3 +430,23 @@ wasn't used for a UI-only change.
 - NEVER leave `it.todo()` entries unimplemented without explicit user approval and justification.
 - NEVER skip the critical analysis step — even for seemingly simple features.
 - NEVER write test specs that describe implementation details instead of observable outcomes.
+- NEVER do codebase scouting in the wrapper's context on the wider-scope
+  path — always spawn the subagent. The wrapper's job on that path is to
+  compose the prompt, make one Task-tool call, and forward the subagent's
+  summary. Loading reference docs, reading implicated source files, or
+  drafting the assessment inline defeats the entire point of the refactor.
+- NEVER make more than one Task-tool call per `/new-feature` invocation.
+  The single fan-out is the named exemption; multi-call fan-out is not
+  authorised. If the artifact is missing after the spawn, surface the
+  failure to the caller (e.g. `/flow-pipeline` retries by re-invoking
+  `/new-feature`, which counts as a fresh invocation with its own
+  one-shot Task call). The wrapper itself never retries — that would
+  be a second Task call.
+- NEVER read `.flow-tmp/scout.md` from the wrapper before Step 2. The
+  main session reads it once at the top of Critical Analysis; reading
+  it earlier (e.g. for an existence sniff that goes beyond `test -s`)
+  would duplicate that read in the same context. After the Step 2
+  read, do not re-read in subsequent steps.
+- NEVER let the subagent own the `mkdir -p .flow-tmp/`. Single
+  side-effect attribution site: the wrapper alone creates the directory.
+  The subagent only writes the file. The main session only reads.
