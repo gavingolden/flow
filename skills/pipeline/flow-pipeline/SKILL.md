@@ -542,6 +542,15 @@ never sees the scouting transcript, only the wrapper's brief return
 summary. Trivially scoped features (≤3 affected files) skip the
 subagent via the wrapper's hybrid threshold and proceed inline.
 
+If `/new-feature` took the wider-scope path and `.flow-tmp/scout.md`
+is missing after the call returns, re-invoke `/new-feature` once with
+an explicit instruction to spawn the scout and write the artifact
+(this counts as a fresh `/new-feature` invocation with its own
+one-shot Task call, per the wrapper's "exactly one Task-tool call per
+invocation" constraint). If the second attempt also fails, escalate
+`NEEDS HUMAN: scout-missing`. Same retry-once-then-escalate semantics
+as step 3's `plan-missing` handling for `/product-planning`.
+
 The skill writes code + tests, runs verify internally as a
 pre-commit gate, commits, and pushes. **Opening the PR is the
 supervisor's job, not the implement skill's** — the supervisor calls

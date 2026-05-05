@@ -145,7 +145,9 @@ Decide whether to spawn the scout subagent based on the **hybrid threshold**:
 
 ### Spawn prompt template
 
-Fill in the four `{{...}}` placeholders before passing to the Task tool:
+Fill in the five `{{...}}` placeholders before passing to the Task tool:
+`INSTRUCTIONS_PATH`, `USER_DESCRIPTION`, `WORKTREE`, `SKILL_DIR`,
+`SCOUT_PATH`.
 
 ```
 You are the Independent Scout Subagent for `/new-feature`. You run in an
@@ -183,9 +185,12 @@ scout report back; the artifact on disk is the record.
 
 ## 2. Critical Analysis
 
-- **If the wider-scope path was taken in Step 1b**, read
-  `$WORKTREE/.flow-tmp/scout.md` exactly once at the top of this step.
-  Use the six sections (`affected_modules`, `relevant_tests`,
+- **If the wider-scope path was taken in Step 1b**, read `scout.md`
+  from the same `SCOUT_PATH` the wrapper resolved in Step 1b
+  (`$WORKTREE/.flow-tmp/scout.md` when `/flow-pipeline` passed
+  `WORKTREE`; `$(pwd)/.flow-tmp/scout.md` for direct-call
+  invocations) exactly once at the top of this step. Use the six
+  sections (`affected_modules`, `relevant_tests`,
   `public_api_surface`, `open_questions`, `recommended_strategy`,
   `anti_patterns`) as the inputs to the assessment table below. Do
   not re-read `scout.md` later in this skill — once is the contract.

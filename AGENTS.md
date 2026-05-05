@@ -313,8 +313,9 @@ no compile step.
     6–10, but all of which would otherwise sit in the supervisor's
     transcript for the rest of the run. PR #95 is the precedent:
     the same surgery applied to `/product-planning`'s discovery,
-    and Item #2 above bakes its post-merge-fix invariants
-    (absolute SKILL_DIR + WORKTREE paths, exactly one Task call per
+    and the `/product-planning` Independent Discovery Subagent
+    exemption above bakes its post-merge-fix invariants (absolute
+    SKILL_DIR + WORKTREE paths, exactly one Task call per
     invocation, wrapper-owned `mkdir -p .flow-tmp/`, single
     side-effect attribution site, main-session reads the artifact
     once and never re-reads). The `/new-feature` scout adopts those
