@@ -661,15 +661,36 @@ Invoke `/verify` in-process inside the worktree.
 
 **Outer cap: 3 attempts.** `/verify` self-loops internally; the
 outer cap fires only when `/verify` exits without a clean pass.
-Each retry re-invokes `/verify` with the prior attempt's failure
-log appended to the prompt:
+The cap on retry-prompt size is enforced *structurally* by
+`flow-pre-commit --json` (see `bin/flow-pre-commit.ts` —
+`buildFailureExcerpt` head/tail-caps each failed check at 100+100
+lines), not by an instruction the supervisor must remember to
+follow. Each retry re-invokes `/verify` and pastes the prior
+attempt's `failure` JSON object verbatim:
 
 ```
 /verify
 
-PRIOR ATTEMPT FAILED — failure log:
-<truncated log; cap 200 lines / 100 matched-error lines>
+PRIOR ATTEMPT FAILED — failure JSON (one entry per failed check):
+{
+  "name": "npm run test",
+  "scope": "src",
+  "failure": {
+    "firstErrorLine": 42,
+    "firstErrorText": "FAIL  src/foo.test.ts > should bar",
+    "headExcerpt": "<≤100 lines>",
+    "tailExcerpt": "<≤100 lines>",
+    "totalLines": 5000
+  }
+}
 ```
+
+`firstErrorText` is the first line matching the error/fail regex;
+`headExcerpt` + `tailExcerpt` are bounded slices of the un-ANSI'd
+output. The supervisor can paste this verbatim because the helper
+has already done the trimming — the entire `failure` object for a
+single check is at most ~30 KB and shrinks as the check's output
+shrinks. No further hand-truncation is required.
 
 **Retries do not change model or effort.** The Skill tool has no
 per-invocation override for either today, so the escalation between
