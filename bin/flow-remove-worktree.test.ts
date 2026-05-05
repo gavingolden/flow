@@ -354,6 +354,30 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     expect(list).not.toContain(wtDir);
   });
 
+  it("zero-arg invocation outside a flow pane fails with the @flow-slug error (not the help banner)", async () => {
+    // Regression: the supervisor calls `flow-remove-worktree` with zero
+    // args and expects the slug to resolve from $TMUX_PANE. The previous
+    // `args.length === 0 → printHelp + exit 0` short-circuit silently
+    // succeeded without removing the worktree. Now zero-args must fall
+    // through to resolveSlugFromPane(); when that returns null (TMUX_PANE
+    // unset), the helper exits non-zero with a slug-related error rather
+    // than printing the help banner and exiting 0.
+    const child = spawn("bun", ["run", FLOW_REMOVE_WORKTREE_BIN], {
+      cwd: fx.repoDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, TMUX_PANE: "" },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (c) => (stdout += c.toString()));
+    child.stderr.on("data", (c) => (stderr += c.toString()));
+    const exitCode: number = await new Promise((resolve) =>
+      child.on("close", (code) => resolve(code ?? -1)),
+    );
+    expect(exitCode, `stdout: ${stdout}\nstderr: ${stderr}`).not.toBe(0);
+    expect(`${stdout}${stderr}`).toContain("@flow-slug");
+  });
+
   it("legacy path: succeeds even when .flow-branch is NOT registered in info/exclude (rm fallback)", async () => {
     const create = await runNewWorktree(["legacy-feat"], fx.repoDir);
     expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);

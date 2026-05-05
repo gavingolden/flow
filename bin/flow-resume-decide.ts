@@ -461,10 +461,7 @@ export function parseArgs(argv: string[]): { slug?: string } | { error: string }
     if (a === "--help" || a === "-h") return { error: "help" };
   }
   const [first, ...rest] = argv;
-  if (first.startsWith("--")) {
-    if (rest.length > 0) return { error: `unknown flag: ${first}` };
-    return { error: `unknown flag: ${first}` };
-  }
+  if (first.startsWith("--")) return { error: `unknown flag: ${first}` };
   for (const flag of rest) {
     return { error: `unknown flag: ${flag}` };
   }

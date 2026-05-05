@@ -190,7 +190,7 @@ function resolveWorktree(input: string): WorktreeInfo {
 function main(): void {
   const args = process.argv.slice(2);
 
-  if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
+  if (args.includes("--help") || args.includes("-h")) {
     printHelp();
     process.exit(0);
   }
@@ -199,6 +199,9 @@ function main(): void {
   const flags = new Set(args.filter((a) => a.startsWith("--")));
   const deleteBranch = flags.has("--delete-branch");
 
+  // Zero-arg path is the load-bearing supervisor case: `flow-remove-worktree`
+  // from inside a flow tmux pane resolves the slug from `$TMUX_PANE`'s
+  // `@flow-slug` option. Don't print help here — fall through to resolveInput().
   const input = resolveInput(positional[0], () => resolveSlugFromPane());
   if (!input) {
     log.error(
