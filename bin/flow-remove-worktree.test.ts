@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseWorktreeListOutput } from "./flow-remove-worktree";
+import { parseWorktreeListOutput, resolveInput } from "./flow-remove-worktree";
 
 // --- parseWorktreeListOutput ---
 
@@ -81,6 +81,29 @@ describe(parseWorktreeListOutput, () => {
     expect(entries).toHaveLength(1);
     expect(entries[0].path).toBe("/repo");
     expect(entries[0].branch).toBeUndefined();
+  });
+});
+
+describe(resolveInput, () => {
+  it("returns the explicit positional when given (back-compat)", () => {
+    expect(resolveInput("agent/improve-tooltips", () => "auto-resolved")).toBe(
+      "agent/improve-tooltips",
+    );
+  });
+
+  it("falls back to the pane resolver when positional is undefined", () => {
+    expect(resolveInput(undefined, () => "csv-export")).toBe("csv-export");
+  });
+
+  it("returns null when neither positional nor pane resolve", () => {
+    expect(resolveInput(undefined, () => null)).toBeNull();
+  });
+
+  it("treats an explicit empty string as 'given' (does not auto-resolve)", () => {
+    // The CLI argv layer strips flags but does not pre-validate non-emptiness.
+    // resolveInput is intentionally narrow: positional ?? fallback. Empty
+    // string passes through and downstream resolveWorktree() rejects it.
+    expect(resolveInput("", () => "should-not-be-used")).toBe("");
   });
 });
 
@@ -329,6 +352,30 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     // The worktree is gone from `git worktree list`.
     const list = mustGit(["worktree", "list", "--porcelain"], fx.repoDir);
     expect(list).not.toContain(wtDir);
+  });
+
+  it("zero-arg invocation outside a flow pane fails with the @flow-slug error (not the help banner)", async () => {
+    // Regression: the supervisor calls `flow-remove-worktree` with zero
+    // args and expects the slug to resolve from $TMUX_PANE. The previous
+    // `args.length === 0 → printHelp + exit 0` short-circuit silently
+    // succeeded without removing the worktree. Now zero-args must fall
+    // through to resolveSlugFromPane(); when that returns null (TMUX_PANE
+    // unset), the helper exits non-zero with a slug-related error rather
+    // than printing the help banner and exiting 0.
+    const child = spawn("bun", ["run", FLOW_REMOVE_WORKTREE_BIN], {
+      cwd: fx.repoDir,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, TMUX_PANE: "" },
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (c) => (stdout += c.toString()));
+    child.stderr.on("data", (c) => (stderr += c.toString()));
+    const exitCode: number = await new Promise((resolve) =>
+      child.on("close", (code) => resolve(code ?? -1)),
+    );
+    expect(exitCode, `stdout: ${stdout}\nstderr: ${stderr}`).not.toBe(0);
+    expect(`${stdout}${stderr}`).toContain("@flow-slug");
   });
 
   it("legacy path: succeeds even when .flow-branch is NOT registered in info/exclude (rm fallback)", async () => {

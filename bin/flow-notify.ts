@@ -21,6 +21,11 @@
  *   flow-notify --status <merged|gated|needs-human>
  *               [--slug <slug>] [--reason <text>] [--url <url>]
  *
+ * `--slug` is optional: when omitted, the helper auto-resolves the
+ * supervisor's slug from `$TMUX_PANE`'s `@flow-slug` window option.
+ * Null result is silently OK — the notification's subtitle just stays
+ * empty rather than failing the helper.
+ *
  * Exit codes:
  *   0 — notification dispatched, suppressed (no opt-in / non-darwin),
  *       or backend spawn already kicked off (we don't wait).
@@ -30,6 +35,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { resolveSlugFromPane } from "./lib/tmux";
 
 const VALID_STATUSES = new Set(["merged", "gated", "needs-human"]);
 const MESSAGE_MAX_CHARS = 120;
@@ -132,6 +138,13 @@ export type Deps = {
   env: NodeJS.ProcessEnv;
   hasTerminalNotifier: () => boolean;
   spawnDetached: (cmd: string, args: readonly string[]) => void;
+  /**
+   * Slug fallback when `--slug` is omitted. Defaults to
+   * `resolveSlugFromPane()` so the supervisor's terminal-state
+   * notifications get the right window subtitle even when its
+   * per-Bash-call shell loses any `SLUG=…` it sets.
+   */
+  resolveSlug: () => string | null;
 };
 
 export type DispatchResult =
@@ -145,9 +158,14 @@ export function dispatch(args: Args, deps: Deps): DispatchResult {
   if (deps.platform !== "darwin") {
     return { dispatched: false, reason: "non-darwin" };
   }
-  const payload = buildPayload(args);
+  // Backfill the slug from the pane when --slug was omitted. A null
+  // result is fine — the helper is fire-and-forget by design and the
+  // subtitle just stays empty.
+  const resolved =
+    args.slug !== undefined ? args : { ...args, slug: deps.resolveSlug() ?? undefined };
+  const payload = buildPayload(resolved);
   if (deps.hasTerminalNotifier()) {
-    const argv = buildTerminalNotifierArgs(payload, args.url);
+    const argv = buildTerminalNotifierArgs(payload, resolved.url);
     deps.spawnDetached("terminal-notifier", argv);
     return { dispatched: true, backend: "terminal-notifier", argv };
   }
@@ -190,6 +208,7 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
     env: deps?.env ?? process.env,
     hasTerminalNotifier: deps?.hasTerminalNotifier ?? defaultHasTerminalNotifier,
     spawnDetached: deps?.spawnDetached ?? defaultSpawnDetached,
+    resolveSlug: deps?.resolveSlug ?? (() => resolveSlugFromPane()),
   };
   dispatch(parsed, resolved);
   return 0;

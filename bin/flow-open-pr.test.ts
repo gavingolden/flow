@@ -48,9 +48,17 @@ function makeUpdater() {
 }
 
 describe(parseArgs, () => {
-  it("requires a slug as the first positional argument", () => {
+  it("requires --body-file when no args are given", () => {
     const r = parseArgs([]) as { error: string };
-    expect(r.error).toMatch(/slug is required/);
+    expect(r.error).toMatch(/--body-file is required/);
+  });
+
+  it("treats a leading flag as 'slug omitted' (auto-resolve path)", () => {
+    // Previously rejected with 'slug must be the first positional argument'.
+    // The supervisor now relies on this form: the slug auto-resolves from
+    // $TMUX_PANE.
+    const r = parseArgs(["--body-file", "/tmp/x.md"]);
+    expect(r).toEqual({ bodyFile: "/tmp/x.md", draft: false });
   });
 
   it("requires --body-file", () => {
@@ -262,6 +270,65 @@ describe("flow-open-pr run()", () => {
     ]);
     const exit = run(["zeta", "--body-file", bodyFile], { gh, updater });
     expect(exit).toBe(1);
+  });
+
+  it("auto-resolves the slug from $TMUX_PANE when omitted", () => {
+    seedState("theta");
+    const { updater, calls: updaterCalls } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 8, url: "https://github.com/x/y/pull/8" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["--body-file", bodyFile], {
+      gh,
+      updater,
+      resolveSlug: () => "theta",
+    });
+    expect(exit).toBe(0);
+    expect(readState("theta").pr).toBe(8);
+    expect(updaterCalls[0]?.[0]).toBe("theta");
+  });
+
+  it("returns 2 with a clear error when no slug given and pane has none either", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(["--body-file", bodyFile], {
+      gh: vi.fn(),
+      updater: vi.fn(),
+      resolveSlug: () => null,
+    });
+    expect(exit).toBe(2);
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
+    errSpy.mockRestore();
+  });
+
+  it("prefers an explicit positional slug over the pane resolver (back-compat)", () => {
+    seedState("iota");
+    seedState("other-pipeline");
+    const { updater, calls: updaterCalls } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 9, url: "https://github.com/x/y/pull/9" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["iota", "--body-file", bodyFile], {
+      gh,
+      updater,
+      resolveSlug: () => "other-pipeline",
+    });
+    expect(exit).toBe(0);
+    expect(updaterCalls[0]?.[0]).toBe("iota");
+    expect(readState("iota").pr).toBe(9);
   });
 });
 

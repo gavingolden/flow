@@ -334,11 +334,15 @@ describe(hasPrReviewCommit, () => {
 // ---------------------------------------------------------------------------
 
 describe(parseArgs, () => {
-  it("requires a slug", () => {
-    expect(parseArgs([])).toEqual({ error: "slug is required" });
+  it("treats empty argv as 'slug omitted' (auto-resolve path)", () => {
+    expect(parseArgs([])).toEqual({});
   });
 
-  it("rejects an unknown flag", () => {
+  it("rejects an unknown flag in the slug position", () => {
+    expect(parseArgs(["--bogus"])).toEqual({ error: "unknown flag: --bogus" });
+  });
+
+  it("rejects an unknown flag after the slug", () => {
     expect(parseArgs(["foo", "--bogus"])).toEqual({ error: "unknown flag: --bogus" });
   });
 
@@ -479,8 +483,53 @@ describe("run() integration", () => {
 
   it("exits 2 with usage error on bad CLI args", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const exit = run([], { stateDir, gh: vi.fn(), git: vi.fn() });
+    const exit = run(["--bogus"], { stateDir, gh: vi.fn(), git: vi.fn() });
     errSpy.mockRestore();
     expect(exit).toBe(2);
+  });
+
+  it("auto-resolves the slug from $TMUX_PANE when omitted", () => {
+    seedState("kappa", { phase: "merged" });
+    const { writes, restore } = captureStdout();
+    const exit = run([], {
+      stateDir,
+      gh: vi.fn(),
+      git: vi.fn(),
+      resolveSlug: () => "kappa",
+    });
+    restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(writes.join("")) as DecisionResult;
+    expect(result.resumeAt).toBe("terminal");
+    expect(result.context.slug).toBe("kappa");
+  });
+
+  it("prefers an explicit slug over the pane resolver (back-compat)", () => {
+    seedState("lambda", { phase: "merged" });
+    seedState("other-pipeline", { phase: "merged" });
+    const { writes, restore } = captureStdout();
+    const exit = run(["lambda"], {
+      stateDir,
+      gh: vi.fn(),
+      git: vi.fn(),
+      resolveSlug: () => "other-pipeline",
+    });
+    restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(writes.join("")) as DecisionResult;
+    expect(result.context.slug).toBe("lambda");
+  });
+
+  it("exits 2 with a clear error when no slug given and pane has none either", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run([], {
+      stateDir,
+      gh: vi.fn(),
+      git: vi.fn(),
+      resolveSlug: () => null,
+    });
+    expect(exit).toBe(2);
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
+    errSpy.mockRestore();
   });
 });

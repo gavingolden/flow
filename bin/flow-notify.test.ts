@@ -162,6 +162,7 @@ function makeDeps(overrides: Partial<Deps> = {}): Deps & { calls: Array<{ cmd: s
     spawnDetached: (cmd, args) => {
       calls.push({ cmd, args });
     },
+    resolveSlug: () => null,
     calls,
     ...overrides,
   };
@@ -222,6 +223,38 @@ describe("dispatch", () => {
     expect(deps.calls[0]?.args[0]).toBe("-e");
     expect(deps.calls[0]?.args[1]).toContain("flow: needs-human");
     expect(deps.calls[0]?.args[1]).toContain("verify-exhausted");
+  });
+
+  it("auto-resolves --slug from $TMUX_PANE when omitted", () => {
+    const deps = makeDeps({
+      hasTerminalNotifier: () => true,
+      resolveSlug: () => "csv-export",
+    });
+    dispatch({ status: "merged" }, deps);
+    expect(deps.calls).toHaveLength(1);
+    expect(deps.calls[0]?.args).toContain("csv-export");
+  });
+
+  it("prefers an explicit --slug over the pane resolver (back-compat)", () => {
+    const deps = makeDeps({
+      hasTerminalNotifier: () => true,
+      // Resolver returns a different slug than the explicit flag — explicit wins.
+      resolveSlug: () => "other-pipeline",
+    });
+    dispatch({ status: "merged", slug: "csv-export" }, deps);
+    expect(deps.calls[0]?.args).toContain("csv-export");
+    expect(deps.calls[0]?.args).not.toContain("other-pipeline");
+  });
+
+  it("dispatches with an empty subtitle when no slug is given and pane has none", () => {
+    const deps = makeDeps({
+      hasTerminalNotifier: () => true,
+      resolveSlug: () => null,
+    });
+    const result = dispatch({ status: "needs-human", reason: "verify-exhausted" }, deps);
+    expect(result).toMatchObject({ dispatched: true });
+    // No -subtitle flag at all — buildTerminalNotifierArgs omits it for empty subtitle.
+    expect(deps.calls[0]?.args).not.toContain("-subtitle");
   });
 });
 

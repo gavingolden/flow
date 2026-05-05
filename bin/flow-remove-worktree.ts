@@ -3,15 +3,21 @@
  * Removes a git worktree and optionally deletes the associated branch.
  *
  * Usage:
- *   flow-remove-worktree <worktree-path-or-branch>
+ *   flow-remove-worktree [<worktree-path-or-branch>]
+ *
+ * The positional is optional when invoked from inside a flow tmux pane:
+ * the slug auto-resolves from `$TMUX_PANE`'s `@flow-slug` window option
+ * and is fed into the same path/branch resolution logic.
  *
  * Examples:
  *   flow-remove-worktree ../flow-agent-improve-tooltips
  *   flow-remove-worktree agent/improve-tooltips
+ *   flow-remove-worktree                            # slug from $TMUX_PANE
  */
 
 import * as fs from "fs";
 import * as path from "path";
+import { resolveSlugFromPane } from "./lib/tmux";
 import { SYMLINK_FILES } from "./lib/worktree-fs";
 import { BRANCH_MARKER_FILENAME, FLOW_TMP_DIRNAME } from "./lib/worktree-marker";
 
@@ -57,13 +63,15 @@ type WorktreeInfo = {
 
 function printHelp(): void {
   console.log(`
-Usage: flow-remove-worktree <worktree-path-or-branch>
+Usage: flow-remove-worktree [<worktree-path-or-branch>]
 
 Removes a git worktree and optionally deletes the associated branch.
 
 Arguments:
   worktree-path-or-branch   Path to the worktree directory, or the branch
-                            name used when creating it.
+                            name used when creating it. Optional inside a
+                            flow tmux pane — the slug auto-resolves from
+                            $TMUX_PANE's @flow-slug option.
 
 Options:
   --delete-branch            Also delete the branch after removing the worktree.
@@ -71,7 +79,21 @@ Options:
 Examples:
   flow-remove-worktree ../flow-agent-improve-tooltips
   flow-remove-worktree agent/improve-tooltips --delete-branch
+  flow-remove-worktree                # slug from \$TMUX_PANE
   `);
+}
+
+/**
+ * Picks the input to feed into resolveWorktree(). Returns the explicit
+ * positional when given, else falls back to the supervisor's pane slug.
+ * Pure: tests inject a fake resolveSlug.
+ */
+export function resolveInput(
+  positional: string | undefined,
+  resolveSlug: () => string | null,
+): string | null {
+  if (positional !== undefined) return positional;
+  return resolveSlug();
 }
 
 // --- Resolution ---
@@ -168,7 +190,7 @@ function resolveWorktree(input: string): WorktreeInfo {
 function main(): void {
   const args = process.argv.slice(2);
 
-  if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
+  if (args.includes("--help") || args.includes("-h")) {
     printHelp();
     process.exit(0);
   }
@@ -177,13 +199,24 @@ function main(): void {
   const flags = new Set(args.filter((a) => a.startsWith("--")));
   const deleteBranch = flags.has("--delete-branch");
 
-  if (positional.length === 0) {
-    log.error("Missing required argument: worktree path or branch name.");
-    printHelp();
+  // Zero-arg path is the load-bearing supervisor case: `flow-remove-worktree`
+  // from inside a flow tmux pane resolves the slug from `$TMUX_PANE`'s
+  // `@flow-slug` option. Don't print help here — fall through to resolveInput().
+  const input = resolveInput(positional[0], () => resolveSlugFromPane());
+  if (!input) {
+    log.error(
+      "Missing required argument: worktree path or branch name.",
+    );
+    log.info(
+      "  No slug given and could not resolve from $TMUX_PANE's @flow-slug option.",
+    );
+    log.info(
+      "  Pass <slug> explicitly, or run inside a tmux window created by `flow new`.",
+    );
     process.exit(1);
   }
 
-  const info = resolveWorktree(positional[0]);
+  const info = resolveWorktree(input);
 
   console.log(`🗑️  Removing worktree: ${info.worktreeDir}`);
   log.info(`Branch: ${info.branchName ?? "(detached)"}`);

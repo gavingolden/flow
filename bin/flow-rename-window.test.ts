@@ -33,11 +33,12 @@ describe(parseArgs, () => {
     });
   });
 
-  it("rejects missing arguments", () => {
-    expect(parseArgs([])).toEqual({ error: "<slug> and <title> are both required" });
-    expect(parseArgs(["just-slug"])).toEqual({
-      error: "<slug> and <title> are both required",
-    });
+  it("rejects empty argv", () => {
+    expect(parseArgs([])).toEqual({ error: "<title> is required" });
+  });
+
+  it("parses 1-arg form as title-only (slug auto-resolved by caller)", () => {
+    expect(parseArgs(["add CSV export"])).toEqual({ title: "add CSV export" });
   });
 
   it("rejects extra positional arguments (unquoted multi-word title)", () => {
@@ -50,6 +51,7 @@ describe(parseArgs, () => {
   it("rejects an empty slug or title", () => {
     expect(parseArgs(["", "title"])).toEqual({ error: "<slug> must not be empty" });
     expect(parseArgs(["slug", "  "])).toEqual({ error: "<title> must not be empty" });
+    expect(parseArgs(["  "])).toEqual({ error: "<title> must not be empty" });
   });
 });
 
@@ -157,5 +159,54 @@ describe(run, () => {
     });
     expect(exit).toBe(2);
     expect(err.join("")).toContain("usage: flow-rename-window");
+  });
+
+  it("auto-resolves the slug from $TMUX_PANE when only a title is given", () => {
+    const calls: string[][] = [];
+    const exit = run(["add CSV export"], {
+      listWindows: () => [w({ id: "@7", name: "csv-export", slug: "csv-export" })],
+      spawnTmux: (args) => {
+        calls.push(args);
+        return { exitCode: 0, stderr: "" };
+      },
+      resolveSlug: () => "csv-export",
+      writeOut: () => {},
+      writeErr: () => {},
+    });
+    expect(exit).toBe(0);
+    expect(calls).toEqual([["rename-window", "-t", "@7", "add CSV export"]]);
+  });
+
+  it("prefers the explicit positional slug over the pane resolver (back-compat)", () => {
+    const calls: string[][] = [];
+    const exit = run(["csv-export", "add CSV export"], {
+      listWindows: () => [
+        w({ id: "@7", name: "csv-export", slug: "csv-export" }),
+        w({ id: "@9", name: "other", slug: "other-pipeline" }),
+      ],
+      spawnTmux: (args) => {
+        calls.push(args);
+        return { exitCode: 0, stderr: "" };
+      },
+      // Resolver disagrees with the explicit positional — explicit must win.
+      resolveSlug: () => "other-pipeline",
+      writeOut: () => {},
+      writeErr: () => {},
+    });
+    expect(exit).toBe(0);
+    expect(calls[0][2]).toBe("@7");
+  });
+
+  it("exits 2 with a clear error when no slug given and pane has none either", () => {
+    const err: string[] = [];
+    const exit = run(["add CSV export"], {
+      listWindows: () => [],
+      spawnTmux: () => ({ exitCode: 0, stderr: "" }),
+      resolveSlug: () => null,
+      writeOut: () => {},
+      writeErr: (s) => err.push(s),
+    });
+    expect(exit).toBe(2);
+    expect(err.join("")).toContain("@flow-slug");
   });
 });

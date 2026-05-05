@@ -11,15 +11,20 @@
  * instead of failing on `gh pr create`'s "already exists" error.
  *
  * Usage:
- *   flow-open-pr <slug> --body-file <path>
- *                       [--title <title>] [--draft] [--base <branch>]
+ *   flow-open-pr [<slug>] --body-file <path>
+ *                         [--title <title>] [--draft] [--base <branch>]
+ *
+ * The slug is optional when invoked from inside a flow tmux pane: it
+ * auto-resolves from `$TMUX_PANE`'s `@flow-slug` window option.
  */
 
 import { spawnSync } from "node:child_process";
 import { runUpdate } from "./flow-state-update";
+import { resolveSlugFromPane } from "./lib/tmux";
 
 type Args = {
-  slug: string;
+  /** undefined when omitted — caller falls back to resolveSlugFromPane(). */
+  slug?: string;
   bodyFile: string;
   title?: string;
   draft: boolean;
@@ -31,11 +36,16 @@ type GhResult = { stdout: string; stderr: string; exitCode: number };
 type PrInfo = { number: number; url: string };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
-  if (argv.length === 0) return { error: "slug is required" };
-  const [slug, ...rest] = argv;
-  if (slug.startsWith("--")) return { error: "slug must be the first positional argument" };
-
-  const out: Args = { slug, bodyFile: "", draft: false };
+  // Slug is optional: a leading flag means "auto-resolve from pane".
+  // Same shape as flow-state-update's parseArgs.
+  let rest: string[];
+  const out: Args = { bodyFile: "", draft: false };
+  if (argv.length > 0 && !argv[0].startsWith("--")) {
+    out.slug = argv[0];
+    rest = argv.slice(1);
+  } else {
+    rest = argv;
+  }
   for (let i = 0; i < rest.length; i++) {
     const flag = rest[i];
     switch (flag) {
@@ -145,17 +155,28 @@ export type Deps = {
   gh?: GhRunner;
   /** Test seam: pass a custom updater that mirrors `flow-state-update`'s `runUpdate` signature. */
   updater?: (argv: string[]) => number;
+  resolveSlug?: () => string | null;
 };
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const updater = deps.updater ?? runUpdate;
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     console.error(`flow-open-pr: ${parsed.error}`);
     console.error(
-      "usage: flow-open-pr <slug> --body-file <path> [--title <t>] [--draft] [--base <b>]",
+      "usage: flow-open-pr [<slug>] --body-file <path> [--title <t>] [--draft] [--base <b>]",
+    );
+    return 2;
+  }
+
+  const slug = parsed.slug ?? resolveSlug();
+  if (!slug) {
+    console.error(
+      "flow-open-pr: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
+        "  pass <slug> explicitly, or run inside a tmux window created by `flow new`.",
     );
     return 2;
   }
@@ -189,7 +210,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 1;
   }
 
-  const updateExit = updater([parsed.slug, "--pr", String(pr.number)]);
+  const updateExit = updater([slug, "--pr", String(pr.number)]);
   if (updateExit !== 0) return updateExit;
 
   console.log(pr.url);

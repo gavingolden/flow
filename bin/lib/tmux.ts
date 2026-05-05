@@ -15,7 +15,37 @@
 export const FLOW_SESSION = "flow";
 const FLOW_SLUG_OPTION = "@flow-slug";
 
-type SpawnResult = { stdout: string; stderr: string; exitCode: number };
+export type ResolveSlugDeps = {
+  env?: NodeJS.ProcessEnv;
+  spawnTmux?: (args: string[]) => SpawnResult;
+};
+
+/**
+ * Resolves the supervisor's pipeline slug from the current tmux pane's
+ * `@flow-slug` window option. Helpers that take a slug positionally or
+ * via `--slug` use this as a fallback when the caller omits the arg —
+ * the supervisor's per-call shell loses any `SLUG=…` between Bash tool
+ * calls, but `$TMUX_PANE` and the `@flow-slug` option set by
+ * `createWindow()` are immutable for the life of the window.
+ *
+ * Returns `null` when:
+ *   - `$TMUX_PANE` is unset (helper invoked outside tmux),
+ *   - `tmux show-options` fails (option unset on the window, which
+ *     `-v` reports via non-zero exit, e.g. for non-flow windows), or
+ *   - the resolved value is empty / whitespace.
+ */
+export function resolveSlugFromPane(deps: ResolveSlugDeps = {}): string | null {
+  const env = deps.env ?? process.env;
+  const spawn = deps.spawnTmux ?? tmux;
+  const pane = env.TMUX_PANE;
+  if (!pane) return null;
+  const r = spawn(["show-options", "-t", pane, "-v", "-w", FLOW_SLUG_OPTION]);
+  if (r.exitCode !== 0) return null;
+  const slug = r.stdout.trim();
+  return slug.length > 0 ? slug : null;
+}
+
+export type SpawnResult = { stdout: string; stderr: string; exitCode: number };
 
 function tmux(args: string[]): SpawnResult {
   try {

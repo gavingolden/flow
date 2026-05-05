@@ -227,10 +227,19 @@ controls firing via the env var, not the skill prompt.
 
 ```bash
 flow-notify --status <merged|gated|needs-human> \
-            --slug "$SLUG" \
             [--reason "<one-line summary>"] \
             [--url "<pr-url>"]
 ```
+
+`--slug` is omitted in the call above because every flow helper that takes
+a slug (`flow-notify`, `flow-state-update`, `flow-rename-window`,
+`flow-open-pr`, `flow-resume-decide`, `flow-gate-decide`,
+`flow-remove-worktree`) auto-resolves it from `$TMUX_PANE`'s `@flow-slug`
+window option. The supervisor's per-Bash-call shell loses any `SLUG=…` it
+sets between calls, but the tmux option set by `flow new`'s `createWindow`
+is durable for the life of the window. Pass `--slug <slug>` (or the
+positional, depending on the helper) only when invoking from outside the
+pipeline window — every example below relies on the auto-resolve path.
 
 - darwin-only; non-mac hosts and unset `FLOW_NOTIFY` both no-op.
 - Backend: `terminal-notifier` preferred (click-through to
@@ -263,7 +272,7 @@ exist anymore).
 ## At every phase transition, run
 
 ```bash
-flow-state-update "$SLUG" --phase "$PHASE"
+flow-state-update --phase "$PHASE"
 ```
 
 The helper merges fields preserving `repo`, `worktree`, and `pr`,
@@ -271,10 +280,12 @@ and refreshes `updatedAt`. It exits non-zero if the slug has no
 state file, surfacing drift instead of papering over it.
 
 `$PHASE` must be one of the values listed in the phase table below.
-`$SLUG` is the worktree directory's basename (e.g. `csv-export`) and
-matches the tmux window's `@flow-slug` user option — *not* its
-display name, which the supervisor renames to a readable title in
-step 1 and which the user may further rename via `tmux ,`.
+The slug is auto-resolved from `$TMUX_PANE`'s `@flow-slug` window
+option — the canonical pipeline identifier, set by `flow new` when
+creating the window and matching the worktree directory's basename
+(e.g. `csv-export`). It is *not* the display name, which the
+supervisor renames to a readable title in step 1 and which the user
+may further rename via `tmux ,`.
 
 ## Additional fields to set once
 
@@ -284,11 +295,11 @@ pipeline:
 ```bash
 # After step 2 (flow-new-worktree returns): record the absolute path
 # so consumers like `flow done` can find the worktree.
-flow-state-update "$SLUG" --phase worktree-create --worktree "$WORKTREE"
+flow-state-update --phase worktree-create --worktree "$WORKTREE"
 
 # After step 5 (PR opens): record the PR number so flow ls shows
 # the #142 column.
-flow-state-update "$SLUG" --phase implementing --pr "$PR"
+flow-state-update --phase implementing --pr "$PR"
 ```
 
 After the PR is set, never overwrite it — subsequent transitions
@@ -312,7 +323,7 @@ phase to state.json so `flow ls` immediately shows `triaging`
 instead of the stale `starting` from `flow new`:
 
 ```bash
-flow-state-update "$SLUG" --phase triaging
+flow-state-update --phase triaging
 ```
 
 Then set a readable tmux window title so the user can scan their
@@ -322,7 +333,7 @@ user option, set when `flow new` created the window) — the rename
 only changes the display:
 
 ```bash
-flow-rename-window "$SLUG" "<short descriptive title>"
+flow-rename-window "<short descriptive title>"
 ```
 
 Pick a 20–30-character title from the user's verbatim description.
@@ -353,21 +364,21 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
 **End conditions:**
 
 - **No-change** → answer the user's question in chat directly,
-  then write `flow-state-update "$SLUG" --phase triaged-no-change`
+  then write `flow-state-update --phase triaged-no-change`
   before ending the turn. The phase write is what `flow-stop-guard`
   reads to recognise the legitimate stop. Do NOT proceed to step 2.
 - **Change** → continue to step 2. The **slug** was already finalized
   by `flow new`'s aggressive slugify (`bin/lib/slug.ts`: stop-word
   filter + 5-token cap + `task-<hash8>` fallback) and is the basename
-  of `$SLUG`. The supervisor never re-derives or renames the slug;
-  it is the canonical pipeline identifier (stored in the window's
-  `@flow-slug` tmux option) and changing it would orphan the state
-  file, the worktree branch, and `flow attach`/`flow done` lookups.
-  The display-title rename above (`flow-rename-window`) is the only
-  permitted exception, fires exactly once here in step 1, and never
-  touches the slug.
+  of the worktree directory. The supervisor never re-derives or
+  renames the slug; it is the canonical pipeline identifier (stored
+  in the window's `@flow-slug` tmux option) and changing it would
+  orphan the state file, the worktree branch, and `flow attach`/
+  `flow done` lookups. The display-title rename above
+  (`flow-rename-window`) is the only permitted exception, fires
+  exactly once here in step 1, and never touches the slug.
 - **Ambiguous** (input is genuinely unparseable) → write
-  `flow-state-update "$SLUG" --phase triage-pending-clarification`,
+  `flow-state-update --phase triage-pending-clarification`,
   then ask the single clarifying question and end the turn. The
   next turn re-enters step 1 with the user's reply. If the answer
   is still ambiguous, escalate `NEEDS HUMAN: triage-ambiguous`
@@ -382,7 +393,7 @@ can take a couple of seconds, and the user shouldn't see a stale
 `triaging` row in `flow ls` while git is working:
 
 ```bash
-flow-state-update "$SLUG" --phase worktree-create
+flow-state-update --phase worktree-create
 ```
 
 Then create the worktree:
@@ -399,7 +410,7 @@ Now record the worktree path in state.json (the only step where
 `--worktree` is set):
 
 ```bash
-flow-state-update "$SLUG" --phase worktree-create --worktree "$WORKTREE"
+flow-state-update --phase worktree-create --worktree "$WORKTREE"
 ```
 
 **End condition:** the worktree directory exists, is on a fresh
@@ -484,7 +495,7 @@ typed something into the tmux chat. Classify the input using
   plan-pending-review): <verbatim>`.
 - **Cancel** ("cancel", "abort") → run `flow-remove-worktree
   <slug>`, write `phase: cancelled`, print `cancelled`, end.
-- **Ambiguous** → write `flow-state-update "$SLUG" --phase
+- **Ambiguous** → write `flow-state-update --phase
   approval-pending-clarification`, then ask the single clarifying
   question and end the turn. The next turn re-enters step 4 with
   the user's reply. If the answer is still unclear, escalate
@@ -517,9 +528,12 @@ mkdir -p "$WORKTREE/.flow-tmp"
 # that /new-feature wrote, then templated with the final commit list). Both
 # the source draft and the rendered body live under .flow-tmp/ so the
 # worktree root stays clean for the post-merge git worktree remove.
-PR_URL=$(flow-open-pr "$SLUG" \
+PR_URL=$(flow-open-pr \
   --body-file "$WORKTREE/.flow-tmp/pr-body.md" \
   --title "<conventional-commit summary>")
+# Read the PR number back. `~/.flow/state/<slug>.json` is keyed by slug,
+# so resolve the slug from the pane inline — single Bash call, single shell.
+SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
 PR=$(jq -r '.pr' ~/.flow/state/"$SLUG".json)
 ```
 
@@ -540,7 +554,7 @@ Then transition the phase (preserving the `pr` field the helper
 just wrote):
 
 ```bash
-flow-state-update "$SLUG" --phase implementing
+flow-state-update --phase implementing
 ```
 
 **Re-entry from a fix loop** (called from step 7 ci-red or step 8
@@ -576,7 +590,7 @@ session cannot use them downstream until `flow setup --upgrade` runs.
 This step closes that gap.
 
 ```bash
-flow-state-update "$SLUG" --phase installing-skills
+flow-state-update --phase installing-skills
 
 # Resolve the default branch dynamically — same approach as
 # flow-new-worktree.ts and flow-pre-commit.ts. Hardcoding origin/main
@@ -712,7 +726,7 @@ Branch on `.decision`:
 | `proceed-to-review` | Continue to step 8. |
 | `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal. |
 | `ci-failed` | Continue to step 5 mode=fix. Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
-| `merged-externally` | PR was merged externally mid-flight. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged --slug "$SLUG" --url "$PR_URL"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
+| `merged-externally` | PR was merged externally mid-flight. Run `flow-remove-worktree`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
 | `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
 
@@ -785,7 +799,7 @@ to be gated, so the helper escalates that case explicitly rather
 than collapsing it to auto-merge.
 
 ```bash
-RESULT=$(flow-gate-decide "$PR" --slug "$SLUG")
+RESULT=$(flow-gate-decide "$PR")
 DECISION=$(printf '%s' "$RESULT" | jq -r '.decision')
 PR_URL=$(printf '%s' "$RESULT" | jq -r '.prUrl // empty')
 REASON=$(printf '%s' "$RESULT" | jq -r '.reason // empty')
@@ -804,9 +818,9 @@ Branch on `.decision`:
 | `.decision` | Action |
 |---|---|
 | `auto-merge` | Continue to step 10 (auto-merge). |
-| `gated` | Write `phase: gated`. Call `flow-notify --status gated --slug "$SLUG" --url "$PR_URL" --reason "$REASON"` (the helper sets `.reason` to the first `.validationItems` entry, or `auto-merge opted out (--no-auto-merge)` when `autoMerge: false` with zero unchecked items). Print: `GATED:`, the PR URL, `$VALIDATION_ITEMS` (one per line, already newline-separated by the jq above), and `merge with: gh pr merge --squash <PR>`. End. |
-| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Run `flow-remove-worktree <slug>`, write `phase: merged`, call `flow-notify --status merged --slug "$SLUG" --url "$PR_URL"`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
-| `closed-no-merge` | Call `flow-notify --status needs-human --slug "$SLUG" --url "$PR_URL" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
+| `gated` | Write `phase: gated`. Call `flow-notify --status gated --url "$PR_URL" --reason "$REASON"` (the helper sets `.reason` to the first `.validationItems` entry, or `auto-merge opted out (--no-auto-merge)` when `autoMerge: false` with zero unchecked items). Print: `GATED:`, the PR URL, `$VALIDATION_ITEMS` (one per line, already newline-separated by the jq above), and `merge with: gh pr merge --squash <PR>`. End. |
+| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Run `flow-remove-worktree`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
+| `closed-no-merge` | Call `flow-notify --status needs-human --url "$PR_URL" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 | `escalate-heading-missing` | Escalate `NEEDS HUMAN: test-steps-section-missing`. |
 | `escalate-gh-error` | Escalate `NEEDS HUMAN: gh-error <.reason>`. |
 
@@ -819,7 +833,7 @@ gh pr merge --squash --delete-branch "$PR"
 ```
 
 On `gh pr merge` failure: retry once. If still failing, call
-`flow-notify --status needs-human --slug "$SLUG" --url "<pr-url>" --reason "merge-failed"`,
+`flow-notify --status needs-human --url "<pr-url>" --reason "merge-failed"`,
 then escalate `NEEDS HUMAN: merge-failed`. Leave the worktree intact.
 
 On success, the roadmap row for this PR was already flipped to
@@ -828,9 +842,9 @@ On success, the roadmap row for this PR was already flipped to
 Clean up the worktree and finalize:
 
 ```bash
-flow-remove-worktree <slug>
-flow-state-update "$SLUG" --phase merged
-flow-notify --status merged --slug "$SLUG" --url "<pr-url>"
+flow-remove-worktree
+flow-state-update --phase merged
+flow-notify --status merged --url "<pr-url>"
 ```
 
 (the PR URL is available from `gh pr view "$PR" --json url -q .url`).
@@ -850,7 +864,7 @@ On detecting it, **do not** start at step 1. Call `flow-resume-decide`
 to walk the resume-from-disk decision tree:
 
 ```bash
-RESULT=$(flow-resume-decide "$SLUG")
+RESULT=$(flow-resume-decide)
 RESUME_AT=$(printf '%s' "$RESULT" | jq -r '.resumeAt')
 REASON=$(printf '%s' "$RESULT" | jq -r '.reason')
 WORKTREE=$(printf '%s' "$RESULT" | jq -r '.context.worktree // empty')
@@ -957,8 +971,8 @@ documented retry budget; once exhausted, write `phase: needs-human`,
 fire a notification, print `NEEDS HUMAN: <reason>`, and end:
 
 ```bash
-flow-state-update "$SLUG" --phase needs-human
-flow-notify --status needs-human --slug "$SLUG" --reason "<reason>"
+flow-state-update --phase needs-human
+flow-notify --status needs-human --reason "<reason>"
 echo "NEEDS HUMAN: <reason>"
 ```
 
@@ -976,8 +990,8 @@ to write the phase transition; the supervisor must NOT retry.
 Escalate immediately:
 
 ```bash
-flow-state-update "$SLUG" --phase needs-human  # may itself fail; that's ok, scrollback shows the cause
-flow-notify --status needs-human --slug "$SLUG" --reason "branch-mismatch"
+flow-state-update --phase needs-human  # may itself fail; that's ok, scrollback shows the cause
+flow-notify --status needs-human --reason "branch-mismatch"
 echo "NEEDS HUMAN: branch-mismatch <expected vs actual from stderr>"
 ```
 
