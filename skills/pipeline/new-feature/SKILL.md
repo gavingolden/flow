@@ -74,7 +74,7 @@ disk + a brief summary.
 - `it.todo()` naming format: `"should <expected observable behavior> when <trigger/condition>"`
 - Skill consultation: before writing `.svelte` files, read the `svelte` skill. Before writing
   tests, read the `testing` skill. Before UI/layout work, read the `tailwind-shadcn` skill.
-  Before database/migrations, read the `supabase` skill. (Names assume the canonical stack
+  Before database/migrations, read the `supabase-project` skill. (Names assume the canonical stack
   skills installed by `flow setup`; substitute whatever your project uses.)
 
 # Instructions
@@ -387,7 +387,7 @@ proceeding to implementation.
   - `.svelte` files — read the `svelte` skill
   - Test files — read the `testing` skill
   - Tailwind / layout / theming — read the `tailwind-shadcn` skill
-  - Database / migrations — read the `supabase` skill
+  - Database / migrations — read the `supabase-project` skill
 - **Design for testability.** Structure code so that unit tests are straightforward:
   - Extract logic into pure functions testable without rendering components.
   - Use dependency injection for external services so they can be easily mocked.

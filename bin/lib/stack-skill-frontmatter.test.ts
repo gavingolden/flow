@@ -12,7 +12,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const STACK_SKILLS = ["svelte", "supabase", "tailwind-shadcn"] as const;
+const STACK_SKILLS = ["svelte", "supabase-project", "tailwind-shadcn"] as const;
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..");
 
