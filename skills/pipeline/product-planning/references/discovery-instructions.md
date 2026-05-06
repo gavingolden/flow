@@ -333,7 +333,7 @@ skills/pipeline/pr-review/references/manual-test-rubric.md. -->
 
 - [ ] Run `npm run test -- <test-file>` — all specs pass.
 - [ ] Run `[ -f <path> ] && grep -q "<expected>" <path>` — config is wired.
-- [ ] Open /portfolio in dark mode — chart contrast feels right (subjective UX, manual).>
+- [ ] Open /portfolio in dark mode — chart contrast feels right (subjective UX, manual).
 ```
 
 **Rules:**

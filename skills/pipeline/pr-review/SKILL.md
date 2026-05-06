@@ -556,11 +556,15 @@ For each promoted item:
    ```
 
 2. Run it, capturing stdout + stderr + exit code the same way 8c does for
-   author-written runnable items:
+   author-written runnable items. Use `set -o pipefail` so the captured exit
+   code reflects the promoted script's status, not `tee`'s — without
+   pipefail, a failing assertion is silently recorded as exit 0 and the box
+   gets ticked incorrectly:
 
    ```bash
+   set -o pipefail
    bash -c '.flow-tmp/promoted-<n>.sh 2>&1' | tee .flow-tmp/evidence-<n>.txt
-   echo $? > .flow-tmp/exit-<n>
+   echo "${PIPESTATUS[0]}" > .flow-tmp/exit-<n>
    ```
 
 3. On exit 0, hand off to 8c.i for the box-tick + evidence injection. The

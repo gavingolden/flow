@@ -386,7 +386,7 @@ skills/pipeline/pr-review/references/manual-test-rubric.md. -->
 
 - [ ] Run `npm run test -- <test-file>` — all specs pass.
 - [ ] Run `[ -f <path> ] && grep -q "<expected>" <path>` — config is wired.
-- [ ] Open /foo in dark mode — animation feels balanced (subjective UX, manual).>
+- [ ] Open /foo in dark mode — animation feels balanced (subjective UX, manual).
 ```
 
 Save to `.flow-tmp/pr-description-draft.md` in the working directory. Create the
