@@ -1153,6 +1153,50 @@ sections before approving.
 
 ---
 
+## Doc Arithmetic Drift From Code Constants
+
+Prose budgets ("capped at 200 lines", "head 200 + marker + tail 100 =
+300") derive from code constants and drift from them — either through
+a refactor that updates the constant but not the four SKILL.md sites
+quoting it, or through an author who writes "300 (head 200 + marker +
+tail 100)" without checking that 200 + 1 + 100 = 301. Treat any prose
+number that sums components as a derivation reviewers must re-do.
+
+### What to look for
+
+- SKILL.md / README / agent-prompts citing a numeric budget,
+  especially when prose decomposes it ("head N + tail M + marker")
+- Multiple doc sites quoting the same number — drift risk scales with
+  site count
+- A code constant (`HEAD_LINES = 100`) whose value is restated
+  verbatim in prose rather than named
+
+### How to check
+
+1. For each cited budget, locate the constant(s) it derives from. If
+   the prose decomposes, sum the parts and confirm the total —
+   including any marker / separator overhead.
+2. Grep the repo for the exact number. Every site must agree with the
+   code. Prefer prose that names the constant
+   (`HEAD_LINES + TAIL_LINES`) over a bare number.
+3. If a changeset edits a budget constant without touching SKILL/
+   README sites that quote it, flag the missing doc updates.
+
+### Example — diff cap arithmetic mismatch (PR #96)
+
+```markdown
+BAD: 200 + 1 + 100 = 301, not 300; flow-pr-diff.test.ts:90 asserts 301.
+- `flow-pr-diff` per-file caps each block at 300 lines (head 200 +
+  truncation marker + tail 100).
+
+GOOD: budget and wire size separated so the marker is accounted for.
+- `flow-pr-diff` per-file caps each block at 300 source lines
+  (head 200 + tail 100); truncated files emit one extra marker line,
+  for at most 301 lines on the wire.
+```
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue
