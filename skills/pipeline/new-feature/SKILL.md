@@ -394,6 +394,34 @@ proceeding to implementation.
   - Separate side effects (network calls, DOM mutations) from decision logic.
 - Refer to the `it.todo()` list as a living checklist of acceptance criteria.
 
+## 5b. Register Local Follow-ups (when applicable)
+
+When the implementation produces a side-effect the user must replicate on their
+local machine after merge — a new helper added under `bin/` (so the home install
+needs `flow setup --upgrade`), a new local dependency, a stale config file to
+delete — register a follow-up:
+
+```bash
+flow-followups add \
+  --command "flow setup --upgrade" \
+  --reason "<why this matters post-merge>" \
+  --auto    # only if the command is in the helper's allowlist
+```
+
+The supervisor (`/flow-pipeline` step 11) consumes the JSONL log: on the MERGED
+path it executes allowlisted+auto entries and prints a `LOCAL FOLLOW-UPS:`
+block; on GATED it lists them as deferred items in both the PR body
+(`flow-followups pr-body-upsert`) and the terminal print
+(`flow-followups run --note-only`); on NEEDS HUMAN it prints the deferred
+block to scrollback only — escalation can fire before a PR exists, so the
+PR body is not edited and the JSONL log is left on disk for a later resume
+to consume. Do **not** execute the follow-up directly — that's the
+supervisor's job, gated by the allowlist. See
+`skills/pipeline/flow-pipeline/SKILL.md` step 11 for the contract.
+
+Skip this step when the change has no user-visible local-machine side-effect
+(pure code edits, doc-only changes, internal refactors).
+
 ## 6. Implement ALL Test Specs
 
 - Return to the test file and implement **every** `it.todo()` entry. This is mandatory —

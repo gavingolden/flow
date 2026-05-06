@@ -848,6 +848,28 @@ must appear in one of the two buckets. If no findings were deferred, say so expl
 
 Commit any changes with a clear message referencing the PR number, then present the report.
 
+## 13. Register Local Follow-ups (when applicable)
+
+If addressing a review comment introduced a side-effect the user must replicate
+locally post-merge (a new helper added to `bin/`, a new env var, a config file
+to delete), register a follow-up:
+
+```bash
+flow-followups add \
+  --command "flow setup --upgrade" \
+  --reason "<why this matters post-merge>" \
+  --auto    # only when command is in the helper's allowlist
+```
+
+`/flow-pipeline` step 11 consumes the JSONL log on terminal end-states. On
+the auto-merge and GATED branches the entries are also surfaced as a
+`## Local Follow-ups` section in the PR body via `flow-followups
+pr-body-upsert`. The NEEDS HUMAN failure path prints the deferred block to
+scrollback (via `flow-followups run --note-only`) but does **not** edit the
+PR body — escalation can fire before a PR exists, and the JSONL log persists
+on disk for any later resume to consume. PR review never runs the follow-up
+directly — that's the supervisor's job, gated by the helper's allowlist.
+
 # Anti-Patterns
 
 - **Flagging style preferences**: Import order, semicolons, trailing commas — that's what

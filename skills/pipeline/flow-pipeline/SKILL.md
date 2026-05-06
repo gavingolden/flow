@@ -120,10 +120,11 @@ in-process for skills; shell out for scripts; never delegate.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
-> `flow-fetch-pr-review`, and `flow-reply-pr-comments` rather than
-> reimplementing their behaviour with raw `git` / `gh` calls. The
-> helpers handle edge cases (existing worktrees, branch collisions,
-> review-comment ID mapping) that are easy to get wrong.
+> `flow-fetch-pr-review`, `flow-reply-pr-comments`, and
+> `flow-followups` rather than reimplementing their behaviour with
+> raw `git` / `gh` calls. The helpers handle edge cases (existing
+> worktrees, branch collisions, review-comment ID mapping,
+> allowlist enforcement on auto-run) that are easy to get wrong.
 
 > **You never silently retry past the documented caps.** Verify: 3
 > outer attempts. CI-fix loop: 3 total. Review-fix loop: 2 total.
@@ -646,6 +647,15 @@ if [ -n "$ADDED" ]; then
   echo "Detected new skill/agent files; re-symlinking:"
   echo "$ADDED" | sed 's/^/  /'
   flow setup --upgrade --source "$WORKTREE"
+  # Register a post-merge follow-up so the user's home install also gets
+  # re-symlinked against the canonical (post-merge) main, not just this
+  # supervisor's in-flight worktree. `--auto` plus the `flow setup --upgrade`
+  # allowlist entry means step 11 runs it automatically on the MERGED path.
+  flow-followups add \
+    --command "flow setup --upgrade" \
+    --reason "new skills/agents added on this branch — re-symlink home install post-merge" \
+    --auto \
+    --registered-by "flow-pipeline:step-5.5"
 else
   echo "No skill/agent additions; skipping re-symlink."
 fi
@@ -785,7 +795,7 @@ Branch on `.decision`:
 | `proceed-to-review` | Continue to step 8. |
 | `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal. |
 | `ci-failed` | Continue to step 5 mode=fix. Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
-| `merged-externally` | PR was merged externally mid-flight. Run `flow-remove-worktree`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
+| `merged-externally` | PR was merged externally mid-flight. Run `flow-followups run` (executes auto-allowlisted entries while the worktree is still alive), then `flow-remove-worktree`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
 | `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
 
@@ -876,9 +886,9 @@ Branch on `.decision`:
 
 | `.decision` | Action |
 |---|---|
-| `auto-merge` | Continue to step 10 (auto-merge). |
-| `gated` | Write `phase: gated`. Call `flow-notify --status gated --url "$PR_URL" --reason "$REASON"` (the helper sets `.reason` to the first `.validationItems` entry, or `auto-merge opted out (--no-auto-merge)` when `autoMerge: false` with zero unchecked items). Print: `GATED:`, the PR URL, `$VALIDATION_ITEMS` (one per line, already newline-separated by the jq above), and `merge with: gh pr merge --squash <PR>`. End. |
-| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Run `flow-remove-worktree`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
+| `auto-merge` | Run `flow-followups pr-body-upsert "$PR"` (no-op when log is empty; otherwise idempotent in-place upsert of `## Local Follow-ups` so the section survives the squash-merge). Continue to step 10 (auto-merge). |
+| `gated` | Run `flow-followups pr-body-upsert "$PR"` (idempotent), then `flow-followups run --note-only` (the deferred LOCAL FOLLOW-UPS block — see step 11 for the contract). Write `phase: gated`. Call `flow-notify --status gated --url "$PR_URL" --reason "$REASON"` (the helper sets `.reason` to the first `.validationItems` entry, or `auto-merge opted out (--no-auto-merge)` when `autoMerge: false` with zero unchecked items). Print: `GATED:`, the PR URL, `$VALIDATION_ITEMS` (one per line, already newline-separated by the jq above), and `merge with: gh pr merge --squash <PR>`. End. |
+| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Run `flow-followups run` (executes allowlisted+auto entries while the worktree is still alive), then `flow-remove-worktree`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
 | `closed-no-merge` | Call `flow-notify --status needs-human --url "$PR_URL" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 | `escalate-heading-missing` | Escalate `NEEDS HUMAN: test-steps-section-missing`. |
 | `escalate-gh-error` | Escalate `NEEDS HUMAN: gh-error <.reason>`. |
@@ -891,16 +901,50 @@ Branch on `.decision`:
 gh pr merge --squash --delete-branch "$PR"
 ```
 
-On `gh pr merge` failure: retry once. If still failing, call
-`flow-notify --status needs-human --url "<pr-url>" --reason "merge-failed"`,
-then escalate `NEEDS HUMAN: merge-failed`. Leave the worktree intact.
+On `gh pr merge` failure: retry once. If still failing, escalate via
+the standard `# Failure paths` block (`flow-state-update --phase
+needs-human` → `flow-followups run --note-only` → `flow-notify
+--status needs-human --url "<pr-url>" --reason "merge-failed"` →
+`echo "NEEDS HUMAN: merge-failed"`). Leave the worktree intact.
 
 On success, the roadmap row for this PR was already flipped to
 `✅ shipped (#$PR)` in the PR's own diff by `/pr-review` step 7.5
 (self-mark + sweep), so no post-merge metadata sweep is required.
-Clean up the worktree and finalize:
+Continue to step 11 — local follow-ups must run *before*
+`flow-remove-worktree` so the JSONL log is still on disk when the
+report builds.
+
+## Step 11 — Local follow-ups
+
+**Phase:** still `merging` — no new phase value (see "no resume scenario"
+note below).
+
+Local follow-ups are manual local-computer steps a pipeline produced (e.g.
+`flow setup --upgrade` after a new helper landed). Sub-skills register them
+during the run via `flow-followups add`; step 11 reports them and, on the
+MERGED path, executes the safe subset.
+
+**Two-layer safety boundary:** an entry's `auto: true` flag declares
+*intent*; the helper's hardcoded ALLOWLIST gates *permission* (exact-match,
+v1: `flow setup` and `flow setup --upgrade`). Both must be true to execute.
+Same narrow-and-named exemption pattern as the `/pr-review` auto-push and
+`/flow-pipeline` auto-merge clauses in `AGENTS.md` "Don'ts". Auto-run is
+gated by the same `autoMerge` flag as step 10 — `flow new --no-auto-merge`
+disables both.
+
+**End-state matrix:**
+
+| End-state | Step 11 behaviour |
+|---|---|
+| MERGED | Run the helper here (post-merge, pre-`flow-remove-worktree`); execute allowlisted+auto entries, note the rest, print `LOCAL FOLLOW-UPS:` block. |
+| GATED | Documented in step 9 (`gated` decision branch): `flow-followups pr-body-upsert "$PR"` + `flow-followups run --note-only`. Print before `GATED: <url>`. |
+| NEEDS HUMAN | Documented in `# Failure paths`: `flow-followups run --note-only` printed before `NEEDS HUMAN: <reason>`. |
+| cancelled | Skipped — the worktree is being removed; pending follow-ups are intentionally lost. |
+
+For MERGED, run the helper here and finalize:
 
 ```bash
+flow-followups run                                # executes auto-allowlisted entries; prints block
 flow-remove-worktree
 flow-state-update --phase merged
 flow-notify --status merged --url "<pr-url>"
@@ -908,6 +952,19 @@ flow-notify --status merged --url "<pr-url>"
 
 (the PR URL is available from `gh pr view "$PR" --json url -q .url`).
 Print `MERGED` on its own line. End.
+
+**Failed auto-runs are reported, not escalated.** A non-zero exit code from
+an allowlisted command (e.g. `flow setup --upgrade` failed because of a
+permission issue) is rendered in the printed block as `FAIL <command> (exit
+N)` with a tail excerpt. The supervisor still ends with `MERGED` — the user
+inspects scrollback. Escalating to `NEEDS HUMAN` would block a successful
+merge on a peripheral failure, which inverts the priority.
+
+**No new phase value.** Step 11 is bookkeeping inside `merging` (MERGED
+path) or a final read just before the terminal print (GATED / NEEDS HUMAN).
+Adding `local-followups` to `STEP_PHASES` would force a state.json write
+that adds nothing — there's no resume scenario where the supervisor crashed
+mid-step-11 and needs to know that.
 
 # Resume mode
 
@@ -957,7 +1014,7 @@ Branch on `.resumeAt`:
 | `step-6` | Re-enter step 6 (verify). Re-invoke `/verify`. |
 | `step-7` | Re-enter step 7 (ci-wait). Re-enter the poll loop via `flow-ci-wait`. |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/pr-review <PR>`. |
-| `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 9's MERGED-cleanup branch — `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
+| `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — `flow-followups run` then `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
 | `terminal` | Already in a terminal state. Print the corresponding line (`MERGED` / `gated` / `cancelled`) and end without re-running anything. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |
@@ -1019,6 +1076,12 @@ glance:
 | `NEEDS HUMAN: <reason>` | `needs-human` | Pipeline stalled; user attaches + redirects. Worktree + PR intact. |
 | `cancelled` | `cancelled` | User cancelled before merge. Worktree removed. |
 
+The first three lines (`MERGED` / `GATED: <url>` / `NEEDS HUMAN: <reason>`)
+may be preceded by a `LOCAL FOLLOW-UPS:` (or `LOCAL FOLLOW-UPS (deferred —
+PR not yet merged):`) block written by step 11 — see the step 11 contract
+above for when it appears. The `cancelled` line is never preceded by a
+follow-ups block.
+
 After printing the end-condition line, **end the turn**. The tmux
 window stays open with full scrollback. The user closes it later
 with `flow done <name>`.
@@ -1027,16 +1090,19 @@ with `flow done <name>`.
 
 The general rule: **escalate over silent retry**. Each step has a
 documented retry budget; once exhausted, write `phase: needs-human`,
-fire a notification, print `NEEDS HUMAN: <reason>`, and end:
+print any deferred follow-ups, fire a notification, print
+`NEEDS HUMAN: <reason>`, and end:
 
 ```bash
 flow-state-update --phase needs-human
+flow-followups run --note-only       # prints LOCAL FOLLOW-UPS (deferred …) if log non-empty; silent otherwise
 flow-notify --status needs-human --reason "<reason>"
 echo "NEEDS HUMAN: <reason>"
 ```
 
 Do **not** call `flow-remove-worktree` on escalation — leave the
-worktree + PR intact so the user can inspect and resume.
+worktree + PR (and the JSONL log) intact so the user can inspect and
+resume.
 
 ## Branch-mismatch escalation (no retries)
 

@@ -117,6 +117,22 @@ pick the most informative ~10–15 lines from each.
 If changes were made to fix failures, briefly list what was fixed (one bullet per fix,
 not a diff).
 
+## 6. Register Local Follow-ups (when applicable)
+
+If a fix added a new helper to `bin/`, a new dependency, or any other change the
+user must replicate locally post-merge, register a follow-up:
+
+```bash
+flow-followups add \
+  --command "flow setup --upgrade" \
+  --reason "<why this matters post-merge>" \
+  --auto    # only when command is in the helper's allowlist
+```
+
+`/flow-pipeline` step 11 consumes the JSONL log on terminal end-states. Verify
+itself never runs the follow-up — it just registers it. Skip when no local-machine
+side-effect is produced.
+
 # Verification
 
 - The pre-commit checks command exits 0

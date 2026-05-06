@@ -83,7 +83,7 @@ export const NEXT_STEP_BY_PHASE: Record<string, string> = {
   "ci-wait": "step 8 (review)",
   reviewing: "step 9 (gate)",
   gating: "step 10 (merge)",
-  merging: "step 10 (finalize merge to MERGED)",
+  merging: "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED)",
 };
 
 export function nextStepLabel(phase: string): string {
