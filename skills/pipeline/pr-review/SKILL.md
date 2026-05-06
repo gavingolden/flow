@@ -45,6 +45,17 @@ Helpers (installed globally by `flow setup` and on PATH):
   context; agents are already instructed to Read the changed files in full for
   surrounding context, so the diff is a "what changed at a glance" hint, not the
   source of truth.
+- `flow-pr-static-analysis` — runs the consumer's installed static-analysis tools
+  (semgrep for security, biome or eslint for lint, tsc for types, an existing
+  Istanbul coverage report for coverage), parses each into a unified
+  `{file, line, rule_id, confidence, severity, source}` shape, filters to PR-touched
+  lines, and emits a single combined JSON envelope keyed by lens
+  (`{security, types, coverage, lint, meta}`). Default `--min-confidence 80`. Used
+  at Step 3 so each of the four review agents receives only the lens subset
+  relevant to its role, instead of re-deriving the same low-level facts from raw
+  diff inspection. Tool-presence detection is graceful: any missing tool produces
+  `meta.<lens>.ran=false` + `skipped_reason` and the lens emits `[]`; the helper
+  always exits 0.
 - `flow-pre-commit` — auto-detects scope, runs format + checks, reports pass/fail
 - `flow-reply-pr-comments` — batch-posts replies to PR review comments
 
@@ -125,13 +136,44 @@ in parallel, then merge.
    the review — they explain intent that the diff alone cannot convey. If a commit body
    is missing or only restates the diff, flag it in Step 11 as a `suggestion` so the
    author can backfill context in the PR description.
-4. Read `references/agent-prompts.md` for the prompt templates.
+4. Run the static-analysis pre-digest and capture its JSON to scratch:
+
+   ```bash
+   mkdir -p .flow-tmp
+   flow-pr-static-analysis <number> > .flow-tmp/static-analysis.json
+   ```
+
+   The helper runs semgrep (security), biome or eslint (lint), tsc (types), and the
+   project's existing Istanbul coverage report (coverage), parses each into a unified
+   shape, filters to PR-touched lines, and emits a single combined JSON envelope keyed
+   by lens. (Lenses run sequentially today; gh-issue #101 tracks switching to genuine
+   parallelism — the structural `Promise.all` wrapper is in place but the underlying
+   `spawnSync` blocks.) Each lens subset is fanned out to the matching agent in the
+   spawn step below. Tool-presence detection is graceful: any missing tool produces
+   `meta.<lens>.ran=false` + `skipped_reason` and the lens emits `[]`; the helper
+   always exits 0, so a repo with none of the tools installed is a no-op rather than
+   an error. Read the JSON before spawning so the per-agent subsets can be templated
+   in (the next sub-step):
+
+   ```bash
+   STATIC_ANALYSIS=$(cat .flow-tmp/static-analysis.json)
+   ```
+
+5. Read `references/agent-prompts.md` for the prompt templates.
 
 **Spawn 4 agents in parallel**, each as a subagent. For each agent:
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
-  `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`
+  `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
+  `{{STATIC_ANALYSIS_FACTS}}`. For the static-analysis variable, substitute a single
+  self-contained JSON object containing both the lens findings and the matching meta
+  slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
+  needs both. Use this `jq` filter against `.flow-tmp/static-analysis.json` per agent:
+  - Bug Detection: `jq '{findings: .types, meta: .meta.types}' .flow-tmp/static-analysis.json`
+  - Security: `jq '{findings: .security, meta: .meta.security}' .flow-tmp/static-analysis.json`
+  - Pattern/Consistency: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json`
+  - Test Coverage: `jq '{findings: .coverage, meta: .meta.coverage}' .flow-tmp/static-analysis.json`
 - Append the agent-specific section (Role, Process, False Positive Avoidance)
 - Include paths to `references/review-checklist.md` and `references/conventional-comments.md`
   so agents can read them
@@ -141,12 +183,12 @@ in parallel, then merge.
 
 The 4 agents:
 
-| Agent                   | Focus                                                       | Checklist sections                          |
-| ----------------------- | ----------------------------------------------------------- | ------------------------------------------- |
-| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts | Error Handling, Type Safety                 |
-| **Security**            | OWASP top 10, input validation, auth, secrets, injection    | Security                                    |
-| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code   | Consistency, Lifecycle/Cleanup, Composition |
-| **Test Coverage**       | Missing tests, untested edges, test quality, env setup      | Test Environment                            |
+| Agent                   | Focus                                                       | Checklist sections                          | Static-analysis lens |
+| ----------------------- | ----------------------------------------------------------- | ------------------------------------------- | -------------------- |
+| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts | Error Handling, Type Safety                 | `types` (tsc errors) |
+| **Security**            | OWASP top 10, input validation, auth, secrets, injection    | Security                                    | `security` (semgrep) |
+| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code   | Consistency, Lifecycle/Cleanup, Composition | `lint` (biome/eslint) |
+| **Test Coverage**       | Missing tests, untested edges, test quality, env setup      | Test Environment                            | `coverage` (Istanbul/c8/vitest) |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
 `decoration`, `confidence`, `subject`, `body`.
