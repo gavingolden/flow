@@ -801,9 +801,10 @@ describe(run, () => {
   });
 
   it("skips the types lens with tsc-exit-N reason when tsc fails catastrophically", async () => {
-    // tsc exit 0 = clean, 1 = type errors. Anything else (2 = bad CLI args,
-    // 3 = no files) means stdout is empty and parsing would silently report
-    // ran=true with [] findings.
+    // tsc exit semantics: 0 = clean, 2 = type errors emitted on stdout (the
+    // normal "found findings" path). Anything else (1 = command-line error,
+    // 3 = no files) is catastrophic — stdout is empty and parsing would
+    // silently report ran=true with [] findings.
     const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
     const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
     const spawn = vi.fn().mockReturnValue({ stdout: "", stderr: "no input files", exitCode: 3, timedOut: false });
@@ -826,6 +827,66 @@ describe(run, () => {
     expect(result.meta.types.skipped_reason).toBe("tsc-exit-3");
   });
 
+  it("treats tsc exit 2 as the normal 'found type errors' path, not a catastrophic skip", async () => {
+    // Regression for the bug surfaced by the gavingolden/econ-data#194 smoke
+    // test: every consumer repo with type errors had its types lens silently
+    // skipped because the runner rejected anything other than exit 0/1. Per
+    // the TypeScript wiki, exit 2 = type errors emitted on stdout, which is
+    // exactly the path agents need to consume.
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const tscOut = makeTscOutput([
+      { file: "a.ts", line: 1, code: "TS2322", message: "Type 'string' is not assignable to 'number'." },
+    ]);
+    const spawn = vi.fn().mockReturnValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockReturnValue({
+        stdout: makeUnifiedDiff([
+          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(true);
+    expect(result.meta.types.skipped_reason).toBeUndefined();
+    expect(result.types).toHaveLength(1);
+    expect(result.types[0]).toMatchObject({ rule_id: "TS2322", confidence: 100 });
+  });
+
+  it("skips the types lens when tsc exits 1 (command-line / configuration error)", async () => {
+    // Exit 1 was historically miscategorized as "found errors" — it's
+    // actually the bad-flag / bad-config path, where stdout is empty and a
+    // ran=true zero-finding result would mask a real failure. Skip with
+    // an explicit reason instead.
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const spawn = vi.fn().mockReturnValue({ stdout: "", stderr: "error TS5023: Unknown compiler option 'foo'.", exitCode: 1, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockReturnValue({
+        stdout: makeUnifiedDiff([
+          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(false);
+    expect(result.meta.types.skipped_reason).toBe("tsc-exit-1");
+  });
+
   it("runs tsc against a project-specific tsconfig (e.g. tsconfig.scripts.json) when no plain tsconfig.json exists", async () => {
     // Regression: hard-coding the tsconfig.json check silently skipped the
     // types lens on flow's own repo, which uses tsconfig.scripts.json. The
@@ -840,7 +901,7 @@ describe(run, () => {
     const spawn = vi.fn().mockReturnValue({
       stdout: "src/a.ts(2,1): error TS2304: Cannot find name 'foo'.\n",
       stderr: "",
-      exitCode: 1,
+      exitCode: 2, // tsc emits 2 when type errors are present (per the wiki)
       timedOut: false,
     });
     const { deps, outs } = makeMockDeps({

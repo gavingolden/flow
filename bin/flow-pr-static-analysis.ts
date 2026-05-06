@@ -697,11 +697,14 @@ const runTypesLens: LensRun = async (args, deps) => {
     timeoutMs: args.maxToolTimeoutSec * 1000,
   });
   if (r.timedOut) return timedSkip(start, "timeout");
-  // tsc exit semantics: 0 = clean, 1 = type errors emitted on stdout, anything
-  // else (2 = bad CLI args, 3 = no files, etc.) is a catastrophic failure where
-  // stdout is empty and the parse would silently report "0 findings, ran=true".
-  // Skip with an explicit reason so consumers see the failure.
-  if (r.exitCode !== 0 && r.exitCode !== 1) {
+  // tsc exit semantics (TypeScript wiki, "Exit codes"): 0 = clean,
+  // 1 = command-line / configuration error, 2 = type errors emitted on stdout,
+  // 3 = no input files. The PR-#99 review fix had 1 and 2 swapped — exit 2
+  // is the normal "found type errors" path, not a catastrophic failure, and
+  // the smoke test against gavingolden/econ-data#194 caught it. Treat 0 and 2
+  // as "ran"; treat 1 and 3+ as catastrophic and skip with an explicit reason
+  // so consumers see the failure rather than a silent zero-finding pass.
+  if (r.exitCode !== 0 && r.exitCode !== 2) {
     return timedSkip(start, `tsc-exit-${r.exitCode}`);
   }
   const findings = parseTscOutput(r.stdout, deps.cwd);
