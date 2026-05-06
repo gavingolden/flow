@@ -164,9 +164,11 @@ manual editing (5+ candidates). The user's selections persist back as `- [x]`; t
 merge sweep at step 10 reads `- [x]` items and fires `flow-create-issue` for each.
 
 If discovery surfaces no orthogonal ideas, **omit the section entirely** — do not write an
-empty heading. An empty heading would route through the same logic as a populated one and
-either produce a confusing 0-item form or trigger the 5+ fallback warning if a stray entry
-appears later.
+empty heading. An empty heading is a no-op for the supervisor (count is `0` → no form,
+no fallback), but it implies candidates exist when none do, adds noise to plan review,
+and risks accumulating stale `- [ ]` entries on later edits. The supervisor's
+"section absent" and "count is 0" branches behave identically; the value of omitting
+the heading is signal-to-noise, not control flow.
 
 Bar for inclusion: would the user want to come back to this in a separate session? If the
 answer is "no, this is part of the current feature" or "no, this is just a question for

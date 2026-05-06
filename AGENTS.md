@@ -382,10 +382,12 @@ no compile step.
     forbidden from calling `flow-create-issue` (or any other
     issue-create surface) outside the two named sites: (a) when
     `/pr-review` defers a finding past the 3-criterion bar, it files
-    one issue via `flow-create-issue --label flow-agent,deferred-
-    review`; and (b) when `/flow-pipeline` step 10 runs the post-
-    merge sweep, it fires `flow-create-issue --label flow-agent,
-    out-of-scope-discovery` once per `- [x]` candidate in plan.md.
+    one issue via
+    `flow-create-issue --label flow-agent,deferred-review`;
+    and (b) when `/flow-pipeline` step 10 runs the post-merge sweep,
+    it fires
+    `flow-create-issue --label flow-agent,out-of-scope-discovery`
+    once per `- [x]` candidate in plan.md.
     Rationale: indiscriminate issue auto-creation pollutes user
     backlogs with low-confidence noise and races on `gh` rate
     limits; the two named sites have explicit user opt-in (the
