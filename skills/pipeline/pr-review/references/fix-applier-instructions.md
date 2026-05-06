@@ -78,14 +78,47 @@ For each finding, classify it into one of:
   changes, fix it.
 - **Defer + log** — only when the fix legitimately warrants a separate
   standalone agent session (see bar below). When you defer, you MUST surface
-  the deferral in the artifact's `deferred[]` array with enough detail for a
-  human to act on it. If the worktree contains an in-repo tracker file you
-  recognise (`ROADMAP.md`, `docs/roadmap.md`, etc.), edit it in the same
-  commit and set `tracker_entry_url` to the section anchor. **If no in-repo
-  tracker exists, leave `tracker_entry_url` as an empty string** — do not
-  invent tracker integration. Specifically: do **not** call `gh issue
-  create`, do **not** open Linear tickets, do **not** assume any external
-  tracker. flow has no GitHub-issue-creation pathway today.
+  the deferral in the artifact's `deferred[]` array AND file a durable
+  tracker entry. **Default tracker is a GitHub issue** filed via
+  `flow-create-issue` (idempotent on title — re-running the address loop
+  against the same PR after a re-push reuses the existing open issue):
+
+  ```bash
+  mkdir -p "$WORKTREE/.flow-tmp"
+  cat > "$WORKTREE/.flow-tmp/deferred-body.md" <<'EOF'
+  <file/area + 1-line issue>
+
+  **Why deferred:** <bar criterion>
+
+  **Revisit trigger:** <concrete trigger>
+
+  Surfaced by `/pr-review` on PR #<n>.
+  EOF
+
+  ISSUE_JSON=$(flow-create-issue \
+    --title "<short finding subject>" \
+    --body-file "$WORKTREE/.flow-tmp/deferred-body.md" \
+    --label flow-agent,deferred-review)
+  ISSUE_URL=$(printf '%s' "$ISSUE_JSON" | jq -r '.url')
+  ```
+
+  Set `tracker_entry_url` to `$ISSUE_URL`. The helper files against the
+  **current repo only** (no `--repo` flag); third-party regressions get a
+  `flow-agent,deferred-review,third-party` label combo and a body that names
+  the upstream project, leaving the user to mirror the issue upstream
+  manually.
+
+  **Fallback path.** If `flow-create-issue` exits non-zero (e.g. `gh`
+  unavailable, no GH Issues surface for this repo), fall back to editing an
+  in-repo tracker file (`ROADMAP.md`, `docs/roadmap.md`, etc.) in the same
+  commit and set `tracker_entry_url` to the section anchor. The fallback is
+  for projects without GH Issues, not a preferred path — try the helper
+  first.
+
+  **If neither is available** (no GH Issues *and* no in-repo tracker),
+  leave `tracker_entry_url` as an empty string — do not invent tracker
+  integration. The wrapper surfaces the deferral's `reason` field in the
+  Step 12 report regardless.
 
 **Bar for deferral — ALL must be true (otherwise fix it now):**
 

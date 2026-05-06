@@ -148,6 +148,28 @@ in-process for skills; shell out for scripts; never delegate.
 > worktrees, branch collisions, review-comment ID mapping,
 > allowlist enforcement on auto-run) that are easy to get wrong.
 
+> **You only call `AskUserQuestion` from the named site.** The
+> supervisor's only authorised `AskUserQuestion` call is in step 4's
+> "Candidate follow-up issues sub-step" (the multi-select form for
+> picking which orthogonal candidates to file post-merge). Same
+> narrow-and-named contract as the Task-tool exemptions above:
+> `AskUserQuestion` is a different primitive (synchronous user prompt,
+> not a sub-agent fan-out), but a single named site keeps the
+> supervisor's user-prompt surface auditable. No other skill or step
+> may call `AskUserQuestion`. If a future skill needs the same license,
+> add it here by name rather than generalising the rule.
+
+> **You only auto-create GitHub issues from the named sites.**
+> `flow-create-issue` may fire only from (a) `/pr-review`'s Step 6
+> deferral path (when a finding clears the deferral bar) and (b)
+> `/flow-pipeline`'s Step 10 post-merge sweep (one issue per `- [x]`
+> item in plan.md's `# Candidate follow-up issues` section). Adding a
+> new fire site requires a named exemption added to `AGENTS.md`
+> "Don'ts" first — same narrow-and-named contract as the auto-merge
+> and Task-tool exemptions. The constraint exists because indiscriminate
+> issue auto-creation pollutes user backlogs with low-confidence noise
+> and races on `gh` rate limits.
+
 > **You never silently retry past the documented caps.** Verify: 3
 > outer attempts. CI-fix loop: 3 total. Review-fix loop: 2 total.
 > Past these, escalate `NEEDS HUMAN: <reason>` and end. The
@@ -528,7 +550,7 @@ typed something into the tmux chat. Classify the input using
 `references/redirect-handling.md`:
 
 - **Affirmative** ("approved", "looks good", "go ahead", etc.) →
-  continue to step 5.
+  run the candidate-issues sub-step below, then continue to step 5.
 - **Imperative redirect** ("actually, also handle TSV"; "redo with
   X") → loop back to step 3, appending the redirect to the
   `/product-planning` prompt as `USER REDIRECT (received during
@@ -541,6 +563,35 @@ typed something into the tmux chat. Classify the input using
   the user's reply. If the answer is still unclear, escalate
   `NEEDS HUMAN: approval-ambiguous` (which writes `phase:
   needs-human`).
+
+### Candidate follow-up issues sub-step
+
+Runs only on the **Affirmative** branch above, before stepping to
+step 5. Reads `$WORKTREE/.flow-tmp/plan.md`, locates the optional
+`# Candidate follow-up issues` section, and applies this matrix:
+
+| Section state | Action |
+|---|---|
+| Section absent | No-op. Continue to step 5. |
+| Section present, every item is `- [ ]`, **count is 1–4** | Fire one `AskUserQuestion` (multi-select) listing each candidate. Persist the user's selections back to plan.md by flipping `- [ ]` → `- [x]` for every chosen item using the `Edit` tool with explicit `old_string`/`new_string` matches. Continue to step 5. |
+| Section present, **any item already `- [x]`** | The user pre-ticked during plan review (their explicit choice wins). Skip the form. Continue to step 5. |
+| Section present, count is `0` | No-op. Continue to step 5. |
+| Section present, **count is 5+** unticked | The form's option cap can't fit the candidates. Print a one-liner naming the absolute plan.md path so the user can scroll-tap-edit (`<worktree>/.flow-tmp/plan.md`), write `flow-state-update --phase approval-pending-clarification`, end the turn. The next turn re-enters step 4. |
+
+**Quick presence probe.** Before reading the whole file, run a fast
+grep so the early-exit cases don't pull plan.md into context twice
+in the same supervisor session:
+
+```bash
+if ! grep -q '^# Candidate follow-up issues' "$WORKTREE/.flow-tmp/plan.md" 2>/dev/null; then
+  : # section absent — fall through to step 5
+fi
+```
+
+`AskUserQuestion` is the **only** Claude Code user-prompt primitive
+the supervisor calls — see "Hard rules" above for the
+narrow-and-named exemption that authorises this single site. Other
+skills and steps may not invoke it.
 
 ## Step 5 — Implement
 
@@ -942,6 +993,76 @@ needs-human` → `flow-followups run --note-only` → `flow-notify
 On success, the roadmap row for this PR was already flipped to
 `✅ shipped (#$PR)` in the PR's own diff by `/pr-review` step 7.5
 (self-mark + sweep), so no post-merge metadata sweep is required.
+
+### Post-merge follow-up sweep
+
+Runs **before** `flow-remove-worktree` (which would delete plan.md
+and orphan the candidate-issue list) and before step 11. Reads
+`$WORKTREE/.flow-tmp/plan.md`'s `# Candidate follow-up issues`
+section, fires `flow-create-issue` once per `- [x]` item, prints a
+summary line above `MERGED`. No-op if plan.md is absent (non-feature
+pipelines won't have one) or the section is missing or has zero
+ticked items.
+
+```bash
+PLAN="$WORKTREE/.flow-tmp/plan.md"
+FILED=()
+WARN=()
+if [ -f "$PLAN" ] && grep -q '^# Candidate follow-up issues' "$PLAN"; then
+  # Extract ticked lines ("- [x] Title — body") from the section,
+  # stopping at the next top-level heading.
+  TICKED=$(awk '
+    /^# Candidate follow-up issues/ {section=1; next}
+    /^# / && section {exit}
+    section && /^- \[x\] / {sub(/^- \[x\] /, ""); print}
+  ' "$PLAN")
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    # Split on the FIRST " — " only: title before, body after. Bash
+    # parameter expansion does this cleanly:
+    #   ${line%% — *} — strip longest suffix matching " — *" → title
+    #   ${line#* — }  — strip shortest prefix matching "* — " → body
+    # A naive awk -F ' — ' '{$1=""; print}' would rebuild $0 with
+    # OFS=" " and collapse every subsequent em-dash inside the body
+    # into a plain space, so we avoid awk's field-rebuild for this.
+    TITLE="${line%% — *}"
+    if [ "$TITLE" = "$line" ]; then
+      # No " — " delimiter — whole line is the title, body is empty.
+      BODY=""
+    else
+      BODY="${line#* — }"
+    fi
+    BODY_FILE="$WORKTREE/.flow-tmp/sweep-$(echo "$TITLE" | tr ' /' '__').md"
+    printf '%s\n\nSurfaced by /product-planning during the pipeline that landed PR #%s.\n' \
+      "$BODY" "$PR" > "$BODY_FILE"
+    JSON=$(flow-create-issue \
+      --title "$TITLE" \
+      --body-file "$BODY_FILE" \
+      --label flow-agent,out-of-scope-discovery)
+    RC=$?
+    if [ $RC -eq 0 ]; then
+      URL=$(printf '%s' "$JSON" | jq -r '.url')
+      FILED+=("$URL")
+    else
+      WARN+=("$TITLE")
+    fi
+  done <<< "$TICKED"
+fi
+if [ "${#FILED[@]}" -eq 0 ] && [ "${#WARN[@]}" -eq 0 ]; then
+  echo "No follow-up issues filed"
+elif [ "${#WARN[@]}" -gt 0 ]; then
+  echo "WARN: filed ${#FILED[@]}/$((${#FILED[@]} + ${#WARN[@]})) follow-up issues; missing: ${WARN[*]}"
+else
+  echo "Filed ${#FILED[@]} follow-up issues:"
+  printf '  %s\n' "${FILED[@]}"
+fi
+```
+
+The sweep is best-effort: per-call failure surfaces as a `WARN:` line
+but does not fail the pipeline — the merge already shipped. The
+helper's title-collision idempotency makes a sweep re-run on resume
+safe (re-firing yields `action: "existing"` and the same URL).
+
 Continue to step 11 — local follow-ups must run *before*
 `flow-remove-worktree` so the JSONL log is still on disk when the
 report builds.

@@ -76,6 +76,12 @@ Body with **markdown** here.
 EOF
 ```
 
+When this repo's pipeline (or any agent skill) needs to file a follow-up issue rather
+than logging it in scrollback or a markdown report, it calls `flow-create-issue` from a
+**named site only** — see the per-skill SKILL.md docs and the relevant exemption entry in
+this file's "Don'ts" section. Auto-issue-creation from arbitrary skills is forbidden;
+adding a new fire site requires a named exemption in `## Don'ts` first.
+
 ### Committing
 
 - Split logically isolated work into separate commits. Don't over-split trivial changes.

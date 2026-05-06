@@ -414,6 +414,10 @@ subagent runs at Step 8.
 
 This step is documentation-only at the wrapper level — it names the
 work the subagent owns. The wrapper does no per-finding fix work itself.
+The deferral path's tracker-entry filing (default: a GitHub issue via
+`flow-create-issue`, with `ROADMAP.md` as the no-GH-Issues fallback) is
+documented inside the subagent's instructions at
+`references/fix-applier-instructions.md`.
 
 ## 7. Address Each Review Comment
 
@@ -978,8 +982,10 @@ directly — that's the supervisor's job, gated by the helper's allowlist.
 - Conventional comment format (label + decoration) used for all findings
 - **Every surfaced finding ends in either a code change (addressed) or a deferral with a
   concrete reason (no silent skips)**
-- **Every deferred finding has a corresponding entry in a durable tracker (`ROADMAP.md`,
-  GitHub Issue, Linear, etc.) committed in this run — the review report is not a tracker**
+- **Every deferred finding has a corresponding entry in a durable tracker — by default a
+  GitHub issue filed via `flow-create-issue` (idempotent on title), falling back to a
+  `ROADMAP.md` "Followups" entry only when the helper exits non-zero or the project has no
+  GH Issues surface. The review report is not a tracker.**
 - When inline review comments existed: every comment is addressed or explicitly skipped with reason, replies are posted, and the retrospective + checklist update appear in the report (or the report records "No reviewer comments to retrospect against" when none existed)
 - Findings posted as individual inline review comments via `gh api` on every invocation, including PRs that already have reviewer comments
 - Roadmap self-mark + sweep performed (Step 7.5): when `docs/roadmap.md` exists, the current PR's row is flipped to `✅ shipped (#$PR)` if a row exists, and any `🚧 in review (#N)` rows whose PR is already MERGED are flipped in the same diff
@@ -1030,7 +1036,9 @@ directly — that's the supervisor's job, gated by the helper's allowlist.
   confirmation.
 - NEVER end a run by "just reporting" findings — every surfaced finding must either be fixed
   in this run or explicitly deferred with a reason. The report must make that split visible.
-- NEVER defer a finding without writing a corresponding tracker entry (`ROADMAP.md`, GitHub
-  Issue, Linear ticket, etc.) in the same run. Default to fix-now; deferral is reserved for
-  work that legitimately warrants a separate standalone agent session per the bar in Step 6.
-  A deferral that lives only in the review report will be lost when the PR merges.
+- NEVER defer a finding without writing a corresponding tracker entry in the same run.
+  Default tracker is a GitHub issue filed via `flow-create-issue` (idempotent on title);
+  fall back to `ROADMAP.md` only when the helper fails or the project has no GH Issues
+  surface. Default to fix-now; deferral is reserved for work that legitimately warrants
+  a separate standalone agent session per the bar in Step 6. A deferral that lives only
+  in the review report will be lost when the PR merges.

@@ -132,6 +132,82 @@ describe("flow-pipeline SKILL.md structural lint", () => {
         "find the canonical phase set in bin/lib/state.ts.",
     ).toBe(true);
   });
+
+  it("step 4 references AskUserQuestion + the candidate-issues section", () => {
+    expect(
+      content.includes("AskUserQuestion"),
+      "flow-pipeline SKILL.md must reference 'AskUserQuestion' — the " +
+        "primitive the supervisor calls in step 4's candidate-issues " +
+        "sub-step is the only authorised AskUserQuestion site.",
+    ).toBe(true);
+    expect(
+      content.includes("# Candidate follow-up issues"),
+      "flow-pipeline SKILL.md must reference '# Candidate follow-up issues' " +
+        "so step 4 and step 10 stay anchored on the plan.md section name.",
+    ).toBe(true);
+  });
+
+  it("step 10 references flow-create-issue + the post-merge sweep", () => {
+    expect(
+      content.includes("flow-create-issue"),
+      "flow-pipeline SKILL.md must reference 'flow-create-issue' — the " +
+        "step 10 post-merge sweep fires it once per ticked candidate.",
+    ).toBe(true);
+    expect(
+      content.includes("Post-merge follow-up sweep"),
+      "flow-pipeline SKILL.md must include a 'Post-merge follow-up sweep' " +
+        "heading or block in step 10 so the named exemption stays anchored.",
+    ).toBe(true);
+  });
+
+  it("post-merge sweep block precedes flow-remove-worktree in step 10", () => {
+    const sweepIdx = content.indexOf("Post-merge follow-up sweep");
+    const removeIdx = content.indexOf("flow-remove-worktree", sweepIdx);
+    expect(sweepIdx, "Post-merge follow-up sweep heading is missing").toBeGreaterThan(0);
+    expect(
+      removeIdx,
+      "flow-remove-worktree must appear AFTER the post-merge sweep block " +
+        "in step 10 — running it first would delete plan.md before the " +
+        "sweep can read the candidate-issue list.",
+    ).toBeGreaterThan(sweepIdx);
+  });
+});
+
+describe("pr-review deferral-tracker lint", () => {
+  it("the wrapper SKILL.md still references the helper + fallback by name", () => {
+    expect(
+      prReviewContent.includes("flow-create-issue"),
+      "pr-review SKILL.md must reference 'flow-create-issue' (even when the " +
+        "actual deferral logic lives in the Fix-Applier Subagent's instructions, " +
+        "the wrapper must name the helper so a doc-only reader sees the path).",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("ROADMAP.md"),
+      "pr-review SKILL.md must mention the 'ROADMAP.md' fallback so projects " +
+        "without GH Issues know how the deferral path degrades.",
+    ).toBe(true);
+  });
+
+  it("the Fix-Applier Subagent's instructions wire the flow-create-issue invocation", () => {
+    expect(
+      fixApplierContent.includes("flow-create-issue"),
+      "fix-applier-instructions.md must contain a runnable 'flow-create-issue' " +
+        "invocation in the deferral path. PR #100 moved Step 6 into the subagent; " +
+        "this wiring lives there now.",
+    ).toBe(true);
+    expect(
+      fixApplierContent.includes("flow-agent,deferred-review"),
+      "fix-applier-instructions.md must use the 'flow-agent,deferred-review' " +
+        "label combo so deferred findings are filterable via " +
+        "`gh issue list --label deferred-review`.",
+    ).toBe(true);
+    expect(
+      fixApplierContent.includes("ROADMAP.md"),
+      "fix-applier-instructions.md must document the ROADMAP.md fallback for " +
+        "projects without GH Issues — removing it would strand non-GH-Issues " +
+        "projects when the helper exits non-zero.",
+    ).toBe(true);
+  });
 });
 
 describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", () => {

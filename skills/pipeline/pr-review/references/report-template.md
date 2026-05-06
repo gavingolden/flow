@@ -28,7 +28,7 @@ are forbidden — every finding above the confidence threshold (or praise) appea
 - **Confidence**: <score>/100
 - **Status**: ✅ **Addressed** — <1-line summary of the change, e.g. "renamed to findFromIndex"> · commit `<sha>`
   — OR —
-- **Status**: ⏭️ **Deferred** — <1-sentence reason; bar criterion that applies (design decision needed; cross-cutting refactor; needs new test infrastructure)> · tracker entry: <link/anchor>
+- **Status**: ⏭️ **Deferred** — <1-sentence reason; bar criterion that applies (design decision needed; cross-cutting refactor; needs new test infrastructure)> · tracker entry: <`flow-create-issue` URL — e.g. https://github.com/owner/repo/issues/142 — or `ROADMAP.md` anchor on the fallback path>
 - **Details**: <explanation and suggestion, retained even after deferral so a future run can pick it up>
 
 If no findings above threshold: "No significant issues found."
@@ -40,7 +40,7 @@ If no findings above threshold: "No significant issues found."
 Immediately after the Findings section, include a one-glance tally:
 
 - **Addressed**: <N> (list file:line refs)
-- **Deferred**: <N> (list file:line refs with short reason + tracker anchor)
+- **Deferred**: <N> (list file:line refs with short reason + tracker URL/anchor — `flow-create-issue` URL by default, `ROADMAP.md` anchor on the fallback path)
 - **Praise**: <N> (informational, no action required)
 
 If Deferred is >0, this is the section the author scans to decide what to follow up on.
