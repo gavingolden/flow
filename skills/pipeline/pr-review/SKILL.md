@@ -819,11 +819,14 @@ flow-followups add \
   --auto    # only when command is in the helper's allowlist
 ```
 
-`/flow-pipeline` step 11 consumes the JSONL log on terminal end-states; on
-GATED / NEEDS HUMAN paths the entries are also surfaced as a `## Local
-Follow-ups` section in the PR body via `flow-followups pr-body-upsert`. PR
-review never runs the follow-up directly — that's the supervisor's job, gated
-by the helper's allowlist.
+`/flow-pipeline` step 11 consumes the JSONL log on terminal end-states. On
+the auto-merge and GATED branches the entries are also surfaced as a
+`## Local Follow-ups` section in the PR body via `flow-followups
+pr-body-upsert`. The NEEDS HUMAN failure path prints the deferred block to
+scrollback (via `flow-followups run --note-only`) but does **not** edit the
+PR body — escalation can fire before a PR exists, and the JSONL log persists
+on disk for any later resume to consume. PR review never runs the follow-up
+directly — that's the supervisor's job, gated by the helper's allowlist.
 
 # Anti-Patterns
 

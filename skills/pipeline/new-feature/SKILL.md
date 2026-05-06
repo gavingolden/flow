@@ -245,8 +245,12 @@ flow-followups add \
 
 The supervisor (`/flow-pipeline` step 11) consumes the JSONL log: on the MERGED
 path it executes allowlisted+auto entries and prints a `LOCAL FOLLOW-UPS:`
-block; on GATED / NEEDS HUMAN it lists them as deferred items in the PR body
-and the terminal print. Do **not** execute the follow-up directly — that's the
+block; on GATED it lists them as deferred items in both the PR body
+(`flow-followups pr-body-upsert`) and the terminal print
+(`flow-followups run --note-only`); on NEEDS HUMAN it prints the deferred
+block to scrollback only — escalation can fire before a PR exists, so the
+PR body is not edited and the JSONL log is left on disk for a later resume
+to consume. Do **not** execute the follow-up directly — that's the
 supervisor's job, gated by the allowlist. See
 `skills/pipeline/flow-pipeline/SKILL.md` step 11 for the contract.
 

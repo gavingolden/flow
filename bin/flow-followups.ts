@@ -331,8 +331,10 @@ export function formatVerdict(verdict: Verdict, noteOnly: boolean): string {
 export function buildPrBodySection(entries: Entry[]): string {
   const lines: string[] = [SECTION_HEADING, ""];
   for (const entry of entries) {
-    const autoTag = entry.auto && ALLOWLIST.has(entry.command) ? " (auto)" : "";
-    lines.push(`- [ ] ${entry.command}  # ${entry.reason}${autoTag}`);
+    let suffix = "";
+    if (entry.auto && ALLOWLIST.has(entry.command)) suffix = " (auto)";
+    else if (entry.auto) suffix = " (auto-run denied: not in allowlist)";
+    lines.push(`- [ ] ${entry.command}  # ${entry.reason}${suffix}`);
   }
   return lines.join("\n");
 }

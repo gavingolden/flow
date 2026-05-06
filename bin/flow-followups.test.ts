@@ -13,6 +13,8 @@ import {
   parseRunArgs,
   parseUpsertArgs,
   readEntries,
+  resolveJsonlPath,
+  run,
   runAdd,
   runEntries,
   runRun,
@@ -32,6 +34,48 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpRoot, { recursive: true, force: true });
+});
+
+// --- resolveJsonlPath ---
+
+describe("resolveJsonlPath", () => {
+  it("returns the override verbatim when provided", () => {
+    expect(resolveJsonlPath("/explicit/path.jsonl")).toBe("/explicit/path.jsonl");
+  });
+
+  it("resolves via slug → state.worktree when no override", () => {
+    const out = resolveJsonlPath(undefined, {
+      resolveSlug: () => "abc",
+      readStateFn: ((slug: string) =>
+        slug === "abc"
+          ? {
+              slug: "abc",
+              phase: "merging",
+              repo: "test",
+              worktree: "/work/abc",
+              updatedAt: "t",
+            }
+          : null) as never,
+    });
+    expect(out).toBe("/work/abc/.flow-tmp/local-followups.jsonl");
+  });
+
+  it("falls back to cwd when slug is unresolvable", () => {
+    const out = resolveJsonlPath(undefined, {
+      resolveSlug: () => null,
+      cwd: () => "/here",
+    });
+    expect(out).toBe("/here/.flow-tmp/local-followups.jsonl");
+  });
+
+  it("falls back to cwd when slug resolves but state is missing", () => {
+    const out = resolveJsonlPath(undefined, {
+      resolveSlug: () => "missing",
+      readStateFn: (() => null) as never,
+      cwd: () => "/here",
+    });
+    expect(out).toBe("/here/.flow-tmp/local-followups.jsonl");
+  });
 });
 
 // --- ALLOWLIST shape ---
@@ -365,6 +409,13 @@ describe("buildPrBodySection", () => {
     // Manual entry is not auto, so no (auto) tag.
     expect(md.split("\n").find((l) => l.startsWith("- [ ] manual step"))).not.toContain("(auto)");
   });
+
+  it("annotates auto entries that are not in the allowlist", () => {
+    // Mirrors formatVerdict so a reviewer reading the PR body sees the same
+    // denial signal the terminal block surfaces — no silent downgrade.
+    const md = buildPrBodySection([blockedAuto]);
+    expect(md).toContain("- [ ] rm -rf /  # cleanup (auto-run denied: not in allowlist)");
+  });
 });
 
 describe("upsertPrBodySection", () => {
@@ -564,5 +615,17 @@ describe("runUpsert", () => {
       gh: () => ({ stdout: "", stderr: "boom", exitCode: 1 }),
     });
     expect(code).toBe(1);
+  });
+});
+
+// --- top-level dispatcher ---
+
+describe("run (dispatcher)", () => {
+  it("returns 2 with no subcommand", () => {
+    expect(run([])).toBe(2);
+  });
+
+  it("returns 2 on unknown subcommand", () => {
+    expect(run(["bogus"])).toBe(2);
   });
 });
