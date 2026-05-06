@@ -362,3 +362,37 @@ no compile step.
     Subagent entries, these are the **only four** authorised
     Task-tool fan-out sites from `/flow-pipeline`; no other skill or
     step may call Task.
+  - **AskUserQuestion exemption: `/flow-pipeline` step 4 candidate-
+    issues sub-step.** `/flow-pipeline`'s "Hard rules" forbid arbitrary
+    `AskUserQuestion` calls from the supervisor, with one named
+    exception: the multi-select form fired during step 4's
+    "Candidate follow-up issues sub-step" to let the user pick which
+    orthogonal candidates to file post-merge. The exemption is
+    anchored on the step heading name rather than its number.
+    Rationale: `AskUserQuestion` is a different primitive from
+    `Task` (it's a synchronous user prompt, not a sub-agent fan-out)
+    so the one-level sub-agent cap doesn't apply, but the
+    narrow-and-named hygiene still does — naming the single fire
+    site keeps the supervisor's user-prompt surface auditable. Same
+    narrow-and-named contract as the Task-tool exemptions above. If
+    a future skill needs the same license, add it here by name
+    rather than generalising the rule.
+  - **Auto-issue-create exemption: `/pr-review` Step 6 deferral path
+    and `/flow-pipeline` Step 10 post-merge sweep.** Skills are
+    forbidden from calling `flow-create-issue` (or any other
+    issue-create surface) outside the two named sites: (a) when
+    `/pr-review` defers a finding past the 3-criterion bar, it files
+    one issue via `flow-create-issue --label flow-agent,deferred-
+    review`; and (b) when `/flow-pipeline` step 10 runs the post-
+    merge sweep, it fires `flow-create-issue --label flow-agent,
+    out-of-scope-discovery` once per `- [x]` candidate in plan.md.
+    Rationale: indiscriminate issue auto-creation pollutes user
+    backlogs with low-confidence noise and races on `gh` rate
+    limits; the two named sites have explicit user opt-in (the
+    deferral bar for pr-review, the AskUserQuestion form for
+    flow-pipeline). Same narrow-and-named contract as the
+    exemptions above. The contract is documented bidirectionally in
+    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules",
+    `skills/pipeline/pr-review/SKILL.md` Step 6, and
+    `bin/flow-create-issue.ts`. If a future skill needs to file
+    issues, add it here by name rather than generalising the rule.

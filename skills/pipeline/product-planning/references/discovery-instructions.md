@@ -138,6 +138,41 @@ format. Sections:
 Load `<SKILL_DIR>/references/example-prd.md` (if present) to match the project's
 PRD style.
 
+### Candidate follow-up issues (optional)
+
+If discovery surfaces orthogonal ideas the user did **not** ask for but that the codebase or
+the user's verbatim description suggests are worth tracking, capture them as a separate
+section that the supervisor will route through `flow-create-issue` post-merge. This is
+distinct from "Open Questions": Open Questions are assumptions about *this* feature that
+the user should confirm; candidate follow-up issues are *next-time* work the user can
+opt into.
+
+When (and only when) such ideas exist, add a top-level `# Candidate follow-up issues`
+section to `plan.md`, placed between `# PRD` and `# Task breakdown` (see step 8). Each
+entry is a single-line markdown checkbox with a title and one-line body, in the form:
+
+```markdown
+# Candidate follow-up issues
+
+- [ ] OAuth refresh path leaks tokens — separate concern; needs a dedicated session.
+- [ ] `gh-action-cache@v3` is deprecated — pin to v4 in CI.
+```
+
+Leave every checkbox **unticked** (`- [ ]`). The supervisor's step 4 will pop an
+`AskUserQuestion` form to let the user pick which to file (1–4 candidates) or fall back to
+manual editing (5+ candidates). The user's selections persist back as `- [x]`; the post-
+merge sweep at step 10 reads `- [x]` items and fires `flow-create-issue` for each.
+
+If discovery surfaces no orthogonal ideas, **omit the section entirely** — do not write an
+empty heading. An empty heading would route through the same logic as a populated one and
+either produce a confusing 0-item form or trigger the 5+ fallback warning if a stray entry
+appears later.
+
+Bar for inclusion: would the user want to come back to this in a separate session? If the
+answer is "no, this is part of the current feature" or "no, this is just a question for
+the user", it does not belong here. Keep the bar high — backlogs full of low-confidence
+candidates are noise.
+
 ## 6. Task Breakdown
 
 Break the PRD into logical, atomic tasks. Each task tagged with the recommended skill.
@@ -305,13 +340,19 @@ Example (gated — non-empty section):
 
 Write the full PRD + task breakdown + PR-description draft to the `plan.md`
 absolute path the wrapper passed you. Create the parent `.flow-tmp/` directory
-first with `mkdir -p` if it doesn't already exist. Single artifact, three sections
+first with `mkdir -p` if it doesn't already exist. Single artifact, sections
 in this order:
 
 ```markdown
 # PRD
 
 <the structured PRD from step 5>
+
+# Candidate follow-up issues
+
+<optional — only when discovery surfaced orthogonal ideas; see step 5's
+"Candidate follow-up issues" sub-section. Omit the heading entirely when
+empty>
 
 # Task breakdown
 
@@ -340,11 +381,13 @@ the artifact `pr-review` consumes. Both files should land.
 ## 9. Return a brief summary
 
 Your final message back to the wrapper should be one short paragraph (3–5
-sentences max): the problem statement in one line, the number of tasks, and the
-top one or two open questions or assumptions the user should pay attention to.
-Do not paste the PRD or task list back — the wrapper only forwards your summary
-to the caller, and the artifacts on disk are the durable record. Keeping the
-return value short is the whole point of the subagent fan-out.
+sentences max): the problem statement in one line, the number of tasks, the
+candidate follow-up issue count if non-zero (e.g. "3 candidate follow-up
+issues for the user to pick from"), and the top one or two open questions
+or assumptions the user should pay attention to. Do not paste the PRD or
+task list back — the wrapper only forwards your summary to the caller, and
+the artifacts on disk are the durable record. Keeping the return value
+short is the whole point of the subagent fan-out.
 
 # Troubleshooting
 
@@ -379,6 +422,9 @@ Common failure modes during planning:
 - Both `.flow-tmp/plan.md` and `.flow-tmp/pr-description-draft.md` were written
   at the absolute paths the wrapper passed you, with parent directory created on
   demand.
+- `# Candidate follow-up issues` section is omitted from `plan.md` when discovery
+  surfaced no orthogonal ideas; populated as one or more `- [ ]` items otherwise
+  (never written as an empty heading).
 
 # Constraints
 
