@@ -22,7 +22,7 @@ details.
 
 - Writing the component itself (defer to `svelte` or `tailwind-shadcn`)
 - End-to-end or browser-based testing
-- Testing database migrations or SQL (defer to `supabase`)
+- Testing database migrations or SQL (defer to `supabase-project`)
 
 # Context
 

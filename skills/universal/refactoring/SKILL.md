@@ -24,7 +24,7 @@ existing business logic or external behavior.
 - Introducing new features as a side-effect of a refactor (feature work should be a separate step)
 - Styling or CSS changes (defer to `tailwind-shadcn`)
 - Writing new tests from scratch (defer to `testing`)
-- Database schema changes (defer to `supabase`)
+- Database schema changes (defer to `supabase-project`)
 
 # Context
 

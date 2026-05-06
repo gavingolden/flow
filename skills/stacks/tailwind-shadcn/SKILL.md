@@ -35,7 +35,7 @@ output another AI would produce.
 
 - Writing Svelte component logic without styling concerns (defer to `svelte`)
 - Writing tests for components (defer to `testing`)
-- Database or backend changes (defer to `supabase`)
+- Database or backend changes (defer to `supabase-project`)
 
 # Context
 
