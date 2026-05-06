@@ -36,15 +36,34 @@ For pure-internal changes (refactor, infra, doc fix) leave only this comment in
 place — the section is empty after HTML-comment strip, so the gate auto-merges.
 
 For changes that need human verification, replace this comment with `- [ ]`
-items. Each item is something a reviewer must run, click, or read to confirm
-the change is safe. The pr-review skill will run any item that's a deterministic
-shell command, tick the box, and inject the captured output as a `<details>`
-evidence block under the item. -->
+items. Apply the **automation test** to each candidate item before you write it
+(source of truth: skills/pipeline/pr-review/references/manual-test-rubric.md
+"Automate first" section): can you name (a) a fixture / setup,
+(b) one or more deterministic assertions, and (c) an exit condition — all
+without subjective human judgment? If yes, write the item as a deterministic
+shell command (`npm run verify`, `test -f <path>`, `grep -q <pattern> <file>`,
+`[ "$(cat X)" = "Y" ]`, `gh pr view <n> --json … --jq …`) so the pr-review
+skill can run it and tick the box. Manual prose is the fallback, reserved for
+genuinely manual scenarios (subjective UX, production-only integrations,
+cross-browser rendering, performance under realistic load).
+
+When you keep this section, paste the authoring-rubric marker between the
+heading and the first `- [ ]` item so the rubric travels with the body:
+
+<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+automation test from manual-test-rubric.md is: (a) named fixture/setup,
+(b) deterministic assertion(s), (c) exit condition. If all three are answerable
+without subjective human judgment, it must be a runnable item. Source of truth:
+skills/pipeline/pr-review/references/manual-test-rubric.md. -->
+
+The pr-review skill will run any item that's a deterministic shell command,
+tick the box, and inject the captured output as a `<details>` evidence block
+under the item. -->
 
 <!--
 Example (gated — non-empty section):
 
 - [ ] Run `npm run verify` — typecheck + tests pass.
-- [ ] Open /portfolio with the seeded user — allocation chart renders.
-- [ ] Cut the network mid-load — error state appears, no console errors.
+- [ ] Run `test -f .flow-tmp/foo && grep -q "expected" .flow-tmp/foo` — config wired.
+- [ ] Open /portfolio in dark mode — chart contrast feels right (subjective UX, manual).
 -->

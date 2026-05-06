@@ -84,6 +84,32 @@ require a heavy harness disproportionate to the risk, prefer either:
 
 The bar is "safely automatable," not "automatable in principle."
 
+### The `<!-- flow:authoring-rubric -->` marker
+
+Test Steps drafted by `/new-feature` Step 4b, `/product-planning` step 7, and the
+`.github/PULL_REQUEST_TEMPLATE.md` open the section with this HTML comment between the
+heading and the first `- [ ]` item:
+
+```html
+<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+automation test from manual-test-rubric.md is: (a) named fixture/setup,
+(b) deterministic assertion(s), (c) exit condition. If all three are answerable
+without subjective human judgment, it must be a runnable item. Source of truth:
+skills/pipeline/pr-review/references/manual-test-rubric.md. -->
+```
+
+The marker is an inline summary of this rubric's three-question test, embedded in the
+PR body so any later editor (an agent re-running pr-review, a human pasting in steps,
+a hand-edited squash-merge follow-up) sees the same authoring standard without having
+to follow a link. The auto-merge gate (`bin/flow-gate-decide.ts`) strips HTML comments
+before counting unchecked `- [ ]` items, so the marker is invisible to the gate count
+and never affects auto-merge vs. gated routing.
+
+**This file wins on drift.** The marker text is a one-time inline copy of the test;
+the canonical contract is the "Automate first" section above. If the marker ever
+diverges from this rubric, the rubric is authoritative — fix the marker template at
+its three authoring sites, not the rubric.
+
 ## The scaffold
 
 Manual test plans are built from three scenario categories. Which categories a specific

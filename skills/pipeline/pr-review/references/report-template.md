@@ -72,10 +72,24 @@ If there were no review comments: "No review comments were found on this PR."
 ### Test Steps (from PR description)
 
 Mirror the PR body's checklist with verification status. One line per item.
+Items promoted from author prose via 8c.ii append `(prose-promoted: <command>)`
+so the audit trail names both the prose and the command the agent ran.
 
 - [x] `<item as written>` — pass
 - [x] `<item as written>` — pass (<count> passed, <count> skipped)
-- [ ] `<item as written>` — not run: <one-line reason: requires browser, needs prod creds, subjective UI judgment, etc.>
+- [x] `<author prose>` — pass (prose-promoted: `<one-line shell command>`)
+- [ ] `<item as written>` — not run: <rubric category: subjective UX | production-only | cross-browser | performance under realistic load | cost-prohibitive infra>
+
+End the section with the **Automation-precedence audit line**:
+
+```
+Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <reasons>)
+```
+
+Always emit the audit line, including when `M = 0`
+(`Automation-precedence audit: ran 0/0 items (no Test Steps to verify)`). When
+`Y = 0`, write `0 left manual` and omit the parenthetical reason list. See
+`skills/pipeline/pr-review/SKILL.md` Step 12 for the field semantics.
 
 If every item was ticked: "All items ticked — PR body updated."
 If the section was missing: "No 'Test Steps' section to verify; flagged in 11b."
