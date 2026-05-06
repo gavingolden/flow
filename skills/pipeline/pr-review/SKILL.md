@@ -132,10 +132,21 @@ alternatives or anti-patterns).
 
 The wrapper spawns the subagent at Step 8. Before the spawn:
 
-1. Resolve the working directory absolutely. If the caller passed a
-   `WORKTREE` value (typical when invoked from `/flow-pipeline`), use it.
-   Otherwise use `pwd`. Define:
-   - `ARTIFACT_PATH = <workdir>/.flow-tmp/fix-applier-result.json`
+1. Resolve the working directory absolutely into a single shell variable
+   `$WORKTREE` and use it everywhere downstream — never re-derive in any
+   later step. If the caller passed a `WORKTREE` value (typical when
+   invoked from `/flow-pipeline`), use it as-is. Otherwise, set
+   `WORKTREE="$(pwd)"` explicitly so every subsequent `"$WORKTREE/..."`
+   expansion has a defined value. Then derive the artifact path from it:
+
+   ```bash
+   WORKTREE="${WORKTREE:-$(pwd)}"
+   ARTIFACT_PATH="$WORKTREE/.flow-tmp/fix-applier-result.json"
+   ```
+
+   `ARTIFACT_PATH` is the canonical handle for the artifact location;
+   the boundary check in Step 8 and the body read in Step 9 both use it
+   so the path lives in exactly one place.
 2. Resolve the skill base directory absolutely. The Skill tool prints
    "Base directory for this skill" at the top of this SKILL.md when
    loaded — capture it as `SKILL_DIR`. Then derive:
@@ -162,13 +173,13 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
    ```
 
 4. When the subagent returns, treat its 3–5 sentence summary as the chat
-   output. Do **not** read `.flow-tmp/fix-applier-result.json` body at
-   the spawn boundary — Step 9's first read is the wrapper's single read
-   of the artifact body, and reading it earlier would duplicate that
-   read in the same context. The wrapper's only post-spawn job at the
-   boundary is a cheap existence check (`test -s "$ARTIFACT_PATH"`); on
-   missing or empty artifact, surface the failure to the caller per the
-   Constraints below.
+   output. Do **not** read the artifact body at the spawn boundary —
+   Step 9's first read is the wrapper's single read of the artifact
+   body, and reading it earlier would duplicate that read in the same
+   context. The wrapper's only post-spawn job at the boundary is a cheap
+   existence check against `$ARTIFACT_PATH` (`test -s "$ARTIFACT_PATH"`);
+   on missing or empty artifact, surface the failure to the caller per
+   the Constraints below.
 
 5. Continue to Step 8c (the wrapper's post-spawn verification-item run),
    then Step 9 onwards.
@@ -386,10 +397,12 @@ Subagent above. The subagent owns the per-finding fix loop (Steps 6, 7, 7.5),
 the pre-commit run, the commit + push, and the `/verify` re-run — all inside
 its own context.
 
-After the subagent returns, do a cheap existence check at the spawn boundary:
+After the subagent returns, do a cheap existence check against the
+canonical `$ARTIFACT_PATH` resolved during the spawn procedure (the
+single source of truth for the artifact's location):
 
 ```bash
-test -s "$WORKTREE/.flow-tmp/fix-applier-result.json" \
+test -s "$ARTIFACT_PATH" \
   || { echo "NEEDS HUMAN: fix-applier-missing-artifact" >&2; exit 1; }
 ```
 
@@ -518,23 +531,37 @@ If there are no inline comments to reply to, this step is a no-op — skip to St
 
 Otherwise, **read the artifact once** at this step and parse into a typed
 object that is reused across Steps 9, 10, 11, 12 — do not re-read in
-subsequent steps:
+subsequent steps. Use the canonical `$ARTIFACT_PATH` resolved during the
+spawn procedure rather than rebuilding the path here:
 
 ```bash
-ARTIFACT=$(cat "$WORKTREE/.flow-tmp/fix-applier-result.json")
+ARTIFACT=$(cat "$ARTIFACT_PATH")
 ```
 
 For each inline comment from Step 2's fetch output, look up the disposition
-in the parsed `ARTIFACT`:
+in the parsed `ARTIFACT` using **exact match** on the structured
+`comment_ids` field (no substring/free-text fallback — the artifact is
+the typed contract):
 
-- **Addressed** — the comment's `comment_id` appears as a `finding_id` in
-  `commits[]` (or as a substring of any `commits[].reasoning`). Build a
-  ✅ reply citing the commit's `sha` and `reasoning`.
+- **Addressed** — the comment's `comment_id` is a member of
+  `commits[].comment_ids` for some entry. Build a ✅ reply citing that
+  commit's `sha` and `reasoning`. Multiple comments may map to the same
+  commit (e.g. one fix subsumes two reviewer points); a single comment
+  may also map to multiple commits when the address spans commits.
 - **Skipped** — the comment's `comment_id` appears as a `finding_id` in
-  `deferred[]`. Build a ⏭️ reply with the `reason` field.
-- **Pushed back** — the comment's disposition lives in `commits[].reasoning`
-  as a "rejected suggestion: ..." note (when the subagent pushed back on
-  an incorrect comment). Build a ⏭️ reply with the rejection rationale.
+  `deferred[]` (or, when the deferral covers multiple comments, in a
+  `comment_ids: []` slot on the deferred entry). Build a ⏭️ reply with
+  the `reason` field.
+- **Pushed back** — the comment's `comment_id` is a member of
+  `commits[].comment_ids` for an entry whose `reasoning` begins with
+  `rejected suggestion:` (the subagent's marker for declined reviewer
+  comments — the comment's disposition is "no code change, here is
+  why"). Build a ⏭️ reply with the rejection rationale.
+
+Wrapper does not fall back to free-text scanning. If a reviewer comment
+has no exact `comment_ids` match in either `commits[]` or `deferred[]`,
+the artifact is incomplete: surface the gap to the caller rather than
+silently skipping the reply.
 
 Construct a JSON array and pipe it to the reply helper:
 

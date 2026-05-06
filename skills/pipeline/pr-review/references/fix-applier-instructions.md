@@ -56,8 +56,13 @@ You are in **fix-now mode** — you MUST attempt the edits. Specifically:
   are ordinary git worktrees; they have no special write protection).
 - Make a real `Edit` / `Write` tool call. If — and only if — the tool returns
   an error, record the verbatim error in the artifact's
-  `commits[].verify_status` (or as an `anti_patterns_found` entry if it
-  blocks the entire run) and surface it in the return summary.
+  `commits[].tool_error` field (a separate field from `verify_status`,
+  which is reserved strictly for `/verify` outcomes; conflating tool
+  errors and verify failures into one field made downstream readers
+  unable to tell which signal they were looking at). When the tool error
+  blocks the entire run rather than a single fix, also surface it as an
+  `anti_patterns_found` entry. Either way, surface the error verbatim in
+  the return summary.
 
 **Default is fix-now.** Per `AGENTS.md` Hardening: "Fix security, reliability,
 and correctness issues immediately — don't defer them." Deferral that lives
@@ -145,16 +150,38 @@ Otherwise, for each inline comment:
 4. If valid: implement the change (or an improved version if you see a
    better approach). Same rule as step 3: record alternatives you
    considered and rejected in `rejected_alternatives`.
-5. If not applicable: note the reason — it goes into the inline reply
-   the wrapper will post in step 9, not into the artifact's commit
-   record. Record the comment id and reason as a `commits[].reasoning`
-   note when the same commit also addresses the comment, or as a
-   `deferred[]` entry with `tracker_entry_url=""` when no fix lands.
+5. If not applicable: the reason MUST be recorded in the artifact —
+   the wrapper at step 9 has zero context from inside this subagent
+   and can only draft inline replies by reading the artifact. Record
+   the disposition in one of these two slots, with the comment id
+   captured structurally so the wrapper can match exactly (no free-text
+   scanning):
+   - **Pushed back / declined** (no code change, here is why): add a
+     `commits[]` entry whose `comment_ids: []` includes the comment id
+     and whose `reasoning` field begins with `rejected suggestion:`
+     followed by the rationale. Even though no *new* commit is created
+     for a pure push-back, you still emit a `commits[]` entry — set
+     `sha` to the head SHA at fetch time, `files: []`, and the reasoning
+     prose carries the explanation. (Yes, this is the one place a
+     `commits[]` entry can have `files: []`; the trade-off keeps the
+     comment-id contract uniform across addressed / pushed-back paths.)
+   - **Deferred** (some other reason — needs design, blocked by tool
+     error, etc.): add a `deferred[]` entry whose `comment_ids` includes
+     the id and whose `reason` names what the issue is and why a fix
+     didn't land. Set `tracker_entry_url=""` when no in-repo tracker
+     exists.
 
-Push back on incorrect comments. The reply body the wrapper posts must
-explain why the suggestion was declined; surface that text in your return
-summary so the wrapper can see the disposition without re-reading the
-artifact.
+   The wrapper's inline reply body is composed from the `reasoning`
+   (push-back) or `reason` (deferral) field; surfacing the prose here
+   in your return summary is helpful for human-debugging but not
+   load-bearing — the artifact is the contract.
+
+Push back on incorrect comments. The reply body the wrapper posts at
+step 9 is composed from the `reasoning` field of the matching
+`commits[]` entry (with `rejected suggestion:` prefix) — that text is
+what the reviewer sees on the PR. Surface a one-line digest in your
+return summary so the wrapper's caller can preview the disposition,
+but the load-bearing record is the artifact field, not the summary.
 
 ## 5. Roadmap mark-shipped sweep
 
@@ -297,14 +324,17 @@ The artifact MUST conform to this JSON schema:
     {
       "sha": "<7-char hex>",
       "files": ["<repo-relative path>", "..."],
-      "finding_id": "<stable id from agent finding or comment id; synthesise as `<file>:<line>:<label>` if absent>",
-      "reasoning": "<one-line why: what the finding was, which agent category, what the fix does>",
-      "verify_status": "pass" | "<head-100/tail-50 line excerpt of the verify failure>"
+      "finding_id": "<stable id from agent finding or synthesise as `<file>:<line>:<label>` if absent; for comment-driven fixes use the matching comment_id as a string>",
+      "comment_ids": [<integer reviewer-comment ids this commit addresses, or [] if none>],
+      "reasoning": "<one-line why: what the finding was, which agent category, what the fix does. For pushed-back comments, prefix with 'rejected suggestion: '.>",
+      "verify_status": "pass" | "<head-100/tail-50 line excerpt of the verify failure>",
+      "tool_error": "<verbatim Edit/Write tool error excerpt, or empty string when no tool error blocked this fix>"
     }
   ],
   "deferred": [
     {
       "finding_id": "<stable id>",
+      "comment_ids": [<integer reviewer-comment ids this deferral covers, or [] when the deferral is finding-driven not comment-driven>],
       "tracker_entry_url": "<section anchor if you edited an in-repo tracker; empty string otherwise>",
       "reason": "<1-2 lines: what the issue is + which deferral-bar criterion applies>"
     }
@@ -364,7 +394,7 @@ fan-out.
 | Problem | Symptom | Fix |
 |---|---|---|
 | `Edit` tool refuses | "string not unique" or read-required error | Read the file first; expand `old_string` with surrounding context until unique. Don't paraphrase the refusal as "the hook denied edits" — that's a fabrication. |
-| `flow-pre-commit` fails on pre-existing breakage | A check fails on files you didn't touch | Record the failure in `anti_patterns_found` with the verbatim excerpt; mark affected commit's `verify_status` as the excerpt. Do not silently abandon the fix. |
+| `flow-pre-commit` fails on pre-existing breakage | A check fails on files you didn't touch | Record the failure in `anti_patterns_found` with the verbatim excerpt; mark affected commit's `verify_status` as the excerpt. Do not silently abandon the fix. (`verify_status` is the right field here — pre-commit and `/verify` cover the same check semantic; both go in `verify_status`. `tool_error` is reserved for Edit/Write tool failures only.) |
 | `/verify` cap exhausts mid-run | The skill exits without clean | Stop attempting fixes. Record the cap-exhausted failure in `commits[].verify_status` and surface in the return summary so the wrapper can escalate. |
 | Push fails (branch protection, CI required) | `git push` exits non-zero | Capture the verbatim error, write it into the artifact's `summary`, and exit. Do not retry the push — let the wrapper decide whether to escalate. |
 | Roadmap row already shipped | A row already shows `✅ shipped (#$PR_NUMBER)` | The edit is idempotent — your `Edit` call produces no diff and that's fine. Don't error. |
@@ -383,9 +413,14 @@ Before writing the artifact and returning, self-check:
   `commits[].reasoning`) or surfaced in `deferred[]` with a reason. No
   comment goes unaddressed without a record.
 - Every `commits[]` entry has a non-empty `sha`, `files`, `finding_id`,
-  `reasoning`, and `verify_status`.
+  `reasoning`, and `verify_status`. `comment_ids` is an array (empty
+  `[]` is fine when the commit addresses agent findings only, not
+  reviewer comments). `tool_error` is a string (empty `""` is the
+  default when no Edit/Write error blocked the fix).
 - `verify_status` is `"pass"` for every committed commit, OR the verbatim
   failure excerpt with the cap-exhausted reason in the return summary.
+  Never put Edit/Write tool errors into `verify_status` — those go in
+  `tool_error`.
 - `rejected_alternatives` and `anti_patterns_found` are populated whenever
   you considered alternatives or saw off-pattern code; an empty array is
   only legitimate when you genuinely encountered none.
