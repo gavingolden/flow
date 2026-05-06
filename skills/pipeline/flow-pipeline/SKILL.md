@@ -58,7 +58,7 @@ in-process for skills; shell out for scripts; never delegate.
 > tool from this skill — **except for the named exceptions below**.
 > Never spawn a separate `claude -p` subprocess. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
-> calls, and (c) the two narrowly-named Task-tool exceptions that
+> calls, and (c) the three narrowly-named Task-tool exceptions that
 > follow.
 >
 > The two constraints behind the rule above are (1) sub-agents can't
@@ -66,15 +66,15 @@ in-process for skills; shell out for scripts; never delegate.
 > with sub-agents would bloat past the context window. The supervisor
 > is itself a top-level Claude Code session (started by `flow new`
 > opening tmux + `claude`), so constraint (1) does not apply to *its*
-> Task calls — it applies to *its* sub-agents. Both exemptions below
-> are also one-shot, not long-running, so constraint (2) doesn't apply
-> either. They are the **only two** authorised Task-tool fan-out sites
-> from this supervisor; no other skill or step may call Task. Each is
-> anchored on its step heading name rather than its number so it
-> survives future renumbering. Same narrow-and-named contract as the
-> `/pr-review` auto-push and `/flow-pipeline` auto-merge exemptions in
-> `AGENTS.md`. If a future skill needs the same license, add it here
-> by name rather than generalising the rule.
+> Task calls — it applies to *its* sub-agents. All three exemptions
+> below are also one-shot, not long-running, so constraint (2) doesn't
+> apply either. They are the **only three** authorised Task-tool
+> fan-out sites from this supervisor; no other skill or step may call
+> Task. Each is anchored on its step heading name rather than its
+> number so it survives future renumbering. Same narrow-and-named
+> contract as the `/pr-review` auto-push and `/flow-pipeline`
+> auto-merge exemptions in `AGENTS.md`. If a future skill needs the
+> same license, add it here by name rather than generalising the rule.
 >
 > **Task-tool exemption #1: `/pr-review` Independent Multi-Agent
 > Review.** When the supervisor invokes `/pr-review` in step 8,
@@ -100,6 +100,23 @@ in-process for skills; shell out for scripts; never delegate.
 > two artifacts on disk (`.flow-tmp/plan.md`,
 > `.flow-tmp/pr-description-draft.md`) and returns a brief summary,
 > then exits.
+>
+> **Task-tool exemption #3: `/new-feature` Independent Scout
+> Subagent.** When the supervisor invokes `/new-feature` in step 5,
+> the wrapper spawns one scout agent via the Task tool — but only on
+> the wider-scope path of its hybrid threshold (≤3 affected files
+> skips the scout entirely). The rationale is identical to exemption
+> #2 and PR #95's precedent: codebase scouting reads source files,
+> scans adjacent modules, identifies test coverage, enumerates the
+> public API surface, and flags anti-patterns / off-limits surfaces
+> — none of which the supervisor refers to in steps 6–10, but all of
+> which would otherwise sit in the supervisor's transcript for the
+> rest of the run. The handoff is `.flow-tmp/scout.md`; the
+> supervisor reads it exactly once during Critical Analysis and never
+> re-reads. Like the discovery and the multi-agent review, the scout
+> is one-shot — the subagent writes the artifact on disk and returns
+> a brief both-sides summary (positive findings AND negative findings
+> — what NOT to do alongside what to do), then exits.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -432,7 +449,7 @@ request as the argument:
 
 `/product-planning` is itself a thin wrapper that spawns one
 **Independent Discovery Subagent** via the Task tool (the second of
-the two named Task-tool exemptions in "Hard rules" above). The
+the three named Task-tool exemptions in "Hard rules" above). The
 subagent does all the discovery in its own isolated context — reading
 the README, scanning the skill directory, examining domain models,
 drafting the PRD — and writes the consolidated artifact to
@@ -512,6 +529,27 @@ pass the user's request:
 ```
 /new-feature <verbatim user description>
 ```
+
+`/new-feature` is itself a thin wrapper that spawns one **Independent
+Scout Subagent** via the Task tool (the third of the three named
+Task-tool exemptions in "Hard rules" above) on its wider-scope path.
+The subagent reads the codebase in its isolated context — affected
+modules, relevant tests, public API surface, anti-patterns / off-limits
+surfaces — and writes the consolidated artifact to
+`<worktree>/.flow-tmp/scout.md`. The wrapper creates `.flow-tmp/`
+before spawning so the subagent can write directly. The supervisor
+never sees the scouting transcript, only the wrapper's brief return
+summary. Trivially scoped features (≤3 affected files) skip the
+subagent via the wrapper's hybrid threshold and proceed inline.
+
+If `/new-feature` took the wider-scope path and `.flow-tmp/scout.md`
+is missing after the call returns, re-invoke `/new-feature` once with
+an explicit instruction to spawn the scout and write the artifact
+(this counts as a fresh `/new-feature` invocation with its own
+one-shot Task call, per the wrapper's "exactly one Task-tool call per
+invocation" constraint). If the second attempt also fails, escalate
+`NEEDS HUMAN: scout-missing`. Same retry-once-then-escalate semantics
+as step 3's `plan-missing` handling for `/product-planning`.
 
 The skill writes code + tests, runs verify internally as a
 pre-commit gate, commits, and pushes. **Opening the PR is the
@@ -1084,10 +1122,10 @@ After each phase transition:
 - `flow ls` (run from any terminal) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the two named exceptions in "Hard rules" above — `/pr-review`'s
-  "Independent Multi-Agent Review" and `/product-planning`'s
-  "Independent Discovery Subagent". No other skill or step may call
-  Task.
+  via the three named exceptions in "Hard rules" above — `/pr-review`'s
+  "Independent Multi-Agent Review", `/product-planning`'s
+  "Independent Discovery Subagent", and `/new-feature`'s "Independent
+  Scout Subagent". No other skill or step may call Task.
 - The supervisor never spawned a `claude -p` subprocess.
 
 When the pipeline ends, scrollback contains exactly one of `MERGED`

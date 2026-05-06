@@ -136,11 +136,13 @@ is one Claude Code chat session, sub-skills (`/product-planning`,
 `/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses, **with two narrowly-named exceptions**
+`claude -p ...` subprocesses, **with three narrowly-named exceptions**
 — see the "Task-tool exemption: `/flow-pipeline` → `/pr-review`
-Independent Multi-Agent Review" and "Task-tool exemption:
-`/flow-pipeline` → `/product-planning` Independent Discovery Subagent"
-entries under `## Don'ts` below. This sidesteps two limits at once:
+Independent Multi-Agent Review", "Task-tool exemption:
+`/flow-pipeline` → `/product-planning` Independent Discovery
+Subagent", and "Task-tool exemption: `/flow-pipeline` →
+`/new-feature` Independent Scout Subagent" entries under `## Don'ts`
+below. This sidesteps two limits at once:
 
 1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
 2. A long-running supervisor with sub-agents would bloat past the
@@ -210,11 +212,12 @@ no compile step.
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The two
+- Don't spawn sub-agents from the supervisor. See above. The three
   named exceptions are `/pr-review`'s Independent Multi-Agent Review
-  step and `/product-planning`'s Independent Discovery Subagent —
-  both covered by "Task-tool exemption" bullets below; no other
-  skill or step may call Task.
+  step, `/product-planning`'s Independent Discovery Subagent, and
+  `/new-feature`'s Independent Scout Subagent — all three covered by
+  "Task-tool exemption" bullets below; no other skill or step may
+  call Task.
 - Don't add features beyond the task's stated scope.
 - Don't introduce a database. Markdown plan files plus
   `~/.flow/state/<slug>.json` are the state store; if the queue ever
@@ -290,7 +293,42 @@ no compile step.
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
     `skills/pipeline/product-planning/SKILL.md`'s "Independent
     Discovery Subagent" preamble. Same narrow-and-named contract as
-    the exemptions above. Together with the `/pr-review`
-    Multi-Agent Review entry, these are the **only two** authorised
-    Task-tool fan-out sites from `/flow-pipeline`; no other skill or
-    step may call Task.
+    the exemptions above.
+  - **Task-tool exemption: `/flow-pipeline` → `/new-feature`
+    Independent Scout Subagent.** When `/flow-pipeline` step 5
+    loads `/new-feature`, the wrapper spawns one scout agent via
+    the Task tool — but only on the wider-scope path of its hybrid
+    threshold (≤3 affected files skips the scout entirely). The
+    exemption is anchored on the step heading name rather than its
+    number so it survives future `/new-feature` renumbering.
+    Rationale: the same two constraints as above — the supervisor
+    is top-level so the one-level sub-agent cap doesn't apply to
+    *its* Task calls; and the scout is one-shot, returning an
+    artifact (`.flow-tmp/scout.md`) plus a brief both-sides summary
+    rather than running long. The reason this exemption exists at
+    all is the context cost: scouting reads source files, scans
+    adjacent modules, identifies test coverage, enumerates the
+    public API surface, and flags anti-patterns / off-limits
+    surfaces — none of which the supervisor refers to in steps
+    6–10, but all of which would otherwise sit in the supervisor's
+    transcript for the rest of the run. PR #95 is the precedent:
+    the same surgery applied to `/product-planning`'s discovery,
+    and the `/product-planning` Independent Discovery Subagent
+    exemption above bakes its post-merge-fix invariants (absolute
+    SKILL_DIR + WORKTREE paths, exactly one Task call per
+    invocation, wrapper-owned `mkdir -p .flow-tmp/`, single
+    side-effect attribution site, main-session reads the artifact
+    once and never re-reads). The `/new-feature` scout adopts those
+    invariants verbatim, with one addition specific to this
+    exemption: the subagent's return summary must surface both
+    sides — at least one positive finding and at least one
+    negative finding (off-limits surfaces, rejected approaches,
+    foreclosed shortcuts). The contract is documented
+    bidirectionally in `skills/pipeline/flow-pipeline/SKILL.md`
+    "Hard rules" and `skills/pipeline/new-feature/SKILL.md`'s
+    "Independent Scout Subagent" preamble. Same narrow-and-named
+    contract as the exemptions above. Together with the
+    `/pr-review` Multi-Agent Review and `/product-planning`
+    Discovery Subagent entries, these are the **only three**
+    authorised Task-tool fan-out sites from `/flow-pipeline`; no
+    other skill or step may call Task.
