@@ -289,22 +289,51 @@ Always emit the heading. Decide the body based on the PRD:
   under just the placeholder HTML comment. The rubric strips HTML comments before
   counting, so zero unchecked items ⇒ auto-merge.
 - Otherwise — populate with `- [ ]` items derived from the acceptance criteria in
-  User Stories. Each item is something a reviewer must run, click, or read to
-  confirm the change is safe. Prefer manual steps over "run the tests" — but
-  include the test command as one of the items if tests exist. The pr-review
-  skill will run any item that's a deterministic shell command and tick the box;
-  remaining `- [ ]` items are what gates the merge. Use as many items as the
-  change warrants — don't pad to look thorough and don't truncate to look concise.
+  User Stories, applying the **automation test** from
+  `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Automate first"
+  section) to each candidate item *before* you write it. The test:
+
+  > Can I name (a) a fixture / setup, (b) one or more deterministic assertions, and
+  > (c) an exit condition — all without subjective human judgment? If yes, this is
+  > a runnable item, not manual prose.
+
+  When the answer is yes, write the item as the deterministic shell command itself
+  (`npm run test -- <file>`, `bun bin/<helper>.test.ts`, `gh pr view <n> --json …
+  --jq …`, `test -f <path>`, `grep -q <pattern> <file>`,
+  `[ "$(cat <path>)" = "<expected>" ]`) so `/pr-review` Step 8c can run it and tick
+  the box. Manual prose survives only when the rubric flags the scenario as genuinely
+  manual (subjective UX, production-only integrations, cross-browser rendering,
+  performance under realistic load). Use as many items as the change warrants —
+  don't pad to look thorough and don't truncate to look concise.
+
+Open the `## Test Steps` section with this HTML comment, copied verbatim, between
+the heading and the first `- [ ]` item. The auto-merge gate strips HTML comments
+before counting so the marker is invisible to the count, and any later editor (an
+agent re-running pr-review, a human pasting in steps) sees the same standard:
+
+```html
+<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+automation test from manual-test-rubric.md is: (a) named fixture/setup,
+(b) deterministic assertion(s), (c) exit condition. If all three are answerable
+without subjective human judgment, it must be a runnable item. Source of truth:
+skills/pipeline/pr-review/references/manual-test-rubric.md. -->
+```
 
 Example (auto-merge — empty section):
 
 <!-- No human verification needed — pure-internal change. -->
 
-Example (gated — non-empty section):
+Example (gated — non-empty section, marker preserved):
+
+<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+automation test from manual-test-rubric.md is: (a) named fixture/setup,
+(b) deterministic assertion(s), (c) exit condition. If all three are answerable
+without subjective human judgment, it must be a runnable item. Source of truth:
+skills/pipeline/pr-review/references/manual-test-rubric.md. -->
 
 - [ ] Run `npm run test -- <test-file>` — all specs pass.
-- [ ] Open /portfolio with the seeded user — allocation chart renders.
-- [ ] Switch the time range to 1y — chart updates without a full reload.>
+- [ ] Run `[ -f <path> ] && grep -q "<expected>" <path>` — config is wired.
+- [ ] Open /portfolio in dark mode — chart contrast feels right (subjective UX, manual).
 ```
 
 **Rules:**

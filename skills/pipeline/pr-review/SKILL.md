@@ -505,6 +505,19 @@ as manual", or "this is the author's deliberate human sanity check"? If so, stop
 those are post-hoc excuses, not real signals. The bar is literal: can I exec this
 from a terminal in this repo? If yes, run it.
 
+**Second self-check — author-prose promotion**: when the item is written as prose
+("verify `runner.pid` exists and matches printed PID", "confirm `~/.flow/state/<slug>.json`
+shows `phase: merged`"), apply the **mechanical-obviousness bar** before classifying
+it as not-runnable. If the cited file/path makes the assertion mechanical — the
+prose maps to a one-line `test -f <X>`, `grep -q <pattern> <X>`,
+`[ "$(cat X)" = "Y" ]`, or `[ "$(jq -r '.field' <X>)" = "<value>" ]` — promote it
+to the runnable bucket per Step 8c.ii. If the prose requires subjective judgment
+(animation feels smooth, error message reads naturally, contrast looks right) or
+external services (browser, real network, prod credentials), it stays not-runnable.
+Open-ended LLM rewriting of arbitrary manual prose is *out of scope* — the bar is
+literal: can I write a one-line shell command whose stdout/exit code answers the
+prose without me interpreting anything?
+
 For each runnable item:
 
 1. Execute it exactly as written, capturing both stdout and stderr to a file
@@ -515,6 +528,73 @@ For each runnable item:
    `AGENTS.md`) and `git push` before re-running.
 3. On pass, the box gets ticked AND the captured output gets injected as a
    `<details>` evidence block immediately under the item — see the next sub-step.
+
+### 8c.ii. Prose-to-runnable promotion (mechanical-obviousness only)
+
+When 8c's second self-check identifies an author-prose item that maps to a
+mechanical assertion (`test -f`, `grep -q`, `[ "$(cat X)" = "Y" ]`,
+`[ "$(jq -r '.field' X)" = "Y" ]`), promote it inline. The author's `- [ ]`
+wording in the PR body **stays as written** — only the box-tick + evidence
+injection runs. Body wording rewrites are a Step 11e responsibility (gated on
+user confirmation), never 8c's. This split keeps the audit honest: reviewers
+always see what the author *claimed* alongside the evidence block showing what
+the agent *ran*.
+
+For each promoted item:
+
+1. Write the scripted equivalent to scratch:
+
+   ```bash
+   mkdir -p .flow-tmp
+   cat > .flow-tmp/promoted-<n>.sh <<'EOF'
+   # Prose: "verify `runner.pid` exists and matches the printed PID"
+   set -e
+   test -f runner.pid
+   [ "$(cat runner.pid)" = "$EXPECTED_PID" ]
+   EOF
+   chmod +x .flow-tmp/promoted-<n>.sh
+   ```
+
+2. Run it, capturing stdout + stderr + exit code the same way 8c does for
+   author-written runnable items. Use `set -o pipefail` so the captured exit
+   code reflects the promoted script's status, not `tee`'s — without
+   pipefail, a failing assertion is silently recorded as exit 0 and the box
+   gets ticked incorrectly:
+
+   ```bash
+   set -o pipefail
+   bash -c '.flow-tmp/promoted-<n>.sh 2>&1' | tee .flow-tmp/evidence-<n>.txt
+   echo "${PIPESTATUS[0]}" > .flow-tmp/exit-<n>
+   ```
+
+3. On exit 0, hand off to 8c.i for the box-tick + evidence injection. The
+   `--item` regex matches the *author's prose line*; the evidence block records
+   the *exact promoted command* that was run, so the audit trail names both:
+
+   ```bash
+   flow-inject-evidence \
+     --body-file .flow-tmp/body.md \
+     --item '<regex matching the author prose line>' \
+     --output-file .flow-tmp/evidence-<n>.txt \
+     --exit-code "$(cat .flow-tmp/exit-<n>)"
+   ```
+
+4. On non-zero exit: do NOT tick the box. Leave the item unchecked and record
+   the failed promoted command in the structured report (Step 12) so the user
+   sees both the prose and the agent's interpretation of it.
+
+**Bounded by mechanical-obviousness.** If you find yourself writing more than
+~3 lines of shell to express the prose, or reaching for branching logic
+(`if/then`, `case`, multiple `&&` clauses across distinct asserts), the prose
+is **not** mechanically obvious — leave it not-runnable and record the
+rubric category that applies (`subjective UX`, `production-only`,
+`cross-browser`, `performance under realistic load`, etc.). Open-ended LLM
+rewriting of arbitrary manual prose drifts toward executing scripts the
+author did not intend; the bounded version trades some recall for safety.
+
+Track the promotion count for Step 12's audit line: how many `- [ ]` items
+were promoted from author prose vs. ran as the author wrote them, and how
+many were left unticked with which rubric category.
 
 ### 8c.i. Inject evidence under each runnable item
 
@@ -922,6 +1002,29 @@ prevent.
 The Fix-Applier Subagent already committed and pushed any code changes during its run
 (per the `Auto-push exemption: pr-review` clause); the wrapper does not re-commit at
 this step. Present the report directly.
+
+**Automation-precedence audit line.** The report's "Test Steps (from PR description)"
+section ends with one summary line:
+
+```
+Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <reasons>)
+```
+
+- `M` is the total `- [ ]` item count in the section.
+- `N` is the number ticked by 8c (author-runnable + prose-promoted via 8c.ii).
+- `X` is the subset of `N` that came from 8c.ii prose promotion.
+- `Y` is `M − N` — items left unticked. `<reasons>` is a comma-separated list of
+  the manual-test-rubric categories that applied (`subjective UX`,
+  `production-only`, `cross-browser`, `performance under realistic load`,
+  `cost-prohibitive infra`); cite the rubric file name verbatim. When `Y = 0`,
+  write `0 left manual` and omit the parenthetical reason list.
+
+The line emits unconditionally, including when `M = 0` (write
+`Automation-precedence audit: ran 0/0 items (no Test Steps to verify)`). Always
+emitting is the deliberate choice — `0 prose-promoted` on a PR with all-runnable
+author items is itself a positive signal ("nothing was author-manual today").
+The user reads the audit line to decide whether to redirect ("this should have
+been a test, not a runtime conversion") with one comment.
 
 ## 13. Register Local Follow-ups (when applicable)
 

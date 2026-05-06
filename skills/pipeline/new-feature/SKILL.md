@@ -334,23 +334,59 @@ Always emit the heading. Decide the body based on the change:
   user-observable delta — leave the section empty under just a placeholder HTML
   comment. The rubric strips HTML comments before counting, so zero unchecked items
   ⇒ auto-merge.
-- Otherwise — derive `- [ ]` items from the it.todo() specs. Each item is something a
-  reviewer must run, click, or read to confirm the change is safe. Include the test command
-  as one of the items. The pr-review skill will run any item that's a deterministic shell
-  command, tick the box on success, and inject the captured output as a `<details>` block
-  under the item; remaining `- [ ]` items are what gates the merge. Use as many items as
-  the change warrants — a one-line fix may need one or two; a new integration may need a
-  dozen. Don't pad and don't truncate.
+- Otherwise — derive `- [ ]` items from the it.todo() specs, applying the **automation
+  test** from `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Automate
+  first" section) to each candidate item *before* you write it. The test:
+
+  > Can I name (a) a fixture / setup, (b) one or more deterministic assertions, and
+  > (c) an exit condition — all without subjective human judgment? If yes, this is
+  > a runnable item, not manual prose.
+
+  When the answer is yes, write the item as the deterministic shell command itself
+  (`npm run test -- <file>`, `bun bin/<helper>.test.ts`, `gh pr view <n> --json …
+  --jq …`, `test -f <path>`, `grep -q <pattern> <file>`,
+  `[ "$(cat <path>)" = "<expected>" ]`) so `/pr-review` Step 8c can run it and tick
+  the box. Manual prose survives only when the rubric flags the scenario as genuinely
+  manual (subjective UX, production-only integrations, cross-browser rendering,
+  performance under realistic load). Authoring manual prose for an automatable
+  scenario is the failure mode this contract exists to prevent — it surfaces as a
+  `GATED:` end state where every unticked item could have been an exit-code check
+  the agent ran itself.
+
+Open the `## Test Steps` section with this HTML comment, copied verbatim, between
+the heading and the first `- [ ]` item. The auto-merge gate strips HTML comments
+before counting so the marker is invisible to the count, and any later editor (an
+agent re-running pr-review, a human pasting in steps) sees the same standard:
+
+```html
+<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+automation test from manual-test-rubric.md is: (a) named fixture/setup,
+(b) deterministic assertion(s), (c) exit condition. If all three are answerable
+without subjective human judgment, it must be a runnable item. Source of truth:
+skills/pipeline/pr-review/references/manual-test-rubric.md. -->
+```
+
+Use as many items as the change warrants — a one-line fix may need one or two; a
+new integration may need a dozen. Don't pad and don't truncate. The pr-review
+skill will run any item that's a deterministic shell command, tick the box on
+success, and inject the captured output as a `<details>` block under the item;
+remaining `- [ ]` items are what gates the merge.
 
 Example (auto-merge — empty section):
 
 <!-- No human verification needed — pure-internal change. -->
 
-Example (gated — non-empty section):
+Example (gated — non-empty section, marker preserved):
+
+<!-- flow:authoring-rubric — for each `- [ ]` item below, the three-question
+automation test from manual-test-rubric.md is: (a) named fixture/setup,
+(b) deterministic assertion(s), (c) exit condition. If all three are answerable
+without subjective human judgment, it must be a runnable item. Source of truth:
+skills/pipeline/pr-review/references/manual-test-rubric.md. -->
 
 - [ ] Run `npm run test -- <test-file>` — all specs pass.
-- [ ] Visit /foo with valid input — chart renders within 2s.
-- [ ] Cut the network mid-load — error state appears, no console errors.>
+- [ ] Run `[ -f <path> ] && grep -q "<expected>" <path>` — config is wired.
+- [ ] Open /foo in dark mode — animation feels balanced (subjective UX, manual).
 ```
 
 Save to `.flow-tmp/pr-description-draft.md` in the working directory. Create the
