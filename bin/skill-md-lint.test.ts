@@ -17,6 +17,12 @@ import { STEP_PHASES } from "./lib/state";
  * anchors on what the harness mechanism reads (the new pending-end
  * phase strings + a reference to the helper) so a doc rename can't
  * silently drift away from the guard's contract.
+ *
+ * Also lints two cross-doc invariants for the named Task-tool
+ * exemptions: AGENTS.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
+ * rules" must list the same set of exemptions, and the JSON schema
+ * for the Fix-Applier Subagent's artifact must match between
+ * pr-review/SKILL.md and pr-review/references/fix-applier-instructions.md.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -28,8 +34,56 @@ const SKILL_MD_PATH = path.resolve(
   "flow-pipeline",
   "SKILL.md",
 );
+const AGENTS_MD_PATH = path.resolve(HERE, "..", "AGENTS.md");
+const PR_REVIEW_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "SKILL.md",
+);
+const FIX_APPLIER_INSTRUCTIONS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "references",
+  "fix-applier-instructions.md",
+);
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
+const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
+const prReviewContent = fs.readFileSync(PR_REVIEW_SKILL_MD_PATH, "utf8");
+const fixApplierContent = fs.readFileSync(FIX_APPLIER_INSTRUCTIONS_PATH, "utf8");
+
+/**
+ * Strip markdown blockquote `> ` prefixes from line starts so cross-line
+ * regexes can match contiguous prose. The "Hard rules" section in
+ * flow-pipeline/SKILL.md is one big blockquote; without this preprocessing,
+ * `\s+` in a regex doesn't match `\n> ` (the `>` isn't whitespace) and the
+ * match silently falls through.
+ */
+function stripBlockquoteMarkers(text: string): string {
+  return text.replace(/^>\s?/gm, "");
+}
+
+/**
+ * Normalise an exemption's skill+heading text for cross-doc comparison.
+ * Strips backticks, blockquote `> ` carryover, lowercases, collapses
+ * whitespace, drops trailing punctuation. Two strings are "the same
+ * exemption" iff their normalised forms match.
+ */
+function normaliseExemption(raw: string): string {
+  return raw
+    .replace(/[`*]/g, "")
+    .replace(/^>\s?/gm, "")
+    .replace(/\s+/g, " ")
+    .replace(/[.,>]+$/, "")
+    .trim()
+    .toLowerCase();
+}
 
 function findStepHeadings(lines: string[]): string[] {
   return lines.filter((line) => /^## Step /.test(line));
@@ -76,6 +130,187 @@ describe("flow-pipeline SKILL.md structural lint", () => {
       content.includes("PIPELINE_PHASES"),
       "SKILL.md must reference 'PIPELINE_PHASES' so future readers can " +
         "find the canonical phase set in bin/lib/state.ts.",
+    ).toBe(true);
+  });
+});
+
+describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", () => {
+  /**
+   * Pre-strip blockquote markers so cross-line regexes match. The "Hard
+   * rules" section is one large blockquote; preserving the raw form for
+   * other tests in this file means we strip locally for these tests.
+   */
+  const skillStripped = stripBlockquoteMarkers(content);
+
+  /**
+   * Extract exemption keys from flow-pipeline/SKILL.md "Hard rules" section.
+   * Format: `**Task-tool exemption #N: <skill-and-heading>.**`
+   */
+  function extractSkillExemptions(): string[] {
+    const re = /\*\*Task-tool exemption #\d+:\s*([^*]+?)\.\*\*/g;
+    return [...skillStripped.matchAll(re)].map((m) => normaliseExemption(m[1]));
+  }
+
+  /**
+   * Extract exemption keys from AGENTS.md `## Don'ts` section. Format:
+   * `**Task-tool exemption: \`/flow-pipeline\` → <skill-and-heading>.**`
+   * The `/flow-pipeline` → prefix is stripped so the keys align with
+   * the SKILL.md side (which doesn't include the `/flow-pipeline →` prefix).
+   */
+  function extractAgentsExemptions(): string[] {
+    const re = /\*\*Task-tool exemption:\s*`\/flow-pipeline`\s*→\s*([^*]+?)\.\*\*/g;
+    return [...agentsContent.matchAll(re)].map((m) => normaliseExemption(m[1]));
+  }
+
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 3 Task-tool exemptions", () => {
+    const exemptions = extractSkillExemptions();
+    expect(
+      exemptions.length,
+      "flow-pipeline/SKILL.md must list exactly 3 Task-tool exemption blocks " +
+        "(one each for /pr-review Multi-Agent Review, /product-planning Discovery " +
+        "Subagent, and /pr-review Fix-Applier Subagent). Found: " +
+        JSON.stringify(exemptions),
+    ).toBe(3);
+  });
+
+  it("AGENTS.md ## Don'ts lists exactly 3 Task-tool exemption bullets", () => {
+    const exemptions = extractAgentsExemptions();
+    expect(
+      exemptions.length,
+      "AGENTS.md ## Don'ts must list exactly 3 Task-tool exemption bullets. " +
+        "Found: " + JSON.stringify(exemptions),
+    ).toBe(3);
+  });
+
+  it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
+    const skill = new Set(extractSkillExemptions());
+    const agents = new Set(extractAgentsExemptions());
+    const onlyInSkill = [...skill].filter((x) => !agents.has(x));
+    const onlyInAgents = [...agents].filter((x) => !skill.has(x));
+    expect(
+      onlyInSkill.length,
+      `Exemptions in flow-pipeline/SKILL.md but missing from AGENTS.md: ${JSON.stringify(onlyInSkill)}. ` +
+        "The two files document the same set of exemptions bidirectionally; if you add one to one " +
+        "side, you must add it to the other.",
+    ).toBe(0);
+    expect(
+      onlyInAgents.length,
+      `Exemptions in AGENTS.md but missing from flow-pipeline/SKILL.md: ${JSON.stringify(onlyInAgents)}. ` +
+        "Add the matching `**Task-tool exemption #N: ...**` block to flow-pipeline/SKILL.md " +
+        "Hard rules so the bidirectional contract holds.",
+    ).toBe(0);
+  });
+
+  it("flow-pipeline/SKILL.md Hard rules preamble references three exemptions", () => {
+    expect(
+      skillStripped.match(/the\s+\*\*only three\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only three** authorised " +
+        "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
+        "in the preamble too — the count is bidirectional with the block list below.",
+    ).toBeTruthy();
+  });
+
+  it("flow-pipeline/SKILL.md Hard rules opening references three Task-tool exceptions", () => {
+    expect(
+      skillStripped.match(/the\s+three\s+narrowly-named Task-tool exceptions that\s+follow/),
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the three narrowly-named " +
+        "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
+        "that doesn't match the exemption blocks.",
+    ).toBeTruthy();
+  });
+
+  it("AGENTS.md upstream prose references three exceptions", () => {
+    expect(
+      agentsContent.match(/\*\*with three narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with three narrowly-named exceptions**'. " +
+        "The count must match the bullet list under ## Don'ts.",
+    ).toBeTruthy();
+    expect(
+      agentsContent.match(/The three\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The three named exceptions are'. " +
+        "Drift here is the most likely landmine when adding a new exemption.",
+    ).toBeTruthy();
+    expect(
+      agentsContent.match(/the\s+\*\*only three\*\*\s+authorised Task-tool fan-out sites/),
+      "AGENTS.md ## Don'ts closer must say 'the **only three** authorised Task-tool fan-out sites'. " +
+        "Same count, same wording as flow-pipeline/SKILL.md's closer.",
+    ).toBeTruthy();
+  });
+
+  it("flow-pipeline/SKILL.md Verification (this skill) lists all three exemptions by name", () => {
+    const verificationSection =
+      content.split("# Verification")[1] ?? content.split("# Verification (this skill)")[1] ?? "";
+    expect(
+      verificationSection.includes("Independent Multi-Agent Review"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Independent Multi-Agent Review' " +
+        "as one of the named Task-tool exemptions.",
+    ).toBe(true);
+    expect(
+      verificationSection.includes("Independent Discovery Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Independent Discovery Subagent' " +
+        "as one of the named Task-tool exemptions.",
+    ).toBe(true);
+    expect(
+      verificationSection.includes("Independent Fix-Applier Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Independent Fix-Applier Subagent' " +
+        "as one of the named Task-tool exemptions. The third exemption was added in the " +
+        "fix-applier refactor; this list must enumerate all three.",
+    ).toBe(true);
+  });
+});
+
+describe("Fix-Applier artifact JSON schema drift (pr-review/SKILL.md ↔ references/fix-applier-instructions.md)", () => {
+  const REQUIRED_KEYS = [
+    "commits",
+    "deferred",
+    "rejected_alternatives",
+    "anti_patterns_found",
+    "summary",
+  ];
+
+  it.each(REQUIRED_KEYS)(
+    "pr-review/SKILL.md declares the '%s' top-level key for the fix-applier artifact",
+    (key) => {
+      expect(
+        prReviewContent.includes(`\`${key}\``),
+        `pr-review/SKILL.md must reference '\`${key}\`' as one of the artifact's typed fields. ` +
+          `Missing the key here means a downstream Step (9/10/11/12) consumer drifts away from ` +
+          `the schema documented in references/fix-applier-instructions.md.`,
+      ).toBe(true);
+    },
+  );
+
+  it.each(REQUIRED_KEYS)(
+    "references/fix-applier-instructions.md declares the '%s' top-level key in the artifact schema",
+    (key) => {
+      expect(
+        fixApplierContent.includes(`"${key}"`),
+        `references/fix-applier-instructions.md step 9 must include '"${key}"' in the JSON schema fenced block. ` +
+          `Drift between this file and pr-review/SKILL.md silently breaks the wrapper-subagent contract.`,
+      ).toBe(true);
+    },
+  );
+
+  it("pr-review/SKILL.md has a Fix-Applier Subagent section", () => {
+    expect(
+      prReviewContent.includes("# Fix-Applier Subagent"),
+      "pr-review/SKILL.md must have a top-level '# Fix-Applier Subagent' section that " +
+        "documents the spawn procedure and prompt template. The exemption in flow-pipeline/SKILL.md " +
+        "Hard rules and AGENTS.md ## Don'ts is anchored on this heading name.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md spawn-prompt template instructs the subagent on negative-findings slots", () => {
+    const hasNegativeFindings =
+      prReviewContent.includes("rejected_alternatives") &&
+      prReviewContent.includes("anti_patterns_found") &&
+      prReviewContent.includes("silence is not the default");
+    expect(
+      hasNegativeFindings,
+      "pr-review/SKILL.md's spawn prompt template must affirmatively instruct the subagent to " +
+        "populate 'rejected_alternatives' and 'anti_patterns_found' (and warn that 'silence is " +
+        "not the default'). Without this, the subagent defaults to leaving the slots empty and " +
+        "the user-redirect contract is silently broken.",
     ).toBe(true);
   });
 });
