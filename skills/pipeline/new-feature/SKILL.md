@@ -101,6 +101,18 @@ Decide whether to spawn the scout subagent based on the **hybrid threshold**:
   ("trivial scope: single .svelte file — skipping scout") so the
   user can audit the decision in scrollback. Proceed inline to Step 2
   with the existing 1–2-file read budget.
+- **Tiebreaker for soft-edge phrasing.** If the description names
+  one file but contains fan-out language ("and all callers", "every
+  caller of X", "and downstream consumers", "and update its tests")
+  or introduces a *new* sibling module / component / migration, route
+  SPAWN regardless of the leading single-file phrasing. The
+  `## affected_modules` and `## public_api_surface` sections of the
+  scout report exist precisely to enumerate fan-out the description
+  hand-waved past; routing SKIP on a description like "Refactor
+  `bin/lib/state.ts`, updating all callers and adding tests" defeats
+  that. Log the tiebreaker reason ("wider scope: fan-out language
+  past leading single-file phrasing — spawning scout") so the user
+  can audit.
 - **Wider scopes** spawn the scout subagent via the Spawn procedure
   below. Log a one-line reason ("wider scope: spawning scout") so
   the user can audit.
