@@ -192,7 +192,7 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
       ["ci-wait", "step 8 (review)"],
       ["reviewing", "step 9 (gate)"],
       ["gating", "step 10 (merge)"],
-      ["merging", "step 10 (finalize merge to MERGED)"],
+      ["merging", "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED)"],
     ];
     for (const [phase, label] of expected) {
       const { deps, errLines } = makeDeps({

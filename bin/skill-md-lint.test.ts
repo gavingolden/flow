@@ -36,9 +36,9 @@ function findStepHeadings(lines: string[]): string[] {
 }
 
 describe("flow-pipeline SKILL.md structural lint", () => {
-  it("ships exactly 11 numbered step headings (1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10)", () => {
+  it("ships exactly 12 numbered step headings (1, 2, 3, 4, 5, 5.5, 6, 7, 8, 9, 10, 11)", () => {
     const headings = findStepHeadings(content.split("\n"));
-    expect(headings.length).toBe(11);
+    expect(headings.length).toBe(12);
   });
 
   it.each([
