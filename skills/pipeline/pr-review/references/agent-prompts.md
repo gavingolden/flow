@@ -99,9 +99,11 @@ a missed finding that a human reviewer will catch.
 
 The block below is your lens's pre-digested static-analysis output from
 `flow-pr-static-analysis` (semgrep / biome-or-eslint / tsc / Istanbul-coverage,
-filtered to PR-touched lines, filtered to `confidence >= min_confidence`). Each
-finding has the shape `{file, line, end_line?, rule_id, message, confidence,
-severity?, source}`.
+filtered to PR-touched lines, filtered to `confidence >= min_confidence`). The
+substituted block is a single JSON object of shape `{findings: [...], meta: {...}}`,
+where each finding has the shape `{file, line, end_line?, rule_id, message,
+confidence, severity?, source}` and `meta` carries the lens's `ran` /
+`skipped_reason` / `duration_ms` / `tool_version?` fields.
 
 Treat these as **deterministic input**:
 
@@ -110,13 +112,13 @@ Treat these as **deterministic input**:
   is calibrated for the rule, not for the PR's specific intent. A finding the diff
   context clearly justifies (e.g., a deliberate `any` cast in a migration shim) should
   be dropped, not surfaced.
-- Don't re-derive what's already given. If `types` shows a tsc error at `src/foo.ts:42`,
-  don't independently search for type errors on that line — confirm the cited error
-  and move on.
-- If `meta.<lens>.ran=false`, the lens was skipped (the consumer doesn't have that
-  tool installed, or the pre-digest timed out) — don't spin trying to find tool-derived
-  facts that weren't computed; fall back entirely to your own diff inspection for
-  that aspect.
+- Don't re-derive what's already given. If `findings` shows a tsc error at
+  `src/foo.ts:42`, don't independently search for type errors on that line — confirm
+  the cited error and move on.
+- If `meta.ran=false`, the lens was skipped (the consumer doesn't have that
+  tool installed, or the pre-digest timed out — see `meta.skipped_reason`) — don't
+  spin trying to find tool-derived facts that weren't computed; fall back entirely
+  to your own diff inspection for that aspect.
 - Static-analysis findings can supplement but don't replace the rest of your review:
   semantic issues (broken contracts, missing tests for changed branches, design
   inconsistencies) are still entirely yours to find.
@@ -305,7 +307,7 @@ Your concern is: **will the test suite catch regressions in the changed code?**
    added or modified by this PR that no test exercises. Confirm by Reading the cited
    `file:line` and judging whether the line warrants a test (skip trivial getters,
    constant returns, type narrowing — but flag conditional branches, error paths,
-   and new public-API behaviour). If `meta.coverage.ran=false` (`no-coverage-output`
+   and new public-API behaviour). If `meta.ran=false` (`no-coverage-output`
    means the consumer hasn't run their tests with `--coverage` yet), fall back
    entirely to your own analysis.
 2. Read `AGENTS.md` to understand the project's testing philosophy and requirements.

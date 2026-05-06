@@ -4,9 +4,11 @@
  * so `/pr-review`'s four review agents stop re-deriving the same low-level
  * findings from raw diff inspection on every run. Each lens shells out to
  * the consumer's already-installed tooling (semgrep, biome or eslint, tsc,
- * coverage report) in parallel, parses native output into a unified
- * `Finding` shape, filters to PR-touched lines, and emits a single JSON
- * envelope keyed by lens.
+ * coverage report), parses native output into a unified `Finding` shape,
+ * filters to PR-touched lines, and emits a single JSON envelope keyed by
+ * lens. Lenses run sequentially today (the underlying spawnSync blocks the
+ * event loop, so the Promise.all wrapper is structural, not concurrent —
+ * follow-up to make them genuinely parallel: gh-issue #101).
  *
  * Usage:
  *   flow-pr-static-analysis <PR> [--min-confidence <n>] [--max-tool-timeout <sec>]
@@ -677,25 +679,52 @@ const runSecurityLens: LensRun = async (args, deps) => {
 
 const runTypesLens: LensRun = async (args, deps) => {
   const start = deps.now();
-  if (!deps.fileExists(path.join(deps.cwd, "tsconfig.json"))) {
-    return timedSkip(start, "no-tsconfig");
-  }
+  // Prefer plain tsconfig.json when present; otherwise pick the first
+  // project-specific tsconfig (e.g. tsconfig.scripts.json, tsconfig.app.json).
+  // flow's own repo only has tsconfig.scripts.json — without this fallback the
+  // types lens silently skipped on the very repo it ships in.
+  const tsconfig = resolveTsconfig(deps.cwd, deps.fileExists);
+  if (!tsconfig) return timedSkip(start, "no-tsconfig");
   // Prefer locally-installed tsc to avoid surprise version drift; fall back
   // to PATH if neither exists.
   const localTsc = path.join(deps.cwd, "node_modules", ".bin", "tsc");
   let bin = deps.fileExists(localTsc) ? localTsc : deps.which("tsc");
   if (!bin) return timedSkip(start, "tsc-not-found");
-  deps.writeErr(`[types] running ${bin} --noEmit --pretty false\n`);
-  const r = deps.spawn(bin, ["--noEmit", "--pretty", "false"], {
+  const projectArgs = tsconfig === "tsconfig.json" ? [] : ["-p", tsconfig];
+  deps.writeErr(`[types] running ${bin} --noEmit --pretty false${projectArgs.length ? ` -p ${tsconfig}` : ""}\n`);
+  const r = deps.spawn(bin, [...projectArgs, "--noEmit", "--pretty", "false"], {
     cwd: deps.cwd,
     timeoutMs: args.maxToolTimeoutSec * 1000,
   });
   if (r.timedOut) return timedSkip(start, "timeout");
-  // tsc exit 0 = clean; non-zero = errors emitted on stdout. Either way the
-  // diagnostics are on stdout in the format we parse.
+  // tsc exit semantics: 0 = clean, 1 = type errors emitted on stdout, anything
+  // else (2 = bad CLI args, 3 = no files, etc.) is a catastrophic failure where
+  // stdout is empty and the parse would silently report "0 findings, ran=true".
+  // Skip with an explicit reason so consumers see the failure.
+  if (r.exitCode !== 0 && r.exitCode !== 1) {
+    return timedSkip(start, `tsc-exit-${r.exitCode}`);
+  }
   const findings = parseTscOutput(r.stdout, deps.cwd);
   return { findings, meta: { ran: true, duration_ms: deps.now() - start } };
 };
+
+function resolveTsconfig(
+  cwd: string,
+  fileExists: (p: string) => boolean,
+): string | null {
+  if (fileExists(path.join(cwd, "tsconfig.json"))) return "tsconfig.json";
+  // Common variants in repos that split typecheck scopes (scripts/app/test).
+  const candidates = [
+    "tsconfig.scripts.json",
+    "tsconfig.app.json",
+    "tsconfig.build.json",
+    "tsconfig.base.json",
+  ];
+  for (const c of candidates) {
+    if (fileExists(path.join(cwd, c))) return c;
+  }
+  return null;
+}
 
 const runLintLens: LensRun = async (args, deps) => {
   const start = deps.now();
@@ -737,7 +766,11 @@ const runLintLens: LensRun = async (args, deps) => {
         timeoutMs: args.maxToolTimeoutSec * 1000,
       });
       if (r.timedOut) return timedSkip(start, "timeout");
-      if (r.exitCode !== 0 && r.exitCode !== 1 && r.exitCode !== 2) {
+      // eslint exit 0 = clean, 1 = lint findings emitted as JSON on stdout.
+      // Exit 2 = fatal error (config error, parser crash) — JSON output is
+      // typically empty and we'd otherwise report ran=true with [] findings,
+      // masking a real configuration problem. Skip explicitly so consumers see it.
+      if (r.exitCode !== 0 && r.exitCode !== 1) {
         return timedSkip(start, `eslint-exit-${r.exitCode}`);
       }
       return {
@@ -855,7 +888,10 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   }
   const changedLines = computeChangedLines(diffResult.stdout);
 
-  // Run every lens in parallel — they share no state except the cwd reads.
+  // Promise.all over four spawnSync-backed lens runners is structural, not
+  // concurrent — each await resolves immediately because the work already
+  // happened synchronously inside the lens runner. Follow-up to switch to
+  // async spawn for genuine parallelism: gh-issue #101.
   const [security, types, coverage, lint] = await Promise.all([
     runSecurityLens(parsed, lensDeps),
     runTypesLens(parsed, lensDeps),

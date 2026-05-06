@@ -144,9 +144,11 @@ in parallel, then merge.
    ```
 
    The helper runs semgrep (security), biome or eslint (lint), tsc (types), and the
-   project's existing Istanbul coverage report (coverage) in parallel, parses each into
-   a unified shape, filters to PR-touched lines, and emits a single combined JSON
-   envelope keyed by lens. Each lens subset is fanned out to the matching agent in the
+   project's existing Istanbul coverage report (coverage), parses each into a unified
+   shape, filters to PR-touched lines, and emits a single combined JSON envelope keyed
+   by lens. (Lenses run sequentially today; gh-issue #101 tracks switching to genuine
+   parallelism — the structural `Promise.all` wrapper is in place but the underlying
+   `spawnSync` blocks.) Each lens subset is fanned out to the matching agent in the
    spawn step below. Tool-presence detection is graceful: any missing tool produces
    `meta.<lens>.ran=false` + `skipped_reason` and the lens emits `[]`; the helper
    always exits 0, so a repo with none of the tools installed is a no-op rather than
@@ -164,10 +166,14 @@ in parallel, then merge.
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
   `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
-  `{{STATIC_ANALYSIS_FACTS}}` (the lens subset relevant to this agent — see the per-agent
-  table below for the lens assignment; substitute `jq '.security'` /
-  `jq '.types'` / `jq '.lint'` / `jq '.coverage'` against `.flow-tmp/static-analysis.json`
-  plus the matching `meta.<lens>` slice)
+  `{{STATIC_ANALYSIS_FACTS}}`. For the static-analysis variable, substitute a single
+  self-contained JSON object containing both the lens findings and the matching meta
+  slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
+  needs both. Use this `jq` filter against `.flow-tmp/static-analysis.json` per agent:
+  - Bug Detection: `jq '{findings: .types, meta: .meta.types}' .flow-tmp/static-analysis.json`
+  - Security: `jq '{findings: .security, meta: .meta.security}' .flow-tmp/static-analysis.json`
+  - Pattern/Consistency: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json`
+  - Test Coverage: `jq '{findings: .coverage, meta: .meta.coverage}' .flow-tmp/static-analysis.json`
 - Append the agent-specific section (Role, Process, False Positive Avoidance)
 - Include paths to `references/review-checklist.md` and `references/conventional-comments.md`
   so agents can read them

@@ -729,4 +729,141 @@ describe(run, () => {
     expect(calls).toContain("/usr/bin/biome");
     expect(calls).not.toContain("/usr/bin/eslint");
   });
+
+  it("falls back to eslint when biome.json exists but the biome binary is missing", async () => {
+    // Regression: hasBiomeConfig + no-biome-binary used to fall through to
+    // eslint detection only when eslint *also* had a config; this exercises
+    // the documented fall-through path.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("biome.json")) return true;
+      if (p.endsWith("eslint.config.js")) return true;
+      if (p.includes("node_modules/.bin/")) return false;
+      return false;
+    });
+    const which = vi.fn().mockImplementation((cmd: string) => {
+      if (cmd === "biome") return null; // biome binary missing
+      if (cmd === "eslint") return "/usr/bin/eslint";
+      return null;
+    });
+    const spawn = vi.fn().mockReturnValue({
+      stdout: JSON.stringify([
+        { filePath: "/cwd/a.ts", messages: [{ line: 1, ruleId: "no-x", message: "bad", severity: 2 }] },
+      ]),
+      stderr: "",
+      exitCode: 1,
+      timedOut: false,
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockReturnValue({
+        stdout: makeUnifiedDiff([
+          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.lint.ran).toBe(true);
+    expect(result.lint[0].source).toBe("eslint");
+  });
+
+  it("skips the lint lens with eslint-exit-2 reason when eslint reports a fatal config error", async () => {
+    // Without this guard, the parser sees empty stdout, returns [], and we'd
+    // emit ran=true with zero findings — masking a real config crash.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("eslint.config.js")) return true;
+      return false;
+    });
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "eslint" ? "/usr/bin/eslint" : null));
+    const spawn = vi.fn().mockReturnValue({ stdout: "", stderr: "boom", exitCode: 2, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockReturnValue({
+        stdout: makeUnifiedDiff([
+          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.lint.ran).toBe(false);
+    expect(result.meta.lint.skipped_reason).toBe("eslint-exit-2");
+  });
+
+  it("skips the types lens with tsc-exit-N reason when tsc fails catastrophically", async () => {
+    // tsc exit 0 = clean, 1 = type errors. Anything else (2 = bad CLI args,
+    // 3 = no files) means stdout is empty and parsing would silently report
+    // ran=true with [] findings.
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const spawn = vi.fn().mockReturnValue({ stdout: "", stderr: "no input files", exitCode: 3, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockReturnValue({
+        stdout: makeUnifiedDiff([
+          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(false);
+    expect(result.meta.types.skipped_reason).toBe("tsc-exit-3");
+  });
+
+  it("runs tsc against a project-specific tsconfig (e.g. tsconfig.scripts.json) when no plain tsconfig.json exists", async () => {
+    // Regression: hard-coding the tsconfig.json check silently skipped the
+    // types lens on flow's own repo, which uses tsconfig.scripts.json. The
+    // skip is doubly bad because the PR description claims tsc is supported.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("tsconfig.json")) return false;
+      if (p.endsWith("tsconfig.scripts.json")) return true;
+      if (p.endsWith("node_modules/.bin/tsc")) return false;
+      return false;
+    });
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const spawn = vi.fn().mockReturnValue({
+      stdout: "src/a.ts(2,1): error TS2304: Cannot find name 'foo'.\n",
+      stderr: "",
+      exitCode: 1,
+      timedOut: false,
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockReturnValue({
+        stdout: makeUnifiedDiff([
+          { path: "src/a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x", "+y"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(true);
+    expect(result.types).toHaveLength(1);
+    expect(result.types[0].rule_id).toBe("TS2304");
+    // Verify tsc was invoked with -p tsconfig.scripts.json.
+    const tscCall = spawn.mock.calls.find((c: unknown[]) => c[0] === "/usr/bin/tsc");
+    expect(tscCall).toBeDefined();
+    expect(tscCall![1]).toEqual(["-p", "tsconfig.scripts.json", "--noEmit", "--pretty", "false"]);
+  });
 });
