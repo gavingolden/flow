@@ -77,6 +77,179 @@ Reference files (read on demand, not upfront):
   description Testability.
 - `references/report-template.md` — output format for the final report. Read at Step 12.
 
+# Fix-Applier Subagent
+
+This skill spawns one **Fix-Applier Subagent** via the Task tool at Step 8 to
+handle the per-finding address loop — Steps 6 (Address Agent Findings), 7
+(Address Each Review Comment), 7.5 (Roadmap Mark-Shipped Sweep), plus the
+pre-commit / commit / push that Step 8 used to own. The subagent does the
+heavy lifting in its own isolated context: opening each cited file, drafting
+fixes, running `flow-pre-commit`, committing, pushing, and re-running
+`/verify` against the post-fix worktree. None of that material lives in this
+skill's transcript; the only handoffs the wrapper sees are the Task-tool
+envelope and a structured artifact at
+`<worktree>/.flow-tmp/fix-applier-result.json`.
+
+The supervisor session that loads this skill (typically `/flow-pipeline`
+step 8, but also any direct caller) only ever sees:
+
+1. The prose of this SKILL.md (the wrapper).
+2. The Task-tool call's prompt and brief result envelope.
+3. The one-paragraph summary the subagent returns.
+4. One read of `.flow-tmp/fix-applier-result.json` body (Step 9), parsed
+   once and reused across Steps 9, 10, 11, 12.
+
+It never sees the per-finding fix prose, the per-comment file reads, the
+`flow-pre-commit` transcript, or the `/verify` re-run. Those stay inside
+the subagent's context. Same context-cost surgery PR #95 applied to
+`/product-planning`'s discovery; this is the analogous fix for
+`/pr-review`'s address loop.
+
+The trade-off is intentional: the wrapper cannot refer back to the
+fix-applier exploration in later steps. The contract that absorbs the
+trade-off is `.flow-tmp/fix-applier-result.json` itself — its typed fields
+(`commits`, `deferred`, `rejected_alternatives`, `anti_patterns_found`,
+`summary`) are what Steps 9 / 10 / 11 / 12 consume.
+
+## Independent Fix-Applier Subagent
+
+**Task-tool fan-out is intentional.** This step ("Independent Fix-Applier
+Subagent") spawns one fix-applier agent via the Task tool. When `/pr-review`
+is loaded in-process by `/flow-pipeline` (the supervisor's step 8), this
+fan-out is permitted by the named Task-tool exception in
+`skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section (itself
+anchored on this step's heading name, not its number, so it survives
+future renumbering). Outside the supervisor context (e.g. invoked directly
+from a user session), the Task tool is unrestricted, so the spawn runs
+identically. Either path: one subagent, returns artifact on disk + a brief
+summary.
+
+**Verify re-run inside the subagent — load-bearing.** Unlike the discovery
+subagent, the fix-applier re-runs `/verify` *after* applying fixes, before
+returning. CI failures caused by the fix surface in-context where the fix
+rationale is still live, not after the subagent exits and CI catches the
+breakage in step 7 of `/flow-pipeline`. Skipping this re-run returns the
+refactor to its pre-PR-95 shape.
+
+**Negative-findings slots are required.** The artifact's
+`rejected_alternatives` and `anti_patterns_found` arrays are not optional
+decorations — they are the slots where the subagent records what it
+learned should NOT be done. The spawn prompt below tells the subagent to
+populate them proactively; the schema makes them required keys (empty
+arrays are permitted only when the subagent genuinely encountered no
+alternatives or anti-patterns).
+
+## Spawn procedure
+
+The wrapper spawns the subagent at Step 8. Before the spawn:
+
+1. Resolve the working directory absolutely into a single shell variable
+   `$WORKTREE` and use it everywhere downstream — never re-derive in any
+   later step. If the caller passed a `WORKTREE` value (typical when
+   invoked from `/flow-pipeline`), use it as-is. Otherwise, set
+   `WORKTREE="$(pwd)"` explicitly so every subsequent `"$WORKTREE/..."`
+   expansion has a defined value. Then derive the artifact path from it:
+
+   ```bash
+   WORKTREE="${WORKTREE:-$(pwd)}"
+   ARTIFACT_PATH="$WORKTREE/.flow-tmp/fix-applier-result.json"
+   ```
+
+   `ARTIFACT_PATH` is the canonical handle for the artifact location;
+   the boundary check in Step 8 and the body read in Step 9 both use it
+   so the path lives in exactly one place.
+2. Resolve the skill base directory absolutely. The Skill tool prints
+   "Base directory for this skill" at the top of this SKILL.md when
+   loaded — capture it as `SKILL_DIR`. Then derive:
+   - `INSTRUCTIONS_PATH = <SKILL_DIR>/references/fix-applier-instructions.md`
+
+   The subagent reads sibling references via absolute paths under
+   `SKILL_DIR` (`references/conventional-comments.md`,
+   `references/review-checklist.md`). Pass `SKILL_DIR` so the subagent
+   never has to resolve those relative to its `cd`'d worktree, where they
+   don't exist. Also create the consumer-side `.flow-tmp/` directory now
+   (single side-effect attribution site for the parent dir; the subagent
+   only writes the file):
+
+   ```bash
+   mkdir -p "$WORKTREE/.flow-tmp"
+   ```
+
+3. Make exactly **one** Task-tool call:
+
+   ```
+   subagent_type: general-purpose
+   description:   Fix-applier for /pr-review
+   prompt:        <the prompt template below, with variables filled in>
+   ```
+
+4. When the subagent returns, treat its 3–5 sentence summary as the chat
+   output. Do **not** read the artifact body at the spawn boundary —
+   Step 9's first read is the wrapper's single read of the artifact
+   body, and reading it earlier would duplicate that read in the same
+   context. The wrapper's only post-spawn job at the boundary is a cheap
+   existence check against `$ARTIFACT_PATH` (`test -s "$ARTIFACT_PATH"`);
+   on missing or empty artifact, surface the failure to the caller per
+   the Constraints below.
+
+5. Continue to Step 8c (the wrapper's post-spawn verification-item run),
+   then Step 9 onwards.
+
+## Spawn prompt template
+
+Fill in the six `{{...}}` placeholders before passing to the Task tool:
+
+```
+You are the Fix-Applier Subagent for `/pr-review`. You run in an isolated
+context and return an artifact on disk plus a brief summary.
+
+Read the full instructions at:
+  {{INSTRUCTIONS_PATH}}
+
+PR fetch output (verbatim from `flow-fetch-pr-review`):
+  {{FETCH_OUTPUT}}
+
+PR number:
+  {{PR_NUMBER}}
+
+Working directory (cd here before reading any project files):
+  {{WORKTREE}}
+
+Skill base directory (resolve sibling references against this absolute
+path — they do not exist relative to {{WORKTREE}}):
+  {{SKILL_DIR}}
+
+Write the structured artifact to (absolute path):
+  {{ARTIFACT_PATH}}
+
+Follow the fix-applier-instructions.md steps in order. You are one-shot —
+do not ask the user clarifying questions. When ambiguity blocks a fix,
+defer it with a `reason` that names the ambiguity, or record an
+`anti_patterns_found` entry; do not pause waiting for input.
+
+Populate `rejected_alternatives` for every fix you considered and rolled
+back, and `anti_patterns_found` for every observation that did not reach
+the >=80 confidence bar but the next agent session should know about. An
+empty array is permitted only when you genuinely encountered none —
+silence is not the default. Do not call `gh issue create`, `linear`, or
+any tracker integration; flow has no GitHub-issue creation today.
+`tracker_entry_url` defaults to empty string when no in-repo tracker
+exists.
+
+Return a one-paragraph summary (3–5 sentences) that surfaces BOTH sides
+of what you learned: at least one positive (top fix's intent, the verify
+verdict, finding count addressed) AND at least one negative (top entry
+from `rejected_alternatives` or `anti_patterns_found`). A summary that
+names only positive findings fails the contract. Do not paste the
+artifact JSON back; the artifact on disk is the record.
+```
+
+The artifact's JSON schema is documented verbatim in
+`references/fix-applier-instructions.md` step 9. Both files declare the
+same five top-level keys (`commits`, `deferred`, `rejected_alternatives`,
+`anti_patterns_found`, `summary`); a structural lint at
+`bin/skill-md-lint.test.ts` enforces the schema-drift symmetry.
+
 # Instructions
 
 ## 1. Parse the PR Identifier
@@ -233,204 +406,58 @@ Otherwise, read the review comments from Step 2's fetch output. This is the self
 
 ## 6. Address Agent Findings
 
-The multi-agent review exists to catch real issues — not to produce a report. For every
-finding in the filtered set (Step 4), you must either fix it now or escalate it to a
-durable tracker. Silently listing findings in the report without action is a failure mode.
+Delegated to the Fix-Applier Subagent (see § Fix-Applier Subagent above).
+The subagent classifies each filtered finding (auto-fix vs defer per the
+deferral bar), applies the edits, and records dispositions in the
+artifact's `commits[]` (auto-fixed) and `deferred[]` (escalated). The
+subagent runs at Step 8.
 
-**Pre-flight mode assertion (do not skip).** You are in fix-now mode — you MUST attempt
-the edits. Specifically:
-
-- Do **not** preemptively decide that a hook, permission rule, or read-only filesystem
-  state will block writes. Don't assume one applies; attempt the edit and rely on the
-  tool-call result.
-- Do **not** infer a block from the worktree path (e.g. `flow-agent-*` worktrees are
-  ordinary git worktrees; they have no special write protection).
-- Make a real `Edit` / `Write` tool call. If — and only if — the tool returns an error,
-  surface the verbatim error message to the user and ask how to proceed. Paraphrasing a
-  refusal as "the hook denied edits" without an actual tool-call error is a fabrication
-  and a verification failure.
-
-**Default is fix-now.** Per `AGENTS.md` Hardening: "Fix security, reliability, and
-correctness issues immediately — don't defer them. If a fix is complex enough to warrant
-separate work, add a concrete task to the project's tracker (e.g., `ROADMAP.md`, GitHub
-Issues, Linear) with enough detail to act on it immediately." Deferral that lives only in
-the review report is a disappearing-task failure mode — review reports are ephemeral, the
-tracker is durable.
-
-**For each finding**, classify it into one of:
-
-- **Auto-fix (default)** — fix it in this skill run. This is the expected path for almost
-  all findings: dead imports/deps, unused files, trivially wrong names, missing guards,
-  stale comments, adding a unit test, small bug fixes, error-toast additions, etc. If you
-  can ship it in <30 lines of clear changes, fix it.
-- **Defer + log** — only when the fix legitimately warrants a separate standalone agent
-  session (see bar below). When you defer, you MUST log the item in the project's tracker
-  (e.g., a `ROADMAP.md` "Followups" entry, a GitHub Issue, a Linear ticket) in the same
-  commit that addresses the rest of the review. The deferral is not complete until the
-  tracker entry exists. The review report alone is not a tracker.
-
-**Do not silently skip findings.** Every finding must end in either a commit-with-fix or a
-commit-with-tracker-entry. Praise findings are informational only — they do not need action.
-
-**Bar for deferral — ALL must be true (otherwise fix it now):**
-
-1. Fix requires meaningful design decisions or research that exceed the scope of "address
-   this review" (e.g., picks an architectural direction, needs user input on intent).
-2. Fix would expand the PR materially (touches >3 files as a cross-cutting refactor, OR
-   requires new test infrastructure / harnesses, OR rewrites a non-trivial component).
-3. The work is coherent enough to brief a future agent session in 1–2 sentences with a
-   concrete trigger ("when X is next touched", "before Phase N starts", etc.).
-
-Cosmetic edge cases, small bugs, and mechanical refactors do **not** clear this bar — fix
-them now. "I don't want to expand the PR" is also not sufficient: a 5-line guard is not a
-PR-expansion concern.
-
-When deferring, the tracker entry must include:
-
-- File/area + what the issue is (1 line)
-- Why it was deferred (1 line — the bar criterion that applies)
-- Concrete revisit trigger (e.g., "address opportunistically next time AppHeader is touched",
-  "delete if no use materializes before the next layout-touching PR", "open an issue if
-  the design call needs broader input")
-
-After addressing, record for the report:
-
-- **Addressed**: list of file:line refs with 1-line summary of the change.
-- **Deferred**: list of file:line refs with the reason **and a link/anchor to the tracker
-  entry** (e.g., `ROADMAP.md` section anchor, issue #, Linear ticket URL). A deferral
-  without a tracker reference is a verification failure — go back and add the entry before
-  producing the report.
+This step is documentation-only at the wrapper level — it names the
+work the subagent owns. The wrapper does no per-finding fix work itself.
 
 ## 7. Address Each Review Comment
 
-If the fetch output contained no inline comments, this step is a no-op — skip to Step 8.
-
-Otherwise, for each inline comment from the fetch output:
-
-1. Open the referenced file at the specified line.
-2. Read surrounding context to understand the comment fully.
-3. Assess whether the feedback is valid and actionable.
-4. If valid: implement the change (or an improved version if you see a better approach).
-5. If not applicable: note the reason — you'll include it in the reply and report.
-
-Push back on comments that are incorrect or would degrade code quality. Blindly accepting
-every suggestion is worse than thoughtfully declining some.
+Delegated to the Fix-Applier Subagent (see § Fix-Applier Subagent above).
+The subagent opens each cited line, assesses the comment, applies a change
+when valid (or pushes back when incorrect), and records the disposition in
+the artifact (`commits[].reasoning` for addressed comments, `deferred[]`
+for skipped ones). Step 9 reads those dispositions to draft inline replies.
 
 ## 7.5. Roadmap Mark-Shipped Sweep
 
-Edit `docs/roadmap.md` in the worktree so the merged-state marker for the current PR (and
-any drifted prior PRs) lands in this PR's own diff, not in a post-merge commit on `main`.
-Carrying the flip in the PR diff is the project convention ("PR self-marks shipped before
-merge, no post-merge drift") — see the `Auto-push exemption: pr-review` clause in
-`AGENTS.md` for the authorising context.
+Delegated to the Fix-Applier Subagent (see § Fix-Applier Subagent above).
+The subagent self-marks the current PR's row and sweeps drifted prior-PR
+rows in `docs/roadmap.md` (when one exists), bundling the edit into the
+same fix commit as Steps 6/7. The full self-mark + sweep contract lives in
+`references/fix-applier-instructions.md` step 5; the `Auto-push exemption:
+pr-review` clause in `AGENTS.md` covers the resulting commit + push.
 
-If `docs/roadmap.md` doesn't exist in this repo, this step is a no-op — skip to Step 8.
+## 8. Spawn Fix-Applier Subagent and Run Verification Items
 
-### 7.5a. Self-mark the current PR's row
+Spawn the **Fix-Applier Subagent** per the Spawn procedure in § Fix-Applier
+Subagent above. The subagent owns the per-finding fix loop (Steps 6, 7, 7.5),
+the pre-commit run, the commit + push, and the `/verify` re-run — all inside
+its own context.
 
-Read `docs/roadmap.md`. Find every line containing `(#$PR_NUMBER)` (the PR being reviewed).
-For each match:
-
-- **Table row** (line starts with `|`): locate the cell containing `(#$PR_NUMBER)` and
-  replace its full contents with ` ✅ shipped (#$PR_NUMBER) ` — single leading and trailing
-  space inside the cell pipes, matching the existing roadmap convention. Preserve all other
-  cells verbatim.
-- **`Status:` line** (line matches `^Status:`): replace the entire line with
-  `Status: ✅ shipped (#$PR_NUMBER).`
-
-If no line contains `(#$PR_NUMBER)`, log "no roadmap row for current PR; skipping
-self-mark" and continue to 7.5b — many PRs (chores, hotfixes, dep bumps) aren't roadmap
-items and that's fine. Do not create a row that didn't exist.
-
-If multiple table rows match, flip all of them (a PR can legitimately span items). The
-old `flow-roadmap-mark-shipped` helper refused ambiguous matches with exit code 2; that
-defensive posture made sense for an out-of-process post-merge sweep but is unnecessary
-here — the change is in the PR diff, so the human reviewer (or auto-merge gate) sees the
-flip count before merge.
-
-The edit is idempotent: rows already showing `✅ shipped (#$PR_NUMBER)` produce no diff.
-
-### 7.5b. Sweep drifted rows from prior PRs
-
-Find every line in `docs/roadmap.md` matching `🚧 in review (#N)` for any N other than
-`$PR_NUMBER`. For each such N, look up the PR's state:
+After the subagent returns, do a cheap existence check against the
+canonical `$ARTIFACT_PATH` resolved during the spawn procedure (the
+single source of truth for the artifact's location):
 
 ```bash
-gh pr view N --json state -q .state
+test -s "$ARTIFACT_PATH" \
+  || { echo "NEEDS HUMAN: fix-applier-missing-artifact" >&2; exit 1; }
 ```
 
-Branch on the result:
+On missing or empty artifact, surface the failure to the supervisor — **do
+not** retry the Task call. Re-invocation is the supervisor's decision; a
+second call inside this run would violate the one-Task-call invariant.
 
-- `MERGED` — flip the row using the same cell-replacement rule as 7.5a (replace the cell
-  containing `(#N)` with ` ✅ shipped (#N) `; replace any matching `Status:` line with
-  `Status: ✅ shipped (#N).`).
-- `OPEN` — leave the row untouched. The PR is in flight; another supervisor or the same
-  PR's eventual `/pr-review` pass will mark it.
-- `CLOSED` (without merge) — leave the row untouched. The roadmap may still be valid
-  (the work might land via a different PR); a human can decide.
-- `gh` non-zero / 404 (PR doesn't exist) — leave the row untouched. Don't error; some
-  rows reference renumbered or deleted PRs and the sweep should be tolerant.
+Do **not** read the artifact's body at this boundary. Step 9 reads it once,
+parses into a typed object, and reuses that object across Steps 9, 10, 11,
+12. Reading earlier would duplicate the read in the wrapper's context and
+erode the context-cost win.
 
-The sweep is bounded — typically 0–2 drifted rows in practice. Sequential lookups are
-fine; do not parallelise.
-
-### 7.5c. Commit handling
-
-Step 7.5 only edits the file. The diff is included in whatever commit Step 8b produces:
-
-- If pr-review made code fixes in Steps 6/7 and the roadmap edit is the only additional
-  change, bundle into the same fix commit (Step 8b already permits batching).
-- If the roadmap edit is the *only* change pr-review produced (clean PR with no findings,
-  no comments to address), use commit message
-  `chore(roadmap): mark Item N shipped (pr-review #$PR_NUMBER)` where `Item N` is the
-  item number parsed from the matched row's `**Item N` token. If no item number can be
-  parsed, use `chore(roadmap): mark row shipped (pr-review #$PR_NUMBER)`.
-- If the sweep flipped additional rows beyond the self-mark, mention the count in the
-  commit body: `Also swept N drifted row(s) for PRs already merged on main: #X, #Y`.
-
-Do not commit yet — Step 8 owns the commit + push, and Step 8a's pre-commit checks must
-run against the worktree state including this edit.
-
-## 8. Run Pre-Commit Checks and Commit
-
-Run the pre-commit checks with the PR number:
-
-```bash
-flow-pre-commit --pr <pr-number>
-```
-
-The helper auto-detects changed areas (frontend, backend, scripts), runs `npm run format`
-first, then each check separately with structured pass/fail output.
-
-A non-zero exit code means a check failed. Do not explain it away — investigate, fix the
-issue, and re-run. Repeat until all checks pass. Run each check individually; never chain
-with `&&`.
-
-### 8b. Commit and push changes — auto, do not ask
-
-Once checks are green, **commit and push any uncommitted changes from Steps 6/7
-immediately**. Do not leave the working tree dirty for the user to clean up, and
-do not stop after `git commit` waiting for confirmation to push. Both halves are
-explicitly authorised by the `Auto-push exemption: pr-review` clause in `AGENTS.md`
-— invoking `/pr-review` *is* the user's explicit instruction to commit *and* push.
-The global no-auto-push default does not apply here; do not ask the user to
-confirm. Failing to push leaves the inline-comment replies in Step 9 anchored to
-a SHA the GitHub UI no longer has, which is the bug this exemption exists to
-prevent.
-
-- One commit per logical fix is fine, but a single batched commit is also fine — match
-  what's clearest for the diff.
-- Commit message: conventional-commits prefix (`fix:`, `chore:`, `refactor:`) +
-  `(pr-review #<N>)` suffix in the subject, body explains the *why* (what the finding
-  was), referencing the agent's category (e.g. "Bug-Detection", "Pattern-Consistency").
-- If the PR is **still open**: commit on the PR's branch and `git push` to it — the
-  inline comments in Step 10 will then anchor to a head SHA the new commit doesn't
-  invalidate (use the pre-commit head SHA captured at Step 2).
-- If the PR is **already merged**: switch to `main`, pull, commit there, and `git push`.
-  Do not leave fixes stranded on a merged branch.
-- The only acceptable reason to stop short of pushing is a failed push (CI, branch
-  protection, network) — in that case, surface the error to the user. "I wasn't sure
-  if I should push" is not a valid reason; the exemption removes the ambiguity.
+Then continue to 8c (the wrapper's post-spawn verification-item run).
 
 ### 8c. Run every runnable verification item and tick the boxes
 
@@ -544,7 +571,41 @@ the new items before producing the final report.
 
 If there are no inline comments to reply to, this step is a no-op — skip to Step 10.
 
-Otherwise, construct a JSON array of replies and pipe it to the reply helper:
+Otherwise, **read the artifact once** at this step and parse into a typed
+object that is reused across Steps 9, 10, 11, 12 — do not re-read in
+subsequent steps. Use the canonical `$ARTIFACT_PATH` resolved during the
+spawn procedure rather than rebuilding the path here:
+
+```bash
+ARTIFACT=$(cat "$ARTIFACT_PATH")
+```
+
+For each inline comment from Step 2's fetch output, look up the disposition
+in the parsed `ARTIFACT` using **exact match** on the structured
+`comment_ids` field (no substring/free-text fallback — the artifact is
+the typed contract):
+
+- **Addressed** — the comment's `comment_id` is a member of
+  `commits[].comment_ids` for some entry. Build a ✅ reply citing that
+  commit's `sha` and `reasoning`. Multiple comments may map to the same
+  commit (e.g. one fix subsumes two reviewer points); a single comment
+  may also map to multiple commits when the address spans commits.
+- **Skipped** — the comment's `comment_id` appears as a `finding_id` in
+  `deferred[]` (or, when the deferral covers multiple comments, in a
+  `comment_ids: []` slot on the deferred entry). Build a ⏭️ reply with
+  the `reason` field.
+- **Pushed back** — the comment's `comment_id` is a member of
+  `commits[].comment_ids` for an entry whose `reasoning` begins with
+  `rejected suggestion:` (the subagent's marker for declined reviewer
+  comments — the comment's disposition is "no code change, here is
+  why"). Build a ⏭️ reply with the rejection rationale.
+
+Wrapper does not fall back to free-text scanning. If a reviewer comment
+has no exact `comment_ids` match in either `commits[]` or `deferred[]`,
+the artifact is incomplete: surface the gap to the caller rather than
+silently skipping the reply.
+
+Construct a JSON array and pipe it to the reply helper:
 
 ```bash
 echo '<json-array>' | flow-reply-pr-comments <pr-number>
@@ -554,8 +615,8 @@ Each entry: `{"comment_id": <id>, "body": "<reply>"}`.
 
 Use a leading emoji for scannability:
 
-- ✅ **Addressed** — terse confirmation. Include detail only if the fix differs from the
-  suggestion.
+- ✅ **Addressed** — terse confirmation. Include detail only if the fix
+  differs from the suggestion.
 - ⏭️ **Skipped** — brief justification for why no change was made.
 
 Keep replies to 1-2 sentences. Don't repeat the comment back.
@@ -727,7 +788,8 @@ locally, breaks in prod" gaps.
 
 ### 11d. Accuracy Sync
 
-Compare the current implementation (diff + any changes from Steps 6–7) against the description:
+Compare the current implementation (diff + the artifact's `commits[]` from
+the Fix-Applier Subagent — already parsed at Step 9) against the description:
 
 - Files or modules added that the description doesn't mention (only flag if they represent
   significant new capabilities, not supporting files)
@@ -836,17 +898,26 @@ prunes the bullets, so it does not require re-entry.
 Read `references/report-template.md` and produce the full report. This is the most
 important output — the user needs a clear, at-a-glance summary of everything that happened.
 
-Always produce this report, even when there are no findings or comments. The report format
+Always produce this report, even when there are no findings or comments. The report
 covers: summary, findings (each annotated as **Addressed** or **Deferred with reason**),
-review comments addressed, pre-commit check results, PR description quality, and
-retrospective.
+review comments addressed, pre-commit check results, **Rejected Alternatives** (from the
+artifact's `rejected_alternatives[]`), **Anti-Patterns Observed** (from the artifact's
+`anti_patterns_found[]`), PR description quality, and retrospective. The two
+negative-findings sections surface what the Fix-Applier Subagent learned should NOT be
+done — render them as named report sections so a human reading the report sees the
+foreclosed paths alongside the fixes that landed.
 
 **The report MUST explicitly separate addressed vs deferred findings.** Never leave the
 reader guessing which findings were silently skipped — every finding surfaced in Step 4
 must appear in one of the two buckets. If no findings were deferred, say so explicitly
-("No findings deferred").
+("No findings deferred"). Same rule for the negative-findings sections: when
+`rejected_alternatives` or `anti_patterns_found` is empty, write `None` under the heading
+rather than omitting it — silence on negatives is the failure mode the slot exists to
+prevent.
 
-Commit any changes with a clear message referencing the PR number, then present the report.
+The Fix-Applier Subagent already committed and pushed any code changes during its run
+(per the `Auto-push exemption: pr-review` clause); the wrapper does not re-commit at
+this step. Present the report directly.
 
 ## 13. Register Local Follow-ups (when applicable)
 
@@ -887,6 +958,18 @@ directly — that's the supervisor's job, gated by the helper's allowlist.
 
 # Verification
 
+- Exactly one Task-tool call to the Fix-Applier Subagent per `/pr-review`
+  invocation; the wrapper did not retry on missing artifact (the supervisor
+  re-invokes if needed).
+- `.flow-tmp/fix-applier-result.json` exists at the resolved absolute path
+  with all five top-level keys (`commits`, `deferred`,
+  `rejected_alternatives`, `anti_patterns_found`, `summary`).
+- The wrapper's transcript contains no per-finding fix prose, no
+  `flow-pre-commit` output, and no `/verify` re-run output — those stayed
+  inside the Fix-Applier Subagent.
+- The wrapper read `.flow-tmp/fix-applier-result.json` body exactly once
+  (at Step 9), parsed once, and reused the parsed object across Steps
+  9 / 10 / 11 / 12.
 - Independent multi-agent review completed BEFORE reading reviewer comments
 - All agent findings filtered to confidence >= 80 (praise exempt)
 - Any praise findings name a specific behaviour, file:line, or pattern; zero
@@ -908,6 +991,25 @@ directly — that's the supervisor's job, gated by the helper's allowlist.
 
 # Constraints
 
+- NEVER do per-finding fix work in the wrapper's context. The Fix-Applier
+  Subagent owns Steps 6, 7, 7.5, the pre-commit run, the commit + push, and
+  the `/verify` re-run. Loading reference docs, opening cited files, or
+  drafting fixes inline defeats the entire point of the refactor.
+- NEVER make more than one Task-tool call per `/pr-review` invocation
+  for the Fix-Applier Subagent. The single fan-out is the named exemption;
+  multi-call fan-out is not authorised. If the artifact is missing after
+  the spawn, surface the failure to the supervisor — the wrapper itself
+  never retries. (The Independent Multi-Agent Review at Step 3 is a
+  separate, already-exempted Task call covering review mode; that
+  exemption is unchanged.)
+- NEVER read `.flow-tmp/fix-applier-result.json` body at the spawn boundary
+  (Step 8). The cheap existence check (`test -s`) is the only allowed
+  artifact access between spawn and Step 9. Step 9's first read is the
+  wrapper's single read of the body; reading earlier would duplicate that
+  read in the same context.
+- NEVER read the artifact's body more than once. Parse it into a typed
+  object at Step 9 and reuse the object across Steps 10, 11, 12. Re-reads
+  defeat the context-cost win the subagent was designed to deliver.
 - NEVER read review comments before completing the independent multi-agent review. This
   eliminates anchoring bias and lets you independently validate reviewer findings.
 - NEVER surface findings with confidence below 80. Low-confidence findings erode trust.
