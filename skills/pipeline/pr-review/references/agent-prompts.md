@@ -95,6 +95,34 @@ a missed finding that a human reviewer will catch.
 - Every issue or todo MUST include a concrete suggestion or code fix.
 - If you're unsure whether something is intentional, use the `question` label instead of `issue`.
 
+## Static Analysis Facts
+
+The block below is your lens's pre-digested static-analysis output from
+`flow-pr-static-analysis` (semgrep / biome-or-eslint / tsc / Istanbul-coverage,
+filtered to PR-touched lines, filtered to `confidence >= min_confidence`). Each
+finding has the shape `{file, line, end_line?, rule_id, message, confidence,
+severity?, source}`.
+
+Treat these as **deterministic input**:
+
+- Confirm each finding by Reading the cited `file:line` for surrounding context, then
+  decide whether it warrants surfacing. Don't blindly forward — a tool's `confidence`
+  is calibrated for the rule, not for the PR's specific intent. A finding the diff
+  context clearly justifies (e.g., a deliberate `any` cast in a migration shim) should
+  be dropped, not surfaced.
+- Don't re-derive what's already given. If `types` shows a tsc error at `src/foo.ts:42`,
+  don't independently search for type errors on that line — confirm the cited error
+  and move on.
+- If `meta.<lens>.ran=false`, the lens was skipped (the consumer doesn't have that
+  tool installed, or the pre-digest timed out) — don't spin trying to find tool-derived
+  facts that weren't computed; fall back entirely to your own diff inspection for
+  that aspect.
+- Static-analysis findings can supplement but don't replace the rest of your review:
+  semantic issues (broken contracts, missing tests for changed branches, design
+  inconsistencies) are still entirely yours to find.
+
+{{STATIC_ANALYSIS_FACTS}}
+
 ## Diff
 
 The diff below may be per-file truncated (`flow-pr-diff` defaults to a 300 source-line
@@ -123,19 +151,25 @@ code do what the author intended?**
 
 ### Process
 
-1. Read each changed file in full, not just the diff lines. Understand the function
+1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`types`** lens — `tsc --noEmit`
+   diagnostics on PR-touched lines (confidence 100, source `tsc`). Treat each entry
+   as a deterministic compiler error; confirm by Reading the cited `file:line`, then
+   surface as `issue` (blocking) unless the diff context explains away the error
+   (deliberate `as unknown as T` cast, intentional `any` in a migration shim, etc.).
+   These are the highest-confidence facts you'll receive.
+2. Read each changed file in full, not just the diff lines. Understand the function
    signatures, the types, and the surrounding logic.
-2. For each changed function, read its callers (search for usages) to check whether
+3. For each changed function, read its callers (search for usages) to check whether
    the change breaks any existing contract — different argument expectations, changed
    return types, removed properties that callers still reference.
-3. Trace execution paths through the changed code. Pay special attention to:
+4. Trace execution paths through the changed code. Pay special attention to:
    - Null/undefined access: is every `.property` access guarded?
    - Conditional logic: are the conditions correct? Are any branches unreachable or inverted?
    - Loop boundaries: could the loop under/overshoot?
    - Async ordering: could operations interleave in a way the code doesn't handle?
    - Error propagation: do catch blocks handle the right error types?
-4. Check the review checklist sections: Error Handling, Type Safety, Consistency.
-5. Output your findings as JSON.
+5. Check the review checklist sections: Error Handling, Type Safety, Consistency.
+6. Output your findings as JSON.
 
 ### False Positive Avoidance
 
@@ -163,23 +197,30 @@ exclusively on: **could an attacker exploit this code?**
 
 ### Process
 
-1. Read each changed file in full. Identify trust boundaries — where does user-controlled
+1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`security`** lens — semgrep
+   ERROR-severity findings (confidence 95, source `semgrep`) from the
+   `p/security-audit` and `p/secrets` rule packs, scoped to PR-touched lines. Confirm
+   each by Reading the cited `file:line`; surface real issues as `issue` (blocking
+   for exploitable, non-blocking for defensive). False positives are common in this
+   lens (e.g., a hardcoded "secret" in a test fixture) — drop them rather than
+   forwarding noise to the author.
+2. Read each changed file in full. Identify trust boundaries — where does user-controlled
    data enter the system? (HTTP request bodies, URL parameters, form fields, file uploads,
    external API responses)
-2. Trace data flow from each input to where it's used. At each step, check:
+3. Trace data flow from each input to where it's used. At each step, check:
    - Is the data validated/sanitized before reaching a sensitive operation?
    - Could the data be crafted to break out of its expected context? (SQL injection,
      XSS, command injection, path traversal, template injection)
-3. Check authentication and authorization:
+4. Check authentication and authorization:
    - Are auth checks performed server-side?
    - Could the check be bypassed by manipulating the request?
    - Are permissions checked for the specific resource, not just "is logged in"?
-4. Search for secrets in the diff:
+5. Search for secrets in the diff:
    - High-entropy strings that look like API keys or tokens
    - Strings matching patterns: `sk-`, `pk-`, `ghp_`, `Bearer `, base64-encoded blocks
    - Configuration that embeds credentials directly
-5. Check the review checklist Security section.
-6. Output your findings as JSON.
+6. Check the review checklist Security section.
+7. Output your findings as JSON.
 
 ### False Positive Avoidance
 
@@ -209,20 +250,28 @@ is: **does this code fit naturally into the existing codebase?**
 
 ### Process
 
-1. Read `AGENTS.md` (project root) to understand the project's conventions, architecture,
+1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`lint`** lens — biome or eslint
+   diagnostics (confidence 75–90, source `biome` or `eslint`) on PR-touched lines.
+   These are the linter's view of consistency: unused imports, dead code, missing
+   `await`s, naming-convention drift, etc. Confirm each by Reading the cited
+   `file:line`. Drop linter findings the project has explicitly disabled or that the
+   diff context justifies; surface the rest as `nitpick` or `suggestion`. Do not
+   re-derive lint-catchable issues from your own diff inspection — the linter has
+   already done that pass.
+2. Read `AGENTS.md` (project root) to understand the project's conventions, architecture,
    and coding standards.
-2. Read any `CLAUDE.md` files in the repository for additional conventions.
-3. For each changed file, read 2-3 nearby files of the same type to establish the local
+3. Read any `CLAUDE.md` files in the repository for additional conventions.
+4. For each changed file, read 2-3 nearby files of the same type to establish the local
    pattern. Does the changed code follow the same structure, naming, and organization?
-4. Check for cross-cutting consistency (the Consistency section of the checklist):
+5. Check for cross-cutting consistency (the Consistency section of the checklist):
    - If the code has multiple branches handling similar cases, is the same pattern applied
      to all branches?
    - If a new provider/handler/component is added, does it follow the same structure as
      existing ones?
-5. Check for dead code introduced by the PR — unused imports, unreachable branches,
+6. Check for dead code introduced by the PR — unused imports, unreachable branches,
    commented-out code without an explanation.
-6. Check the review checklist sections: Consistency, Lifecycle/Cleanup, Composition.
-7. Output your findings as JSON.
+7. Check the review checklist sections: Consistency, Lifecycle/Cleanup, Composition.
+8. Output your findings as JSON.
 
 ### False Positive Avoidance
 
@@ -250,20 +299,29 @@ Your concern is: **will the test suite catch regressions in the changed code?**
 
 ### Process
 
-1. Read `AGENTS.md` to understand the project's testing philosophy and requirements.
+1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`coverage`** lens — uncovered
+   statements on PR-touched lines (confidence 85, source `coverage`) parsed from the
+   project's existing Istanbul/c8/vitest `coverage-final.json`. Each entry is a line
+   added or modified by this PR that no test exercises. Confirm by Reading the cited
+   `file:line` and judging whether the line warrants a test (skip trivial getters,
+   constant returns, type narrowing — but flag conditional branches, error paths,
+   and new public-API behaviour). If `meta.coverage.ran=false` (`no-coverage-output`
+   means the consumer hasn't run their tests with `--coverage` yet), fall back
+   entirely to your own analysis.
+2. Read `AGENTS.md` to understand the project's testing philosophy and requirements.
    Some projects explicitly deprioritize testing at certain stages — respect that.
-2. For each changed production file, find its corresponding test file (if any).
+3. For each changed production file, find its corresponding test file (if any).
    Common patterns: `foo.ts` → `foo.test.ts`, `foo.spec.ts`, `__tests__/foo.test.ts`
-3. For new public functions or components: is there at least one test covering the
+4. For new public functions or components: is there at least one test covering the
    happy path?
-4. For changed logic (especially conditionals and error handling): are the new/changed
+5. For changed logic (especially conditionals and error handling): are the new/changed
    branches tested?
-5. Assess test quality:
+6. Assess test quality:
    - Are tests testing behavior (what the code does) or implementation (how it does it)?
    - Are mocks correct — do they match the real interface? Could they mask a bug?
    - Is test data realistic or just placeholder values that skip interesting cases?
-6. Check the review checklist Test Environment section for vitest/SvelteKit-specific issues.
-7. Scan the PR description's "Test Steps" section (legacy PRs may use "Manual validation",
+7. Check the review checklist Test Environment section for vitest/SvelteKit-specific issues.
+8. Scan the PR description's "Test Steps" section (legacy PRs may use "Manual validation",
    "How to test", or "Manual smoke"). For each manual bullet, apply the **Automate first**
    test from `references/manual-test-rubric.md`:
    if the scenario can be expressed as fixture + deterministic assertion + exit
@@ -272,7 +330,7 @@ Your concern is: **will the test suite catch regressions in the changed code?**
    target test file. Default to "automate it"; reserve manual for the rubric's
    "Genuinely manual" categories (subjective UX, prod-only integrations, cross-browser
    rendering, etc.).
-8. Output your findings as JSON.
+9. Output your findings as JSON.
 
 ### Confidence Calibration (Test-Specific)
 
