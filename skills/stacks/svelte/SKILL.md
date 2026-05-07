@@ -1,17 +1,10 @@
 ---
 name: svelte
 description: >-
-  Use whenever creating, modifying, or reviewing Svelte components, reactive
-  state, or store/repository patterns. TRIGGER when: files with `.svelte` or
-  `.svelte.ts` extension; SvelteKit route files (`+page.svelte`,
-  `+layout.svelte`, `+page.server.ts`, `+server.ts`); imports from `svelte`,
-  `svelte/store`, `svelte/transition`, or `@sveltejs/kit`; runes (`$state`,
-  `$derived`, `$effect`, `$props`); user mentions "Svelte", "SvelteKit",
-  "runes", "reactive class", "store pattern", "migrate to Svelte 5". SKIP
-  when: file imports `react`, `react-dom`, `vue`, `solid-js`,
-  `@angular/core`, or other competing component frameworks; `.tsx`, `.jsx`,
-  or `.vue` files; the project's view layer is React, Vue, Solid, or
-  Angular.
+  Write or review Svelte 5 / SvelteKit code. TRIGGER when: `.svelte` or
+  `.svelte.ts` files, runes (`$state`, `$derived`, `$effect`, `$props`),
+  stores, route files (`+page.svelte`, `+layout.svelte`, `+server.ts`).
+  SKIP when: React, Vue, Solid, or Angular projects.
 ---
 
 # Goal
@@ -33,6 +26,9 @@ this project's established architecture patterns.
 - Pure TypeScript domain logic with no Svelte reactivity (no skill needed)
 - Styling-only changes with no component logic (defer to `tailwind-shadcn`)
 - Writing tests for components (defer to `testing`)
+- Projects whose view layer is React, Vue, Solid, or Angular —
+  `.tsx` / `.jsx` / `.vue` files, or imports from `react`, `react-dom`,
+  `vue`, `solid-js`, `@angular/core`.
 
 # Context
 

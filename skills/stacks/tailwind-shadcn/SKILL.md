@@ -1,20 +1,11 @@
 ---
 name: tailwind-shadcn
 description: >-
-  Build or modify UI layouts, style components, implement shadcn-svelte
-  patterns, or work with Tailwind CSS v4. TRIGGER when: files matching
-  `tailwind.config.{ts,js,cjs}`; CSS files containing
-  `@import "tailwindcss"` or `@theme` directives; imports from
-  `tailwind-merge`, `clsx`, `class-variance-authority`, `bits-ui`,
-  `lucide-svelte`, or `$lib/components/ui/*` (shadcn-svelte primitives);
-  `class=` attributes with Tailwind utility classes; user mentions
-  "Tailwind", "shadcn", "shadcn-svelte", "dark mode", "design tokens",
-  "responsive design", "style this", "make this look good". SKIP when:
-  file imports `@mui/material`, `@chakra-ui/react`, `bootstrap`, `bulma`,
-  `styled-components`, `@emotion/*`, or `@vanilla-extract/*`; the
-  project's UI layer is Material UI, Chakra, Bootstrap, or any
-  non-Tailwind design system; pure CSS Modules / CSS-in-JS with no
-  Tailwind context.
+  Build or modify Tailwind CSS v4 / shadcn-svelte UI in this repo.
+  TRIGGER when: `.svelte` styling, `tailwind.config`, `@theme`
+  directives, `$lib/components/ui/*` primitives (`bits-ui`,
+  `lucide-svelte`). SKIP when: non-Tailwind UI (MUI, Chakra,
+  Bootstrap, styled-components, CSS-in-JS).
 ---
 
 # Goal
@@ -36,6 +27,10 @@ output another AI would produce.
 - Writing Svelte component logic without styling concerns (defer to `svelte`)
 - Writing tests for components (defer to `testing`)
 - Database or backend changes (defer to `supabase-project`)
+- Projects whose UI layer is a non-Tailwind design system: Material UI
+  (`@mui/material`), Chakra (`@chakra-ui/react`), Bootstrap, Bulma,
+  `styled-components`, `@emotion/*`, `@vanilla-extract/*`, or pure CSS
+  Modules / CSS-in-JS with no Tailwind context.
 
 # Context
 

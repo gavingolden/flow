@@ -1,16 +1,11 @@
 ---
 name: product-planning
 description: >-
-  Plan and scope new features before jumping into implementation. Use BEFORE
-  implementation skills (like database, svelte, ui) when a user describes a
-  feature idea that hasn't been broken into concrete tasks yet. Signals: user
-  describes something they want to add or build, asks about architecture or
-  approach, wants to understand scope or what's involved, asks what to build
-  next, or evaluates a proposed change ("what do you think", "am I missing
-  anything"). The key test: if the user is exploring WHAT to build or HOW to
-  structure it rather than ready to write specific code, use this skill. Do NOT
-  use when the task is already specific and actionable (e.g., "add a column to
-  X", "write tests for Y", "fix the colors on Z").
+  Plan and scope a feature into a PRD + ordered task breakdown before
+  implementation. Use when the user is exploring WHAT to build or HOW
+  to structure it (architecture, scope, what to build next, "am I
+  missing anything"). Do NOT use when the task is already specific and
+  actionable.
 ---
 
 # Goal
@@ -27,6 +22,7 @@ PR-description draft, written to `.flow-tmp/plan.md` and
 - User wants architecture recommendations before writing code.
 - User asks "how should I approach this?" about a new capability.
 - User describes something complex that spans multiple domain modules or skills.
+- User evaluates a proposed change ("what do you think", "am I missing anything").
 
 # When NOT to Use
 

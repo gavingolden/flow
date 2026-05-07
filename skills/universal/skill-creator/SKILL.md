@@ -8,6 +8,7 @@ description: >-
   for better triggering accuracy. Use when user says "create a skill", "build
   a skill", "improve a skill", "review this skill", or asks about skill best
   practices and structure.
+disable-model-invocation: true
 ---
 
 # Skill Creator
