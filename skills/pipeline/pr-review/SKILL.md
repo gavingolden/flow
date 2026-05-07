@@ -520,8 +520,17 @@ prose without me interpreting anything?
 
 For each runnable item:
 
-1. Execute it exactly as written, capturing both stdout and stderr to a file
-   (e.g. `bash -c 'cmd 2>&1' | tee .flow-tmp/evidence-<n>.txt; echo $? > .flow-tmp/exit-<n>`).
+1. Execute it exactly as written, capturing both stdout and stderr to a file.
+   Use `set -o pipefail` so the captured exit code reflects the command's
+   status, not `tee`'s — without pipefail, a failing item is silently
+   recorded as exit 0 and the box gets ticked incorrectly:
+
+   ```bash
+   set -o pipefail
+   bash -c 'cmd 2>&1' | tee .flow-tmp/evidence-<n>.txt
+   echo "${PIPESTATUS[0]}" > .flow-tmp/exit-<n>
+   ```
+
    Same discipline as Step 8 — a non-zero exit means investigate and fix the
    underlying issue, not explain it away.
 2. If a fix is needed, make a **new commit** (do not amend the pushed commit per
