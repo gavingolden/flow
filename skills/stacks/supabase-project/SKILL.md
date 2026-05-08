@@ -1,16 +1,11 @@
 ---
 name: supabase-project
 description: >-
-  Project-specific Supabase adapter for this repo's npm script aliases,
-  generated types path, and `handle_updated_at` trigger convention. TRIGGER
-  when: keywords `db:start`, `db:migration:up:local`, `db:migration:new`,
-  `db:reset:local`, `db:types`, `db:diff`, `db:status`, `db:studio`;
-  references to `src/lib/database/types.ts`; the `handle_updated_at`
-  trigger function; files under `supabase/migrations/`. SKIP when:
-  generic Supabase questions (RLS strategy, security audits, Postgres
-  extensions, Auth, Edge Functions, Realtime, Storage, Vectors, Cron,
-  Queues) — defer to `supabase:supabase`; non-Postgres database engines
-  (Prisma, Drizzle, TypeORM, Mongoose, MySQL, SQLite).
+  Project-specific Supabase adapter. TRIGGER when: this repo's `db:*`
+  npm aliases, `src/lib/database/types.ts`, `handle_updated_at`
+  trigger, files under `supabase/migrations/`. SKIP when: generic
+  Supabase topics (RLS, Auth, Realtime, Edge Functions) — defer to
+  `supabase:supabase`.
 ---
 
 # Goal
