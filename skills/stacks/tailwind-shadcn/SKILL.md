@@ -4,7 +4,7 @@ description: >-
   Build or modify Tailwind CSS v4 / shadcn-svelte UI in this repo.
   TRIGGER when: `.svelte` styling, `tailwind.config`, `@theme`
   directives, `$lib/components/ui/*` primitives (`bits-ui`,
-  `lucide-svelte`). SKIP when: non-Tailwind UI (MUI, Chakra,
+  `@lucide/svelte`). SKIP when: non-Tailwind UI (MUI, Chakra,
   Bootstrap, styled-components, CSS-in-JS).
 ---
 
