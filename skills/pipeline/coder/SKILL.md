@@ -29,10 +29,16 @@ the wrapper's brief return summary and reads the artifact once.
 
 # When NOT to Use
 
-- Trivially scoped edits where the wrapper's hybrid threshold says inline
-  is cheaper (≤1 file AND ≤30 LOC AND every file named in the prompt). The
-  Task-tool round trip costs more than the bytes saved on a one-line fix;
-  the threshold exists to preserve the inline path for those cases.
+- Trivially scoped edits where the caller's own hybrid threshold says
+  inline is cheaper. `/coder` itself does not apply a threshold — its
+  callers decide whether to invoke it. The two known callers use
+  different bars: `/new-feature` step 5 stays inline at ≤1 file AND ≤30
+  LOC AND every file named in the prompt; `/verify` step 3 stays inline
+  on single-line type/lint errors in one file. See each caller's
+  "Spawn procedure (wider-scope path only)" section for the canonical
+  threshold. The Task-tool round trip costs more than the bytes saved
+  on a one-line fix; the threshold exists to preserve the inline path
+  for those cases.
 - Direct user invocation. `/coder` is invoked by other skills, not by
   humans — the spawn prompt expects a structured edit-set the user is not
   going to compose by hand.

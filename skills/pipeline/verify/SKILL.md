@@ -92,9 +92,9 @@ Decide whether to delegate the fix to `/coder` based on the **hybrid
 threshold**:
 
 - **Trivially scoped fix** (single-line type/lint error in one file —
-  judged from `failure.firstErrorText` and `failure.changedFiles`)
-  edits inline. Log a one-line reason ("trivial scope: single-line fix
-  in one file — editing inline").
+  judged from `failure.firstErrorText` plus the top-level `changedFiles`
+  field of the `--json` report) edits inline. Log a one-line reason
+  ("trivial scope: single-line fix in one file — editing inline").
 - **Wider scope** (multi-file failures, fixes that need ≥3 LOC in a
   single file, or any failure where the fix requires reading multiple
   files for context) delegates to `/coder` per outer attempt. Log a
@@ -118,15 +118,17 @@ relevant source file directly. Fix the issue in the source file.
 
 ### Spawn procedure (wider-scope path only)
 
-1. Compose the **edit-set** from the JSON `failure` object emitted by
-   `flow-pre-commit --json`. One entry per failed check, each a
-   JSON-shaped object with three fields:
+1. Compose the **edit-set** from each failed `results[]` entry of the
+   `flow-pre-commit --json` report. One entry per failed check
+   (`results[i].passed === false`), each a JSON-shaped object with three
+   fields:
    - `file` — repo-relative path of the failing source (resolved from
-     `failure.firstErrorText`).
-   - `intent` — 1–2 lines naming the issue (typically the
-     `firstErrorText` itself plus the check name).
+     `results[i].failure.firstErrorText`).
+   - `intent` — 1–2 lines naming the issue (typically
+     `results[i].failure.firstErrorText` plus `results[i].name` for the
+     check name).
    - `expected_outcome` — 1–2 lines naming the post-fix state
-     (typically "the failing check passes" plus the check name).
+     (typically "the failing check passes" plus `results[i].name`).
 
 2. Invoke `/coder` in-process via the Skill tool, passing the edit-set
    and the worktree path:
@@ -152,12 +154,14 @@ relevant source file directly. Fix the issue in the source file.
      || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
    ```
 
-4. Read the artifact body once and parse `verify_status` — the boolean
-   "did the post-fix verify pass?" signal. If `verify_status === "pass"`,
-   loop back to Step 1 (re-run pre-commit) to confirm and exit clean.
-   If non-pass, the artifact's failure excerpt is the next outer attempt's
-   input — re-enter Step 3 with the new failure JSON until the outer cap
-   exhausts.
+4. Read the artifact body once and parse `verify_status` — the string
+   "did the post-fix verify pass?" signal. The value is the literal
+   `"pass"` on success or a head/tail-capped failure excerpt of the
+   first failed check on failure (see `bin/lib/coder-schema.ts` for the
+   typed contract). If `verify_status === "pass"`, loop back to Step 1
+   (re-run pre-commit) to confirm and exit clean. If the value is any
+   non-`"pass"` string, treat it as the failure excerpt and re-enter
+   Step 3 with the new failure JSON until the outer cap exhausts.
 
    **Do not retry inside `/verify`'s own wrapper.** Each outer attempt
    spawns at most one `/coder` invocation; multi-call fan-out at a

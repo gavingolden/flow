@@ -384,9 +384,13 @@ no compile step.
     worktree *before returning*, so type/lint/test breakage caused by
     an edit surfaces in-context where the edit rationale is still
     live, not after the subagent exits. Trivially scoped edits skip
-    the subagent via the wrapper's hybrid threshold (≤1 file AND ≤30
-    LOC AND every file named in the prompt) and proceed inline. The
-    contract is documented bidirectionally in
+    the subagent via each caller's own hybrid threshold
+    (`/new-feature` step 5: ≤1 file AND ≤30 LOC AND every file named
+    in the prompt; `/verify` step 3: single-line type/lint error in
+    one file) and proceed inline. The two thresholds are
+    caller-defined — see each skill's "Spawn procedure (wider-scope
+    path only)" section for the canonical bar. The contract is
+    documented bidirectionally in
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
     `skills/pipeline/coder/SKILL.md`'s "Independent Edit-Applier
     Subagent" section. Same narrow-and-named contract as the

@@ -149,8 +149,11 @@ in-process for skills; shell out for scripts; never delegate.
 > a structured artifact at `<worktree>/.flow-tmp/coder-result.json` (typed
 > fields: `edits`, `verify_status`, `rejected_alternatives`,
 > `anti_patterns_found`, `summary`). Trivially scoped edits skip the
-> subagent via the wrapper's hybrid threshold (≤1 file AND ≤30 LOC AND
-> every file named in the prompt) and proceed inline. The same two
+> subagent via each caller's own hybrid threshold (`/new-feature` step 5:
+> ≤1 file AND ≤30 LOC AND every file named in the prompt; `/verify` step
+> 3: single-line type/lint error in one file) and proceed inline. The
+> two thresholds are caller-defined — see each skill's "Spawn procedure
+> (wider-scope path only)" section for the canonical bar. The same two
 > rationales apply — top-level Task call (constraint 1 doesn't apply),
 > one-shot fan-out (constraint 2 doesn't apply) — plus the additional
 > context-cost win that the per-edit `Edit`/`Write` tool_use bytes and
