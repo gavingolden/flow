@@ -27,7 +27,6 @@ export type Deployment = {
   created_on: string;
   deployment_trigger?: { metadata?: { branch?: string } };
   aliases?: string[] | null;
-  environment?: "preview" | "production";
 };
 
 export const USAGE = `Usage: prune-cf-deployments [flags]
@@ -189,7 +188,6 @@ export function shouldDelete(
   deployment: Deployment,
   args: Args,
   productionDeploymentId: string | null,
-  _now: Date,
 ): { delete: boolean; reason: string } {
   if (
     args.keepProductionLatest &&
@@ -304,7 +302,6 @@ export async function main(
         d,
         args,
         productionDeploymentId,
-        new Date(),
       );
       if (verdict.delete) eligible.push(d);
       if (eligible.length >= args.max) break;

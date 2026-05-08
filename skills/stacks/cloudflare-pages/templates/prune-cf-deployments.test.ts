@@ -30,7 +30,6 @@ function deployment(overrides: Partial<Deployment> = {}): Deployment {
     created_on: "2025-01-01T00:00:00Z",
     deployment_trigger: { metadata: { branch: "feat/x" } },
     aliases: null,
-    environment: "preview",
     ...overrides,
   };
 }
@@ -207,15 +206,13 @@ describe("matchesBranchFilter", () => {
 });
 
 describe("shouldDelete", () => {
-  const now = new Date("2026-05-09T00:00:00Z");
-
   it("production-latest is skipped when keepProductionLatest=true", () => {
     const args = buildArgs({
       olderThan: new Date("2026-01-01T00:00:00Z"),
       keepProductionLatest: true,
     });
     const d = deployment({ id: "prod-1" });
-    const verdict = shouldDelete(d, args, "prod-1", now);
+    const verdict = shouldDelete(d, args, "prod-1");
     expect(verdict.delete).toBe(false);
     expect(verdict.reason).toBe("production-latest");
   });
@@ -226,7 +223,7 @@ describe("shouldDelete", () => {
       keepAliased: true,
     });
     const d = deployment({ aliases: ["main.example.com"] });
-    const verdict = shouldDelete(d, args, null, now);
+    const verdict = shouldDelete(d, args, null);
     expect(verdict.delete).toBe(false);
     expect(verdict.reason).toBe("aliased");
   });
@@ -236,7 +233,7 @@ describe("shouldDelete", () => {
       olderThan: new Date("2024-01-01T00:00:00Z"),
     });
     const d = deployment({ created_on: "2025-06-01T00:00:00Z" });
-    const verdict = shouldDelete(d, args, null, now);
+    const verdict = shouldDelete(d, args, null);
     expect(verdict.delete).toBe(false);
     expect(verdict.reason).toBe("too-recent");
   });
@@ -250,7 +247,7 @@ describe("shouldDelete", () => {
       created_on: "2025-01-01T00:00:00Z",
       deployment_trigger: { metadata: { branch: "main" } },
     });
-    const verdict = shouldDelete(d, args, null, now);
+    const verdict = shouldDelete(d, args, null);
     expect(verdict.delete).toBe(false);
     expect(verdict.reason).toBe("branch-excluded");
   });
@@ -264,7 +261,7 @@ describe("shouldDelete", () => {
       created_on: "2025-01-01T00:00:00Z",
       deployment_trigger: { metadata: { branch: "feat/x" } },
     });
-    const verdict = shouldDelete(d, args, null, now);
+    const verdict = shouldDelete(d, args, null);
     expect(verdict.delete).toBe(true);
     expect(verdict.reason).toBe("eligible");
   });
@@ -278,7 +275,7 @@ describe("shouldDelete", () => {
       created_on: "2025-01-01T00:00:00Z",
       deployment_trigger: undefined,
     });
-    const verdict = shouldDelete(d, args, null, now);
+    const verdict = shouldDelete(d, args, null);
     expect(verdict.delete).toBe(false);
     expect(verdict.reason).toBe("branch-unknown");
   });
@@ -292,7 +289,7 @@ describe("shouldDelete", () => {
       created_on: "2025-01-01T00:00:00Z",
       deployment_trigger: { metadata: { branch: "" } },
     });
-    const verdict = shouldDelete(d, args, null, now);
+    const verdict = shouldDelete(d, args, null);
     expect(verdict.delete).toBe(false);
     expect(verdict.reason).toBe("branch-unknown");
   });
@@ -306,7 +303,7 @@ describe("shouldDelete", () => {
       created_on: "2025-01-01T00:00:00Z",
       deployment_trigger: undefined,
     });
-    const verdict = shouldDelete(d, args, null, now);
+    const verdict = shouldDelete(d, args, null);
     expect(verdict.delete).toBe(true);
     expect(verdict.reason).toBe("eligible");
   });
