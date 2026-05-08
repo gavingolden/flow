@@ -152,10 +152,15 @@ Record:
 - `alternatives_considered` — one or more alternative strategies you
   evaluated, each with a one-line "why rejected".
 
-The wrapper uses these entries to decide whether to escalate
-`NEEDS HUMAN: merge-failed` even after a successful retry. Populating
-`ambiguous_resolutions` is the load-bearing signal — silence here means
-the supervisor will trust the resolution.
+These entries surface back to the supervisor through the `summary`
+return value: step 8's both-sides return contract requires you to name
+the top `ambiguous_resolutions` (or `rejected_strategies`) entry in the
+summary's negative half, and the wrapper appends the summary's first
+sentence to the `NEEDS HUMAN: merge-failed` escalation reason on retry
+failure. The artifact's `ambiguous_resolutions` array itself is durable
+on disk for human inspection but is **not** read by the supervisor on a
+successful retry; populate it for the on-disk audit trail and let the
+summary carry the escalation signal.
 
 ### When resolution is impossible
 

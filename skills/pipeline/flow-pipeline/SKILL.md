@@ -1056,11 +1056,16 @@ ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
 INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"
 BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
 mkdir -p "$WORKTREE/.flow-tmp"
-# Capture the conflicting file list. The wrapper may not have
-# initiated `git rebase` yet, so try a dry-run first; if that comes
-# up clean, the resolver itself will run the rebase.
-git fetch origin "$BASE_BRANCH" 2>/dev/null
-CONFLICTING_FILES=$(git status --porcelain | awk '$1 ~ /^(U|AA|DD)/ {print $2}')
+# Best-effort conflicting-file list. The wrapper does not initiate
+# `git rebase` itself — the resolver runs the rebase as Step 2 of its
+# instructions. So this list is only non-empty when an outer process
+# (a prior failed merge attempt, a manual `git rebase`) already left
+# the worktree mid-rebase. `git diff --name-only --diff-filter=U` is
+# the canonical query for unmerged paths and catches every U-class
+# status (UU/AU/UA/DU/UD), unlike a porcelain prefix grep which misses
+# the AU/DU pair where U is in column 2.
+git fetch origin "$BASE_BRANCH" || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
+CONFLICTING_FILES=$(git diff --name-only --diff-filter=U)
 PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
 ```
 
