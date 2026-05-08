@@ -268,6 +268,48 @@ describe("shouldDelete", () => {
     expect(verdict.delete).toBe(true);
     expect(verdict.reason).toBe("eligible");
   });
+
+  it("missing branch metadata is skipped when --branch filters are present", () => {
+    const args = buildArgs({
+      olderThan: new Date("2026-01-01T00:00:00Z"),
+      branchGlobs: ["!main"],
+    });
+    const d = deployment({
+      created_on: "2025-01-01T00:00:00Z",
+      deployment_trigger: undefined,
+    });
+    const verdict = shouldDelete(d, args, null, now);
+    expect(verdict.delete).toBe(false);
+    expect(verdict.reason).toBe("branch-unknown");
+  });
+
+  it("empty branch metadata is skipped when --branch filters are present", () => {
+    const args = buildArgs({
+      olderThan: new Date("2026-01-01T00:00:00Z"),
+      branchGlobs: ["feat/*"],
+    });
+    const d = deployment({
+      created_on: "2025-01-01T00:00:00Z",
+      deployment_trigger: { metadata: { branch: "" } },
+    });
+    const verdict = shouldDelete(d, args, null, now);
+    expect(verdict.delete).toBe(false);
+    expect(verdict.reason).toBe("branch-unknown");
+  });
+
+  it("missing branch metadata is eligible when no --branch filters set", () => {
+    const args = buildArgs({
+      olderThan: new Date("2026-01-01T00:00:00Z"),
+      branchGlobs: [],
+    });
+    const d = deployment({
+      created_on: "2025-01-01T00:00:00Z",
+      deployment_trigger: undefined,
+    });
+    const verdict = shouldDelete(d, args, null, now);
+    expect(verdict.delete).toBe(true);
+    expect(verdict.reason).toBe("eligible");
+  });
 });
 
 describe("main() integration via mocked fetch", () => {
@@ -305,6 +347,7 @@ describe("main() integration via mocked fetch", () => {
   function mockFetch(
     deployments: Deployment[],
     productionId: string | null = null,
+    deleteOverrides: Record<string, { status: number; body?: string }> = {},
   ) {
     return vi
       .spyOn(globalThis, "fetch")
@@ -335,10 +378,16 @@ describe("main() integration via mocked fetch", () => {
             status: 200,
           });
         }
-        if (
-          /\/deployments\/[^?]+\?force=true$/.test(url) &&
-          init?.method === "DELETE"
-        ) {
+        const deleteMatch = url.match(/\/deployments\/([^?]+)\?force=true$/);
+        if (deleteMatch && init?.method === "DELETE") {
+          const id = deleteMatch[1];
+          const override = deleteOverrides[id];
+          if (override) {
+            return new Response(override.body ?? "", {
+              status: override.status,
+              statusText: override.status === 403 ? "Forbidden" : "Error",
+            });
+          }
           return new Response("{}", { status: 200 });
         }
         return new Response("not found", { status: 404 });
@@ -531,5 +580,131 @@ describe("main() integration via mocked fetch", () => {
     ]);
     expect(code).toBe(2);
     expect(stderrText()).toContain("CLOUDFLARE_API_TOKEN");
+  });
+
+  it("--apply issues DELETE requests for each eligible deployment and exits 0 on full success", async () => {
+    const deployments: Deployment[] = [
+      {
+        id: "dep-a",
+        created_on: "2024-01-01T00:00:00Z",
+        deployment_trigger: { metadata: { branch: "feat/x" } },
+        aliases: null,
+      },
+      {
+        id: "dep-b",
+        created_on: "2024-01-01T00:00:00Z",
+        deployment_trigger: { metadata: { branch: "feat/y" } },
+        aliases: null,
+      },
+    ];
+    const fetchSpy = mockFetch(deployments);
+    const code = await main([
+      "--project",
+      PROJECT,
+      "--older-than",
+      "30d",
+      "--apply",
+    ]);
+    expect(code).toBe(0);
+    const deleteCalls = fetchSpy.mock.calls.filter(
+      (c) => (c[1] as RequestInit | undefined)?.method === "DELETE",
+    );
+    expect(deleteCalls.length).toBe(2);
+    const out = stdoutText();
+    expect(out).toContain("deleted dep-a");
+    expect(out).toContain("deleted dep-b");
+    expect(out).toContain("Deleted 2/2 deployments.");
+  });
+
+  it("--apply exits 1 when any DELETE fails (partial failure surfaces non-zero)", async () => {
+    const deployments: Deployment[] = [
+      {
+        id: "dep-ok",
+        created_on: "2024-01-01T00:00:00Z",
+        deployment_trigger: { metadata: { branch: "feat/x" } },
+        aliases: null,
+      },
+      {
+        id: "dep-fail",
+        created_on: "2024-01-01T00:00:00Z",
+        deployment_trigger: { metadata: { branch: "feat/y" } },
+        aliases: null,
+      },
+    ];
+    mockFetch(deployments, null, {
+      "dep-fail": {
+        status: 403,
+        body: JSON.stringify({
+          errors: [{ message: "deployment is aliased" }],
+        }),
+      },
+    });
+    const code = await main([
+      "--project",
+      PROJECT,
+      "--older-than",
+      "30d",
+      "--apply",
+    ]);
+    expect(code).toBe(1);
+    const out = stdoutText();
+    expect(out).toContain("deleted dep-ok");
+    expect(out).toContain("Deleted 1/2 deployments.");
+    const err = stderrText();
+    expect(err).toContain("FAILED dep-fail");
+    expect(err).toContain("403");
+    expect(err).toContain("deployment is aliased");
+  });
+
+  it("project-fetch failure surfaces statusText and parsed JSON error body", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      return new Response(
+        JSON.stringify({ errors: [{ message: "invalid token" }] }),
+        { status: 401, statusText: "Unauthorized" },
+      );
+    });
+    const code = await main([
+      "--project",
+      PROJECT,
+      "--older-than",
+      "30d",
+    ]);
+    expect(code).toBe(1);
+    const err = stderrText();
+    expect(err).toContain("401");
+    expect(err).toContain("Unauthorized");
+    expect(err).toContain("invalid token");
+  });
+
+  it("deployment with missing branch metadata is skipped under --branch filter", async () => {
+    const deployments: Deployment[] = [
+      {
+        id: "no-branch",
+        created_on: "2024-01-01T00:00:00Z",
+        // CLI deploys (wrangler pages deploy ./build) have no branch metadata
+        deployment_trigger: undefined,
+        aliases: null,
+      },
+      {
+        id: "feat-x",
+        created_on: "2024-01-01T00:00:00Z",
+        deployment_trigger: { metadata: { branch: "feat/x" } },
+        aliases: null,
+      },
+    ];
+    mockFetch(deployments);
+    await main([
+      "--project",
+      PROJECT,
+      "--older-than",
+      "30d",
+      "--branch",
+      "!main",
+    ]);
+    const out = stdoutText();
+    // Without the missing-branch guard, '!main' would let no-branch through
+    // because "" doesn't match "main" — the regression we're protecting against.
+    expect(out).not.toContain("no-branch");
+    expect(out).toContain("feat-x");
   });
 });

@@ -210,12 +210,34 @@ export function shouldDelete(
     return { delete: false, reason: "too-recent" };
   }
   if (args.branchGlobs.length > 0) {
-    const branch = deployment.deployment_trigger?.metadata?.branch ?? "";
+    const branch = deployment.deployment_trigger?.metadata?.branch;
+    if (!branch) {
+      return { delete: false, reason: "branch-unknown" };
+    }
     if (!matchesBranchFilter(branch, args.branchGlobs)) {
       return { delete: false, reason: "branch-excluded" };
     }
   }
   return { delete: true, reason: "eligible" };
+}
+
+async function readErrorBody(res: Response): Promise<string> {
+  try {
+    const text = await res.text();
+    if (!text) return "";
+    try {
+      const json = JSON.parse(text) as { errors?: Array<{ message?: string }> };
+      const messages = json.errors
+        ?.map((e) => e.message)
+        .filter((m): m is string => typeof m === "string" && m.length > 0);
+      if (messages && messages.length > 0) return messages.join("; ");
+    } catch {
+      // not JSON; fall through to raw text
+    }
+    return text.length > 200 ? `${text.slice(0, 200)}...` : text;
+  } catch {
+    return "";
+  }
 }
 
 export async function main(
@@ -248,8 +270,9 @@ export async function main(
 
   const projectRes = await fetch(base, { headers });
   if (!projectRes.ok) {
+    const detail = await readErrorBody(projectRes);
     process.stderr.write(
-      `error: GET project failed: ${projectRes.status}\n`,
+      `error: GET project failed: ${projectRes.status} ${projectRes.statusText}${detail ? ` — ${detail}` : ""}\n`,
     );
     return 1;
   }
@@ -267,8 +290,9 @@ export async function main(
       { headers },
     );
     if (!res.ok) {
+      const detail = await readErrorBody(res);
       process.stderr.write(
-        `error: GET deployments page ${page} failed: ${res.status}\n`,
+        `error: GET deployments page ${page} failed: ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ""}\n`,
       );
       return 1;
     }
@@ -307,6 +331,7 @@ export async function main(
   }
 
   let deleted = 0;
+  let failed = 0;
   for (const d of eligible) {
     const res = await fetch(`${base}/deployments/${d.id}?force=true`, {
       method: "DELETE",
@@ -316,13 +341,17 @@ export async function main(
       deleted++;
       process.stdout.write(`  deleted ${d.id}\n`);
     } else {
+      failed++;
+      const detail = await readErrorBody(res);
       process.stderr.write(
-        `  FAILED ${d.id}: ${res.status} ${res.statusText}\n`,
+        `  FAILED ${d.id}: ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ""}\n`,
       );
     }
   }
   process.stdout.write(`Deleted ${deleted}/${eligible.length} deployments.\n`);
-  return 0;
+  // Non-zero exit when any DELETE failed so cron / CI surfaces the partial
+  // failure instead of silently passing.
+  return failed > 0 ? 1 : 0;
 }
 
 if (import.meta.main) {
