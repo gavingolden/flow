@@ -58,7 +58,7 @@ in-process for skills; shell out for scripts; never delegate.
 > tool from this skill — **except for the named exceptions below**.
 > Never spawn a separate `claude -p` subprocess. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
-> calls, and (c) the four narrowly-named Task-tool exceptions that
+> calls, and (c) the five narrowly-named Task-tool exceptions that
 > follow.
 >
 > The two constraints behind the rule above are (1) sub-agents can't
@@ -66,9 +66,9 @@ in-process for skills; shell out for scripts; never delegate.
 > with sub-agents would bloat past the context window. The supervisor
 > is itself a top-level Claude Code session (started by `flow new`
 > opening tmux + `claude`), so constraint (1) does not apply to *its*
-> Task calls — it applies to *its* sub-agents. All four exemptions
+> Task calls — it applies to *its* sub-agents. All five exemptions
 > below are also one-shot, not long-running, so constraint (2) doesn't
-> apply either. They are the **only four** authorised Task-tool
+> apply either. They are the **only five** authorised Task-tool
 > fan-out sites from this supervisor; no other skill or step may call
 > Task. Each is anchored on its step heading name rather than its
 > number so it survives future renumbering. Same narrow-and-named
@@ -139,6 +139,38 @@ in-process for skills; shell out for scripts; never delegate.
 > and reuse. The contract is documented bidirectionally in
 > `skills/pipeline/pr-review/SKILL.md`'s "Fix-Applier Subagent" section
 > and `AGENTS.md` `## Don'ts`.
+>
+> **Task-tool exemption #5: Merge-Conflict Resolver Subagent.** When
+> step 10 (`Merge`) fires `gh pr merge --squash` and the call returns
+> a conflict-class failure (stderr matches the documented detection
+> patterns in `references/merge-resolver-instructions.md`), the
+> supervisor spawns one merge-conflict resolver subagent via the
+> Task tool to handle the rebase + per-file conflict resolution +
+> force-push inside its own isolated context. After the subagent
+> returns, the supervisor retries `gh pr merge --squash` exactly
+> once; on second failure, escalates `NEEDS HUMAN: merge-failed`
+> with the resolver's summary first sentence appended to the reason.
+> The same two rationales apply — top-level Task call (constraint 1
+> doesn't apply), one-shot fan-out (constraint 2 doesn't apply) —
+> plus the additional context-cost win that the rebase output, the
+> per-file resolution prose, and the force-push transcript all stay
+> inside the subagent. Without this fan-out the supervisor would
+> resolve conflicts inline at the latest, most token-expensive point
+> in the pipeline, where the supervisor still has the post-merge
+> sweep, step 11's local-follow-ups, and the terminal-state print
+> left to do. Force-push is permitted because the resolver runs as
+> a Task-tool fan-out inside `/flow-pipeline`'s existing auto-merge
+> umbrella, and is scoped to the per-pipeline branch only — never
+> the base branch. The only handoff to the supervisor is the
+> structured artifact at `<worktree>/.flow-tmp/merge-resolver-result.json`
+> (typed fields: `resolved_files`, `ambiguous_resolutions`,
+> `rejected_strategies`, `commits`, `force_push_status`, `summary`),
+> which the supervisor reads once before retrying `gh pr merge`. The
+> contract is documented bidirectionally in
+> `references/merge-resolver-instructions.md` (the subagent's
+> instructions) and `AGENTS.md` `## Don'ts`. Exactly one resolver
+> fan-out per `/flow-pipeline` run; if the post-resolver retry still
+> fails, escalate rather than re-fanning-out.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -494,7 +526,7 @@ request as the argument:
 
 `/product-planning` is itself a thin wrapper that spawns one
 **Independent Discovery Subagent** via the Task tool (the second of
-the four named Task-tool exemptions in "Hard rules" above). The
+the five named Task-tool exemptions in "Hard rules" above). The
 subagent does all the discovery in its own isolated context — reading
 the README, scanning the skill directory, examining domain models,
 drafting the PRD — and writes the consolidated artifact to
@@ -605,7 +637,7 @@ pass the user's request:
 ```
 
 `/new-feature` is itself a thin wrapper that spawns one **Independent
-Scout Subagent** via the Task tool (the third of the four named
+Scout Subagent** via the Task tool (the third of the five named
 Task-tool exemptions in "Hard rules" above) on its wider-scope path.
 The subagent reads the codebase in its isolated context — affected
 modules, relevant tests, public API surface, anti-patterns / off-limits
@@ -900,7 +932,7 @@ Invoke `/pr-review` in-process with the PR number:
 ```
 
 `/pr-review` itself spawns one **Fix-Applier Subagent** via the Task
-tool (the fourth of the four named Task-tool exemptions in "Hard
+tool (the fourth of the five named Task-tool exemptions in "Hard
 rules" above) to handle the per-finding address loop, the pre-commit
 run, the commit + push, and the `/verify` re-run — all inside the
 subagent's isolated context. The subagent writes a structured
@@ -981,14 +1013,123 @@ Branch on `.decision`:
 **Phase:** `merging`
 
 ```bash
-gh pr merge --squash --delete-branch "$PR"
+MERGE_STDERR=$(gh pr merge --squash --delete-branch "$PR" 2>&1 1>/dev/null)
+MERGE_RC=$?
 ```
 
-On `gh pr merge` failure: retry once. If still failing, escalate via
-the standard `# Failure paths` block (`flow-state-update --phase
-needs-human` → `flow-followups run --note-only` → `flow-notify
---status needs-human --url "<pr-url>" --reason "merge-failed"` →
-`echo "NEEDS HUMAN: merge-failed"`). Leave the worktree intact.
+On `MERGE_RC == 0`: continue to the post-merge sweep below.
+
+On non-zero exit, branch on the failure class:
+
+- **Conflict-class** — `MERGE_STDERR` matches any of:
+  `Pull Request is not mergeable`, `not mergeable: the merge commit
+  cannot be cleanly created`, `merge conflict between`. Spawn the
+  Independent Merge-Conflict Resolver Subagent (see below), then
+  retry `gh pr merge --squash --delete-branch "$PR"` exactly once.
+  On retry success, continue to the post-merge sweep. On retry
+  failure, escalate `NEEDS HUMAN: merge-failed: <resolver summary
+  first sentence>`.
+- **Non-conflict** (auth, network, branch-protection denied, required
+  check failed, PR closed externally, any unrecognised stderr) —
+  retry `gh pr merge --squash --delete-branch "$PR"` once. If still
+  failing, escalate via the standard `# Failure paths` block
+  (`flow-state-update --phase needs-human` → `flow-followups run
+  --note-only` → `flow-notify --status needs-human --url "<pr-url>"
+  --reason "merge-failed"` → `echo "NEEDS HUMAN: merge-failed"`).
+  Leave the worktree intact. Do **not** spawn the resolver — it can't
+  help with non-conflict failures and would waste a Task call.
+
+### Independent Merge-Conflict Resolver Subagent
+
+Fires only on the conflict-class branch above. The subagent rebases
+the branch onto `origin/<base>`, resolves each conflicted file,
+records actions taken + ambiguous calls in a structured artifact,
+force-pushes, and returns a brief summary. The supervisor never sees
+the rebase output, the per-file resolution prose, or the force-push
+transcript — only the artifact and the summary.
+
+Resolve the inputs the subagent needs, then make exactly **one**
+Task call:
+
+```bash
+ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
+INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"
+BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
+mkdir -p "$WORKTREE/.flow-tmp"
+# Capture the conflicting file list. The wrapper may not have
+# initiated `git rebase` yet, so try a dry-run first; if that comes
+# up clean, the resolver itself will run the rebase.
+git fetch origin "$BASE_BRANCH" 2>/dev/null
+CONFLICTING_FILES=$(git status --porcelain | awk '$1 ~ /^(U|AA|DD)/ {print $2}')
+PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
+```
+
+Spawn-prompt template (fill the `{{...}}` placeholders before passing
+to the Task tool):
+
+```
+You are the Independent Merge-Conflict Resolver Subagent for /flow-pipeline
+step 10. You run in an isolated context and return an artifact on disk
+plus a brief summary.
+
+Read the full instructions at:
+  {{INSTRUCTIONS_PATH}}
+
+PR number:
+  {{PR}}
+
+Base branch:
+  {{BASE_BRANCH}}
+
+`gh pr merge --squash` stderr that triggered this resolver:
+  {{MERGE_STDERR}}
+
+Conflicting file paths (may be empty if rebase has not yet been
+initiated; resolver runs the rebase itself in that case):
+  {{CONFLICTING_FILES}}
+
+Working directory (cd here before running any git command):
+  {{WORKTREE}}
+
+Plan path (read for PR intent context):
+  {{WORKTREE}}/.flow-tmp/plan.md
+
+PR description (verbatim):
+  {{PR_DESCRIPTION}}
+
+Write the artifact to (absolute path):
+  {{ARTIFACT_PATH}}
+
+Follow the merge-resolver-instructions.md steps in order. You are
+one-shot — do not ask the user clarifying questions. When a
+resolution requires judgment no defensible default exists for,
+record it in `ambiguous_resolutions` with the alternatives you
+considered and let the supervisor escalate.
+
+Return a 3–5-sentence summary surfacing both sides — at least one
+positive (resolved file count + dominant strategy + force-push
+outcome) AND at least one negative (top entry from
+`ambiguous_resolutions` or `rejected_strategies`). Do not paste the
+artifact, the diff, or the rebase output back; the artifact on disk
+is the durable record.
+```
+
+Make the Task call with `subagent_type: general-purpose` and the
+filled prompt. After it returns:
+
+1. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
+   `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not
+   re-spawn the resolver — exactly one Task call per run, per the
+   exemption contract.)
+2. Read the artifact's `force_push_status`. If `succeeded`, retry
+   `gh pr merge --squash --delete-branch "$PR"` exactly once. If
+   `failed` or `skipped`, do not retry — escalate
+   `NEEDS HUMAN: merge-failed: <jq -r .summary "$ARTIFACT_PATH" |
+   head -1>` and end.
+3. On retry success, continue to the post-merge sweep below.
+4. On retry failure, escalate `NEEDS HUMAN: merge-failed: <jq -r
+   .summary "$ARTIFACT_PATH" | head -1>` and end. The artifact
+   stays on disk in the worktree for human inspection.
 
 On success, the roadmap row for this PR was already flipped to
 `✅ shipped (#$PR)` in the PR's own diff by `/pr-review` step 7.5
@@ -1341,11 +1482,12 @@ After each phase transition:
 - `flow ls` (run from any terminal) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the four named exceptions in "Hard rules" above:
+  via the five named exceptions in "Hard rules" above:
   `/pr-review`'s "Independent Multi-Agent Review",
   `/product-planning`'s "Independent Discovery Subagent",
   `/new-feature`'s "Independent Scout Subagent",
-  and `/pr-review`'s "Independent Fix-Applier Subagent".
+  `/pr-review`'s "Independent Fix-Applier Subagent",
+  and step 10's "Merge-Conflict Resolver Subagent".
   No other skill or step may call Task.
 - The supervisor never spawned a `claude -p` subprocess.
 
