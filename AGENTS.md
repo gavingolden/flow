@@ -136,13 +136,15 @@ is one Claude Code chat session, sub-skills (`/product-planning`,
 `/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses, **with four narrowly-named exceptions**
+`claude -p ...` subprocesses, **with five narrowly-named exceptions**
 — see the "Task-tool exemption: `/flow-pipeline` → `/pr-review`
 Independent Multi-Agent Review", "Task-tool exemption:
 `/flow-pipeline` → `/product-planning` Independent Discovery Subagent",
 "Task-tool exemption: `/flow-pipeline` → `/new-feature` Independent
-Scout Subagent", and "Task-tool exemption: `/flow-pipeline` →
-`/pr-review` Fix-Applier Subagent" entries under `## Don'ts` below.
+Scout Subagent", "Task-tool exemption: `/flow-pipeline` →
+`/pr-review` Fix-Applier Subagent", and "Task-tool exemption:
+`/flow-pipeline` → Merge-Conflict Resolver Subagent" entries under
+`## Don'ts` below.
 This sidesteps two limits at once:
 
 1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
@@ -213,11 +215,12 @@ no compile step.
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The four
+- Don't spawn sub-agents from the supervisor. See above. The five
   named exceptions are `/pr-review`'s Independent Multi-Agent Review
   step, `/product-planning`'s Independent Discovery Subagent,
-  `/new-feature`'s Independent Scout Subagent, and `/pr-review`'s
-  Fix-Applier Subagent — all four covered by
+  `/new-feature`'s Independent Scout Subagent, `/pr-review`'s
+  Fix-Applier Subagent, and `/flow-pipeline` step 10's Merge-Conflict
+  Resolver Subagent — all five covered by
   "Task-tool exemption" bullets below; no other skill or step may
   call Task.
 - Don't add features beyond the task's stated scope.
@@ -358,10 +361,51 @@ no compile step.
     `skills/pipeline/pr-review/SKILL.md`'s "Fix-Applier Subagent"
     section. Same narrow-and-named contract as the exemptions above.
     Together with the `/pr-review` Multi-Agent Review,
-    `/product-planning` Discovery Subagent, and `/new-feature` Scout
-    Subagent entries, these are the **only four** authorised
-    Task-tool fan-out sites from `/flow-pipeline`; no other skill or
-    step may call Task.
+    `/product-planning` Discovery Subagent, `/new-feature` Scout
+    Subagent, and `/flow-pipeline`'s Merge-Conflict Resolver Subagent
+    entries, these are five authorised Task-tool fan-out sites from
+    `/flow-pipeline`; the fifth is documented in its own bullet
+    below.
+  - **Task-tool exemption: `/flow-pipeline` → Merge-Conflict Resolver
+    Subagent.** When `/flow-pipeline` step 10 fires `gh pr merge
+    --squash` and the call returns a conflict-class failure (stderr
+    matches the documented detection patterns in
+    `skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md`),
+    the supervisor spawns one merge-conflict resolver subagent via
+    the Task tool to handle the rebase + per-file conflict
+    resolution + force-push inside its own isolated context. After
+    the subagent returns, the supervisor retries `gh pr merge
+    --squash` exactly once; on second failure, escalates
+    `NEEDS HUMAN: merge-failed` with the resolver's summary first
+    sentence appended to the reason. The exemption is anchored on
+    the step heading name rather than its number so it survives
+    future `/flow-pipeline` renumbering. Rationale: the same two
+    constraints as above — the supervisor is top-level so the
+    one-level sub-agent cap doesn't apply to *its* Task calls; and
+    the resolver is one-shot, returning a structured artifact
+    (`.flow-tmp/merge-resolver-result.json` with typed fields
+    `resolved_files`, `ambiguous_resolutions`, `rejected_strategies`,
+    `commits`, `force_push_status`, `summary`) plus a brief
+    summary, then exits. The reason this exemption exists at all is
+    context cost: the rebase output, per-file resolution rationale,
+    and force-push transcript would otherwise sit in the
+    supervisor's transcript at the latest, most token-expensive
+    point in the pipeline — where the supervisor still has the
+    post-merge sweep, step 11's local-follow-ups, and the terminal
+    print left to do. **Force-push is permitted** because the
+    resolver runs as a Task-tool fan-out inside `/flow-pipeline`'s
+    existing auto-merge umbrella, and is scoped to the per-pipeline
+    branch only — never `main`, `master`, or the base branch (the
+    instructions file's branch-name guard is mandatory). The
+    contract is documented bidirectionally in
+    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
+    `skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md`.
+    Same narrow-and-named contract as the four exemptions above.
+    Together with the `/pr-review` Multi-Agent Review,
+    `/product-planning` Discovery Subagent, `/new-feature` Scout
+    Subagent, and `/pr-review` Fix-Applier Subagent entries, these
+    are the **only five** authorised Task-tool fan-out sites from
+    `/flow-pipeline`; no other skill or step may call Task.
   - **AskUserQuestion exemption: `/flow-pipeline` step 4 candidate-
     issues sub-step.** `/flow-pipeline`'s "Hard rules" forbid arbitrary
     `AskUserQuestion` calls from the supervisor, with one named
