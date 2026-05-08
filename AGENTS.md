@@ -136,13 +136,15 @@ is one Claude Code chat session, sub-skills (`/product-planning`,
 `/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses, **with four narrowly-named exceptions**
+`claude -p ...` subprocesses, **with five narrowly-named exceptions**
 — see the "Task-tool exemption: `/flow-pipeline` → `/pr-review`
 Independent Multi-Agent Review", "Task-tool exemption:
 `/flow-pipeline` → `/product-planning` Independent Discovery Subagent",
 "Task-tool exemption: `/flow-pipeline` → `/new-feature` Independent
-Scout Subagent", and "Task-tool exemption: `/flow-pipeline` →
-`/pr-review` Fix-Applier Subagent" entries under `## Don'ts` below.
+Scout Subagent", "Task-tool exemption: `/flow-pipeline` →
+`/pr-review` Fix-Applier Subagent", and "Task-tool exemption:
+`/flow-pipeline` → `/coder` Independent Edit-Applier Subagent" entries
+under `## Don'ts` below.
 This sidesteps two limits at once:
 
 1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
@@ -213,13 +215,13 @@ no compile step.
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The four
+- Don't spawn sub-agents from the supervisor. See above. The five
   named exceptions are `/pr-review`'s Independent Multi-Agent Review
   step, `/product-planning`'s Independent Discovery Subagent,
-  `/new-feature`'s Independent Scout Subagent, and `/pr-review`'s
-  Fix-Applier Subagent — all four covered by
-  "Task-tool exemption" bullets below; no other skill or step may
-  call Task.
+  `/new-feature`'s Independent Scout Subagent, `/pr-review`'s
+  Fix-Applier Subagent, and `/coder`'s Independent Edit-Applier
+  Subagent — all five covered by "Task-tool exemption" bullets below;
+  no other skill or step may call Task.
 - Don't add features beyond the task's stated scope.
 - Don't introduce a database. Markdown plan files plus
   `~/.flow/state/<slug>.json` are the state store; if the queue ever
@@ -357,11 +359,42 @@ no compile step.
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
     `skills/pipeline/pr-review/SKILL.md`'s "Fix-Applier Subagent"
     section. Same narrow-and-named contract as the exemptions above.
-    Together with the `/pr-review` Multi-Agent Review,
-    `/product-planning` Discovery Subagent, and `/new-feature` Scout
-    Subagent entries, these are the **only four** authorised
-    Task-tool fan-out sites from `/flow-pipeline`; no other skill or
-    step may call Task.
+  - **Task-tool exemption: `/flow-pipeline` → `/coder` Independent
+    Edit-Applier Subagent.** When `/flow-pipeline` step 5 loads
+    `/new-feature` (or step 6 loads `/verify`) and either skill reaches
+    its hybrid-threshold wider-scope path, the wrapper invokes `/coder`
+    in-process; `/coder` itself spawns one edit-applier agent via the
+    Task tool to apply the caller's edit-set, run `flow-pre-commit
+    --json` against the post-edit worktree, and write a structured
+    artifact at `<worktree>/.flow-tmp/coder-result.json` (typed fields:
+    `edits`, `verify_status`, `rejected_alternatives`,
+    `anti_patterns_found`, `summary`). The exemption is anchored on
+    the step heading name rather than its number so it survives future
+    `/coder` renumbering. Rationale: the same two constraints as above
+    — the supervisor is top-level so the one-level sub-agent cap
+    doesn't apply to *its* Task calls (the call from `/new-feature` or
+    `/verify` is itself a top-level-supervisor-loaded skill's call);
+    and the edit-applier is one-shot, returning the artifact plus a
+    brief both-sides summary, then exits. The reason this exemption
+    exists at all is two-fold: context cost (per-edit `Edit`/`Write`
+    tool_use bytes and the diff-bearing `tool_result` text are by far
+    the largest sink left in `/flow-pipeline` runs after the four
+    earlier exemptions landed) and the in-context verify re-run — the
+    subagent invokes `flow-pre-commit --json` against the post-edit
+    worktree *before returning*, so type/lint/test breakage caused by
+    an edit surfaces in-context where the edit rationale is still
+    live, not after the subagent exits. Trivially scoped edits skip
+    the subagent via the wrapper's hybrid threshold (≤1 file AND ≤30
+    LOC AND every file named in the prompt) and proceed inline. The
+    contract is documented bidirectionally in
+    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
+    `skills/pipeline/coder/SKILL.md`'s "Independent Edit-Applier
+    Subagent" section. Same narrow-and-named contract as the
+    exemptions above. Together with the `/pr-review` Multi-Agent
+    Review, `/product-planning` Discovery Subagent, `/new-feature`
+    Scout Subagent, and `/pr-review` Fix-Applier Subagent entries,
+    these are the **only five** authorised Task-tool fan-out sites
+    from `/flow-pipeline`; no other skill or step may call Task.
   - **AskUserQuestion exemption: `/flow-pipeline` step 4 candidate-
     issues sub-step.** `/flow-pipeline`'s "Hard rules" forbid arbitrary
     `AskUserQuestion` calls from the supervisor, with one named

@@ -52,11 +52,30 @@ const FIX_APPLIER_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "fix-applier-instructions.md",
 );
+const CODER_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "coder",
+  "SKILL.md",
+);
+const CODER_INSTRUCTIONS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "coder",
+  "references",
+  "coder-instructions.md",
+);
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
 const prReviewContent = fs.readFileSync(PR_REVIEW_SKILL_MD_PATH, "utf8");
 const fixApplierContent = fs.readFileSync(FIX_APPLIER_INSTRUCTIONS_PATH, "utf8");
+const coderContent = fs.readFileSync(CODER_SKILL_MD_PATH, "utf8");
+const coderInstructionsContent = fs.readFileSync(CODER_INSTRUCTIONS_PATH, "utf8");
 
 /**
  * Strip markdown blockquote `> ` prefixes from line starts so cross-line
@@ -238,24 +257,24 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     return [...agentsContent.matchAll(re)].map((m) => normaliseExemption(m[1]));
   }
 
-  it("flow-pipeline/SKILL.md Hard rules lists exactly 4 Task-tool exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 5 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
       exemptions.length,
-      "flow-pipeline/SKILL.md must list exactly 4 Task-tool exemption blocks " +
+      "flow-pipeline/SKILL.md must list exactly 5 Task-tool exemption blocks " +
         "(one each for /pr-review Multi-Agent Review, /product-planning Discovery " +
-        "Subagent, /new-feature Scout Subagent, and /pr-review Fix-Applier Subagent). " +
-        "Found: " + JSON.stringify(exemptions),
-    ).toBe(4);
+        "Subagent, /new-feature Scout Subagent, /pr-review Fix-Applier Subagent, " +
+        "and /coder Edit-Applier Subagent). Found: " + JSON.stringify(exemptions),
+    ).toBe(5);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 4 Task-tool exemption bullets", () => {
+  it("AGENTS.md ## Don'ts lists exactly 5 Task-tool exemption bullets", () => {
     const exemptions = extractAgentsExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 4 Task-tool exemption bullets. " +
+      "AGENTS.md ## Don'ts must list exactly 5 Task-tool exemption bullets. " +
         "Found: " + JSON.stringify(exemptions),
-    ).toBe(4);
+    ).toBe(5);
   });
 
   it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
@@ -277,43 +296,43 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("flow-pipeline/SKILL.md Hard rules preamble references four exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules preamble references five exemptions", () => {
     expect(
-      skillStripped.match(/the\s+\*\*only four\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
-      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only four** authorised " +
+      skillStripped.match(/the\s+\*\*only five\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only five** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Hard rules opening references four Task-tool exceptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules opening references five Task-tool exceptions", () => {
     expect(
-      skillStripped.match(/the\s+four\s+narrowly-named Task-tool exceptions that\s+follow/),
-      "flow-pipeline/SKILL.md Hard rules opening must say 'the four narrowly-named " +
+      skillStripped.match(/the\s+five\s+narrowly-named Task-tool exceptions that\s+follow/),
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the five narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
     ).toBeTruthy();
   });
 
-  it("AGENTS.md upstream prose references four exceptions", () => {
+  it("AGENTS.md upstream prose references five exceptions", () => {
     expect(
-      agentsContent.match(/\*\*with four narrowly-named exceptions\*\*/),
-      "AGENTS.md ## Supervisor and sub-skills must say '**with four narrowly-named exceptions**'. " +
+      agentsContent.match(/\*\*with five narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with five narrowly-named exceptions**'. " +
         "The count must match the bullet list under ## Don'ts.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/The four\s+named exceptions are/),
-      "AGENTS.md ## Don'ts parent bullet must say 'The four named exceptions are'. " +
+      agentsContent.match(/The five\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The five named exceptions are'. " +
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/the\s+\*\*only four\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
-      "AGENTS.md ## Don'ts closer must say 'the **only four** authorised Task-tool fan-out sites'. " +
+      agentsContent.match(/the\s+\*\*only five\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "AGENTS.md ## Don'ts closer must say 'the **only five** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Verification (this skill) lists all four exemptions by name", () => {
+  it("flow-pipeline/SKILL.md Verification (this skill) lists all five exemptions by name", () => {
     const verificationSection =
       content.split("# Verification")[1] ?? content.split("# Verification (this skill)")[1] ?? "";
     expect(
@@ -334,8 +353,13 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     expect(
       verificationSection.includes("Independent Fix-Applier Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Fix-Applier Subagent' " +
-        "as one of the named Task-tool exemptions. The fourth exemption was added in the " +
-        "fix-applier refactor; this list must enumerate all four.",
+        "as one of the named Task-tool exemptions.",
+    ).toBe(true);
+    expect(
+      verificationSection.includes("Independent Edit-Applier Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Independent Edit-Applier Subagent' " +
+        "as one of the named Task-tool exemptions. The fifth exemption was added in the " +
+        "/coder refactor; this list must enumerate all five.",
     ).toBe(true);
   });
 });
@@ -392,6 +416,82 @@ describe("Fix-Applier artifact JSON schema drift (pr-review/SKILL.md ↔ referen
         "populate 'rejected_alternatives' and 'anti_patterns_found' (and warn that 'silence is " +
         "not the default'). Without this, the subagent defaults to leaving the slots empty and " +
         "the user-redirect contract is silently broken.",
+    ).toBe(true);
+  });
+});
+
+describe("Edit-Applier artifact JSON schema drift (coder/SKILL.md ↔ references/coder-instructions.md)", () => {
+  const CODER_REQUIRED_KEYS = [
+    "edits",
+    "verify_status",
+    "rejected_alternatives",
+    "anti_patterns_found",
+    "summary",
+  ];
+
+  it.each(CODER_REQUIRED_KEYS)(
+    "coder/SKILL.md declares the '%s' top-level key for the edit-applier artifact",
+    (key) => {
+      expect(
+        coderContent.includes(`\`${key}\``),
+        `coder/SKILL.md must reference '\`${key}\`' as one of the artifact's typed fields. ` +
+          `Missing the key here means a downstream consumer (/new-feature step 5, /verify step 3) ` +
+          `drifts away from the schema documented in references/coder-instructions.md.`,
+      ).toBe(true);
+    },
+  );
+
+  it.each(CODER_REQUIRED_KEYS)(
+    "references/coder-instructions.md declares the '%s' top-level key in the artifact schema",
+    (key) => {
+      expect(
+        coderInstructionsContent.includes(`"${key}"`),
+        `references/coder-instructions.md step 4 must include '"${key}"' in the JSON schema fenced block. ` +
+          `Drift between this file and coder/SKILL.md silently breaks the wrapper-subagent contract.`,
+      ).toBe(true);
+    },
+  );
+
+  it("coder/SKILL.md has an Independent Edit-Applier Subagent section", () => {
+    expect(
+      coderContent.includes("## Independent Edit-Applier Subagent"),
+      "coder/SKILL.md must have an '## Independent Edit-Applier Subagent' section that " +
+        "documents the spawn procedure and prompt template. The exemption in flow-pipeline/SKILL.md " +
+        "Hard rules and AGENTS.md ## Don'ts is anchored on this heading name.",
+    ).toBe(true);
+  });
+
+  it("coder/SKILL.md spawn-prompt template instructs the subagent on negative-findings slots", () => {
+    const hasNegativeFindings =
+      coderContent.includes("rejected_alternatives") &&
+      coderContent.includes("anti_patterns_found") &&
+      coderContent.includes("silence is not the default");
+    expect(
+      hasNegativeFindings,
+      "coder/SKILL.md's spawn prompt template must affirmatively instruct the subagent to " +
+        "populate 'rejected_alternatives' and 'anti_patterns_found' (and warn that 'silence is " +
+        "not the default'). Without this, the subagent defaults to leaving the slots empty and " +
+        "the user-redirect contract is silently broken.",
+    ).toBe(true);
+  });
+
+  it("coder/SKILL.md cross-references AGENTS.md and flow-pipeline/SKILL.md", () => {
+    expect(
+      coderContent.includes("AGENTS.md"),
+      "coder/SKILL.md must reference 'AGENTS.md' so the bidirectional contract is discoverable.",
+    ).toBe(true);
+    expect(
+      coderContent.includes("skills/pipeline/flow-pipeline/SKILL.md"),
+      "coder/SKILL.md must reference 'skills/pipeline/flow-pipeline/SKILL.md' so the named " +
+        "exemption pointer is discoverable.",
+    ).toBe(true);
+  });
+
+  it("AGENTS.md cross-references coder/SKILL.md", () => {
+    expect(
+      agentsContent.includes("skills/pipeline/coder/SKILL.md"),
+      "AGENTS.md must reference 'skills/pipeline/coder/SKILL.md' inside the fifth Task-tool " +
+        "exemption block so the bidirectional contract holds.",
     ).toBe(true);
   });
 });

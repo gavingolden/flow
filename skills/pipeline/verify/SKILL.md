@@ -88,14 +88,81 @@ context.
 
 ## 3. Fix Failures
 
-- For each failed check (`results[].passed === false`), use `failure.firstErrorText`
-  to locate the failing file/test, then read the relevant source file directly.
-- Fix the issue in the source file.
-- **Type errors** (`npm run check`): Resolve type mismatches, missing imports, or incorrect generics.
-- **Lint errors** (`npm run lint`): Run `npm run format` first, then fix remaining issues manually.
-- **Test failures** (`npm run test`): Read the failing test, understand the assertion, fix the code
-  (not the test) unless the test itself is wrong.
-- **Go errors** (`go vet`, `go test`): Fix in the relevant `backend/` file.
+Decide whether to delegate the fix to `/coder` based on the **hybrid
+threshold**:
+
+- **Trivially scoped fix** (single-line type/lint error in one file —
+  judged from `failure.firstErrorText` and `failure.changedFiles`)
+  edits inline. Log a one-line reason ("trivial scope: single-line fix
+  in one file — editing inline").
+- **Wider scope** (multi-file failures, fixes that need ≥3 LOC in a
+  single file, or any failure where the fix requires reading multiple
+  files for context) delegates to `/coder` per outer attempt. Log a
+  one-line reason ("wider scope: spawning /coder").
+
+### Inline fix (trivial path)
+
+For each failed check (`results[].passed === false`), use
+`failure.firstErrorText` to locate the failing file/test, then read the
+relevant source file directly. Fix the issue in the source file.
+
+- **Type errors** (`npm run check`): Resolve type mismatches, missing
+  imports, or incorrect generics.
+- **Lint errors** (`npm run lint`): Run `npm run format` first, then
+  fix remaining issues manually.
+- **Test failures** (`npm run test`): Read the failing test, understand
+  the assertion, fix the code (not the test) unless the test itself is
+  wrong.
+- **Go errors** (`go vet`, `go test`): Fix in the relevant `backend/`
+  file.
+
+### Spawn procedure (wider-scope path only)
+
+1. Compose the **edit-set** from the JSON `failure` object emitted by
+   `flow-pre-commit --json`. One entry per failed check, each a
+   JSON-shaped object with three fields:
+   - `file` — repo-relative path of the failing source (resolved from
+     `failure.firstErrorText`).
+   - `intent` — 1–2 lines naming the issue (typically the
+     `firstErrorText` itself plus the check name).
+   - `expected_outcome` — 1–2 lines naming the post-fix state
+     (typically "the failing check passes" plus the check name).
+
+2. Invoke `/coder` in-process via the Skill tool, passing the edit-set
+   and the worktree path:
+
+   ```
+   /coder
+   EDIT_SET: [{...}, {...}]
+   WORKTREE: <absolute path>
+   ```
+
+   `/coder` is itself a thin wrapper that spawns one **Independent
+   Edit-Applier Subagent** via the Task tool (the fifth named Task-tool
+   exemption — see `skills/pipeline/flow-pipeline/SKILL.md` "Hard
+   rules"). The subagent opens each cited file, makes the fix, runs
+   `flow-pre-commit --json` against the post-edit worktree, and writes
+   the structured artifact at
+   `<worktree>/.flow-tmp/coder-result.json`.
+
+3. After `/coder` returns, do a cheap existence check:
+
+   ```bash
+   test -s "$WORKTREE/.flow-tmp/coder-result.json" \
+     || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
+   ```
+
+4. Read the artifact body once and parse `verify_status` — the boolean
+   "did the post-fix verify pass?" signal. If `verify_status === "pass"`,
+   loop back to Step 1 (re-run pre-commit) to confirm and exit clean.
+   If non-pass, the artifact's failure excerpt is the next outer attempt's
+   input — re-enter Step 3 with the new failure JSON until the outer cap
+   exhausts.
+
+   **Do not retry inside `/verify`'s own wrapper.** Each outer attempt
+   spawns at most one `/coder` invocation; multi-call fan-out at a
+   single attempt is not authorised. The supervisor's outer cap (3
+   attempts) is the only retry mechanism.
 
 ## 4. Re-Run Until Clean
 
@@ -139,6 +206,12 @@ side-effect is produced.
 - All scopes relevant to the changes are covered
 - The summary returned to the caller does not contain raw uncapped stderr from any
   failed check
+- For wider-scope fixes at Step 3: `/coder` was invoked at most once per
+  outer attempt; `.flow-tmp/coder-result.json` exists with all five
+  top-level keys; the wrapper's transcript contains no per-edit
+  `Edit`/`Write` prose for the wider-scope path.
+- For trivially scoped fixes at Step 3: no `/coder` invocation; the
+  wrapper logged a one-line trivial-scope reason and edited inline.
 
 # Constraints
 
@@ -148,3 +221,6 @@ side-effect is produced.
 - NEVER paste the full `failure.headExcerpt` + `failure.tailExcerpt` back into chat
   verbatim — pick a representative slice. The cap exists to bound context, not to be a
   ceremonial truncation that still bloats the supervisor.
+- NEVER do per-edit `Edit`/`Write` work in the wrapper's context on
+  the wider-scope Step 3 path. The `/coder` subagent owns those edits;
+  inlining them defeats the migration's whole point.
