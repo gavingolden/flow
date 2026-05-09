@@ -1286,6 +1286,20 @@ N)` with a tail excerpt. The supervisor still ends with `MERGED` — the user
 inspects scrollback. Escalating to `NEEDS HUMAN` would block a successful
 merge on a peripheral failure, which inverts the priority.
 
+**Canonical fast-forward.** `flow setup --upgrade` opportunistically
+fast-forwards the canonical install root before discovery — this fixes
+the PR #115 race where freshly-merged skills got orphan-reaped because
+the canonical checkout still had the pre-merge tree. The line
+`canonical: fast-forwarded N commits` (or `canonical: skipped (<reason>)`
+on dirty/non-default-branch/fetch-failed) appears in the LOCAL FOLLOW-UPS
+block before the symlink summary. As a defense-in-depth layer for the
+dirty-canonical case, `removeIfManagedSymlink` (in `bin/lib/symlink.ts`)
+now defers reaping a dangling pointer when the recorded source still
+exists in `origin/<default>`'s tree but not in the canonical working
+tree. Opt out per-run with `flow setup --upgrade --no-pull-canonical`;
+the followup itself does NOT pass this flag — the allowlist exact-match
+is load-bearing.
+
 **No new phase value.** Step 11 is bookkeeping inside `merging` (MERGED
 path) or a final read just before the terminal print (GATED / NEEDS HUMAN).
 Adding `local-followups` to `STEP_PHASES` would force a state.json write

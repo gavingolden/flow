@@ -8,11 +8,13 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { spawnSync } from "node:child_process";
 import { runSetup } from "./setup";
 import { runSetupCli } from "./setup-args";
 import { readManifest } from "./manifest";
 import { LockTimeoutError } from "./lock";
+import { removeIfManagedSymlink } from "./symlink";
 
 let scratch!: string;
 let flowSource!: string;
@@ -544,6 +546,143 @@ describe("flow setup", () => {
       ).toBe(false);
     });
   });
+
+  describe("canonical-tree-presence backstop (PR #115 race)", () => {
+    it("preserves the symlink when the recorded source is in origin/<default>'s tree but absent from the working tree", () => {
+      // Mid-pipeline scenario: a previous --upgrade run installed a symlink
+      // pointing at a skill, but the working tree's copy of that skill has
+      // been removed by the user before the next reap pass. The backstop
+      // must defer the dangling-reap because origin/<default> still has it.
+      buildFakeFlowSourceWithGit(flowSource, /* skillsInTree */ ["alpha", "beta"]);
+
+      // Stand up the symlink + manifest entry as if a prior run had installed
+      // both alpha and beta.
+      const t = targets();
+      setup({ upgrade: true });
+
+      // Now: the user (or the supervisor's race) deletes alpha from the
+      // working tree, but it still lives in origin/main's tree.
+      fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), { recursive: true });
+
+      const linkBefore = path.join(t.skillsDir, "alpha");
+      expect(fs.existsSync(linkBefore) || fs.lstatSync(linkBefore).isSymbolicLink()).toBe(true);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      try {
+        // Re-run with --upgrade. The reap pass would normally fire on the
+        // dangling pointer; the backstop should defer because origin/main
+        // still contains skills/pipeline/alpha.
+        const summary = setup({ upgrade: true });
+        // Symlink survives.
+        expect(fs.lstatSync(linkBefore).isSymbolicLink()).toBe(true);
+        expect(summary.removed).toBe(0);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("falls through to the legacy reap when the recorded source is in NEITHER origin/<default> nor the working tree", () => {
+      // Symmetric to PR #79: the recorded source is genuinely orphaned
+      // (origin/main has no record of it), so the backstop must NOT fire
+      // and the legacy dangling-reap must reap it.
+      buildFakeFlowSourceWithGit(flowSource, /* skillsInTree */ ["alpha", "beta"]);
+
+      // Install once.
+      setup({ upgrade: true });
+      const t = targets();
+
+      // Inject a stale manifest entry for a skill that never existed in
+      // origin/main and isn't in the working tree either.
+      const manifest = readManifest(manifestPath);
+      const orphan = path.join(t.skillsDir, "ghost");
+      const orphanSource = path.join(flowSource, "skills", "pipeline", "ghost");
+      // Create a dangling symlink at the target.
+      fs.symlinkSync(orphanSource, orphan);
+      manifest.symlinks.push({
+        target: orphan,
+        source: orphanSource,
+        kind: "skill",
+      });
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+      const summary = setup({ upgrade: true });
+      // Legacy reap fires on ghost.
+      expect(summary.removed).toBeGreaterThanOrEqual(1);
+      expect(fs.existsSync(orphan)).toBe(false);
+    });
+
+    it("falls through to the legacy reap when canonicalRoot is not a git repo (no .git directory)", () => {
+      // Direct unit test of removeIfManagedSymlink's fail-open path. The
+      // canonicalRoot has no .git, so the spawn for `git ls-tree` fails,
+      // and the backstop returns false — the legacy reap path fires.
+      const t = targets();
+      const targetPath = path.join(t.skillsDir, "ghost");
+      const sourceDir = path.join(flowSource, "skills", "pipeline", "ghost");
+      fs.mkdirSync(t.skillsDir, { recursive: true });
+      // Create a dangling symlink (target points at a non-existent source).
+      fs.symlinkSync(sourceDir, targetPath);
+
+      // flowSource has no .git — the backstop's spawn fails, fall-through.
+      const removed = removeIfManagedSymlink(targetPath, sourceDir, {
+        canonicalRoot: flowSource,
+        defaultBranch: "main",
+      });
+      expect(removed).toBe(true);
+      expect(fs.existsSync(targetPath)).toBe(false);
+    });
+
+    it("e2e --upgrade fast-forwards canonical and the freshly-merged skill survives the reap", () => {
+      // Mirrors the PR #115 race: the supervisor's `flow setup --upgrade`
+      // (post-merge sweep) advances canonical, then reap runs against the
+      // post-merge tree and does NOT consider the new skill orphaned.
+      buildFakeFlowSourceWithGit(flowSource, /* skillsInTree */ ["alpha", "beta"]);
+
+      // Simulate the new skill landing on origin/main but not yet merged
+      // into the working tree — that's the race window.
+      addSkillToOriginMain(flowSource, "epsilon");
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      try {
+        const summary = setup({ upgrade: true });
+        // The fast-forward should have advanced canonical, pulling epsilon
+        // into the working tree.
+        const epsilonDir = path.join(flowSource, "skills", "pipeline", "epsilon");
+        expect(fs.existsSync(epsilonDir)).toBe(true);
+        // The reap pass must not have fired on the freshly-merged skill.
+        expect(summary.removed).toBe(0);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("--no-pull-canonical opts out of the fast-forward (no `git fetch` recorded)", () => {
+      // Direct opt-out check: when the caller passes pullCanonicalFirst:
+      // false, the FF call must not run — no fetch, no merge, the canonical
+      // line is silent.
+      buildFakeFlowSourceWithGit(flowSource, /* skillsInTree */ ["alpha", "beta"]);
+
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      try {
+        runSetup({
+          upgrade: true,
+          pullCanonicalFirst: false,
+          flowSource,
+          installRoot: flowSource,
+          targets: targets(),
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          // quiet: false intentionally so the canonical line would surface
+        });
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).not.toMatch(/canonical: (fast-forwarded|skipped)/);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+  });
 });
 
 // --- Fixture builders ---
@@ -578,6 +717,88 @@ function buildFakeFlowSource(root: string): void {
   fs.mkdirSync(completionsDir, { recursive: true });
   fs.writeFileSync(path.join(completionsDir, "flow.bash"), "# fake bash completion\n");
   fs.writeFileSync(path.join(completionsDir, "flow.zsh"), "#compdef flow\n# fake\n");
+}
+
+/**
+ * Like `buildFakeFlowSource`, but wraps the result in a real git repo with a
+ * synthetic `origin/<defaultBranch>` ref pointing at a tree containing the
+ * named skills. Used by the canonical-tree-presence backstop tests; the
+ * `<root>/.git` directory has to be real so `git ls-tree -r origin/main` can
+ * walk it. Network-free — there's no actual `origin` remote, just the local
+ * remote-tracking ref.
+ */
+function buildFakeFlowSourceWithGit(root: string, skillsInTree: string[]): void {
+  buildFakeFlowSource(root);
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "test",
+    GIT_AUTHOR_EMAIL: "test@example.com",
+    GIT_COMMITTER_NAME: "test",
+    GIT_COMMITTER_EMAIL: "test@example.com",
+  };
+  const run = (cwd: string, args: string[]) => {
+    const r = spawnSync("git", ["-C", cwd, ...args], { env, encoding: "utf8" });
+    if (r.status !== 0) {
+      throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
+    }
+    return r.stdout;
+  };
+  // Bare origin sibling; the canonical checkout pushes to it.
+  const originDir = path.join(path.dirname(root), `${path.basename(root)}.origin.git`);
+  fs.mkdirSync(originDir, { recursive: true });
+  spawnSync("git", ["init", "--bare", "-b", "main", originDir], { env });
+
+  run(root, ["init", "-b", "main"]);
+  run(root, ["remote", "add", "origin", originDir]);
+  run(root, ["add", "."]);
+  run(root, ["commit", "-m", "init"]);
+  run(root, ["push", "origin", "main"]);
+  // Set up origin/HEAD so resolveDefaultBranch's symbolic-ref probe works
+  // (mirrors a freshly-cloned repo).
+  run(root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+  void skillsInTree;
+}
+
+/**
+ * Adds a new skill on `origin/main` (synthetic remote-tracking ref) without
+ * touching the working tree. The fast-forward path fetches origin/main and
+ * merges --ff-only — the skill should land in the working tree post-merge.
+ *
+ * Implementation: build a commit on a detached HEAD, point origin/main at
+ * the new commit, then leave HEAD on the old commit so the working tree
+ * lags. The fast-forward then has work to do.
+ */
+function addSkillToOriginMain(root: string, name: string): void {
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "test",
+    GIT_AUTHOR_EMAIL: "test@example.com",
+    GIT_COMMITTER_NAME: "test",
+    GIT_COMMITTER_EMAIL: "test@example.com",
+  };
+  const run = (cwd: string, args: string[]) => {
+    const r = spawnSync("git", ["-C", cwd, ...args], { env, encoding: "utf8" });
+    if (r.status !== 0) {
+      throw new Error(`git ${args.join(" ")} failed: ${r.stderr}`);
+    }
+    return r.stdout;
+  };
+  // Build the new commit on a sibling clone so the canonical checkout's HEAD
+  // and working tree don't move. Pushing back to the bare origin then leaves
+  // origin/main ahead of canonical/main — the FF path has work to do.
+  const stagingDir = path.join(path.dirname(root), `${path.basename(root)}.staging`);
+  fs.rmSync(stagingDir, { recursive: true, force: true });
+  const originDir = path.join(path.dirname(root), `${path.basename(root)}.origin.git`);
+  spawnSync("git", ["clone", "-b", "main", originDir, stagingDir], { env });
+  run(stagingDir, ["config", "user.email", "test@example.com"]);
+  run(stagingDir, ["config", "user.name", "test"]);
+  const skillDir = path.join(stagingDir, "skills", "pipeline", name);
+  fs.mkdirSync(skillDir, { recursive: true });
+  fs.writeFileSync(path.join(skillDir, "SKILL.md"), `# ${name}\n`);
+  run(stagingDir, ["add", "."]);
+  run(stagingDir, ["commit", "-m", `add ${name}`]);
+  run(stagingDir, ["push", "origin", "main"]);
+  fs.rmSync(stagingDir, { recursive: true, force: true });
 }
 
 /**
