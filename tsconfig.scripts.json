@@ -8,5 +8,6 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["bin/**/*.ts"]
+  "include": ["bin/**/*.ts", "skills/**/*.ts"],
+  "exclude": ["skills/universal/skill-creator/scripts/**"]
 }
