@@ -13,14 +13,21 @@ export type ParsedSetupArgs = {
   force: boolean;
   noCompletions: boolean;
   noHooks: boolean;
+  pullCanonical: boolean;
   flowSource?: string;
 };
 
 export type SetupArgsResult = ParsedSetupArgs | { error: string };
 
 const USAGE =
-  "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks]";
-const FLAGS = new Set(["--upgrade", "--force", "--no-completions", "--no-hooks"]);
+  "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical]";
+const FLAGS = new Set([
+  "--upgrade",
+  "--force",
+  "--no-completions",
+  "--no-hooks",
+  "--no-pull-canonical",
+]);
 
 export function parseSetupArgs(args: string[]): SetupArgsResult {
   const out: ParsedSetupArgs = {
@@ -28,6 +35,7 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
     force: false,
     noCompletions: false,
     noHooks: false,
+    pullCanonical: true,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -39,6 +47,8 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
       out.noCompletions = true;
     } else if (arg === "--no-hooks") {
       out.noHooks = true;
+    } else if (arg === "--no-pull-canonical") {
+      out.pullCanonical = false;
     } else if (arg === "--source") {
       const value = args[i + 1];
       if (!value || FLAGS.has(value) || value === "--source") {
@@ -81,7 +91,12 @@ export function runSetupCli(args: string[], extraOptions?: SetupOptions): number
   // would re-derive installRoot after the wrapper symlink was already
   // poisoned by a prior --source run, collapsing it onto the worktree and
   // stranding the manifest on the next worktree removal.
-  const opts: SetupOptions = { ...parsed, ...extraOptions };
+  const { pullCanonical, ...rest } = parsed;
+  const opts: SetupOptions = {
+    ...rest,
+    pullCanonicalFirst: pullCanonical,
+    ...extraOptions,
+  };
   if (parsed.flowSource !== undefined && opts.installRoot === undefined) {
     opts.installRoot = resolveFlowSource(opts.homeDir);
   }

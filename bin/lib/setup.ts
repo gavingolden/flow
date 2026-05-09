@@ -28,6 +28,7 @@ import { ensureSymlink, removeIfManagedSymlink, type LinkResult } from "./symlin
 import { withFileLock } from "./lock";
 import { applyShellRcCompletions } from "./setup-rc";
 import { ensureStopHook } from "./settings-merge";
+import { fastForwardCanonical, resolveDefaultBranch } from "./git";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
 
@@ -78,6 +79,14 @@ export type SetupOptions = {
    * Production reads from os.homedir().
    */
   homeDir?: string;
+  /**
+   * On `--upgrade`, fast-forward `<installRoot>` to `origin/<default>` before
+   * the lock acquires (so two parallel pipelines don't serialize on the
+   * network round-trip). Defaults to `true` whenever `upgrade` is true;
+   * ignored on non-upgrade runs. Set false to opt out via
+   * `flow setup --upgrade --no-pull-canonical`.
+   */
+  pullCanonicalFirst?: boolean;
 };
 
 export type SetupSummary = {
@@ -95,6 +104,18 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   const log = options.quiet ? () => undefined : (msg: string) => console.log(msg);
 
   if (!options.skipPreflight) preflight(targets);
+
+  // Outside the lock so two parallel pipelines don't serialize on a network
+  // round-trip. Best-effort — log and continue on any failure (same priority
+  // as applyShellRcCompletions / ensureStopHook below).
+  if (options.upgrade && options.pullCanonicalFirst !== false) {
+    const ff = fastForwardCanonical({ canonicalRoot: installRoot, log });
+    if (ff.status === "ahead") {
+      log(`      canonical: fast-forwarded ${ff.advanced} commits`);
+    } else if (ff.status === "skipped") {
+      log(`      canonical: skipped (${ff.reason})`);
+    }
+  }
 
   // Serialize symlink + manifest writes against any concurrent `flow setup`
   // invocation. Without the lock, two parallel pipelines that both run
@@ -126,7 +147,7 @@ function runUnderLock(
   }
 
   if (options.upgrade) {
-    summary.removed = reapOrphans(entries, options.manifestPath, log);
+    summary.removed = reapOrphans(entries, options.manifestPath, log, installRoot);
   }
 
   // Edit the user's shell rc files to source the completion scripts. Run
@@ -182,13 +203,19 @@ function reapOrphans(
   currentEntries: SourceEntry[],
   manifestPath: string | undefined,
   log: (msg: string) => void,
+  canonicalRoot: string,
 ): number {
   const previous = readManifest(manifestPath);
   const currentTargets = new Set(currentEntries.map((e) => e.target));
+  // Resolved once per reap pass (not per-record) so the per-record backstop
+  // doesn't re-spawn `git symbolic-ref` N times. Falls open to undefined when
+  // canonical is not a git repo — `removeIfManagedSymlink` then skips the
+  // backstop entirely and falls through to today's existing reap behavior.
+  const defaultBranch = resolveDefaultBranch(canonicalRoot) ?? undefined;
   let removed = 0;
   for (const record of previous.symlinks) {
     if (currentTargets.has(record.target)) continue;
-    if (removeIfManagedSymlink(record.target, record.source)) {
+    if (removeIfManagedSymlink(record.target, record.source, { canonicalRoot, defaultBranch, log })) {
       log(`  - ${path.basename(record.target)}  (orphan removed)`);
       removed++;
     }

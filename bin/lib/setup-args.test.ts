@@ -11,6 +11,7 @@ describe("parseSetupArgs", () => {
       force: false,
       noCompletions: false,
       noHooks: false,
+      pullCanonical: true,
     });
   });
 
@@ -20,6 +21,7 @@ describe("parseSetupArgs", () => {
       force: false,
       noCompletions: false,
       noHooks: false,
+      pullCanonical: true,
     });
   });
 
@@ -29,6 +31,7 @@ describe("parseSetupArgs", () => {
       force: true,
       noCompletions: false,
       noHooks: false,
+      pullCanonical: true,
     });
   });
 
@@ -38,6 +41,7 @@ describe("parseSetupArgs", () => {
       force: false,
       noCompletions: true,
       noHooks: false,
+      pullCanonical: true,
     });
   });
 
@@ -47,6 +51,36 @@ describe("parseSetupArgs", () => {
       force: false,
       noCompletions: false,
       noHooks: true,
+      pullCanonical: true,
+    });
+  });
+
+  it("recognizes --no-pull-canonical (defaults to true; flag flips it false)", () => {
+    expect(parseSetupArgs(["--no-pull-canonical"])).toEqual({
+      upgrade: false,
+      force: false,
+      noCompletions: false,
+      noHooks: false,
+      pullCanonical: false,
+    });
+  });
+
+  it("recognizes --upgrade --no-pull-canonical together", () => {
+    expect(parseSetupArgs(["--upgrade", "--no-pull-canonical"])).toEqual({
+      upgrade: true,
+      force: false,
+      noCompletions: false,
+      noHooks: false,
+      pullCanonical: false,
+    });
+  });
+
+  it("rejects --no-pull-canonical as a value after --source", () => {
+    // Symmetric guard to --no-completions / --no-hooks: a boolean flag must
+    // not silently capture as a path value.
+    const result = parseSetupArgs(["--source", "--no-pull-canonical"]);
+    expect(result).toEqual({
+      error: "flow setup: --source requires a path argument",
     });
   });
 
@@ -56,27 +90,46 @@ describe("parseSetupArgs", () => {
       force: false,
       noCompletions: false,
       noHooks: false,
+      pullCanonical: true,
       flowSource: "/abs/path",
     });
   });
 
   it("combines all flags in any order", () => {
     expect(
-      parseSetupArgs(["--upgrade", "--force", "--no-completions", "--no-hooks", "--source", "/x"]),
+      parseSetupArgs([
+        "--upgrade",
+        "--force",
+        "--no-completions",
+        "--no-hooks",
+        "--no-pull-canonical",
+        "--source",
+        "/x",
+      ]),
     ).toEqual({
       upgrade: true,
       force: true,
       noCompletions: true,
       noHooks: true,
+      pullCanonical: false,
       flowSource: "/x",
     });
     expect(
-      parseSetupArgs(["--source", "/x", "--force", "--upgrade", "--no-completions", "--no-hooks"]),
+      parseSetupArgs([
+        "--source",
+        "/x",
+        "--force",
+        "--upgrade",
+        "--no-completions",
+        "--no-hooks",
+        "--no-pull-canonical",
+      ]),
     ).toEqual({
       upgrade: true,
       force: true,
       noCompletions: true,
       noHooks: true,
+      pullCanonical: false,
       flowSource: "/x",
     });
   });
@@ -183,7 +236,7 @@ describe("runSetupCli", () => {
     expect(code).toBe(2);
     expect(errSpy).toHaveBeenCalledWith("flow setup: unknown option '--bogus'");
     expect(errSpy).toHaveBeenCalledWith(
-      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks]",
+      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical]",
     );
     errSpy.mockRestore();
   });
@@ -238,6 +291,56 @@ describe("runSetupCli", () => {
     const homeReal = fs.realpathSync(home as string);
     expect(homeReal.startsWith(tmpReal)).toBe(true);
     expect(path.basename(home as string)).toMatch(/^flow-vitest-home-/);
+  });
+
+  it("plumbs pullCanonicalFirst=false through to runSetup when --no-pull-canonical is passed", () => {
+    // The fake flow-source fixture is not a git repo, so the default
+    // upgrade path would log `canonical: skipped (not-a-git-repo)` via
+    // runSetup's fast-forward best-effort branch. With --no-pull-canonical
+    // the CLI must skip that branch entirely, so the line must not appear.
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const code = runSetupCli(["--upgrade", "--no-pull-canonical"], {
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: path.join(homeDir, ".claude", "settings.json"),
+        // quiet: false so the canonical line would surface if plumbing broke
+      });
+      expect(code).toBe(0);
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).not.toMatch(/canonical:/);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("logs canonical: skipped on --upgrade alone (default pullCanonical=true) when fixture is not a git repo", () => {
+    // Symmetric counterpart to the assertion above: confirms the default
+    // path actually fires the FF probe (and falls through to skipped/
+    // not-a-git-repo on the fake fixture).
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const code = runSetupCli(["--upgrade"], {
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: path.join(homeDir, ".claude", "settings.json"),
+      });
+      expect(code).toBe(0);
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).toMatch(/canonical: skipped \(not-a-git-repo\)/);
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   it("writes the completions rc-block inside the sandboxed homeDir, not the real $HOME", () => {
