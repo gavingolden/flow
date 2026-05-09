@@ -430,6 +430,67 @@ proceeding to implementation.
   - Separate side effects (network calls, DOM mutations) from decision logic.
 - Refer to the `it.todo()` list as a living checklist of acceptance criteria.
 
+Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
+
+- **Trivially scoped edits** (≤1 file AND ≤30 LOC AND every file named in
+  the prompt) skip `/coder` and edit inline. Log a one-line reason in chat
+  ("trivial scope: single file ≤30 LOC — editing inline") so the user can
+  audit the decision in scrollback.
+- **Wider scopes** delegate the per-edit `Edit`/`Write` work to `/coder`
+  via the Spawn procedure below. Log a one-line reason ("wider scope:
+  spawning /coder") so the user can audit.
+
+### Spawn procedure (wider-scope path only)
+
+1. Compose the **edit-set** from the `it.todo()` list and the scout's
+   `## affected_modules`. Each entry is a JSON-shaped object with three
+   fields:
+   - `file` — repo-relative path of the file to edit.
+   - `intent` — 1–2 lines naming what the edit is meant to achieve.
+   - `expected_outcome` — 1–2 lines naming the observable post-edit
+     state (what test should pass, what behaviour should change).
+
+   Render the edit-set as a single JSON array — pass it to `/coder` as
+   the `EDIT_SET` argument.
+
+2. Invoke `/coder` in-process via the Skill tool, passing the edit-set
+   plus the worktree path:
+
+   ```
+   /coder
+   EDIT_SET: [{...}, {...}]
+   WORKTREE: <absolute path>
+   ```
+
+   `/coder` is itself a thin wrapper that spawns one **Independent
+   Edit-Applier Subagent** via the Task tool (the fifth named Task-tool
+   exemption — see `skills/pipeline/flow-pipeline/SKILL.md` "Hard
+   rules"). The subagent applies every edit in its own isolated context,
+   runs `flow-pre-commit --json` against the post-edit worktree, and
+   writes the structured artifact at
+   `<worktree>/.flow-tmp/coder-result.json`.
+
+3. After `/coder` returns, do a cheap existence check on the artifact:
+
+   ```bash
+   test -s "$WORKTREE/.flow-tmp/coder-result.json" \
+     || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
+   ```
+
+   On missing or empty artifact, surface the failure to the caller —
+   the supervisor escalates `NEEDS HUMAN: coder-failed` rather than
+   retrying past the 1-retry cap.
+
+4. Read the artifact body once and parse into a typed object. Reuse
+   the parsed object across Step 6 (test implementation, when it needs
+   to know which files were edited) and Step 7 (skills-used summary).
+   Do not re-read.
+
+   The artifact's `verify_status` is the literal `"pass"` or a
+   head/tail-capped failure excerpt. On non-pass, surface the failure
+   to the caller — `/new-feature` does not retry inside its own
+   wrapper; the parent supervisor decides escalation vs re-invoke.
+
 ## 5b. Register Local Follow-ups (when applicable)
 
 When the implementation produces a side-effect the user must replicate on their
@@ -496,14 +557,23 @@ wasn't used for a UI-only change.
 - Test specs were reviewed and approved by the user before implementation
 - Any new environment variables have been added to `.env.example` with comments and safe defaults
 - PR description draft exists (`.flow-tmp/pr-description-draft.md`) or user explicitly deferred it
-- For wider-scope features: exactly one Task-tool call was made with
-  `subagent_type: general-purpose`; `.flow-tmp/scout.md` exists with the
-  six expected sections (`## affected_modules`, `## relevant_tests`,
-  `## public_api_surface`, `## open_questions`, `## recommended_strategy`,
-  `## anti_patterns`); the wrapper's chat output is the subagent's
-  3–5-sentence both-sides summary (not a paste of the artifact).
-- For trivially scoped features: no Task-tool call was made; `scout.md`
-  was not written; the wrapper logged a one-line trivial-scope reason.
+- For wider-scope features: exactly one Task-tool call was made at the
+  Step 1b scout site with `subagent_type: general-purpose`;
+  `.flow-tmp/scout.md` exists with the six expected sections
+  (`## affected_modules`, `## relevant_tests`, `## public_api_surface`,
+  `## open_questions`, `## recommended_strategy`, `## anti_patterns`);
+  the wrapper's chat output is the subagent's 3–5-sentence both-sides
+  summary (not a paste of the artifact).
+- For trivially scoped features: no Task-tool call was made at the Step
+  1b scout site; `scout.md` was not written; the wrapper logged a
+  one-line trivial-scope reason.
+- For wider-scope edits at Step 5: `/coder` was invoked exactly once;
+  `.flow-tmp/coder-result.json` exists with all five top-level keys
+  (`edits`, `verify_status`, `rejected_alternatives`,
+  `anti_patterns_found`, `summary`); the wrapper's transcript contains
+  no per-edit `Edit`/`Write` prose for the wider-scope path.
+- For trivially scoped edits at Step 5: no `/coder` invocation; the
+  wrapper logged a one-line trivial-scope reason and edited inline.
 
 # Constraints
 
@@ -516,13 +586,16 @@ wasn't used for a UI-only change.
   compose the prompt, make one Task-tool call, and forward the subagent's
   summary. Loading reference docs, reading implicated source files, or
   drafting the assessment inline defeats the entire point of the refactor.
-- NEVER make more than one Task-tool call per `/new-feature` invocation.
-  The single fan-out is the named exemption; multi-call fan-out is not
-  authorised. If the artifact is missing after the spawn, surface the
-  failure to the caller (e.g. `/flow-pipeline` retries by re-invoking
-  `/new-feature`, which counts as a fresh invocation with its own
-  one-shot Task call). The wrapper itself never retries — that would
-  be a second Task call.
+- NEVER make more than one Task-tool call **per spawn site** in a
+  `/new-feature` invocation. Two named spawn sites exist: Step 1b
+  (scout, exemption #3) and Step 5 (`/coder`, exemption #5 —
+  delegated through `/coder`'s own wrapper). Each fires exactly one
+  Task call on its wider-scope path; multi-call fan-out at a single
+  site is not authorised. If an artifact is missing after a spawn,
+  surface the failure to the caller (e.g. `/flow-pipeline` retries by
+  re-invoking `/new-feature`, which counts as a fresh invocation with
+  fresh one-shot Task calls at each site). The wrapper itself never
+  retries — that would be a second Task call at the same site.
 - NEVER read `.flow-tmp/scout.md` from the wrapper before Step 2. The
   main session reads it once at the top of Critical Analysis; reading
   it earlier (e.g. for an existence sniff that goes beyond `test -s`)
@@ -531,3 +604,6 @@ wasn't used for a UI-only change.
 - NEVER let the subagent own the `mkdir -p .flow-tmp/`. Single
   side-effect attribution site: the wrapper alone creates the directory.
   The subagent only writes the file. The main session only reads.
+- NEVER do per-edit `Edit`/`Write` work in the wrapper's context on
+  the wider-scope Step 5 path. The `/coder` subagent owns those edits;
+  inlining them defeats the migration's whole point.

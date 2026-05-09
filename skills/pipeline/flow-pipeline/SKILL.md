@@ -58,7 +58,7 @@ in-process for skills; shell out for scripts; never delegate.
 > tool from this skill — **except for the named exceptions below**.
 > Never spawn a separate `claude -p` subprocess. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
-> calls, and (c) the five narrowly-named Task-tool exceptions that
+> calls, and (c) the six narrowly-named Task-tool exceptions that
 > follow.
 >
 > The two constraints behind the rule above are (1) sub-agents can't
@@ -66,9 +66,9 @@ in-process for skills; shell out for scripts; never delegate.
 > with sub-agents would bloat past the context window. The supervisor
 > is itself a top-level Claude Code session (started by `flow new`
 > opening tmux + `claude`), so constraint (1) does not apply to *its*
-> Task calls — it applies to *its* sub-agents. All five exemptions
+> Task calls — it applies to *its* sub-agents. All six exemptions
 > below are also one-shot, not long-running, so constraint (2) doesn't
-> apply either. They are the **only five** authorised Task-tool
+> apply either. They are the **only six** authorised Task-tool
 > fan-out sites from this supervisor; no other skill or step may call
 > Task. Each is anchored on its step heading name rather than its
 > number so it survives future renumbering. Same narrow-and-named
@@ -171,6 +171,33 @@ in-process for skills; shell out for scripts; never delegate.
 > instructions) and `AGENTS.md` `## Don'ts`. Exactly one resolver
 > fan-out per `/flow-pipeline` run; if the post-resolver retry still
 > fails, escalate rather than re-fanning-out.
+>
+> **Task-tool exemption #6: `/coder` Independent Edit-Applier Subagent.**
+> When `/flow-pipeline` step 5 loads `/new-feature` (or step 6 loads
+> `/verify`) and the wider-scope path of either skill's hybrid threshold
+> fires, the wrapper invokes `/coder` in-process; `/coder` itself spawns
+> one edit-applier agent via the Task tool to apply the caller's edit-set,
+> run `flow-pre-commit --json` against the post-edit worktree, and write
+> a structured artifact at `<worktree>/.flow-tmp/coder-result.json` (typed
+> fields: `edits`, `verify_status`, `rejected_alternatives`,
+> `anti_patterns_found`, `summary`). Trivially scoped edits skip the
+> subagent via each caller's own hybrid threshold (`/new-feature` step 5:
+> ≤1 file AND ≤30 LOC AND every file named in the prompt; `/verify` step
+> 3: single-line type/lint error in one file) and proceed inline. The
+> two thresholds are caller-defined — see each skill's "Spawn procedure
+> (wider-scope path only)" section for the canonical bar. The same two
+> rationales apply — top-level Task call (constraint 1 doesn't apply),
+> one-shot fan-out (constraint 2 doesn't apply) — plus the additional
+> context-cost win that the per-edit `Edit`/`Write` tool_use bytes and
+> diff-bearing tool_result text all stay inside the subagent. The
+> in-context verify re-run is load-bearing: type/lint/test failures caused
+> by an edit surface where the rationale is still live, rather than after
+> the subagent exits when the parent caller sees a verify failure later
+> with no intent context. The only handoff to downstream callers is the
+> structured artifact, which `/new-feature` step 5 and `/verify` step 3
+> read once and reuse. The contract is documented bidirectionally in
+> `skills/pipeline/coder/SKILL.md`'s "Independent Edit-Applier Subagent"
+> section and `AGENTS.md` `## Don'ts`.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -526,7 +553,7 @@ request as the argument:
 
 `/product-planning` is itself a thin wrapper that spawns one
 **Independent Discovery Subagent** via the Task tool (the second of
-the five named Task-tool exemptions in "Hard rules" above). The
+the six named Task-tool exemptions in "Hard rules" above). The
 subagent does all the discovery in its own isolated context — reading
 the README, scanning the skill directory, examining domain models,
 drafting the PRD — and writes the consolidated artifact to
@@ -637,7 +664,7 @@ pass the user's request:
 ```
 
 `/new-feature` is itself a thin wrapper that spawns one **Independent
-Scout Subagent** via the Task tool (the third of the five named
+Scout Subagent** via the Task tool (the third of the six named
 Task-tool exemptions in "Hard rules" above) on its wider-scope path.
 The subagent reads the codebase in its isolated context — affected
 modules, relevant tests, public API surface, anti-patterns / off-limits
@@ -932,7 +959,7 @@ Invoke `/pr-review` in-process with the PR number:
 ```
 
 `/pr-review` itself spawns one **Fix-Applier Subagent** via the Task
-tool (the fourth of the five named Task-tool exemptions in "Hard
+tool (the fourth of the six named Task-tool exemptions in "Hard
 rules" above) to handle the per-finding address loop, the pre-commit
 run, the commit + push, and the `/verify` re-run — all inside the
 subagent's isolated context. The subagent writes a structured
@@ -1487,12 +1514,13 @@ After each phase transition:
 - `flow ls` (run from any terminal) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the five named exceptions in "Hard rules" above:
+  via the six named exceptions in "Hard rules" above:
   `/pr-review`'s "Independent Multi-Agent Review",
   `/product-planning`'s "Independent Discovery Subagent",
   `/new-feature`'s "Independent Scout Subagent",
   `/pr-review`'s "Independent Fix-Applier Subagent",
-  and step 10's "Merge-Conflict Resolver Subagent".
+  step 10's "Merge-Conflict Resolver Subagent",
+  and `/coder`'s "Independent Edit-Applier Subagent".
   No other skill or step may call Task.
 - The supervisor never spawned a `claude -p` subprocess.
 
