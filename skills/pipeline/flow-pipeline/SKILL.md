@@ -1291,8 +1291,10 @@ fast-forwards the canonical install root before discovery — this fixes
 the PR #115 race where freshly-merged skills got orphan-reaped because
 the canonical checkout still had the pre-merge tree. The line
 `canonical: fast-forwarded N commits` (or `canonical: skipped (<reason>)`
-on dirty/non-default-branch/fetch-failed) appears in the LOCAL FOLLOW-UPS
-block before the symlink summary. As a defense-in-depth layer for the
+when the fast-forward can't run — `dirty`, `non-default-branch`,
+`fetch-failed`, `merge-failed`, `no-default-branch`, or
+`not-a-git-repo`) appears in the LOCAL FOLLOW-UPS block before the
+symlink summary. As a defense-in-depth layer for the
 dirty-canonical case, `removeIfManagedSymlink` (in `bin/lib/symlink.ts`)
 now defers reaping a dangling pointer when the recorded source still
 exists in `origin/<default>`'s tree but not in the canonical working
