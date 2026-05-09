@@ -257,24 +257,25 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     return [...agentsContent.matchAll(re)].map((m) => normaliseExemption(m[1]));
   }
 
-  it("flow-pipeline/SKILL.md Hard rules lists exactly 5 Task-tool exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 6 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
       exemptions.length,
-      "flow-pipeline/SKILL.md must list exactly 5 Task-tool exemption blocks " +
+      "flow-pipeline/SKILL.md must list exactly 6 Task-tool exemption blocks " +
         "(one each for /pr-review Multi-Agent Review, /product-planning Discovery " +
         "Subagent, /new-feature Scout Subagent, /pr-review Fix-Applier Subagent, " +
-        "and /coder Edit-Applier Subagent). Found: " + JSON.stringify(exemptions),
-    ).toBe(5);
+        "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, and /coder " +
+        "Edit-Applier Subagent). Found: " + JSON.stringify(exemptions),
+    ).toBe(6);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 5 Task-tool exemption bullets", () => {
+  it("AGENTS.md ## Don'ts lists exactly 6 Task-tool exemption bullets", () => {
     const exemptions = extractAgentsExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 5 Task-tool exemption bullets. " +
+      "AGENTS.md ## Don'ts must list exactly 6 Task-tool exemption bullets. " +
         "Found: " + JSON.stringify(exemptions),
-    ).toBe(5);
+    ).toBe(6);
   });
 
   it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
@@ -296,43 +297,43 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("flow-pipeline/SKILL.md Hard rules preamble references five exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules preamble references six exemptions", () => {
     expect(
-      skillStripped.match(/the\s+\*\*only five\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
-      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only five** authorised " +
+      skillStripped.match(/the\s+\*\*only six\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only six** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Hard rules opening references five Task-tool exceptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules opening references six Task-tool exceptions", () => {
     expect(
-      skillStripped.match(/the\s+five\s+narrowly-named Task-tool exceptions that\s+follow/),
-      "flow-pipeline/SKILL.md Hard rules opening must say 'the five narrowly-named " +
+      skillStripped.match(/the\s+six\s+narrowly-named Task-tool exceptions that\s+follow/),
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the six narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
     ).toBeTruthy();
   });
 
-  it("AGENTS.md upstream prose references five exceptions", () => {
+  it("AGENTS.md upstream prose references six exceptions", () => {
     expect(
-      agentsContent.match(/\*\*with five narrowly-named exceptions\*\*/),
-      "AGENTS.md ## Supervisor and sub-skills must say '**with five narrowly-named exceptions**'. " +
+      agentsContent.match(/\*\*with six narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with six narrowly-named exceptions**'. " +
         "The count must match the bullet list under ## Don'ts.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/The five\s+named exceptions are/),
-      "AGENTS.md ## Don'ts parent bullet must say 'The five named exceptions are'. " +
+      agentsContent.match(/The six\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The six named exceptions are'. " +
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/the\s+\*\*only five\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
-      "AGENTS.md ## Don'ts closer must say 'the **only five** authorised Task-tool fan-out sites'. " +
+      agentsContent.match(/the\s+\*\*only six\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "AGENTS.md ## Don'ts closer must say 'the **only six** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Verification (this skill) lists all five exemptions by name", () => {
+  it("flow-pipeline/SKILL.md Verification (this skill) lists all six exemptions by name", () => {
     const verificationSection =
       content.split("# Verification")[1] ?? content.split("# Verification (this skill)")[1] ?? "";
     expect(
@@ -356,10 +357,15 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
         "as one of the named Task-tool exemptions.",
     ).toBe(true);
     expect(
+      verificationSection.includes("Merge-Conflict Resolver Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Merge-Conflict Resolver Subagent' " +
+        "as one of the named Task-tool exemptions.",
+    ).toBe(true);
+    expect(
       verificationSection.includes("Independent Edit-Applier Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Edit-Applier Subagent' " +
-        "as one of the named Task-tool exemptions. The fifth exemption was added in the " +
-        "/coder refactor; this list must enumerate all five.",
+        "as one of the named Task-tool exemptions. The sixth exemption was added in the " +
+        "/coder refactor; this list must enumerate all six.",
     ).toBe(true);
   });
 });
