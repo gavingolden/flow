@@ -51,8 +51,12 @@ function extractStep10(content: string): string {
 const STEP_10 = extractStep10(skillContent);
 
 describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree", () => {
-  it("wraps every `gh pr merge --squash --delete-branch` in `cd \"$PRIMARY\" && `", () => {
-    const needle = 'gh pr merge --squash --delete-branch';
+  it("wraps every `gh pr merge --squash` invocation in `cd \"$PRIMARY\" && `", () => {
+    // An "invocation" is an executable shell line — it always has `"$PR"`
+    // as the PR argument. Bare-prose backtick references like
+    // "`gh pr merge --squash` stderr that triggered this resolver:" are
+    // descriptions, not invocations, and are excluded.
+    const needle = 'gh pr merge --squash "$PR"';
     const wrapper = 'cd "$PRIMARY" && ';
     const offending: string[] = [];
     const stepLines = STEP_10.split("\n");
@@ -88,7 +92,7 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
   });
 
   it("keeps the auto-merge rubric's action row in sync with the wrapped form", () => {
-    const needle = '(cd "$PRIMARY" && gh pr merge --squash --delete-branch';
+    const needle = '(cd "$PRIMARY" && gh pr merge --squash';
     expect(
       rubricContent.includes(needle),
       `auto-merge-rubric.md must reference the wrapped form \`${needle}\` ` +
