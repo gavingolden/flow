@@ -75,6 +75,22 @@ in-process for skills; shell out for scripts; never delegate.
 > auto-merge exemptions in `AGENTS.md`. If a future skill needs the
 > same license, add it here by name rather than generalising the rule.
 >
+> **Load the Task tool at each spawn site.** Each of the six spawn
+> procedures below must instruct the supervisor to load the Task
+> tool schema via `ToolSearch query="select:Task"` *before* invoking
+> Task. In Claude Code sessions where `Task` is a deferred capability
+> (no top-level schema), an unguarded invocation silently falls
+> through to in-line execution — exactly the regression PR #124
+> introduced and which this preamble prevents recurring. On missing
+> schema, escalate `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`
+> rather than falling back to in-line execution; the fan-out's value
+> is its context isolation, and an in-line fallback breaks the
+> contract that each exemption is justified by. See each exemption's
+> spawn procedure for the canonical "Load the Task tool before
+> spawning" paragraph and `# Failure paths` below for the escalation
+> script. This is a sibling note to the six exemption blocks below,
+> not a seventh exemption.
+>
 > **Task-tool exemption #1: `/pr-review` Independent Multi-Agent
 > Review.** When the supervisor invokes `/pr-review` in step 8,
 > `/pr-review`'s "Independent Multi-Agent Review" step spawns four
@@ -1081,6 +1097,8 @@ force-pushes, and returns a brief summary. The supervisor never sees
 the rebase output, the per-file resolution prose, or the force-push
 transcript — only the artifact and the summary.
 
+**Load the Task tool before spawning.** In Claude Code sessions where `Task` is a deferred capability (no top-level schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains a `<function>{"name": "Task", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+
 Resolve the inputs the subagent needs, then make exactly **one**
 Task call:
 
@@ -1471,6 +1489,36 @@ echo "NEEDS HUMAN: branch-mismatch <expected vs actual from stderr>"
 There is no auto-recovery — branch state is load-bearing and the
 user must inspect (`git reflog`, `git worktree list`) to decide
 whether the rename was malicious, accidental, or expected. Leave the
+worktree + PR intact.
+
+## Task-tool unavailable (no retries)
+
+Fires when any of the six spawn procedures' load step
+(`ToolSearch query="select:Task"`) returns a response that does not
+contain a `<function>{"name": "Task", ...}</function>` line — i.e. the
+Task tool is a deferred capability the harness has not surfaced
+top-level in the current session. The supervisor must NOT fall back
+to in-line execution; in-line fallback breaks the context-isolation
+contract each Task-tool exemption is justified by (PR #124 was the
+inaugural silent-fallback regression). Escalate immediately:
+
+```bash
+flow-state-update --phase needs-human
+flow-followups run --note-only
+flow-notify --status needs-human --reason "task-tool-unavailable: <exemption-name>"
+echo "NEEDS HUMAN: task-tool-unavailable: <exemption-name>"
+```
+
+`<exemption-name>` is the spawn site's canonical name — one of
+`pr-review-multi-agent-review`, `pr-review-fix-applier`,
+`product-planning-discovery`, `new-feature-scout`,
+`coder-edit-applier`, `flow-pipeline-merge-resolver`.
+
+No retry is appropriate because the deferred-tool surfacing is
+environmental — user remediation is to re-run in a session where
+Task is surfaced top-level (typically by restarting `claude` or
+upgrading the CLI). This complements (does not replace) the
+per-step retry caps in `references/failure-recovery.md`. Leave the
 worktree + PR intact.
 
 The full per-step cap table and the resume-from-disk decision tree

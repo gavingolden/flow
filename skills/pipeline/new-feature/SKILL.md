@@ -119,6 +119,8 @@ Decide whether to spawn the scout subagent based on the **hybrid threshold**:
 
 ### Spawn procedure (wider-scope path only)
 
+**Load the Task tool before spawning.** In Claude Code sessions where `Task` is a deferred capability (no top-level schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains a `<function>{"name": "Task", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: new-feature-scout` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+
 1. Resolve the working directory absolutely. If the caller passed a
    `WORKTREE` value (typical when invoked from `/flow-pipeline`), use it.
    Otherwise use `pwd`. Define:
