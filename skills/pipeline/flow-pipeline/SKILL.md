@@ -1039,9 +1039,16 @@ Branch on `.decision`:
 **Phase:** `merging`
 
 ```bash
-MERGE_STDERR=$(gh pr merge --squash --delete-branch "$PR" 2>&1 1>/dev/null)
+PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
+MERGE_STDERR=$(cd "$PRIMARY" && gh pr merge --squash --delete-branch "$PR" 2>&1 1>/dev/null)
 MERGE_RC=$?
 ```
+
+The primary worktree always has the base branch checked out (flow's
+invariant), so gh's post-merge `git checkout <base>` runs as a no-op
+there. Running the merge from `$WORKTREE` (which has the feature branch
+checked out) would make that checkout collide with the primary worktree
+and fail, even though the squash already succeeded server-side.
 
 On `MERGE_RC == 0`: continue to the post-merge sweep below.
 
@@ -1051,13 +1058,13 @@ On non-zero exit, branch on the failure class:
   `Pull Request is not mergeable`, `not mergeable: the merge commit
   cannot be cleanly created`, `merge conflict between`. Spawn the
   Independent Merge-Conflict Resolver Subagent (see below), then
-  retry `gh pr merge --squash --delete-branch "$PR"` exactly once.
+  retry `(cd "$PRIMARY" && gh pr merge --squash --delete-branch "$PR")` exactly once.
   On retry success, continue to the post-merge sweep. On retry
   failure, escalate `NEEDS HUMAN: merge-failed: <resolver summary
   first sentence>`.
 - **Non-conflict** (auth, network, branch-protection denied, required
   check failed, PR closed externally, any unrecognised stderr) —
-  retry `gh pr merge --squash --delete-branch "$PR"` once. If still
+  retry `(cd "$PRIMARY" && gh pr merge --squash --delete-branch "$PR")` once. If still
   failing, escalate via the standard `# Failure paths` block
   (`flow-state-update --phase needs-human` → `flow-followups run
   --note-only` → `flow-notify --status needs-human --url "<pr-url>"
@@ -1153,7 +1160,7 @@ filled prompt. After it returns:
    re-spawn the resolver — exactly one Task call per run, per the
    exemption contract.)
 2. Read the artifact's `force_push_status`. If `succeeded`, retry
-   `gh pr merge --squash --delete-branch "$PR"` exactly once. If
+   `(cd "$PRIMARY" && gh pr merge --squash --delete-branch "$PR")` exactly once. If
    `failed` or `skipped`, do not retry — escalate
    `NEEDS HUMAN: merge-failed: <jq -r .summary "$ARTIFACT_PATH" |
    head -1>` and end.
