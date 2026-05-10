@@ -5,7 +5,6 @@ description: >-
   symlinks (.env, .claude/settings.local.json) and dependency installation. Use
   when user says "add worktree", "create worktree", "new worktree", or "spin up
   a worktree".
-disable-model-invocation: true
 argument-hint: "branch-name [base-branch]"
 ---
 
