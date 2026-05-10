@@ -96,4 +96,54 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
         `step 10 agree on the primary-worktree CWD requirement.`,
     ).toBe(true);
   });
+
+  it('wraps the resolver-spawn `git fetch origin "$BASE_BRANCH"` in `cd "$WORKTREE" && `', () => {
+    const needle = 'git fetch origin "$BASE_BRANCH"';
+    const wrapper = 'cd "$WORKTREE" && ';
+    const offending: string[] = [];
+    const stepLines = STEP_10.split("\n");
+    stepLines.forEach((line, idx) => {
+      if (!line.includes(needle)) return;
+      const needleIdx = line.indexOf(needle);
+      const preceding = line.slice(0, needleIdx);
+      if (!preceding.includes(wrapper)) {
+        offending.push(`step10:line ${idx + 1}: ${line}`);
+      }
+    });
+    expect(
+      offending,
+      `Every \`${needle}\` inside step 10's resolver-spawn block must be ` +
+        `preceded on the same line by \`${wrapper}\` (so the fetch runs from ` +
+        `the per-task worktree, not the supervisor's ambient CWD — which a ` +
+        `future refactor might silently change). Offending lines:\n` +
+        `${offending.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it('wraps the resolver-spawn `git diff --name-only --diff-filter=U` in `cd "$WORKTREE" && `', () => {
+    const needle = "git diff --name-only --diff-filter=U";
+    const wrapper = 'cd "$WORKTREE" && ';
+    const offending: string[] = [];
+    const stepLines = STEP_10.split("\n");
+    stepLines.forEach((line, idx) => {
+      if (!line.includes(needle)) return;
+      const needleIdx = line.indexOf(needle);
+      const preceding = line.slice(0, needleIdx);
+      // Skip markdown prose mentions (the needle appearing inside an inline
+      // backtick code-span). Only the actual fenced shell invocation needs
+      // the wrapper; prose that quotes the command for explanation does not.
+      if (preceding.includes("`")) return;
+      if (!preceding.includes(wrapper)) {
+        offending.push(`step10:line ${idx + 1}: ${line}`);
+      }
+    });
+    expect(
+      offending,
+      `Every \`${needle}\` inside step 10's resolver-spawn block must be ` +
+        `preceded on the same line by \`${wrapper}\` (so \`CONFLICTING_FILES\` ` +
+        `is computed from the per-task worktree's index, not whatever CWD the ` +
+        `supervisor happens to be in when step 10 runs). Offending lines:\n` +
+        `${offending.join("\n")}`,
+    ).toEqual([]);
+  });
 });
