@@ -415,3 +415,78 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     expect(fs.existsSync(wtDir)).toBe(false);
   });
 });
+
+// --- Integration: auto-delete merged branches -------------------------------
+
+describe("flow-remove-worktree (integration: auto-delete merged branches)", () => {
+  let fx: FreshRepoFixture;
+  beforeEach(() => {
+    fx = makeFreshRepoFixture();
+  });
+  afterEach(() => fx.cleanup());
+
+  it("auto-deletes the local branch when its tip is reachable from origin/<base>", async () => {
+    const create = await runNewWorktree(["merged-feat"], fx.repoDir);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    const wtDir = path.join(path.dirname(fx.repoDir), "repo-merged-feat");
+
+    // Commit on the per-task branch from inside the worktree.
+    fs.writeFileSync(path.join(wtDir, "feature.txt"), "shipped\n");
+    mustGit(["add", "."], wtDir);
+    mustGit(["commit", "-m", "feat"], wtDir);
+
+    // Fast-forward origin/main to the per-task branch tip so the branch is
+    // provably reachable from origin/main, then refresh the primary's
+    // remote-tracking ref so detectDefaultBranch + the merge probe both see it.
+    mustGit(["push", "origin", "merged-feat:main"], wtDir);
+    mustGit(["fetch", "origin"], fx.repoDir);
+
+    const r = await runHelper(["merged-feat"], fx.repoDir);
+    expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
+    expect(fs.existsSync(wtDir)).toBe(false);
+
+    const branches = mustGit(["branch", "--list"], fx.repoDir);
+    expect(branches).not.toContain("merged-feat");
+    expect(r.stdout, `stdout: ${r.stdout}`).toMatch(/fully merged into origin\/main/);
+  });
+
+  it("preserves the local branch when it has commits not in origin/<base>", async () => {
+    const create = await runNewWorktree(["unmerged-feat"], fx.repoDir);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    const wtDir = path.join(path.dirname(fx.repoDir), "repo-unmerged-feat");
+
+    // Commit on the per-task branch but DO NOT push — origin/main stays at the
+    // initial commit, so the branch tip is unreachable from origin/main.
+    fs.writeFileSync(path.join(wtDir, "wip.txt"), "in progress\n");
+    mustGit(["add", "."], wtDir);
+    mustGit(["commit", "-m", "wip"], wtDir);
+
+    const r = await runHelper(["unmerged-feat"], fx.repoDir);
+    expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
+    expect(fs.existsSync(wtDir)).toBe(false);
+
+    const branches = mustGit(["branch", "--list"], fx.repoDir);
+    expect(branches).toContain("unmerged-feat");
+    expect(r.stdout, `stdout: ${r.stdout}`).toMatch(/was kept/);
+  });
+
+  it("--delete-branch flag still force-attempts deletion regardless of merge state", async () => {
+    const create = await runNewWorktree(["flag-feat"], fx.repoDir);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    const wtDir = path.join(path.dirname(fx.repoDir), "repo-flag-feat");
+
+    // No new commits — branch tip equals origin/main, so `git branch -d`
+    // would succeed anyway. The point of this spec is that the legacy
+    // success line ("Branch 'flag-feat' deleted.") fires WITHOUT the
+    // "fully merged into" suffix, proving the auto-detection arm did NOT
+    // run when --delete-branch was set.
+    const r = await runHelper(["flag-feat", "--delete-branch"], fx.repoDir);
+    expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
+    expect(fs.existsSync(wtDir)).toBe(false);
+
+    const branches = mustGit(["branch", "--list"], fx.repoDir);
+    expect(branches).not.toContain("flag-feat");
+    expect(r.stdout, `stdout: ${r.stdout}`).toContain("Branch 'flag-feat' deleted.");
+    expect(r.stdout, `stdout: ${r.stdout}`).not.toMatch(/fully merged into/);
+  });
+});

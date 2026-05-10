@@ -18,7 +18,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { resolveSlugFromPane } from "./lib/tmux";
-import { SYMLINK_FILES } from "./lib/worktree-fs";
+import { detectDefaultBranch, SYMLINK_FILES } from "./lib/worktree-fs";
 import { BRANCH_MARKER_FILENAME, FLOW_TMP_DIRNAME } from "./lib/worktree-marker";
 
 // --- Logging ---
@@ -46,6 +46,37 @@ function git(args: string[], cwd?: string): string {
   }
 
   return result.stdout.toString().trim();
+}
+
+/**
+ * Probes whether `branchName` is fully merged into `refs/remotes/origin/<baseBranch>`.
+ * Two primitives in series, each independently try/caught so a transient failure of
+ * one (e.g. unfetched ref) does not poison the other. Returns false on any error —
+ * the caller's auto-delete path requires positive evidence, so silence is treated
+ * as "not merged" (safe default).
+ */
+function isBranchMerged(branchName: string, baseBranch: string, primaryDir: string): boolean {
+  const remoteRef = `refs/remotes/origin/${baseBranch}`;
+  try {
+    const out = git(["branch", "--merged", remoteRef], primaryDir);
+    const names = out
+      .split("\n")
+      .map((line) => line.replace(/^\*/, "").trim())
+      .filter(Boolean);
+    if (names.includes(branchName)) return true;
+  } catch {
+    // fall through to merge-base probe
+  }
+  try {
+    const result = Bun.spawnSync(
+      ["git", "merge-base", "--is-ancestor", branchName, remoteRef],
+      { cwd: primaryDir, stdout: "pipe", stderr: "pipe" },
+    );
+    if (result.exitCode === 0) return true;
+  } catch {
+    // both probes failed — treat as not merged
+  }
+  return false;
 }
 
 // --- Types ---
@@ -268,8 +299,24 @@ function main(): void {
   git(["worktree", "remove", info.worktreeDir], info.primaryDir);
   log.success("Worktree removed.");
 
-  // Optionally delete the branch
-  if (deleteBranch) {
+  // Auto-delete probe: when --delete-branch wasn't passed AND the per-task branch
+  // is provably fully merged into origin/<base>, fall through to the same deletion
+  // arm. Detached HEAD skips. Detection failures are swallowed so the existing
+  // "kept" arm fires unchanged — auto-delete requires positive evidence.
+  let autoDelete = false;
+  let baseBranch: string | undefined;
+  if (!deleteBranch && info.branchName) {
+    try {
+      baseBranch = detectDefaultBranch(info.primaryDir);
+      if (isBranchMerged(info.branchName, baseBranch, info.primaryDir)) {
+        autoDelete = true;
+      }
+    } catch {
+      // Default-branch detection or probe failed — fall through to "kept".
+    }
+  }
+
+  if (deleteBranch || autoDelete) {
     if (!info.branchName) {
       log.warn(
         "--delete-branch was requested but the worktree had no associated branch (detached HEAD). Skipping branch deletion.",
@@ -278,7 +325,13 @@ function main(): void {
       console.log(`🌿 Deleting branch '${info.branchName}'...`);
       try {
         git(["branch", "-d", info.branchName], info.primaryDir);
-        log.success(`Branch '${info.branchName}' deleted.`);
+        if (autoDelete && !deleteBranch && baseBranch) {
+          log.success(
+            `Branch '${info.branchName}' deleted (fully merged into origin/${baseBranch}).`,
+          );
+        } else {
+          log.success(`Branch '${info.branchName}' deleted.`);
+        }
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log.warn(`Could not delete branch: ${msg}`);
