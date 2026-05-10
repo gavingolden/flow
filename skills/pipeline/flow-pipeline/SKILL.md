@@ -1097,8 +1097,8 @@ mkdir -p "$WORKTREE/.flow-tmp"
 # the canonical query for unmerged paths and catches every U-class
 # status (UU/AU/UA/DU/UD), unlike a porcelain prefix grep which misses
 # the AU/DU pair where U is in column 2.
-git fetch origin "$BASE_BRANCH" || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
-CONFLICTING_FILES=$(git diff --name-only --diff-filter=U)
+(cd "$WORKTREE" && git fetch origin "$BASE_BRANCH") || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
+CONFLICTING_FILES=$(cd "$WORKTREE" && git diff --name-only --diff-filter=U)
 PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
 ```
 
