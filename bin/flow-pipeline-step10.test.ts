@@ -74,11 +74,16 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
 
   it("derives `$PRIMARY` from `git worktree list` exactly once inside step 10", () => {
     const needle =
-      "PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {print $2; exit}')";
+      "PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, \"\"); print; exit}')";
     expect(
       STEP_10.includes(needle),
       `Step 10 must derive \`$PRIMARY\` via \`${needle}\` so the merge ` +
-        `subshell can \`cd\` into the primary worktree.`,
+        `subshell can \`cd\` into the primary worktree. The awk form keys ` +
+        `on the literal \`worktree \` prefix and strips it (rather than ` +
+        `field-splitting \`{print $2}\`), so worktree paths containing ` +
+        `whitespace survive intact — a naive \`{print $2}\` truncates at the ` +
+        `first space and reintroduces \`merge-failed\` escalations on ` +
+        `machines with spaced checkout paths.`,
     ).toBe(true);
   });
 

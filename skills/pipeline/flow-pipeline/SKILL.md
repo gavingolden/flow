@@ -1040,7 +1040,7 @@ Branch on `.decision`:
 **Phase:** `merging`
 
 ```bash
-PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {print $2; exit}')
+PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
 MERGE_STDERR=$(cd "$PRIMARY" && gh pr merge --squash --delete-branch "$PR" 2>&1 1>/dev/null)
 MERGE_RC=$?
 ```
