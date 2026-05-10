@@ -10,7 +10,6 @@ description: >-
   chats. The skill is one long-running supervisor turn per phase, not a
   sub-agent.
 argument-hint: '"<feature description>"'
-disable-model-invocation: true
 ---
 
 # Goal

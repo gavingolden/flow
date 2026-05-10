@@ -4,7 +4,6 @@ description: >-
   Safely remove a git worktree and optionally delete its branch. Use when user
   says "remove worktree", "delete worktree", "clean up worktree", or "worktree
   cleanup".
-disable-model-invocation: true
 argument-hint: "worktree-path-or-branch [--delete-branch]"
 ---
 
