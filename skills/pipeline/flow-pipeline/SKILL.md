@@ -1285,6 +1285,15 @@ flow-notify --status merged --url "<pr-url>"
 (the PR URL is available from `gh pr view "$PR" --json url -q .url`).
 Print `MERGED` on its own line. End.
 
+**Remote-branch deletion is delegated to GitHub.** `flow-remove-worktree
+--delete-branch` runs `git branch -d <branch>` locally only — it does not
+push a delete to `origin`. The remote feature branch is reaped by
+GitHub's `deleteBranchOnMerge` repo setting (Settings → General →
+"Automatically delete head branches"), which fires server-side on
+squash. flow assumes this setting is on; consumers who disable it must
+either re-enable it or run `git push origin --delete <branch>` manually
+after each merge.
+
 **Failed auto-runs are reported, not escalated.** A non-zero exit code from
 an allowlisted command (e.g. `flow setup --upgrade` failed because of a
 permission issue) is rendered in the printed block as `FAIL <command> (exit
@@ -1362,7 +1371,7 @@ Branch on `.resumeAt`:
 | `step-6` | Re-enter step 6 (verify). Re-invoke `/verify`. |
 | `step-7` | Re-enter step 7 (ci-wait). Re-enter the poll loop via `flow-ci-wait`. |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/pr-review <PR>`. |
-| `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — `flow-followups run` then `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
+| `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — `flow-followups run` then `flow-remove-worktree --delete-branch`, write `phase: merged`, print `MERGED`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
 | `terminal` | Already in a terminal state. Print the corresponding line (`MERGED` / `gated` / `cancelled`) and end without re-running anything. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |
@@ -1404,10 +1413,10 @@ Branch on `.resumeAt`:
   was merged externally); if neither ran, the worktree stays.
 - It does not re-run `gh pr merge` on a PR that is already `MERGED`.
   An already-merged PR with the worktree still present resumes into
-  step 9's `MERGED` cleanup branch (run `flow-remove-worktree`, write
-  `phase: merged`, print `MERGED`), not step 10. The roadmap row was
-  flipped to `✅ shipped (#$PR)` in the PR's own diff by `/pr-review`
-  step 7.5, so no post-merge sweep is needed.
+  step 9's `MERGED` cleanup branch (run `flow-remove-worktree
+  --delete-branch`, write `phase: merged`, print `MERGED`), not step 10.
+  The roadmap row was flipped to `✅ shipped (#$PR)` in the PR's own
+  diff by `/pr-review` step 7.5, so no post-merge sweep is needed.
 - It does not rewrite state.json on entry. The first transition you
   make from your re-entry step is what updates phase.
 
