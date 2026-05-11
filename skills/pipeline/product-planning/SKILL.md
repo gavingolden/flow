@@ -73,7 +73,7 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 
 # Spawn procedure
 
-**Load the Task tool before spawning.** In Claude Code sessions where `Task` is a deferred capability (no top-level schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains a `<function>{"name": "Task", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: product-planning-discovery` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: product-planning-discovery` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
 
 1. Resolve the working directory absolutely. If the caller passed a `WORKTREE`
    value (typical when invoked from `/flow-pipeline`), use it. Otherwise use
