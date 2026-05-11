@@ -440,7 +440,7 @@ no compile step.
   - **Task-tool spawn sites must load Task first.** Each of the six
     Task-tool exemption sites above must instruct the supervisor to
     load the Task tool schema via `ToolSearch query="select:Task"`
-    before invoking Task. In Claude Code sessions where neither `Task` nor its alias `Agent`
+    before invoking Task (or its alias `Agent`). In Claude Code sessions where neither `Task` nor its alias `Agent`
     is surfaced top-level by the harness (both are aliases of the
     same one-shot subagent-spawn primitive: identical
     `subagent_type` / `prompt` / `description` schema), an unguarded

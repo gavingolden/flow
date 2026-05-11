@@ -78,7 +78,7 @@ in-process for skills; shell out for scripts; never delegate.
 > **Load the Task tool at each spawn site.** Each of the six spawn
 > procedures below must instruct the supervisor to load the Task
 > tool schema via `ToolSearch query="select:Task"` *before* invoking
-> Task. In Claude Code sessions where neither `Task` nor its alias `Agent` is
+> Task (or its alias `Agent`). In Claude Code sessions where neither `Task` nor its alias `Agent` is
 > surfaced top-level by the harness (both are aliases of the same
 > one-shot subagent-spawn primitive: identical `subagent_type` /
 > `prompt` / `description` schema), an unguarded invocation silently
@@ -1528,8 +1528,8 @@ echo "NEEDS HUMAN: task-tool-unavailable: <exemption-name>"
 
 No retry is appropriate because the deferred-tool surfacing is
 environmental — user remediation is to re-run in a session where
-Task is surfaced top-level (typically by restarting `claude` or
-upgrading the CLI). This complements (does not replace) the
+either `Task` or its alias `Agent` is surfaced top-level (typically
+by restarting `claude` or upgrading the CLI). This complements (does not replace) the
 per-step retry caps in `references/failure-recovery.md`. Leave the
 worktree + PR intact.
 
