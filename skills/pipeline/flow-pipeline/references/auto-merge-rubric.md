@@ -145,9 +145,9 @@ auto-merge path.
 
 | PR state | Unchecked count | Decision | Action |
 |---|---|---|---|
-| `OPEN` | `0` | **auto-merge** | `(cd "$PRIMARY" && gh pr merge --squash --delete-branch <pr>)` (where `$PRIMARY` is the primary worktree path, so gh's post-merge `git checkout <base>` is a no-op there), then step 10.5, then `flow-remove-worktree`, then write `phase: merged`, print `MERGED`, end. |
+| `OPEN` | `0` | **auto-merge** | `(cd "$PRIMARY" && gh pr merge --squash <pr>)` (where `$PRIMARY` is the primary worktree path, so gh's post-merge `git checkout <base>` is a no-op there), then step 10.5, then `flow-remove-worktree --delete-branch`, then write `phase: merged`, print `MERGED`, end. |
 | `OPEN` | `> 0` | **gated** | Write `phase: gated`. Print the validation checklist, the PR URL, and the manual-merge verb (`gh pr merge --squash <pr>`). End. |
-| `MERGED` | (any) | **already-merged** | The user merged externally (gated → merged path). Run step 10.5, then `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end. |
+| `MERGED` | (any) | **already-merged** | The user merged externally (gated → merged path). Run step 10.5, then `flow-remove-worktree --delete-branch`, write `phase: merged`, print `MERGED`, end. |
 | `CLOSED` | (any) | **closed-without-merge** | Escalate: `NEEDS HUMAN: pr-closed-without-merge <url>`. Leave worktree intact (the user may want to reopen). End. |
 
 ## Defensive cases

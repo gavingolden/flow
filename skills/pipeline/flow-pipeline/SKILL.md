@@ -942,7 +942,7 @@ Branch on `.decision`:
 | `proceed-to-review` | Continue to step 8. |
 | `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal. |
 | `ci-failed` | Continue to step 5 mode=fix. Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
-| `merged-externally` | PR was merged externally mid-flight. Run `flow-followups run` (executes auto-allowlisted entries while the worktree is still alive), then `flow-remove-worktree`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
+| `merged-externally` | PR was merged externally mid-flight. Run `flow-followups run` (executes auto-allowlisted entries while the worktree is still alive), then `flow-remove-worktree --delete-branch`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
 | `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
 
@@ -1045,7 +1045,7 @@ Branch on `.decision`:
 |---|---|
 | `auto-merge` | Run `flow-followups pr-body-upsert "$PR"` (no-op when log is empty; otherwise idempotent in-place upsert of `## Local Follow-ups` so the section survives the squash-merge). Continue to step 10 (auto-merge). |
 | `gated` | Run `flow-followups pr-body-upsert "$PR"` (idempotent), then `flow-followups run --note-only` (the deferred LOCAL FOLLOW-UPS block — see step 11 for the contract). Write `phase: gated`. Call `flow-notify --status gated --url "$PR_URL" --reason "$REASON"` (the helper sets `.reason` to the first `.validationItems` entry, or `auto-merge opted out (--no-auto-merge)` when `autoMerge: false` with zero unchecked items). Print: `GATED:`, the PR URL, `$VALIDATION_ITEMS` (one per line, already newline-separated by the jq above), and `merge with: gh pr merge --squash <PR>`. End. |
-| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Run `flow-followups run` (executes allowlisted+auto entries while the worktree is still alive), then `flow-remove-worktree`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
+| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Run `flow-followups run` (executes allowlisted+auto entries while the worktree is still alive), then `flow-remove-worktree --delete-branch`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
 | `closed-no-merge` | Call `flow-notify --status needs-human --url "$PR_URL" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
 | `escalate-heading-missing` | Escalate `NEEDS HUMAN: test-steps-section-missing`. |
 | `escalate-gh-error` | Escalate `NEEDS HUMAN: gh-error <.reason>`. |
@@ -1056,7 +1056,7 @@ Branch on `.decision`:
 
 ```bash
 PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-MERGE_STDERR=$(cd "$PRIMARY" && gh pr merge --squash --delete-branch "$PR" 2>&1 1>/dev/null)
+MERGE_STDERR=$(cd "$PRIMARY" && gh pr merge --squash "$PR" 2>&1 1>/dev/null)
 MERGE_RC=$?
 ```
 
@@ -1074,13 +1074,13 @@ On non-zero exit, branch on the failure class:
   `Pull Request is not mergeable`, `not mergeable: the merge commit
   cannot be cleanly created`, `merge conflict between`. Spawn the
   Independent Merge-Conflict Resolver Subagent (see below), then
-  retry `(cd "$PRIMARY" && gh pr merge --squash --delete-branch "$PR")` exactly once.
+  retry `(cd "$PRIMARY" && gh pr merge --squash "$PR")` exactly once.
   On retry success, continue to the post-merge sweep. On retry
   failure, escalate `NEEDS HUMAN: merge-failed: <resolver summary
   first sentence>`.
 - **Non-conflict** (auth, network, branch-protection denied, required
   check failed, PR closed externally, any unrecognised stderr) —
-  retry `(cd "$PRIMARY" && gh pr merge --squash --delete-branch "$PR")` once. If still
+  retry `(cd "$PRIMARY" && gh pr merge --squash "$PR")` once. If still
   failing, escalate via the standard `# Failure paths` block
   (`flow-state-update --phase needs-human` → `flow-followups run
   --note-only` → `flow-notify --status needs-human --url "<pr-url>"
@@ -1178,7 +1178,7 @@ filled prompt. After it returns:
    re-spawn the resolver — exactly one Task call per run, per the
    exemption contract.)
 2. Read the artifact's `force_push_status`. If `succeeded`, retry
-   `(cd "$PRIMARY" && gh pr merge --squash --delete-branch "$PR")` exactly once. If
+   `(cd "$PRIMARY" && gh pr merge --squash "$PR")` exactly once. If
    `failed` or `skipped`, do not retry — escalate
    `NEEDS HUMAN: merge-failed: <jq -r .summary "$ARTIFACT_PATH" |
    head -1>` and end.
@@ -1295,13 +1295,22 @@ For MERGED, run the helper here and finalize:
 
 ```bash
 flow-followups run                                # executes auto-allowlisted entries; prints block
-flow-remove-worktree
+flow-remove-worktree --delete-branch
 flow-state-update --phase merged
 flow-notify --status merged --url "<pr-url>"
 ```
 
 (the PR URL is available from `gh pr view "$PR" --json url -q .url`).
 Print `MERGED` on its own line. End.
+
+**Remote-branch deletion is delegated to GitHub.** `flow-remove-worktree
+--delete-branch` runs `git branch -d <branch>` locally only — it does not
+push a delete to `origin`. The remote feature branch is reaped by
+GitHub's `deleteBranchOnMerge` repo setting (Settings → General →
+"Automatically delete head branches"), which fires server-side on
+squash. flow assumes this setting is on; consumers who disable it must
+either re-enable it or run `git push origin --delete <branch>` manually
+after each merge.
 
 **Failed auto-runs are reported, not escalated.** A non-zero exit code from
 an allowlisted command (e.g. `flow setup --upgrade` failed because of a
@@ -1380,7 +1389,7 @@ Branch on `.resumeAt`:
 | `step-6` | Re-enter step 6 (verify). Re-invoke `/verify`. |
 | `step-7` | Re-enter step 7 (ci-wait). Re-enter the poll loop via `flow-ci-wait`. |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/pr-review <PR>`. |
-| `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — `flow-followups run` then `flow-remove-worktree`, write `phase: merged`, print `MERGED`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
+| `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — `flow-followups run` then `flow-remove-worktree --delete-branch`, write `phase: merged`, print `MERGED`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
 | `terminal` | Already in a terminal state. Print the corresponding line (`MERGED` / `gated` / `cancelled`) and end without re-running anything. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |
@@ -1422,10 +1431,10 @@ Branch on `.resumeAt`:
   was merged externally); if neither ran, the worktree stays.
 - It does not re-run `gh pr merge` on a PR that is already `MERGED`.
   An already-merged PR with the worktree still present resumes into
-  step 9's `MERGED` cleanup branch (run `flow-remove-worktree`, write
-  `phase: merged`, print `MERGED`), not step 10. The roadmap row was
-  flipped to `✅ shipped (#$PR)` in the PR's own diff by `/pr-review`
-  step 7.5, so no post-merge sweep is needed.
+  step 9's `MERGED` cleanup branch (run `flow-remove-worktree
+  --delete-branch`, write `phase: merged`, print `MERGED`), not step 10.
+  The roadmap row was flipped to `✅ shipped (#$PR)` in the PR's own
+  diff by `/pr-review` step 7.5, so no post-merge sweep is needed.
 - It does not rewrite state.json on entry. The first transition you
   make from your re-entry step is what updates phase.
 
