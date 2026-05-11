@@ -78,9 +78,11 @@ in-process for skills; shell out for scripts; never delegate.
 > **Load the Task tool at each spawn site.** Each of the six spawn
 > procedures below must instruct the supervisor to load the Task
 > tool schema via `ToolSearch query="select:Task"` *before* invoking
-> Task. In Claude Code sessions where `Task` is a deferred capability
-> (no top-level schema), an unguarded invocation silently falls
-> through to in-line execution — exactly the regression PR #124
+> Task. In Claude Code sessions where neither `Task` nor its alias `Agent` is
+> surfaced top-level by the harness (both are aliases of the same
+> one-shot subagent-spawn primitive: identical `subagent_type` /
+> `prompt` / `description` schema), an unguarded invocation silently
+> falls through to in-line execution — exactly the regression PR #124
 > introduced and which this preamble prevents recurring. On missing
 > schema, escalate `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`
 > rather than falling back to in-line execution; the fan-out's value
@@ -1097,7 +1099,7 @@ force-pushes, and returns a brief summary. The supervisor never sees
 the rebase output, the per-file resolution prose, or the force-push
 transcript — only the artifact and the summary.
 
-**Load the Task tool before spawning.** In Claude Code sessions where `Task` is a deferred capability (no top-level schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains a `<function>{"name": "Task", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
 
 Resolve the inputs the subagent needs, then make exactly **one**
 Task call:
@@ -1504,8 +1506,9 @@ worktree + PR intact.
 
 Fires when any of the six spawn procedures' load step
 (`ToolSearch query="select:Task"`) returns a response that does not
-contain a `<function>{"name": "Task", ...}</function>` line — i.e. the
-Task tool is a deferred capability the harness has not surfaced
+contain *either* a `<function>{"name": "Task", ...}</function>` *or* a
+`<function>{"name": "Agent", ...}</function>` line — i.e. the harness
+has surfaced neither alias of the one-shot subagent-spawn primitive
 top-level in the current session. The supervisor must NOT fall back
 to in-line execution; in-line fallback breaks the context-isolation
 contract each Task-tool exemption is justified by (PR #124 was the

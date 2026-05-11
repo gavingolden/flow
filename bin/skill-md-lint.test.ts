@@ -554,6 +554,35 @@ describe("Task-tool ToolSearch-load preamble at all six spawn sites", () => {
       ).toBe(true);
     },
   );
+
+  it.each(SITES)(
+    "$file names both Task and Agent aliases at the spawn site for $exemption_name",
+    ({ file, exemption_name }) => {
+      const absPath = path.resolve(HERE, "..", ...file.split("/"));
+      const fileContent = fs.readFileSync(absPath, "utf8");
+      expect(
+        fileContent.includes('"name": "Task"'),
+        `${file} must include the literal '"name": "Task"' alias-tolerance literal at the ` +
+          `spawn site for '${exemption_name}'. The preamble's literal-string check must ` +
+          `succeed via at least the Task clause; econ-data PR #218 is the real-world repro — ` +
+          `in sessions where the harness surfaces the same one-shot subagent-spawn primitive ` +
+          `under the 'Agent' name with identical subagent_type/prompt/description schema, a ` +
+          `preamble that only names 'Task' regresses to the false-negative escalation that ` +
+          `surfaced in PR #218. Both literals must appear so the preamble matches whichever ` +
+          `alias the harness exposes.`,
+      ).toBe(true);
+      expect(
+        fileContent.includes('"name": "Agent"'),
+        `${file} must include the literal '"name": "Agent"' alias-tolerance literal at the ` +
+          `spawn site for '${exemption_name}'. The preamble's literal-string check must ` +
+          `also succeed via the Agent clause; econ-data PR #218 is the real-world repro — ` +
+          `in sessions where the harness surfaces the one-shot subagent-spawn primitive ` +
+          `under the 'Agent' alias (identical subagent_type/prompt/description schema), a ` +
+          `preamble that only names 'Task' regresses to a false-negative escalation. Both ` +
+          `literals must appear so the preamble matches whichever alias the harness exposes.`,
+      ).toBe(true);
+    },
+  );
 });
 
 describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-doc lint", () => {

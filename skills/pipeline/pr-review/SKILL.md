@@ -143,7 +143,7 @@ alternatives or anti-patterns).
 
 The wrapper spawns the subagent at Step 8. Before the spawn:
 
-**Load the Task tool before spawning.** In Claude Code sessions where `Task` is a deferred capability (no top-level schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains a `<function>{"name": "Task", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
 
 1. Resolve the working directory absolutely into a single shell variable
    `$WORKTREE` and use it everywhere downstream — never re-derive in any
@@ -336,7 +336,7 @@ in parallel, then merge.
 
 5. Read `references/agent-prompts.md` for the prompt templates.
 
-**Load the Task tool before spawning.** In Claude Code sessions where `Task` is a deferred capability (no top-level schema), the four parallel spawns will silently fall through to in-line execution unless the schema is loaded first. Before the Task calls below, run `ToolSearch query="select:Task"` and confirm the response contains a `<function>{"name": "Task", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the four parallel spawns will silently fall through to in-line execution unless the schema is loaded first. Before the Task calls below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
 
 **Spawn 4 agents in parallel**, each as a subagent. For each agent:
 
