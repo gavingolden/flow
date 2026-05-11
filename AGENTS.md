@@ -437,6 +437,20 @@ no compile step.
     `/flow-pipeline`'s Merge-Conflict Resolver Subagent entries,
     these are the **only six** authorised Task-tool fan-out sites
     from `/flow-pipeline`; no other skill or step may call Task.
+  - **Task-tool spawn sites must load Task first.** Each of the six
+    Task-tool exemption sites above must instruct the supervisor to
+    load the Task tool schema via `ToolSearch query="select:Task"`
+    before invoking Task. In Claude Code sessions where `Task` is a
+    deferred capability (no top-level schema), an unguarded
+    invocation silently falls through to in-line execution — the
+    inaugural silent-fallback regression was PR #124. On missing
+    schema, escalate `NEEDS HUMAN: task-tool-unavailable:
+    <exemption-name>` rather than falling back inline; each spawn
+    procedure carries the canonical "Load the Task tool before
+    spawning" paragraph, and `bin/skill-md-lint.test.ts` enforces
+    its presence at all six sites. Same narrow-and-named hygiene as
+    the Task-tool exemptions above — this is a sibling guard, not a
+    seventh exemption.
   - **AskUserQuestion exemption: `/flow-pipeline` step 4 candidate-
     issues sub-step.** `/flow-pipeline`'s "Hard rules" forbid arbitrary
     `AskUserQuestion` calls from the supervisor, with one named

@@ -502,6 +502,60 @@ describe("Edit-Applier artifact JSON schema drift (coder/SKILL.md ↔ references
   });
 });
 
+describe("Task-tool ToolSearch-load preamble at all six spawn sites", () => {
+  const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
+    {
+      file: "skills/pipeline/pr-review/SKILL.md",
+      exemption_name: "pr-review-multi-agent-review",
+    },
+    {
+      file: "skills/pipeline/pr-review/SKILL.md",
+      exemption_name: "pr-review-fix-applier",
+    },
+    {
+      file: "skills/pipeline/product-planning/SKILL.md",
+      exemption_name: "product-planning-discovery",
+    },
+    {
+      file: "skills/pipeline/new-feature/SKILL.md",
+      exemption_name: "new-feature-scout",
+    },
+    {
+      file: "skills/pipeline/coder/SKILL.md",
+      exemption_name: "coder-edit-applier",
+    },
+    {
+      file: "skills/pipeline/flow-pipeline/SKILL.md",
+      exemption_name: "flow-pipeline-merge-resolver",
+    },
+  ];
+
+  it.each(SITES)(
+    "$file carries the 'Load the Task tool before spawning' preamble and escalation tag for $exemption_name",
+    ({ file, exemption_name }) => {
+      const absPath = path.resolve(HERE, "..", ...file.split("/"));
+      const fileContent = fs.readFileSync(absPath, "utf8");
+      expect(
+        fileContent.includes("Load the Task tool before spawning"),
+        `${file} must include the literal 'Load the Task tool before spawning' anchor at ` +
+          `the spawn site for '${exemption_name}'. PR #124 was the inaugural silent-fallback ` +
+          `regression: in Claude Code sessions where Task is a deferred capability, an ` +
+          `unguarded Task call silently falls through to in-line execution and breaks the ` +
+          `context-isolation contract each Task-tool exemption is justified by. Each spawn ` +
+          `site must instruct the supervisor to load Task via ToolSearch first.`,
+      ).toBe(true);
+      const escalationTag = `task-tool-unavailable: ${exemption_name}`;
+      expect(
+        fileContent.includes(escalationTag),
+        `${file} must include the literal '${escalationTag}' escalation tag at the spawn ` +
+          `site for '${exemption_name}'. On missing Task schema, the supervisor escalates ` +
+          `'NEEDS HUMAN: ${escalationTag}' rather than falling back to in-line execution. ` +
+          `PR #124 is the regression precedent; bin/skill-md-lint.test.ts pins the contract.`,
+      ).toBe(true);
+    },
+  );
+});
+
 describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-doc lint", () => {
   it.each(STEP_PHASES.map((phase) => [phase]))(
     "every `step N(.M)?` reference in NEXT_STEP_BY_PHASE['%s'] maps to a `## Step N — ` heading in SKILL.md",
