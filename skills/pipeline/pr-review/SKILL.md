@@ -7,7 +7,6 @@ description: >-
   "address PR comments", "PR feedback", "fix review comments", "code review", "review this
   PR", "check this PR", or provides a PR number/URL. Handles both standalone independent
   reviews and addressing existing review feedback from humans or bots.
-context: fork
 argument-hint: "PR-number-or-URL"
 ---
 
@@ -143,7 +142,7 @@ alternatives or anti-patterns).
 
 The wrapper spawns the subagent at Step 8. Before the spawn:
 
-**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-fix-applier"` per the # Result artifact contract above. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
 
 1. Resolve the working directory absolutely into a single shell variable
    `$WORKTREE` and use it everywhere downstream — never re-derive in any
@@ -252,6 +251,115 @@ same five top-level keys (`commits`, `deferred`, `rejected_alternatives`,
 `anti_patterns_found`, `summary`); a structural lint at
 `bin/skill-md-lint.test.ts` enforces the schema-drift symmetry.
 
+# Result artifact
+
+`/pr-review` writes a second structured artifact distinct from the
+Fix-Applier Subagent's: a wrapper-level **result artifact** that names
+which top-level steps of this skill ran to completion, which were
+skipped, and (on bail-out paths) which escalation tag fired. The
+artifact lives at:
+
+```
+<worktree>/.flow-tmp/pr-review-result.json
+```
+
+The schema's typed fields are:
+
+```
+status:           "clean" | "partial" | "escalated"
+completed_steps:  string[]
+missed_steps:     string[]
+escalation_tag:   string | null
+summary:          string
+```
+
+**Canonical step labels.** `completed_steps[]` and `missed_steps[]`
+use this skill's own step numbering: the top-level numbers `"1"`,
+`"2"`, `"3"`, `"4"`, `"5"`, `"6"`, `"7"`, `"7.5"`, `"8"`, `"8c"`,
+`"9"`, `"10"`, `"11"`, `"12"`, `"13"` (the sub-step labels actually
+present in the # Instructions section above). Sub-steps like `"8c"`
+appear only when the wrapper bails out mid-step 8 after `8b` returned
+but before `8c.i` ticked any boxes; otherwise `completed_steps`
+records just the parent number (`"8"`).
+
+**When each status fires:**
+
+- `"clean"` — every step from 1 through 13 either ran to completion
+  or was a no-op-skipped (e.g. Step 5's "no inline review comments"
+  branch, Step 13's "no local follow-ups to register" branch). The
+  no-op skip is a successful completion, not a miss.
+- `"partial"` — at least one step listed in this skill's # Instructions
+  was not reached because an earlier escalation, retry-exhausted, or
+  user redirect terminated the run before the wrapper got there. The
+  unreached step labels go in `missed_steps[]`; the labels that did run
+  go in `completed_steps[]`.
+- `"escalated"` — the skill bailed at a documented escalation site
+  (`task-tool-unavailable: pr-review-multi-agent-review`,
+  `task-tool-unavailable: pr-review-fix-applier`,
+  `fix-applier-missing-artifact`, or a multi-agent review failure
+  surfaced verbatim from Step 3). `escalation_tag` carries the
+  tag string the wrapper would have printed to scrollback; the
+  supervisor consumes it directly (see `/flow-pipeline` step 8 for
+  the propagation contract).
+
+**Write contract.** The wrapper writes the artifact on **every exit
+path** — clean Step 13 completion, every escalation site, and the
+intermediate-step partial path. Before writing, validate the shape
+via:
+
+```bash
+bun bin/lib/pr-review-result-schema.ts --validate <path>
+```
+
+Then perform an atomic write (write to `<path>.tmp` and `mv` into
+place) so a half-written artifact never sits on disk where a reader
+expects a well-formed JSON object. Overwrite any prior artifact; do
+not append.
+
+**Exit-path wiring.**
+
+- **Clean Step 13 completion** → `status: "clean"`,
+  `completed_steps` contains all top-level step labels that ran,
+  `missed_steps: []`, `escalation_tag: null`. Deferred-finding paths
+  (Step 6's deferral bar, Step 7's "skip with reason") still count as
+  completed_steps — deferral is a documented Step 6/7 outcome, not an
+  escalation.
+- **`task-tool-unavailable: pr-review-multi-agent-review`** (raised
+  by Step 3's preamble when `ToolSearch query="select:Task"` returns
+  neither `"name": "Task"` nor `"name": "Agent"`) → `status:
+  "escalated"`, `escalation_tag: "task-tool-unavailable:
+  pr-review-multi-agent-review"`, `completed_steps` lists Steps 1
+  and 2, `missed_steps` lists 3 onward.
+- **`task-tool-unavailable: pr-review-fix-applier`** (raised by the
+  Spawn procedure's preamble before the Fix-Applier Task call) →
+  `status: "escalated"`, `escalation_tag: "task-tool-unavailable:
+  pr-review-fix-applier"`, `completed_steps` includes everything
+  that ran before the spawn site, `missed_steps` lists the
+  Fix-Applier-owned Steps 6/7/7.5/8 plus anything downstream.
+- **`fix-applier-missing-artifact`** (Step 8's existence check
+  failed) → `status: "escalated"`, `escalation_tag:
+  "fix-applier-missing-artifact"`, `completed_steps` includes
+  through Step 8 spawn, `missed_steps` lists 9 onward.
+- **Multi-agent review failure** (Step 3 retry-exhausted or any of
+  the four agents returned a structural error the wrapper can't
+  parse) → `status: "escalated"`, `escalation_tag` carries the
+  verbatim wrapper-level escalation tag, partial step lists per
+  above.
+
+**`--resume-from <step-number>` flag.** When `$ARGUMENTS` contains
+`--resume-from <N>` (where `<N>` is one of the canonical step labels
+above, e.g. `--resume-from 7` or `--resume-from 8`), the skill reads
+the existing `<worktree>/.flow-tmp/pr-review-result.json`, skips
+Steps 1 through N-1 (treating them as already-completed), and
+resumes at Step N. The new run merges its `completed_steps[]` into
+the existing list (deduplicating by label) before writing the new
+artifact. This is the mechanism `/flow-pipeline` step 8 uses to
+retry a `status: "partial"` review without re-running the multi-agent
+fan-out from scratch. If no prior artifact exists when
+`--resume-from` is passed, the wrapper escalates `NEEDS HUMAN:
+pr-review-missing-artifact` — the flag's contract is to resume an
+existing run, not to fabricate one.
+
 # Instructions
 
 ## 1. Parse the PR Identifier
@@ -336,7 +444,7 @@ in parallel, then merge.
 
 5. Read `references/agent-prompts.md` for the prompt templates.
 
-**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the four parallel spawns will silently fall through to in-line execution unless the schema is loaded first. Before the Task calls below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the four parallel spawns will silently fall through to in-line execution unless the schema is loaded first. Before the Task calls below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-multi-agent-review"` per the # Result artifact contract above. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
 
 **Spawn 4 agents in parallel**, each as a subagent. For each agent:
 
@@ -453,12 +561,25 @@ single source of truth for the artifact's location):
 
 ```bash
 test -s "$ARTIFACT_PATH" \
-  || { echo "NEEDS HUMAN: fix-applier-missing-artifact" >&2; exit 1; }
+  || {
+       # Write the wrapper-level result artifact recording the escalation
+       # before bailing — every exit path must leave pr-review-result.json
+       # on disk so the supervisor can branch on .status.
+       echo "NEEDS HUMAN: fix-applier-missing-artifact" >&2;
+       # Write pr-review-result.json: status="escalated",
+       # escalation_tag="fix-applier-missing-artifact", completed_steps
+       # through Step 8 spawn, missed_steps 9 onward.
+       exit 1;
+     }
 ```
 
 On missing or empty artifact, surface the failure to the supervisor — **do
 not** retry the Task call. Re-invocation is the supervisor's decision; a
 second call inside this run would violate the one-Task-call invariant.
+On this bail-out path the wrapper writes
+`<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
+and `escalation_tag: "fix-applier-missing-artifact"` per the
+# Result artifact contract above, before exiting non-zero.
 
 Do **not** read the artifact's body at this boundary. Step 9 reads it once,
 parses into a typed object, and reuses that object across Steps 9, 10, 11,
@@ -1060,6 +1181,18 @@ scrollback (via `flow-followups run --note-only`) but does **not** edit the
 PR body — escalation can fire before a PR exists, and the JSONL log persists
 on disk for any later resume to consume. PR review never runs the follow-up
 directly — that's the supervisor's job, gated by the helper's allowlist.
+
+After Step 13 finishes (including its no-op-skipped branch), write the
+clean-completion result artifact at `<worktree>/.flow-tmp/pr-review-result.json`
+per the # Result artifact contract above: `status: "clean"`,
+`completed_steps` enumerating every top-level step label that ran in this
+invocation (deduplicating against any prior list when `--resume-from` was
+used), `missed_steps: []`, `escalation_tag: null`, and a one-paragraph
+`summary` mirroring the Step 12 structured report's headline. Validate the
+shape via `bun bin/lib/pr-review-result-schema.ts --validate <path>` then
+atomically write. This is the single signal `/flow-pipeline` step 8 reads
+to decide whether to continue (`"clean"`) or branch into the partial-retry
+path (`"partial"`) or escalate verbatim (`"escalated"`).
 
 # Anti-Patterns
 
