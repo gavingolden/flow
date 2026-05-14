@@ -1,5 +1,31 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { validatePrReviewResult } from "./pr-review-result-schema";
+
+const SCHEMA_SCRIPT = path.resolve(__dirname, "pr-review-result-schema.ts");
+
+function runCli(args: string[]): { status: number; stdout: string; stderr: string } {
+  const result = spawnSync("bun", [SCHEMA_SCRIPT, ...args], { encoding: "utf8" });
+  return {
+    status: result.status ?? -1,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+}
+
+function withTmpFile(contents: string, fn: (filePath: string) => void): void {
+  const dir = mkdtempSync(path.join(tmpdir(), "pr-review-schema-test-"));
+  const filePath = path.join(dir, "artifact.json");
+  writeFileSync(filePath, contents, "utf8");
+  try {
+    fn(filePath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 /**
  * Contract tests for the `/pr-review` wrapper-level result artifact at
@@ -154,5 +180,94 @@ describe("validatePrReviewResult — wrong-type rejections", () => {
     if (!result.ok) {
       expect(result.reason).toContain("escalation_tag");
     }
+  });
+});
+
+describe("validatePrReviewResult — design-choice pins (cross-field rules deliberately NOT enforced)", () => {
+  it("accepts escalation_tag as empty string (permissive on content; prose contract enforces non-empty)", () => {
+    const fixture = structuredClone(VALID_CLEAN) as Record<string, unknown>;
+    fixture.escalation_tag = "";
+    const result = validatePrReviewResult(fixture);
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts escalation_tag set when status is 'clean' (no cross-field IFF rule)", () => {
+    const fixture = structuredClone(VALID_CLEAN) as Record<string, unknown>;
+    fixture.escalation_tag = "some-tag";
+    const result = validatePrReviewResult(fixture);
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts escalation_tag null when status is 'escalated' (no cross-field IFF rule)", () => {
+    const fixture = structuredClone(VALID_ESCALATED) as Record<string, unknown>;
+    fixture.escalation_tag = null;
+    const result = validatePrReviewResult(fixture);
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("pr-review-result-schema CLI — `--validate <path>`", () => {
+  it("exits 2 with usage on stderr when --validate flag is missing entirely", () => {
+    const result = runCli([]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("usage:");
+    expect(result.stdout).toBe("");
+  });
+
+  it("exits 2 with usage on stderr when --validate is given without a path argument", () => {
+    const result = runCli(["--validate"]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("usage:");
+    expect(result.stdout).toBe("");
+  });
+
+  it("exits 1 with read failure on stderr when the target path does not exist", () => {
+    const missingPath = path.join(tmpdir(), "definitely-does-not-exist-" + Date.now() + ".json");
+    const result = runCli(["--validate", missingPath]);
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stderr.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toContain("read failed");
+    expect(parsed.path).toBe(missingPath);
+  });
+
+  it("exits 1 with JSON parse failure on stderr when the file contains malformed JSON", () => {
+    withTmpFile("{ not valid json", (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(1);
+      const parsed = JSON.parse(result.stderr.trim());
+      expect(parsed.ok).toBe(false);
+      expect(parsed.reason).toContain("JSON parse failed");
+      expect(parsed.path).toBe(filePath);
+    });
+  });
+
+  it("exits 1 with schema validation reason on stderr when the JSON is shape-invalid", () => {
+    withTmpFile(JSON.stringify({ status: "in-progress" }), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(1);
+      const parsed = JSON.parse(result.stderr.trim());
+      expect(parsed.ok).toBe(false);
+      expect(parsed.reason).toBeDefined();
+    });
+  });
+
+  it("exits 0 with {ok: true} on stdout for a well-formed clean artifact", () => {
+    withTmpFile(JSON.stringify(VALID_CLEAN), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+      expect(result.stderr).toBe("");
+    });
+  });
+
+  it("exits 0 for a well-formed escalated artifact (covers all three status values)", () => {
+    withTmpFile(JSON.stringify(VALID_ESCALATED), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+    });
   });
 });

@@ -1041,13 +1041,20 @@ three string literals `"clean"`, `"partial"`, or `"escalated"`:
   its existing result artifact, skip the steps already in
   `.completed_steps`, and resume at the named step. After the
   retry returns, re-validate the artifact and re-branch on
-  `.status`. A second `"partial"` or `"escalated"` after the
-  retry escalates `NEEDS HUMAN: review-partial: <missed_steps
-  joined with commas>`. The partial-retry budget is one and is
-  **independent of the existing 2-loop review-fix cap above** —
-  the cap counts review-fix iterations (critical findings the
-  skill auto-fixed), this counter tracks structural missed-step
-  retries.
+  `.status`:
+    - retry-`"clean"` → continue per the `"clean"` branch above.
+    - retry-`"partial"` → escalate `NEEDS HUMAN: review-partial:
+      <missed_steps joined with commas>`.
+    - retry-`"escalated"` → propagate `.escalation_tag` verbatim
+      into `NEEDS HUMAN: <escalation_tag>` (same as the
+      first-call `"escalated"` branch below — collapsing it into
+      `review-partial` would drop the actionable tag, e.g.
+      `task-tool-unavailable: pr-review-fix-applier`, in favour
+      of a generic missed-step list).
+  The partial-retry budget is one and is **independent of the
+  existing 2-loop review-fix cap above** — the cap counts
+  review-fix iterations (critical findings the skill auto-fixed),
+  this counter tracks structural missed-step retries.
 - `"escalated"` → propagate the `.escalation_tag` verbatim into
   `NEEDS HUMAN: <escalation_tag>` and bail. No retry: the
   escalation tag names a documented bail-out site

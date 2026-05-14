@@ -543,6 +543,30 @@ describe("pr-review result-artifact contract lint", () => {
         `partial-retry path silently falls through to the escalation arm.`,
     ).toBe(true);
   });
+
+  const PR_REVIEW_REQUIRED_KEYS = [
+    "status",
+    "completed_steps",
+    "missed_steps",
+    "escalation_tag",
+    "summary",
+  ];
+
+  it.each(PR_REVIEW_REQUIRED_KEYS)(
+    "pr-review/SKILL.md declares the '%s' top-level key for the result artifact",
+    (key) => {
+      expect(
+        prReviewContent.includes(`\`${key}\``),
+        `pr-review/SKILL.md must reference '\`${key}\`' as one of the ` +
+          `result-artifact's typed fields. Missing the key here means a ` +
+          `field rename in bin/lib/pr-review-result-schema.ts could silently ` +
+          `drift away from the prose contract — the supervisor reading the ` +
+          `renamed field from a JSON that still uses the old key would ` +
+          `silently fall through to the wrong branch. Mirrors the parallel ` +
+          `Fix-Applier and Edit-Applier schema-drift lints above.`,
+      ).toBe(true);
+    },
+  );
 });
 
 describe("Task-tool ToolSearch-load preamble at all six spawn sites", () => {

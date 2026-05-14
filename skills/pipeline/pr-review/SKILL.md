@@ -142,7 +142,24 @@ alternatives or anti-patterns).
 
 The wrapper spawns the subagent at Step 8. Before the spawn:
 
-**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-fix-applier"` per the # Result artifact contract above. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-fix-applier"` per the # Result artifact contract below (write-`.tmp` → validate-`.tmp` → `mv`). Worked example:
+
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1", "2", "3", "4", "5"],
+  "missed_steps": ["6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "task-tool-unavailable: pr-review-fix-applier",
+  "summary": "Bailed at the Fix-Applier spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
+}
+EOF
+bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+```
+
+The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
 
 1. Resolve the working directory absolutely into a single shell variable
    `$WORKTREE` and use it everywhere downstream — never re-derive in any
@@ -282,7 +299,7 @@ appear only when the wrapper bails out mid-step 8 after `8b` returned
 but before `8c.i` ticked any boxes; otherwise `completed_steps`
 records just the parent number (`"8"`).
 
-**When each status fires:**
+**When each `status` fires:**
 
 - `"clean"` — every step from 1 through 13 either ran to completion
   or was a no-op-skipped (e.g. Step 5's "no inline review comments"
@@ -304,17 +321,28 @@ records just the parent number (`"8"`).
 
 **Write contract.** The wrapper writes the artifact on **every exit
 path** — clean Step 13 completion, every escalation site, and the
-intermediate-step partial path. Before writing, validate the shape
-via:
+intermediate-step partial path. The atomic write goes
+write-`.tmp` → validate-`.tmp` → `mv`-into-place:
 
-```bash
-bun bin/lib/pr-review-result-schema.ts --validate <path>
-```
+1. Write the candidate JSON to `<path>.tmp` (heredoc or `jq`).
+2. Validate the temp file's shape:
 
-Then perform an atomic write (write to `<path>.tmp` and `mv` into
-place) so a half-written artifact never sits on disk where a reader
-expects a well-formed JSON object. Overwrite any prior artifact; do
-not append.
+   ```bash
+   bun bin/lib/pr-review-result-schema.ts --validate <path>.tmp
+   ```
+
+3. On `ok: true`, `mv <path>.tmp <path>` into place. On validation
+   failure, leave `<path>.tmp` on disk for inspection and exit
+   non-zero — never `mv` an unvalidated candidate into the canonical
+   path.
+
+The validator reads from disk (`Bun.file(path).text()`), so
+validating `<path>` before the `.tmp` write would either fail with
+`read failed: ENOENT` on a first-ever write or validate the stale
+prior artifact instead of the new candidate. The temp-file write +
+validate + `mv` order guarantees a half-written or off-shape
+artifact never sits on disk where a reader expects a well-formed
+JSON object. Overwrite any prior artifact; do not append.
 
 **Exit-path wiring.**
 
@@ -444,7 +472,24 @@ in parallel, then merge.
 
 5. Read `references/agent-prompts.md` for the prompt templates.
 
-**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the four parallel spawns will silently fall through to in-line execution unless the schema is loaded first. Before the Task calls below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-multi-agent-review"` per the # Result artifact contract above. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the four parallel spawns will silently fall through to in-line execution unless the schema is loaded first. Before the Task calls below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-multi-agent-review"` per the # Result artifact contract above (write-`.tmp` → validate-`.tmp` → `mv`). Worked example:
+
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1", "2"],
+  "missed_steps": ["3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "task-tool-unavailable: pr-review-multi-agent-review",
+  "summary": "Bailed at the Multi-Agent Review spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
+}
+EOF
+bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+```
+
+The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
 
 **Spawn 4 agents in parallel**, each as a subagent. For each agent:
 
@@ -565,10 +610,19 @@ test -s "$ARTIFACT_PATH" \
        # Write the wrapper-level result artifact recording the escalation
        # before bailing — every exit path must leave pr-review-result.json
        # on disk so the supervisor can branch on .status.
+       RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+       cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1", "2", "3", "4", "5", "8"],
+  "missed_steps": ["8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "fix-applier-missing-artifact",
+  "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing or empty. Wrapper bailed at Step 8's existence check; supervisor must restart."
+}
+EOF
+       bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+         && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
        echo "NEEDS HUMAN: fix-applier-missing-artifact" >&2;
-       # Write pr-review-result.json: status="escalated",
-       # escalation_tag="fix-applier-missing-artifact", completed_steps
-       # through Step 8 spawn, missed_steps 9 onward.
        exit 1;
      }
 ```
