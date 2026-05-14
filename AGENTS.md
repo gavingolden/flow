@@ -275,7 +275,11 @@ no compile step.
     apply. The contract is documented bidirectionally in
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
     `skills/pipeline/pr-review/SKILL.md`'s Independent Multi-Agent
-    Review preamble. Same narrow-and-named contract as the
+    Review preamble. Both fan-outs now run from the supervisor's
+    in-process Skill load — the `context: fork` frontmatter directive
+    has been removed from `/pr-review`, so the four review agents are
+    spawned inside the supervisor's own session rather than a forked
+    subprocess. Same narrow-and-named contract as the
     `/pr-review` and `/flow-pipeline` exemptions above.
   - **Task-tool exemption: `/flow-pipeline` → `/product-planning`
     Independent Discovery Subagent.** When `/flow-pipeline` step 3
@@ -360,7 +364,11 @@ no compile step.
     context. The contract is documented bidirectionally in
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
     `skills/pipeline/pr-review/SKILL.md`'s "Fix-Applier Subagent"
-    section. Same narrow-and-named contract as the exemptions above.
+    section. Both fan-outs now run from the supervisor's in-process
+    Skill load — the `context: fork` frontmatter directive has been
+    removed from `/pr-review`, so the fix-applier is spawned inside
+    the supervisor's own session rather than a forked subprocess.
+    Same narrow-and-named contract as the exemptions above.
   - **Task-tool exemption: `/flow-pipeline` → Merge-Conflict Resolver
     Subagent.** When `/flow-pipeline` step 10 fires `gh pr merge
     --squash` and the call returns a conflict-class failure (stderr

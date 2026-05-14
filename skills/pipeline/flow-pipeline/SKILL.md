@@ -1006,7 +1006,65 @@ not directly to step 9. The fix commit may have changed CI.
 findings outstanding) AND the most recent CI cycle is green.
 Continue to step 9.
 
-On non-zero exit from `/pr-review`: retry once. If the retry also
+### Read the `/pr-review` result artifact and branch on `.status`
+
+After `/pr-review` returns, the wrapper has written a structured
+result artifact at `<worktree>/.flow-tmp/pr-review-result.json`
+(documented in `skills/pipeline/pr-review/SKILL.md`'s `# Result
+artifact` section). Read it exactly once and validate the shape
+before branching:
+
+```bash
+bun bin/lib/pr-review-result-schema.ts --validate \
+  "$WORKTREE/.flow-tmp/pr-review-result.json"
+```
+
+The validator exits 0 on a well-formed artifact and prints
+`{ok: true}` on stdout; on a malformed or missing file it exits
+non-zero and prints `{ok: false, reason, path?}` on stderr.
+
+**Missing or empty artifact** → escalate `NEEDS HUMAN:
+pr-review-missing-artifact` (no retry; mirrors the existing
+`fix-applier-missing-artifact` escalation pattern). The wrapper
+writes the artifact on every documented exit path, so absence
+signals a catastrophic crash that the supervisor cannot recover
+from inside this run.
+
+Branch on the artifact's `.status` field — exactly one of the
+three string literals `"clean"`, `"partial"`, or `"escalated"`:
+
+- `"clean"` → the skill ran to completion; continue to step 7 (CI
+  wait) per the existing flow above, then step 9.
+- `"partial"` (with non-empty `.missed_steps`) → re-invoke
+  `/pr-review <PR> --resume-from <first-missed-step>` exactly
+  once. The `--resume-from` flag instructs `/pr-review` to read
+  its existing result artifact, skip the steps already in
+  `.completed_steps`, and resume at the named step. After the
+  retry returns, re-validate the artifact and re-branch on
+  `.status`:
+    - retry-`"clean"` → continue per the `"clean"` branch above.
+    - retry-`"partial"` → escalate `NEEDS HUMAN: review-partial:
+      <missed_steps joined with commas>`.
+    - retry-`"escalated"` → propagate `.escalation_tag` verbatim
+      into `NEEDS HUMAN: <escalation_tag>` (same as the
+      first-call `"escalated"` branch below — collapsing it into
+      `review-partial` would drop the actionable tag, e.g.
+      `task-tool-unavailable: pr-review-fix-applier`, in favour
+      of a generic missed-step list).
+  The partial-retry budget is one and is **independent of the
+  existing 2-loop review-fix cap above** — the cap counts
+  review-fix iterations (critical findings the skill auto-fixed),
+  this counter tracks structural missed-step retries.
+- `"escalated"` → propagate the `.escalation_tag` verbatim into
+  `NEEDS HUMAN: <escalation_tag>` and bail. No retry: the
+  escalation tag names a documented bail-out site
+  (`task-tool-unavailable: pr-review-multi-agent-review`,
+  `task-tool-unavailable: pr-review-fix-applier`, or
+  `fix-applier-missing-artifact`) for which the resolution is
+  user-action, not retry.
+
+On non-zero exit from `/pr-review` itself (Bun-level / shell-level
+failure with no artifact written): retry once. If the retry also
 fails, escalate `NEEDS HUMAN: review-failed`.
 
 ## Step 9 — Auto-merge gate
@@ -1532,6 +1590,19 @@ either `Task` or its alias `Agent` is surfaced top-level (typically
 by restarting `claude` or upgrading the CLI). This complements (does not replace) the
 per-step retry caps in `references/failure-recovery.md`. Leave the
 worktree + PR intact.
+
+The `pr-review-multi-agent-review` and `pr-review-fix-applier`
+exemption sites are now both reachable from the supervisor's
+in-process Skill load — the `context: fork` frontmatter directive
+has been removed from `/pr-review`, so the wrapper runs inside the
+supervisor's session rather than in a forked subprocess. The
+escalation fires only if the supervisor's own session has neither
+`Task` nor `Agent` surfaced top-level. In that case, the
+escalation tag is written verbatim into
+`<worktree>/.flow-tmp/pr-review-result.json` with
+`status: "escalated"` before `/pr-review` exits, and step 8's
+artifact-read above propagates the tag back into `NEEDS HUMAN:
+<escalation_tag>` rather than re-discovering it from scrollback.
 
 The full per-step cap table and the resume-from-disk decision tree
 live in `references/failure-recovery.md`.

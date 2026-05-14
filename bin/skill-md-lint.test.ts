@@ -502,6 +502,73 @@ describe("Edit-Applier artifact JSON schema drift (coder/SKILL.md ↔ references
   });
 });
 
+describe("pr-review result-artifact contract lint", () => {
+  it("pr-review SKILL.md frontmatter does not include `context: fork`", () => {
+    expect(
+      prReviewContent.includes("context: fork"),
+      "pr-review SKILL.md frontmatter must NOT include 'context: fork'. " +
+        "The directive was removed so the skill runs in the supervisor's " +
+        "in-process Skill load, which is the prerequisite for both the " +
+        "Multi-Agent Review and Fix-Applier Subagent Task-tool exemptions " +
+        "to reach the supervisor's session.",
+    ).toBe(false);
+  });
+
+  it.each([
+    ".flow-tmp/pr-review-result.json",
+    '"clean"',
+    '"partial"',
+    '"escalated"',
+  ])("pr-review SKILL.md documents the result-artifact literal '%s'", (literal) => {
+    expect(
+      prReviewContent.includes(literal),
+      `pr-review SKILL.md must include the literal '${literal}' so the ` +
+        `result-artifact contract is grep-discoverable. The /flow-pipeline ` +
+        `step 8 reader branches on these exact strings; drift here means ` +
+        `the supervisor's parser falls through to the escalation path.`,
+    ).toBe(true);
+  });
+
+  it.each([
+    '"clean"',
+    '"partial"',
+    '"escalated"',
+    "--resume-from",
+  ])("flow-pipeline SKILL.md Step 8 documents the result-artifact literal '%s'", (literal) => {
+    expect(
+      content.includes(literal),
+      `flow-pipeline SKILL.md Step 8 must include the literal '${literal}' ` +
+        `so the supervisor's branch-on-status logic stays anchored on the ` +
+        `same string the /pr-review wrapper writes. A drift means the ` +
+        `partial-retry path silently falls through to the escalation arm.`,
+    ).toBe(true);
+  });
+
+  const PR_REVIEW_REQUIRED_KEYS = [
+    "status",
+    "completed_steps",
+    "missed_steps",
+    "escalation_tag",
+    "summary",
+  ];
+
+  it.each(PR_REVIEW_REQUIRED_KEYS)(
+    "pr-review/SKILL.md declares the '%s' top-level key for the result artifact",
+    (key) => {
+      expect(
+        prReviewContent.includes(`\`${key}\``),
+        `pr-review/SKILL.md must reference '\`${key}\`' as one of the ` +
+          `result-artifact's typed fields. Missing the key here means a ` +
+          `field rename in bin/lib/pr-review-result-schema.ts could silently ` +
+          `drift away from the prose contract — the supervisor reading the ` +
+          `renamed field from a JSON that still uses the old key would ` +
+          `silently fall through to the wrong branch. Mirrors the parallel ` +
+          `Fix-Applier and Edit-Applier schema-drift lints above.`,
+      ).toBe(true);
+    },
+  );
+});
+
 describe("Task-tool ToolSearch-load preamble at all six spawn sites", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
