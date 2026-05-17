@@ -104,6 +104,77 @@ describe("state", () => {
     expect(readState("null-opt", dir)).toBeNull();
   });
 
+  it("readState returns null when state JSON has wrong-type worktree", () => {
+    // f-coverage-2: optional `worktree` field had no wrong-type test
+    // (asymmetric with `pr` and `autoMerge`).
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-worktree.json"),
+      JSON.stringify({
+        slug: "bad-worktree",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        worktree: 42,
+      }),
+    );
+    expect(readState("bad-worktree", dir)).toBeNull();
+  });
+
+  it.each([
+    ["slug", 42],
+    ["repo", 99],
+    ["updatedAt", false],
+  ])(
+    "readState returns null when required field %s has wrong type",
+    (field, wrongValue) => {
+      // f-coverage-4: of slug/phase/repo/updatedAt, only phase had a
+      // wrong-type test. Mirror the phase test for the remaining three.
+      fs.mkdirSync(dir, { recursive: true });
+      const base: Record<string, unknown> = {
+        slug: "ok-slug",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      };
+      base[field] = wrongValue;
+      fs.writeFileSync(
+        path.join(dir, `bad-${field}.json`),
+        JSON.stringify(base),
+      );
+      expect(readState(`bad-${field}`, dir)).toBeNull();
+    },
+  );
+
+  it("readState returns null for a JSON array root", () => {
+    // f-coverage-1: `typeof x !== 'object' || x === null || Array.isArray(x)`
+    // has three guard branches. Cover the Array.isArray branch directly so
+    // dropping it doesn't silently pass.
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "array-root.json"),
+      JSON.stringify(["slug", "phase", "repo", "updatedAt"]),
+    );
+    expect(readState("array-root", dir)).toBeNull();
+  });
+
+  it("readState returns null for a JSON null root", () => {
+    // f-coverage-1: cover the `x === null` guard branch.
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "null-root.json"), "null");
+    expect(readState("null-root", dir)).toBeNull();
+  });
+
+  it("readState returns null for a JSON primitive root", () => {
+    // f-coverage-1: cover the `typeof x !== 'object'` guard branch.
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "primitive-root.json"),
+      JSON.stringify("just-a-string"),
+    );
+    expect(readState("primitive-root", dir)).toBeNull();
+  });
+
   it("readState round-trips a full state with every optional field", () => {
     const full: PipelineState = {
       slug: "full",

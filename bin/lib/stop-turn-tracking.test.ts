@@ -78,6 +78,61 @@ describe("stop-turn-tracking", () => {
     expect(readTurnTracking("bad-count", dir)).toBeNull();
   });
 
+  it.each([
+    ["slug", 42],
+    ["turnId", null],
+    ["lastPhase", false],
+    ["lastStopAt", 12345],
+  ])(
+    "readTurnTracking returns null when required field %s has wrong type",
+    (field, wrongValue) => {
+      // f-coverage-3: predicate guards five required fields but only
+      // blockCount had a wrong-type test. Cover the remaining four.
+      fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
+      const base: Record<string, unknown> = {
+        slug: "x",
+        turnId: "t",
+        blockCount: 0,
+        lastPhase: "verifying",
+        lastStopAt: "now",
+      };
+      base[field] = wrongValue;
+      fs.writeFileSync(
+        path.join(dir, "turns", `bad-${field}.json`),
+        JSON.stringify(base),
+      );
+      expect(readTurnTracking(`bad-${field}`, dir)).toBeNull();
+    },
+  );
+
+  it("readTurnTracking returns null for a JSON array root", () => {
+    // f-coverage-1: `typeof x !== 'object' || x === null || Array.isArray(x)`
+    // has three guard branches; cover the Array.isArray branch directly.
+    fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "turns", "array-root.json"),
+      JSON.stringify(["x", "t", 0, "verifying", "now"]),
+    );
+    expect(readTurnTracking("array-root", dir)).toBeNull();
+  });
+
+  it("readTurnTracking returns null for a JSON null root", () => {
+    // f-coverage-1: cover the `x === null` guard branch.
+    fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "turns", "null-root.json"), "null");
+    expect(readTurnTracking("null-root", dir)).toBeNull();
+  });
+
+  it("readTurnTracking returns null for a JSON primitive root", () => {
+    // f-coverage-1: cover the `typeof x !== 'object'` guard branch.
+    fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "turns", "primitive-root.json"),
+      JSON.stringify("just-a-string"),
+    );
+    expect(readTurnTracking("primitive-root", dir)).toBeNull();
+  });
+
   it("writeTurnTracking creates the turns/ subdir on first write and round-trips all five fields", () => {
     const t = fixture("demo", {
       turnId: "2026-05-17T00:00:00.000Z",
