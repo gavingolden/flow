@@ -96,7 +96,7 @@ Subagent") spawns one edit-applier agent via the Task tool. When `/coder`
 is loaded by `/new-feature` step 5, `/verify` step 3, or `/refactoring`
 step 3 (themselves loaded in-process by `/flow-pipeline` steps 5 and 6,
 or by any pipeline step that invokes `/refactoring`), this fan-out is
-permitted by the named Task-tool exception #5 in
+permitted by the named Task-tool exception #6 in
 `skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section (itself
 anchored on this step's heading name, not its number, so it survives
 future renumbering). Outside the supervisor context, the Task tool is
@@ -229,7 +229,7 @@ five top-level keys (`edits`, `verify_status`, `rejected_alternatives`,
 runtime validator at `bin/lib/coder-schema.ts` lets callers assert shape
 before consuming the artifact.
 
-The fifth named Task-tool exemption is documented bidirectionally in
+The sixth named Task-tool exemption is documented bidirectionally in
 `AGENTS.md` `## Don'ts` and `skills/pipeline/flow-pipeline/SKILL.md`
 "Hard rules" — both files name "Independent Edit-Applier Subagent" as
 the heading anchor.
