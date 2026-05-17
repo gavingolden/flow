@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CLAUDE_SETTINGS_PATH, resolveFlowSource, SETUP_LOCK_PATH } from "./paths";
+import { CLAUDE_SETTINGS_PATH, FLOW_MANIFEST, resolveFlowSource, SETUP_LOCK_PATH } from "./paths";
 import {
   readManifest,
   writeManifest,
@@ -27,7 +27,7 @@ import {
 import { ensureSymlink, removeIfManagedSymlink, type LinkResult } from "./symlink";
 import { withFileLock } from "./lock";
 import { applyShellRcCompletions } from "./setup-rc";
-import { ensureStopHook } from "./settings-merge";
+import { ensureStopHook, repairSettings } from "./settings-merge";
 import { fastForwardCanonical, resolveDefaultBranch } from "./git";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
@@ -87,6 +87,13 @@ export type SetupOptions = {
    * `flow setup --upgrade --no-pull-canonical`.
    */
   pullCanonicalFirst?: boolean;
+  /**
+   * If true, when the Stop-hook merge encounters malformed JSON at
+   * `settingsPath`, back the file up to a timestamped sibling and rewrite
+   * with a minimal valid file containing just the Stop hook. Off by default
+   * — the safe-bailout never stomps user data without explicit opt-in.
+   */
+  repairSettings?: boolean;
 };
 
 export type SetupSummary = {
@@ -95,6 +102,13 @@ export type SetupSummary = {
   skipped: number;
   blocked: number;
   removed: number;
+  /**
+   * End-of-run JSON self-validation failures. Each entry is the path of a
+   * file that flow wrote (or attempted to write) during this run but which
+   * fails to round-trip through `JSON.parse`. Surfaced as `!` summary lines
+   * and escalated to a non-zero CLI exit code.
+   */
+  validationFailures: string[];
 };
 
 export function runSetup(options: SetupOptions = {}): SetupSummary {
@@ -135,7 +149,14 @@ function runUnderLock(
   options: SetupOptions,
 ): SetupSummary {
   const entries = discoverAll(flowSource, installRoot, targets);
-  const summary: SetupSummary = { created: 0, updated: 0, skipped: 0, blocked: 0, removed: 0 };
+  const summary: SetupSummary = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    blocked: 0,
+    removed: 0,
+    validationFailures: [],
+  };
 
   log(`flow: setup`);
   log(`      source ${flowSource}`);
@@ -160,13 +181,26 @@ function runUnderLock(
     log,
   );
 
+  const settingsPath = options.settingsPath ?? CLAUDE_SETTINGS_PATH;
   if (!options.noHooks) {
-    const settingsPath = options.settingsPath ?? CLAUDE_SETTINGS_PATH;
     const result = ensureStopHook(settingsPath, STOP_HOOK_COMMAND);
     if (result.changed) {
       log(`  + hooks/Stop:${STOP_HOOK_COMMAND}  (registered in ${settingsPath})`);
+    } else if (result.reason === "malformed-json" && options.repairSettings) {
+      const repair = repairSettings(settingsPath, STOP_HOOK_COMMAND);
+      if (repair.changed) {
+        log(`  ~ hooks/Stop:${STOP_HOOK_COMMAND}  (repaired; backup at ${repair.backupPath})`);
+        if (repair.resolvedPath && repair.resolvedPath !== settingsPath) {
+          log(`      (followed symlink to ${repair.resolvedPath})`);
+        }
+      } else {
+        log(`  ! hooks/Stop:${STOP_HOOK_COMMAND}  (repair-failed: ${repair.error ?? repair.reason ?? "no detail"})`);
+      }
     } else if (result.reason) {
       log(`  ! hooks/Stop:${STOP_HOOK_COMMAND}  (${result.reason}: ${result.error ?? "no detail"})`);
+      if (result.reason === "malformed-json") {
+        log(`      → run "flow setup --repair-settings" to back up and rewrite the file`);
+      }
     }
   }
 
@@ -174,10 +208,34 @@ function runUnderLock(
   // that still exist from a prior run that we didn't reap (they remain valid
   // claims). On a fresh install the union is just the new entries.
   const manifest = mergeManifest(entries, flowSource, installRoot);
-  writeManifest(manifest, options.manifestPath);
+  const manifestTargetPath = options.manifestPath ?? FLOW_MANIFEST;
+  writeManifest(manifest, manifestTargetPath);
+
+  // End-of-run JSON self-validation: re-parse every JSON file this run wrote
+  // (or attempted to write). Catches any future regression in any of flow's
+  // JSON writers at install time; skips files that don't exist on disk
+  // (e.g. a --no-hooks run never touches settings.json).
+  validateJsonOutputs([settingsPath, manifestTargetPath], summary, log);
 
   printSummary(summary, log);
   return summary;
+}
+
+function validateJsonOutputs(
+  paths: string[],
+  summary: SetupSummary,
+  log: (msg: string) => void,
+): void {
+  for (const p of paths) {
+    if (!fs.existsSync(p)) continue;
+    try {
+      JSON.parse(fs.readFileSync(p, "utf8"));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      summary.validationFailures.push(p);
+      log(`  ! ${p}  (validation-failed: ${msg})`);
+    }
+  }
 }
 
 function preflight(targets: InstallTargets): void {

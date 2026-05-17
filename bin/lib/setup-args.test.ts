@@ -12,6 +12,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: true,
+      repairSettings: false,
     });
   });
 
@@ -22,6 +23,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: true,
+      repairSettings: false,
     });
   });
 
@@ -32,6 +34,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: true,
+      repairSettings: false,
     });
   });
 
@@ -42,6 +45,7 @@ describe("parseSetupArgs", () => {
       noCompletions: true,
       noHooks: false,
       pullCanonical: true,
+      repairSettings: false,
     });
   });
 
@@ -52,6 +56,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: true,
       pullCanonical: true,
+      repairSettings: false,
     });
   });
 
@@ -62,6 +67,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: false,
+      repairSettings: false,
     });
   });
 
@@ -72,6 +78,25 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: false,
+      repairSettings: false,
+    });
+  });
+
+  it("recognizes --repair-settings", () => {
+    expect(parseSetupArgs(["--repair-settings"])).toEqual({
+      upgrade: false,
+      force: false,
+      noCompletions: false,
+      noHooks: false,
+      pullCanonical: true,
+      repairSettings: true,
+    });
+  });
+
+  it("errors when --source is followed by --repair-settings instead of a path", () => {
+    const result = parseSetupArgs(["--source", "--repair-settings"]);
+    expect(result).toEqual({
+      error: "flow setup: --source requires a path argument",
     });
   });
 
@@ -91,6 +116,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: true,
+      repairSettings: false,
       flowSource: "/abs/path",
     });
   });
@@ -112,6 +138,7 @@ describe("parseSetupArgs", () => {
       noCompletions: true,
       noHooks: true,
       pullCanonical: false,
+      repairSettings: false,
       flowSource: "/x",
     });
     expect(
@@ -130,6 +157,7 @@ describe("parseSetupArgs", () => {
       noCompletions: true,
       noHooks: true,
       pullCanonical: false,
+      repairSettings: false,
       flowSource: "/x",
     });
   });
@@ -236,7 +264,7 @@ describe("runSetupCli", () => {
     expect(code).toBe(2);
     expect(errSpy).toHaveBeenCalledWith("flow setup: unknown option '--bogus'");
     expect(errSpy).toHaveBeenCalledWith(
-      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical]",
+      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings]",
     );
     errSpy.mockRestore();
   });

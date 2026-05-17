@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { countStopHook, ensureStopHook } from "./settings-merge";
+import { countStopHook, ensureStopHook, repairSettings } from "./settings-merge";
 
 const COMMAND = "flow-stop-guard";
 
@@ -82,6 +82,42 @@ describe("ensureStopHook", () => {
     expect(fs.readFileSync(settings, "utf8")).toBe("{not valid json");
   });
 
+  it("reproduces the 'Unterminated string' symptom from PR's user report", () => {
+    // Seed the literal unterminated-string content from the user's terminal
+    // and assert the safe-bailout contract: reason is malformed-json, the
+    // error mentions Unterminated AND includes the absolute settingsPath
+    // (the path-prefixed error added in Task 2), and the file is byte-
+    // identical to the seed (never stomped).
+    const seed = '{"theme":"dar';
+    fs.writeFileSync(settings, seed);
+    const result = ensureStopHook(settings, COMMAND);
+    expect(result.changed).toBe(false);
+    expect(result.reason).toBe("malformed-json");
+    expect(result.error).toContain("Unterminated");
+    expect(result.error).toContain(settings);
+    expect(fs.readFileSync(settings, "utf8")).toBe(seed);
+  });
+
+  it("preserves the symlink when settingsPath is a symlink to a target file", () => {
+    // Dotfiles-managed setup: settings.json is a symlink to the real file
+    // (e.g. ~/code/dotfiles/claude/settings.json). The write must target
+    // the realpath so the symlink survives — without realpath, renameSync
+    // would replace the symlink with a regular file.
+    const target = path.join(dir, "real-settings.json");
+    fs.writeFileSync(target, "{}");
+    fs.symlinkSync(target, settings);
+
+    const result = ensureStopHook(settings, COMMAND);
+    expect(result).toEqual({ changed: true });
+    expect(fs.lstatSync(settings).isSymbolicLink()).toBe(true);
+    expect(countStopHook(settings, COMMAND)).toBe(1);
+    // The hook now lives in the target file, not at the symlink path.
+    const targetContent = JSON.parse(fs.readFileSync(target, "utf8")) as {
+      hooks?: { Stop?: Array<{ hooks?: Array<{ command?: string }> }> };
+    };
+    expect(targetContent.hooks?.Stop?.[0]?.hooks?.[0]?.command).toBe(COMMAND);
+  });
+
   it("treats a non-object root as malformed", () => {
     fs.writeFileSync(settings, "[1,2,3]");
     const result = ensureStopHook(settings, COMMAND);
@@ -110,5 +146,65 @@ describe("ensureStopHook", () => {
     const remaining = fs.readdirSync(dir);
     expect(remaining.filter((f) => f.includes("flow-tmp"))).toEqual([]);
     expect(remaining).toContain("settings.json");
+  });
+});
+
+describe("repairSettings", () => {
+  it("backs up a malformed regular file and writes a minimal valid replacement", () => {
+    const seed = '{"theme":"dar';
+    fs.writeFileSync(settings, seed);
+
+    const result = repairSettings(settings, COMMAND);
+    expect(result.changed).toBe(true);
+    expect(result.backupPath).toBeDefined();
+    // On macOS, /tmp -> /private/tmp through realpath; compare via realpath.
+    expect(result.resolvedPath).toBe(fs.realpathSync(settings));
+
+    // Backup file exists and carries the original (malformed) content.
+    expect(fs.readFileSync(result.backupPath!, "utf8")).toBe(seed);
+
+    // Main file is now valid JSON and contains the hook.
+    const parsed = JSON.parse(fs.readFileSync(settings, "utf8"));
+    expect(parsed).toBeDefined();
+    expect(countStopHook(settings, COMMAND)).toBe(1);
+  });
+
+  it("places the backup next to the realpath target when settingsPath is a symlink", () => {
+    // Dotfiles-style layout: settings.json is a symlink to the real file
+    // somewhere else. The backup must land next to the *target* (not next
+    // to the symlink) and the symlink itself must survive.
+    const realDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-settings-real-"));
+    try {
+      const target = path.join(realDir, "real-settings.json");
+      const seed = '{"theme":"dar';
+      fs.writeFileSync(target, seed);
+      fs.symlinkSync(target, settings);
+
+      const result = repairSettings(settings, COMMAND);
+      expect(result.changed).toBe(true);
+      expect(result.resolvedPath).toBe(fs.realpathSync(target));
+      // Backup lives next to the realpath, not the symlink.
+      expect(result.backupPath!.startsWith(fs.realpathSync(target))).toBe(true);
+      expect(path.dirname(result.backupPath!)).toBe(fs.realpathSync(realDir));
+
+      // Symlink still exists at settingsPath.
+      expect(fs.lstatSync(settings).isSymbolicLink()).toBe(true);
+
+      // Target file is now valid JSON containing the hook.
+      const parsed = JSON.parse(fs.readFileSync(target, "utf8"));
+      expect(parsed).toBeDefined();
+      expect(countStopHook(settings, COMMAND)).toBe(1);
+
+      // Backup carries original (malformed) content.
+      expect(fs.readFileSync(result.backupPath!, "utf8")).toBe(seed);
+    } finally {
+      fs.rmSync(realDir, { recursive: true, force: true });
+    }
+  });
+
+  it("returns no-file when settingsPath does not exist", () => {
+    const result = repairSettings(path.join(dir, "missing.json"), COMMAND);
+    expect(result.changed).toBe(false);
+    expect(result.reason).toBe("no-file");
   });
 });

@@ -385,6 +385,36 @@ describe("flow setup", () => {
     });
   });
 
+  it("all JSON files written by setup round-trip through JSON.parse", () => {
+    // Catches any future regression that writes malformed JSON through any
+    // of bin/'s writers. Walks both ~/.claude and ~/.flow under the fake
+    // homeDir; the fixture writes settings.json (under .claude) and
+    // installed.json (under .flow), and both must parse cleanly.
+    setup();
+
+    const roots = [
+      path.join(homeDir, ".claude"),
+      path.join(homeDir, ".flow"),
+    ];
+    for (const root of roots) {
+      if (!fs.existsSync(root)) continue;
+      const entries = fs.readdirSync(root, { withFileTypes: true, recursive: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (!entry.name.endsWith(".json")) continue;
+        const parentPath = (entry as { parentPath?: string; path?: string }).parentPath
+          ?? (entry as { path?: string }).path
+          ?? root;
+        const fullPath = path.join(parentPath, entry.name);
+        const content = fs.readFileSync(fullPath, "utf8");
+        expect(
+          () => JSON.parse(content),
+          `expected ${fullPath} to be valid JSON`,
+        ).not.toThrow();
+      }
+    }
+  });
+
   describe("--source <worktree> recording + cleanup", () => {
     it("records install-root paths in the manifest when flowSource diverges from installRoot", () => {
       // Build a fake worktree alongside the install-root fixture, with one

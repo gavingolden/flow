@@ -20,9 +20,17 @@ export type EnsureResult = {
   error?: string;
 };
 
+export type RepairResult = {
+  changed: boolean;
+  backupPath?: string;
+  resolvedPath?: string;
+  reason?: "no-file" | "io-error";
+  error?: string;
+};
+
 type HookEntry = {
   type?: string;
-  command?: string;
+  command: string;
   [k: string]: unknown;
 };
 
@@ -52,7 +60,11 @@ export function ensureStopHook(settingsPath: string, command: string): EnsureRes
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") {
       if (err instanceof SyntaxError) {
-        return { changed: false, reason: "malformed-json", error: err.message };
+        return {
+          changed: false,
+          reason: "malformed-json",
+          error: "malformed JSON at " + settingsPath + ": " + err.message,
+        };
       }
       return { changed: false, reason: "io-error", error: String(err) };
     }
@@ -77,12 +89,21 @@ export function ensureStopHook(settingsPath: string, command: string): EnsureRes
   const after = JSON.stringify(settings, null, 2);
   if (after === before && hadFile) return { changed: false };
 
-  const dir = path.dirname(settingsPath);
+  // Resolve through any symlink so the rename targets the underlying file
+  // and the user's dotfiles-managed symlink survives the write. First-install
+  // (ENOENT) has no symlink to follow — fall through to the raw path.
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync(settingsPath);
+  } catch {
+    resolved = settingsPath;
+  }
+  const dir = path.dirname(resolved);
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = `${settingsPath}.flow-tmp-${process.pid}`;
+  const tmp = `${resolved}.flow-tmp-${process.pid}`;
   try {
     fs.writeFileSync(tmp, after + "\n");
-    fs.renameSync(tmp, settingsPath);
+    fs.renameSync(tmp, resolved);
   } catch (err) {
     try {
       fs.unlinkSync(tmp);
@@ -92,6 +113,66 @@ export function ensureStopHook(settingsPath: string, command: string): EnsureRes
     return { changed: false, reason: "io-error", error: String(err) };
   }
   return { changed: true };
+}
+
+/**
+ * Opt-in recovery path for a malformed `settings.json`: copies the current
+ * (malformed) content to a timestamped backup next to the realpath target,
+ * then writes a minimal valid replacement containing only the Stop hook.
+ *
+ * Symlink-safe: `realpathSync` is applied first so the backup lives next to
+ * the underlying file (e.g. dotfiles-managed target) and the rename targets
+ * the resolved path — the symlink at `settingsPath` is preserved.
+ */
+export function repairSettings(settingsPath: string, command: string): RepairResult {
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync(settingsPath);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") {
+      return { changed: false, reason: "no-file" };
+    }
+    return { changed: false, reason: "io-error", error: String(err) };
+  }
+
+  let original: string;
+  try {
+    original = fs.readFileSync(resolved, "utf8");
+  } catch (err) {
+    return { changed: false, reason: "io-error", error: String(err) };
+  }
+
+  // ISO8601 with colons stripped — some filesystems mishandle `:` in
+  // filenames, and the timestamp is recoverable-by-eyeball.
+  const ts = new Date().toISOString().replace(/:/g, "-");
+  const backupPath = `${resolved}.flow-backup-${ts}`;
+  try {
+    fs.writeFileSync(backupPath, original);
+  } catch (err) {
+    return { changed: false, reason: "io-error", error: String(err) };
+  }
+
+  const replacement: SettingsShape = {
+    hooks: { Stop: [{ hooks: [{ type: "command", command }] }] },
+  };
+  const serialized = JSON.stringify(replacement, null, 2);
+  const dir = path.dirname(resolved);
+  const tmp = `${resolved}.flow-tmp-${process.pid}`;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(tmp, serialized + "\n");
+    fs.renameSync(tmp, resolved);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      // best-effort cleanup; ignore
+    }
+    return { changed: false, reason: "io-error", error: String(err) };
+  }
+
+  return { changed: true, backupPath, resolvedPath: resolved };
 }
 
 function alreadyContains(stops: StopMatcher[], command: string): boolean {
