@@ -211,6 +211,27 @@ no compile step.
   and exits. Per-pipeline state persists in `~/.flow/state/<slug>.json`
   and the tmux window's scrollback.
 
+## Consumer-repo notes
+
+`flow-pre-commit` is the verify gate that `/flow-pipeline`, `/verify`,
+and `/coder` rely on, so consumer repos that wire it in as their sole
+gate need to know its surface area. Scope detection is prefix- and
+extension-based against the diff: `src/` trips `src`; `scripts/`,
+`templates/scripts/`, and `bin/` all trip `scripts`; any file with the
+`.md` extension trips `docs`. Anything else in a non-empty diff lands
+in the `root-fallback` pseudo-scope, which runs `npm run typecheck`
+and `npm run test` from the consumer's repo root — so a monorepo with
+sources under `apps/<pkg>/src/` or `packages/<pkg>/src/` still gets a
+real verify pass without flow having to learn every layout.
+
+For the fallback to do anything, the consumer's root `package.json`
+must define `typecheck` and `test` scripts; `filterDefinedChecks` in
+`bin/flow-pre-commit.ts` drops any check whose npm script is absent.
+When a non-empty diff produces zero checks (no matching npm scripts
+defined), the helper signals `allPassed: false` and emits
+`reason: "no-checks-defined"` rather than silently exiting `0` — the
+old silent-pass hole is closed.
+
 ## Don'ts
 
 - Don't bypass the helper scripts. The supervisor must always call
