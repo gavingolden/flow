@@ -1,10 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
+  QUALIFYING_PR_TRIGGERS,
   cadenceFor,
   decideOnPoll,
   deriveCheckState,
   deriveCopilotPosted,
   fetchHistoricalBotReview,
+  hasQualifyingWorkflowTrigger,
   parseArgs,
   run,
   type Check,
@@ -71,6 +76,126 @@ describe(deriveCheckState, () => {
     if (r.kind === "failed") {
       expect(r.failedChecks.map((c) => c.name)).toEqual(["lint", "deploy"]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2b. hasQualifyingWorkflowTrigger
+// ---------------------------------------------------------------------------
+
+describe(hasQualifyingWorkflowTrigger, () => {
+  it("exports the qualifying-trigger set with the three GitHub-PR triggers", () => {
+    expect(QUALIFYING_PR_TRIGGERS).toEqual(
+      new Set(["pull_request", "pull_request_target", "merge_group"]),
+    );
+  });
+
+  // Scalar form
+  it("scalar form: 'on: pull_request' → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on: pull_request\njobs: {}\n")).toBe(true);
+  });
+  it("scalar form: 'on: schedule' → false", () => {
+    expect(hasQualifyingWorkflowTrigger("on: schedule\njobs: {}\n")).toBe(false);
+  });
+  it("scalar form: 'on: push' → false", () => {
+    expect(hasQualifyingWorkflowTrigger("on: push\njobs: {}\n")).toBe(false);
+  });
+
+  // List form
+  it("list form: 'on: [pull_request, push]' → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on: [pull_request, push]\njobs: {}\n")).toBe(true);
+  });
+  it("list form: 'on: [schedule, push]' → false", () => {
+    expect(hasQualifyingWorkflowTrigger("on: [schedule, push]\njobs: {}\n")).toBe(false);
+  });
+  it("list form: 'on: [merge_group]' → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on: [merge_group]\njobs: {}\n")).toBe(true);
+  });
+
+  // Map form
+  it("map form: bare 'pull_request:' child key → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  pull_request:\njobs: {}\n")).toBe(true);
+  });
+  it("map form: 'pull_request:' with nested 'branches:' → true", () => {
+    expect(
+      hasQualifyingWorkflowTrigger(
+        "on:\n  pull_request:\n    branches: [main]\njobs: {}\n",
+      ),
+    ).toBe(true);
+  });
+  it("map form: schedule + push only → false", () => {
+    expect(
+      hasQualifyingWorkflowTrigger(
+        "on:\n  schedule:\n    - cron: '0 0 * * *'\n  push:\n    branches: [main]\njobs: {}\n",
+      ),
+    ).toBe(false);
+  });
+  it("map form: bare 'pull_request_target:' child key → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  pull_request_target:\n")).toBe(true);
+  });
+  it("map form: bare 'merge_group:' child key → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  merge_group:\n")).toBe(true);
+  });
+
+  // Block-sequence form (`on:` followed by `- trigger` dash items).
+  it("block-sequence form: '- pull_request' → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  - pull_request\njobs: {}\n")).toBe(true);
+  });
+  it("block-sequence form: '- schedule, - push' → false", () => {
+    expect(
+      hasQualifyingWorkflowTrigger("on:\n  - schedule\n  - push\njobs: {}\n"),
+    ).toBe(false);
+  });
+  it("block-sequence form: '- merge_group' → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  - merge_group\n")).toBe(true);
+  });
+  it("block-sequence form: '- pull_request_target' → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  - pull_request_target\n")).toBe(true);
+  });
+  it("block-sequence form: '- \"pull_request\"' (quoted) → true", () => {
+    expect(hasQualifyingWorkflowTrigger('on:\n  - "pull_request"\n')).toBe(true);
+  });
+
+  // Known limitation: inline-flow map (`on: { pull_request: foo }`) is
+  // intentionally out of scope; document the conservative false return.
+  it("inline-flow map (known limitation): 'on: { pull_request: foo }' → false", () => {
+    expect(hasQualifyingWorkflowTrigger("on: { pull_request: foo }\n")).toBe(false);
+  });
+
+  // Each qualifying trigger individually
+  it("pull_request_target alone → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on: pull_request_target\n")).toBe(true);
+  });
+  it("merge_group alone (scalar) → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on: merge_group\n")).toBe(true);
+  });
+
+  // Quoted scalars
+  it("quoted scalar: 'on: \"pull_request\"' → true", () => {
+    expect(hasQualifyingWorkflowTrigger('on: "pull_request"\n')).toBe(true);
+  });
+  it("quoted scalar: \"on: 'pull_request'\" → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on: 'pull_request'\n")).toBe(true);
+  });
+
+  // Edge cases
+  it("empty string → false", () => {
+    expect(hasQualifyingWorkflowTrigger("")).toBe(false);
+  });
+  it("on: with a trailing inline comment and map form below → true", () => {
+    expect(
+      hasQualifyingWorkflowTrigger("on: # comment only\n  pull_request:\n"),
+    ).toBe(true);
+  });
+  it("YAML with no top-level 'on:' key → false", () => {
+    expect(hasQualifyingWorkflowTrigger("name: foo\njobs: {}\n")).toBe(false);
+  });
+  it("malformed indentation (child returns to zero indent) → false conservatively", () => {
+    // The map-form body terminates at zero-indent — a trigger word that
+    // appears as a sibling top-level key is not part of `on:`.
+    expect(
+      hasQualifyingWorkflowTrigger("on:\npull_request:\njobs: {}\n"),
+    ).toBe(false);
   });
 });
 
@@ -911,5 +1036,172 @@ describe("run() integration", () => {
     expect(result.copilotConfigured).toBe(false);
     expect(result.decision).toBe("proceed-to-review");
     expect(result.polls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7. run() integration — workflow trigger filesystem behavior
+//
+// These tests exercise the real cwd → defaultReadWorkflowsDir seam (no
+// readWorkflowsDir injection). The point is to verify PR #152's fix:
+// schedule-only workflows must NOT trip CI_CONFIGURED=1 just because a
+// .yml file sits in .github/workflows/.
+// ---------------------------------------------------------------------------
+
+describe("run() integration — workflow trigger filesystem behavior", () => {
+  const tmpDirs: string[] = [];
+
+  afterEach(() => {
+    while (tmpDirs.length > 0) {
+      const d = tmpDirs.pop()!;
+      try {
+        fs.rmSync(d, { recursive: true, force: true });
+      } catch {
+        // best-effort cleanup
+      }
+    }
+  });
+
+  function makeTmp(): string {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "flow-ci-wait-test-"));
+    tmpDirs.push(d);
+    return d;
+  }
+
+  function writeWorkflow(tmp: string, name: string, body: string): void {
+    const wfDir = path.join(tmp, ".github", "workflows");
+    fs.mkdirSync(wfDir, { recursive: true });
+    fs.writeFileSync(path.join(wfDir, name), body);
+  }
+
+  it("schedule-only workflow: CI not configured, no 'gh pr checks' call, exits poll 1", async () => {
+    const tmp = makeTmp();
+    writeWorkflow(
+      tmp,
+      "cron.yml",
+      "on:\n  schedule:\n    - cron: '0 0 * * *'\njobs:\n  noop:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo noop\n",
+    );
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      // No isPrChecks step — if the runner calls it, the sequence throws.
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      cwd: tmp,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.ciConfigured).toBe(false);
+    // Fence the historical fallback: a future presence-check ordering change
+    // must not synthesise a bot signal silently for schedule-only repos.
+    expect(result.copilotConfigured).toBe(false);
+    expect(result.polls).toBe(1);
+    expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "checks")).toBe(false);
+  });
+
+  it("mixed workflows directory: schedule-only .yml + qualifying .yaml → ciConfigured=true", async () => {
+    const tmp = makeTmp();
+    // Cron workflow does NOT qualify; ci.yaml DOES (note the .yaml extension).
+    writeWorkflow(
+      tmp,
+      "cron.yml",
+      "on:\n  schedule:\n    - cron: '0 0 * * *'\njobs:\n  noop:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo noop\n",
+    );
+    writeWorkflow(
+      tmp,
+      "ci.yaml",
+      "on: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo test\n",
+    );
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      cwd: tmp,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.ciConfigured).toBe(true);
+  });
+
+  it("slow CI with qualifying trigger: ciConfigured=true, three polls until SUCCESS lands", async () => {
+    const tmp = makeTmp();
+    writeWorkflow(
+      tmp,
+      "ci.yml",
+      "on: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo test\n",
+    );
+    const clock = makeFakeClock();
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      // Poll 1: empty checks → no-checks-reported → loop
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse([]) },
+      // Poll 2: empty checks → loop
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse([]) },
+      // Poll 3: SUCCESS + Copilot review posted → exit
+      { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ];
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      cwd: tmp,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => true, // bot is expected → don't short-circuit
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.ciConfigured).toBe(true);
+    expect(result.polls).toBe(3);
+  });
+
+  it("no workflows directory: CI not configured, no 'gh pr checks' call", async () => {
+    const tmp = makeTmp(); // no .github/workflows/ created
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      cwd: tmp,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.ciConfigured).toBe(false);
+    expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "checks")).toBe(false);
   });
 });
