@@ -198,6 +198,27 @@ export function computeUnmatchedFiles(files: string[]): string[] {
   );
 }
 
+/**
+ * Computes the `allPassed` verdict + optional `reason` discriminator for a
+ * run. Closes the silent-pass hole: `results.every(true)` on an empty array
+ * yields `true`, so a non-empty diff that produced zero matching npm
+ * scripts would otherwise exit 0 with no signal. When that happens, flag
+ * the run with `reason: 'no-checks-defined'` and force `allPassed=false`.
+ *
+ * `changedFiles=undefined` is the `--scope` path (user named scopes
+ * explicitly, no diff to inspect) — there's no "non-empty diff" to gate
+ * against, so an empty results set is treated as a normal pass.
+ */
+export function computeAllPassedAndReason(
+  results: CheckResult[],
+  changedFiles: string[] | undefined,
+): { allPassed: boolean; reason?: "no-checks-defined" } {
+  if (results.length === 0 && (changedFiles?.length ?? 0) > 0) {
+    return { allPassed: false, reason: "no-checks-defined" };
+  }
+  return { allPassed: results.every((r) => r.passed) };
+}
+
 function matchesScope(file: string, matcher: ScopeMatcher): boolean {
   if (matcher.prefixes?.some((p) => file.startsWith(p))) return true;
   if (matcher.extensions?.some((e) => file.endsWith(e))) return true;
@@ -211,7 +232,11 @@ function describeMatcher(matcher: ScopeMatcher): string {
   return parts.join(", ");
 }
 
-/** Parses a comma-separated scope string (e.g. "src,scripts"). */
+/**
+ * Parses a comma-separated scope string (e.g. "src,scripts"). Rejects the
+ * `root-fallback` sentinel — it is auto-detect-only, not user-facing, and
+ * `--scope src,root-fallback` would silently double-run `npm run typecheck`.
+ */
 export function parseScopes(input: string): Scope[] {
   const tokens = input
     .split(",")
@@ -220,13 +245,13 @@ export function parseScopes(input: string): Scope[] {
   const result = new Set<Scope>();
 
   for (const token of tokens) {
-    if (!VALID_SCOPES.includes(token as Scope)) {
-      throw new Error(`Unknown scope "${token}". Valid scopes: ${VALID_SCOPES.join(", ")}`);
+    if (!SPECIFIC_SCOPES.includes(token as Exclude<Scope, "root-fallback">)) {
+      throw new Error(`Unknown scope "${token}". Valid scopes: ${SPECIFIC_SCOPES.join(", ")}`);
     }
     result.add(token as Scope);
   }
 
-  return VALID_SCOPES.filter((s) => result.has(s));
+  return SPECIFIC_SCOPES.filter((s) => result.has(s));
 }
 
 /** Returns the check commands for a given scope. */
@@ -675,16 +700,7 @@ async function main(): Promise<void> {
   const unmatchedFiles =
     changedFiles !== undefined ? computeUnmatchedFiles(changedFiles) : undefined;
 
-  // Silent-pass hole closure: results.every(true) on an empty array yields
-  // true, so a non-empty diff that produced zero matching npm scripts would
-  // otherwise exit 0 with no signal. When that happens, flag the run with
-  // reason='no-checks-defined' and force allPassed=false.
-  let allPassed = results.every((r) => r.passed);
-  let reason: "no-checks-defined" | undefined;
-  if (results.length === 0 && (changedFiles?.length ?? 0) > 0) {
-    reason = "no-checks-defined";
-    allPassed = false;
-  }
+  const { allPassed, reason } = computeAllPassedAndReason(results, changedFiles);
 
   const report: CheckReport = {
     scopes,

@@ -218,11 +218,17 @@ and `/coder` rely on, so consumer repos that wire it in as their sole
 gate need to know its surface area. Scope detection is prefix- and
 extension-based against the diff: `src/` trips `src`; `scripts/`,
 `templates/scripts/`, and `bin/` all trip `scripts`; any file with the
-`.md` extension trips `docs`. Anything else in a non-empty diff lands
-in the `root-fallback` pseudo-scope, which runs `npm run typecheck`
-and `npm run test` from the consumer's repo root — so a monorepo with
+`.md` extension trips `docs`. When **no** specific scope matched
+anything in a non-empty diff, the entire diff lands in the
+`root-fallback` pseudo-scope, which runs `npm run typecheck` and
+`npm run test` from the consumer's repo root — so a monorepo with
 sources under `apps/<pkg>/src/` or `packages/<pkg>/src/` still gets a
-real verify pass without flow having to learn every layout.
+real verify pass without flow having to learn every layout. The
+fallback is **mutually exclusive** with the specific scopes: a mixed
+diff like `src/a.ts` + `apps/web/src/b.ts` matches `src` and runs
+`src`'s checks only — `root-fallback` does not also fire. The orphan
+`apps/web/src/b.ts` still surfaces in `unmatchedFiles` for visibility,
+but it doesn't trip an extra check round.
 
 For the fallback to do anything, the consumer's root `package.json`
 must define `typecheck` and `test` scripts; `filterDefinedChecks` in

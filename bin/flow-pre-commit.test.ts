@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildFailureExcerpt,
   checksForScope,
+  computeAllPassedAndReason,
+  computeUnmatchedFiles,
   detectScopesFromFiles,
   filterDefinedChecks,
   formatJsonReport,
@@ -86,10 +88,6 @@ describe(detectScopesFromFiles, () => {
     expect(detectScopesFromFiles(["src/a.ts", "apps/web/src/b.ts"])).toEqual(["src"]);
   });
 
-  it("should keep returning [] for an empty file list (regression-safe)", () => {
-    expect(detectScopesFromFiles([])).toEqual([]);
-  });
-
   it("should detect docs scope from a root-level .md file", () => {
     expect(detectScopesFromFiles(["AGENTS.md"])).toEqual(["docs"]);
   });
@@ -110,7 +108,7 @@ describe(detectScopesFromFiles, () => {
     expect(detectScopesFromFiles(files)).toEqual(["src"]);
   });
 
-  it("should return empty array for empty file list", () => {
+  it("should return empty array for empty file list (regression — root-fallback must not fire on empty input)", () => {
     expect(detectScopesFromFiles([])).toEqual([]);
   });
 
@@ -121,6 +119,55 @@ describe(detectScopesFromFiles, () => {
   it("should ignore files that contain but don't start with scope prefixes", () => {
     // The .md still trips docs scope; the embedded "src/" must not trip src.
     expect(detectScopesFromFiles(["docs/src/guide.md"])).toEqual(["docs"]);
+  });
+});
+
+describe(computeUnmatchedFiles, () => {
+  it("returns [] for an empty file list", () => {
+    expect(computeUnmatchedFiles([])).toEqual([]);
+  });
+
+  it("returns [] when every path matches a specific scope", () => {
+    expect(computeUnmatchedFiles(["src/a.ts", "scripts/b.ts", "AGENTS.md"])).toEqual([]);
+  });
+
+  it("returns every file when no specific scope matched (root-fallback bucket)", () => {
+    const files = ["apps/web/src/x.ts", "vendor/y.js", "package-lock.json"];
+    expect(computeUnmatchedFiles(files)).toEqual(files);
+  });
+
+  it("returns only orphans in a mixed diff (specific match suppresses fallback but orphans still surface)", () => {
+    expect(computeUnmatchedFiles(["src/a.ts", "apps/web/src/b.ts"])).toEqual([
+      "apps/web/src/b.ts",
+    ]);
+  });
+});
+
+describe(computeAllPassedAndReason, () => {
+  it("flags reason='no-checks-defined' + allPassed=false on non-empty diff + empty results", () => {
+    expect(computeAllPassedAndReason([], ["apps/web/src/x.ts"])).toEqual({
+      allPassed: false,
+      reason: "no-checks-defined",
+    });
+  });
+
+  it("returns allPassed=true with no reason on empty diff + empty results", () => {
+    expect(computeAllPassedAndReason([], [])).toEqual({ allPassed: true });
+  });
+
+  it("returns allPassed=true with no reason on undefined changedFiles (--scope path)", () => {
+    expect(computeAllPassedAndReason([], undefined)).toEqual({ allPassed: true });
+  });
+
+  it("reflects results.every on a mixed pass/fail set", () => {
+    const passing = createResult({ passed: true });
+    const failing = createResult({ passed: false });
+    expect(computeAllPassedAndReason([passing, failing], ["src/a.ts"])).toEqual({
+      allPassed: false,
+    });
+    expect(computeAllPassedAndReason([passing, passing], ["src/a.ts"])).toEqual({
+      allPassed: true,
+    });
   });
 });
 
@@ -157,8 +204,8 @@ describe(parseScopes, () => {
     expect(parseScopes("docs,scripts,src")).toEqual(["src", "scripts", "docs"]);
   });
 
-  it("should accept the root-fallback pseudo-scope", () => {
-    expect(parseScopes("root-fallback")).toEqual(["root-fallback"]);
+  it("should reject the root-fallback pseudo-scope (auto-detect-only sentinel)", () => {
+    expect(() => parseScopes("root-fallback")).toThrow('Unknown scope "root-fallback"');
   });
 });
 
