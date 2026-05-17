@@ -79,6 +79,8 @@ on:
 
 jobs:
   prune:
+    permissions:
+      contents: read
     uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>
     with:
       project: my-project
@@ -88,6 +90,7 @@ jobs:
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      WORKFLOW_REPO_TOKEN: ${{ secrets.WORKFLOW_REPO_TOKEN }}  # optional; see below
 ```
 
 The SHA in `uses:` pins both the workflow contract AND the prune script —
@@ -95,6 +98,17 @@ the workflow's own `actions/checkout` step fetches `gavingolden/flow` at
 the same SHA the caller resolved, so the script the workflow runs always
 matches the workflow's own version. To upgrade, bump the SHA; consumers
 never re-vendor.
+
+`WORKFLOW_REPO_TOKEN` is only required in the **private→private cross-repo
+case**: when your calling repo is private *and* `gavingolden/flow` is
+private to your account/org, the default `GITHUB_TOKEN` is scoped to the
+caller's repo and cannot fetch a sibling private repo's source, so the
+`actions/checkout` step that pulls `gavingolden/flow` will 404. Pass a
+fine-grained PAT (or GitHub App installation token) with `Contents:Read`
+on `gavingolden/flow` to resolve. Omit (or leave unset) when the caller
+is a public repo, when `gavingolden/flow` is public, or when the caller
+*is* `gavingolden/flow` itself — in those cases the default token already
+has read access.
 
 Inputs:
 
@@ -114,6 +128,9 @@ Secrets:
 - `CLOUDFLARE_API_TOKEN` — token with `Account.Cloudflare Pages:Edit`
   scope.
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID (not project ID).
+- `WORKFLOW_REPO_TOKEN` (optional) — token with `Contents:Read` on
+  `gavingolden/flow`. Required only in the private→private cross-repo
+  case (see the paragraph after the YAML example above); omit otherwise.
 
 ### When to vendor instead
 
@@ -217,9 +234,14 @@ scripts). For full rationale see `references/env-vars-and-build.md`.
 - Wrapper workflow in the consumer repo declares
   `uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>`
   pinned to a real commit SHA (not a floating tag).
+- Calling job declares `permissions: contents: read` so the workflow's
+  `actions/checkout` step has read access via the default token (parity
+  with the YAML example in section 1).
 - `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set as secrets in
   the calling repo and passed through the wrapper workflow's `secrets:`
   block.
+- For the private→private cross-repo case, `WORKFLOW_REPO_TOKEN` is also
+  set as a secret in the calling repo and passed through.
 - First trigger runs with `dry_run: true` (the default) and the job log
   contains `mode=DRY-RUN`.
 

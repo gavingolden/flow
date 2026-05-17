@@ -65,6 +65,8 @@ on:
   workflow_dispatch:
 jobs:
   prune:
+    permissions:
+      contents: read
     uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>
     with:
       project: my-project
@@ -74,6 +76,9 @@ jobs:
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Optional; required only in the private→private cross-repo case.
+      # See SKILL.md section 1 for full rationale.
+      WORKFLOW_REPO_TOKEN: ${{ secrets.WORKFLOW_REPO_TOKEN }}
 ```
 
 ### When to vendor instead
