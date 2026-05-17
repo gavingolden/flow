@@ -2,10 +2,10 @@
 name: coder
 description: >-
   Apply a structured edit-set to files in an isolated subagent context, running
-  pre-commit verification before returning. Invoked by `/new-feature` step 5
-  and `/verify` step 3 to keep per-edit Edit/Write tool calls and their
-  diff-bearing tool_results out of the supervisor's transcript. Not for
-  direct user invocation.
+  pre-commit verification before returning. Invoked by `/new-feature` step 5,
+  `/verify` step 3, and `/refactoring` step 3 to keep per-edit Edit/Write tool
+  calls and their diff-bearing tool_results out of the supervisor's transcript.
+  Not for direct user invocation.
 ---
 
 # Goal
@@ -26,15 +26,19 @@ the wrapper's brief return summary and reads the artifact once.
   an edit-set from the `failure` JSON object emitted by `flow-pre-commit
   --json` (one entry per failed check, naming the source file + the issue
   the fix should resolve).
+- `/refactoring` step 3 (Apply Transformations) on the wider-scope path of
+  its hybrid threshold — the caller composes an edit-set from the Step 2
+  refactor plan and the affected modules.
 
 # When NOT to Use
 
 - Trivially scoped edits where the caller's own hybrid threshold says
   inline is cheaper. `/coder` itself does not apply a threshold — its
-  callers decide whether to invoke it. The two known callers use
+  callers decide whether to invoke it. The three known callers use
   different bars: `/new-feature` step 5 stays inline at ≤1 file AND ≤30
   LOC AND every file named in the prompt; `/verify` step 3 stays inline
-  on single-line type/lint errors in one file. See each caller's
+  on single-line type/lint errors in one file; `/refactoring` step 3
+  uses the same bar as `/new-feature` step 5. See each caller's
   "Spawn procedure (wider-scope path only)" section for the canonical
   threshold. The Task-tool round trip costs more than the bytes saved
   on a one-line fix; the threshold exists to preserve the inline path
@@ -62,7 +66,8 @@ making the edits, running `flow-pre-commit --json`, and writing the
 structured artifact at `<worktree>/.flow-tmp/coder-result.json`.
 
 The supervisor session that loads this skill (typically `/flow-pipeline`
-step 5 or step 6 via `/new-feature` or `/verify`) only ever sees:
+step 5 or step 6 via `/new-feature`, `/verify`, or `/refactoring`) only
+ever sees:
 
 1. The prose of this SKILL.md (the wrapper).
 2. The Task-tool call's prompt and brief result envelope.
@@ -81,15 +86,17 @@ The trade-off is intentional: the caller cannot refer back to the
 edit-application transcript in later steps. The contract that absorbs the
 trade-off is `coder-result.json` itself — its typed fields (`edits`,
 `verify_status`, `rejected_alternatives`, `anti_patterns_found`,
-`summary`) are what `/new-feature` step 5 and `/verify` step 3 consume.
+`summary`) are what `/new-feature` step 5, `/verify` step 3, and
+`/refactoring` step 3 consume.
 
 ## Independent Edit-Applier Subagent
 
 **Task-tool fan-out is intentional.** This step ("Independent Edit-Applier
 Subagent") spawns one edit-applier agent via the Task tool. When `/coder`
-is loaded by `/new-feature` step 5 or `/verify` step 3 (themselves loaded
-in-process by `/flow-pipeline` steps 5 and 6), this fan-out is permitted by
-the named Task-tool exception #5 in
+is loaded by `/new-feature` step 5, `/verify` step 3, or `/refactoring`
+step 3 (themselves loaded in-process by `/flow-pipeline` steps 5 and 6,
+or by any pipeline step that invokes `/refactoring`), this fan-out is
+permitted by the named Task-tool exception #5 in
 `skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section (itself
 anchored on this step's heading name, not its number, so it survives
 future renumbering). Outside the supervisor context, the Task tool is
@@ -120,7 +127,8 @@ spawn:
 
 1. Resolve the working directory absolutely into a single shell variable
    `$WORKTREE`. If the caller passed a `WORKTREE` value (typical when
-   invoked from `/new-feature` or `/verify` running inside `/flow-pipeline`),
+   invoked from `/new-feature`, `/verify`, or `/refactoring` running inside
+   `/flow-pipeline`),
    use it as-is. Otherwise, set `WORKTREE="$(pwd)"` explicitly. Then derive
    the artifact path from it:
 
@@ -159,9 +167,9 @@ spawn:
 
 4. When the subagent returns, treat its 3–5 sentence summary as the chat
    output. Do **not** read the artifact body in the wrapper — the caller
-   (`/new-feature` or `/verify`) reads it once when it needs
-   `verify_status` or per-edit dispositions, and reading it twice in the
-   same context erodes the context-cost win. The wrapper's only post-spawn
+   (`/new-feature`, `/verify`, or `/refactoring`) reads it once when it
+   needs `verify_status` or per-edit dispositions, and reading it twice in
+   the same context erodes the context-cost win. The wrapper's only post-spawn
    job is a cheap existence check (`test -s "$ARTIFACT_PATH"`); on missing
    or empty artifact, surface the failure to the caller — the wrapper
    itself never retries.

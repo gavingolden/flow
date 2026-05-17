@@ -441,7 +441,7 @@ describe("Edit-Applier artifact JSON schema drift (coder/SKILL.md ↔ references
       expect(
         coderContent.includes(`\`${key}\``),
         `coder/SKILL.md must reference '\`${key}\`' as one of the artifact's typed fields. ` +
-          `Missing the key here means a downstream consumer (/new-feature step 5, /verify step 3) ` +
+          `Missing the key here means a downstream consumer (/new-feature step 5, /verify step 3, /refactoring step 3) ` +
           `drifts away from the schema documented in references/coder-instructions.md.`,
       ).toBe(true);
     },

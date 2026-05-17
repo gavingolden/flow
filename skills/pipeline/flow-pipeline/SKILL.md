@@ -191,7 +191,8 @@ in-process for skills; shell out for scripts; never delegate.
 >
 > **Task-tool exemption #6: `/coder` Independent Edit-Applier Subagent.**
 > When `/flow-pipeline` step 5 loads `/new-feature` (or step 6 loads
-> `/verify`) and the wider-scope path of either skill's hybrid threshold
+> `/verify`, or any pipeline step loads `/refactoring`) and the
+> wider-scope path of any of these skills' hybrid thresholds
 > fires, the wrapper invokes `/coder` in-process; `/coder` itself spawns
 > one edit-applier agent via the Task tool to apply the caller's edit-set,
 > run `flow-pre-commit --json` against the post-edit worktree, and write
@@ -200,8 +201,9 @@ in-process for skills; shell out for scripts; never delegate.
 > `anti_patterns_found`, `summary`). Trivially scoped edits skip the
 > subagent via each caller's own hybrid threshold (`/new-feature` step 5:
 > ≤1 file AND ≤30 LOC AND every file named in the prompt; `/verify` step
-> 3: single-line type/lint error in one file) and proceed inline. The
-> two thresholds are caller-defined — see each skill's "Spawn procedure
+> 3: single-line type/lint error in one file; `/refactoring` step 3: same
+> bar as `/new-feature` step 5) and proceed inline. The
+> three thresholds are caller-defined — see each skill's "Spawn procedure
 > (wider-scope path only)" section for the canonical bar. The same two
 > rationales apply — top-level Task call (constraint 1 doesn't apply),
 > one-shot fan-out (constraint 2 doesn't apply) — plus the additional
@@ -211,8 +213,8 @@ in-process for skills; shell out for scripts; never delegate.
 > by an edit surface where the rationale is still live, rather than after
 > the subagent exits when the parent caller sees a verify failure later
 > with no intent context. The only handoff to downstream callers is the
-> structured artifact, which `/new-feature` step 5 and `/verify` step 3
-> read once and reuse. The contract is documented bidirectionally in
+> structured artifact, which `/new-feature` step 5, `/verify` step 3, and
+> `/refactoring` step 3 read once and reuse. The contract is documented bidirectionally in
 > `skills/pipeline/coder/SKILL.md`'s "Independent Edit-Applier Subagent"
 > section and `AGENTS.md` `## Don'ts`.
 

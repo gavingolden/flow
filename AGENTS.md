@@ -406,8 +406,9 @@ no compile step.
     Same narrow-and-named contract as the exemptions above.
   - **Task-tool exemption: `/flow-pipeline` → `/coder` Independent
     Edit-Applier Subagent.** When `/flow-pipeline` step 5 loads
-    `/new-feature` (or step 6 loads `/verify`) and either skill reaches
-    its hybrid-threshold wider-scope path, the wrapper invokes `/coder`
+    `/new-feature` (or step 6 loads `/verify`, or any pipeline step
+    loads `/refactoring`) and any of these skills reaches its
+    hybrid-threshold wider-scope path, the wrapper invokes `/coder`
     in-process; `/coder` itself spawns one edit-applier agent via the
     Task tool to apply the caller's edit-set, run `flow-pre-commit
     --json` against the post-edit worktree, and write a structured
@@ -417,8 +418,9 @@ no compile step.
     the step heading name rather than its number so it survives future
     `/coder` renumbering. Rationale: the same two constraints as above
     — the supervisor is top-level so the one-level sub-agent cap
-    doesn't apply to *its* Task calls (the call from `/new-feature` or
-    `/verify` is itself a top-level-supervisor-loaded skill's call);
+    doesn't apply to *its* Task calls (the call from `/new-feature`,
+    `/verify`, or `/refactoring` is itself a
+    top-level-supervisor-loaded skill's call);
     and the edit-applier is one-shot, returning the artifact plus a
     brief both-sides summary, then exits. The reason this exemption
     exists at all is two-fold: context cost (per-edit `Edit`/`Write`
@@ -432,7 +434,8 @@ no compile step.
     the subagent via each caller's own hybrid threshold
     (`/new-feature` step 5: ≤1 file AND ≤30 LOC AND every file named
     in the prompt; `/verify` step 3: single-line type/lint error in
-    one file) and proceed inline. The two thresholds are
+    one file; `/refactoring` step 3: same bar as `/new-feature` step
+    5) and proceed inline. The three thresholds are
     caller-defined — see each skill's "Spawn procedure (wider-scope
     path only)" section for the canonical bar. The contract is
     documented bidirectionally in
