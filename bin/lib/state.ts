@@ -90,11 +90,25 @@ export function statePath(slug: string, dir = FLOW_STATE_DIR): string {
   return path.join(dir, `${slug}.json`);
 }
 
+function isPipelineState(x: unknown): x is PipelineState {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  if (typeof o.slug !== "string") return false;
+  if (typeof o.phase !== "string") return false;
+  if (typeof o.repo !== "string") return false;
+  if (typeof o.updatedAt !== "string") return false;
+  if (o.pr !== undefined && typeof o.pr !== "number") return false;
+  if (o.worktree !== undefined && typeof o.worktree !== "string") return false;
+  if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean") return false;
+  return true;
+}
+
 export function readState(slug: string, dir = FLOW_STATE_DIR): PipelineState | null {
   const file = statePath(slug, dir);
   try {
     const raw = fs.readFileSync(file, "utf8");
-    return JSON.parse(raw) as PipelineState;
+    const parsed: unknown = JSON.parse(raw);
+    return isPipelineState(parsed) ? parsed : null;
   } catch {
     return null;
   }

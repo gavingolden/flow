@@ -43,6 +43,41 @@ describe("stop-turn-tracking", () => {
     expect(readTurnTracking("missing", dir)).toBeNull();
   });
 
+  it("readTurnTracking returns null when JSON is corrupt", () => {
+    fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "turns", "corrupt.json"), "{not json");
+    expect(readTurnTracking("corrupt", dir)).toBeNull();
+  });
+
+  it("readTurnTracking returns null when JSON is missing the blockCount field", () => {
+    fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "turns", "no-count.json"),
+      JSON.stringify({
+        slug: "no-count",
+        turnId: "2026-05-17T00:00:00.000Z",
+        lastPhase: "verifying",
+        lastStopAt: "2026-05-17T00:00:00.000Z",
+      }),
+    );
+    expect(readTurnTracking("no-count", dir)).toBeNull();
+  });
+
+  it("readTurnTracking returns null when blockCount is wrong-type", () => {
+    fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "turns", "bad-count.json"),
+      JSON.stringify({
+        slug: "bad-count",
+        turnId: "2026-05-17T00:00:00.000Z",
+        blockCount: "not-a-number",
+        lastPhase: "verifying",
+        lastStopAt: "2026-05-17T00:00:00.000Z",
+      }),
+    );
+    expect(readTurnTracking("bad-count", dir)).toBeNull();
+  });
+
   it("writeTurnTracking creates the turns/ subdir on first write and round-trips all five fields", () => {
     const t = fixture("demo", {
       turnId: "2026-05-17T00:00:00.000Z",

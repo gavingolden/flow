@@ -41,6 +41,17 @@ export function turnTrackingPath(slug: string, dir = FLOW_STATE_DIR): string {
   return path.join(dir, "turns", `${slug}.json`);
 }
 
+function isTurnTracking(x: unknown): x is TurnTracking {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  if (typeof o.slug !== "string") return false;
+  if (typeof o.turnId !== "string") return false;
+  if (typeof o.blockCount !== "number") return false;
+  if (typeof o.lastPhase !== "string") return false;
+  if (typeof o.lastStopAt !== "string") return false;
+  return true;
+}
+
 export function readTurnTracking(
   slug: string,
   dir = FLOW_STATE_DIR,
@@ -48,7 +59,8 @@ export function readTurnTracking(
   const file = turnTrackingPath(slug, dir);
   try {
     const raw = fs.readFileSync(file, "utf8");
-    return JSON.parse(raw) as TurnTracking;
+    const parsed: unknown = JSON.parse(raw);
+    return isTurnTracking(parsed) ? parsed : null;
   } catch {
     return null;
   }

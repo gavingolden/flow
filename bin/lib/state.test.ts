@@ -56,6 +56,77 @@ describe("state", () => {
     expect(readState("bad", dir)).toBeNull();
   });
 
+  it("readState returns null when state JSON is missing the phase field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "no-phase.json"),
+      JSON.stringify({ slug: "no-phase", repo: "/tmp/repo", updatedAt: "2026-05-17T00:00:00Z" }),
+    );
+    expect(readState("no-phase", dir)).toBeNull();
+  });
+
+  it("readState returns null when state JSON has wrong-type phase", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-phase.json"),
+      JSON.stringify({ slug: "bad-phase", phase: 42, repo: "/tmp/repo", updatedAt: "2026-05-17T00:00:00Z" }),
+    );
+    expect(readState("bad-phase", dir)).toBeNull();
+  });
+
+  it("readState returns null when state JSON has wrong-type pr", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-pr.json"),
+      JSON.stringify({
+        slug: "bad-pr",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        pr: "not-a-number",
+      }),
+    );
+    expect(readState("bad-pr", dir)).toBeNull();
+  });
+
+  it("readState returns null when state JSON has null for an optional field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "null-opt.json"),
+      JSON.stringify({
+        slug: "null-opt",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        autoMerge: null,
+      }),
+    );
+    expect(readState("null-opt", dir)).toBeNull();
+  });
+
+  it("readState round-trips a full state with every optional field", () => {
+    const full: PipelineState = {
+      slug: "full",
+      phase: "reviewing",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      pr: 142,
+      worktree: "/tmp/worktree-full",
+      autoMerge: false,
+    };
+    writeState(full, dir);
+    expect(readState("full", dir)).toEqual(full);
+  });
+
+  it("listStates skips off-shape JSON files alongside valid ones", () => {
+    writeState(fixture("real"), dir);
+    fs.writeFileSync(
+      path.join(dir, "off-shape.json"),
+      JSON.stringify({ random: "shape" }),
+    );
+    expect(listStates(dir).map((s) => s.slug)).toEqual(["real"]);
+  });
+
   it("listStates returns every well-formed state file", () => {
     writeState(fixture("a"), dir);
     writeState(fixture("b", { phase: "merged" }), dir);
