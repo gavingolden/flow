@@ -70,6 +70,15 @@ describe("state", () => {
     expect(listStates(dir).map((s) => s.slug)).toEqual(["a"]);
   });
 
+  it("listStates skips legacy root-level <slug>.turn.json files", () => {
+    writeState(fixture("real"), dir);
+    fs.writeFileSync(
+      path.join(dir, "legacy.turn.json"),
+      JSON.stringify({ slug: "legacy", turnId: "x", blockCount: 1, lastPhase: "verifying", lastStopAt: "x" }) + "\n",
+    );
+    expect(listStates(dir).map((s) => s.slug)).toEqual(["real"]);
+  });
+
   it("listStates ignores turn-tracking files in the turns/ subdirectory", () => {
     // Regression guard for the phantom-pipeline bug: turn-tracking files
     // used to live at `<dir>/<slug>.turn.json` and `listStates`'s
