@@ -1198,7 +1198,7 @@ section ends with one summary line:
 Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <reasons>)
 ```
 
-Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X) and the per-unticked-item rubric categories; pass them to:
+Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X, Y) and the per-unticked-item rubric categories; pass them to:
 
 ```bash
 flow-classify-step --ran $N --total $M --prose-promoted $X \
@@ -1306,7 +1306,7 @@ path (`"partial"`) or escalate verbatim (`"escalated"`).
 - Structured report produced using the template format
 - **Report clearly labels each finding as Addressed or Deferred (+ reason) — no finding is
   silently dropped between Step 4 and the report**
-- The Step 12 "Automation-precedence audit" line was emitted by `flow-classify-step` (the helper's stdout is the literal line in the report), not constructed inline. The slug → human-prose mapping inside the helper matches the five categories in `references/manual-test-rubric.md` verbatim; `bin/flow-classify-step.test.ts` pins that mapping.
+- The Step 12 "Automation-precedence audit" line was emitted by `flow-classify-step` (the helper's stdout is the literal line in the report), not constructed inline. The slug → human-prose mapping inside the helper matches the five-category short-form list documented in Step 12 of this SKILL.md (the kebab-case forms named in the audit-line format-spec bullet); `bin/flow-classify-step.test.ts` pins that mapping.
 
 # Constraints
 

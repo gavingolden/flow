@@ -143,6 +143,25 @@ describe(parseArgs, () => {
     expect("error" in r && r.error).toBe("--reason requires a value");
   });
 
+  it("rejects --reason when followed by another flag (next-arg-is-flag)", () => {
+    const r = parseArgs([
+      "--ran",
+      "3",
+      "--total",
+      "5",
+      "--prose-promoted",
+      "1",
+      "--reason",
+      "--total",
+    ]);
+    expect("error" in r && r.error).toBe("--reason requires a value");
+  });
+
+  it("rejects --ran when given as a trailing flag with no value", () => {
+    const r = parseArgs(["--ran"]);
+    expect("error" in r && r.error).toBe("--ran requires a value");
+  });
+
   it("rejects an unknown --reason slug, listing allowed slugs", () => {
     const r = parseArgs([
       "--ran",
