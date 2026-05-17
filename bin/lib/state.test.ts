@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   deleteState,
   isLegitimateEndPhase,
+  isMainStateFile,
   isPipelinePhase,
   listStates,
   PENDING_PHASES,
@@ -212,6 +213,15 @@ describe("state", () => {
     expect(listStates(dir).map((s) => s.slug)).toEqual(["a"]);
   });
 
+  it("listStates skips legacy <slug>.turn.json files", () => {
+    writeState(fixture("real"), dir);
+    fs.writeFileSync(
+      path.join(dir, "legacy.turn.json"),
+      JSON.stringify({ slug: "legacy", turnId: "x", blockCount: 1, lastPhase: "verifying", lastStopAt: "x" }) + "\n",
+    );
+    expect(listStates(dir).map((s) => s.slug)).toEqual(["real"]);
+  });
+
   it("listStates ignores turn-tracking files in the turns/ subdirectory", () => {
     // Regression guard for the phantom-pipeline bug: turn-tracking files
     // used to live at `<dir>/<slug>.turn.json` and `listStates`'s
@@ -240,6 +250,26 @@ describe("state", () => {
 
   it("deleteState returns false for missing slug", () => {
     expect(deleteState("missing", dir)).toBe(false);
+  });
+});
+
+describe("isMainStateFile", () => {
+  // Direct boundary coverage for the predicate `listStates` uses to filter
+  // legacy `<slug>.X.json` turn-tracking files out of the state dir root.
+  // The commit body promises rejection of "any other `<slug>.X.json`" shape,
+  // not just `.turn.json` — this table documents that intent.
+  it.each([
+    ["real.json", true],
+    ["a-b_c.json", true],
+    ["legacy.turn.json", false],
+    ["foo.bak.json", false],
+    ["foo.tmp.json", false],
+    ["foo.bar.json", false],
+    [".json", false],
+    ["foo", false],
+    ["", false],
+  ])("isMainStateFile(%j) === %s", (name, expected) => {
+    expect(isMainStateFile(name)).toBe(expected);
   });
 });
 

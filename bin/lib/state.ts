@@ -128,6 +128,12 @@ export function deleteState(slug: string, dir = FLOW_STATE_DIR): boolean {
   }
 }
 
+// Rejects legacy `<slug>.turn.json` (and any other `<slug>.X.json`) turn-tracking
+// files that used to live at the state dir root before they moved to `turns/`.
+export function isMainStateFile(name: string): boolean {
+  return /^[^.]+\.json$/.test(name);
+}
+
 export function listStates(dir = FLOW_STATE_DIR): PipelineState[] {
   let entries: fs.Dirent[];
   try {
@@ -137,7 +143,7 @@ export function listStates(dir = FLOW_STATE_DIR): PipelineState[] {
   }
   const states: PipelineState[] = [];
   for (const e of entries) {
-    if (!e.isFile() || !e.name.endsWith(".json")) continue;
+    if (!e.isFile() || !isMainStateFile(e.name)) continue;
     const slug = e.name.replace(/\.json$/, "");
     const state = readState(slug, dir);
     if (state) states.push(state);
