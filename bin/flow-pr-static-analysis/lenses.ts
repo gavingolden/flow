@@ -23,7 +23,7 @@ export const runSecurityLens: LensRun = async (args, deps) => {
   const bin = deps.which("semgrep");
   if (!bin) return timedSkip(start, "semgrep-not-on-path");
   deps.writeErr("[security] running semgrep --json --severity ERROR\n");
-  const r = deps.spawn(
+  const r = await deps.spawn(
     "semgrep",
     [
       "--json",
@@ -66,7 +66,7 @@ export const runTypesLens: LensRun = async (args, deps) => {
   if (!bin) return timedSkip(start, "tsc-not-found");
   const projectArgs = tsconfig === "tsconfig.json" ? [] : ["-p", tsconfig];
   deps.writeErr(`[types] running ${bin} --noEmit --pretty false${projectArgs.length ? ` -p ${tsconfig}` : ""}\n`);
-  const r = deps.spawn(bin, [...projectArgs, "--noEmit", "--pretty", "false"], {
+  const r = await deps.spawn(bin, [...projectArgs, "--noEmit", "--pretty", "false"], {
     cwd: deps.cwd,
     timeoutMs: args.maxToolTimeoutSec * 1000,
   });
@@ -115,7 +115,7 @@ export const runLintLens: LensRun = async (args, deps) => {
     const bin = deps.fileExists(localBiome) ? localBiome : deps.which("biome");
     if (bin) {
       deps.writeErr(`[lint] running ${bin} check --reporter=json\n`);
-      const r = deps.spawn(bin, ["check", "--reporter=json", "."], {
+      const r = await deps.spawn(bin, ["check", "--reporter=json", "."], {
         cwd: deps.cwd,
         timeoutMs: args.maxToolTimeoutSec * 1000,
       });
@@ -138,7 +138,7 @@ export const runLintLens: LensRun = async (args, deps) => {
     const bin = deps.fileExists(localEslint) ? localEslint : deps.which("eslint");
     if (bin) {
       deps.writeErr(`[lint] running ${bin} --format json .\n`);
-      const r = deps.spawn(bin, ["--format", "json", "."], {
+      const r = await deps.spawn(bin, ["--format", "json", "."], {
         cwd: deps.cwd,
         timeoutMs: args.maxToolTimeoutSec * 1000,
       });

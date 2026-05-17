@@ -51,8 +51,8 @@ export type AnalysisResult = {
 // --- I/O wiring types ------------------------------------------------------
 
 export type CmdResult = { stdout: string; stderr: string; exitCode: number; timedOut: boolean };
-export type SpawnRunner = (cmd: string, args: string[], opts: { cwd: string; timeoutMs: number }) => CmdResult;
-export type GhRunner = (argv: string[]) => CmdResult;
+export type SpawnRunner = (cmd: string, args: string[], opts: { cwd: string; timeoutMs: number }) => Promise<CmdResult>;
+export type GhRunner = (argv: string[]) => Promise<CmdResult>;
 export type WhichFn = (cmd: string) => string | null;
 
 export type Deps = {
