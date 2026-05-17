@@ -368,6 +368,28 @@ Use the `$page` store from `$app/stores` for route params and shallow routing st
 </script>
 ```
 
+**CRITICAL — Same-URL `goto` loop in canonicalisation `$effect`s:** A
+`$effect` that reads `$page.url.searchParams` and calls `goto()` will
+infinite-loop the page (visible as a frozen tab) when the rebuilt URL
+equals the current one. `goto` always fires a page-store notify even on
+same-URL navigations, which re-triggers the effect, which re-calls
+`goto`. The trap is silent in unit tests (no rendered page, no `$page`
+store notify) and only surfaces on a bare URL where the serializer
+omits every default. Always guard with an equality check before the
+goto:
+
+```svelte
+$effect(() => {
+  // ... build the canonical target string ...
+  const target = `/path/${id}${suffix}`;
+  if (target === $page.url.pathname + $page.url.search) return; // critical
+  void goto(target, { replaceState: true });
+});
+```
+
+See `references/sveltekit-patterns.md` "URL Canonicalisation" for the
+full diagnosis.
+
 See `references/sveltekit-patterns.md` for load functions, route organization, and
 data flow patterns.
 
