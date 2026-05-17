@@ -64,8 +64,69 @@ wrangler pages deployment list --project-name <your-project>
 wrangler pages deployment delete <deployment-id> --project-name <your-project>
 ```
 
-For bulk-pruning (e.g. all preview deployments older than 30 days,
-excluding production), copy the Bun script template:
+For bulk-pruning on a schedule (e.g. nightly cleanup of preview deployments
+older than 30 days), call the reusable workflow from a wrapper workflow in
+your repo:
+
+```yaml
+# .github/workflows/prune-cf-pages.yml
+name: prune-cf-pages
+
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC daily
+  workflow_dispatch:
+
+jobs:
+  prune:
+    uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>
+    with:
+      project: my-project
+      older_than_days: 30
+      branch: '!main'      # optional; omit to match all branches
+      dry_run: true        # default; set false to actually delete
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+```
+
+The SHA in `uses:` pins both the workflow contract AND the prune script —
+the workflow's own `actions/checkout` step fetches `gavingolden/flow` at
+the same SHA the caller resolved, so the script the workflow runs always
+matches the workflow's own version. To upgrade, bump the SHA; consumers
+never re-vendor.
+
+Inputs:
+
+- `project` (string, required) — Cloudflare Pages project name.
+- `older_than_days` (number, required) — cutoff in days; passed to the
+  script as `--older-than <N>d`.
+- `branch` (string, optional, default `''`) — single glob passed to the
+  script's `--branch` flag. Supports positive (`feat/*`) or negative
+  (`!main`) globs. Empty string omits `--branch` so the script matches
+  all branches.
+- `dry_run` (boolean, optional, default `true`) — fail-safe default. When
+  true, invokes the script with `--dry-run` and only prints the would-
+  delete list. Set `false` to actually delete (`--apply`).
+
+Secrets:
+
+- `CLOUDFLARE_API_TOKEN` — token with `Account.Cloudflare Pages:Edit`
+  scope.
+- `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID (not project ID).
+
+### When to vendor instead
+
+The reusable workflow exposes only the four inputs above. Vendor the
+script directly when you need to:
+
+- Extend the script (custom filtering logic, additional CF API calls).
+- Run pruning outside GitHub Actions (cron on a server, ad-hoc local
+  cleanup).
+- Use flags the workflow does not expose: `--keep-aliased` /
+  `--no-keep-aliased`, `--keep-production-latest` /
+  `--no-keep-production-latest`, `--max <N>`, or the script's full
+  `--older-than` syntax (ISO date / ISO datetime in addition to `<N>d`).
 
 ```bash
 cp ~/.claude/skills/cloudflare-pages/templates/prune-cf-deployments.ts <your-project>/scripts/
@@ -75,6 +136,9 @@ bun <your-project>/scripts/prune-cf-deployments.ts \
   --branch '!main' \
   --dry-run    # default; --apply to actually delete
 ```
+
+The trade-off: vendoring gives access to the script's full flag set, at
+the cost of re-vendoring on every script update (no SHA-pin upgrade path).
 
 For full pruning workflow including the CF REST API fallback for
 aliased/active deployments, see `references/deployment-pruning.md`.
@@ -147,6 +211,20 @@ scripts). For full rationale see `references/env-vars-and-build.md`.
 
 - Skill installed at `~/.claude/skills/cloudflare-pages/` after
   `flow setup --upgrade`.
+
+**Reusable-workflow path:**
+
+- Wrapper workflow in the consumer repo declares
+  `uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>`
+  pinned to a real commit SHA (not a floating tag).
+- `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set as secrets in
+  the calling repo and passed through the wrapper workflow's `secrets:`
+  block.
+- First trigger runs with `dry_run: true` (the default) and the job log
+  contains `mode=DRY-RUN`.
+
+**Vendor path:**
+
 - Pruning template copied to consumer's `scripts/` dir; runs in `--dry-run`
   mode by default.
 - `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set in shell env
@@ -172,3 +250,5 @@ scripts). For full rationale see `references/env-vars-and-build.md`.
   SPA fallback rationale, NODE_VERSION.
 - `templates/prune-cf-deployments.ts` — opt-in Bun pruning script (copy
   into your project's `scripts/`).
+- `.github/workflows/cloudflare-pages-prune.yml` — reusable GitHub Actions
+  workflow for scheduled bulk pruning (recommended consumer path).

@@ -1,0 +1,97 @@
+# Reusable workflow: bulk-prune Cloudflare Pages deployments.
+#
+# Consumers call this via `uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>`.
+# The SHA in `uses:` pins both the workflow contract AND the prune script —
+# `actions/checkout` below uses `${{ github.workflow_sha }}` to fetch
+# `gavingolden/flow` at the exact same revision the caller resolved, so the
+# script the workflow runs matches the workflow's own version.
+#
+# Consumer-side example: skills/stacks/cloudflare-pages/SKILL.md section 1.
+
+name: cloudflare-pages-prune
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: Cloudflare Pages project name (required).
+        type: string
+        required: true
+      older_than_days:
+        description: Delete deployments older than this many days (required).
+        type: number
+        required: true
+      branch:
+        description: >-
+          Optional branch glob passed to the script's --branch flag. Supports
+          positive (e.g. 'feat/*') or negative ('!main') globs. Empty string
+          (default) omits --branch entirely so the script matches all branches.
+        type: string
+        required: false
+        default: ''
+      dry_run:
+        description: >-
+          When true (default), invokes the script with --dry-run and only
+          prints the would-delete list. When false, invokes with --apply and
+          performs the deletes. Defaulting to true is the fail-safe — a
+          caller that forgets the input gets a no-op log instead of an
+          accidental mass-deletion.
+        type: boolean
+        required: false
+        default: true
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        description: Cloudflare API token with Account.Cloudflare Pages:Edit scope.
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        description: Cloudflare account ID (not project ID).
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  prune:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout gavingolden/flow at the caller-resolved SHA
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: gavingolden/flow
+          ref: ${{ github.workflow_sha }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+
+      - name: Run prune-cf-deployments.ts
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          INPUT_PROJECT: ${{ inputs.project }}
+          INPUT_OLDER_THAN_DAYS: ${{ inputs.older_than_days }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          # GitHub Actions has no integer-only input type — number accepts
+          # floats. The prune script's --older-than parser requires `^\d+d$`,
+          # so guard at the workflow boundary to surface a clear error
+          # instead of an opaque downstream failure. Exit code 2 matches the
+          # script's own CLI/env validation exit.
+          if ! [[ "${INPUT_OLDER_THAN_DAYS}" =~ ^[0-9]+$ ]]; then
+            echo "error: older_than_days must be a non-negative integer (got '${INPUT_OLDER_THAN_DAYS}')" >&2
+            exit 2
+          fi
+          args=()
+          args+=(--project "${INPUT_PROJECT}")
+          args+=(--older-than "${INPUT_OLDER_THAN_DAYS}d")
+          if [ -n "${INPUT_BRANCH}" ]; then
+            args+=(--branch "${INPUT_BRANCH}")
+          fi
+          if [ "${INPUT_DRY_RUN}" = "true" ]; then
+            args+=(--dry-run)
+          else
+            args+=(--apply)
+          fi
+          bun skills/stacks/cloudflare-pages/templates/prune-cf-deployments.ts "${args[@]}"
