@@ -346,8 +346,8 @@ Contract:
   windows (no `@flow-slug` set), or when state.json is missing.
   Safe to install in a global Stop hook list.
 - Loop-break budget: the hook owns its own per-turn block counter,
-  persisted at `~/.flow/state/<slug>.turn.json` (sibling to
-  `<slug>.json`).
+  persisted at `~/.flow/state/turns/<slug>.json` (a sibling
+  subdirectory so `flow ls` does not see it as a phantom pipeline).
 - Legitimate pending exits do NOT consume the budget — phase=
   `plan-pending-review` / `triaged-no-change` /
   `triage-pending-clarification` / `approval-pending-clarification`

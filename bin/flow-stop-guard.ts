@@ -18,23 +18,25 @@
  * coding session sees no behaviour change.
  *
  * Per-turn tracking: the hook owns its own block counter at
- * `~/.flow/state/<slug>.turn.json`. After one block this turn
- * (TURN_BLOCK_LIMIT), subsequent stops exit 0 only when phase has
- * advanced since the block (phase-advance loop-break, emits a stderr
- * breadcrumb); otherwise stagnation re-engages with a "phase has not
- * advanced" reminder. `stop_hook_active` is treated as advisory (used
- * to detect turn boundaries) rather than authoritative budget.
+ * `~/.flow/state/turns/<slug>.json` (a sibling subdirectory so
+ * `state.ts`'s `listStates()` does not pick the file up as a phantom
+ * pipeline). After one block this turn (TURN_BLOCK_LIMIT), subsequent
+ * stops exit 0 only when phase has advanced since the block (phase-
+ * advance loop-break, emits a stderr breadcrumb); otherwise stagnation
+ * re-engages with a "phase has not advanced" reminder. `stop_hook_active`
+ * is treated as advisory (used to detect turn boundaries) rather than
+ * authoritative budget.
  */
 
 import { spawnSync } from "node:child_process";
 import {
   isLegitimateEndPhase,
+  nowIso as defaultNowIso,
   PENDING_PHASES,
   readState,
   type PipelineState,
 } from "./lib/state";
 import {
-  nowIso as defaultNowIso,
   readTurnTracking,
   TURN_BLOCK_LIMIT,
   writeTurnTracking,
@@ -53,7 +55,6 @@ export type Deps = {
   writeErr: (s: string) => void;
   readTurn: (slug: string) => TurnTracking | null;
   writeTurn: (tracking: TurnTracking) => void;
-  writeStderr: (s: string) => void;
   nowIso: () => string;
 };
 
@@ -92,8 +93,8 @@ export async function run(deps: Deps): Promise<number> {
   }
 
   if (tracking.blockCount >= TURN_BLOCK_LIMIT && state.phase !== tracking.lastPhase) {
-    deps.writeStderr(
-      `flow-stop-guard: loop-break consumed; subsequent stops will not be blocked this turn. Phase=${state.phase}; review and continue per /flow-pipeline SKILL.md.\n`,
+    deps.writeErr(
+      `flow-stop-guard: loop-break consumed at phase=${state.phase}; subsequent stops will exit 0 only if phase keeps advancing — stalling at this phase re-engages the stagnation reminder. Continue per /flow-pipeline SKILL.md.\n`,
     );
     tracking = { ...tracking, lastPhase: state.phase, lastStopAt: now };
     deps.writeTurn(tracking);
@@ -199,7 +200,6 @@ if (import.meta.main) {
     writeErr: (s) => process.stderr.write(s),
     readTurn: (slug) => readTurnTracking(slug),
     writeTurn: (t) => writeTurnTracking(t),
-    writeStderr: (s) => process.stderr.write(s),
     nowIso: defaultNowIso,
   }).then((code) => process.exit(code));
 }

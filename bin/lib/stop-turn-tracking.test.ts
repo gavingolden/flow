@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   deleteTurnTracking,
   readTurnTracking,
-  STAGNATION_THRESHOLD,
   turnTrackingPath,
   TURN_BLOCK_LIMIT,
   writeTurnTracking,
@@ -34,22 +33,27 @@ function fixture(slug: string, overrides: Partial<TurnTracking> = {}): TurnTrack
 }
 
 describe("stop-turn-tracking", () => {
-  it("turnTrackingPath returns <state-dir>/<slug>.turn.json", () => {
-    expect(turnTrackingPath("csv-export", dir)).toBe(path.join(dir, "csv-export.turn.json"));
+  it("turnTrackingPath returns <state-dir>/turns/<slug>.json", () => {
+    expect(turnTrackingPath("csv-export", dir)).toBe(
+      path.join(dir, "turns", "csv-export.json"),
+    );
   });
 
   it("readTurnTracking returns null on missing file", () => {
     expect(readTurnTracking("missing", dir)).toBeNull();
   });
 
-  it("writeTurnTracking then readTurnTracking round-trips all five fields", () => {
+  it("writeTurnTracking creates the turns/ subdir on first write and round-trips all five fields", () => {
     const t = fixture("demo", {
       turnId: "2026-05-17T00:00:00.000Z",
       blockCount: 2,
       lastPhase: "verifying",
       lastStopAt: "2026-05-17T00:01:00.000Z",
     });
+    expect(fs.existsSync(path.join(dir, "turns"))).toBe(false);
     writeTurnTracking(t, dir);
+    expect(fs.existsSync(path.join(dir, "turns"))).toBe(true);
+    expect(fs.existsSync(path.join(dir, "turns", "demo.json"))).toBe(true);
     const got = readTurnTracking("demo", dir);
     expect(got).not.toBeNull();
     expect(got?.slug).toBe("demo");
@@ -66,8 +70,7 @@ describe("stop-turn-tracking", () => {
     expect(deleteTurnTracking("a", dir)).toBe(false);
   });
 
-  it("exports TURN_BLOCK_LIMIT===1 and STAGNATION_THRESHOLD===2", () => {
+  it("exports TURN_BLOCK_LIMIT===1", () => {
     expect(TURN_BLOCK_LIMIT).toBe(1);
-    expect(STAGNATION_THRESHOLD).toBe(2);
   });
 });

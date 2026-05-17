@@ -70,6 +70,22 @@ describe("state", () => {
     expect(listStates(dir).map((s) => s.slug)).toEqual(["a"]);
   });
 
+  it("listStates ignores turn-tracking files in the turns/ subdirectory", () => {
+    // Regression guard for the phantom-pipeline bug: turn-tracking files
+    // used to live at `<dir>/<slug>.turn.json` and `listStates`'s
+    // `.endsWith('.json')` filter picked them up as state files whose
+    // JSON.parse cast yielded `{ slug: '<slug>.turn', phase: undefined }`.
+    // Moving them to a sibling `turns/` subdirectory keeps `listStates`
+    // (which reads `dir` non-recursively) blind to them.
+    writeState(fixture("real"), dir);
+    fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "turns", "real.json"),
+      JSON.stringify({ slug: "real", turnId: "x", blockCount: 1, lastPhase: "verifying", lastStopAt: "x" }) + "\n",
+    );
+    expect(listStates(dir).map((s) => s.slug)).toEqual(["real"]);
+  });
+
   it("listStates returns [] when directory is missing", () => {
     expect(listStates(path.join(dir, "nope"))).toEqual([]);
   });

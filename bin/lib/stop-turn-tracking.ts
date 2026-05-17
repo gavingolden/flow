@@ -1,22 +1,26 @@
 /**
  * Per-turn block tracking for `flow-stop-guard`, persisted at
- * `~/.flow/state/<slug>.turn.json` (sibling to `<slug>.json`). The hook
+ * `~/.flow/state/turns/<slug>.json` (a sibling subdirectory of the
+ * per-pipeline state files at `~/.flow/state/<slug>.json`). The hook
  * owns its own counter so it can distinguish a legitimate phase-advance
  * loop-break from stagnation (phase has not advanced for N consecutive
  * stops) — Claude Code's `stop_hook_active` payload flag is treated as
  * advisory rather than authoritative budget.
  *
- * Shape mirrors `state.ts` exactly: `<slug>.turn.json` lives in
- * `FLOW_STATE_DIR`, `dir?` parameter same default + override pattern,
- * read returns null on missing, write is synchronous with recursive
- * mkdir, delete is best-effort try/unlink/catch.
+ * Files live in the `turns/` subdirectory rather than alongside
+ * `<slug>.json` so `state.ts`'s `listStates()` — which reads
+ * `FLOW_STATE_DIR` non-recursively and filters by `.endsWith('.json')`
+ * — does not pick them up as phantom pipelines.
+ *
+ * Shape mirrors `state.ts`'s primitives otherwise: `dir?` default-from-
+ * `FLOW_STATE_DIR` parameter, read returns null on missing, write is
+ * synchronous with recursive mkdir of the `turns/` subdirectory, delete
+ * is best-effort try/unlink/catch.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_STATE_DIR } from "./paths";
-
-export { nowIso } from "./state";
 
 export type TurnTracking = {
   slug: string;
@@ -33,15 +37,8 @@ export type TurnTracking = {
  */
 export const TURN_BLOCK_LIMIT = 1;
 
-/**
- * Number of consecutive same-phase blocks after the budget is exhausted
- * that triggers stagnation routing. Exported alongside `TURN_BLOCK_LIMIT`
- * so tests pin against a named constant rather than a literal.
- */
-export const STAGNATION_THRESHOLD = 2;
-
 export function turnTrackingPath(slug: string, dir = FLOW_STATE_DIR): string {
-  return path.join(dir, `${slug}.turn.json`);
+  return path.join(dir, "turns", `${slug}.json`);
 }
 
 export function readTurnTracking(
@@ -61,7 +58,7 @@ export function writeTurnTracking(
   tracking: TurnTracking,
   dir = FLOW_STATE_DIR,
 ): void {
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
   fs.writeFileSync(
     turnTrackingPath(tracking.slug, dir),
     JSON.stringify(tracking, null, 2) + "\n",

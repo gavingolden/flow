@@ -13,7 +13,6 @@ import {
   type PipelineState,
 } from "./lib/state";
 import {
-  STAGNATION_THRESHOLD,
   TURN_BLOCK_LIMIT,
   type TurnTracking,
 } from "./lib/stop-turn-tracking";
@@ -25,7 +24,6 @@ type Stub = {
   errLines: string[];
   loadCalls: string[];
   writeTurn: ReturnType<typeof vi.fn>;
-  writeStderr: ReturnType<typeof vi.fn>;
   readTurn: ReturnType<typeof vi.fn>;
 };
 
@@ -40,7 +38,6 @@ function makeDeps(opts: {
   const errLines: string[] = [];
   const loadCalls: string[] = [];
   const writeTurn = vi.fn();
-  const writeStderr = vi.fn();
   const readTurn = vi.fn(() => opts.turnTracking ?? null);
   const deps: Deps = {
     readStdin: async () => opts.stdin ?? "",
@@ -55,10 +52,9 @@ function makeDeps(opts: {
     },
     readTurn,
     writeTurn,
-    writeStderr,
     nowIso: () => opts.nowIso ?? FROZEN_NOW,
   };
-  return { deps, errLines, loadCalls, writeTurn, writeStderr, readTurn };
+  return { deps, errLines, loadCalls, writeTurn, readTurn };
 }
 
 function fakeState(phase: string): PipelineState {
@@ -83,7 +79,7 @@ function fakeTracking(overrides: Partial<TurnTracking> = {}): TurnTracking {
 
 describe("flow-stop-guard short-circuits", () => {
   it("exits 0 when stop_hook_active is true and phase has advanced (loop-break consumed)", async () => {
-    const { deps, writeStderr, writeTurn } = makeDeps({
+    const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
       pane: "%1",
       slug: "demo",
@@ -91,15 +87,14 @@ describe("flow-stop-guard short-circuits", () => {
       turnTracking: fakeTracking({ blockCount: TURN_BLOCK_LIMIT, lastPhase: "implementing" }),
     });
     expect(await run(deps)).toBe(0);
-    expect(writeStderr).toHaveBeenCalledTimes(1);
-    expect(writeStderr.mock.calls[0][0]).toContain("loop-break consumed");
+    expect(errLines.join("")).toContain("loop-break consumed");
     expect(writeTurn).toHaveBeenCalledWith(
       expect.objectContaining({ lastPhase: "verifying" }),
     );
   });
 
   it("exits 0 when TMUX_PANE is undefined (not in tmux)", async () => {
-    const { deps, loadCalls, writeTurn, writeStderr } = makeDeps({
+    const { deps, loadCalls, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({}),
       pane: undefined,
       state: fakeState("implementing"),
@@ -107,11 +102,11 @@ describe("flow-stop-guard short-circuits", () => {
     expect(await run(deps)).toBe(0);
     expect(loadCalls).toEqual([]);
     expect(writeTurn).not.toHaveBeenCalled();
-    expect(writeStderr).not.toHaveBeenCalled();
+    expect(errLines).toEqual([]);
   });
 
   it("exits 0 when @flow-slug is empty (not a flow window)", async () => {
-    const { deps, loadCalls, writeTurn, writeStderr } = makeDeps({
+    const { deps, loadCalls, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({}),
       pane: "%1",
       slug: "",
@@ -120,7 +115,7 @@ describe("flow-stop-guard short-circuits", () => {
     expect(await run(deps)).toBe(0);
     expect(loadCalls).toEqual([]);
     expect(writeTurn).not.toHaveBeenCalled();
-    expect(writeStderr).not.toHaveBeenCalled();
+    expect(errLines).toEqual([]);
   });
 
   it("exits 0 when state.json is missing for the slug", async () => {
@@ -288,6 +283,26 @@ describe("per-turn tracking", () => {
     );
   });
 
+  it("(1b) legitimate pending exit takes precedence when budget already exhausted", async () => {
+    // Pins the dispatch precedence (legitimate-end > loop-break > stagnation).
+    // If a future refactor reordered the checks, a real session that hit
+    // stagnation then transitioned to plan-pending-review would now
+    // incorrectly exit 2 with a stagnation reminder — this case forces the
+    // legitimate-end branch to win even when blockCount === TURN_BLOCK_LIMIT.
+    const { deps, errLines, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("plan-pending-review"),
+      turnTracking: fakeTracking({ blockCount: TURN_BLOCK_LIMIT, lastPhase: "verifying" }),
+    });
+    expect(await run(deps)).toBe(0);
+    expect(errLines).toEqual([]);
+    expect(writeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ blockCount: TURN_BLOCK_LIMIT }),
+    );
+  });
+
   it("(2) non-legitimate phase + no prior tracking → exit 2 + increment", async () => {
     const { deps, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: false }),
@@ -321,7 +336,7 @@ describe("per-turn tracking", () => {
   });
 
   it("(4) second stop same turn, phase advanced → exit 0 + breadcrumb", async () => {
-    const { deps, writeStderr, writeTurn } = makeDeps({
+    const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
       pane: "%1",
       slug: "demo",
@@ -332,9 +347,9 @@ describe("per-turn tracking", () => {
       }),
     });
     expect(await run(deps)).toBe(0);
-    expect(writeStderr).toHaveBeenCalledTimes(1);
-    expect(writeStderr.mock.calls[0][0]).toContain("loop-break consumed");
-    expect(writeStderr.mock.calls[0][0]).toContain("Phase=verifying");
+    const joined = errLines.join("");
+    expect(joined).toContain("loop-break consumed");
+    expect(joined).toContain("phase=verifying");
     expect(writeTurn).toHaveBeenCalledWith(
       expect.objectContaining({ lastPhase: "verifying" }),
     );
@@ -365,7 +380,7 @@ describe("per-turn tracking", () => {
   });
 
   it("(6) out-of-tmux skips tracking I/O entirely", async () => {
-    const { deps, writeTurn, writeStderr } = makeDeps({
+    const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({}),
       pane: "",
       slug: "demo",
@@ -373,11 +388,11 @@ describe("per-turn tracking", () => {
     });
     expect(await run(deps)).toBe(0);
     expect(writeTurn).not.toHaveBeenCalled();
-    expect(writeStderr).not.toHaveBeenCalled();
+    expect(errLines).toEqual([]);
   });
 
   it("(7) non-flow window skips tracking I/O entirely", async () => {
-    const { deps, writeTurn, writeStderr } = makeDeps({
+    const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({}),
       pane: "%1",
       slug: "",
@@ -385,10 +400,6 @@ describe("per-turn tracking", () => {
     });
     expect(await run(deps)).toBe(0);
     expect(writeTurn).not.toHaveBeenCalled();
-    expect(writeStderr).not.toHaveBeenCalled();
-  });
-
-  it("STAGNATION_THRESHOLD constant is exported for test pinning", () => {
-    expect(STAGNATION_THRESHOLD).toBe(2);
+    expect(errLines).toEqual([]);
   });
 });
