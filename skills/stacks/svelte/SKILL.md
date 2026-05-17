@@ -128,6 +128,79 @@ clone(newParent: Parent): Item {
 `state_unsafe_mutation`. The reactive graph must be acyclic. Set defaults at
 construction/deserialization time, not reactively.
 
+This applies **transitively through getters**. A getter on an exported object
+that lazily initializes `$state` (e.g., reading `localStorage` on first call,
+flipping a `hydrated` flag) is *still* mutating state when the template /
+`$derived` reads it — the mutation just hides one call frame deep:
+
+```typescript
+// ANTI-PATTERN — fires `state_unsafe_mutation` when a template reads
+// `myStore.entries` and the getter hits the mutating branch.
+let entries: Entry[] = $state([]);
+let hydrated = false;
+export const myStore = {
+  get entries() {
+    if (!hydrated) {
+      hydrated = true;
+      if (browser) entries = readFromStorage(); // mutates $state inside a template read
+    }
+    return entries;
+  },
+};
+```
+
+```typescript
+// CORRECT — hydrate at module load. Module init runs once in a
+// non-reactive context. SSR-safe via `browser` from `$app/environment`.
+let entries: Entry[] = $state(browser ? readFromStorage() : []);
+export const myStore = {
+  get entries() {
+    return entries;
+  }, // pure read
+};
+```
+
+**CRITICAL — Don't read-then-write the same `$state` in a store method:**
+A method that reads its own reactive `$state` (for filtering, dedup, etc.)
+and then writes back will loop when invoked from inside an `$effect`. The
+read registers as a dependency, the write fires the effect, the effect
+re-invokes the method → Svelte raises `effect_update_depth_exceeded`.
+Wrap the read in `untrack(() => state)` so the dependency doesn't register:
+
+```typescript
+// ANTI-PATTERN — loops when called from $effect context
+record(card: Card): void {
+  const next = [card, ...entries.filter((e) => e.id !== card.id)];
+  entries = next; // write that re-fires the caller's effect
+},
+```
+
+```typescript
+// CORRECT — read inside untrack, write outside
+import { untrack } from "svelte";
+
+record(card: Card): void {
+  const current = untrack(() => entries);
+  entries = [card, ...current.filter((e) => e.id !== card.id)];
+},
+```
+
+Encapsulate the `untrack` inside the store method, not at the call site —
+future consumers shouldn't have to remember the loop trap.
+
+**Testing discipline for store anti-patterns above.** Both of the
+`$state`-store traps above (lazy-getter `state_unsafe_mutation`, read-then-write
+`effect_update_depth_exceeded`) are **silent in imperative unit tests**.
+`expect(store.entries).toEqual([])` and `store.record(card)` both run
+*outside* any `$derived` / template / `$effect` context, so neither the
+template-read mutation rule nor the effect's dependency tracker ever fires.
+The reliable catch is a small **consumer-render smoke test**: a minimal
+`.svelte` harness that exercises the store the way real components do (read
+the getter from a template, call the mutator from an `$effect`), rendered
+via `@testing-library/svelte`'s `render()`. The assertion is literally "no
+throw" — the bug class is a Svelte runtime exception. Pair every new
+module-singleton `$state` store with one of these.
+
 **CRITICAL — Avoid `$effect.root` in classes (memory leak risk):** Its destroy
 function must be called manually. Prefer component-scoped `$effect` instead.
 
