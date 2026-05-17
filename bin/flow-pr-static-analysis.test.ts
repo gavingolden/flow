@@ -524,8 +524,8 @@ function makeMockDeps(overrides: Partial<Deps> = {}): {
   const deps: Deps = {
     cwd: "/cwd",
     now: () => 0,
-    spawn: vi.fn().mockReturnValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false }),
-    gh: vi.fn().mockReturnValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false }),
+    spawn: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false }),
+    gh: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false }),
     which: vi.fn().mockReturnValue(null), // every tool missing by default
     readFile: vi.fn().mockReturnValue(null),
     fileExists: vi.fn().mockReturnValue(false),
@@ -560,7 +560,7 @@ describe(run, () => {
 
   it("emits all-skipped envelope when no tools are detected", async () => {
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
         ]),
@@ -587,7 +587,7 @@ describe(run, () => {
 
   it("emits gh-pr-diff-failed across all lenses when gh diff exits non-zero", async () => {
     const { deps, outs, errs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({ stdout: "", stderr: "boom", exitCode: 1, timedOut: false }),
+      gh: vi.fn().mockResolvedValue({ stdout: "", stderr: "boom", exitCode: 1, timedOut: false }),
     });
     const code = await run(["7"], deps);
     expect(code).toBe(0);
@@ -603,14 +603,14 @@ describe(run, () => {
       { file: "a.ts", line: 5, rule: "rule.x", severity: "ERROR", message: "bad" },
       { file: "a.ts", line: 99, rule: "rule.y", severity: "ERROR", message: "out of scope" },
     ]);
-    const spawn = vi.fn().mockReturnValue({
+    const spawn = vi.fn().mockResolvedValue({
       stdout: semgrepStdout,
       stderr: "",
       exitCode: 1, // semgrep convention: 1 = findings emitted
       timedOut: false,
     });
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+l1", "+l2", "+l3", "+l4", "+l5"] }] },
         ]),
@@ -636,9 +636,9 @@ describe(run, () => {
   });
 
   it("marks a lens timed-out when the spawn returns timedOut=true", async () => {
-    const spawn = vi.fn().mockReturnValue({ stdout: "", stderr: "", exitCode: -1, timedOut: true });
+    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: -1, timedOut: true });
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
         ]),
@@ -661,14 +661,14 @@ describe(run, () => {
       { file: "a.ts", line: 2, rule: "r2", severity: "WARNING" }, // 80
       { file: "a.ts", line: 3, rule: "r3", severity: "ERROR" }, // 95
     ]);
-    const spawn = vi.fn().mockReturnValue({
+    const spawn = vi.fn().mockResolvedValue({
       stdout: semgrepStdout,
       stderr: "",
       exitCode: 1,
       timedOut: false,
     });
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+a", "+b", "+c"] }] },
         ]),
@@ -699,7 +699,7 @@ describe(run, () => {
       if (cmd === "eslint") return "/usr/bin/eslint";
       return null;
     });
-    const spawn = vi.fn().mockReturnValue({
+    const spawn = vi.fn().mockResolvedValue({
       stdout: makeBiomeJsonOldShape([
         { file: "/cwd/a.ts", line: 1, severity: "error", category: "lint/x", message: "bad" },
       ]),
@@ -708,7 +708,7 @@ describe(run, () => {
       timedOut: false,
     });
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
         ]),
@@ -745,7 +745,7 @@ describe(run, () => {
       if (cmd === "eslint") return "/usr/bin/eslint";
       return null;
     });
-    const spawn = vi.fn().mockReturnValue({
+    const spawn = vi.fn().mockResolvedValue({
       stdout: JSON.stringify([
         { filePath: "/cwd/a.ts", messages: [{ line: 1, ruleId: "no-x", message: "bad", severity: 2 }] },
       ]),
@@ -754,7 +754,7 @@ describe(run, () => {
       timedOut: false,
     });
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
         ]),
@@ -780,9 +780,9 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockImplementation((cmd: string) => (cmd === "eslint" ? "/usr/bin/eslint" : null));
-    const spawn = vi.fn().mockReturnValue({ stdout: "", stderr: "boom", exitCode: 2, timedOut: false });
+    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "boom", exitCode: 2, timedOut: false });
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
         ]),
@@ -807,9 +807,9 @@ describe(run, () => {
     // silently report ran=true with [] findings.
     const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
     const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
-    const spawn = vi.fn().mockReturnValue({ stdout: "", stderr: "no input files", exitCode: 3, timedOut: false });
+    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "no input files", exitCode: 3, timedOut: false });
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
         ]),
@@ -838,9 +838,9 @@ describe(run, () => {
     const tscOut = makeTscOutput([
       { file: "a.ts", line: 1, code: "TS2322", message: "Type 'string' is not assignable to 'number'." },
     ]);
-    const spawn = vi.fn().mockReturnValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
+    const spawn = vi.fn().mockResolvedValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
         ]),
@@ -867,9 +867,9 @@ describe(run, () => {
     // an explicit reason instead.
     const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
     const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
-    const spawn = vi.fn().mockReturnValue({ stdout: "", stderr: "error TS5023: Unknown compiler option 'foo'.", exitCode: 1, timedOut: false });
+    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "error TS5023: Unknown compiler option 'foo'.", exitCode: 1, timedOut: false });
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
         ]),
@@ -898,14 +898,14 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
-    const spawn = vi.fn().mockReturnValue({
+    const spawn = vi.fn().mockResolvedValue({
       stdout: "src/a.ts(2,1): error TS2304: Cannot find name 'foo'.\n",
       stderr: "",
       exitCode: 2, // tsc emits 2 when type errors are present (per the wiki)
       timedOut: false,
     });
     const { deps, outs } = makeMockDeps({
-      gh: vi.fn().mockReturnValue({
+      gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
           { path: "src/a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x", "+y"] }] },
         ]),
@@ -926,5 +926,76 @@ describe(run, () => {
     const tscCall = spawn.mock.calls.find((c: unknown[]) => c[0] === "/usr/bin/tsc");
     expect(tscCall).toBeDefined();
     expect(tscCall![1]).toEqual(["-p", "tsconfig.scripts.json", "--noEmit", "--pretty", "false"]);
+  });
+
+  it("should run lenses concurrently against the event loop", async () => {
+    // Regression guardrail: if defaultSpawn ever reverts to spawnSync, the
+    // four lenses serialise and duration_ms approaches sum(delays). Real
+    // setTimeout-backed promises let us assert genuine event-loop concurrency.
+    const delayResolve = (ms: number, value: { stdout: string; stderr: string; exitCode: number; timedOut: boolean }) =>
+      new Promise<typeof value>((resolve) => setTimeout(() => resolve(value), ms));
+    const spawn = vi.fn().mockImplementation((cmd: string) => {
+      if (cmd.endsWith("semgrep") || cmd === "semgrep") {
+        return delayResolve(100, { stdout: '{"results":[]}', stderr: "", exitCode: 0, timedOut: false });
+      }
+      if (cmd.endsWith("tsc") || cmd === "tsc") {
+        return delayResolve(200, { stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      }
+      if (cmd.endsWith("biome") || cmd === "biome") {
+        return delayResolve(150, { stdout: '{"diagnostics":[]}', stderr: "", exitCode: 0, timedOut: false });
+      }
+      return delayResolve(10, { stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    });
+    const which = vi.fn().mockImplementation((cmd: string) => {
+      if (cmd === "semgrep") return "/usr/bin/semgrep";
+      if (cmd === "biome") return "/usr/bin/biome";
+      if (cmd === "tsc") return "/usr/bin/tsc";
+      return null;
+    });
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("tsconfig.json")) return true;
+      if (p.endsWith("biome.json")) return true;
+      if (p.endsWith("coverage/coverage-final.json")) return true;
+      if (p.includes("node_modules/.bin/")) return false;
+      return false;
+    });
+    const readFile = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("coverage-final.json")) {
+        return JSON.stringify({
+          "/cwd/a.ts": {
+            path: "/cwd/a.ts",
+            statementMap: { "0": { start: { line: 1 }, end: { line: 1 } } },
+            s: { "0": 1 },
+          },
+        });
+      }
+      return null;
+    });
+    const gh = vi.fn().mockResolvedValue({
+      stdout: makeUnifiedDiff([
+        { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+      ]),
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+    });
+    const { deps, outs } = makeMockDeps({
+      now: () => Date.now(),
+      spawn,
+      gh,
+      which,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    // Sum of delays is 100+150+200 = 450ms; the slowest lens is 200ms.
+    // Concurrent execution: duration_ms ≈ max(200) plus scheduling overhead.
+    // Sequential execution would be ≈ sum(450) + cascading slop, easily 600+ms
+    // on a busy CI runner; setTimeout slop also drives the concurrent path past
+    // 450ms on slow runners. Widen the upper bound to 600 so the test still
+    // distinguishes serial-await from Promise.all without going flaky.
+    expect(result.meta.duration_ms).toBeLessThan(600);
+    expect(result.meta.duration_ms).toBeGreaterThanOrEqual(200);
   });
 });

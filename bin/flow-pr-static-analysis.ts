@@ -6,9 +6,8 @@
  * the consumer's already-installed tooling (semgrep, biome or eslint, tsc,
  * coverage report), parses native output into a unified `Finding` shape,
  * filters to PR-touched lines, and emits a single JSON envelope keyed by
- * lens. Lenses run sequentially today (the underlying spawnSync blocks the
- * event loop, so the Promise.all wrapper is structural, not concurrent —
- * follow-up to make them genuinely parallel: gh-issue #101).
+ * lens. The four lenses run concurrently via Promise.all over async spawn
+ * wrappers.
  *
  * Usage:
  *   flow-pr-static-analysis <PR> [--min-confidence <n>] [--max-tool-timeout <sec>]
@@ -36,7 +35,7 @@
  */
 
 import * as fs from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 import { HELP_TEXT, parseArgs } from "./flow-pr-static-analysis/cli";
 import {
@@ -52,6 +51,7 @@ import {
 } from "./flow-pr-static-analysis/parsers";
 import type {
   AnalysisResult,
+  CmdResult,
   Deps,
   Finding,
   GhRunner,
@@ -87,31 +87,118 @@ export type {
 
 // --- I/O wiring (defaults live here so the entry point owns process side-effects) ---
 
-const defaultSpawn: SpawnRunner = (cmd, args, opts) => {
-  const r = spawnSync(cmd, args, {
-    cwd: opts.cwd,
-    encoding: "utf8",
-    timeout: opts.timeoutMs,
-    maxBuffer: 32 * 1024 * 1024,
+const MAX_STREAM_BYTES = 32 * 1024 * 1024;
+
+const defaultSpawn: SpawnRunner = (cmd, args, opts) =>
+  new Promise<CmdResult>((resolve) => {
+    const child = spawn(cmd, args, { cwd: opts.cwd });
+    let stdout = "";
+    let stderr = "";
+    let stdoutLen = 0;
+    let stderrLen = 0;
+    let timedOut = false;
+    let settled = false;
+    // maxBuffer parity with spawnSync: on overflow we stop appending but keep
+    // the process running, matching spawnSync's truncate-rather-than-kill.
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      if (stdoutLen >= MAX_STREAM_BYTES) return;
+      const remaining = MAX_STREAM_BYTES - stdoutLen;
+      if (chunk.length <= remaining) {
+        stdout += chunk;
+        stdoutLen += chunk.length;
+      } else {
+        stdout += chunk.slice(0, remaining);
+        stdoutLen = MAX_STREAM_BYTES;
+      }
+    });
+    child.stderr.on("data", (chunk: string) => {
+      if (stderrLen >= MAX_STREAM_BYTES) return;
+      const remaining = MAX_STREAM_BYTES - stderrLen;
+      if (chunk.length <= remaining) {
+        stderr += chunk;
+        stderrLen += chunk.length;
+      } else {
+        stderr += chunk.slice(0, remaining);
+        stderrLen = MAX_STREAM_BYTES;
+      }
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, opts.timeoutMs);
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ stdout: "", stderr: String(err), exitCode: -1, timedOut: false });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        stdout,
+        stderr,
+        exitCode: code ?? -1,
+        timedOut,
+      });
+    });
   });
-  return {
-    stdout: r.stdout ?? "",
-    stderr: r.stderr ?? "",
-    exitCode: r.status ?? -1,
-    timedOut: r.signal === "SIGTERM" || (r.error as NodeJS.ErrnoException)?.code === "ETIMEDOUT",
-  };
-};
 
-const defaultGh: GhRunner = (argv) => {
-  const r = spawnSync("gh", argv, { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
-  return {
-    stdout: r.stdout ?? "",
-    stderr: r.stderr ?? "",
-    exitCode: r.status ?? -1,
-    timedOut: false,
-  };
-};
+const defaultGh: GhRunner = (argv) =>
+  new Promise<CmdResult>((resolve) => {
+    const child = spawn("gh", argv);
+    let stdout = "";
+    let stderr = "";
+    let stdoutLen = 0;
+    let stderrLen = 0;
+    let settled = false;
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      if (stdoutLen >= MAX_STREAM_BYTES) return;
+      const remaining = MAX_STREAM_BYTES - stdoutLen;
+      if (chunk.length <= remaining) {
+        stdout += chunk;
+        stdoutLen += chunk.length;
+      } else {
+        stdout += chunk.slice(0, remaining);
+        stdoutLen = MAX_STREAM_BYTES;
+      }
+    });
+    child.stderr.on("data", (chunk: string) => {
+      if (stderrLen >= MAX_STREAM_BYTES) return;
+      const remaining = MAX_STREAM_BYTES - stderrLen;
+      if (chunk.length <= remaining) {
+        stderr += chunk;
+        stderrLen += chunk.length;
+      } else {
+        stderr += chunk.slice(0, remaining);
+        stderrLen = MAX_STREAM_BYTES;
+      }
+    });
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      resolve({ stdout: "", stderr: String(err), exitCode: -1, timedOut: false });
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      resolve({
+        stdout,
+        stderr,
+        exitCode: code ?? -1,
+        timedOut: false,
+      });
+    });
+  });
 
+// Deliberately sync: called once per lens before the parallel critical path,
+// so converting would balloon test-mock churn for zero perf gain. The file
+// mixes async (spawn/gh) and sync (which) subprocess primitives by design.
 const defaultWhich: WhichFn = (cmd) => {
   const r = spawnSync("which", [cmd], { encoding: "utf8" });
   if (r.status !== 0) return null;
@@ -157,7 +244,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
 
   // Compute changed lines once via gh pr diff. If gh fails, every lens
   // collapses to empty findings (we can't diff-scope without a diff).
-  const diffResult = gh(["pr", "diff", String(parsed.pr)]);
+  const diffResult = await gh(["pr", "diff", String(parsed.pr)]);
   if (diffResult.exitCode !== 0) {
     writeErr(`flow-pr-static-analysis: gh pr diff ${parsed.pr} failed: ${diffResult.stderr.trim() || "no stderr"}\n`);
     // Emit an envelope with every lens skipped so the consumer's JSON.parse
@@ -184,10 +271,6 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   }
   const changedLines = computeChangedLines(diffResult.stdout);
 
-  // Promise.all over four spawnSync-backed lens runners is structural, not
-  // concurrent — each await resolves immediately because the work already
-  // happened synchronously inside the lens runner. Follow-up to switch to
-  // async spawn for genuine parallelism: gh-issue #101.
   const [security, types, coverage, lint] = await Promise.all([
     runSecurityLens(parsed, lensDeps),
     runTypesLens(parsed, lensDeps),
