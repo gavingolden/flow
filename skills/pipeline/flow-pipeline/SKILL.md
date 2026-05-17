@@ -533,6 +533,10 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
   `flow done` lookups. The display-title rename above
   (`flow-rename-window`) is the only permitted exception, fires
   exactly once here in step 1, and never touches the slug.
+  `flow-new-worktree` enforces this contract mechanically: passing
+  a positional slug that doesn't match the pane's `@flow-slug` exits
+  non-zero with `slug-mismatch:` rather than silently creating a
+  misnamed worktree (the PR #152 footgun).
 - **Ambiguous** (input is genuinely unparseable) → write
   `flow-state-update --phase triage-pending-clarification`,
   then ask the single clarifying question and end the turn. The
@@ -557,6 +561,13 @@ Then create the worktree:
 ```bash
 flow-new-worktree <slug>
 ```
+
+The positional `<slug>` here is belt-and-suspenders: `flow-new-worktree`
+reads `@flow-slug` from the pane itself, so a bare `flow-new-worktree`
+(no positional) would resolve to the same value. Passing a positional
+that doesn't match `@flow-slug` is a hard error (`slug-mismatch:`,
+exit 2) rather than a silent footgun — see step 1's "never re-derives
+the slug" contract.
 
 Capture the absolute worktree path it prints. Set `$WORKTREE` to
 this for the rest of the pipeline. **`cd` into the worktree** —

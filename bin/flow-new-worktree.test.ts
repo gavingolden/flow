@@ -12,7 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync, spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createWorktreeWithRetry } from "./flow-new-worktree";
+import { createWorktreeWithRetry, pickBranchName } from "./flow-new-worktree";
 import {
   MAX_SUFFIX_ATTEMPTS,
   findAvailableSlot,
@@ -55,6 +55,46 @@ describe("SYMLINK_FILES", () => {
 
   it("should include .claude/settings.local.json", () => {
     expect(SYMLINK_FILES).toContain(".claude/settings.local.json");
+  });
+});
+
+describe(pickBranchName, () => {
+  it("returns the positional when it matches the pane slug", () => {
+    expect(pickBranchName("add-csv-export", "add-csv-export")).toEqual({
+      kind: "ok",
+      branchName: "add-csv-export",
+    });
+  });
+
+  it("defaults to the pane slug when the positional is omitted", () => {
+    expect(pickBranchName(undefined, "fix-tooltip")).toEqual({
+      kind: "ok",
+      branchName: "fix-tooltip",
+    });
+  });
+
+  it("errors with slug-mismatch when the positional disagrees with the pane slug", () => {
+    // Mirrors PR #152's footgun: pane @flow-slug was the auto-derived value,
+    // supervisor passed a different reading of the same description.
+    const r = pickBranchName("all-scopes-rename", "rename-valid-scopes-all-scopes");
+    expect(r.kind).toBe("error");
+    if (r.kind !== "error") return;
+    expect(r.message).toContain("slug-mismatch");
+    expect(r.message).toContain("all-scopes-rename");
+    expect(r.message).toContain("rename-valid-scopes-all-scopes");
+    expect(r.exitCode).toBe(2);
+  });
+
+  it("uses the positional when no pane slug is available", () => {
+    expect(pickBranchName("foo", null)).toEqual({ kind: "ok", branchName: "foo" });
+  });
+
+  it("errors 'branch name is required' when both positional and pane slug are absent", () => {
+    const r = pickBranchName(undefined, null);
+    expect(r.kind).toBe("error");
+    if (r.kind !== "error") return;
+    expect(r.message).toBe("branch name is required");
+    expect(r.exitCode).toBe(1);
   });
 });
 
@@ -115,9 +155,18 @@ type SpawnResult = { exitCode: number; stdout: string; stderr: string };
 
 function spawnHelper(args: string[], cwd: string): Promise<SpawnResult> {
   return new Promise((resolve) => {
+    // Strip TMUX_PANE so the helper's resolveSlugFromPane() returns null
+    // for these integration tests — the runner itself may live inside a
+    // flow pipeline window (@flow-slug set), which would otherwise
+    // trigger the new slug-mismatch guard against the test's literal
+    // positional. Unit tests below exercise the pane-slug path via the
+    // injectable seam.
+    const env = { ...process.env };
+    delete env.TMUX_PANE;
     const child = spawn("bun", ["run", FLOW_NEW_WORKTREE_BIN, ...args], {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
+      env,
     });
     let stdout = "";
     let stderr = "";
