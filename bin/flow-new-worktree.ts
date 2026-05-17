@@ -2,12 +2,21 @@
 /**
  * Creates a git worktree for parallel agent development.
  *
- * Usage: flow-new-worktree <branch-name> [base-branch] [--reuse]
+ * Usage:
+ *   flow-new-worktree [<branch-name>] [base-branch] [--reuse]
+ *
+ * - The branch name is optional when invoked from inside a flow tmux
+ *   pane: it auto-resolves from `$TMUX_PANE`'s `@flow-slug` window
+ *   option. The supervisor pattern relies on the auto-resolve path; the
+ *   explicit positional stays for back-compat and for callers outside
+ *   tmux. When both are present they must agree, otherwise the helper
+ *   exits 2 (`slug-mismatch:`).
  */
 
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { git } from "./lib/git";
+import { resolveSlugFromPane } from "./lib/tmux";
 import { findAvailableSlot, toDirSuffix } from "./lib/worktree-slot";
 import { ensureFlowExcludes, writeBranchMarker } from "./lib/worktree-marker";
 import {
@@ -25,6 +34,54 @@ export type WorktreeConfig = {
   /** Reuse an existing worktree at the literal slug rather than auto-suffixing. */
   reuse: boolean;
 };
+
+export type RunNewWorktreeDeps = {
+  /**
+   * Slug fallback consulted when the positional arg is omitted, and
+   * compared against the positional arg when both are present. Defaults
+   * to `resolveSlugFromPane()` against the real tmux. Tests inject a stub.
+   */
+  resolveSlug?: () => string | null;
+};
+
+type PickBranchNameResult =
+  | { kind: "ok"; branchName: string }
+  | { kind: "error"; message: string; exitCode: number };
+
+/**
+ * Reconciles a positional `<slug>` arg with the supervisor pane's
+ * `@flow-slug`. The canonical pipeline slug lives on the pane (set by
+ * `flow new` and read by every other helper); silently accepting a
+ * mismatched positional was the PR #152 footgun — state.json keyed by
+ * pane slug, worktree directory keyed by the mismatched positional.
+ *
+ * - both present and equal → use either (they agree).
+ * - both present and different → exit 2 (`slug-mismatch:`). Exit code 2
+ *   mirrors `flow-state-update.ts`'s arg-parse / usage-error precedent.
+ * - only positional given → use it (caller is outside tmux or in a non-flow window).
+ * - only pane slug available → use it (caller omitted the arg, supervisor pattern).
+ * - neither → exit 1 (`branch name is required`).
+ */
+export function pickBranchName(
+  positional: string | undefined,
+  paneSlug: string | null,
+): PickBranchNameResult {
+  if (positional && paneSlug && positional !== paneSlug) {
+    return {
+      kind: "error",
+      message:
+        `slug-mismatch: positional '${positional}' != pane @flow-slug '${paneSlug}'.\n` +
+        `  The supervisor's pipeline slug (set by 'flow new') is canonical.\n` +
+        `  Re-run with no positional arg, or fix the caller to match @flow-slug.`,
+      exitCode: 2,
+    };
+  }
+  const branchName = positional ?? paneSlug;
+  if (!branchName) {
+    return { kind: "error", message: "branch name is required", exitCode: 1 };
+  }
+  return { kind: "ok", branchName };
+}
 
 const MAX_RACE_RETRIES = 5;
 
@@ -46,7 +103,7 @@ function run(argv: string[], cwd?: string): void {
 
 function printHelp(): void {
   console.log(`
-Usage: flow-new-worktree <branch-name> [base-branch] [--reuse]
+Usage: flow-new-worktree [<branch-name>] [base-branch] [--reuse]
 
 Creates a git worktree for parallel agent development as a sibling
 directory of this repo. Branch name is converted to a directory-safe
@@ -54,32 +111,48 @@ suffix; deps are installed; .env and .claude/settings.local.json are
 symlinked. Without --reuse, auto-suffixes (<slug>-2, -3, ...) on
 collision so concurrent calls return distinct paths.
 
+The branch name is optional inside a flow tmux pane — it auto-resolves
+from $TMUX_PANE's @flow-slug. When the positional is also given it must
+match the pane slug, otherwise the helper exits 2 (slug-mismatch).
+
 Examples:
   flow-new-worktree feature/new-chart
   flow-new-worktree fix/tooltip-bug develop
   flow-new-worktree feature/new-chart --reuse
+  flow-new-worktree           # inside a flow pane: uses @flow-slug
   `);
 }
 
-function parseArgs(): WorktreeConfig {
-  const args = process.argv.slice(2);
-  if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
-    printHelp();
-    process.exit(0);
+export type ParseArgsResult =
+  | { kind: "ok"; config: WorktreeConfig }
+  | { kind: "help" }
+  | { kind: "error"; message: string; exitCode: number; showHelp?: boolean };
+
+export function parseArgs(
+  argv: string[] = process.argv.slice(2),
+  deps: RunNewWorktreeDeps = {},
+): ParseArgsResult {
+  if (argv.includes("--help") || argv.includes("-h")) return { kind: "help" };
+  const reuse = argv.includes("--reuse");
+  const positional = argv.filter((a) => a !== "--reuse");
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
+  const pick = pickBranchName(positional[0], resolveSlug());
+  if (pick.kind === "error") {
+    return {
+      kind: "error",
+      message: pick.message,
+      exitCode: pick.exitCode,
+      // Only the "branch name is required" path is a usage hint worth a help dump;
+      // slug-mismatch already names the fix in its message.
+      showHelp: pick.exitCode === 1,
+    };
   }
-  const reuse = args.includes("--reuse");
-  const positional = args.filter((a) => a !== "--reuse");
-  const branchName = positional[0];
-  if (!branchName) {
-    log.error("branch name is required");
-    printHelp();
-    process.exit(1);
-  }
+  const branchName = pick.branchName;
   const repoDir = git(["rev-parse", "--show-toplevel"]);
   const repoName = path.basename(repoDir);
   const worktreeDir = path.join(path.dirname(repoDir), `${repoName}-${toDirSuffix(branchName)}`);
   const baseBranch = positional[1] ?? detectDefaultBranch(repoDir);
-  return { branchName, baseBranch, repoDir, worktreeDir, reuse };
+  return { kind: "ok", config: { branchName, baseBranch, repoDir, worktreeDir, reuse } };
 }
 
 function preflight(config: WorktreeConfig): void {
@@ -135,7 +208,17 @@ export function createWorktreeWithRetry(
 }
 
 function main(): void {
-  const config = parseArgs();
+  const parsed = parseArgs();
+  if (parsed.kind === "help") {
+    printHelp();
+    process.exit(0);
+  }
+  if (parsed.kind === "error") {
+    log.error(parsed.message);
+    if (parsed.showHelp) printHelp();
+    process.exit(parsed.exitCode);
+  }
+  const config = parsed.config;
   preflight(config);
   const primaryDir = getPrimaryDir(config.repoDir);
 

@@ -290,9 +290,16 @@ function makeFreshRepoFixture(): FreshRepoFixture {
 
 function runNewWorktree(args: string[], cwd: string): Promise<SpawnResult> {
   return new Promise((resolve) => {
+    // Strip TMUX_PANE so flow-new-worktree's resolveSlugFromPane() returns
+    // null — these integration tests pass literal positional slugs and
+    // would otherwise hit the slug-mismatch guard when the runner itself
+    // lives inside a flow pipeline window.
+    const env = { ...process.env };
+    delete env.TMUX_PANE;
     const child = spawn("bun", ["run", FLOW_NEW_WORKTREE_BIN, ...args], {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
+      env,
     });
     let stdout = "";
     let stderr = "";
