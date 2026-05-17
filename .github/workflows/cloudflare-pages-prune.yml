@@ -47,8 +47,12 @@ on:
         description: Cloudflare account ID (not project ID).
         required: true
 
+permissions:
+  contents: read
+
 jobs:
   prune:
+    timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
       - name: Checkout gavingolden/flow at the caller-resolved SHA
@@ -70,6 +74,15 @@ jobs:
           INPUT_DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
+          # GitHub Actions has no integer-only input type — number accepts
+          # floats. The prune script's --older-than parser requires `^\d+d$`,
+          # so guard at the workflow boundary to surface a clear error
+          # instead of an opaque downstream failure. Exit code 2 matches the
+          # script's own CLI/env validation exit.
+          if ! [[ "${INPUT_OLDER_THAN_DAYS}" =~ ^[0-9]+$ ]]; then
+            echo "error: older_than_days must be a non-negative integer (got '${INPUT_OLDER_THAN_DAYS}')" >&2
+            exit 2
+          fi
           args=()
           args+=(--project "${INPUT_PROJECT}")
           args+=(--older-than "${INPUT_OLDER_THAN_DAYS}d")

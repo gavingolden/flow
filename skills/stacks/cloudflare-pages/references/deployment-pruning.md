@@ -28,19 +28,59 @@ until a new deployment lands. The script template defaults to
 `--keep-production-latest=true` precisely to prevent this. Override only
 with conscious intent.
 
-## Recommended workflow
+## Choosing a path
+
+Two delivery paths cover the same script:
+
+1. **Reusable GitHub Actions workflow (canonical).** Call
+   `gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>`
+   from a wrapper workflow in your repo. The workflow handles checkout,
+   Bun install, secret wiring, and dry-run gating; the SHA in `uses:`
+   pins both the contract and the script. See `SKILL.md` section 1 for
+   the consumer-side snippet.
+2. **Vendor the script.** Copy `templates/prune-cf-deployments.ts` into
+   your repo's `scripts/` dir and invoke it directly. Required when you
+   need flags the workflow does not expose (`--keep-aliased`,
+   `--keep-production-latest`, `--max`, full `--older-than` syntax),
+   custom filtering logic, or pruning outside GitHub Actions.
+
+Either path follows the same operational rhythm:
 
 1. Decide retention policy: e.g. 'delete preview deployments older than 30
    days, never touch main/production-aliased'.
-2. Copy `templates/prune-cf-deployments.ts` from this skill into your
-   project's `scripts/` dir.
-3. Run with `--dry-run` (default) first to inspect the would-delete list.
-4. Re-run with `--apply` when the list looks right.
-5. Schedule (cron, GitHub Actions) for ongoing maintenance.
+2. Run with `--dry-run` (default) first to inspect the would-delete list.
+3. Re-run with `--apply` when the list looks right.
+4. For ongoing maintenance, schedule via the reusable workflow (cron in
+   the wrapper `on:` block) or, if vendored, via a host cron / a custom
+   Actions workflow you maintain yourself.
 
-Example invocations:
+### Reusable-workflow example
+
+```yaml
+# .github/workflows/prune-cf-pages.yml
+name: prune-cf-pages
+on:
+  schedule:
+    - cron: '0 7 * * *'   # 07:00 UTC daily
+  workflow_dispatch:
+jobs:
+  prune:
+    uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>
+    with:
+      project: my-project
+      older_than_days: 30
+      branch: '!main'      # optional
+      dry_run: true        # default; set false to actually delete
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+```
+
+### When to vendor instead
 
 ```bash
+cp ~/.claude/skills/cloudflare-pages/templates/prune-cf-deployments.ts <your-project>/scripts/
+
 # Preview deployments older than 30 days, dry-run first
 bun scripts/prune-cf-deployments.ts \
   --project <your-project> \
@@ -56,6 +96,10 @@ bun scripts/prune-cf-deployments.ts \
   --branch 'feat/*' \
   --apply
 ```
+
+The vendor path trades the SHA-pin upgrade ergonomics of the reusable
+workflow for access to the script's full flag set and the ability to run
+it outside GitHub Actions.
 
 ## Note on the 'auto-delete after 7 days' dashboard recommendation
 

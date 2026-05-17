@@ -211,13 +211,24 @@ scripts). For full rationale see `references/env-vars-and-build.md`.
 
 - Skill installed at `~/.claude/skills/cloudflare-pages/` after
   `flow setup --upgrade`.
+
+**Reusable-workflow path:**
+
+- Wrapper workflow in the consumer repo declares
+  `uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>`
+  pinned to a real commit SHA (not a floating tag).
+- `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set as secrets in
+  the calling repo and passed through the wrapper workflow's `secrets:`
+  block.
+- First trigger runs with `dry_run: true` (the default) and the job log
+  contains `mode=DRY-RUN`.
+
+**Vendor path:**
+
 - Pruning template copied to consumer's `scripts/` dir; runs in `--dry-run`
   mode by default.
 - `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` set in shell env
   before invoking the script.
-- Consumers using the reusable-workflow path expose
-  `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as secrets in the
-  calling repo (passed through the wrapper workflow's `secrets:` block).
 
 # Constraints
 
