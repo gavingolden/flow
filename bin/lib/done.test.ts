@@ -45,6 +45,11 @@ const stateMock = vi.hoisted(() => ({
 }));
 vi.mock("./state", () => stateMock);
 
+const turnTrackingMock = vi.hoisted(() => ({
+  deleteTurnTracking: vi.fn(),
+}));
+vi.mock("./stop-turn-tracking", () => turnTrackingMock);
+
 import { runDone, runDoneCli } from "./done";
 
 const state = (overrides: { slug: string; phase: string; pr?: number }) => ({
@@ -128,6 +133,9 @@ describe("runDone --merged (renamed from --all-merged)", () => {
     expect(stateMock.deleteState).toHaveBeenCalledWith("a");
     expect(stateMock.deleteState).toHaveBeenCalledWith("b");
     expect(stateMock.deleteState).not.toHaveBeenCalledWith("c");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("a");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("b");
+    expect(turnTrackingMock.deleteTurnTracking).not.toHaveBeenCalledWith("c");
     expect(tmuxMock.killWindow).toHaveBeenCalledWith("a");
     expect(tmuxMock.killWindow).not.toHaveBeenCalledWith("b");
     log.mockRestore();
@@ -162,6 +170,9 @@ describe("runDone --orphans", () => {
     expect(stateMock.deleteState).toHaveBeenCalledWith("orphan-a");
     expect(stateMock.deleteState).toHaveBeenCalledWith("orphan-b");
     expect(stateMock.deleteState).not.toHaveBeenCalledWith("live");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("orphan-a");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("orphan-b");
+    expect(turnTrackingMock.deleteTurnTracking).not.toHaveBeenCalledWith("live");
     // No window to kill for orphans (that's what makes them orphans).
     expect(tmuxMock.killWindow).not.toHaveBeenCalled();
     log.mockRestore();
@@ -242,6 +253,7 @@ describe("runDone --orphans", () => {
 
     expect(code).toBe(0);
     expect(stateMock.deleteState).toHaveBeenCalledWith("orphan-a");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("orphan-a");
 
     stdoutWrite.mockRestore();
     log.mockRestore();
@@ -278,6 +290,10 @@ describe("runDone --merged --orphans (composed)", () => {
     expect(stateMock.deleteState).toHaveBeenCalledWith("orphan-only");
     expect(stateMock.deleteState).toHaveBeenCalledWith("merged-orphan");
     expect(stateMock.deleteState).not.toHaveBeenCalledWith("live");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("merged-live");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("orphan-only");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("merged-orphan");
+    expect(turnTrackingMock.deleteTurnTracking).not.toHaveBeenCalledWith("live");
     // Only existing windows get killed; "orphan-only" + "merged-orphan" have no window.
     expect(tmuxMock.killWindow).toHaveBeenCalledWith("merged-live");
     expect(tmuxMock.killWindow).not.toHaveBeenCalledWith("orphan-only");
