@@ -6,6 +6,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildFailureExcerpt,
   checksForScope,
+  computeAllPassedAndReason,
+  computeUnmatchedFiles,
   detectScopesFromFiles,
   filterDefinedChecks,
   formatJsonReport,
@@ -68,8 +70,22 @@ describe(detectScopesFromFiles, () => {
     expect(detectScopesFromFiles(files)).toEqual(["src", "scripts"]);
   });
 
-  it("should ignore files outside known scopes", () => {
-    expect(detectScopesFromFiles(["package-lock.json", "vitest.config.ts"])).toEqual([]);
+  it("should fall back to root-fallback when files exist but no specific scope matched", () => {
+    expect(detectScopesFromFiles(["package-lock.json", "vitest.config.ts"])).toEqual([
+      "root-fallback",
+    ]);
+  });
+
+  it("should detect root-fallback from apps/<pkg>/src/ monorepo paths", () => {
+    expect(detectScopesFromFiles(["apps/web/src/index.ts"])).toEqual(["root-fallback"]);
+  });
+
+  it("should detect root-fallback from packages/<pkg>/src/ monorepo paths", () => {
+    expect(detectScopesFromFiles(["packages/ui/src/Button.svelte"])).toEqual(["root-fallback"]);
+  });
+
+  it("should NOT fall back when at least one specific scope matched in a mixed diff", () => {
+    expect(detectScopesFromFiles(["src/a.ts", "apps/web/src/b.ts"])).toEqual(["src"]);
   });
 
   it("should detect docs scope from a root-level .md file", () => {
@@ -92,7 +108,7 @@ describe(detectScopesFromFiles, () => {
     expect(detectScopesFromFiles(files)).toEqual(["src"]);
   });
 
-  it("should return empty array for empty file list", () => {
+  it("should return empty array for empty file list (regression — root-fallback must not fire on empty input)", () => {
     expect(detectScopesFromFiles([])).toEqual([]);
   });
 
@@ -103,6 +119,55 @@ describe(detectScopesFromFiles, () => {
   it("should ignore files that contain but don't start with scope prefixes", () => {
     // The .md still trips docs scope; the embedded "src/" must not trip src.
     expect(detectScopesFromFiles(["docs/src/guide.md"])).toEqual(["docs"]);
+  });
+});
+
+describe(computeUnmatchedFiles, () => {
+  it("returns [] for an empty file list", () => {
+    expect(computeUnmatchedFiles([])).toEqual([]);
+  });
+
+  it("returns [] when every path matches a specific scope", () => {
+    expect(computeUnmatchedFiles(["src/a.ts", "scripts/b.ts", "AGENTS.md"])).toEqual([]);
+  });
+
+  it("returns every file when no specific scope matched (root-fallback bucket)", () => {
+    const files = ["apps/web/src/x.ts", "vendor/y.js", "package-lock.json"];
+    expect(computeUnmatchedFiles(files)).toEqual(files);
+  });
+
+  it("returns only orphans in a mixed diff (specific match suppresses fallback but orphans still surface)", () => {
+    expect(computeUnmatchedFiles(["src/a.ts", "apps/web/src/b.ts"])).toEqual([
+      "apps/web/src/b.ts",
+    ]);
+  });
+});
+
+describe(computeAllPassedAndReason, () => {
+  it("flags reason='no-checks-defined' + allPassed=false on non-empty diff + empty results", () => {
+    expect(computeAllPassedAndReason([], ["apps/web/src/x.ts"])).toEqual({
+      allPassed: false,
+      reason: "no-checks-defined",
+    });
+  });
+
+  it("returns allPassed=true with no reason on empty diff + empty results", () => {
+    expect(computeAllPassedAndReason([], [])).toEqual({ allPassed: true });
+  });
+
+  it("returns allPassed=true with no reason on undefined changedFiles (--scope path)", () => {
+    expect(computeAllPassedAndReason([], undefined)).toEqual({ allPassed: true });
+  });
+
+  it("reflects results.every on a mixed pass/fail set", () => {
+    const passing = createResult({ passed: true });
+    const failing = createResult({ passed: false });
+    expect(computeAllPassedAndReason([passing, failing], ["src/a.ts"])).toEqual({
+      allPassed: false,
+    });
+    expect(computeAllPassedAndReason([passing, passing], ["src/a.ts"])).toEqual({
+      allPassed: true,
+    });
   });
 });
 
@@ -138,6 +203,10 @@ describe(parseScopes, () => {
   it("should round-trip src,scripts,docs", () => {
     expect(parseScopes("docs,scripts,src")).toEqual(["src", "scripts", "docs"]);
   });
+
+  it("should reject the root-fallback pseudo-scope (auto-detect-only sentinel)", () => {
+    expect(() => parseScopes("root-fallback")).toThrow('Unknown scope "root-fallback"');
+  });
 });
 
 describe(checksForScope, () => {
@@ -156,6 +225,14 @@ describe(checksForScope, () => {
   it("should return flow-md-validate for docs", () => {
     const checks = checksForScope("docs");
     expect(checks).toEqual([{ name: "flow-md-validate .", argv: ["flow-md-validate", "."] }]);
+  });
+
+  it("should return typecheck and test for root-fallback", () => {
+    const checks = checksForScope("root-fallback");
+    expect(checks).toEqual([
+      { name: "npm run typecheck", argv: ["npm", "run", "typecheck"] },
+      { name: "npm run test", argv: ["npm", "run", "test"] },
+    ]);
   });
 });
 
@@ -431,6 +508,70 @@ describe(formatReport, () => {
     expect(output).toContain("checking explicitly-requested scopes…");
     expect(output).not.toContain("changed file");
   });
+
+  it("shows an Unmatched files section listing unclaimed paths", () => {
+    const report = createReport({
+      scopes: ["root-fallback"] as Scope[],
+      results: [],
+      allPassed: false,
+      changedFiles: ["apps/web/src/x.ts", "vendor/y.js"],
+      unmatchedFiles: ["apps/web/src/x.ts", "vendor/y.js"],
+      reason: "no-checks-defined",
+    });
+    const output = formatReport(report);
+    expect(output).toContain("Unmatched files (2):");
+    expect(output).toContain("apps/web/src/x.ts");
+    expect(output).toContain("vendor/y.js");
+  });
+
+  it("shows root-fallback line in preamble only when fallback fires", () => {
+    const withFallback = formatReport(
+      createReport({
+        scopes: ["root-fallback"] as Scope[],
+        results: [],
+        allPassed: false,
+        changedFiles: ["apps/web/src/x.ts"],
+        unmatchedFiles: ["apps/web/src/x.ts"],
+        reason: "no-checks-defined",
+      }),
+    );
+    expect(withFallback).toContain("root-fallback → matched");
+
+    const withoutFallback = formatReport(
+      createReport({
+        scopes: ["src"] as Scope[],
+        results: [createResult({ scope: "src", passed: true })],
+        changedFiles: ["src/index.ts"],
+      }),
+    );
+    expect(withoutFallback).not.toContain("root-fallback → matched");
+  });
+
+  it("shows distinct no-checks-ran message when reason is no-checks-defined", () => {
+    const noChecksDefined = formatReport(
+      createReport({
+        scopes: ["root-fallback"] as Scope[],
+        results: [],
+        allPassed: false,
+        changedFiles: ["apps/web/src/x.ts"],
+        reason: "no-checks-defined",
+      }),
+    );
+    expect(noChecksDefined).toContain(
+      "No checks ran (no matching npm scripts defined in package.json).",
+    );
+
+    // Empty-diff no-op (no reason set) keeps the original message
+    const emptyDiffNoOp = formatReport(
+      createReport({
+        scopes: [],
+        results: [],
+        changedFiles: [],
+      }),
+    );
+    expect(emptyDiffNoOp).toContain("No checks ran.");
+    expect(emptyDiffNoOp).not.toContain("no matching npm scripts");
+  });
 });
 
 describe(stripAnsi, () => {
@@ -568,5 +709,41 @@ describe(formatJsonReport, () => {
     const report = createReport({}); // changedFiles defaults to undefined
     const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
     expect(parsed).not.toHaveProperty("changedFiles");
+  });
+
+  it("includes unmatchedFiles when populated", () => {
+    const report = createReport({
+      unmatchedFiles: ["apps/web/src/x.ts", "vendor/y.js"],
+    });
+    const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
+    expect(parsed.unmatchedFiles).toEqual(["apps/web/src/x.ts", "vendor/y.js"]);
+  });
+
+  it("omits unmatchedFiles when undefined or an empty array", () => {
+    const parsedUndef = JSON.parse(formatJsonReport(createReport({}))) as JsonReport;
+    expect(parsedUndef).not.toHaveProperty("unmatchedFiles");
+
+    const parsedEmpty = JSON.parse(
+      formatJsonReport(createReport({ unmatchedFiles: [] })),
+    ) as JsonReport;
+    expect(parsedEmpty).not.toHaveProperty("unmatchedFiles");
+  });
+
+  it("emits the reason field when set to no-checks-defined and omits it otherwise", () => {
+    const withReason = JSON.parse(
+      formatJsonReport(
+        createReport({
+          scopes: ["root-fallback"] as Scope[],
+          results: [],
+          allPassed: false,
+          changedFiles: ["apps/web/src/x.ts"],
+          reason: "no-checks-defined",
+        }),
+      ),
+    ) as JsonReport;
+    expect(withReason.reason).toBe("no-checks-defined");
+
+    const withoutReason = JSON.parse(formatJsonReport(createReport({}))) as JsonReport;
+    expect(withoutReason).not.toHaveProperty("reason");
   });
 });

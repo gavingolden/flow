@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 
 // --- Types ---
 
-export type Scope = "src" | "scripts" | "docs";
+export type Scope = "src" | "scripts" | "docs" | "root-fallback";
 
 export type ScopeMatcher = {
   prefixes?: string[];
@@ -42,6 +42,20 @@ export type CheckReport = {
    * the per-scope enumeration so a no-op pass is loud rather than silent.
    */
   changedFiles?: string[];
+  /**
+   * Files in the diff that no SPECIFIC scope (src/scripts/docs) claimed.
+   * Populated even when root-fallback fires — root-fallback is a sentinel
+   * scope that doesn't claim files, so consumer-repo maintainers can see
+   * which paths landed in the fallback bucket.
+   */
+  unmatchedFiles?: string[];
+  /**
+   * Set to "no-checks-defined" when a non-empty diff produces zero checks
+   * because no matching npm scripts were defined in the consumer's
+   * package.json. Used to override allPassed=true and emit a distinct
+   * "No checks ran" message so the silent-pass hole is closed.
+   */
+  reason?: "no-checks-defined";
 };
 
 /**
@@ -76,6 +90,8 @@ export type JsonReport = {
   results: JsonResult[];
   allPassed: boolean;
   changedFiles?: string[];
+  unmatchedFiles?: string[];
+  reason?: "no-checks-defined";
 };
 
 const HEAD_LINES = 100;
@@ -102,7 +118,10 @@ type CheckDef = {
 
 // --- Constants ---
 
-const VALID_SCOPES: Scope[] = ["src", "scripts", "docs"];
+const VALID_SCOPES: Scope[] = ["src", "scripts", "docs", "root-fallback"];
+// Path-based scopes only — root-fallback is a sentinel scope (not a matcher)
+// that fires when a non-empty diff produced no specific-scope matches.
+const SPECIFIC_SCOPES: Exclude<Scope, "root-fallback">[] = ["src", "scripts", "docs"];
 const ZERO_SHA = "0000000000000000000000000000000000000000";
 
 // `scripts/` is the install location in target repos; `bin/` is the canonical
@@ -113,7 +132,7 @@ const ZERO_SHA = "0000000000000000000000000000000000000000";
 // `docs` matches by extension (.md), not prefix — markdown files live everywhere
 // (root-level READMEs, docs/, skills/.../SKILL.md). Prefix matching would miss
 // most of them.
-const SCOPE_MATCHERS: Record<Scope, ScopeMatcher> = {
+const SCOPE_MATCHERS: Record<Exclude<Scope, "root-fallback">, ScopeMatcher> = {
   src: { prefixes: ["src/"] },
   scripts: { prefixes: ["scripts/", "templates/scripts/", "bin/"] },
   docs: { extensions: [".md"] },
@@ -140,19 +159,64 @@ function gh(args: string[]): string {
 
 // --- Scope Detection ---
 
-/** Maps a list of file paths to the scopes they belong to. */
+/**
+ * Maps a list of file paths to the scopes they belong to.
+ *
+ * Returns `[]` for an empty file list (regression-safe — pre-existing
+ * no-op behaviour). For a non-empty file list, returns the specific scopes
+ * (src/scripts/docs) that any file matched; if no specific scope matched,
+ * returns `["root-fallback"]` so consumer-repo diffs that miss the
+ * flow-shaped path prefixes still trip a verify pass at the repo root.
+ * Mutual exclusion: when at least one specific scope fires, root-fallback
+ * never does.
+ */
 export function detectScopesFromFiles(files: string[]): Scope[] {
-  const detected = new Set<Scope>();
+  if (files.length === 0) return [];
 
+  const detected = new Set<Scope>();
   for (const file of files) {
-    for (const scope of VALID_SCOPES) {
+    for (const scope of SPECIFIC_SCOPES) {
       if (matchesScope(file, SCOPE_MATCHERS[scope])) {
         detected.add(scope);
       }
     }
   }
 
-  return VALID_SCOPES.filter((s) => detected.has(s));
+  if (detected.size === 0) return ["root-fallback"];
+  return SPECIFIC_SCOPES.filter((s) => detected.has(s));
+}
+
+/**
+ * Returns the files unclaimed by any SPECIFIC scope. root-fallback is a
+ * sentinel that doesn't claim files — even when it fires, every changed
+ * file appears here so the operator can see what's actually in the
+ * fallback bucket.
+ */
+export function computeUnmatchedFiles(files: string[]): string[] {
+  return files.filter(
+    (f) => !SPECIFIC_SCOPES.some((s) => matchesScope(f, SCOPE_MATCHERS[s])),
+  );
+}
+
+/**
+ * Computes the `allPassed` verdict + optional `reason` discriminator for a
+ * run. Closes the silent-pass hole: `results.every(true)` on an empty array
+ * yields `true`, so a non-empty diff that produced zero matching npm
+ * scripts would otherwise exit 0 with no signal. When that happens, flag
+ * the run with `reason: 'no-checks-defined'` and force `allPassed=false`.
+ *
+ * `changedFiles=undefined` is the `--scope` path (user named scopes
+ * explicitly, no diff to inspect) — there's no "non-empty diff" to gate
+ * against, so an empty results set is treated as a normal pass.
+ */
+export function computeAllPassedAndReason(
+  results: CheckResult[],
+  changedFiles: string[] | undefined,
+): { allPassed: boolean; reason?: "no-checks-defined" } {
+  if (results.length === 0 && (changedFiles?.length ?? 0) > 0) {
+    return { allPassed: false, reason: "no-checks-defined" };
+  }
+  return { allPassed: results.every((r) => r.passed) };
 }
 
 function matchesScope(file: string, matcher: ScopeMatcher): boolean {
@@ -168,7 +232,11 @@ function describeMatcher(matcher: ScopeMatcher): string {
   return parts.join(", ");
 }
 
-/** Parses a comma-separated scope string (e.g. "src,scripts"). */
+/**
+ * Parses a comma-separated scope string (e.g. "src,scripts"). Rejects the
+ * `root-fallback` sentinel — it is auto-detect-only, not user-facing, and
+ * `--scope src,root-fallback` would silently double-run `npm run typecheck`.
+ */
 export function parseScopes(input: string): Scope[] {
   const tokens = input
     .split(",")
@@ -177,13 +245,13 @@ export function parseScopes(input: string): Scope[] {
   const result = new Set<Scope>();
 
   for (const token of tokens) {
-    if (!VALID_SCOPES.includes(token as Scope)) {
-      throw new Error(`Unknown scope "${token}". Valid scopes: ${VALID_SCOPES.join(", ")}`);
+    if (!SPECIFIC_SCOPES.includes(token as Exclude<Scope, "root-fallback">)) {
+      throw new Error(`Unknown scope "${token}". Valid scopes: ${SPECIFIC_SCOPES.join(", ")}`);
     }
     result.add(token as Scope);
   }
 
-  return VALID_SCOPES.filter((s) => result.has(s));
+  return SPECIFIC_SCOPES.filter((s) => result.has(s));
 }
 
 /** Returns the check commands for a given scope. */
@@ -201,6 +269,13 @@ export function checksForScope(scope: Scope): CheckDef[] {
       ];
     case "docs":
       return [{ name: "flow-md-validate .", argv: ["flow-md-validate", "."] }];
+    case "root-fallback":
+      // Mirror src's check set: a consumer repo whose source layout doesn't
+      // match flow's prefixes still expects typecheck + test at the root.
+      return [
+        { name: "npm run typecheck", argv: ["npm", "run", "typecheck"] },
+        { name: "npm run test", argv: ["npm", "run", "test"] },
+      ];
   }
 }
 
@@ -366,13 +441,18 @@ export function formatReport(report: CheckReport): string {
   } else {
     lines.push("flow-pre-commit: checking explicitly-requested scopes…");
   }
-  for (const scope of VALID_SCOPES) {
+  // Iterate SPECIFIC_SCOPES — root-fallback is a sentinel scope with no
+  // matcher entry, surfaced on a separate line below when it fires.
+  for (const scope of SPECIFIC_SCOPES) {
     const description = describeMatcher(SCOPE_MATCHERS[scope]);
     if (matched.has(scope)) {
       lines.push(`  ${scope.padEnd(8)} → matched (${description})`);
     } else {
       lines.push(`  ${scope.padEnd(8)} — no changes under ${description}`);
     }
+  }
+  if (matched.has("root-fallback")) {
+    lines.push("  root-fallback → matched (no specific scope claimed these files)");
   }
   lines.push("");
 
@@ -382,6 +462,14 @@ export function formatReport(report: CheckReport): string {
     lines.push(`Scopes: ${report.scopes.join(", ")}`);
   }
   lines.push("");
+
+  if (report.unmatchedFiles && report.unmatchedFiles.length > 0) {
+    lines.push(`Unmatched files (${report.unmatchedFiles.length}):`);
+    for (const file of report.unmatchedFiles) {
+      lines.push(`  ${file}`);
+    }
+    lines.push("");
+  }
 
   for (const result of report.results) {
     const icon = result.passed ? "PASS" : "FAIL";
@@ -402,7 +490,11 @@ export function formatReport(report: CheckReport): string {
   const passed = report.results.filter((r) => r.passed).length;
   const total = report.results.length;
   if (total === 0) {
-    lines.push("No checks ran.");
+    if (report.reason === "no-checks-defined") {
+      lines.push("No checks ran (no matching npm scripts defined in package.json).");
+    } else {
+      lines.push("No checks ran.");
+    }
   } else {
     lines.push(
       report.allPassed ? `All ${total} checks passed.` : `${passed}/${total} checks passed.`,
@@ -488,6 +580,10 @@ export function formatJsonReport(report: CheckReport): string {
     allPassed: report.allPassed,
   };
   if (report.changedFiles !== undefined) json.changedFiles = report.changedFiles;
+  if (report.unmatchedFiles && report.unmatchedFiles.length > 0) {
+    json.unmatchedFiles = report.unmatchedFiles;
+  }
+  if (report.reason) json.reason = report.reason;
   return JSON.stringify(json, null, 2);
 }
 
@@ -515,9 +611,11 @@ Options:
 When no flags are given, scopes are auto-detected from \`git diff HEAD\`.
 
 Check mapping:
-  src:      npm run typecheck, npm run test
-  scripts:  npm run typecheck:scripts, npm run test
-  docs:     flow-md-validate .
+  src:            npm run typecheck, npm run test
+  scripts:        npm run typecheck:scripts, npm run test
+  docs:           flow-md-validate .
+  root-fallback:  npm run typecheck, npm run test
+                  (fires when no other scope matched)
 
 The same checks may run multiple times if multiple scopes are detected.
 Each check is run independently and reports its own pass/fail.
@@ -599,12 +697,19 @@ async function main(): Promise<void> {
     }
   }
 
+  const unmatchedFiles =
+    changedFiles !== undefined ? computeUnmatchedFiles(changedFiles) : undefined;
+
+  const { allPassed, reason } = computeAllPassedAndReason(results, changedFiles);
+
   const report: CheckReport = {
     scopes,
     results,
-    allPassed: results.every((r) => r.passed),
+    allPassed,
     changedFiles,
   };
+  if (unmatchedFiles && unmatchedFiles.length > 0) report.unmatchedFiles = unmatchedFiles;
+  if (reason) report.reason = reason;
 
   console.log(json ? formatJsonReport(report) : formatReport(report));
   process.exit(report.allPassed ? 0 : 1);
