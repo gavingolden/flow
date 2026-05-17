@@ -65,6 +65,13 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
       return { error: `flow setup: unknown option '${arg}'` };
     }
   }
+  // --no-hooks opts out of touching settings.json this run; --repair-settings
+  // is a settings.json recovery mode. The combination would silently no-op on
+  // the repair branch (no-hooks skips the entire merge), so reject it at the
+  // CLI seam where the user can still react.
+  if (out.noHooks && out.repairSettings) {
+    return { error: "flow setup: --no-hooks and --repair-settings are mutually exclusive" };
+  }
   return out;
 }
 

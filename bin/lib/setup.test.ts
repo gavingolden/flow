@@ -10,11 +10,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
-import { runSetup } from "./setup";
+import { runSetup, validateJsonFiles } from "./setup";
 import { runSetupCli } from "./setup-args";
 import { readManifest } from "./manifest";
 import { LockTimeoutError } from "./lock";
 import { removeIfManagedSymlink } from "./symlink";
+import { countStopHook } from "./settings-merge";
 
 let scratch!: string;
 let flowSource!: string;
@@ -55,6 +56,7 @@ function setup(
     lockTimeoutMs?: number;
     noCompletions?: boolean;
     noHooks?: boolean;
+    repairSettings?: boolean;
     flowSourceOverride?: string;
   } = {},
 ) {
@@ -383,6 +385,184 @@ describe("flow setup", () => {
       setup({ noHooks: true });
       expect(fs.existsSync(settingsPath())).toBe(false);
     });
+
+    it("--no-hooks does not flag a pre-existing malformed settings.json as a validation failure", () => {
+      // Regression: when the user passes --no-hooks, flow never touched
+      // settings.json this run. A malformed file there is a pre-existing
+      // condition, not a flow-induced regression — it must not block exit.
+      fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
+      fs.writeFileSync(settingsPath(), "{not valid json");
+      const summary = setup({ noHooks: true });
+      expect(summary.validationFailures).toEqual([]);
+      // Malformed content survives — flow opted out of touching it.
+      expect(fs.readFileSync(settingsPath(), "utf8")).toBe("{not valid json");
+    });
+
+    describe("--repair-settings recovery", () => {
+      it("repairs a malformed regular settings.json and registers the hook", () => {
+        // End-to-end: seed a malformed file, run setup with repairSettings,
+        // assert the file is now valid JSON with the hook installed and a
+        // timestamped backup landed next to the realpath target.
+        const settingsP = settingsPath();
+        fs.mkdirSync(path.dirname(settingsP), { recursive: true });
+        const seed = '{"theme":"dar';
+        fs.writeFileSync(settingsP, seed);
+
+        const summary = setup({ repairSettings: true });
+        expect(summary.validationFailures).toEqual([]);
+
+        // File now parses cleanly and contains exactly one flow Stop hook.
+        const parsed = JSON.parse(fs.readFileSync(settingsP, "utf8"));
+        expect(parsed).toBeDefined();
+        expect(countStopHook(settingsP, "flow-stop-guard")).toBe(1);
+
+        // Backup file landed next to the realpath target.
+        const dir = path.dirname(fs.realpathSync(settingsP));
+        const backups = fs
+          .readdirSync(dir)
+          .filter((f) => f.startsWith("settings.json.flow-backup-"));
+        expect(backups).toHaveLength(1);
+        // The backup preserves the original (malformed) seed verbatim.
+        expect(fs.readFileSync(path.join(dir, backups[0]), "utf8")).toBe(seed);
+      });
+
+      it("emits the `repaired; backup at` log line on a regular file", () => {
+        const settingsP = settingsPath();
+        fs.mkdirSync(path.dirname(settingsP), { recursive: true });
+        fs.writeFileSync(settingsP, '{"theme":"dar');
+
+        const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+        try {
+          runSetup({
+            repairSettings: true,
+            flowSource,
+            installRoot: flowSource,
+            targets: targets(),
+            skipPreflight: true,
+            manifestPath,
+            lockPath,
+            homeDir,
+            settingsPath: settingsP,
+          });
+          const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+          expect(allLogs).toMatch(/repaired; backup at/);
+        } finally {
+          logSpy.mockRestore();
+        }
+      });
+
+      it("repairs a malformed file behind a symlink and preserves the symlink", () => {
+        // Dotfiles-style layout: settings.json is a symlink. The repair
+        // must target the realpath (so the symlink survives) and log the
+        // `(followed symlink to ...)` line.
+        //
+        // The realDir lives UNDER `homeDir` so the containment guard
+        // accepts the symlink target (a real dotfiles setup would have the
+        // managed target somewhere like `~/.dotfiles/...`, also under home).
+        // The negative-path symlink-escape test lives in settings-merge.test.ts
+        // — exercising it from this layer would just duplicate coverage.
+        const settingsP = settingsPath();
+        fs.mkdirSync(homeDir, { recursive: true });
+        const realDir = fs.mkdtempSync(path.join(homeDir, ".dotfiles-"));
+        try {
+          const target = path.join(realDir, "real-settings.json");
+          const seed = '{"theme":"dar';
+          fs.writeFileSync(target, seed);
+          fs.mkdirSync(path.dirname(settingsP), { recursive: true });
+          fs.symlinkSync(target, settingsP);
+
+          const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+          try {
+            const summary = runSetup({
+              repairSettings: true,
+              flowSource,
+              installRoot: flowSource,
+              targets: targets(),
+              skipPreflight: true,
+              manifestPath,
+              lockPath,
+              homeDir,
+              settingsPath: settingsP,
+            });
+            expect(summary.validationFailures).toEqual([]);
+            // Symlink survives the rewrite.
+            expect(fs.lstatSync(settingsP).isSymbolicLink()).toBe(true);
+            // Target file now parses and carries the hook.
+            const parsed = JSON.parse(fs.readFileSync(target, "utf8"));
+            expect(parsed).toBeDefined();
+            expect(countStopHook(settingsP, "flow-stop-guard")).toBe(1);
+            const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+            expect(allLogs).toMatch(/followed symlink to/);
+          } finally {
+            logSpy.mockRestore();
+          }
+        } finally {
+          fs.rmSync(realDir, { recursive: true, force: true });
+        }
+      });
+    });
+  });
+
+  describe("validateJsonFiles (pure helper)", () => {
+    let helperDir!: string;
+
+    beforeEach(() => {
+      helperDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-validate-"));
+    });
+
+    afterEach(() => {
+      fs.rmSync(helperDir, { recursive: true, force: true });
+    });
+
+    it("returns empty for parseable files", () => {
+      const a = path.join(helperDir, "a.json");
+      const b = path.join(helperDir, "b.json");
+      fs.writeFileSync(a, '{"k":1}');
+      fs.writeFileSync(b, "[]");
+      const result = validateJsonFiles([a, b]);
+      expect(result.failures).toEqual([]);
+      expect(result.errors.size).toBe(0);
+    });
+
+    it("returns the path and error for a malformed file", () => {
+      const bad = path.join(helperDir, "bad.json");
+      fs.writeFileSync(bad, "{not valid json");
+      const result = validateJsonFiles([bad]);
+      expect(result.failures).toEqual([bad]);
+      expect(result.errors.get(bad)).toMatch(/JSON|Unexpected|Unterminated/);
+    });
+
+    it("returns empty for missing files (skip-missing semantics)", () => {
+      const missing = path.join(helperDir, "does-not-exist.json");
+      const result = validateJsonFiles([missing]);
+      expect(result.failures).toEqual([]);
+      expect(result.errors.size).toBe(0);
+    });
+
+    it("returns only the malformed path when given a mix of good, bad, and missing", () => {
+      const good = path.join(helperDir, "good.json");
+      const bad = path.join(helperDir, "bad.json");
+      const missing = path.join(helperDir, "missing.json");
+      fs.writeFileSync(good, "{}");
+      fs.writeFileSync(bad, "{nope");
+      const result = validateJsonFiles([good, bad, missing]);
+      expect(result.failures).toEqual([bad]);
+      expect(result.errors.size).toBe(1);
+      expect(result.errors.get(bad)).toBeDefined();
+    });
+  });
+
+  it("flags a validation failure when a settings.json is corrupted between runs", () => {
+    // Integration counterpart to the validateJsonFiles unit tests: setup
+    // runs once cleanly, then the file is corrupted on disk, then the next
+    // setup run must surface the validation failure in the summary. (The
+    // ensureStopHook safe-bailout preserves the malformed content; the
+    // validator then catches it.)
+    setup();
+    // First run produced a clean settings.json — corrupt it.
+    fs.writeFileSync(settingsPath(), "{not valid json");
+    const summary = setup();
+    expect(summary.validationFailures).toContain(settingsPath());
   });
 
   it("all JSON files written by setup round-trip through JSON.parse", () => {

@@ -183,11 +183,11 @@ function runUnderLock(
 
   const settingsPath = options.settingsPath ?? CLAUDE_SETTINGS_PATH;
   if (!options.noHooks) {
-    const result = ensureStopHook(settingsPath, STOP_HOOK_COMMAND);
+    const result = ensureStopHook(settingsPath, STOP_HOOK_COMMAND, { homeDir: options.homeDir });
     if (result.changed) {
       log(`  + hooks/Stop:${STOP_HOOK_COMMAND}  (registered in ${settingsPath})`);
     } else if (result.reason === "malformed-json" && options.repairSettings) {
-      const repair = repairSettings(settingsPath, STOP_HOOK_COMMAND);
+      const repair = repairSettings(settingsPath, STOP_HOOK_COMMAND, { homeDir: options.homeDir });
       if (repair.changed) {
         log(`  ~ hooks/Stop:${STOP_HOOK_COMMAND}  (repaired; backup at ${repair.backupPath})`);
         if (repair.resolvedPath && repair.resolvedPath !== settingsPath) {
@@ -201,6 +201,10 @@ function runUnderLock(
       if (result.reason === "malformed-json") {
         log(`      → run "flow setup --repair-settings" to back up and rewrite the file`);
       }
+      // unsafe-symlink-target intentionally gets no repair hint — repair
+      // would just chase the same escaping symlink. The user needs to
+      // inspect the symlink themselves and decide whether it's a planted
+      // attack or a legitimate dotfiles target outside ~/.
     }
   }
 
@@ -215,27 +219,45 @@ function runUnderLock(
   // (or attempted to write). Catches any future regression in any of flow's
   // JSON writers at install time; skips files that don't exist on disk
   // (e.g. a --no-hooks run never touches settings.json).
-  validateJsonOutputs([settingsPath, manifestTargetPath], summary, log);
+  //
+  // Gate settingsPath on `!options.noHooks` — when the user opted out via
+  // --no-hooks, flow never touched settings.json this run, so a malformed
+  // file there is not a flow-induced regression and must not block exit.
+  const validationTargets = [manifestTargetPath];
+  if (!options.noHooks) validationTargets.push(settingsPath);
+  const validation = validateJsonFiles(validationTargets);
+  for (const p of validation.failures) {
+    summary.validationFailures.push(p);
+    log(`  ! ${p}  (validation-failed: ${validation.errors.get(p) ?? "no detail"})`);
+  }
 
   printSummary(summary, log);
   return summary;
 }
 
-function validateJsonOutputs(
+/**
+ * Pure helper: re-parses each given path through `JSON.parse` and reports
+ * which paths failed plus the verbatim error messages. Missing files are
+ * skipped (returned in neither result field). Separated from the
+ * orchestrator so it can be unit-tested in isolation without standing up a
+ * full setup fixture.
+ */
+export function validateJsonFiles(
   paths: string[],
-  summary: SetupSummary,
-  log: (msg: string) => void,
-): void {
+): { failures: string[]; errors: Map<string, string> } {
+  const failures: string[] = [];
+  const errors = new Map<string, string>();
   for (const p of paths) {
     if (!fs.existsSync(p)) continue;
     try {
       JSON.parse(fs.readFileSync(p, "utf8"));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      summary.validationFailures.push(p);
-      log(`  ! ${p}  (validation-failed: ${msg})`);
+      failures.push(p);
+      errors.set(p, msg);
     }
   }
+  return { failures, errors };
 }
 
 function preflight(targets: InstallTargets): void {

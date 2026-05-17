@@ -203,6 +203,23 @@ describe("parseSetupArgs", () => {
       error: "flow setup: unknown option '--mystery'",
     });
   });
+
+  it("rejects --no-hooks combined with --repair-settings (mutually exclusive)", () => {
+    // --no-hooks opts out of touching settings.json; --repair-settings is a
+    // settings.json recovery mode. The combination is silently a no-op on
+    // the repair branch, so reject at the parser layer.
+    const result = parseSetupArgs(["--no-hooks", "--repair-settings"]);
+    expect(result).toEqual({
+      error: "flow setup: --no-hooks and --repair-settings are mutually exclusive",
+    });
+  });
+
+  it("rejects --repair-settings followed by --no-hooks (order-independent)", () => {
+    const result = parseSetupArgs(["--repair-settings", "--no-hooks"]);
+    expect(result).toEqual({
+      error: "flow setup: --no-hooks and --repair-settings are mutually exclusive",
+    });
+  });
 });
 
 describe("runSetupCli", () => {
@@ -256,6 +273,18 @@ describe("runSetupCli", () => {
     fs.mkdirSync(t.skillsDir, { recursive: true });
     fs.writeFileSync(path.join(t.skillsDir, "alpha"), "user content");
     expect(cli([])).toBe(1);
+  });
+
+  it("returns exit code 1 when validationFailures > 0 (malformed JSON at a validated path)", () => {
+    // Plant a malformed settings.json at the path the validator scans. The
+    // ensureStopHook safe-bailout will refuse to overwrite it (preserving
+    // user data), then end-of-run validation flips the exit code.
+    const settingsP = path.join(homeDir, ".claude", "settings.json");
+    fs.mkdirSync(path.dirname(settingsP), { recursive: true });
+    fs.writeFileSync(settingsP, "{not valid json");
+    expect(cli([])).toBe(1);
+    // Malformed content survives — the safe-bailout never stomped it.
+    expect(fs.readFileSync(settingsP, "utf8")).toBe("{not valid json");
   });
 
   it("returns exit code 2 on a parser error and prints to stderr", () => {
