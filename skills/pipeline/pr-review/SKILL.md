@@ -1131,8 +1131,10 @@ on the fail subtype:
   EOF
   ```
 
-- **Fail (automatable)**: Do NOT just edit the description. The fix is a **code change**:
-  add automated tests that subsume the flagged manual items. List each automatable
+- **Fail (automatable)**: Unlike the `Fail (shallow)` and `Fail (missing)` branches
+  above, the per-item conversion here is **default-on** — do not pause for upfront
+  confirmation. Do NOT just edit the description. The fix is a **code change**: add
+  automated tests that subsume the flagged manual items. List each automatable
   manual item with (a) the existing test file it should slot into (or the new file
   path) and (b) a one-or-two-sentence sketch of the assertions. Example:
 
@@ -1159,13 +1161,21 @@ on the fail subtype:
   Same fallback applies if a converted test fails verification after a reasonable
   attempt — back it out and surface as a `suggestion`.
 
+  Record the disposition in the report's PR Description Quality status as
+  `Manual items auto-converted (N items, redirect by replying)` (see
+  `references/report-template.md`).
+
 **If 0 criteria fail, or 1 non-Testability criterion fails, and no accuracy issues**: Note
 "PR description is accurate and communicates intent clearly" in the report.
 
-**IMPORTANT**: Never update the description without showing the user a diff of what's
-changing (focused on just the affected section is fine) and getting confirmation. The
-description is the author's voice — edits should improve clarity, not impose a rigid
-template.
+**IMPORTANT**: For the `Fail (shallow)` and `Fail (missing)` branches, never update the
+description without showing the user a diff of what's changing (focused on just the
+affected section is fine) and getting confirmation. The description is the author's
+voice — edits should improve clarity, not impose a rigid template. The `Fail
+(automatable)` branch is default-on per the inversion above — its per-item
+bullet-pruning edit is covered by the `Auto-push exemption: pr-review` clause in
+`AGENTS.md` and does not require upfront confirmation; the user redirects via reply
+after the fact.
 
 **After any 11e edit that adds `- [ ]` test items** (fail-shallow or fail-missing
 branches), re-run Step 8c against the newly added items to tick the runnable ones
@@ -1244,6 +1254,14 @@ line pairs with the `Manual items auto-converted (N items, redirect by replying)
 PR Description Quality status enum value, which records the same disposition in
 the report's status field; the line on the test-steps side gives the per-item
 detail the status enum compresses.
+
+The emit-conditionality here deliberately diverges from the adjacent
+`Automation-precedence audit` line (which always emits, even on `0 prose-promoted`):
+the audit line reports on *every* Test Steps item by design (a `0 prose-promoted`
+verdict is itself the positive signal that nothing was author-manual), while
+auto-conversion is a per-PR side effect rather than a per-PR property — runs
+without a `Fail (automatable)` fire have no auto-conversion semantics to report,
+so the line is omitted rather than written as `0 items`.
 
 ## 13. Register Local Follow-ups (when applicable)
 
