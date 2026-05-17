@@ -25,9 +25,14 @@ condition Y," it should be an automated test, not a manual checklist item.
 > Apply the rubric to each checkbox individually — if it passes the automation
 > test below, it should either be run by the reviewer right now (per Step 8c of
 > the pr-review skill, which auto-runs and injects evidence) **or** converted
-> to a real test (per Step 11e's `Fail (automatable)` resolution). The heading
-> name (or any sub-section the author writes) is not a reason to skip either
-> path.
+> to a real test (per Step 11e's `Fail (automatable)` resolution). The conversion
+> is **default-on**: the pr-review skill writes the test, runs it, commits and
+> pushes, and prunes the converted bullet without pausing for upfront confirmation.
+> The user redirects via reply after the fact (e.g. "this one should have stayed
+> manual — revert it") rather than gating each conversion. Items failing the
+> `Caveat: don't trade a working test for a flaky one` check below surface as
+> `suggestion` findings instead. The heading name (or any sub-section the author
+> writes) is not a reason to skip either path.
 
 Apply the **automation test** to every entry in the proposed manual section:
 

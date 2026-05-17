@@ -69,6 +69,15 @@ const CODER_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "coder-instructions.md",
 );
+const REPORT_TEMPLATE_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "references",
+  "report-template.md",
+);
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
@@ -76,6 +85,7 @@ const prReviewContent = fs.readFileSync(PR_REVIEW_SKILL_MD_PATH, "utf8");
 const fixApplierContent = fs.readFileSync(FIX_APPLIER_INSTRUCTIONS_PATH, "utf8");
 const coderContent = fs.readFileSync(CODER_SKILL_MD_PATH, "utf8");
 const coderInstructionsContent = fs.readFileSync(CODER_INSTRUCTIONS_PATH, "utf8");
+const reportTemplateContent = fs.readFileSync(REPORT_TEMPLATE_PATH, "utf8");
 
 /**
  * Strip markdown blockquote `> ` prefixes from line starts so cross-line
@@ -684,4 +694,45 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
       }
     },
   );
+});
+
+describe("pr-review Step 11e inversion contract", () => {
+  it("Step 11e Fail (automatable) body forbids confirmation-gate phrases", () => {
+    const stepSlice = prReviewContent.split("### 11e. Resolution")[1]?.split(/^## /m)[0] ?? "";
+    const failAutoMarker = "**Fail (automatable)**:";
+    const failAutoStart = stepSlice.indexOf(failAutoMarker);
+    expect(
+      failAutoStart,
+      "Step 11e slice must contain the '**Fail (automatable)**:' marker. " +
+        "If this assertion fails, the marker has been renamed and the lint " +
+        "can no longer isolate the body.",
+    ).toBeGreaterThanOrEqual(0);
+    const afterMarker = stepSlice.slice(failAutoStart + failAutoMarker.length);
+    const nextSiblingIdx = afterMarker.search(/\*\*Fail \(/);
+    const body = nextSiblingIdx >= 0 ? afterMarker.slice(0, nextSiblingIdx) : afterMarker;
+    const normalised = body.replace(/\s+/g, " ");
+    expect(
+      normalised,
+      "Step 11e Fail (automatable) body must NOT contain 'Show the user the list'. " +
+        "The inverted resolution is default-on — the user redirects via reply after " +
+        "the fact, not via upfront confirmation.",
+    ).not.toContain("Show the user the list");
+    expect(
+      normalised,
+      "Step 11e Fail (automatable) body must NOT contain 'On confirmation, write the tests'. " +
+        "The inverted resolution writes tests by default; the confirmation-gate phrasing " +
+        "is the regression this lint guards against.",
+    ).not.toContain("On confirmation, write the tests");
+  });
+
+  it("report-template Status: enum lists Manual items auto-converted", () => {
+    expect(
+      reportTemplateContent.includes("Manual items auto-converted"),
+      "report-template.md PR Description Quality Status: enum must include " +
+        "'Manual items auto-converted' as one of the pipe-separated values. " +
+        "Step 11e's inverted Fail (automatable) resolution records its disposition " +
+        "via this status value; drift here means the report omits the auto-conversion " +
+        "audit trail.",
+    ).toBe(true);
+  });
 });

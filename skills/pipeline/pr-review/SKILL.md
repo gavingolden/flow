@@ -1143,14 +1143,21 @@ on the fail subtype:
   >   `it(...)` in the same file using a non-git `target_repo` + stub script;
   >   `findWorktreePath` throws, runner catch should rewrite status.
 
-  Show the user the list with a one-sentence explanation. On confirmation, write the
-  tests, run them (`npm test` / `RUN_INTEGRATION=1 npm test` as appropriate), and
-  remove the now-automated bullets from the manual section of the PR description.
-  Leave only items that genuinely require human judgment (per the rubric's
-  "Genuinely manual" list).
+  Per-item conversion is **default-on** — do not pause for upfront confirmation. For
+  each automatable item: write the test, run it (`npm test` / `RUN_INTEGRATION=1 npm
+  test` as appropriate), commit and push the change (covered by the `Auto-push
+  exemption: pr-review` clause in AGENTS.md), then prune the converted bullet from
+  the PR body via `gh pr edit <number> --body-file /dev/stdin`. Leave only items
+  that genuinely require human judgment (per the rubric's "Genuinely manual" list).
+  The user redirects via reply after the fact (e.g. "this one should have stayed
+  manual — revert it") rather than gating each conversion upfront.
 
-  If the user declines or defers, surface the proposal as a `suggestion` finding in
-  the report instead of silently dropping it.
+  Items that fail the rubric's `Caveat: don't trade a working test for a flaky one`
+  check (real network / real LLM / heavy harness disproportionate to risk /
+  timing-dependent without a determinism shim) are **not** auto-converted: surface
+  them as `suggestion` findings in the report instead of forcing a flaky test in.
+  Same fallback applies if a converted test fails verification after a reasonable
+  attempt — back it out and surface as a `suggestion`.
 
 **If 0 criteria fail, or 1 non-Testability criterion fails, and no accuracy issues**: Note
 "PR description is accurate and communicates intent clearly" in the report.
@@ -1213,6 +1220,30 @@ emitting is the deliberate choice — `0 prose-promoted` on a PR with all-runnab
 author items is itself a positive signal ("nothing was author-manual today").
 The user reads the audit line to decide whether to redirect ("this should have
 been a test, not a runtime conversion") with one comment.
+
+**Auto-converted manual items line.** When Step 11e's `Fail (automatable)` branch
+fires and converts one or more manual checklist items into automated tests
+(default-on per the inverted resolution above), the report's "Test Steps (from PR
+description)" section emits a second summary line adjacent to the audit line:
+
+```
+Auto-converted N items per rubric: <comma-separated list of the converted bullets>
+```
+
+- `N` is the number of `- [ ]` manual items converted to real tests in this run.
+- The comma-separated list names each converted bullet (quoting the original wording
+  is sufficient — `"verify runner.pid exists and matches printed PID"`), one entry
+  per converted item, so the user can grep a single line to see what changed.
+
+The line fires only when Step 11e's `Fail (automatable)` branch actually converted
+at least one item (`N >= 1`). When the branch did not fire, or fired but every
+candidate was rejected by the rubric's `Caveat: don't trade a working test for a
+flaky one` check and surfaced as `suggestion` findings instead, omit the line —
+its absence is itself a signal that no auto-conversion happened this run. This
+line pairs with the `Manual items auto-converted (N items, redirect by replying)`
+PR Description Quality status enum value, which records the same disposition in
+the report's status field; the line on the test-steps side gives the per-item
+detail the status enum compresses.
 
 ## 13. Register Local Follow-ups (when applicable)
 
