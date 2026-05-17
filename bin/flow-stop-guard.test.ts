@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildReminder,
+  buildStagnationReminder,
   nextStepLabel,
   run,
   type Deps,
@@ -11,11 +12,19 @@ import {
   TERMINAL_PHASES,
   type PipelineState,
 } from "./lib/state";
+import {
+  TURN_BLOCK_LIMIT,
+  type TurnTracking,
+} from "./lib/stop-turn-tracking";
+
+const FROZEN_NOW = "2026-05-17T00:00:00.000Z";
 
 type Stub = {
   deps: Deps;
   errLines: string[];
   loadCalls: string[];
+  writeTurn: ReturnType<typeof vi.fn>;
+  readTurn: ReturnType<typeof vi.fn>;
 };
 
 function makeDeps(opts: {
@@ -23,9 +32,13 @@ function makeDeps(opts: {
   pane?: string;
   slug?: string;
   state?: PipelineState | null;
+  turnTracking?: TurnTracking | null;
+  nowIso?: string;
 }): Stub {
   const errLines: string[] = [];
   const loadCalls: string[] = [];
+  const writeTurn = vi.fn();
+  const readTurn = vi.fn(() => opts.turnTracking ?? null);
   const deps: Deps = {
     readStdin: async () => opts.stdin ?? "",
     tmuxPane: opts.pane,
@@ -37,8 +50,11 @@ function makeDeps(opts: {
     writeErr: (s) => {
       errLines.push(s);
     },
+    readTurn,
+    writeTurn,
+    nowIso: () => opts.nowIso ?? FROZEN_NOW,
   };
-  return { deps, errLines, loadCalls };
+  return { deps, errLines, loadCalls, writeTurn, readTurn };
 }
 
 function fakeState(phase: string): PipelineState {
@@ -50,30 +66,47 @@ function fakeState(phase: string): PipelineState {
   };
 }
 
+function fakeTracking(overrides: Partial<TurnTracking> = {}): TurnTracking {
+  return {
+    slug: "demo",
+    turnId: "2026-05-17T00:00:00.000Z",
+    blockCount: 0,
+    lastPhase: "starting",
+    lastStopAt: "2026-05-17T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
 describe("flow-stop-guard short-circuits", () => {
-  it("exits 0 when stop_hook_active is true (loop-break)", async () => {
-    const { deps, loadCalls } = makeDeps({
+  it("exits 0 when stop_hook_active is true and phase has advanced (loop-break consumed)", async () => {
+    const { deps, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({ stop_hook_active: true }),
       pane: "%1",
       slug: "demo",
-      state: fakeState("implementing"),
+      state: fakeState("verifying"),
+      turnTracking: fakeTracking({ blockCount: TURN_BLOCK_LIMIT, lastPhase: "implementing" }),
     });
     expect(await run(deps)).toBe(0);
-    expect(loadCalls).toEqual([]);
+    expect(errLines.join("")).toContain("loop-break consumed");
+    expect(writeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ lastPhase: "verifying" }),
+    );
   });
 
   it("exits 0 when TMUX_PANE is undefined (not in tmux)", async () => {
-    const { deps, loadCalls } = makeDeps({
+    const { deps, loadCalls, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({}),
       pane: undefined,
       state: fakeState("implementing"),
     });
     expect(await run(deps)).toBe(0);
     expect(loadCalls).toEqual([]);
+    expect(writeTurn).not.toHaveBeenCalled();
+    expect(errLines).toEqual([]);
   });
 
   it("exits 0 when @flow-slug is empty (not a flow window)", async () => {
-    const { deps, loadCalls } = makeDeps({
+    const { deps, loadCalls, errLines, writeTurn } = makeDeps({
       stdin: JSON.stringify({}),
       pane: "%1",
       slug: "",
@@ -81,6 +114,8 @@ describe("flow-stop-guard short-circuits", () => {
     });
     expect(await run(deps)).toBe(0);
     expect(loadCalls).toEqual([]);
+    expect(writeTurn).not.toHaveBeenCalled();
+    expect(errLines).toEqual([]);
   });
 
   it("exits 0 when state.json is missing for the slug", async () => {
@@ -221,5 +256,150 @@ describe("nextStepLabel + buildReminder", () => {
     const lines = buildReminder("triaging", "step 2 (worktree-create)");
     const joined = lines.join("\n");
     for (const p of PENDING_PHASES) expect(joined).toContain(p);
+  });
+
+  it("buildStagnationReminder includes 'DO NOT END THE TURN' and the 'phase has not advanced' substring", () => {
+    const lines = buildStagnationReminder("verifying", 2);
+    const joined = lines.join("\n");
+    expect(joined).toContain("DO NOT END THE TURN");
+    expect(joined).toContain("phase has not advanced");
+    expect(joined).toContain("phase=verifying");
+    expect(joined).toContain("2 consecutive stops");
+  });
+});
+
+describe("per-turn tracking", () => {
+  it("(1) legitimate pending exit does not consume budget", async () => {
+    const { deps, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: false }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("plan-pending-review"),
+      turnTracking: null,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(writeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ blockCount: 0, lastPhase: "plan-pending-review" }),
+    );
+  });
+
+  it("(1b) legitimate pending exit takes precedence when budget already exhausted", async () => {
+    // Pins the dispatch precedence (legitimate-end > loop-break > stagnation).
+    // If a future refactor reordered the checks, a real session that hit
+    // stagnation then transitioned to plan-pending-review would now
+    // incorrectly exit 2 with a stagnation reminder — this case forces the
+    // legitimate-end branch to win even when blockCount === TURN_BLOCK_LIMIT.
+    const { deps, errLines, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("plan-pending-review"),
+      turnTracking: fakeTracking({ blockCount: TURN_BLOCK_LIMIT, lastPhase: "verifying" }),
+    });
+    expect(await run(deps)).toBe(0);
+    expect(errLines).toEqual([]);
+    expect(writeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ blockCount: TURN_BLOCK_LIMIT }),
+    );
+  });
+
+  it("(2) non-legitimate phase + no prior tracking → exit 2 + increment", async () => {
+    const { deps, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: false }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying"),
+      turnTracking: null,
+    });
+    expect(await run(deps)).toBe(2);
+    expect(writeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ blockCount: 1, lastPhase: "verifying" }),
+    );
+  });
+
+  it("(3) second stop same turn, phase unchanged → stagnation reminder", async () => {
+    const { deps, errLines, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying"),
+      turnTracking: fakeTracking({
+        blockCount: TURN_BLOCK_LIMIT,
+        lastPhase: "verifying",
+      }),
+    });
+    expect(await run(deps)).toBe(2);
+    expect(errLines.join("")).toContain("phase has not advanced");
+    expect(writeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ blockCount: TURN_BLOCK_LIMIT + 1 }),
+    );
+  });
+
+  it("(4) second stop same turn, phase advanced → exit 0 + breadcrumb", async () => {
+    const { deps, errLines, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: true }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("verifying"),
+      turnTracking: fakeTracking({
+        blockCount: TURN_BLOCK_LIMIT,
+        lastPhase: "implementing",
+      }),
+    });
+    expect(await run(deps)).toBe(0);
+    const joined = errLines.join("");
+    expect(joined).toContain("loop-break consumed");
+    expect(joined).toContain("phase=verifying");
+    expect(writeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ lastPhase: "verifying" }),
+    );
+  });
+
+  it("(5) new turn resets stale tracking (fresh turnId + lastPhase)", async () => {
+    const FRESH = "2026-05-17T12:34:56.789Z";
+    const { deps, writeTurn } = makeDeps({
+      stdin: JSON.stringify({ stop_hook_active: false }),
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("triaging"),
+      turnTracking: fakeTracking({
+        turnId: "2026-05-16T00:00:00.000Z",
+        blockCount: TURN_BLOCK_LIMIT,
+        lastPhase: "implementing",
+      }),
+      nowIso: FRESH,
+    });
+    await run(deps);
+    expect(writeTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        blockCount: 0,
+        turnId: FRESH,
+        lastPhase: "triaging",
+      }),
+    );
+  });
+
+  it("(6) out-of-tmux skips tracking I/O entirely", async () => {
+    const { deps, errLines, writeTurn } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: "",
+      slug: "demo",
+      state: fakeState("implementing"),
+    });
+    expect(await run(deps)).toBe(0);
+    expect(writeTurn).not.toHaveBeenCalled();
+    expect(errLines).toEqual([]);
+  });
+
+  it("(7) non-flow window skips tracking I/O entirely", async () => {
+    const { deps, errLines, writeTurn } = makeDeps({
+      stdin: JSON.stringify({}),
+      pane: "%1",
+      slug: "",
+      state: fakeState("implementing"),
+    });
+    expect(await run(deps)).toBe(0);
+    expect(writeTurn).not.toHaveBeenCalled();
+    expect(errLines).toEqual([]);
   });
 });

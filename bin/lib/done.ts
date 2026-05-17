@@ -26,6 +26,7 @@ import {
   FLOW_SESSION,
 } from "./tmux";
 import { deleteState, listStates, readState, type PipelineState } from "./state";
+import { deleteTurnTracking } from "./stop-turn-tracking";
 
 const TERMINAL_PHASES = new Set(["merged", "cancelled"]);
 
@@ -87,6 +88,7 @@ export function runDone(name: string | undefined, options: DoneOptions = {}): nu
   }
   if (hasState) {
     deleteState(name);
+    deleteTurnTracking(name);
   } else if (!warned) {
     console.warn(`  (no state file for '${name}' — window existed alone)`);
   }
@@ -160,6 +162,7 @@ function sweep(
   for (const s of states) {
     if (findWindowBySlug(windows, s.slug)) killWindow(s.slug);
     deleteState(s.slug);
+    deleteTurnTracking(s.slug);
     console.log(`closed: ${s.slug}`);
   }
   return 0;

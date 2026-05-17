@@ -41,9 +41,25 @@ const stateMock = vi.hoisted(() => ({
         updatedAt: string;
       }[],
   ),
-  readState: vi.fn(() => null),
+  readState: vi.fn(
+    (_slug: string) =>
+      null as
+        | {
+            slug: string;
+            phase: string;
+            pr?: number;
+            repo: string;
+            updatedAt: string;
+          }
+        | null,
+  ),
 }));
 vi.mock("./state", () => stateMock);
+
+const turnTrackingMock = vi.hoisted(() => ({
+  deleteTurnTracking: vi.fn(),
+}));
+vi.mock("./stop-turn-tracking", () => turnTrackingMock);
 
 import { runDone, runDoneCli } from "./done";
 
@@ -128,6 +144,9 @@ describe("runDone --merged (renamed from --all-merged)", () => {
     expect(stateMock.deleteState).toHaveBeenCalledWith("a");
     expect(stateMock.deleteState).toHaveBeenCalledWith("b");
     expect(stateMock.deleteState).not.toHaveBeenCalledWith("c");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("a");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("b");
+    expect(turnTrackingMock.deleteTurnTracking).not.toHaveBeenCalledWith("c");
     expect(tmuxMock.killWindow).toHaveBeenCalledWith("a");
     expect(tmuxMock.killWindow).not.toHaveBeenCalledWith("b");
     log.mockRestore();
@@ -162,6 +181,9 @@ describe("runDone --orphans", () => {
     expect(stateMock.deleteState).toHaveBeenCalledWith("orphan-a");
     expect(stateMock.deleteState).toHaveBeenCalledWith("orphan-b");
     expect(stateMock.deleteState).not.toHaveBeenCalledWith("live");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("orphan-a");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("orphan-b");
+    expect(turnTrackingMock.deleteTurnTracking).not.toHaveBeenCalledWith("live");
     // No window to kill for orphans (that's what makes them orphans).
     expect(tmuxMock.killWindow).not.toHaveBeenCalled();
     log.mockRestore();
@@ -242,6 +264,7 @@ describe("runDone --orphans", () => {
 
     expect(code).toBe(0);
     expect(stateMock.deleteState).toHaveBeenCalledWith("orphan-a");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("orphan-a");
 
     stdoutWrite.mockRestore();
     log.mockRestore();
@@ -278,6 +301,10 @@ describe("runDone --merged --orphans (composed)", () => {
     expect(stateMock.deleteState).toHaveBeenCalledWith("orphan-only");
     expect(stateMock.deleteState).toHaveBeenCalledWith("merged-orphan");
     expect(stateMock.deleteState).not.toHaveBeenCalledWith("live");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("merged-live");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("orphan-only");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("merged-orphan");
+    expect(turnTrackingMock.deleteTurnTracking).not.toHaveBeenCalledWith("live");
     // Only existing windows get killed; "orphan-only" + "merged-orphan" have no window.
     expect(tmuxMock.killWindow).toHaveBeenCalledWith("merged-live");
     expect(tmuxMock.killWindow).not.toHaveBeenCalledWith("orphan-only");
@@ -311,6 +338,38 @@ describe("runDone --merged --orphans (composed)", () => {
       "flow done: no merged, cancelled, or orphan pipelines to close.",
     );
     log.mockRestore();
+  });
+});
+
+describe("runDone(name) single-pipeline", () => {
+  it("deletes both state and turn-tracking when hasState=true (state-file path)", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(state({ slug: "my-slug", phase: "merged" }));
+
+    const code = runDone("my-slug", { yes: true });
+
+    expect(code).toBe(0);
+    expect(tmuxMock.killWindow).toHaveBeenCalledWith("my-slug");
+    expect(stateMock.deleteState).toHaveBeenCalledWith("my-slug");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("my-slug");
+    log.mockRestore();
+  });
+
+  it("does NOT call deleteTurnTracking when hasState=false (window-only path)", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(null);
+
+    const code = runDone("window-only", { yes: true });
+
+    expect(code).toBe(0);
+    expect(tmuxMock.killWindow).toHaveBeenCalledWith("window-only");
+    expect(stateMock.deleteState).not.toHaveBeenCalled();
+    expect(turnTrackingMock.deleteTurnTracking).not.toHaveBeenCalled();
+    log.mockRestore();
+    warn.mockRestore();
   });
 });
 

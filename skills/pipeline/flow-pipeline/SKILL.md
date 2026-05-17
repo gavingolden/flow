@@ -345,9 +345,25 @@ Contract:
 - Self-detects: exits 0 (no-op) outside tmux, in non-flow tmux
   windows (no `@flow-slug` set), or when state.json is missing.
   Safe to install in a global Stop hook list.
-- Loop-break: respects Claude Code's `stop_hook_active` payload
-  flag. After one block this turn, subsequent stops exit 0
-  unconditionally so a model that genuinely needs to stop can.
+- Loop-break budget: the hook owns its own per-turn block counter,
+  persisted at `~/.flow/state/turns/<slug>.json` (a sibling
+  subdirectory so `flow ls` does not see it as a phantom pipeline).
+- Legitimate pending exits do NOT consume the budget — phase=
+  `plan-pending-review` / `triaged-no-change` /
+  `triage-pending-clarification` / `approval-pending-clarification`
+  all exit 0 without incrementing the counter.
+- `stop_hook_active` is treated as advisory (used to detect turn
+  boundaries via `false`-on-first-stop) rather than authoritative
+  budget.
+- Stagnation detection: once the budget is exhausted (blockCount ≥
+  TURN_BLOCK_LIMIT), subsequent stops exit 0 only when phase has
+  advanced since the last block; otherwise stagnation re-engages and
+  exits 2 with a "phase has not advanced" reminder.
+- Loop-break breadcrumb: when the hook exits 0 via the phase-advance
+  loop-break path, it writes a single line to stderr
+  (`flow-stop-guard: loop-break consumed; subsequent stops will not
+  be blocked this turn …`) that Claude Code surfaces on the next
+  turn-start.
 
 Opt out: `flow setup --no-hooks` skips the merge entirely and
 leaves `~/.claude/settings.json` untouched. The supervisor's

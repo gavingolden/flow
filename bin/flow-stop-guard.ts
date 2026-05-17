@@ -17,19 +17,31 @@
  * making it safe to install in a global Stop-hook list. A normal
  * coding session sees no behaviour change.
  *
- * Loop-break: Claude Code passes `stop_hook_active: true` after the
- * first block this turn. On that signal we exit 0 unconditionally, so
- * a model that genuinely wants to stop can — preventing infinite
- * oscillation.
+ * Per-turn tracking: the hook owns its own block counter at
+ * `~/.flow/state/turns/<slug>.json` (a sibling subdirectory so
+ * `state.ts`'s `listStates()` does not pick the file up as a phantom
+ * pipeline). After one block this turn (TURN_BLOCK_LIMIT), subsequent
+ * stops exit 0 only when phase has advanced since the block (phase-
+ * advance loop-break, emits a stderr breadcrumb); otherwise stagnation
+ * re-engages with a "phase has not advanced" reminder. `stop_hook_active`
+ * is treated as advisory (used to detect turn boundaries) rather than
+ * authoritative budget.
  */
 
 import { spawnSync } from "node:child_process";
 import {
   isLegitimateEndPhase,
+  nowIso as defaultNowIso,
   PENDING_PHASES,
   readState,
   type PipelineState,
 } from "./lib/state";
+import {
+  readTurnTracking,
+  TURN_BLOCK_LIMIT,
+  writeTurnTracking,
+  type TurnTracking,
+} from "./lib/stop-turn-tracking";
 
 type HookInput = {
   stop_hook_active?: boolean;
@@ -41,6 +53,9 @@ export type Deps = {
   showFlowSlug: (pane: string) => string;
   loadState: (slug: string) => PipelineState | null;
   writeErr: (s: string) => void;
+  readTurn: (slug: string) => TurnTracking | null;
+  writeTurn: (tracking: TurnTracking) => void;
+  nowIso: () => string;
 };
 
 export async function run(deps: Deps): Promise<number> {
@@ -53,8 +68,6 @@ export async function run(deps: Deps): Promise<number> {
     // as "no hook input" and fall through to the rest of the checks.
   }
 
-  if (input.stop_hook_active === true) return 0;
-
   const pane = deps.tmuxPane;
   if (!pane) return 0;
 
@@ -64,11 +77,52 @@ export async function run(deps: Deps): Promise<number> {
   const state = deps.loadState(slug);
   if (!state) return 0;
 
-  if (isLegitimateEndPhase(state.phase)) return 0;
+  const now = deps.nowIso();
+  const prior = deps.readTurn(slug);
+  const turnBoundary = input.stop_hook_active === false || prior === null;
+  let tracking: TurnTracking = turnBoundary
+    ? { slug, turnId: now, blockCount: 0, lastPhase: state.phase, lastStopAt: now }
+    : prior!;
+
+  if (turnBoundary) deps.writeTurn(tracking);
+
+  if (isLegitimateEndPhase(state.phase)) {
+    tracking = { ...tracking, lastStopAt: now };
+    deps.writeTurn(tracking);
+    return 0;
+  }
+
+  if (tracking.blockCount >= TURN_BLOCK_LIMIT && state.phase !== tracking.lastPhase) {
+    deps.writeErr(
+      `flow-stop-guard: loop-break consumed at phase=${state.phase}; subsequent stops will exit 0 only if phase keeps advancing — stalling at this phase re-engages the stagnation reminder. Continue per /flow-pipeline SKILL.md.\n`,
+    );
+    tracking = { ...tracking, lastPhase: state.phase, lastStopAt: now };
+    deps.writeTurn(tracking);
+    return 0;
+  }
+
+  if (tracking.blockCount >= TURN_BLOCK_LIMIT && state.phase === tracking.lastPhase) {
+    const reminder = buildStagnationReminder(state.phase, tracking.blockCount + 1);
+    for (const line of reminder) deps.writeErr(`${line}\n`);
+    tracking = {
+      ...tracking,
+      blockCount: tracking.blockCount + 1,
+      lastStopAt: now,
+    };
+    deps.writeTurn(tracking);
+    return 2;
+  }
 
   const next = nextStepLabel(state.phase);
   const reminder = buildReminder(state.phase, next);
   for (const line of reminder) deps.writeErr(`${line}\n`);
+  tracking = {
+    ...tracking,
+    blockCount: tracking.blockCount + 1,
+    lastPhase: state.phase,
+    lastStopAt: now,
+  };
+  deps.writeTurn(tracking);
   return 2;
 }
 
@@ -95,6 +149,14 @@ export function buildReminder(phase: string, next: string): string[] {
   return [
     `flow-stop-guard: phase=${phase}; the supervisor must continue to ${next} per /flow-pipeline SKILL.md.`,
     `Legitimate end-states are MERGED, GATED, NEEDS HUMAN, cancelled, and the pending phases (${pendingList}).`,
+    "DO NOT END THE TURN — proceed to the next step now.",
+  ];
+}
+
+export function buildStagnationReminder(phase: string, count: number): string[] {
+  return [
+    `flow-stop-guard: phase has not advanced for ${count} consecutive stops; phase=${phase}.`,
+    "The supervisor must continue to the next step per /flow-pipeline SKILL.md, or transition to a legitimate end-state if blocked.",
     "DO NOT END THE TURN — proceed to the next step now.",
   ];
 }
@@ -136,5 +198,8 @@ if (import.meta.main) {
     showFlowSlug: defaultShowFlowSlug,
     loadState: (slug) => readState(slug),
     writeErr: (s) => process.stderr.write(s),
+    readTurn: (slug) => readTurnTracking(slug),
+    writeTurn: (t) => writeTurnTracking(t),
+    nowIso: defaultNowIso,
   }).then((code) => process.exit(code));
 }
