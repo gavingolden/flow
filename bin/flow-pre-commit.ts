@@ -118,7 +118,7 @@ type CheckDef = {
 
 // --- Constants ---
 
-const VALID_SCOPES: Scope[] = ["src", "scripts", "docs", "root-fallback"];
+const ALL_SCOPES: Scope[] = ["src", "scripts", "docs", "root-fallback"];
 // Path-based scopes only — root-fallback is a sentinel scope (not a matcher)
 // that fires when a non-empty diff produced no specific-scope matches.
 const SPECIFIC_SCOPES: Exclude<Scope, "root-fallback">[] = ["src", "scripts", "docs"];
