@@ -228,13 +228,29 @@ toast.error("Failed to save", { description: error.message });
   when the layout changes across breakpoints. Use `window.matchMedia()` (in a `$effect`) to
   conditionally apply inline styles at the intended breakpoint.
 
-## 11. Forms
+## 11. Narrow-screen stacking
+
+Follow the project-wide responsive stacking rule in the consumer repo's `AGENTS.md` →
+`## Responsive Layout` when one exists. Default pattern for any horizontal flex/grid
+container: `flex-col md:flex-row` (or `grid-cols-1 md:grid-cols-N`). The `md` (768px)
+boundary is the canonical narrow-screen threshold (matches a typical `useIsMobile()`
+helper at `(max-width: 767px)`).
+
+May stay horizontal below `md`: short icon-button rows, segmented controls of ≤ 3 short
+items, breadcrumb trails, and **chip/toggle/facet rows using `flex flex-wrap`** (the
+wrap is itself a form of stacking — chips break to new rows on narrow rather than
+truncating or scrolling, preferable to `flex-col` for ≥ 4 short items).
+
+For form controls inside a stacked container, add `w-full md:w-auto` to inputs, selects,
+and buttons so they fill the column on narrow.
+
+## 12. Forms
 
 For dialog-embedded forms and form patterns, see `references/component-patterns.md`. Key points:
 use native `<form onsubmit>`, pair `<Label for>` with `<Input id>`, and use `bind:open` on
 `Dialog.Root` with `onOpenChange` for state reset.
 
-## 12. Critique
+## 13. Critique
 
 After building, pause and run through the critique checklist from `references/critique-protocol.md`:
 
