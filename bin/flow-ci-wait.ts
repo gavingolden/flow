@@ -258,6 +258,11 @@ export const QUALIFYING_PR_TRIGGERS = new Set([
  * iff one of the QUALIFYING_PR_TRIGGERS is present. Conservative on
  * malformed input — returns false (false negative re-introduces a 20-min
  * slow-CI wait; false positive re-introduces PR #152's hang).
+ *
+ * Known out-of-scope syntax: inline-flow map (`on: { pull_request: foo }`)
+ * is not parsed and falls through to the conservative `false` return,
+ * matching the documented malformed-YAML rule. Block-sequence (`on:\n  -
+ * pull_request`) IS supported alongside the bare-map child-key form.
  */
 export function hasQualifyingWorkflowTrigger(yamlText: string): boolean {
   const stripInline = (s: string) => s.replace(/\s+#.*$/, "").trim();
@@ -269,7 +274,9 @@ export function hasQualifyingWorkflowTrigger(yamlText: string): boolean {
     if (!m) continue;
     const after = stripInline(m[1]);
     if (after === "") {
-      // Map form. Find child keys at the first deeper indentation level.
+      // Block form. Two sub-syntaxes share this branch: map (`pull_request:`
+      // child keys) and block-sequence (`- pull_request` dash items). Find
+      // children at the first deeper indentation level and test both shapes.
       let childIndent = -1;
       for (let j = i + 1; j < lines.length; j++) {
         const raw = lines[j];
@@ -279,8 +286,11 @@ export function hasQualifyingWorkflowTrigger(yamlText: string): boolean {
         if (indent === 0) break;
         if (childIndent === -1) childIndent = indent;
         if (indent !== childIndent) continue;
-        const km = /^([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(stripped.trim());
+        const trimmed = stripped.trim();
+        const km = /^([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(trimmed);
         if (km && QUALIFYING_PR_TRIGGERS.has(km[1])) return true;
+        const dm = /^-\s*["']?([A-Za-z_][A-Za-z0-9_]*)["']?\s*$/.exec(trimmed);
+        if (dm && QUALIFYING_PR_TRIGGERS.has(dm[1])) return true;
       }
       return false;
     }
@@ -288,6 +298,8 @@ export function hasQualifyingWorkflowTrigger(yamlText: string): boolean {
       const inner = after.replace(/^\[|\]$/g, "");
       return inner.split(",").map((t) => unquote(t.trim())).some((t) => QUALIFYING_PR_TRIGGERS.has(t));
     }
+    // Inline-flow map (`on: { ... }`) is out of scope — falls through here
+    // to the unquote+membership-check, which fails on the `{...}` literal.
     return QUALIFYING_PR_TRIGGERS.has(unquote(after));
   }
   return false;

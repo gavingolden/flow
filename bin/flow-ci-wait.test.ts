@@ -130,6 +130,37 @@ describe(hasQualifyingWorkflowTrigger, () => {
       ),
     ).toBe(false);
   });
+  it("map form: bare 'pull_request_target:' child key → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  pull_request_target:\n")).toBe(true);
+  });
+  it("map form: bare 'merge_group:' child key → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  merge_group:\n")).toBe(true);
+  });
+
+  // Block-sequence form (`on:` followed by `- trigger` dash items).
+  it("block-sequence form: '- pull_request' → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  - pull_request\njobs: {}\n")).toBe(true);
+  });
+  it("block-sequence form: '- schedule, - push' → false", () => {
+    expect(
+      hasQualifyingWorkflowTrigger("on:\n  - schedule\n  - push\njobs: {}\n"),
+    ).toBe(false);
+  });
+  it("block-sequence form: '- merge_group' → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  - merge_group\n")).toBe(true);
+  });
+  it("block-sequence form: '- pull_request_target' → true", () => {
+    expect(hasQualifyingWorkflowTrigger("on:\n  - pull_request_target\n")).toBe(true);
+  });
+  it("block-sequence form: '- \"pull_request\"' (quoted) → true", () => {
+    expect(hasQualifyingWorkflowTrigger('on:\n  - "pull_request"\n')).toBe(true);
+  });
+
+  // Known limitation: inline-flow map (`on: { pull_request: foo }`) is
+  // intentionally out of scope; document the conservative false return.
+  it("inline-flow map (known limitation): 'on: { pull_request: foo }' → false", () => {
+    expect(hasQualifyingWorkflowTrigger("on: { pull_request: foo }\n")).toBe(false);
+  });
 
   // Each qualifying trigger individually
   it("pull_request_target alone → true", () => {
@@ -1070,8 +1101,46 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
     const result = JSON.parse(cap.stdout.join("")) as RunResult;
     expect(result.decision).toBe("proceed-to-review");
     expect(result.ciConfigured).toBe(false);
+    // Fence the historical fallback: a future presence-check ordering change
+    // must not synthesise a bot signal silently for schedule-only repos.
+    expect(result.copilotConfigured).toBe(false);
     expect(result.polls).toBe(1);
     expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "checks")).toBe(false);
+  });
+
+  it("mixed workflows directory: schedule-only .yml + qualifying .yaml → ciConfigured=true", async () => {
+    const tmp = makeTmp();
+    // Cron workflow does NOT qualify; ci.yaml DOES (note the .yaml extension).
+    writeWorkflow(
+      tmp,
+      "cron.yml",
+      "on:\n  schedule:\n    - cron: '0 0 * * *'\njobs:\n  noop:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo noop\n",
+    );
+    writeWorkflow(
+      tmp,
+      "ci.yaml",
+      "on: pull_request\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo test\n",
+    );
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      cwd: tmp,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.ciConfigured).toBe(true);
   });
 
   it("slow CI with qualifying trigger: ciConfigured=true, three polls until SUCCESS lands", async () => {
