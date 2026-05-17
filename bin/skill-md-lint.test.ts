@@ -69,6 +69,24 @@ const CODER_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "coder-instructions.md",
 );
+const REPORT_TEMPLATE_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "references",
+  "report-template.md",
+);
+const MANUAL_TEST_RUBRIC_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "references",
+  "manual-test-rubric.md",
+);
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
@@ -76,6 +94,8 @@ const prReviewContent = fs.readFileSync(PR_REVIEW_SKILL_MD_PATH, "utf8");
 const fixApplierContent = fs.readFileSync(FIX_APPLIER_INSTRUCTIONS_PATH, "utf8");
 const coderContent = fs.readFileSync(CODER_SKILL_MD_PATH, "utf8");
 const coderInstructionsContent = fs.readFileSync(CODER_INSTRUCTIONS_PATH, "utf8");
+const reportTemplateContent = fs.readFileSync(REPORT_TEMPLATE_PATH, "utf8");
+const manualTestRubricContent = fs.readFileSync(MANUAL_TEST_RUBRIC_PATH, "utf8");
 
 /**
  * Strip markdown blockquote `> ` prefixes from line starts so cross-line
@@ -684,4 +704,131 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
       }
     },
   );
+});
+
+describe("pr-review Step 11e inversion contract", () => {
+  // Isolate just the **Fail (automatable)**: body. The slice is bounded on a
+  // blank line followed by a non-indented bold marker (e.g. `**If 0 criteria
+  // fail...**`, `**IMPORTANT**`, `**After any 11e edit...**`) so unrelated
+  // sibling prose downstream of the last `**Fail (...)**` marker doesn't bleed
+  // into the body. Without this bound, the lint silently inspects prose that
+  // follows the Fail-subtype list and would false-fail on legitimate edits to
+  // adjacent IMPORTANT/After blocks.
+  function isolateFailAutomatableBody(): string {
+    const stepSlice = prReviewContent.split("### 11e. Resolution")[1]?.split(/^## /m)[0] ?? "";
+    const failAutoMarker = "**Fail (automatable)**:";
+    const failAutoStart = stepSlice.indexOf(failAutoMarker);
+    expect(
+      failAutoStart,
+      "Step 11e slice must contain the '**Fail (automatable)**:' marker. " +
+        "If this assertion fails, the marker has been renamed and the lint " +
+        "can no longer isolate the body.",
+    ).toBeGreaterThanOrEqual(0);
+    const afterMarker = stepSlice.slice(failAutoStart + failAutoMarker.length);
+    const nextSiblingIdx = afterMarker.search(/\*\*Fail \(/);
+    const beforeNextSibling =
+      nextSiblingIdx >= 0 ? afterMarker.slice(0, nextSiblingIdx) : afterMarker;
+    // Bound on a blank line followed by a non-indented bold marker — this
+    // catches the `**If 0 criteria fail...**` / `**IMPORTANT**` /
+    // `**After any 11e edit...**` blocks that sit after the last Fail subtype.
+    const endIdx = beforeNextSibling.search(/\n\n\*\*[A-Z]/);
+    return endIdx >= 0 ? beforeNextSibling.slice(0, endIdx) : beforeNextSibling;
+  }
+
+  it("Step 11e Fail (automatable) body forbids confirmation-gate phrases", () => {
+    const body = isolateFailAutomatableBody();
+    const normalised = body.replace(/\s+/g, " ");
+    expect(
+      normalised,
+      "Step 11e Fail (automatable) body must NOT contain 'Show the user the list'. " +
+        "The inverted resolution is default-on — the user redirects via reply after " +
+        "the fact, not via upfront confirmation.",
+    ).not.toContain("Show the user the list");
+    expect(
+      normalised,
+      "Step 11e Fail (automatable) body must NOT contain 'On confirmation, write the tests'. " +
+        "The inverted resolution writes tests by default; the confirmation-gate phrasing " +
+        "is the regression this lint guards against.",
+    ).not.toContain("On confirmation, write the tests");
+  });
+
+  it("Step 11e Fail (automatable) body retains the substantive inverted contract", () => {
+    const body = isolateFailAutomatableBody();
+    const normalised = body.replace(/\s+/g, " ");
+    // Paired positive assertion: an absence-only lint passes vacuously if the
+    // entire Fail (automatable) body is wiped or rewritten without the banned
+    // phrases (e.g. `**Fail (automatable)**: TODO.`). Require the body to
+    // contain at least two of the three substantive contract markers verbatim;
+    // any wholesale rewrite that drops them must explicitly opt in by updating
+    // this lint.
+    const markers = ["default-on", "Auto-push exemption", "redirects via reply"];
+    const present = markers.filter((m) => normalised.includes(m));
+    expect(
+      present.length,
+      "Step 11e Fail (automatable) body must contain at least two of the " +
+        "substantive inverted-contract markers: 'default-on', 'Auto-push exemption', " +
+        "'redirects via reply'. A wholesale rewrite that drops these markers " +
+        "silently re-introduces confirmation-gate semantics without ever using the " +
+        "banned phrases the absence-only assertions above guard against. " +
+        `Found markers: ${JSON.stringify(present)}.`,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("report-template Status: enum lists Manual items auto-converted", () => {
+    expect(
+      reportTemplateContent.includes("Manual items auto-converted"),
+      "report-template.md PR Description Quality Status: enum must include " +
+        "'Manual items auto-converted' as one of the pipe-separated values. " +
+        "Step 11e's inverted Fail (automatable) resolution records its disposition " +
+        "via this status value; drift here means the report omits the auto-conversion " +
+        "audit trail.",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md cross-reference names the conversion as default-on", () => {
+    // PR #135's manual-test-rubric.md cross-reference (lines 28-32) describes
+    // the Step 11e Fail (automatable) conversion as default-on with "redirects
+    // via reply" semantics. Without a lint anchor, a future edit could revert
+    // the rubric to its pre-PR wording without anything in the suite catching
+    // it — the only verification before this lint was a one-time grep in the
+    // PR's Test Steps section, which doesn't recur post-merge.
+    expect(
+      manualTestRubricContent.includes("default-on"),
+      "manual-test-rubric.md must contain 'default-on' to anchor the " +
+        "cross-reference to Step 11e's inverted Fail (automatable) resolution. " +
+        "Drift here means the rubric describes the conversion as confirmation-gated " +
+        "while SKILL.md describes it as default-on.",
+    ).toBe(true);
+    expect(
+      manualTestRubricContent.includes("redirects via reply") ||
+        manualTestRubricContent.includes("redirect by replying"),
+      "manual-test-rubric.md must contain 'redirects via reply' (or the " +
+        "report-template variant 'redirect by replying') to anchor the cross-" +
+        "reference to Step 11e's default-on disposition. Drift here means the " +
+        "rubric omits the after-the-fact redirect semantics.",
+    ).toBe(true);
+  });
+
+  it("SKILL.md Step 12 names the Auto-converted line and the Status enum value verbatim", () => {
+    // PR #135 documents the Step 12 auto-converted line authoritatively in
+    // SKILL.md (the line spec + the cross-reference to the Status enum value).
+    // Without a paired assertion against prReviewContent, SKILL.md can drift
+    // while report-template.md stays correct and the lint above keeps passing.
+    expect(
+      prReviewContent.includes("Auto-converted N items per rubric:"),
+      "SKILL.md Step 12 must contain the literal line spec " +
+        "'Auto-converted N items per rubric:'. This is the report-side line " +
+        "that fires when Step 11e's Fail (automatable) branch converts at least " +
+        "one item; drift here means the report's per-item detail line is " +
+        "undocumented on the SKILL.md side even if report-template.md is intact.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("Manual items auto-converted (N items, redirect by replying)"),
+      "SKILL.md Step 12 must contain the verbatim cross-reference " +
+        "'Manual items auto-converted (N items, redirect by replying)' so the " +
+        "Step 12 prose and the report-template.md Status enum stay in lock-step. " +
+        "Drift here means SKILL.md and report-template.md describe different " +
+        "Status enum values for the same auto-conversion disposition.",
+    ).toBe(true);
+  });
 });

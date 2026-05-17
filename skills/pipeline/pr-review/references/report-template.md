@@ -91,6 +91,33 @@ Always emit the audit line, including when `M = 0`
 `Y = 0`, write `0 left manual` and omit the parenthetical reason list. See
 `skills/pipeline/pr-review/SKILL.md` Step 12 for the field semantics.
 
+When Step 11e's `Fail (automatable)` branch fires and converts manual checklist
+items into automated tests (default-on), emit a second adjacent line naming each
+converted bullet:
+
+```
+- Auto-converted N items per rubric: <comma-separated list of converted bullets>
+```
+
+Omit the line when no items were auto-converted in this run (the audit line above
+still fires unconditionally). See `skills/pipeline/pr-review/SKILL.md` Step 12 for
+the emit conditions and rubric-flaky-caveat fallback.
+
+Worked example — both lines firing together on a run that ticked one runnable
+item, prose-promoted one, left one manual, and auto-converted two manual items
+into tests:
+
+```
+- [x] `unit tests pass` — pass (42 passed, 0 skipped)
+- [x] `verify CLI flag handling` — pass (prose-promoted: `bun bin/foo --help`)
+- [x] `verify runner.pid exists and matches printed PID` — auto-converted to test
+- [x] `verify task ends needs-human after a phase throws` — auto-converted to test
+- [ ] `confirm the toast feels right` — not run: subjective UX
+
+Automation-precedence audit: ran 2/3 items (1 prose-promoted, 1 left manual: subjective UX)
+- Auto-converted 2 items per rubric: "verify runner.pid exists and matches printed PID", "verify task ends needs-human after a phase throws"
+```
+
 If every item was ticked: "All items ticked — PR body updated."
 If the section was missing: "No 'Test Steps' section to verify; flagged in 11b."
 If the section had no unchecked items (auto-merge state per the rubric): "Test Steps section had no unchecked items — auto-merge state, no items to verify."
@@ -106,7 +133,7 @@ If the section had no unchecked items (auto-merge state per the rubric): "Test S
   - Claims are accurate: Pass / Fail
   - No misleading specifics: Pass / Fail
   - Testability: Pass / Fail (missing) / Fail (shallow — happy-path only)
-- **Status**: No changes needed / Scenarios appended (pending confirmation) / Test section drafted (pending confirmation) / Updated (pending confirmation) / Drafted (was missing)
+- **Status**: No changes needed / Scenarios appended (pending confirmation) / Test section drafted (pending confirmation) / Updated (pending confirmation) / Drafted (was missing) / Manual items auto-converted (N items, redirect by replying)
 - **Changes** (if updated): <1-2 sentence summary of what changed and which criteria drove it>
 
 ---
