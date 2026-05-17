@@ -2,7 +2,15 @@
 /**
  * Creates a git worktree for parallel agent development.
  *
- * Usage: flow-new-worktree <branch-name> [base-branch] [--reuse]
+ * Usage:
+ *   flow-new-worktree [<branch-name>] [base-branch] [--reuse]
+ *
+ * - The branch name is optional when invoked from inside a flow tmux
+ *   pane: it auto-resolves from `$TMUX_PANE`'s `@flow-slug` window
+ *   option. The supervisor pattern relies on the auto-resolve path; the
+ *   explicit positional stays for back-compat and for callers outside
+ *   tmux. When both are present they must agree, otherwise the helper
+ *   exits 2 (`slug-mismatch:`).
  */
 
 import * as path from "node:path";
@@ -95,7 +103,7 @@ function run(argv: string[], cwd?: string): void {
 
 function printHelp(): void {
   console.log(`
-Usage: flow-new-worktree <branch-name> [base-branch] [--reuse]
+Usage: flow-new-worktree [<branch-name>] [base-branch] [--reuse]
 
 Creates a git worktree for parallel agent development as a sibling
 directory of this repo. Branch name is converted to a directory-safe
@@ -103,10 +111,15 @@ suffix; deps are installed; .env and .claude/settings.local.json are
 symlinked. Without --reuse, auto-suffixes (<slug>-2, -3, ...) on
 collision so concurrent calls return distinct paths.
 
+The branch name is optional inside a flow tmux pane — it auto-resolves
+from $TMUX_PANE's @flow-slug. When the positional is also given it must
+match the pane slug, otherwise the helper exits 2 (slug-mismatch).
+
 Examples:
   flow-new-worktree feature/new-chart
   flow-new-worktree fix/tooltip-bug develop
   flow-new-worktree feature/new-chart --reuse
+  flow-new-worktree           # inside a flow pane: uses @flow-slug
   `);
 }
 

@@ -12,7 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync, spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createWorktreeWithRetry, pickBranchName } from "./flow-new-worktree";
+import { createWorktreeWithRetry, parseArgs, pickBranchName } from "./flow-new-worktree";
 import {
   MAX_SUFFIX_ATTEMPTS,
   findAvailableSlot,
@@ -95,6 +95,33 @@ describe(pickBranchName, () => {
     if (r.kind !== "error") return;
     expect(r.message).toBe("branch name is required");
     expect(r.exitCode).toBe(1);
+  });
+});
+
+describe(parseArgs, () => {
+  // These three cases short-circuit before git rev-parse so they need no
+  // fixture — they exercise the discriminated-union wrapper directly via
+  // the RunNewWorktreeDeps seam, mirroring flow-state-update.test.ts's
+  // RunUpdateDeps parameterisation.
+  it("returns { kind: 'help' } for --help", () => {
+    expect(parseArgs(["--help"])).toEqual({ kind: "help" });
+  });
+
+  it("returns a help-bannered error when no positional and no pane slug", () => {
+    const r = parseArgs([], { resolveSlug: () => null });
+    expect(r.kind).toBe("error");
+    if (r.kind !== "error") return;
+    expect(r.exitCode).toBe(1);
+    expect(r.showHelp).toBe(true);
+    expect(r.message).toContain("branch name is required");
+  });
+
+  it("returns a no-banner error on slug mismatch (its own message names the fix)", () => {
+    const r = parseArgs(["foo"], { resolveSlug: () => "bar" });
+    expect(r.kind).toBe("error");
+    if (r.kind !== "error") return;
+    expect(r.exitCode).toBe(2);
+    expect(r.showHelp).toBeFalsy();
   });
 });
 
