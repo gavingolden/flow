@@ -1198,6 +1198,15 @@ section ends with one summary line:
 Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <reasons>)
 ```
 
+Emit the line by invoking the helper, never by constructing it inline. After Step 8c finishes, the wrapper has tracked the four counts (M, N, X) and the per-unticked-item rubric categories; pass them to:
+
+```bash
+flow-classify-step --ran $N --total $M --prose-promoted $X \
+  --reason subjective-UX --reason production-only   # one --reason per applicable category
+```
+
+Append the helper's stdout to the report under "Test Steps (from PR description)". Allowed `--reason` slugs (kebab-case form of the five categories in references/manual-test-rubric.md): `subjective-UX`, `production-only`, `cross-browser`, `performance-under-realistic-load`, `cost-prohibitive-infra`. The bullet list below remains the contract documentation; `bin/flow-classify-step.test.ts` pins the format on the helper side so the two cannot drift silently.
+
 - `M` is the total `- [ ]` item count in the section.
 - `N` is the number ticked by 8c (author-runnable + prose-promoted via 8c.ii).
 - `X` is the subset of `N` that came from 8c.ii prose promotion.
@@ -1297,6 +1306,7 @@ path (`"partial"`) or escalate verbatim (`"escalated"`).
 - Structured report produced using the template format
 - **Report clearly labels each finding as Addressed or Deferred (+ reason) — no finding is
   silently dropped between Step 4 and the report**
+- The Step 12 "Automation-precedence audit" line was emitted by `flow-classify-step` (the helper's stdout is the literal line in the report), not constructed inline. The slug → human-prose mapping inside the helper matches the five categories in `references/manual-test-rubric.md` verbatim; `bin/flow-classify-step.test.ts` pins that mapping.
 
 # Constraints
 
