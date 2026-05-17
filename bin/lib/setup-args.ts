@@ -14,19 +14,21 @@ export type ParsedSetupArgs = {
   noCompletions: boolean;
   noHooks: boolean;
   pullCanonical: boolean;
+  repairSettings: boolean;
   flowSource?: string;
 };
 
 export type SetupArgsResult = ParsedSetupArgs | { error: string };
 
 const USAGE =
-  "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical]";
+  "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings]";
 const FLAGS = new Set([
   "--upgrade",
   "--force",
   "--no-completions",
   "--no-hooks",
   "--no-pull-canonical",
+  "--repair-settings",
 ]);
 
 export function parseSetupArgs(args: string[]): SetupArgsResult {
@@ -36,6 +38,7 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
     noCompletions: false,
     noHooks: false,
     pullCanonical: true,
+    repairSettings: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -49,6 +52,8 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
       out.noHooks = true;
     } else if (arg === "--no-pull-canonical") {
       out.pullCanonical = false;
+    } else if (arg === "--repair-settings") {
+      out.repairSettings = true;
     } else if (arg === "--source") {
       const value = args[i + 1];
       if (!value || FLAGS.has(value) || value === "--source") {
@@ -59,6 +64,13 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
     } else {
       return { error: `flow setup: unknown option '${arg}'` };
     }
+  }
+  // --no-hooks opts out of touching settings.json this run; --repair-settings
+  // is a settings.json recovery mode. The combination would silently no-op on
+  // the repair branch (no-hooks skips the entire merge), so reject it at the
+  // CLI seam where the user can still react.
+  if (out.noHooks && out.repairSettings) {
+    return { error: "flow setup: --no-hooks and --repair-settings are mutually exclusive" };
   }
   return out;
 }
@@ -101,5 +113,5 @@ export function runSetupCli(args: string[], extraOptions?: SetupOptions): number
     opts.installRoot = resolveFlowSource(opts.homeDir);
   }
   const summary = runSetup(opts);
-  return summary.blocked > 0 ? 1 : 0;
+  return summary.blocked > 0 || summary.validationFailures.length > 0 ? 1 : 0;
 }

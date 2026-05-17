@@ -29,12 +29,13 @@ export function argsContainHelp(args: string[]): boolean {
 export const HELP_TOP = `flow — tmux-driven pipelines for Claude Code
 
 Usage:
-  flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks]
+  flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--repair-settings]
                                         install skills, agents, helpers globally
                                         (--source overrides the install root,
                                         e.g. for /flow-pipeline step 5.5 in a worktree;
                                         --no-completions skips rc-file editing;
-                                        --no-hooks skips the Stop-hook merge into ~/.claude/settings.json)
+                                        --no-hooks skips the Stop-hook merge into ~/.claude/settings.json;
+                                        --repair-settings backs up and rewrites ~/.claude/settings.json when malformed)
   flow new [--no-auto-merge] <description>
                                         start a new pipeline in a tmux window
                                         (--no-auto-merge stops at gated regardless of rubric)
@@ -115,7 +116,7 @@ Options:
   setup: `flow setup — install skills, agents, helpers globally
 
 Usage:
-  flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks]
+  flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--repair-settings]
 
 Options:
   --upgrade              update existing symlinks to point at the current source
@@ -123,7 +124,8 @@ Options:
   --source <path>        override the flow source root (e.g. /flow-pipeline step 5.5)
   --no-completions       skip rc-file editing for shell completions
   --no-hooks             skip the Claude Code Stop-hook merge into ~/.claude/settings.json
-                         (use when you manage settings.json by hand)`,
+                         (use when you manage settings.json by hand)
+  --repair-settings      back up and rewrite ~/.claude/settings.json when malformed`,
 
   completion: `flow completion — print a shell completion script to stdout
 

@@ -29,6 +29,8 @@ Verifies `tmux` is on PATH (a hard requirement for the tmux-driven flow) and war
 
 Update with `cd ~/code/flow && git pull && flow setup --upgrade`.
 
+If `flow setup` emits `! hooks/Stop:flow-stop-guard (malformed-json: ...)`, the user's `~/.claude/settings.json` was malformed before flow touched it (a third-party tool, a crashed editor, or hand-editing typo) and the Stop-hook merge has refused to overwrite it. Run `flow setup --repair-settings` to back up the malformed file to a timestamped sibling (`<path>.flow-backup-<ISO8601>`) and rewrite it with a minimal valid file containing just the Stop hook. The backup is created next to the file the path resolves to, so dotfiles-managed symlinked settings are handled correctly (the symlink is preserved; the underlying target is the file that gets backed up and rewritten).
+
 ## Quick start
 
 ```sh

@@ -12,6 +12,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: true,
+      repairSettings: false,
     });
   });
 
@@ -22,6 +23,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: true,
+      repairSettings: false,
     });
   });
 
@@ -32,6 +34,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: true,
+      repairSettings: false,
     });
   });
 
@@ -42,6 +45,7 @@ describe("parseSetupArgs", () => {
       noCompletions: true,
       noHooks: false,
       pullCanonical: true,
+      repairSettings: false,
     });
   });
 
@@ -52,6 +56,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: true,
       pullCanonical: true,
+      repairSettings: false,
     });
   });
 
@@ -62,6 +67,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: false,
+      repairSettings: false,
     });
   });
 
@@ -72,6 +78,25 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: false,
+      repairSettings: false,
+    });
+  });
+
+  it("recognizes --repair-settings", () => {
+    expect(parseSetupArgs(["--repair-settings"])).toEqual({
+      upgrade: false,
+      force: false,
+      noCompletions: false,
+      noHooks: false,
+      pullCanonical: true,
+      repairSettings: true,
+    });
+  });
+
+  it("errors when --source is followed by --repair-settings instead of a path", () => {
+    const result = parseSetupArgs(["--source", "--repair-settings"]);
+    expect(result).toEqual({
+      error: "flow setup: --source requires a path argument",
     });
   });
 
@@ -91,6 +116,7 @@ describe("parseSetupArgs", () => {
       noCompletions: false,
       noHooks: false,
       pullCanonical: true,
+      repairSettings: false,
       flowSource: "/abs/path",
     });
   });
@@ -112,6 +138,7 @@ describe("parseSetupArgs", () => {
       noCompletions: true,
       noHooks: true,
       pullCanonical: false,
+      repairSettings: false,
       flowSource: "/x",
     });
     expect(
@@ -130,6 +157,7 @@ describe("parseSetupArgs", () => {
       noCompletions: true,
       noHooks: true,
       pullCanonical: false,
+      repairSettings: false,
       flowSource: "/x",
     });
   });
@@ -173,6 +201,23 @@ describe("parseSetupArgs", () => {
     const result = parseSetupArgs(["--upgrade", "--mystery"]);
     expect(result).toEqual({
       error: "flow setup: unknown option '--mystery'",
+    });
+  });
+
+  it("rejects --no-hooks combined with --repair-settings (mutually exclusive)", () => {
+    // --no-hooks opts out of touching settings.json; --repair-settings is a
+    // settings.json recovery mode. The combination is silently a no-op on
+    // the repair branch, so reject at the parser layer.
+    const result = parseSetupArgs(["--no-hooks", "--repair-settings"]);
+    expect(result).toEqual({
+      error: "flow setup: --no-hooks and --repair-settings are mutually exclusive",
+    });
+  });
+
+  it("rejects --repair-settings followed by --no-hooks (order-independent)", () => {
+    const result = parseSetupArgs(["--repair-settings", "--no-hooks"]);
+    expect(result).toEqual({
+      error: "flow setup: --no-hooks and --repair-settings are mutually exclusive",
     });
   });
 });
@@ -230,13 +275,25 @@ describe("runSetupCli", () => {
     expect(cli([])).toBe(1);
   });
 
+  it("returns exit code 1 when validationFailures > 0 (malformed JSON at a validated path)", () => {
+    // Plant a malformed settings.json at the path the validator scans. The
+    // ensureStopHook safe-bailout will refuse to overwrite it (preserving
+    // user data), then end-of-run validation flips the exit code.
+    const settingsP = path.join(homeDir, ".claude", "settings.json");
+    fs.mkdirSync(path.dirname(settingsP), { recursive: true });
+    fs.writeFileSync(settingsP, "{not valid json");
+    expect(cli([])).toBe(1);
+    // Malformed content survives — the safe-bailout never stomped it.
+    expect(fs.readFileSync(settingsP, "utf8")).toBe("{not valid json");
+  });
+
   it("returns exit code 2 on a parser error and prints to stderr", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const code = runSetupCli(["--bogus"]);
     expect(code).toBe(2);
     expect(errSpy).toHaveBeenCalledWith("flow setup: unknown option '--bogus'");
     expect(errSpy).toHaveBeenCalledWith(
-      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical]",
+      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings]",
     );
     errSpy.mockRestore();
   });
