@@ -241,8 +241,62 @@ export type Deps = {
 };
 
 /**
- * Fixed-position scan for `.github/workflows/*.yml` / `*.yaml`. Filesystem-only,
- * matches the SKILL.md presence-check spec verbatim.
+ * Triggers that fire a workflow on an in-flight PR. Schedule / push /
+ * workflow_dispatch / workflow_call workflows correctly fail to match —
+ * they don't run on the PR under inspection. PR #152 (`cloudflare-pages-
+ * prune.yml`, schedule-only) hung the 20-min cap because the old presence
+ * check counted any `.yml` file regardless of trigger.
+ */
+export const QUALIFYING_PR_TRIGGERS = new Set([
+  "pull_request",
+  "pull_request_target",
+  "merge_group",
+]);
+
+/**
+ * Parses a single workflow YAML's top-level `on:` block and returns true
+ * iff one of the QUALIFYING_PR_TRIGGERS is present. Conservative on
+ * malformed input — returns false (false negative re-introduces a 20-min
+ * slow-CI wait; false positive re-introduces PR #152's hang).
+ */
+export function hasQualifyingWorkflowTrigger(yamlText: string): boolean {
+  const stripInline = (s: string) => s.replace(/\s+#.*$/, "").trim();
+  const unquote = (s: string) => s.replace(/^["'](.*)["']$/, "$1");
+  const lines = yamlText.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const m = /^on\s*:(.*)$/.exec(line);
+    if (!m) continue;
+    const after = stripInline(m[1]);
+    if (after === "") {
+      // Map form. Find child keys at the first deeper indentation level.
+      let childIndent = -1;
+      for (let j = i + 1; j < lines.length; j++) {
+        const raw = lines[j];
+        const stripped = raw.replace(/\s+#.*$/, "");
+        if (stripped.trim() === "") continue;
+        const indent = raw.length - raw.trimStart().length;
+        if (indent === 0) break;
+        if (childIndent === -1) childIndent = indent;
+        if (indent !== childIndent) continue;
+        const km = /^([A-Za-z_][A-Za-z0-9_]*)\s*:/.exec(stripped.trim());
+        if (km && QUALIFYING_PR_TRIGGERS.has(km[1])) return true;
+      }
+      return false;
+    }
+    if (after.startsWith("[")) {
+      const inner = after.replace(/^\[|\]$/g, "");
+      return inner.split(",").map((t) => unquote(t.trim())).some((t) => QUALIFYING_PR_TRIGGERS.has(t));
+    }
+    return QUALIFYING_PR_TRIGGERS.has(unquote(after));
+  }
+  return false;
+}
+
+/**
+ * Returns true iff `.github/workflows/` contains at least one workflow
+ * whose `on:` block lists a qualifying PR trigger. Short-circuits on the
+ * first match. Filesystem-only — no API call.
  */
 function defaultReadWorkflowsDir(cwd: string): boolean {
   const dir = path.join(cwd, ".github", "workflows");
@@ -252,9 +306,18 @@ function defaultReadWorkflowsDir(cwd: string): boolean {
   } catch {
     return false;
   }
-  return entries.some(
-    (e) => (e.isFile() || e.isSymbolicLink()) && /\.(ya?ml)$/i.test(e.name),
-  );
+  for (const e of entries) {
+    if (!(e.isFile() || e.isSymbolicLink())) continue;
+    if (!/\.(ya?ml)$/i.test(e.name)) continue;
+    let text: string;
+    try {
+      text = fs.readFileSync(path.join(dir, e.name), "utf8");
+    } catch {
+      continue;
+    }
+    if (hasQualifyingWorkflowTrigger(text)) return true;
+  }
+  return false;
 }
 
 /**

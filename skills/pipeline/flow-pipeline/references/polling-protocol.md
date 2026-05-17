@@ -81,18 +81,21 @@ loop entry**, before the first poll:
 
 ### CI workflows
 
-```bash
-find .github/workflows -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) \
-  -print -quit 2>/dev/null
-```
+The supervisor parses each `.github/workflows/*.{yml,yaml}` file's
+top-level `on:` block and only sets `CI_CONFIGURED=1` when at least one
+workflow lists `pull_request`, `pull_request_target`, or `merge_group`
+among its triggers. Workflows with only `schedule:`, `push:`,
+`workflow_dispatch:`, or `workflow_call:` triggers are correctly
+ignored — they don't run on the in-flight PR, so waiting for their
+checks would be pointless. PR #152 is the historical incident:
+`cloudflare-pages-prune.yml` was a schedule-only workflow that caused
+`flow-ci-wait` to wait the full 20-minute cap before deciding
+`ci-hang` because the old presence check counted any `.yml` file in
+the directory.
 
-Non-empty stdout → at least one workflow file exists → `CI_CONFIGURED=1`.
-Empty → `CI_CONFIGURED=0`; the supervisor treats `ci_passed` as vacuously
-true and never calls `gh pr checks`.
-
-This is a filesystem check, not an API call: the supervisor is already
-inside the worktree, the answer is deterministic from disk, and a
-filesystem stat costs nothing.
+The check is still filesystem-only — no API call. The answer is
+deterministic from disk given the worktree, and short-circuits on the
+first qualifying file.
 
 ### Copilot reviewer
 
