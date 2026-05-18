@@ -60,14 +60,22 @@ ci-fix loops *and* 2 review-fix loops before escalating.
 
 ### What "escalate" means
 
-- Print exactly: `NEEDS HUMAN: <reason> [<extra context>]` on its
-  own line.
+- Render the NEEDS HUMAN block via `flow-gate-summary --status
+  needs-human --reason <tag>` (carrying any inline context as
+  `--why`). The helper emits `STATUS:` / optional `PR:` / `WHY:` /
+  `NEXT ACTION:` / optional `DEFERRED:` rows above the sentinel; the
+  sentinel line itself (`NEEDS HUMAN: <reason>`) remains
+  byte-identical as the **final line** of the block.
 - Run `flow-state-update "$SLUG" --phase needs-human` so `flow ls`
   surfaces the stall.
 - Leave the worktree intact. Leave the PR intact. **Do not** call
   `flow-remove-worktree`.
 - End the supervisor's conversation turn. The user attaches and
   types a redirect (or runs `flow done <name>` to abandon).
+
+The helper maintains a per-reason `NEXT_ACTION_BY_REASON` mapping;
+new escalation reasons added to the cap table below must also be
+added to the helper at `bin/flow-gate-summary.ts`.
 
 The supervisor does **not** re-enter the failed step on its own
 after escalation — `flow new --resume <name>` (PR 9) is the way

@@ -209,21 +209,52 @@ auto-merge. The injected evidence is informational and does not gate.
 - [ ] Switch the time range to 1y — chart updates without a full reload
 ```
 
-After strip-and-count: 2 unchecked items. Decision: gated. Print:
+After strip-and-count: 2 unchecked items. Decision: gated. The
+supervisor renders the GATED block via `flow-gate-summary` (see "How
+the gate summary renders" below); stdout reads:
 
 ```
-GATED: test steps remaining
-
+STATUS: GATED
 PR: https://github.com/org/repo/pull/142
-
-Steps:
+WHY: 2 unchecked test steps remain
+NEXT ACTION: validate then run: gh pr merge --squash 142
   - Open `/portfolio` with the seeded user — allocation chart renders
   - Switch the time range to 1y — chart updates without a full reload
-
-After validating, merge with: gh pr merge --squash 142
+DEFERRED:
+  LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed
+  - [ ]   flow setup --upgrade  # new helper landed (auto)
+GATED: https://github.com/org/repo/pull/142
 ```
 
+The `DEFERRED:` block is present only when `flow-followups run
+--note-only` produced output; it's silently suppressed when the
+follow-ups log is empty.
+
 End the turn.
+
+## How the gate summary renders
+
+The supervisor never emits the GATED / MERGED / NEEDS HUMAN /
+CANCELLED block as ad-hoc prose. Every gate-emission site in
+`skills/pipeline/flow-pipeline/SKILL.md` calls
+`bin/flow-gate-summary.ts` (a thin Bun renderer with no side
+effects); the helper carries the per-status template and the
+`NEXT_ACTION_BY_REASON` mapping that keys each NEEDS HUMAN
+escalation tag to a specific remediation line.
+
+The **sentinel** line — `MERGED` / `GATED: <url>` / `NEEDS HUMAN:
+<reason>` / `cancelled` — is byte-stable across the rewrite. It
+remains the **final line** of every block, preserving the `# End
+conditions` contract and any scrollback regex / `flow-stop-guard`
+heuristics. The new template adds rows ABOVE the sentinel
+(`STATUS:`, optional `PR:`, optional `WHY:`, `NEXT ACTION:`,
+optional `DEFERRED:`); it does not replace the sentinel.
+
+For the full template per status, see the worked example above (for
+GATED) and the inline tables in
+`skills/pipeline/flow-pipeline/SKILL.md` step 9, step 10, step 11,
+the `# Failure paths` block, the branch-mismatch escalation, and
+the task-tool-unavailable escalation (for the other statuses).
 
 ## Why this contract is small on purpose
 

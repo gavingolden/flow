@@ -622,18 +622,31 @@ context-cost win the subagent fan-out is designed to deliver).
 **End conditions:**
 
 - Intent is `feature` → write `phase: plan-pending-review`. Then,
-  immediately before ending the turn, emit two markdown bullets on
-  their own lines as the **last** lines of the message — the
-  worktree absolute path first, the plan file's absolute path
-  (`$WORKTREE/.flow-tmp/plan.md`) second. **No trailing punctuation
-  on either bullet line, and no prose after them** — most terminals
-  greedily extend URL auto-detection through trailing dots (and
-  other adjacent punctuation) and break the click target. Rendered
-  example:
+  immediately before ending the turn, render the AWAITING APPROVAL
+  block via `flow-gate-summary` so the header rows precede the two
+  markdown bullets the user clicks:
+
+  ```bash
+  flow-gate-summary --status awaiting-approval \
+    --why "plan ready for review (intent=feature)" \
+    --worktree "$WORKTREE" \
+    --plan-file "$WORKTREE/.flow-tmp/plan.md"
+  ```
+
+  The helper renders two markdown bullets as the **last** lines of
+  the message — the worktree absolute path first, the plan file's
+  absolute path (`$WORKTREE/.flow-tmp/plan.md`) second. **No
+  trailing punctuation on either bullet line, and no prose after
+  them** — most terminals greedily extend URL auto-detection through
+  trailing dots (and other adjacent punctuation) and break the click
+  target. Rendered example:
 
   ```
-  - /Users/you/code/me/flow-my-feature
-  - /Users/you/code/me/flow-my-feature/.flow-tmp/plan.md
+  STATUS: AWAITING APPROVAL
+  WHY: plan ready for review (intent=feature)
+  NEXT ACTION: reply approve / redirect <new direction> / cancel
+    - /Users/you/code/me/flow-my-feature
+    - /Users/you/code/me/flow-my-feature/.flow-tmp/plan.md
   ```
 
   Then end the turn. Wait for the user to attach and respond.
@@ -661,7 +674,9 @@ typed something into the tmux chat. Classify the input using
   `/product-planning` prompt as `USER REDIRECT (received during
   plan-pending-review): <verbatim>`.
 - **Cancel** ("cancel", "abort") → run `flow-remove-worktree
-  <slug>`, write `phase: cancelled`, print `cancelled`, end.
+  <slug>`, write `phase: cancelled`, then render the CANCELLED
+  block via `flow-gate-summary --status cancelled --why "user
+  cancelled at plan-pending-review"`. End.
 - **Ambiguous** → write `flow-state-update --phase
   approval-pending-clarification`, then ask the single clarifying
   question and end the turn. The next turn re-enters step 4 with
@@ -681,7 +696,7 @@ step 5. Reads `$WORKTREE/.flow-tmp/plan.md`, locates the optional
 | Section present, every item is `- [ ]`, **count is 1–4** | Fire one `AskUserQuestion` (multi-select) listing each candidate. Persist the user's selections back to plan.md by flipping `- [ ]` → `- [x]` for every chosen item using the `Edit` tool with explicit `old_string`/`new_string` matches. Continue to step 5. |
 | Section present, **any item already `- [x]`** | The user pre-ticked during plan review (their explicit choice wins). Skip the form. Continue to step 5. |
 | Section present, count is `0` | No-op. Continue to step 5. |
-| Section present, **count is 5+** unticked | The form's option cap can't fit the candidates. Print a one-liner naming the absolute plan.md path so the user can scroll-tap-edit (`<worktree>/.flow-tmp/plan.md`), write `flow-state-update --phase approval-pending-clarification`, end the turn. The next turn re-enters step 4. |
+| Section present, **count is 5+** unticked | The form's option cap can't fit the candidates. Render the AWAITING APPROVAL block via `flow-gate-summary --status awaiting-approval --why "5+ candidate follow-up issues — option cap exceeded; tick desired items manually in plan.md" --worktree "$WORKTREE" --plan-file "$WORKTREE/.flow-tmp/plan.md"` so the user can scroll-tap-edit, write `flow-state-update --phase approval-pending-clarification`, end the turn. The next turn re-enters step 4. |
 
 **Quick presence probe.** Before reading the whole file, run a fast
 grep so the early-exit cases don't pull plan.md into context twice
@@ -973,7 +988,7 @@ Branch on `.decision`:
 | `proceed-to-review` | Continue to step 8. |
 | `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal. |
 | `ci-failed` | Continue to step 5 mode=fix. Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
-| `merged-externally` | PR was merged externally mid-flight. Run `flow-followups run` (executes auto-allowlisted entries while the worktree is still alive), then `flow-remove-worktree --delete-branch`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
+| `merged-externally` | PR was merged externally mid-flight. Capture follow-ups output to a file: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (still executes auto-allowlisted entries; `>` captures the rendered block). Render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally mid-flight; supervisor cleaned up the worktree" --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"` (the helper silently suppresses the DEFERRED slot when the file is empty; its final stdout line is the sentinel — i.e. it will print `MERGED`). Then `flow-remove-worktree --delete-branch`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
 | `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
 
@@ -1133,11 +1148,11 @@ Branch on `.decision`:
 | `.decision` | Action |
 |---|---|
 | `auto-merge` | Run `flow-followups pr-body-upsert "$PR"` (no-op when log is empty; otherwise idempotent in-place upsert of `## Local Follow-ups` so the section survives the squash-merge). Continue to step 10 (auto-merge). |
-| `gated` | Run `flow-followups pr-body-upsert "$PR"` (idempotent), then `flow-followups run --note-only` (the deferred LOCAL FOLLOW-UPS block — see step 11 for the contract). Write `phase: gated`. Call `flow-notify --status gated --url "$PR_URL" --reason "$REASON"` (the helper sets `.reason` to the first `.validationItems` entry, or `auto-merge opted out (--no-auto-merge)` when `autoMerge: false` with zero unchecked items). Print: `GATED:`, the PR URL, `$VALIDATION_ITEMS` (one per line, already newline-separated by the jq above), and `merge with: gh pr merge --squash <PR>`. End. |
-| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Run `flow-followups run` (executes allowlisted+auto entries while the worktree is still alive), then `flow-remove-worktree --delete-branch`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`, print `MERGED`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
-| `closed-no-merge` | Call `flow-notify --status needs-human --url "$PR_URL" --reason "pr-closed-without-merge"`. Escalate `NEEDS HUMAN: pr-closed-without-merge`. End. |
-| `escalate-heading-missing` | Escalate `NEEDS HUMAN: test-steps-section-missing`. |
-| `escalate-gh-error` | Escalate `NEEDS HUMAN: gh-error <.reason>`. |
+| `gated` | Run `flow-followups pr-body-upsert "$PR"` (idempotent), then capture the deferred follow-ups block via `flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"` (the renderer suppresses the DEFERRED slot when the file is empty). Write `phase: gated`. Call `flow-notify --status gated --url "$PR_URL" --reason "$REASON"` (the helper sets `.reason` to the first `.validationItems` entry, or `auto-merge opted out (--no-auto-merge)` when `autoMerge: false` with zero unchecked items). Render the GATED block via `flow-gate-summary --status gated --pr-url "$PR_URL" --why "$REASON" --validation-items-file <(printf '%s\n' "$VALIDATION_ITEMS") --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"`. End. |
+| `merged-externally` | Already merged externally. **Do not** run `gh pr merge`. Capture follow-ups output: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (executes allowlisted+auto entries while the worktree is still alive; `>` captures the rendered block). Render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally; supervisor cleaned up worktree only" --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"`. Then `flow-remove-worktree --delete-branch`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`. End. (The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep is needed.) |
+| `closed-no-merge` | Call `flow-notify --status needs-human --url "$PR_URL" --reason "pr-closed-without-merge"`. Render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason pr-closed-without-merge --pr-url "$PR_URL" --why "PR closed without merge"`. End. |
+| `escalate-heading-missing` | Render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason test-steps-section-missing --pr-url "$PR_URL" --why "PR body has no ## Test Steps heading — gate cannot evaluate"`. End. |
+| `escalate-gh-error` | Render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason gh-error --pr-url "$PR_URL" --why "$(printf '%s' "$REASON" | tr '\n' ' ' | head -c 200)"` (one-line, length-bounded from the `gh` stderr). End. |
 
 ## Step 10 — Merge
 
@@ -1165,17 +1180,22 @@ On non-zero exit, branch on the failure class:
   Independent Merge-Conflict Resolver Subagent (see below), then
   retry `(cd "$PRIMARY" && gh pr merge --squash "$PR")` exactly once.
   On retry success, continue to the post-merge sweep. On retry
-  failure, escalate `NEEDS HUMAN: merge-failed: <resolver summary
-  first sentence>`.
+  failure, render the NEEDS HUMAN block via `flow-gate-summary
+  --status needs-human --reason merge-failed --pr-url "$PR_URL"
+  --why "$(jq -r .summary "$ARTIFACT_PATH" | head -1)"`. End.
 - **Non-conflict** (auth, network, branch-protection denied, required
   check failed, PR closed externally, any unrecognised stderr) —
   retry `(cd "$PRIMARY" && gh pr merge --squash "$PR")` once. If still
   failing, escalate via the standard `# Failure paths` block
-  (`flow-state-update --phase needs-human` → `flow-followups run
-  --note-only` → `flow-notify --status needs-human --url "<pr-url>"
-  --reason "merge-failed"` → `echo "NEEDS HUMAN: merge-failed"`).
-  Leave the worktree intact. Do **not** spawn the resolver — it can't
-  help with non-conflict failures and would waste a Task call.
+  (`flow-state-update --phase needs-human` → capture follow-ups via
+  `flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"`
+  → `flow-notify --status needs-human --url "<pr-url>"
+  --reason "merge-failed"` → render via `flow-gate-summary --status
+  needs-human --reason merge-failed --pr-url "$PR_URL" --why
+  "$MERGE_STDERR" --deferred-file
+  "$WORKTREE/.flow-tmp/followups-block.txt"`). Leave the worktree
+  intact. Do **not** spawn the resolver — it can't help with
+  non-conflict failures and would waste a Task call.
 
 ### Independent Merge-Conflict Resolver Subagent
 
@@ -1268,13 +1288,16 @@ filled prompt. After it returns:
    exemption contract.)
 2. Read the artifact's `force_push_status`. If `succeeded`, retry
    `(cd "$PRIMARY" && gh pr merge --squash "$PR")` exactly once. If
-   `failed` or `skipped`, do not retry — escalate
-   `NEEDS HUMAN: merge-failed: <jq -r .summary "$ARTIFACT_PATH" |
-   head -1>` and end.
+   `failed` or `skipped`, do not retry — render the NEEDS HUMAN
+   block via `flow-gate-summary --status needs-human --reason
+   merge-failed --pr-url "$PR_URL" --why "$(jq -r .summary
+   "$ARTIFACT_PATH" | head -1)"`. End.
 3. On retry success, continue to the post-merge sweep below.
-4. On retry failure, escalate `NEEDS HUMAN: merge-failed: <jq -r
-   .summary "$ARTIFACT_PATH" | head -1>` and end. The artifact
-   stays on disk in the worktree for human inspection.
+4. On retry failure, render the NEEDS HUMAN block via
+   `flow-gate-summary --status needs-human --reason merge-failed
+   --pr-url "$PR_URL" --why "$(jq -r .summary "$ARTIFACT_PATH" |
+   head -1)"`. End. The artifact stays on disk in the worktree for
+   human inspection.
 
 On success, the roadmap row for this PR was already flipped to
 `✅ shipped (#$PR)` in the PR's own diff by `/pr-review` step 7.5
@@ -1380,17 +1403,23 @@ disables both.
 | NEEDS HUMAN | Documented in `# Failure paths`: `flow-followups run --note-only` printed before `NEEDS HUMAN: <reason>`. |
 | cancelled | Skipped — the worktree is being removed; pending follow-ups are intentionally lost. |
 
-For MERGED, run the helper here and finalize:
+For MERGED, run the helper here and finalize. **Ordering is
+load-bearing:** `flow-remove-worktree` deletes the worktree, so both
+the follow-ups capture and the `flow-gate-summary` render must
+happen BEFORE worktree removal:
 
 ```bash
-flow-followups run                                # executes auto-allowlisted entries; prints block
-flow-remove-worktree --delete-branch
+flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"  # executes auto-allowlisted entries; > captures the rendered block
+PR_URL=$(gh pr view "$PR" --json url -q .url)
 flow-state-update --phase merged
-flow-notify --status merged --url "<pr-url>"
+flow-notify --status merged --url "$PR_URL"
+flow-gate-summary --status merged --pr-url "$PR_URL" \
+  --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"     # renders STATUS/PR/NEXT ACTION/DEFERRED + sentinel MERGED
+flow-remove-worktree --delete-branch
 ```
 
-(the PR URL is available from `gh pr view "$PR" --json url -q .url`).
-Print `MERGED` on its own line. End.
+The helper silently suppresses the DEFERRED slot when the follow-ups
+file is empty, so call sites do not stat the path first. End.
 
 **Remote-branch deletion is delegated to GitHub.** `flow-remove-worktree
 --delete-branch` runs `git branch -d <branch>` locally only — it does not
@@ -1559,14 +1588,20 @@ print any deferred follow-ups, fire a notification, print
 
 ```bash
 flow-state-update --phase needs-human
-flow-followups run --note-only       # prints LOCAL FOLLOW-UPS (deferred …) if log non-empty; silent otherwise
+flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"  # captures the deferred LOCAL FOLLOW-UPS block (empty when log is empty)
 flow-notify --status needs-human --reason "<reason>"
-echo "NEEDS HUMAN: <reason>"
+flow-gate-summary --status needs-human --reason "<reason>" \
+  --why "<one-line context>" \
+  --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"
 ```
 
-Do **not** call `flow-remove-worktree` on escalation — leave the
-worktree + PR (and the JSONL log) intact so the user can inspect and
-resume.
+The helper looks up the `NEXT ACTION` text from
+`NEXT_ACTION_BY_REASON` in `bin/flow-gate-summary.ts` keyed off
+`<reason>`, falling back to `DEFAULT_NEXT_ACTION` for unmapped tags;
+the final line of stdout is the byte-exact sentinel
+`NEEDS HUMAN: <reason>`. Do **not** call `flow-remove-worktree` on
+escalation — leave the worktree + PR (and the JSONL log) intact so
+the user can inspect and resume.
 
 ## Branch-mismatch escalation (no retries)
 
@@ -1581,7 +1616,8 @@ Escalate immediately:
 ```bash
 flow-state-update --phase needs-human  # may itself fail; that's ok, scrollback shows the cause
 flow-notify --status needs-human --reason "branch-mismatch"
-echo "NEEDS HUMAN: branch-mismatch <expected vs actual from stderr>"
+flow-gate-summary --status needs-human --reason branch-mismatch \
+  --why "<expected vs actual from stderr>"
 ```
 
 There is no auto-recovery — branch state is load-bearing and the
@@ -1603,10 +1639,17 @@ inaugural silent-fallback regression). Escalate immediately:
 
 ```bash
 flow-state-update --phase needs-human
-flow-followups run --note-only
+flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"
 flow-notify --status needs-human --reason "task-tool-unavailable: <exemption-name>"
-echo "NEEDS HUMAN: task-tool-unavailable: <exemption-name>"
+flow-gate-summary --status needs-human \
+  --reason "task-tool-unavailable: <exemption-name>" \
+  --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"
 ```
+
+The helper parses the `:`-suffix and substitutes the site name into
+`NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so the rendered
+block names the exact remediation; the sentinel line is byte-exact
+`NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
 
 `<exemption-name>` is the spawn site's canonical name — one of
 `pr-review-multi-agent-review`, `pr-review-fix-applier`,
@@ -1646,8 +1689,10 @@ mid-phase. Apply `references/redirect-handling.md`:
   redirect appended to the next prompt. Verbatim — don't paraphrase.
 - Cancel → wait for any in-flight atomic action (commit, push,
   merge) to finish, then close the PR if open, run
-  `flow-remove-worktree`, write `phase: cancelled`, print
-  `cancelled`, end.
+  `flow-remove-worktree`, write `phase: cancelled`, then render the
+  CANCELLED block via `flow-gate-summary --status cancelled --why
+  "user cancelled mid-flight at $(jq -r .phase ~/.flow/state/$SLUG.json)"`,
+  end.
 - Ambiguous → one clarifying question; if still unclear, escalate.
 
 # Quick reference: phase values
