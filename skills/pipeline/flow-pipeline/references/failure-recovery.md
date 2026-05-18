@@ -31,7 +31,7 @@ redirect to recover.
 | 9 — gate | `gh pr view` fails or returns unparseable JSON | 1 retry | Escalate: `NEEDS HUMAN: gh-error <stderr>`. End. |
 | 9 — gate | PR `CLOSED` without merge | 0 attempts | Escalate: `NEEDS HUMAN: pr-closed-without-merge`. End. |
 | 10 — merge | `gh pr merge --squash` fails | 1 retry | Escalate: `NEEDS HUMAN: merge-failed`. End. |
-| (any) | user types `cancel` / `abort` / `kill this` | 0 attempts | Run `flow-remove-worktree`, write `phase: cancelled`, print `cancelled`. End. |
+| (any) | user types `cancel` / `abort` / `kill this` | 0 attempts | Run `flow-remove-worktree`, render the CANCELLED block via `flow-gate-summary --status cancelled --why "<context>"` (BEFORE the terminal state transition), write `phase: cancelled`. End. |
 
 ### The verify outer-retry loop
 
@@ -63,7 +63,7 @@ ci-fix loops *and* 2 review-fix loops before escalating.
 - Render the NEEDS HUMAN block via `flow-gate-summary --status
   needs-human --reason <tag>` (carrying any inline context as
   `--why`). The helper emits `STATUS:` / optional `PR:` / `WHY:` /
-  `NEXT ACTION:` / optional `DEFERRED:` rows above the sentinel; the
+  `NEXT ACTION:` / optional `FOLLOW-UPS:` rows above the sentinel; the
   sentinel line itself (`NEEDS HUMAN: <reason>`) remains
   byte-identical as the **final line** of the block.
 - Run `flow-state-update "$SLUG" --phase needs-human` so `flow ls`
@@ -108,7 +108,9 @@ met:
 
 The first row whose "done" condition is **false** is where the
 supervisor resumes. If every row is done, the pipeline is in a
-terminal state — print `MERGED` (or `gated`) and end.
+terminal state — render the terminal block via `flow-gate-summary
+--status <merged|gated|cancelled> ...` (the same helper every gate-
+emission site uses) and end.
 
 ### Edge cases
 

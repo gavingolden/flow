@@ -145,9 +145,9 @@ auto-merge path.
 
 | PR state | Unchecked count | Decision | Action |
 |---|---|---|---|
-| `OPEN` | `0` | **auto-merge** | `(cd "$PRIMARY" && gh pr merge --squash <pr>)` (where `$PRIMARY` is the primary worktree path, so gh's post-merge `git checkout <base>` is a no-op there), then step 10.5, then `flow-remove-worktree --delete-branch`, then write `phase: merged`, print `MERGED`, end. |
+| `OPEN` | `0` | **auto-merge** | `(cd "$PRIMARY" && gh pr merge --squash <pr>)` (where `$PRIMARY` is the primary worktree path, so gh's post-merge `git checkout <base>` is a no-op there), then step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), then `flow-remove-worktree --delete-branch`, then write `phase: merged`, end. |
 | `OPEN` | `> 0` | **gated** | Write `phase: gated`. Print the validation checklist, the PR URL, and the manual-merge verb (`gh pr merge --squash <pr>`). End. |
-| `MERGED` | (any) | **already-merged** | The user merged externally (gated → merged path). Run step 10.5, then `flow-remove-worktree --delete-branch`, write `phase: merged`, print `MERGED`, end. |
+| `MERGED` | (any) | **already-merged** | The user merged externally (gated → merged path). Run step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), then `flow-remove-worktree --delete-branch`, write `phase: merged`, end. |
 | `CLOSED` | (any) | **closed-without-merge** | Escalate: `NEEDS HUMAN: pr-closed-without-merge <url>`. Leave worktree intact (the user may want to reopen). End. |
 
 ## Defensive cases
@@ -220,15 +220,20 @@ WHY: 2 unchecked test steps remain
 NEXT ACTION: validate then run: gh pr merge --squash 142
   - Open `/portfolio` with the seeded user — allocation chart renders
   - Switch the time range to 1y — chart updates without a full reload
-DEFERRED:
+FOLLOW-UPS:
   LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed
   - [ ]   flow setup --upgrade  # new helper landed (auto)
 GATED: https://github.com/org/repo/pull/142
 ```
 
-The `DEFERRED:` block is present only when `flow-followups run
---note-only` produced output; it's silently suppressed when the
-follow-ups log is empty.
+The `FOLLOW-UPS:` block is present only when `flow-followups run`
+(or `flow-followups run --note-only`) produced output; it's silently
+suppressed when the follow-ups log is empty. The slot is named
+generically because the same captured block describes both deferred
+(`--note-only`) and already-executed follow-ups; the embedded
+`flow-followups` header row disambiguates them
+(`LOCAL FOLLOW-UPS (deferred — PR not yet merged):` vs
+`LOCAL FOLLOW-UPS:`).
 
 End the turn.
 
@@ -248,7 +253,7 @@ remains the **final line** of every block, preserving the `# End
 conditions` contract and any scrollback regex / `flow-stop-guard`
 heuristics. The new template adds rows ABOVE the sentinel
 (`STATUS:`, optional `PR:`, optional `WHY:`, `NEXT ACTION:`,
-optional `DEFERRED:`); it does not replace the sentinel.
+optional `FOLLOW-UPS:`); it does not replace the sentinel.
 
 For the full template per status, see the worked example above (for
 GATED) and the inline tables in

@@ -12,7 +12,16 @@
  * scrollback and infer whether any manual action was required and what
  * it was, separately for each shape. This helper renders one canonical
  * block — `STATUS:` / `PR:` / `WHY:` / `NEXT ACTION:` / optional
- * `DEFERRED:` / sentinel — so every site looks the same.
+ * `FOLLOW-UPS:` / sentinel — so every site looks the same.
+ *
+ * The follow-ups slot is named generically (not `DEFERRED:`) because
+ * the captured block describes follow-ups in BOTH directions: noted
+ * but deferred (gated / needs-human paths, captured via
+ * `flow-followups run --note-only`) and already-executed (merged path,
+ * captured via `flow-followups run`). `flow-followups.formatVerdict`
+ * carries its own header prefix that disambiguates the two ("LOCAL
+ * FOLLOW-UPS:" vs "LOCAL FOLLOW-UPS (deferred — PR not yet merged):"),
+ * so the slot label only names the section.
  *
  * The final line of stdout is ALWAYS the sentinel: `MERGED` /
  * `GATED: <url>` / `NEEDS HUMAN: <reason>` / `cancelled` — preserving
@@ -92,6 +101,8 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
     "Inspect the flow-new-worktree stderr in scrollback; check disk space, branch-name collisions, then flow new --resume <slug>",
   "plan-missing":
     "Attach (flow attach <slug>); re-run /flow-pipeline with a more specific description, or invoke /product-planning manually in the worktree",
+  "pr-missing":
+    "PR creation failed upstream — check gh auth status, branch protection, and network reachability, then flow new --resume <slug>",
   "scout-missing":
     "Attach (flow attach <slug>); re-invoke /new-feature directly so the scout subagent runs again",
   "approval-ambiguous":
@@ -204,18 +215,25 @@ export function parseArgs(argv: string[]): Args | { error: string } {
  * Resolves the NEXT ACTION line for a NEEDS HUMAN escalation.
  *
  * `task-tool-unavailable:<site>` is a parameterised reason: the cap
- * table lists six sub-sites, but the helper carries one entry whose
- * NEXT ACTION substitutes the site name. Other unmapped reasons fall
- * back to DEFAULT_NEXT_ACTION.
+ * table lists six sub-sites, but the helper carries one entry. The
+ * suffix after the colon is interpolated into the returned NEXT ACTION
+ * string so the rendered block names the exact spawn site that lost
+ * its Task tool — without this, all six exemption sites collapse to
+ * the same generic remediation line, defeating the per-tag mapping
+ * pattern. Other unmapped reasons fall back to DEFAULT_NEXT_ACTION.
  */
 function nextActionForReason(reason: string | undefined): string {
   if (!reason) return DEFAULT_NEXT_ACTION;
   // Split on first ':' so 'task-tool-unavailable: <site>' picks up the
-  // base mapping and the suffix becomes site context.
+  // base mapping; the suffix is interpolated as site context.
   const colonIdx = reason.indexOf(":");
   const head = colonIdx >= 0 ? reason.slice(0, colonIdx).trim() : reason.trim();
+  const suffix = colonIdx >= 0 ? reason.slice(colonIdx + 1).trim() : "";
   const mapped = NEXT_ACTION_BY_REASON[head];
   if (!mapped) return DEFAULT_NEXT_ACTION;
+  if (head === "task-tool-unavailable" && suffix.length > 0) {
+    return `${mapped} (spawn site: ${suffix})`;
+  }
   return mapped;
 }
 
@@ -254,7 +272,7 @@ function renderMerged(inputs: GateSummaryInputs): string {
   const why = oneLine(inputs.why);
   if (why) lines.push(`WHY: ${why}`);
   lines.push("NEXT ACTION: none (post-merge cleanup already ran)");
-  appendDeferred(lines, inputs.deferredBlock);
+  appendFollowups(lines, inputs.deferredBlock);
   lines.push("MERGED");
   return lines.join("\n");
 }
@@ -278,7 +296,7 @@ function renderGated(inputs: GateSummaryInputs): string {
     const stripped = trimmed.replace(/^[-*]\s+/, "");
     lines.push(`  - ${stripped}`);
   }
-  appendDeferred(lines, inputs.deferredBlock);
+  appendFollowups(lines, inputs.deferredBlock);
   const sentinel = inputs.prUrl ? `GATED: ${inputs.prUrl}` : "GATED:";
   lines.push(sentinel);
   return lines.join("\n");
@@ -296,7 +314,7 @@ function renderNeedsHuman(inputs: GateSummaryInputs): string {
   const why = oneLine(inputs.why) || (inputs.reason ? oneLine(inputs.reason) : "");
   if (why) lines.push(`WHY: ${why}`);
   lines.push(`NEXT ACTION: ${nextActionForReason(inputs.reason)}`);
-  appendDeferred(lines, inputs.deferredBlock);
+  appendFollowups(lines, inputs.deferredBlock);
   const reasonText = inputs.reason ? oneLine(inputs.reason) : "<reason>";
   lines.push(`NEEDS HUMAN: ${reasonText}`);
   return lines.join("\n");
@@ -325,17 +343,27 @@ function renderCancelled(inputs: GateSummaryInputs): string {
   return lines.join("\n");
 }
 
-function appendDeferred(lines: string[], deferredBlock: string | undefined): void {
+function appendFollowups(lines: string[], deferredBlock: string | undefined): void {
   if (suppressed(deferredBlock)) return;
-  // Embed the verbatim flow-followups block under a DEFERRED header.
+  // Embed the flow-followups block under a FOLLOW-UPS header.
   // The deferred file content is captured stdout from
   // `flow-followups run --note-only` (or `flow-followups run` on the
-  // MERGED path); flow-followups.formatVerdict is the single source
-  // of truth for its own format, so we don't re-render.
-  lines.push("DEFERRED:");
+  // MERGED path); flow-followups.formatVerdict carries its own
+  // 2-space indent on entry lines and a blank line after the header
+  // row. Strip those so this slot owns the indentation: the helper
+  // is the single source of truth for what stdout looks like under
+  // the FOLLOW-UPS: header. Empty lines (and the original header
+  // separator) are collapsed; entries land at a clean 2-space indent.
+  lines.push("FOLLOW-UPS:");
   const body = (deferredBlock as string).replace(/\n+$/, "");
-  for (const ln of body.split("\n")) {
-    lines.push(`  ${ln}`);
+  for (const raw of body.split("\n")) {
+    // Drop the formatVerdict 2-space prefix on entry lines so we can
+    // re-prefix uniformly. Trim trailing whitespace to avoid emitting
+    // whitespace-only lines (e.g. the blank header separator becomes
+    // a no-op).
+    const stripped = raw.replace(/^ {2}/, "").replace(/\s+$/, "");
+    if (stripped.length === 0) continue;
+    lines.push(`  ${stripped}`);
   }
 }
 

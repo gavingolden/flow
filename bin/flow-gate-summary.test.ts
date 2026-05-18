@@ -49,37 +49,69 @@ describe("render — merged", () => {
       prUrl: "https://example/pr/1",
       deferredBlock: "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow setup --upgrade  (exit 0)",
     });
-    expect(out).toContain("DEFERRED:");
+    expect(out).toContain("FOLLOW-UPS:");
     expect(out).toContain("  LOCAL FOLLOW-UPS: 1 ran");
     expect(out).toContain("  RAN     flow setup --upgrade  (exit 0)");
     expect(finalLine(out)).toBe("MERGED");
   });
 
-  it("suppresses DEFERRED when deferredBlock is empty", () => {
+  it("strips formatVerdict's 2-space indent and collapses blank lines", () => {
+    // Mirrors flow-followups.formatVerdict's note-only output exactly:
+    // header row, blank separator, 2-space-indented bullet. The helper
+    // is the single source of truth for what's under FOLLOW-UPS:, so
+    // the rendered block must be a clean 2-space indent throughout
+    // with no whitespace-only lines.
+    const out = render({
+      status: "merged",
+      prUrl: "https://example/pr/1",
+      deferredBlock:
+        "LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed\n" +
+        "\n" +
+        "  - [ ]   flow setup --upgrade  # new helper landed (auto)",
+    });
+    const lines = out.split("\n");
+    const idx = lines.findIndex((l) => l === "FOLLOW-UPS:");
+    expect(idx).toBeGreaterThanOrEqual(0);
+    // The two lines following FOLLOW-UPS: must be the header row and
+    // the entry bullet, each at a clean 2-space indent (the blank
+    // separator between them is collapsed).
+    expect(lines[idx + 1]).toBe(
+      "  LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
+    );
+    expect(lines[idx + 2]).toBe("  - [ ]   flow setup --upgrade  # new helper landed (auto)");
+    // No whitespace-only lines and no 4-space-indented lines anywhere
+    // in the rendered block.
+    for (const ln of lines) {
+      expect(ln === "" || ln.trim().length > 0).toBe(true);
+      expect(ln.startsWith("    ")).toBe(false);
+    }
+  });
+
+  it("suppresses FOLLOW-UPS when deferredBlock is empty", () => {
     const out = render({
       status: "merged",
       prUrl: "https://example/pr/1",
       deferredBlock: "",
     });
-    expect(out).not.toContain("DEFERRED");
+    expect(out).not.toContain("FOLLOW-UPS");
     expect(finalLine(out)).toBe("MERGED");
   });
 
-  it("suppresses DEFERRED when deferredBlock is whitespace-only", () => {
+  it("suppresses FOLLOW-UPS when deferredBlock is whitespace-only", () => {
     const out = render({
       status: "merged",
       prUrl: "https://example/pr/1",
       deferredBlock: "   \n\n",
     });
-    expect(out).not.toContain("DEFERRED");
+    expect(out).not.toContain("FOLLOW-UPS");
   });
 
-  it("suppresses DEFERRED when deferredBlock is undefined", () => {
+  it("suppresses FOLLOW-UPS when deferredBlock is undefined", () => {
     const out = render({
       status: "merged",
       prUrl: "https://example/pr/1",
     });
-    expect(out).not.toContain("DEFERRED");
+    expect(out).not.toContain("FOLLOW-UPS");
   });
 
   it("renders WHY when provided (merged-externally context)", () => {
@@ -149,14 +181,14 @@ describe("render — gated", () => {
     expect(finalLine(out)).toBe("GATED:");
   });
 
-  it("embeds DEFERRED when non-empty", () => {
+  it("embeds FOLLOW-UPS when non-empty", () => {
     const out = render({
       status: "gated",
       prUrl: "https://example/pr/1",
       validationItems: ["one"],
       deferredBlock: "LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
     });
-    expect(out).toContain("DEFERRED:");
+    expect(out).toContain("FOLLOW-UPS:");
     expect(out).toContain("  LOCAL FOLLOW-UPS (deferred");
     expect(finalLine(out)).toBe("GATED: https://example/pr/1");
   });
@@ -191,11 +223,26 @@ describe("render — needs-human (per-reason mapping)", () => {
       status: "needs-human",
       reason: "task-tool-unavailable: pr-review-fix-applier",
     });
+    // The NEXT ACTION must carry the spawn site as appended context so
+    // the rendered block names the exact remediation for each of the
+    // six exemption sites; without this, all six collapse to the same
+    // generic line.
     expect(out).toContain(
-      `NEXT ACTION: ${NEXT_ACTION_BY_REASON["task-tool-unavailable"]}`,
+      `NEXT ACTION: ${NEXT_ACTION_BY_REASON["task-tool-unavailable"]} (spawn site: pr-review-fix-applier)`,
     );
     expect(finalLine(out)).toBe("NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier");
     expect(out).toContain("WHY: task-tool-unavailable: pr-review-fix-applier");
+  });
+
+  it("does not append site context when task-tool-unavailable suffix is empty", () => {
+    // Defensive: a malformed reason ("task-tool-unavailable:" with no
+    // suffix) falls back to the bare mapping; no parenthesised tail.
+    const out = render({
+      status: "needs-human",
+      reason: "task-tool-unavailable:",
+    });
+    expect(out).toContain(`NEXT ACTION: ${NEXT_ACTION_BY_REASON["task-tool-unavailable"]}`);
+    expect(out).not.toContain("(spawn site:");
   });
 
   it("renders PR URL when provided alongside reason", () => {
@@ -220,7 +267,7 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(whyLines[0]).toBe("WHY: gh pr view failed auth refused exit 1");
   });
 
-  it("renders DEFERRED block before the sentinel", () => {
+  it("renders FOLLOW-UPS block before the sentinel", () => {
     const out = render({
       status: "needs-human",
       reason: "merge-failed",
@@ -228,7 +275,7 @@ describe("render — needs-human (per-reason mapping)", () => {
       deferredBlock: "LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
     });
     const lines = out.split("\n");
-    const deferredIdx = lines.findIndex((l) => l === "DEFERRED:");
+    const deferredIdx = lines.findIndex((l) => l === "FOLLOW-UPS:");
     const sentinelIdx = lines.findIndex((l) => l === "NEEDS HUMAN: merge-failed");
     expect(deferredIdx).toBeGreaterThanOrEqual(0);
     expect(sentinelIdx).toBeGreaterThan(deferredIdx);
@@ -435,7 +482,7 @@ describe("run (end-to-end CLI)", () => {
     expect(lines[lines.length - 1]).toBe("GATED: https://example/pr/1");
   });
 
-  it("silently suppresses DEFERRED when deferred file is missing on disk", () => {
+  it("silently suppresses FOLLOW-UPS when deferred file is missing on disk", () => {
     const original = process.stdout.write.bind(process.stdout);
     let captured = "";
     process.stdout.write = ((chunk: unknown) => {
@@ -455,11 +502,11 @@ describe("run (end-to-end CLI)", () => {
     } finally {
       process.stdout.write = original;
     }
-    expect(captured).not.toContain("DEFERRED");
+    expect(captured).not.toContain("FOLLOW-UPS");
     expect(captured.trimEnd().endsWith("MERGED")).toBe(true);
   });
 
-  it("silently suppresses DEFERRED when deferred file is empty", () => {
+  it("silently suppresses FOLLOW-UPS when deferred file is empty", () => {
     const emptyPath = path.join(tmpRoot, "empty.txt");
     fs.writeFileSync(emptyPath, "");
     const original = process.stdout.write.bind(process.stdout);
@@ -480,7 +527,64 @@ describe("run (end-to-end CLI)", () => {
     } finally {
       process.stdout.write = original;
     }
-    expect(captured).not.toContain("DEFERRED");
+    expect(captured).not.toContain("FOLLOW-UPS");
+  });
+
+  // Symmetry with the two deferred-file suppression tests above:
+  // --validation-items-file shares the same readFileOrEmpty +
+  // parseValidationItems suppression contract, so a missing-on-disk
+  // path and an empty file must both produce zero bulleted items.
+  it("silently suppresses validation bullets when validation-items file is missing on disk", () => {
+    const original = process.stdout.write.bind(process.stdout);
+    let captured = "";
+    process.stdout.write = ((chunk: unknown) => {
+      captured += String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const rc = run([
+        "--status",
+        "gated",
+        "--pr-url",
+        "https://example/pr/1",
+        "--validation-items-file",
+        "/this/path/does/not/exist.txt",
+      ]);
+      expect(rc).toBe(0);
+    } finally {
+      process.stdout.write = original;
+    }
+    // No bulleted item lines (matching the "  - " prefix the gated
+    // branch uses for validation items).
+    const bullets = captured.split("\n").filter((l) => l.startsWith("  - "));
+    expect(bullets).toEqual([]);
+    expect(captured.trimEnd().endsWith("GATED: https://example/pr/1")).toBe(true);
+  });
+
+  it("silently suppresses validation bullets when validation-items file is empty", () => {
+    const emptyPath = path.join(tmpRoot, "empty-items.txt");
+    fs.writeFileSync(emptyPath, "");
+    const original = process.stdout.write.bind(process.stdout);
+    let captured = "";
+    process.stdout.write = ((chunk: unknown) => {
+      captured += String(chunk);
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const rc = run([
+        "--status",
+        "gated",
+        "--pr-url",
+        "https://example/pr/1",
+        "--validation-items-file",
+        emptyPath,
+      ]);
+      expect(rc).toBe(0);
+    } finally {
+      process.stdout.write = original;
+    }
+    const bullets = captured.split("\n").filter((l) => l.startsWith("  - "));
+    expect(bullets).toEqual([]);
   });
 
   it("returns 2 on bad args", () => {

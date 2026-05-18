@@ -230,7 +230,7 @@ Re-evaluate after each poll. The `ci_passed` / `ci_failed` /
 | false | false | — | < 20 min from first poll | **keep polling** (CI still in progress). |
 | false | false | — | ≥ 20 min from first poll | **escalate `NEEDS HUMAN: ci-hang`**. End. |
 | — | — | — | `pr_state == CLOSED` mid-poll | **escalate `NEEDS HUMAN: pr-closed-mid-flight`**. End. |
-| — | — | — | `pr_state == MERGED` mid-poll | the user merged manually; **skip review and gate, run `flow-remove-worktree --delete-branch`, print `MERGED`, end**. |
+| — | — | — | `pr_state == MERGED` mid-poll | the user merged manually; **skip review and gate, render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), run `flow-remove-worktree --delete-branch`, end**. |
 
 ## The fix-loop cap
 

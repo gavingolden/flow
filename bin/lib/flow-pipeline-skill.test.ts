@@ -194,7 +194,10 @@ describe("flow-pipeline supervisor SKILL.md", () => {
       const step7 = sliceStep(readSkill(), "## Step 7 ");
       expect(step7).toMatch(/merged externally/i);
       expect(step7).toMatch(/flow-remove-worktree/);
-      expect(step7).toMatch(/print `MERGED`/);
+      // The MERGED end-state is now routed through flow-gate-summary
+      // rather than emitted as ad-hoc prose; the sentinel itself is
+      // still byte-exact `MERGED` (the helper's final stdout line).
+      expect(step7).toMatch(/flow-gate-summary --status merged/);
     });
   });
 });
