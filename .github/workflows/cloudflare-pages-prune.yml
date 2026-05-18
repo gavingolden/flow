@@ -2,9 +2,12 @@
 #
 # Consumers call this via `uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>`.
 # The SHA in `uses:` pins both the workflow contract AND the prune script —
-# `actions/checkout` below uses `${{ github.workflow_sha }}` to fetch
-# `gavingolden/flow` at the exact same revision the caller resolved, so the
-# script the workflow runs matches the workflow's own version.
+# the workflow resolves its own revision from `github.workflow_ref`, which
+# has the shape `<owner>/<repo>/.github/workflows/<name>.yml@<ref>` where
+# `<ref>` is the resolved SHA when the caller pinned via `@<sha>`. The
+# `Resolve flow SHA from workflow_ref` step extracts that suffix and feeds
+# it to `actions/checkout`, so the workflow checks out its own revision
+# (not the caller's commit SHA) without any caller-side changes.
 #
 # Cross-repo-private limitation: when the caller is a *different private repo*
 # than gavingolden/flow, the default GITHUB_TOKEN cannot fetch the sibling
@@ -71,11 +74,51 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve flow SHA from workflow_ref
+        id: flow-sha
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+        run: |
+          set -euo pipefail
+          # github.workflow_ref shape:
+          #   <owner>/<repo>/.github/workflows/<name>.yml@<ref>
+          # When the caller pinned via @<sha>, <ref> is already the resolved
+          # SHA. Strip the leading prefix with bash parameter expansion —
+          # safe against injection because WORKFLOW_REF is sourced via env
+          # (never expanded as a shell metacharacter).
+          sha="${WORKFLOW_REF##*@}"
+          # The workflow's contract is @<sha> pinning only — @<branch> or
+          # @<tag> would silently resolve via a separate API call and defeat
+          # the "pin to immutable SHA" promise the consumer-facing docs
+          # make. Reject anything that isn't a 40-char lowercase hex SHA.
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Expected an immutable @<sha> pin (40-char hex), got '$sha'. Update the caller's 'uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<ref>' to pin a full SHA." >&2
+            exit 1
+          fi
+          echo "sha=${sha}" >> "$GITHUB_OUTPUT"
+
+      # Permanent diagnostic: keeps a workflow-summary paper trail of
+      # context-resolution inputs so future regressions are easy to triage.
+      - name: Print GitHub workflow context
+        env:
+          WORKFLOW_REF: ${{ github.workflow_ref }}
+          WORKFLOW_SHA: ${{ github.workflow_sha }}
+          RESOLVED_SHA: ${{ steps.flow-sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          {
+            echo "### GitHub workflow context"
+            echo ""
+            echo "- github.workflow_ref: \`${WORKFLOW_REF}\`"
+            echo "- github.workflow_sha: \`${WORKFLOW_SHA}\`"
+            echo "- steps.flow-sha.outputs.sha: \`${RESOLVED_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout gavingolden/flow at the caller-resolved SHA
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: gavingolden/flow
-          ref: ${{ github.workflow_sha }}
+          ref: ${{ steps.flow-sha.outputs.sha }}
           token: ${{ secrets.WORKFLOW_REPO_TOKEN || github.token }}
 
       - name: Set up Bun

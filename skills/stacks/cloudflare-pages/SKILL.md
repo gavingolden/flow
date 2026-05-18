@@ -96,8 +96,11 @@ jobs:
 The SHA in `uses:` pins both the workflow contract AND the prune script —
 the workflow's own `actions/checkout` step fetches `gavingolden/flow` at
 the same SHA the caller resolved, so the script the workflow runs always
-matches the workflow's own version. To upgrade, bump the SHA; consumers
-never re-vendor.
+matches the workflow's own version. The workflow resolves its own SHA
+from `github.workflow_ref` (which carries the `@<sha>` suffix the caller
+pinned), so callers never have to pass flow's SHA explicitly — just keep
+the `@<sha>` pin on `uses:` up to date. To upgrade, bump the SHA;
+consumers never re-vendor.
 
 `WORKFLOW_REPO_TOKEN` is only required in the **private→private cross-repo
 case**: when your calling repo is private *and* `gavingolden/flow` is
@@ -108,7 +111,10 @@ fine-grained PAT (or GitHub App installation token) with `Contents:Read`
 on `gavingolden/flow` to resolve. Omit (or leave unset) when the caller
 is a public repo, when `gavingolden/flow` is public, or when the caller
 *is* `gavingolden/flow` itself — in those cases the default token already
-has read access.
+has read access. (Note that the *revision* being checked out is still
+resolved from `github.workflow_ref` regardless of which token does the
+fetch — the token decides whether the fetch is allowed, not which SHA is
+fetched.)
 
 Inputs:
 

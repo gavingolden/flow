@@ -65,6 +65,12 @@ describe(detectScopesFromFiles, () => {
     expect(detectScopesFromFiles(["bin/flow-pre-commit.ts"])).toEqual(["scripts"]);
   });
 
+  it("should detect scripts scope from .github/workflows/ files (regression: workflow YAML edits trip the bin/ vitest suite that hosts workflow-shape regression tests)", () => {
+    expect(detectScopesFromFiles([".github/workflows/cloudflare-pages-prune.yml"])).toEqual([
+      "scripts",
+    ]);
+  });
+
   it("should detect multiple scopes from mixed files", () => {
     const files = ["src/index.ts", "scripts/build.ts"];
     expect(detectScopesFromFiles(files)).toEqual(["src", "scripts"]);

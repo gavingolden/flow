@@ -1,0 +1,59 @@
+/**
+ * Regression tests for `.github/workflows/*.yml` against bug classes we've
+ * shipped at least once. Lives in `bin/` so the existing `scripts` scope (now
+ * also claiming `.github/workflows/`) runs it on every workflow or helper edit.
+ *
+ * No YAML parser dependency — `js-yaml` / `yaml` are not in flow's deps and
+ * adding one for a regression-shape check is heavier than the bug surface
+ * warrants. Line-oriented scans against the original byte stream are
+ * sufficient for the checks below.
+ */
+
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { describe, expect, it } from "vitest";
+
+const WORKFLOWS_DIR = path.resolve(__dirname, "../.github/workflows");
+
+function listWorkflowFiles(): string[] {
+  if (!fs.existsSync(WORKFLOWS_DIR)) return [];
+  return fs
+    .readdirSync(WORKFLOWS_DIR)
+    .filter((name) => name.endsWith(".yml") || name.endsWith(".yaml"))
+    .map((name) => path.join(WORKFLOWS_DIR, name));
+}
+
+describe("reusable-workflow self-checkout SHA resolution (regression: PR #158)", () => {
+  // github.workflow_sha resolves to the *caller's* SHA when the file is loaded
+  // via `uses:` from another repo (or another workflow in the same repo).
+  // A reusable workflow that uses `ref: ${{ github.workflow_sha }}` on its
+  // own self-checkout step is therefore checking out the wrong revision —
+  // the exact bug PR #158 fixes. The fix-applier exemption logged the bug
+  // class explicitly; this test asserts it stays fixed.
+  const files = listWorkflowFiles();
+
+  if (files.length === 0) {
+    it.skip("no .github/workflows/ files found", () => {});
+    return;
+  }
+
+  for (const file of files) {
+    const rel = path.relative(path.resolve(__dirname, ".."), file);
+    const body = fs.readFileSync(file, "utf8");
+    const isReusable = /^\s*workflow_call:/m.test(body);
+    if (!isReusable) continue;
+
+    it(`${rel} (reusable workflow) does not use github.workflow_sha as a self-checkout ref`, () => {
+      // Match any `ref:` line whose value is `${{ github.workflow_sha }}`
+      // (with arbitrary surrounding whitespace). The bug class is specifically
+      // "ref pinned to caller's SHA"; non-`ref:` uses of github.workflow_sha
+      // (e.g. logging it) are legitimate.
+      const offending = body
+        .split(/\r?\n/)
+        .map((line, idx) => ({ line, idx: idx + 1 }))
+        .filter(({ line }) => /^\s*ref:\s*\$\{\{\s*github\.workflow_sha\s*\}\}/.test(line));
+
+      expect(offending).toEqual([]);
+    });
+  }
+});
