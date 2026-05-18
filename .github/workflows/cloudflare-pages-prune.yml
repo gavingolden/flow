@@ -6,6 +6,12 @@
 # `gavingolden/flow` at the exact same revision the caller resolved, so the
 # script the workflow runs matches the workflow's own version.
 #
+# Cross-repo-private limitation: when the caller is a *different private repo*
+# than gavingolden/flow, the default GITHUB_TOKEN cannot fetch the sibling
+# private repo's source — pass the optional WORKFLOW_REPO_TOKEN secret
+# (fine-grained PAT or GitHub App installation token with Contents:Read on
+# gavingolden/flow) to resolve.
+#
 # Consumer-side example: skills/stacks/cloudflare-pages/SKILL.md section 1.
 
 name: cloudflare-pages-prune
@@ -46,6 +52,16 @@ on:
       CLOUDFLARE_ACCOUNT_ID:
         description: Cloudflare account ID (not project ID).
         required: true
+      WORKFLOW_REPO_TOKEN:
+        description: >-
+          Optional. Token with `contents: read` on gavingolden/flow. Required
+          when the caller is a *different private repo* than gavingolden/flow;
+          the default GITHUB_TOKEN is repo-scoped and cannot fetch a sibling
+          private repo's source. A fine-grained PAT (or GitHub App installation
+          token) scoped to gavingolden/flow with Contents:Read is sufficient.
+          Omit (or pass empty) when the caller is a public repo or
+          gavingolden/flow itself.
+        required: false
 
 permissions:
   contents: read
@@ -60,6 +76,7 @@ jobs:
         with:
           repository: gavingolden/flow
           ref: ${{ github.workflow_sha }}
+          token: ${{ secrets.WORKFLOW_REPO_TOKEN || github.token }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
