@@ -89,12 +89,15 @@ jobs:
           sha="${WORKFLOW_REF##*@}"
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
 
+      # Permanent diagnostic: keeps a workflow-summary paper trail of
+      # context-resolution inputs so future regressions are easy to triage.
       - name: Print GitHub workflow context
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
           RESOLVED_SHA: ${{ steps.flow-sha.outputs.sha }}
         run: |
+          set -euo pipefail
           {
             echo "### GitHub workflow context"
             echo ""
