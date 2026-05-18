@@ -87,6 +87,14 @@ jobs:
           # safe against injection because WORKFLOW_REF is sourced via env
           # (never expanded as a shell metacharacter).
           sha="${WORKFLOW_REF##*@}"
+          # The workflow's contract is @<sha> pinning only — @<branch> or
+          # @<tag> would silently resolve via a separate API call and defeat
+          # the "pin to immutable SHA" promise the consumer-facing docs
+          # make. Reject anything that isn't a 40-char lowercase hex SHA.
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Expected an immutable @<sha> pin (40-char hex), got '$sha'. Update the caller's 'uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<ref>' to pin a full SHA." >&2
+            exit 1
+          fi
           echo "sha=${sha}" >> "$GITHUB_OUTPUT"
 
       # Permanent diagnostic: keeps a workflow-summary paper trail of

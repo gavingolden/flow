@@ -126,15 +126,20 @@ const ZERO_SHA = "0000000000000000000000000000000000000000";
 
 // `scripts/` is the install location in target repos; `bin/` is the canonical
 // source location for shipped helper binaries in flow itself; `templates/scripts/`
-// holds the remaining orchestrator-only scripts and backward-compat symlinks.
-// All three trip the scripts scope so flow's own pre-commit run picks up edits.
+// holds the remaining orchestrator-only scripts and backward-compat symlinks;
+// `.github/workflows/` holds reusable workflows + CI definitions whose
+// regression tests live in `bin/`. All four trip the scripts scope so flow's
+// own pre-commit run picks up workflow edits and runs the bin/ test suite
+// (which includes workflow-shape regression tests against `.github/workflows/`).
 //
 // `docs` matches by extension (.md), not prefix — markdown files live everywhere
 // (root-level READMEs, docs/, skills/.../SKILL.md). Prefix matching would miss
 // most of them.
 const SCOPE_MATCHERS: Record<Exclude<Scope, "root-fallback">, ScopeMatcher> = {
   src: { prefixes: ["src/"] },
-  scripts: { prefixes: ["scripts/", "templates/scripts/", "bin/"] },
+  scripts: {
+    prefixes: ["scripts/", "templates/scripts/", "bin/", ".github/workflows/"],
+  },
   docs: { extensions: [".md"] },
 };
 
