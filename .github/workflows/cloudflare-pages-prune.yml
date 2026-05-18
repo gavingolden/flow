@@ -2,12 +2,16 @@
 #
 # Consumers call this via `uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>`.
 # The SHA in `uses:` pins both the workflow contract AND the prune script —
-# the workflow resolves its own revision from `github.workflow_ref`, which
+# the workflow resolves its own revision from `job.workflow_ref`, which
 # has the shape `<owner>/<repo>/.github/workflows/<name>.yml@<ref>` where
 # `<ref>` is the resolved SHA when the caller pinned via `@<sha>`. The
-# `Resolve flow SHA from workflow_ref` step extracts that suffix and feeds
-# it to `actions/checkout`, so the workflow checks out its own revision
-# (not the caller's commit SHA) without any caller-side changes.
+# `Resolve flow SHA from job.workflow_ref` step extracts that suffix and
+# feeds it to `actions/checkout`, so the workflow checks out its own
+# revision (not the caller's commit SHA) without any caller-side changes.
+# Note: `job.workflow_ref` is documented as not available on GitHub
+# Enterprise Server (flow targets github.com only); the documented GHES
+# fallback is approach (b) — a caller-passed `flow_sha` input — per the
+# SKILL.md "Failure mode: caller-side context resolution" subsection.
 #
 # Cross-repo-private limitation: when the caller is a *different private repo*
 # than gavingolden/flow, the default GITHUB_TOKEN cannot fetch the sibling
@@ -74,19 +78,26 @@ jobs:
     timeout-minutes: 10
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve flow SHA from workflow_ref
+      - name: Resolve flow SHA from job.workflow_ref
         id: flow-sha
         env:
-          WORKFLOW_REF: ${{ github.workflow_ref }}
+          JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
         run: |
           set -euo pipefail
-          # github.workflow_ref shape:
+          # job.workflow_ref shape:
           #   <owner>/<repo>/.github/workflows/<name>.yml@<ref>
-          # When the caller pinned via @<sha>, <ref> is already the resolved
-          # SHA. Strip the leading prefix with bash parameter expansion —
-          # safe against injection because WORKFLOW_REF is sourced via env
-          # (never expanded as a shell metacharacter).
-          sha="${WORKFLOW_REF##*@}"
+          # Per the `job` context table at
+          # https://docs.github.com/en/actions/learn-github-actions/contexts
+          # (below the `github` context table on that page): "For jobs
+          # defined in a [Reuse workflows], this refers to the reusable
+          # workflow file." So inside this reusable workflow, the field
+          # resolves to gavingolden/flow's own ref — not the caller's —
+          # which is what we want. When the caller pinned via @<sha>,
+          # <ref> is already the resolved SHA. Strip the leading prefix
+          # with bash parameter expansion — safe against injection because
+          # JOB_WORKFLOW_REF is sourced via env (never expanded as a shell
+          # metacharacter).
+          sha="${JOB_WORKFLOW_REF##*@}"
           # The workflow's contract is @<sha> pinning only — @<branch> or
           # @<tag> would silently resolve via a separate API call and defeat
           # the "pin to immutable SHA" promise the consumer-facing docs
@@ -103,6 +114,8 @@ jobs:
         env:
           WORKFLOW_REF: ${{ github.workflow_ref }}
           WORKFLOW_SHA: ${{ github.workflow_sha }}
+          JOB_WORKFLOW_REF: ${{ job.workflow_ref }}
+          JOB_WORKFLOW_SHA: ${{ job.workflow_sha }}
           RESOLVED_SHA: ${{ steps.flow-sha.outputs.sha }}
         run: |
           set -euo pipefail
@@ -111,6 +124,8 @@ jobs:
             echo ""
             echo "- github.workflow_ref: \`${WORKFLOW_REF}\`"
             echo "- github.workflow_sha: \`${WORKFLOW_SHA}\`"
+            echo "- job.workflow_ref: \`${JOB_WORKFLOW_REF}\`"
+            echo "- job.workflow_sha: \`${JOB_WORKFLOW_SHA}\`"
             echo "- steps.flow-sha.outputs.sha: \`${RESOLVED_SHA}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 

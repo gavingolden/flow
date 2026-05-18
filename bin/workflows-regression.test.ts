@@ -23,13 +23,20 @@ function listWorkflowFiles(): string[] {
     .map((name) => path.join(WORKFLOWS_DIR, name));
 }
 
-describe("reusable-workflow self-checkout SHA resolution (regression: PR #158)", () => {
-  // github.workflow_sha resolves to the *caller's* SHA when the file is loaded
-  // via `uses:` from another repo (or another workflow in the same repo).
-  // A reusable workflow that uses `ref: ${{ github.workflow_sha }}` on its
-  // own self-checkout step is therefore checking out the wrong revision —
-  // the exact bug PR #158 fixes. The fix-applier exemption logged the bug
-  // class explicitly; this test asserts it stays fixed.
+describe("reusable-workflow self-checkout SHA resolution (regression: PR #158 + this-PR follow-up)", () => {
+  // Both `github.workflow_sha` and `github.workflow_ref` resolve to the
+  // *caller's* values when the workflow file is loaded via `uses:` from
+  // another repo (or another workflow in the same repo). A reusable
+  // workflow that uses `ref: ${{ github.workflow_sha }}` or `ref: ${{
+  // github.workflow_ref }}` on its own self-checkout step is therefore
+  // checking out the wrong revision — the bug class covers both `_sha`
+  // and `_ref` resolution cases. PR #158 (merge SHA b464d2c) is the
+  // originating bug-class anchor: it shipped a fix that swapped from
+  // `_sha` to `_ref` on the premise that `_ref` would resolve called-
+  // side, but empirically `_ref` resolves caller-side too. The correct
+  // alternative is `job.workflow_ref` / `job.workflow_sha` (per the
+  // `job` context table). This test asserts both broken fields stay out
+  // of self-checkout `ref:` lines.
   const files = listWorkflowFiles();
 
   if (files.length === 0) {
@@ -52,6 +59,20 @@ describe("reusable-workflow self-checkout SHA resolution (regression: PR #158)",
         .split(/\r?\n/)
         .map((line, idx) => ({ line, idx: idx + 1 }))
         .filter(({ line }) => /^\s*ref:\s*\$\{\{\s*github\.workflow_sha\s*\}\}/.test(line));
+
+      expect(offending).toEqual([]);
+    });
+
+    it(`${rel} (reusable workflow) does not use github.workflow_ref as a self-checkout ref`, () => {
+      // Match any `ref:` line whose value is `${{ github.workflow_ref }}`
+      // (with arbitrary surrounding whitespace). Same bug class as the
+      // `_sha` case — `github.workflow_ref` also resolves caller-side
+      // inside a reusable workflow. Non-`ref:` uses (e.g. diagnostic
+      // logging) are legitimate and left alone.
+      const offending = body
+        .split(/\r?\n/)
+        .map((line, idx) => ({ line, idx: idx + 1 }))
+        .filter(({ line }) => /^\s*ref:\s*\$\{\{\s*github\.workflow_ref\s*\}\}/.test(line));
 
       expect(offending).toEqual([]);
     });

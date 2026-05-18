@@ -97,7 +97,7 @@ The SHA in `uses:` pins both the workflow contract AND the prune script —
 the workflow's own `actions/checkout` step fetches `gavingolden/flow` at
 the same SHA the caller resolved, so the script the workflow runs always
 matches the workflow's own version. The workflow resolves its own SHA
-from `github.workflow_ref` (which carries the `@<sha>` suffix the caller
+from `job.workflow_ref` (which carries the `@<sha>` suffix the caller
 pinned), so callers never have to pass flow's SHA explicitly — just keep
 the `@<sha>` pin on `uses:` up to date. To upgrade, bump the SHA;
 consumers never re-vendor.
@@ -112,7 +112,7 @@ on `gavingolden/flow` to resolve. Omit (or leave unset) when the caller
 is a public repo, when `gavingolden/flow` is public, or when the caller
 *is* `gavingolden/flow` itself — in those cases the default token already
 has read access. (Note that the *revision* being checked out is still
-resolved from `github.workflow_ref` regardless of which token does the
+resolved from `job.workflow_ref` regardless of which token does the
 fetch — the token decides whether the fetch is allowed, not which SHA is
 fetched.)
 
@@ -165,6 +165,24 @@ the cost of re-vendoring on every script update (no SHA-pin upgrade path).
 
 For full pruning workflow including the CF REST API fallback for
 aliased/active deployments, see `references/deployment-pruning.md`.
+
+### Failure mode: caller-side context resolution
+
+Inside a reusable workflow, `github.workflow_ref` and `github.workflow_sha`
+both resolve to the *caller's* run — not to the called (reusable) workflow.
+PR #158 (merge SHA `b464d2c`) shipped a fix that read `github.workflow_ref`
+on the premise it would resolve called-side; empirical post-merge dispatch
+proved otherwise, and the self-checkout step rejected the caller's
+`refs/heads/main` value against its 40-char-hex SHA guard. The correct
+alternative is `job.workflow_ref` / `job.workflow_sha`, which the `job`
+context table documents as referring to "the reusable workflow file" for
+jobs defined inside one. Note: both `job.*` fields are documented as not
+available on GitHub Enterprise Server (flow targets github.com only); the
+documented GHES fallback is a caller-passed `flow_sha` `workflow_call`
+input (approach b in the original plan), at the cost of consumer-side YAML
+churn. The current PR's commit pair is the historical anchor for this
+failure mode — `git log` for `job.workflow_ref` and "PR #158" surfaces
+both.
 
 ## 2. Deployment Workflow
 

@@ -37,10 +37,11 @@ Two delivery paths cover the same script:
    from a wrapper workflow in your repo. The workflow handles checkout,
    Bun install, secret wiring, and dry-run gating; the SHA in `uses:`
    pins both the contract and the script. Upstream, the workflow's
-   checkout step extracts the `@<sha>` suffix from `github.workflow_ref`
-   to fetch its own revision — callers never pass flow's SHA explicitly,
-   they just keep the `@<sha>` pin on `uses:` up to date. See `SKILL.md`
-   section 1 for the consumer-side snippet.
+   checkout step extracts the `@<sha>` suffix from `job.workflow_ref`
+   (the called workflow's ref) to fetch its own revision — callers never
+   pass flow's SHA explicitly, they just keep the `@<sha>` pin on
+   `uses:` up to date. See `SKILL.md` section 1 for the consumer-side
+   snippet.
 2. **Vendor the script.** Copy `templates/prune-cf-deployments.ts` into
    your repo's `scripts/` dir and invoke it directly. Required when you
    need flags the workflow does not expose (`--keep-aliased`,
