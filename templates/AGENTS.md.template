@@ -152,6 +152,36 @@ fully off npm is a deliberate change, not something to do incidentally.
 - When a workaround is needed for a tool failure, shell issue, or platform quirk, propose
   adding it as a rule to `AGENTS.md` or the relevant skill so future agents avoid the same
   issue.
+- **Verify factual claims before emitting them.** Always try to verify
+  factual claims proactively via an API request, doc fetch, or
+  filesystem check before propagating them into edits, PR bodies, or
+  scripts — especially values that have been latent/unvalidated for a
+  while. Concrete trigger categories: SHAs, file paths, line numbers,
+  URLs, issue/PR numbers, version strings, env-var names, API surface
+  shapes (function names, exported symbols, flag names), dates,
+  counts of anything you've claimed before, deprecated CLI flags.
+  Anti-patterns: paraphrasing project docs from memory in a
+  commit-message Why-section, copy-pasting a prior PR body section
+  without re-checking its citations, citing line numbers from a stale
+  read, hardcoding a SHA from earlier in the session without
+  re-running `git rev-parse`. Per-category verification recipes —
+  line number: read the file at the exact path before citing; SHA:
+  `git rev-parse <ref>`; URL: `curl -sI` or follow the link; PR
+  number + state: `gh pr view <n> --json title,state,mergedAt`;
+  issue number + state: `gh issue view <n> --json title,state` (the
+  PR variant verifies pull requests only — a plain issue lookup
+  against `gh pr view` fails or surfaces the wrong record); count
+  of anything: `grep -cE '<anchored-pattern>' <file>` (never
+  unanchored substring); CLI flag: `<verb> --help`; file/path
+  existence: `test -f <path>`; exported symbol or function name:
+  `grep -n '<symbol>' <module>`; version string: `<verb> --version`
+  or `jq -r .version package.json`; env-var name:
+  `grep -n '<NAME>' .env.example` (presence in the example file is
+  the canonical source-of-truth check); date:
+  `git log --format='%ad' --date=short -1 <ref>` for a commit or
+  tag, `gh api repos/{owner}/{repo}/issues/<n> --jq .created_at`
+  for an issue or PR creation date. The rule is 'always *try*' with
+  judgment, not blanket pessimisation — when in doubt, verify.
 
 ## Critical Judgment
 

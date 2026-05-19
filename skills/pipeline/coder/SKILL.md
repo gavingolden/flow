@@ -213,6 +213,8 @@ you genuinely encountered none — silence is not the default. Do not call
 deferred-worthy observations as `anti_patterns_found` and let the parent
 caller file the issue if appropriate.
 
+Proactive verification of cited identifiers. Before writing an Edit/Write tool call that cites a file path, line number, function name, exported symbol, import path, env-var name, URL, commit SHA, PR number, or issue number, verify the value live against its source: read the file at the exact path, grep for the symbol in the canonical module, run `git rev-parse <ref>` for a SHA, run `gh pr view <n> --json title,state,mergedAt` for a PR, run `gh issue view <n> --json title,state` for a plain issue. The PR and issue lookups are distinct surfaces — `gh pr view` against an issue number fails or surfaces the wrong record. Latent values from earlier in this subagent's session may have drifted — re-read before citing. The canonical rule lives in `AGENTS.md` under the 'Verify factual claims before emitting them.' rule (the bolded rule prefix is the stable anchor; section structure can differ between flow's own `AGENTS.md` and a consumer repo initialised from `templates/AGENTS.md.template`).
+
 Return a one-paragraph summary (3–5 sentences) that surfaces BOTH sides
 of what you learned: at least one positive (top edit's intent, the verify
 verdict, edit count applied) AND at least one negative (top entry from
