@@ -1207,7 +1207,7 @@ force-pushes, and returns a brief summary. The supervisor never sees
 the rebase output, the per-file resolution prose, or the force-push
 transcript — only the artifact and the summary.
 
-**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning** before the Task call below — see [../pr-review/references/task-tool-exemption-preamble.md](../pr-review/references/task-tool-exemption-preamble.md) for the full rationale. On missing schema: escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit (do not fall back to in-line execution).
 
 Resolve the inputs the subagent needs, then make exactly **one**
 Task call:

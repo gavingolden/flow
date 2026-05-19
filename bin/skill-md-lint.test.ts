@@ -642,34 +642,234 @@ describe("Task-tool ToolSearch-load preamble at all six spawn sites", () => {
     },
   );
 
+  // Sites refactored to include-by-reference: the alias-tolerance literals
+  // live in skills/pipeline/pr-review/references/task-tool-exemption-preamble.md
+  // rather than at the spawn site. For these sites, fall back to the reference
+  // file when the literals are not present in SKILL.md directly. The other
+  // three sites continue to carry the literals at the spawn site as before.
+  const REFACTORED_SITES = new Set([
+    "pr-review-multi-agent-review",
+    "pr-review-fix-applier",
+    "flow-pipeline-merge-resolver",
+  ]);
+  const PREAMBLE_REF_PATH = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "pr-review",
+    "references",
+    "task-tool-exemption-preamble.md",
+  );
+
   it.each(SITES)(
     "$file names both Task and Agent aliases at the spawn site for $exemption_name",
     ({ file, exemption_name }) => {
       const absPath = path.resolve(HERE, "..", ...file.split("/"));
       const fileContent = fs.readFileSync(absPath, "utf8");
+      const hasTaskInSkill = fileContent.includes('"name": "Task"');
+      const hasAgentInSkill = fileContent.includes('"name": "Agent"');
+
+      const isRefactored = REFACTORED_SITES.has(exemption_name);
+      const refContent = isRefactored
+        ? fs.readFileSync(PREAMBLE_REF_PATH, "utf8")
+        : "";
+      const hasTask =
+        hasTaskInSkill || (isRefactored && refContent.includes('"name": "Task"'));
+      const hasAgent =
+        hasAgentInSkill || (isRefactored && refContent.includes('"name": "Agent"'));
+
       expect(
-        fileContent.includes('"name": "Task"'),
-        `${file} must include the literal '"name": "Task"' alias-tolerance literal at the ` +
-          `spawn site for '${exemption_name}'. The preamble's literal-string check must ` +
-          `succeed via at least the Task clause; econ-data PR #218 is the real-world repro — ` +
-          `in sessions where the harness surfaces the same one-shot subagent-spawn primitive ` +
-          `under the 'Agent' name with identical subagent_type/prompt/description schema, a ` +
-          `preamble that only names 'Task' regresses to the false-negative escalation that ` +
-          `surfaced in PR #218. Both literals must appear so the preamble matches whichever ` +
-          `alias the harness exposes.`,
+        hasTask,
+        `${file} (or its include-by-reference preamble at ` +
+          `skills/pipeline/pr-review/references/task-tool-exemption-preamble.md ` +
+          `for refactored sites) must include the literal '"name": "Task"' ` +
+          `alias-tolerance literal at the spawn site for '${exemption_name}'. ` +
+          `The preamble's literal-string check must succeed via at least the Task ` +
+          `clause; econ-data PR #218 is the real-world repro — in sessions where ` +
+          `the harness surfaces the same one-shot subagent-spawn primitive under ` +
+          `the 'Agent' name with identical subagent_type/prompt/description schema, ` +
+          `a preamble that only names 'Task' regresses to the false-negative ` +
+          `escalation that surfaced in PR #218. Both literals must appear so the ` +
+          `preamble matches whichever alias the harness exposes.`,
       ).toBe(true);
       expect(
-        fileContent.includes('"name": "Agent"'),
-        `${file} must include the literal '"name": "Agent"' alias-tolerance literal at the ` +
-          `spawn site for '${exemption_name}'. The preamble's literal-string check must ` +
-          `also succeed via the Agent clause; econ-data PR #218 is the real-world repro — ` +
-          `in sessions where the harness surfaces the one-shot subagent-spawn primitive ` +
-          `under the 'Agent' alias (identical subagent_type/prompt/description schema), a ` +
-          `preamble that only names 'Task' regresses to a false-negative escalation. Both ` +
-          `literals must appear so the preamble matches whichever alias the harness exposes.`,
+        hasAgent,
+        `${file} (or its include-by-reference preamble at ` +
+          `skills/pipeline/pr-review/references/task-tool-exemption-preamble.md ` +
+          `for refactored sites) must include the literal '"name": "Agent"' ` +
+          `alias-tolerance literal at the spawn site for '${exemption_name}'. ` +
+          `The preamble's literal-string check must also succeed via the Agent ` +
+          `clause; econ-data PR #218 is the real-world repro — in sessions where ` +
+          `the harness surfaces the one-shot subagent-spawn primitive under the ` +
+          `'Agent' alias (identical subagent_type/prompt/description schema), a ` +
+          `preamble that only names 'Task' regresses to a false-negative escalation. ` +
+          `Both literals must appear so the preamble matches whichever alias the ` +
+          `harness exposes.`,
       ).toBe(true);
     },
   );
+});
+
+describe("pr-review include-by-reference structure", () => {
+  const PR_REVIEW_REFS_DIR = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "pr-review",
+    "references",
+  );
+  const PREAMBLE_REF_PATH = path.resolve(
+    PR_REVIEW_REFS_DIR,
+    "task-tool-exemption-preamble.md",
+  );
+  const ESCALATION_RECIPES_PATH = path.resolve(
+    PR_REVIEW_REFS_DIR,
+    "escalation-recipes.md",
+  );
+
+  it("references/task-tool-exemption-preamble.md exists and is non-empty", () => {
+    expect(
+      fs.existsSync(PREAMBLE_REF_PATH),
+      `skills/pipeline/pr-review/references/task-tool-exemption-preamble.md ` +
+        `must exist. The refactor extracted the ~250-word "Load the Task tool ` +
+        `before spawning" preamble out of SKILL.md into this reference file; ` +
+        `dropping the file regresses every spawn-site link.`,
+    ).toBe(true);
+    const stat = fs.statSync(PREAMBLE_REF_PATH);
+    expect(
+      stat.size,
+      `references/task-tool-exemption-preamble.md must be non-empty.`,
+    ).toBeGreaterThan(0);
+  });
+
+  it("references/task-tool-exemption-preamble.md carries the canonical preamble literals", () => {
+    const content = fs.readFileSync(PREAMBLE_REF_PATH, "utf8");
+    expect(
+      content.includes('"name": "Task"'),
+      `references/task-tool-exemption-preamble.md must contain the literal ` +
+        `'"name": "Task"' alias-tolerance anchor.`,
+    ).toBe(true);
+    expect(
+      content.includes('"name": "Agent"'),
+      `references/task-tool-exemption-preamble.md must contain the literal ` +
+        `'"name": "Agent"' alias-tolerance anchor.`,
+    ).toBe(true);
+    expect(
+      content.includes("Load the Task tool before spawning"),
+      `references/task-tool-exemption-preamble.md must contain the literal ` +
+        `'Load the Task tool before spawning' anchor.`,
+    ).toBe(true);
+    expect(
+      content.includes("<exemption-name>"),
+      `references/task-tool-exemption-preamble.md must contain the ` +
+        `'<exemption-name>' placeholder so each spawn site can substitute its ` +
+        `own escalation tag verbatim.`,
+    ).toBe(true);
+  });
+
+  it("references/escalation-recipes.md exists and is non-empty", () => {
+    expect(
+      fs.existsSync(ESCALATION_RECIPES_PATH),
+      `skills/pipeline/pr-review/references/escalation-recipes.md must exist.`,
+    ).toBe(true);
+    const stat = fs.statSync(ESCALATION_RECIPES_PATH);
+    expect(
+      stat.size,
+      `references/escalation-recipes.md must be non-empty.`,
+    ).toBeGreaterThan(0);
+  });
+
+  it("references/escalation-recipes.md carries all three escalation-tag literals", () => {
+    const content = fs.readFileSync(ESCALATION_RECIPES_PATH, "utf8");
+    for (const tag of [
+      "task-tool-unavailable: pr-review-multi-agent-review",
+      "task-tool-unavailable: pr-review-fix-applier",
+      "fix-applier-missing-artifact",
+    ]) {
+      expect(
+        content.includes(tag),
+        `references/escalation-recipes.md must contain the literal escalation ` +
+          `tag '${tag}'. The supervisor's branch-on-status logic at /flow-pipeline ` +
+          `step 8 reads these tags verbatim from the result artifact.`,
+      ).toBe(true);
+    }
+  });
+
+  it("skills/pipeline/pr-review/SKILL.md links to both reference files", () => {
+    const prReviewSkillPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "pr-review",
+      "SKILL.md",
+    );
+    const content = fs.readFileSync(prReviewSkillPath, "utf8");
+    const preambleLinks = (
+      content.match(/references\/task-tool-exemption-preamble\.md/g) ?? []
+    ).length;
+    expect(
+      preambleLinks,
+      `pr-review/SKILL.md must link to references/task-tool-exemption-preamble.md ` +
+        `at least twice (once per spawn site: Fix-Applier and Multi-Agent Review).`,
+    ).toBeGreaterThanOrEqual(2);
+    const recipesLinks = (
+      content.match(/references\/escalation-recipes\.md/g) ?? []
+    ).length;
+    expect(
+      recipesLinks,
+      `pr-review/SKILL.md must link to references/escalation-recipes.md at least ` +
+        `three times (once per escalation path: multi-agent-review, fix-applier, ` +
+        `missing-artifact).`,
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  it("skills/pipeline/pr-review/SKILL.md line count stays under the post-refactor budget", () => {
+    const prReviewSkillPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "pr-review",
+      "SKILL.md",
+    );
+    const content = fs.readFileSync(prReviewSkillPath, "utf8");
+    const lineCount = content.split("\n").length;
+    // The include-by-reference refactor reduced SKILL.md from 1408 to ~1337
+    // lines via four mechanical moves (preamble extraction, bookkeeping
+    // collapse, escalation-recipe link-out, exit-path table). The 1400-line
+    // ceiling locks in those savings with modest headroom — material regrowth
+    // would unwind the refactor. Further reduction toward the original <800
+    // aspiration would require trimming skill-behavior prose (Step 8/11/12
+    // sections), which is a separate, behavior-risk scope.
+    expect(
+      lineCount,
+      `pr-review/SKILL.md line count must stay under the post-refactor budget ` +
+        `of 1400 lines. The include-by-reference refactor trimmed this file ` +
+        `from 1408 to ~1337 lines; material regrowth past 1400 would unwind ` +
+        `that work.`,
+    ).toBeLessThan(1400);
+  });
+
+  it("skills/pipeline/pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
+    const prReviewSkillPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "pr-review",
+      "SKILL.md",
+    );
+    const content = fs.readFileSync(prReviewSkillPath, "utf8");
+    expect(
+      content.includes("| Status | Escalation tag |"),
+      `pr-review/SKILL.md must contain the result-artifact markdown table ` +
+        `header '| Status | Escalation tag |'. The table consolidates the ` +
+        `five exit-path prose bullets the refactor replaced.`,
+    ).toBe(true);
+  });
 });
 
 describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-doc lint", () => {
