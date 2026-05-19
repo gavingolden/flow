@@ -1,5 +1,31 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { validateConsolidatorResult } from "./consolidator-result-schema";
+
+const SCHEMA_SCRIPT = path.resolve(__dirname, "consolidator-result-schema.ts");
+
+function runCli(args: string[]): { status: number; stdout: string; stderr: string } {
+  const result = spawnSync("bun", [SCHEMA_SCRIPT, ...args], { encoding: "utf8" });
+  return {
+    status: result.status ?? -1,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+}
+
+function withTmpFile(contents: string, fn: (filePath: string) => void): void {
+  const dir = mkdtempSync(path.join(tmpdir(), "consolidator-result-schema-test-"));
+  const filePath = path.join(dir, "consolidator-result.json");
+  writeFileSync(filePath, contents, "utf8");
+  try {
+    fn(filePath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 /**
  * Contract tests for the Consolidator + Validator Subagent's artifact at
@@ -153,6 +179,12 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toContain("label");
+      // The path-reformatting branch prepends `consolidated_findings`
+      // to the inner AgentFinding path so the error surfaces as
+      // `consolidated_findings[0]` rather than the bare `[0]`. Without
+      // this assertion, a regression that drops the prefix would leave
+      // the test passing but the error message misleading.
+      expect(result.path).toContain("consolidated_findings");
     }
   });
 
@@ -226,5 +258,71 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
     if (!result.ok) {
       expect(result.reason).toContain("anti_patterns_found");
     }
+  });
+});
+
+describe("consolidator-result-schema CLI — `--validate <path>`", () => {
+  it("exits 2 with usage on stderr when --validate flag is missing entirely", () => {
+    const result = runCli([]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("usage:");
+    expect(result.stdout).toBe("");
+  });
+
+  it("exits 2 with usage on stderr when --validate is given without a path argument", () => {
+    const result = runCli(["--validate"]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("usage:");
+    expect(result.stdout).toBe("");
+  });
+
+  it("exits 1 with read failure on stderr when the target path does not exist", () => {
+    const missingPath = path.join(tmpdir(), "definitely-does-not-exist-" + Date.now() + ".json");
+    const result = runCli(["--validate", missingPath]);
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stderr.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toContain("read failed");
+    expect(parsed.path).toBe(missingPath);
+  });
+
+  it("exits 1 with JSON parse failure on stderr when the file contains malformed JSON", () => {
+    withTmpFile("{ not valid json", (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(1);
+      const parsed = JSON.parse(result.stderr.trim());
+      expect(parsed.ok).toBe(false);
+      expect(parsed.reason).toContain("JSON parse failed");
+      expect(parsed.path).toBe(filePath);
+    });
+  });
+
+  it("exits 1 with schema validation reason on stderr when the JSON is shape-invalid", () => {
+    withTmpFile(JSON.stringify({ summary: "missing other keys" }), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(1);
+      const parsed = JSON.parse(result.stderr.trim());
+      expect(parsed.ok).toBe(false);
+      expect(parsed.reason).toBeDefined();
+    });
+  });
+
+  it("exits 0 with {ok: true} on stdout for a well-formed artifact", () => {
+    withTmpFile(JSON.stringify(VALID_FULL), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+      expect(result.stderr).toBe("");
+    });
+  });
+
+  it("exits 0 for a well-formed artifact with empty negative-findings arrays", () => {
+    withTmpFile(JSON.stringify(VALID_EMPTY_NEGATIVES), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+    });
   });
 });

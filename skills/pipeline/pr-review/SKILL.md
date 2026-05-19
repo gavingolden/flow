@@ -586,7 +586,7 @@ The fan-out's value is its context isolation; an in-line fallback breaks the con
 
 ## Spawn prompt template
 
-Fill in the five `{{...}}` placeholders before passing to the Task tool:
+Fill in the eight `{{...}}` placeholders before passing to the Task tool:
 
 ```
 You are the Consolidator + Validator Subagent for `/pr-review`. You run
@@ -596,8 +596,13 @@ summary.
 Read the full instructions at:
   {{INSTRUCTIONS_PATH}}
 
-The four review agents' JSON output paths (absolute):
-  {{AGENT_OUTPUT_PATHS}}
+The four review agents' JSON output paths (absolute) — bind each to the
+corresponding shell variable name the instructions file uses (matches
+`references/consolidator-instructions.md` Inputs section verbatim):
+  BUG_DETECTION_OUTPUT={{BUG_DETECTION_OUTPUT}}
+  SECURITY_OUTPUT={{SECURITY_OUTPUT}}
+  PATTERN_OUTPUT={{PATTERN_OUTPUT}}
+  COVERAGE_OUTPUT={{COVERAGE_OUTPUT}}
 
 Working directory (cd here before reading any project files):
   {{WORKTREE}}
@@ -710,7 +715,15 @@ label lands in `missed_steps`.
 
 **Write contract.** The wrapper writes the artifact on **every exit
 path** — clean Step 13 completion, every escalation site, and the
-intermediate-step partial path. The atomic write goes
+intermediate-step partial path — **except** the
+`consolidator-schema-failure: <agent>` path, where the Consolidator +
+Validator Subagent writes the artifact directly per
+`references/consolidator-instructions.md` Step 1 (this is the only
+exit path where the wrapper does not own the write; the Fix-Applier
+exemption does NOT have an analogous carve-out). On that path the
+wrapper's Step 13 guard reads the existing artifact's `status`
+before writing and bails if it is already `"escalated"`, preserving
+the subagent's upstream write. The atomic write goes
 write-`.tmp` → validate-`.tmp` → `mv`-into-place:
 
 1. Write the candidate JSON to `<path>.tmp` (heredoc or `jq`).
@@ -1001,13 +1014,24 @@ Wait for all 6 agents to complete before proceeding.
 ## 3.5. Spawn Consolidator + Validator Subagent
 
 Spawn the **Consolidator + Validator Subagent** per the Spawn procedure in
-§ Consolidator + Validator Subagent above. Pass the six absolute agent
-output paths Step 3 wrote (`$WORKTREE/.flow-tmp/review-bug-detection.json`,
-`review-security.json`, `review-pattern.json`, `review-performance.json`,
-`review-supply-chain.json`, `review-coverage.json`) as
-`{{AGENT_OUTPUT_PATHS}}`. The subagent owns the per-agent shape validation,
-the four dedup/threshold rules, and the in-context second-opinion
-validation pass — all inside its own context.
+§ Consolidator + Validator Subagent above. Substitute the six absolute
+agent output paths Step 3 wrote into the six named placeholders in the
+spawn-prompt template:
+
+- `{{BUG_DETECTION_OUTPUT}}` → `$WORKTREE/.flow-tmp/review-bug-detection.json`
+- `{{SECURITY_OUTPUT}}` → `$WORKTREE/.flow-tmp/review-security.json`
+- `{{PATTERN_OUTPUT}}` → `$WORKTREE/.flow-tmp/review-pattern.json`
+- `{{PERFORMANCE_OUTPUT}}` → `$WORKTREE/.flow-tmp/review-performance.json`
+- `{{SUPPLY_CHAIN_OUTPUT}}` → `$WORKTREE/.flow-tmp/review-supply-chain.json`
+- `{{COVERAGE_OUTPUT}}` → `$WORKTREE/.flow-tmp/review-coverage.json`
+
+These placeholder names match the shell-variable names the instructions
+file binds at `references/consolidator-instructions.md` (`BUG_DETECTION_OUTPUT`,
+`SECURITY_OUTPUT`, `PATTERN_OUTPUT`, `PERFORMANCE_OUTPUT`,
+`SUPPLY_CHAIN_OUTPUT`, `COVERAGE_OUTPUT` — used unquoted in the per-agent
+validator invocations there). The subagent owns the per-agent shape
+validation, the four dedup/threshold rules, and the in-context
+second-opinion validation pass — all inside its own context.
 
 After the subagent returns, do a cheap existence check against
 `$WORKTREE/.flow-tmp/consolidator-result.json`. On missing or empty
@@ -1797,6 +1821,41 @@ atomically write. This is the single signal `/flow-pipeline` step 8 reads
 to decide whether to continue (`"clean"`) or branch into the partial-retry
 path (`"partial"`) or escalate verbatim (`"escalated"`).
 
+**Guard the clean-write against upstream escalations.** Before writing
+the clean-completion artifact, read `pr-review-result.json` (if it
+exists) and check whether `status` is already `"escalated"`. A
+subagent that owns its own escalation write path (currently only the
+Consolidator + Validator Subagent on the `consolidator-schema-failure:
+<agent>` branch, per `references/consolidator-instructions.md` Step 1)
+will have already written the escalation artifact upstream; the
+existence check at Step 3.5 only detects `consolidator-missing-artifact`,
+not the schema-failure path (which writes BOTH a viable
+`consolidator-result.json` with empty arrays AND the escalation-tagged
+`pr-review-result.json`). Without this guard, the clean-exit write
+silently overwrites the upstream escalation, and `/flow-pipeline` step 8
+reads `"clean"` despite the four-agent review having been effectively
+dropped:
+
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+if test -s "$RESULT_PATH"; then
+  EXISTING_STATUS=$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || echo "")
+  if [ "$EXISTING_STATUS" = "escalated" ]; then
+    # Upstream subagent already wrote the escalation; leave it in place
+    # and surface to scrollback rather than overwriting with "clean".
+    EXISTING_TAG=$(jq -r '.escalation_tag' "$RESULT_PATH")
+    echo "NEEDS HUMAN: $EXISTING_TAG" >&2
+    exit 1
+  fi
+fi
+# Otherwise proceed with the clean-completion write below.
+```
+
+This is the same artifact-state-read-and-branch pattern Step 8's
+Fix-Applier bail-out site uses (`test -s "$ARTIFACT_PATH"`-then-branch);
+existence checks must be paired with state reads when the subagent
+owns multiple write paths.
+
 **Also write the `pr-review-last-sha` marker file on this clean-completion
 path.** The marker is the load-bearing input the Step 1.5 Gatekeeper's
 "no-new-commits" skip rule consults — without it, the most cost-effective
@@ -1851,6 +1910,18 @@ here) so this paired-contract regression can't recur silently.
 - The wrapper read `.flow-tmp/fix-applier-result.json` body exactly once
   (at Step 9), parsed once, and reused the parsed object across Steps
   9 / 10 / 11 / 12.
+- Exactly one Task-tool call to the Consolidator + Validator Subagent per
+  `/pr-review` invocation; the wrapper did not retry on missing artifact.
+- `.flow-tmp/consolidator-result.json` exists at the resolved absolute path
+  with all five top-level keys (`consolidated_findings`,
+  `dropped_by_validation`, `rejected_alternatives`, `anti_patterns_found`,
+  `summary`).
+- The wrapper's transcript contains no raw 4-agent JSON arrays and no
+  per-finding second-opinion read output — those stayed inside the
+  Consolidator + Validator Subagent.
+- The wrapper read `.flow-tmp/consolidator-result.json` body exactly once
+  (at Step 4), parsed once, and fed `consolidated_findings[]` into Step 5
+  onward.
 - Independent multi-agent review completed BEFORE reading reviewer comments
 - All agent findings filtered to confidence >= 80 (praise exempt)
 - Any praise findings name a specific behaviour, file:line, or pattern; zero
@@ -1894,6 +1965,23 @@ here) so this paired-contract regression can't recur silently.
 - NEVER read the artifact's body more than once. Parse it into a typed
   object at Step 9 and reuse the object across Steps 10, 11, 12. Re-reads
   defeat the context-cost win the subagent was designed to deliver.
+- NEVER do per-finding second-opinion read work in the wrapper's context.
+  The Consolidator + Validator Subagent owns Step 3.5's dedup/threshold
+  filter and the in-context validation pass against
+  `consolidated_findings[]`. Loading the four raw agent JSON arrays,
+  applying dedup rules, or running second-opinion reads inline defeats
+  the entire point of the exemption.
+- NEVER make more than one Task-tool call per `/pr-review` invocation
+  for the Consolidator + Validator Subagent. The single fan-out is the
+  named exemption; multi-call fan-out is not authorised. If the artifact
+  is missing after the spawn, surface the failure to the supervisor — the
+  wrapper itself never retries.
+- NEVER read `.flow-tmp/consolidator-result.json` body at the spawn
+  boundary (Step 3.5). The cheap existence check (`test -s`) is the only
+  allowed artifact access between spawn and Step 4. Step 4's first read
+  is the wrapper's single read of the body.
+- NEVER read the consolidator artifact's body more than once. Parse it at
+  Step 4 and reuse `consolidated_findings[]` across Steps 5, 6, 7, 7.5.
 - NEVER read review comments before completing the independent multi-agent review. This
   eliminates anchoring bias and lets you independently validate reviewer findings.
 - NEVER surface findings with confidence below 80. Low-confidence findings erode trust.
