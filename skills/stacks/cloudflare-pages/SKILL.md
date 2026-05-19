@@ -86,7 +86,7 @@ jobs:
       project: my-project
       older_than_days: 30
       branch: '!main'      # optional; omit to match all branches
-      dry_run: false       # default; deletes deployments. set true for a dry-run validation pass
+      dry_run: false       # default; permanently deletes deployments — set true for a dry-run validation pass
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

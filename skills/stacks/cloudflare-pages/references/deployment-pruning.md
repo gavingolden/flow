@@ -58,10 +58,6 @@ Either path follows the same operational rhythm:
    the wrapper `on:` block) or, if vendored, via a host cron / a custom
    Actions workflow you maintain yourself.
 
-### Reusable-workflow example
-
-See `SKILL.md` section 1 for the canonical reusable-workflow snippet and its inputs/secrets contract.
-
 ### When to vendor instead
 
 ```bash
