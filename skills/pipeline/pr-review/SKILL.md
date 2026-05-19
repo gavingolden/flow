@@ -275,8 +275,13 @@ Procedure:
    }
    ```
 
-   `skip_kind` is required when `decision == "skip"` and omitted when
-   `decision == "proceed"`. Use the write-`.tmp` → `mv` atomic protocol.
+   The four typed fields are: `decision` (string, one of `"proceed"` or
+   `"skip"`), `reason` (string, one-line rationale the wrapper surfaces in
+   its summary), `skip_kind` (optional string, one of `"closed-or-merged"`,
+   `"trivial-diff"`, or `"no-new-commits"`), and `summary` (string, 3-5
+   sentences). `skip_kind` is required when `decision == "skip"` and
+   omitted when `decision == "proceed"`. Use the write-`.tmp` → `mv`
+   atomic protocol.
 
 4. Return a one-paragraph summary (3-5 sentences) that surfaces BOTH sides
    of what you observed: at least one positive (the decision + skip_kind,
@@ -497,13 +502,17 @@ label lands in `missed_steps`.
   (`task-tool-unavailable: pr-review-gatekeeper`,
   `task-tool-unavailable: pr-review-multi-agent-review`,
   `task-tool-unavailable: pr-review-fix-applier`,
-  `fix-applier-missing-artifact`, or a multi-agent review failure
-  surfaced verbatim from Step 3). `escalation_tag` carries the
-  tag string the wrapper would have printed to scrollback; the
-  supervisor consumes it directly (see `/flow-pipeline` step 8 for
-  the propagation contract). The Gatekeeper escalation tag fires
-  when the Step 1.5 preamble's `ToolSearch query="select:Task"`
-  cannot find Task or Agent in the response.
+  `gatekeeper-missing-artifact`, `fix-applier-missing-artifact`, or
+  a multi-agent review failure surfaced verbatim from Step 3).
+  `escalation_tag` carries the tag string the wrapper would have
+  printed to scrollback; the supervisor consumes it directly (see
+  `/flow-pipeline` step 8 for the propagation contract). The
+  Gatekeeper escalation tag fires when the Step 1.5 preamble's
+  `ToolSearch query="select:Task"` cannot find Task or Agent in
+  the response; the `gatekeeper-missing-artifact` tag fires when
+  the Gatekeeper subagent returned but wrote no artifact at
+  `<worktree>/.flow-tmp/gatekeeper-result.json` (the wrapper's
+  cheap existence check at Step 1.5 failed).
 
 **Write contract.** The wrapper writes the artifact on **every exit
 path** — clean Step 13 completion, every escalation site, and the
@@ -557,6 +566,7 @@ labels go in `missed_steps` while the labels that did run go in
 | `"escalated"` | `task-tool-unavailable: pr-review-gatekeeper` | `["1"]` | `["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `task-tool-unavailable: pr-review-multi-agent-review` | `["1", "2"]` | `["3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `task-tool-unavailable: pr-review-fix-applier` | `["1", "2", "3", "4", "5"]` | Fix-Applier-owned Steps `["6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
+| `"escalated"` | `gatekeeper-missing-artifact` | `["1"]` | `["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `fix-applier-missing-artifact` | `["1", "2", "3", "4", "5", "8"]` | `["8c", "9", "10", "11", "12", "13"]` |
 | `"partial"` | `null` | Steps that ran | Steps that didn't |
 
@@ -620,7 +630,29 @@ After the subagent returns:
 1. Existence check: `test -s "$ARTIFACT_PATH"`. On missing or empty
    artifact, escalate `NEEDS HUMAN: gatekeeper-missing-artifact` and
    write the result artifact with `status: "escalated"` per the same
-   atomic write protocol — do not retry the Task call.
+   atomic write protocol — do not retry the Task call. Worked example
+   (mirrors the `task-tool-unavailable: pr-review-fix-applier` heredoc
+   higher up in this SKILL.md):
+
+   ```bash
+   RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+   cat > "$RESULT_PATH.tmp" <<'EOF'
+   {
+     "status": "escalated",
+     "completed_steps": ["1"],
+     "missed_steps": ["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+     "escalation_tag": "gatekeeper-missing-artifact",
+     "summary": "Gatekeeper subagent returned but wrote no artifact at .flow-tmp/gatekeeper-result.json; supervisor must escalate without retry per the no-retry-on-missing-artifact contract."
+   }
+   EOF
+   bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+     && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+   ```
+
+   The full per-field shape is documented in the # Result artifact
+   "Exit-path wiring" table above; the heredoc here is the on-site
+   reference so a reader of Step 1.5 doesn't have to scroll back up
+   to assemble the escalation artifact.
 2. Read the artifact body **exactly once** and branch on `.decision`:
 
    - **`"skip"`** → write `<worktree>/.flow-tmp/pr-review-result.json`
@@ -1550,6 +1582,31 @@ shape via `bun bin/lib/pr-review-result-schema.ts --validate <path>` then
 atomically write. This is the single signal `/flow-pipeline` step 8 reads
 to decide whether to continue (`"clean"`) or branch into the partial-retry
 path (`"partial"`) or escalate verbatim (`"escalated"`).
+
+**Also write the `pr-review-last-sha` marker file on this clean-completion
+path.** The marker is the load-bearing input the Step 1.5 Gatekeeper's
+"no-new-commits" skip rule consults — without it, the most cost-effective
+skip rule is permanently unreachable and every subsequent `/pr-review`
+invocation falls through to the full Sonnet fan-out even when the PR head
+SHA is unchanged. Capture the PR's current head SHA from
+`gh pr view --json commits` and write it atomically alongside the result
+artifact:
+
+```bash
+HEAD_SHA=$(gh pr view "$PR_NUMBER" --json commits --jq '.commits[-1].oid')
+printf '%s\n' "$HEAD_SHA" > "$WORKTREE/.flow-tmp/pr-review-last-sha.tmp"
+mv "$WORKTREE/.flow-tmp/pr-review-last-sha.tmp" "$WORKTREE/.flow-tmp/pr-review-last-sha"
+```
+
+The marker write is scoped **only** to this clean-Step-13 completion path.
+Escalation paths (`status: "escalated"`) and partial paths
+(`status: "partial"`) MUST NOT write the marker — those don't represent a
+fully-reviewed PR, so the next invocation should fall through to a real
+review rather than a Gatekeeper skip. The marker file's read site lives in
+the § Independent Gatekeeper Subagent section's spawn prompt template
+above; `bin/skill-md-lint.test.ts` asserts the literal `pr-review-last-sha`
+appears at least twice in this SKILL.md (one read in Gatekeeper, one write
+here) so this paired-contract regression can't recur silently.
 
 # Anti-Patterns
 

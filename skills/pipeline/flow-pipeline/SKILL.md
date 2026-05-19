@@ -1060,6 +1060,21 @@ wrapper reads it once and reuses the parsed object across its
 remaining steps. The supervisor never sees the per-finding fix
 prose, only `/pr-review`'s brief return summary.
 
+`/pr-review` also spawns one **Independent Gatekeeper Subagent** via
+the Task tool (the seventh of the seven named Task-tool exemptions in
+"Hard rules" above) at its Step 1.5, before any other Task-tool
+fan-out fires. This short-circuit uses a `model: "haiku"` cost-routing
+override to skip closed/merged/trivial/no-new-commits PRs cheaply
+without ever paying for the four-agent Sonnet review. On a skip
+verdict the wrapper writes a `status: "clean"` result artifact with
+`completed_steps: ["1", "1.5"]` and the supervisor proceeds normally
+to the auto-merge gate; on `decision: "proceed"` the gatekeeper falls
+through to the full review unchanged. The subagent writes its own
+single-use artifact at `<worktree>/.flow-tmp/gatekeeper-result.json`
+which `/pr-review`'s wrapper reads exactly once and discards after the
+branch decision — the supervisor never sees the `gh pr view` metadata
+or the skip-rule eval that drove the verdict.
+
 The skill auto-detects Address vs Review mode from the existing PR
 state and:
 
@@ -1135,7 +1150,8 @@ three string literals `"clean"`, `"partial"`, or `"escalated"`:
   escalation tag names a documented bail-out site
   (`task-tool-unavailable: pr-review-gatekeeper`,
   `task-tool-unavailable: pr-review-multi-agent-review`,
-  `task-tool-unavailable: pr-review-fix-applier`, or
+  `task-tool-unavailable: pr-review-fix-applier`,
+  `gatekeeper-missing-artifact`, or
   `fix-applier-missing-artifact`) for which the resolution is
   user-action, not retry.
 

@@ -529,6 +529,67 @@ describe("Edit-Applier artifact JSON schema drift (coder/SKILL.md ↔ references
   });
 });
 
+describe("Gatekeeper artifact JSON schema drift (pr-review/SKILL.md)", () => {
+  // skip_kind is intentionally NOT in the required-keys list — it's emitted
+  // only on `decision: "skip"` and omitted on `decision: "proceed"`. The
+  // sibling Fix-Applier and Edit-Applier schemas list every key as required;
+  // the Gatekeeper's optional skip_kind diverges from that pattern by design.
+  const GATEKEEPER_REQUIRED_KEYS = ["decision", "reason", "summary"];
+
+  it.each(GATEKEEPER_REQUIRED_KEYS)(
+    "pr-review/SKILL.md declares the '%s' top-level key for the gatekeeper artifact",
+    (key) => {
+      expect(
+        prReviewContent.includes(`\`${key}\``),
+        `pr-review/SKILL.md must reference '\`${key}\`' as one of the gatekeeper ` +
+          `artifact's typed fields. Drift here means the wrapper's branch-on-.decision ` +
+          `logic at Step 1.5 silently falls through if the Haiku subagent renames a ` +
+          `field. Mirrors the parallel Fix-Applier and Edit-Applier schema-drift lints ` +
+          `above.`,
+      ).toBe(true);
+    },
+  );
+
+  it("pr-review/SKILL.md documents the optional 'skip_kind' field for the gatekeeper artifact", () => {
+    expect(
+      prReviewContent.includes("`skip_kind`") || prReviewContent.includes('"skip_kind"'),
+      "pr-review/SKILL.md must reference 'skip_kind' (as `skip_kind` or \"skip_kind\") " +
+        "in the Gatekeeper subagent's documented artifact shape. The field is optional " +
+        "(emitted only on decision: \"skip\") but the prose must still surface it so the " +
+        "wrapper's reader knows to expect it on skip verdicts.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md has an Independent Gatekeeper Subagent section", () => {
+    expect(
+      prReviewContent.includes("# Independent Gatekeeper Subagent"),
+      "pr-review/SKILL.md must have a top-level '# Independent Gatekeeper Subagent' " +
+        "section. The exemption in flow-pipeline/SKILL.md Hard rules and AGENTS.md " +
+        "## Don'ts is anchored on this heading name.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md writes the 'pr-review-last-sha' marker on the clean Step 13 path AND reads it in the Gatekeeper", () => {
+    // The marker file is the load-bearing input to the Gatekeeper's
+    // "no-new-commits" skip rule. Without a write site on the clean Step 13
+    // completion path, the most cost-effective skip rule is permanently
+    // unreachable — every invocation falls through to the full Sonnet fan-out
+    // even when the PR head SHA is unchanged since the last clean review.
+    // This lint asserts the literal appears at least twice in pr-review/SKILL.md
+    // (one read in the Gatekeeper spawn prompt template, one write in Step 13's
+    // clean-completion block) so the paired-contract regression can't recur.
+    const occurrences = prReviewContent.split("pr-review-last-sha").length - 1;
+    expect(
+      occurrences,
+      `pr-review/SKILL.md must reference 'pr-review-last-sha' at least twice (one ` +
+        `read in the Gatekeeper spawn prompt template's no-new-commits skip rule, ` +
+        `one write in Step 13's clean-completion block). Found ${occurrences} ` +
+        `occurrence(s). A read-without-write means the skip rule is dead code; a ` +
+        `write-without-read means the marker is never consulted.`,
+    ).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe("pr-review result-artifact contract lint", () => {
   it("pr-review SKILL.md frontmatter does not include `context: fork`", () => {
     expect(
