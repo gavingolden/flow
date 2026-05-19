@@ -95,9 +95,9 @@ in-process for skills; shell out for scripts; never delegate.
 >
 > **Task-tool exemption #1: `/pr-review` Independent Multi-Agent
 > Review.** When the supervisor invokes `/pr-review` in step 8,
-> `/pr-review`'s "Independent Multi-Agent Review" step spawns four
+> `/pr-review`'s "Independent Multi-Agent Review" step spawns six
 > review agents in parallel via the Task tool. The multi-agent review
-> is one-shot (four parallel agents return JSON findings, then the
+> is one-shot (six parallel agents return JSON findings, then the
 > parent skill merges and exits). Refactoring `/pr-review` to use
 > in-process skill loads instead would lose the parallelism and the
 > isolated-context benefit each review agent gets; dropping the rule

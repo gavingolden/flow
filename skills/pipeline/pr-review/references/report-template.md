@@ -8,7 +8,7 @@ Use this format for the structured report at the end of every PR review.
 ### Summary
 
 - **PR size**: +<additions> -<deletions> across <N> files
-- **Agents**: 4 ran, <M> findings above 80 confidence, <P> praise observations
+- **Agents**: 6 ran, <M> findings above 80 confidence, <P> praise observations
 - **Blocking issues**: <count>
 - **Inline review comments addressed**: <count> (or "none" when the PR had none)
 
@@ -24,7 +24,7 @@ are forbidden — every finding above the confidence threshold (or praise) appea
 
 **<label> (<decoration>): <subject>**
 - **Line(s)**: L<start>–L<end>
-- **Agent**: <Bug Detection | Security | Pattern/Consistency | Test Coverage>
+- **Agent**: <Bug Detection | Security | Pattern/Consistency | Performance | Supply-Chain | Test Coverage>
 - **Confidence**: <score>/100
 - **Status**: ✅ **Addressed** — <1-line summary of the change, e.g. "renamed to findFromIndex"> · commit `<sha>`
   — OR —
