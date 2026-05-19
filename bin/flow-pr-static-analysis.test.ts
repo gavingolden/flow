@@ -1355,6 +1355,83 @@ describe(spawnAsync, () => {
     expect(result.meta.dependencies.skipped_reason).toBe("npm-exit-2");
   });
 
+  it("drops dependency findings whose package.json line is outside the diff scope", async () => {
+    // lodash sits on line 3 of the package.json, but the diff only touches
+    // lines 5-6 (the axios bump). applyDiffScope must drop the lodash
+    // finding — otherwise a pre-existing CVE on an unchanged line would
+    // resurface on every PR that touches package.json.
+    const packageJsonContent =
+      '{\n  "dependencies": {\n    "lodash": "4.17.20",\n    "axios": "0.21.0",\n    "react": "18.0.0"\n  }\n}';
+    const auditStdout = makeNpmAuditJson([
+      { pkg: "lodash", severity: "high", ghsaId: "GHSA-jf85-cpcp-j695" },
+    ]);
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
+    const readFile = vi.fn().mockImplementation((p: string) =>
+      p.endsWith("package.json") ? packageJsonContent : null,
+    );
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: auditStdout,
+      stderr: "",
+      exitCode: 1,
+      timedOut: false,
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        // Diff only touches lines 5-6 (the axios bump). lodash is on line 3.
+        stdout: makeUnifiedDiff([
+          { path: "package.json", hunks: [{ oldStart: 5, newStart: 5, lines: ["+    \"axios\": \"1.0.0\"", "+    \"react\": \"18.0.0\""] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.dependencies.ran).toBe(true);
+    // The lens runs and parses the lodash CVE on line 3, but applyDiffScope
+    // drops it because the diff only covers lines 5-6.
+    expect(result.dependencies).toHaveLength(0);
+  });
+
+  it("skips with npm-audit-no-vulnerabilities-key when npm audit emits an error envelope (ENOLOCK)", async () => {
+    // npm audit exits 1 both for 'found vulnerabilities' and for 'couldn't
+    // run'. The error envelope shape is `{error: {code: 'ENOLOCK', ...}}`
+    // with no vulnerabilities key — treating that as ran=true masks a real
+    // failure. The lens must detect the missing key and skip.
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({ error: { code: "ENOLOCK", summary: "No package-lock.json" } }),
+      stderr: "",
+      exitCode: 1,
+      timedOut: false,
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "package.json", hunks: [{ oldStart: 1, newStart: 1, lines: ["+l1"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      fileExists,
+      which,
+      spawn,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.dependencies.ran).toBe(false);
+    expect(result.meta.dependencies.skipped_reason).toBe("npm-audit-no-vulnerabilities-key");
+    expect(result.dependencies).toEqual([]);
+  });
+
   it("treats npm audit exit 1 as the 'found vulnerabilities' path, not a catastrophic skip", async () => {
     const packageJsonContent = '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
     const auditStdout = makeNpmAuditJson([

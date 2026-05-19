@@ -10,8 +10,7 @@ export type Source =
   | "eslint"
   | "tsc"
   | "coverage"
-  | "npm-audit"
-  | "bun-audit";
+  | "npm-audit";
 
 export type Finding = {
   file: string;

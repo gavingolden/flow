@@ -98,8 +98,8 @@ a missed finding that a human reviewer will catch.
 ## Static Analysis Facts
 
 The block below is your lens's pre-digested static-analysis output from
-`flow-pr-static-analysis` (semgrep / biome-or-eslint / tsc / Istanbul-coverage / npm-audit,
-filtered to PR-touched lines, filtered to `confidence >= min_confidence`). The
+`flow-pr-static-analysis` (semgrep / biome-or-eslint / tsc / Istanbul-coverage / npm-audit),
+filtered to PR-touched lines and to `confidence >= min_confidence`. The
 substituted block is a single JSON object of shape `{findings: [...], meta: {...}}`,
 where each finding has the shape `{file, line, end_line?, rule_id, message,
 confidence, severity?, source}` and `meta` carries the lens's `ran` /
@@ -207,8 +207,8 @@ exclusively on: **could an attacker exploit this code?**
    lens (e.g., a hardcoded "secret" in a test fixture) — drop them rather than
    forwarding noise to the author.
 2. Your `{{STATIC_ANALYSIS_FACTS}}` block also contains the **`dependencies`** lens —
-   `npm audit --json` findings (source `npm-audit`) scanning `package.json` (and the
-   lockfile) additions in the diff, scoped to direct dependencies. Each finding under
+   `npm audit --json` findings (source `npm-audit`) scanning `package.json`
+   additions in the diff, scoped to direct dependencies. Each finding under
    the `dependencies` block carries `{file, line, rule_id (CVE/GHSA ID), confidence}`
    keyed to the offending `package.json` entry. Confirm each by Reading the cited
    `file:line` to verify the dep was actually added/bumped in this PR (the diff scope
@@ -218,7 +218,7 @@ exclusively on: **could an attacker exploit this code?**
    the lens or `npm` is not on PATH), fall back to a manual audit:
 
    ```bash
-   npm audit --json --omit=dev
+   npm audit --json
    ```
 
    If you can't run the audit locally either, surface a `question` flagging that

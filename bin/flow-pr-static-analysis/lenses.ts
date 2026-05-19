@@ -228,6 +228,23 @@ export const runDependenciesLens: LensRun = async (args, deps) => {
   if (r.exitCode !== 0 && r.exitCode !== 1) {
     return timedSkip(start, `npm-exit-${r.exitCode}`);
   }
+  // npm audit also exits 1 when the audit itself couldn't run (no
+  // package-lock.json, network failure, ENOAUDIT, etc.). In that case stdout
+  // is `{"error": {"code": "ENOLOCK", ...}}` — no `vulnerabilities` key.
+  // Treat that shape as a skip rather than a falsely-clean ran=true verdict.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(r.stdout);
+  } catch {
+    parsed = null;
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !("vulnerabilities" in (parsed as Record<string, unknown>))
+  ) {
+    return timedSkip(start, "npm-audit-no-vulnerabilities-key");
+  }
   const findings = parseNpmAuditJson(r.stdout, packageJsonContent);
   return {
     findings,

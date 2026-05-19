@@ -670,7 +670,7 @@ subagent rather than landing in the supervisor's transcript.
   slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
   needs both. Use this `jq` filter against `.flow-tmp/static-analysis.json` per agent:
   - Bug Detection: `jq '{findings: .types, meta: .meta.types}' .flow-tmp/static-analysis.json`
-  - Security: `jq '{findings: .security, meta: .meta.security}' .flow-tmp/static-analysis.json`
+  - Security: `jq '{findings: (.security + .dependencies), meta: {security: .meta.security, dependencies: .meta.dependencies}}' .flow-tmp/static-analysis.json` (merges both semgrep and npm-audit lenses into one facts block; agent's Process step 2 reads `meta.dependencies.ran` to detect skip vs ran=true)
   - Pattern/Consistency: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json` (shared with Performance — both agents receive the `lint` lens; each prompt's False-Positive-Avoidance section tells it to drop findings outside its domain)
   - Performance: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json` (shared with Pattern/Consistency — same `lint` lens, different domain filter)
   - Supply-Chain: `jq -n '{findings: [], meta: {ran: false, skipped_reason: "no supply-chain pre-digest lens", duration_ms: 0}}'` (synthetic — no real lens; the agent falls back to its own diff inspection per the shared-context-block fallback rule)

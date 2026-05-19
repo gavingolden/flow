@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 /**
- * Pre-digests deterministic facts (security, types, lint, coverage) for a PR
- * so `/pr-review`'s six review agents stop re-deriving the same low-level
- * findings from raw diff inspection on every run. Each lens shells out to
- * the consumer's already-installed tooling (semgrep, biome or eslint, tsc,
- * coverage report), parses native output into a unified `Finding` shape,
- * filters to PR-touched lines, and emits a single JSON envelope keyed by
- * lens. The four lenses run concurrently via Promise.all over async spawn
- * wrappers.
+ * Pre-digests deterministic facts (security, types, lint, coverage,
+ * dependencies) for a PR so `/pr-review`'s six review agents stop
+ * re-deriving the same low-level findings from raw diff inspection on every
+ * run. Each lens shells out to the consumer's already-installed tooling
+ * (semgrep, biome or eslint, tsc, coverage report, npm audit), parses
+ * native output into a unified `Finding` shape, filters to PR-touched
+ * lines, and emits a single JSON envelope keyed by lens. All lenses run
+ * concurrently via Promise.all over async spawn wrappers.
  *
  * Usage:
  *   flow-pr-static-analysis <PR> [--min-confidence <n>] [--max-tool-timeout <sec>]
@@ -18,13 +18,15 @@
  *
  * Output: a single JSON object on stdout when all lenses settle.
  *   {
- *     "security": Finding[],
- *     "types":    Finding[],
- *     "coverage": Finding[],
- *     "lint":     Finding[],
+ *     "security":     Finding[],
+ *     "types":        Finding[],
+ *     "coverage":     Finding[],
+ *     "lint":         Finding[],
+ *     "dependencies": Finding[],
  *     "meta": {
  *       "security": LensMeta, "types": LensMeta,
  *       "coverage": LensMeta, "lint": LensMeta,
+ *       "dependencies": LensMeta,
  *       "pr": number, "min_confidence": number, "duration_ms": number
  *     }
  *   }
