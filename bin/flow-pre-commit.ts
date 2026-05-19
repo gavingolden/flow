@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 
 // --- Types ---
 
-export type Scope = "src" | "scripts" | "docs" | "actions" | "root-fallback";
+export type Scope = "src" | "scripts" | "docs" | "actions" | "backend" | "root-fallback";
 
 export type ScopeMatcher = {
   prefixes?: string[];
@@ -41,7 +41,7 @@ export type CheckResult = {
    * `passed: true` so the overall gate doesn't fail; downstream renderers
    * use `skipReason` to surface it distinctly.
    */
-  skipReason?: "actionlint-not-installed";
+  skipReason?: "actionlint-not-installed" | "go-not-installed";
 };
 
 export type CheckReport = {
@@ -96,7 +96,7 @@ export type JsonResult = {
   passed: boolean;
   durationMs: number;
   failure?: FailureExcerpt;
-  skipReason?: "actionlint-not-installed";
+  skipReason?: "actionlint-not-installed" | "go-not-installed";
 };
 
 export type JsonReport = {
@@ -134,7 +134,7 @@ type CheckDef = {
 
 // Path-based scopes only — root-fallback is a sentinel scope (not a matcher)
 // that fires when a non-empty diff produced no specific-scope matches.
-const SPECIFIC_SCOPES: Exclude<Scope, "root-fallback">[] = ["src", "scripts", "docs", "actions"];
+const SPECIFIC_SCOPES: Exclude<Scope, "root-fallback">[] = ["src", "scripts", "docs", "actions", "backend"];
 const ZERO_SHA = "0000000000000000000000000000000000000000";
 
 // `scripts/` is the install location in target repos; `bin/` is the canonical
@@ -155,6 +155,11 @@ const ZERO_SHA = "0000000000000000000000000000000000000000";
 // bin/ workflow-shape regression tests) AND `actions` (which runs
 // `actionlint` against the workflows dir) — different defect classes, so
 // both checks run.
+//
+// `backend` is prefix-only (no `.go` AND-match) because `go vet -C backend
+// ./...` and `go test -C backend ./...` walk Go packages safely on their
+// own, and we want `backend/go.mod` / `backend/go.sum` edits to also re-run
+// the gate.
 const SCOPE_MATCHERS: Record<Exclude<Scope, "root-fallback">, ScopeMatcher> = {
   src: { prefixes: ["src/"] },
   scripts: {
@@ -166,6 +171,7 @@ const SCOPE_MATCHERS: Record<Exclude<Scope, "root-fallback">, ScopeMatcher> = {
     extensions: [".yml", ".yaml"],
     requireAll: true,
   },
+  backend: { prefixes: ["backend/"] },
 };
 
 // --- Helpers ---
@@ -309,6 +315,11 @@ export function checksForScope(scope: Scope): CheckDef[] {
           argv: ["actionlint", ".github/workflows/"],
         },
       ];
+    case "backend":
+      return [
+        { name: "go vet -C backend ./...", argv: ["go", "vet", "-C", "backend", "./..."] },
+        { name: "go test -C backend ./...", argv: ["go", "test", "-C", "backend", "./..."] },
+      ];
     case "root-fallback":
       // Mirror src's check set: a consumer repo whose source layout doesn't
       // match flow's prefixes still expects typecheck + test at the root.
@@ -385,6 +396,24 @@ export function runCheck(
       durationMs,
       output: "actionlint not installed — skipped",
       skipReason: "actionlint-not-installed",
+    };
+  }
+
+  // `go` is treated as an OPTIONAL tool — same shape as the actionlint skip
+  // branch above. Consumer repos without a Go toolchain (or worktrees where
+  // `go` simply isn't on PATH) get a `passed: true` skip rather than a hard
+  // gate failure.
+  if (
+    argv[0] === "go" &&
+    (exitCode === 127 || COMMAND_NOT_FOUND_REGEX.test(stderr))
+  ) {
+    return {
+      name,
+      scope,
+      passed: true,
+      durationMs,
+      output: "go not installed — skipped",
+      skipReason: "go-not-installed",
     };
   }
 
@@ -702,7 +731,7 @@ Runs verification checks with automatic scope detection.
 Detects which project areas have changes and runs the appropriate checks.
 
 Options:
-  --scope <scopes>   Comma-separated scopes: src, scripts, docs, actions
+  --scope <scopes>   Comma-separated scopes: src, scripts, docs, actions, backend
   --pr <number>      Detect scopes from PR changed files
   --pre-push         Read refs from stdin (used by .githooks/pre-push)
   --json             Emit a single bounded JSON object on stdout instead
@@ -720,6 +749,7 @@ Check mapping:
   scripts:        npm run typecheck:scripts, npm run test
   docs:           flow-md-validate .
   actions:        actionlint .github/workflows/
+  backend:        go vet -C backend ./..., go test -C backend ./...
   root-fallback:  npm run typecheck, npm run test
                   (fires when no other scope matched)
 

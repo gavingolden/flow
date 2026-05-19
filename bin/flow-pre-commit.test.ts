@@ -149,6 +149,29 @@ describe(detectScopesFromFiles, () => {
     // The .md still trips docs scope; the embedded "src/" must not trip src.
     expect(detectScopesFromFiles(["docs/src/guide.md"])).toEqual(["docs"]);
   });
+
+  it("should detect backend scope from a backend/ file", () => {
+    expect(detectScopesFromFiles(["backend/foo.go"])).toEqual(["backend"]);
+  });
+
+  it("should detect backend scope from a deeply-nested backend/ file", () => {
+    expect(detectScopesFromFiles(["backend/cmd/server/main.go"])).toEqual(["backend"]);
+  });
+
+  it("should detect BOTH src and backend from a mixed diff and NOT fall back to root-fallback", () => {
+    expect(detectScopesFromFiles(["backend/handler.go", "src/a.ts"])).toEqual([
+      "src",
+      "backend",
+    ]);
+  });
+
+  it("should NOT fall back to root-fallback when backend is the only scope matched (single-scope mutual-exclusivity)", () => {
+    expect(detectScopesFromFiles(["backend/handler.go"])).toEqual(["backend"]);
+  });
+
+  it("should NOT trip backend for backend-archive/foo.go (prefix exactness — `.startsWith('backend/')` is false for `backend-archive/`, so the file lands in root-fallback)", () => {
+    expect(detectScopesFromFiles(["backend-archive/foo.go"])).toEqual(["root-fallback"]);
+  });
 });
 
 describe(computeUnmatchedFiles, () => {
@@ -169,6 +192,10 @@ describe(computeUnmatchedFiles, () => {
     expect(computeUnmatchedFiles(["src/a.ts", "apps/web/src/b.ts"])).toEqual([
       "apps/web/src/b.ts",
     ]);
+  });
+
+  it("does NOT include backend/ paths in unmatched when the backend scope is active (the backend prefix claims them)", () => {
+    expect(computeUnmatchedFiles(["backend/foo.go", "src/a.ts"])).toEqual([]);
   });
 });
 
@@ -240,6 +267,14 @@ describe(parseScopes, () => {
   it("should reject the root-fallback pseudo-scope (auto-detect-only sentinel)", () => {
     expect(() => parseScopes("root-fallback")).toThrow('Unknown scope "root-fallback"');
   });
+
+  it("should accept the backend scope", () => {
+    expect(parseScopes("backend")).toEqual(["backend"]);
+  });
+
+  it("should canonicalise backend,src to the SPECIFIC_SCOPES order (src first, backend last)", () => {
+    expect(parseScopes("backend,src")).toEqual(["src", "backend"]);
+  });
 });
 
 describe(checksForScope, () => {
@@ -272,6 +307,14 @@ describe(checksForScope, () => {
     expect(checks).toEqual([
       { name: "npm run typecheck", argv: ["npm", "run", "typecheck"] },
       { name: "npm run test", argv: ["npm", "run", "test"] },
+    ]);
+  });
+
+  it("should return go vet and go test for backend in canonical order", () => {
+    const checks = checksForScope("backend");
+    expect(checks).toEqual([
+      { name: "go vet -C backend ./...", argv: ["go", "vet", "-C", "backend", "./..."] },
+      { name: "go test -C backend ./...", argv: ["go", "test", "-C", "backend", "./..."] },
     ]);
   });
 });
@@ -378,6 +421,54 @@ describe(runCheck, () => {
       ["actionlint", ".github/workflows/"],
       "actions",
       exitWith(1, "workflows/foo.yml:42:9: shellcheck reported issue in this script"),
+    );
+    expect(result.passed).toBe(false);
+    expect(result.skipReason).toBeUndefined();
+  });
+
+  it("returns skipReason go-not-installed when runner exits 127 for go", () => {
+    const result = runCheck(
+      "go vet -C backend ./...",
+      ["go", "vet", "-C", "backend", "./..."],
+      "backend",
+      exitWith(127, "go: command not found"),
+    );
+    expect(result.passed).toBe(true);
+    expect(result.skipReason).toBe("go-not-installed");
+    expect(result.output).toContain("go not installed");
+  });
+
+  it("returns skipReason go-not-installed when runner throws an ENOENT error for go", () => {
+    const enoent = Object.assign(new Error("spawn go ENOENT: no such file or directory"), {
+      code: "ENOENT",
+    });
+    const result = runCheck(
+      "go vet -C backend ./...",
+      ["go", "vet", "-C", "backend", "./..."],
+      "backend",
+      throwing(enoent),
+    );
+    expect(result.passed).toBe(true);
+    expect(result.skipReason).toBe("go-not-installed");
+  });
+
+  it("returns skipReason go-not-installed when stderr matches command-not-found and exit is non-zero (shell wrapper path)", () => {
+    const result = runCheck(
+      "go vet -C backend ./...",
+      ["go", "vet", "-C", "backend", "./..."],
+      "backend",
+      exitWith(1, "bash: go: command not found"),
+    );
+    expect(result.passed).toBe(true);
+    expect(result.skipReason).toBe("go-not-installed");
+  });
+
+  it("does NOT skip a real go vet failure (non-127 exit, stderr without command-not-found markers)", () => {
+    const result = runCheck(
+      "go vet -C backend ./...",
+      ["go", "vet", "-C", "backend", "./..."],
+      "backend",
+      exitWith(1, "backend/foo.go:42:9: undeclared name: bar"),
     );
     expect(result.passed).toBe(false);
     expect(result.skipReason).toBeUndefined();
@@ -689,6 +780,26 @@ describe(formatReport, () => {
     expect(output).not.toContain("FAIL");
   });
 
+  it("renders a SKIP marker for a backend result with skipReason go-not-installed", () => {
+    const report = createReport({
+      scopes: ["backend"] as Scope[],
+      results: [
+        createResult({
+          name: "go vet -C backend ./...",
+          scope: "backend",
+          passed: true,
+          output: "go not installed — skipped",
+          skipReason: "go-not-installed",
+        }),
+      ],
+      allPassed: true,
+    });
+    const output = formatReport(report);
+    expect(output).toContain("SKIP");
+    expect(output).toContain("go not installed");
+    expect(output).not.toContain("FAIL");
+  });
+
   it("shows skipped count alongside passed count in the summary line", () => {
     const allSkipped = createReport({
       scopes: ["actions"] as Scope[],
@@ -918,6 +1029,23 @@ describe(formatJsonReport, () => {
     });
     const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
     expect(parsed.results[0].skipReason).toBe("actionlint-not-installed");
+  });
+
+  it("emits skipReason go-not-installed on a per-result backend entry when it is set", () => {
+    const report = createReport({
+      scopes: ["backend"] as Scope[],
+      results: [
+        createResult({
+          name: "go vet -C backend ./...",
+          scope: "backend",
+          passed: true,
+          skipReason: "go-not-installed",
+        }),
+      ],
+      allPassed: true,
+    });
+    const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
+    expect(parsed.results[0].skipReason).toBe("go-not-installed");
   });
 
   it("omits skipReason on per-result entries when undefined", () => {
