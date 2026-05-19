@@ -8,9 +8,12 @@ import {
   decideOnPoll,
   deriveCheckState,
   deriveCopilotPosted,
+  extractLatestCopilotReviewCommit,
   fetchHistoricalBotReview,
   hasQualifyingWorkflowTrigger,
+  isCopilotReviewStale,
   parseArgs,
+  retriggerCopilotReview,
   run,
   type Check,
   type GhRunner,
@@ -211,34 +214,165 @@ describe(deriveCopilotPosted, () => {
   });
 
   it("returns false when no review's author matches", () => {
-    const reviews: Review[] = [{ author: { login: "alice" }, state: "APPROVED" }];
+    const reviews: Review[] = [
+      { author: { login: "alice" }, state: "APPROVED", commitOid: null },
+    ];
     expect(deriveCopilotPosted(reviews, LOGIN)).toBe(false);
   });
 
   it("returns true when a review's login matches case-insensitively", () => {
     // GitHub may emit a mixed-case login; both sides are lowercased.
     const reviews: Review[] = [
-      { author: { login: "Copilot-Pull-Request-Reviewer" }, state: "APPROVED" },
+      {
+        author: { login: "Copilot-Pull-Request-Reviewer" },
+        state: "APPROVED",
+        commitOid: null,
+      },
     ];
     expect(deriveCopilotPosted(reviews, LOGIN)).toBe(true);
   });
 
   it("ignores reviews in PENDING state (still drafting)", () => {
-    const reviews: Review[] = [{ author: { login: LOGIN }, state: "PENDING" }];
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "PENDING", commitOid: null },
+    ];
     expect(deriveCopilotPosted(reviews, LOGIN)).toBe(false);
   });
 
   it("accepts APPROVED reviews", () => {
-    const reviews: Review[] = [{ author: { login: LOGIN }, state: "APPROVED" }];
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "APPROVED", commitOid: null },
+    ];
     expect(deriveCopilotPosted(reviews, LOGIN)).toBe(true);
   });
   it("accepts CHANGES_REQUESTED reviews", () => {
-    const reviews: Review[] = [{ author: { login: LOGIN }, state: "CHANGES_REQUESTED" }];
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "CHANGES_REQUESTED", commitOid: null },
+    ];
     expect(deriveCopilotPosted(reviews, LOGIN)).toBe(true);
   });
   it("accepts COMMENTED reviews", () => {
-    const reviews: Review[] = [{ author: { login: LOGIN }, state: "COMMENTED" }];
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "COMMENTED", commitOid: null },
+    ];
     expect(deriveCopilotPosted(reviews, LOGIN)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3a. extractLatestCopilotReviewCommit — PR #161 stale-review detection helper
+// ---------------------------------------------------------------------------
+
+describe(extractLatestCopilotReviewCommit, () => {
+  const LOGIN = "copilot-pull-request-reviewer";
+
+  it("returns null on an empty reviews list", () => {
+    expect(extractLatestCopilotReviewCommit([], LOGIN)).toBeNull();
+  });
+
+  it("returns null when no review matches the configured login", () => {
+    const reviews: Review[] = [
+      { author: { login: "alice" }, state: "APPROVED", commitOid: "sha-a" },
+    ];
+    expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBeNull();
+  });
+
+  it("returns the single matching Copilot review's commitOid", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "COMMENTED", commitOid: "sha-1" },
+    ];
+    expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBe("sha-1");
+  });
+
+  it("returns the last-in-array Copilot review when multiple match", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "COMMENTED", commitOid: "sha-old" },
+      { author: { login: LOGIN }, state: "APPROVED", commitOid: "sha-new" },
+    ];
+    expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBe("sha-new");
+  });
+
+  it("matches the login case-insensitively", () => {
+    const reviews: Review[] = [
+      {
+        author: { login: "Copilot-Pull-Request-Reviewer" },
+        state: "APPROVED",
+        commitOid: "sha-x",
+      },
+    ];
+    expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBe("sha-x");
+  });
+
+  it("excludes PENDING Copilot reviews", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "PENDING", commitOid: "sha-pending" },
+    ];
+    expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBeNull();
+  });
+
+  it("excludes DISMISSED Copilot reviews", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: "sha-dismissed" },
+    ];
+    expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBeNull();
+  });
+
+  it("returns null when the matched review's commitOid is null", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "COMMENTED", commitOid: null },
+    ];
+    expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3a-2. isCopilotReviewStale — staleness predicate
+// ---------------------------------------------------------------------------
+
+describe(isCopilotReviewStale, () => {
+  it("returns false when the latest Copilot commit is null", () => {
+    expect(isCopilotReviewStale(null, "sha-head")).toBe(false);
+  });
+
+  it("returns false when the latest Copilot commit equals headRefOid", () => {
+    expect(isCopilotReviewStale("sha-head", "sha-head")).toBe(false);
+  });
+
+  it("returns true when the latest Copilot commit differs from headRefOid", () => {
+    expect(isCopilotReviewStale("sha-old", "sha-head")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3a-3. retriggerCopilotReview — requested_reviewers POST
+// ---------------------------------------------------------------------------
+
+describe(retriggerCopilotReview, () => {
+  const LOGIN = "copilot-pull-request-reviewer";
+
+  it("builds the documented gh api POST argv and returns ok:true on success", () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = (argv) => {
+      calls.push(argv);
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    const out = retriggerCopilotReview(161, LOGIN, gh);
+    expect(out).toEqual({ ok: true, stderr: "" });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual([
+      "api",
+      "-X",
+      "POST",
+      "repos/{owner}/{repo}/pulls/161/requested_reviewers",
+      "-f",
+      `reviewers[]=${LOGIN}`,
+    ]);
+  });
+
+  it("returns ok:false with stderr propagated on non-zero exit", () => {
+    const gh: GhRunner = () => ({ stdout: "", stderr: "HTTP 422: Unprocessable", exitCode: 1 });
+    const out = retriggerCopilotReview(161, LOGIN, gh);
+    expect(out).toEqual({ ok: false, stderr: "HTTP 422: Unprocessable" });
   });
 });
 
@@ -637,11 +771,18 @@ const isPrView = (argv: string[]) =>
   argv[0] === "pr" &&
   argv[1] === "view" &&
   argv.includes("--json") &&
-  argv[argv.indexOf("--json") + 1] === "state,url,reviews";
+  argv[argv.indexOf("--json") + 1] === "state,url,reviews,headRefOid";
 
 const isPrChecks = (argv: string[]) => argv[0] === "pr" && argv[1] === "checks";
 
+const isRequestedReviewersPost = (argv: string[]) =>
+  argv[0] === "api" &&
+  argv.includes("-X") &&
+  argv[argv.indexOf("-X") + 1] === "POST" &&
+  argv.some((a) => /\/pulls\/\d+\/requested_reviewers$/.test(a));
+
 const PR_URL = "https://x/y/pull/100";
+const STABLE_HEAD_SHA = "sha-current";
 
 function reviewRequestsResponse(logins: string[]) {
   return {
@@ -651,9 +792,20 @@ function reviewRequestsResponse(logins: string[]) {
   };
 }
 
-function prViewResponse(state: "OPEN" | "MERGED" | "CLOSED", reviews: Review[] = []) {
+function prViewResponse(
+  state: "OPEN" | "MERGED" | "CLOSED",
+  reviews: Review[] = [],
+  headRefOid: string = STABLE_HEAD_SHA,
+) {
+  // The wire payload nests commit.oid under each review; the parser flattens
+  // to commitOid. Stringify the wire shape, not the parsed shape.
+  const wireReviews = reviews.map((r) => ({
+    author: r.author,
+    state: r.state,
+    commit: r.commitOid !== null ? { oid: r.commitOid } : null,
+  }));
   return {
-    stdout: JSON.stringify({ state, url: PR_URL, reviews }),
+    stdout: JSON.stringify({ state, url: PR_URL, reviews: wireReviews, headRefOid }),
     stderr: "",
     exitCode: 0,
   };
@@ -664,8 +816,15 @@ function prChecksResponse(checks: Check[]) {
 }
 
 const ALL_PASSED: Check[] = [{ name: "test", state: "SUCCESS" }];
+// Default commitOid matches STABLE_HEAD_SHA so existing tests don't trip the
+// new stale-review retrigger (which would otherwise fire on any PR with a
+// Copilot review against a SHA different from the PR's headRefOid).
 const COPILOT_REVIEW: Review[] = [
-  { author: { login: "copilot-pull-request-reviewer" }, state: "COMMENTED" },
+  {
+    author: { login: "copilot-pull-request-reviewer" },
+    state: "COMMENTED",
+    commitOid: STABLE_HEAD_SHA,
+  },
 ];
 
 describe("run() integration", () => {
@@ -1036,6 +1195,207 @@ describe("run() integration", () => {
     expect(result.copilotConfigured).toBe(false);
     expect(result.decision).toBe("proceed-to-review");
     expect(result.polls).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6b. run() integration — Copilot retrigger (PR #161 stale-review incident)
+//
+// Stale-review predicate: the most-recent Copilot review's commit.oid !==
+// the PR's current headRefOid. Retrigger is one-shot per invocation, gated
+// on CI terminal, and resets the 10-min Copilot timeout window from
+// re-request. POST failure still consumes the budget.
+// ---------------------------------------------------------------------------
+
+const STALE_SHA = "sha-stale";
+const HEAD_SHA = "sha-head-new";
+
+function staleCopilotReview(commitOid: string = STALE_SHA): Review[] {
+  return [
+    {
+      author: { login: "copilot-pull-request-reviewer" },
+      state: "COMMENTED",
+      commitOid,
+    },
+  ];
+}
+
+describe("run() integration — Copilot retrigger", () => {
+  it("(1) stale Copilot retrigger fires; fresh review at matching commit lands poll 2 → proceed-to-review", async () => {
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    const fresh = staleCopilotReview(HEAD_SHA); // same login, fresh commit
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      // Poll 1: stale review observed against HEAD_SHA → retrigger fires.
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      // Poll 2: fresh review at HEAD_SHA → proceed-to-review.
+      { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.copilotRetriggered).toBe(true);
+    expect(result.polls).toBe(2);
+    // Exactly one POST landed in the call sequence.
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
+  });
+
+  it("(2) one-shot enforcement: stale review + no fresh review → proceed-to-review-no-bot, exactly one POST", async () => {
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    // Build a long sequence where the stale review never gets a fresh follow-up.
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      // Poll 1: stale → retrigger fires.
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+    ];
+    // Polls 2+ keep observing the stale review (no fresh one ever lands).
+    // ciTerminalAt reset to poll-1 elapsed; the 10-min Copilot timeout fires
+    // at >=600s elapsed-since-retrigger. Need enough polls for ~12-15
+    // iterations under the 30-30-30-30-30-60-60-60-60-60-90-90-… ramp.
+    for (let i = 0; i < 20; i++) {
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) });
+      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+    }
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotRetriggered).toBe(true);
+    // One-shot: exactly one POST regardless of how many subsequent polls
+    // observe the stale review.
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
+  });
+
+  it("(3) non-stale: latest Copilot review commit === headRefOid → proceed-to-review, no POST", async () => {
+    const clock = makeFakeClock();
+    const fresh = staleCopilotReview(HEAD_SHA); // commit matches HEAD
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.copilotRetriggered).toBe(false);
+    expect(result.polls).toBe(1);
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(0);
+  });
+
+  it("(4) retrigger gated on CI terminal: stale review with pending CI → no POST until CI is terminal", async () => {
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    const PENDING_CHECKS: Check[] = [{ name: "test", state: "IN_PROGRESS" }];
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      // Poll 1: CI pending, stale review observed → NO retrigger fires.
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(PENDING_CHECKS) },
+      // Poll 2: CI pending, stale review observed → still NO retrigger.
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(PENDING_CHECKS) },
+      // Poll 3: CI all-passed, stale review observed → retrigger fires.
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      // Poll 4: fresh review lands → proceed-to-review.
+      { matches: isPrView, response: prViewResponse("OPEN", staleCopilotReview(HEAD_SHA), HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ];
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.copilotRetriggered).toBe(true);
+    expect(result.polls).toBe(4);
+    // The POST landed only after CI went terminal on poll 3.
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
+  });
+
+  it("(5) POST failure: gh returns non-zero on the POST → loop continues, copilotRetriggered:true, no retry", async () => {
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      // Poll 1: stale review → retrigger POST fires but FAILS.
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      {
+        matches: isRequestedReviewersPost,
+        response: { stdout: "", stderr: "HTTP 422", exitCode: 1 },
+      },
+    ];
+    // Polls 2+ still observe the stale review (the POST didn't actually
+    // re-request anyone). One-shot cap means no retry; eventual exit at the
+    // 10-min Copilot timeout under the no-bot decision branch.
+    for (let i = 0; i < 20; i++) {
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) });
+      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+    }
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotRetriggered).toBe(true);
+    // No second POST attempt even though the first failed.
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
   });
 });
 

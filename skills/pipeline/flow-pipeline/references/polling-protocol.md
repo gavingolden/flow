@@ -151,6 +151,83 @@ wait that the existing timeout already caps; the worst case of a false
 negative is the PR #78 incident — merging before the bot review posts.
 The fallback prefers the cheaper failure mode.
 
+#### Retrigger on stale review (one-shot)
+
+The historical-PR fallback above answers "is Copilot expected on this
+PR at all?". A second failure mode lives one layer deeper: Copilot is
+expected and has already reviewed the PR once, but a subsequent fix
+commit advances `headRefOid` past the SHA Copilot reviewed against,
+and the original review is stale. GitHub auto-removes Copilot from
+`requested_reviewers` after its first review and Copilot does **not**
+auto-re-review on subsequent pushes — so the supervisor sees a posted
+Copilot review and short-circuits to step 8 even though the bot has
+not looked at the fix.
+
+The staleness predicate is exact-SHA mismatch between the **latest**
+Copilot review's `commit.oid` (most recent in submission order, via
+the per-poll `gh pr view --json reviews,state,headRefOid` projection
+above) and the PR's current `headRefOid` from the same projection. A
+review with `commit.oid === headRefOid` is fresh and the existing
+"Copilot posted" exit fires unchanged.
+
+When the predicate is true AND CI has reached terminal AND the
+one-shot retrigger budget for this `flow-ci-wait` invocation is
+unused, the helper fires the re-request POST:
+
+```bash
+gh api -X POST /repos/{owner}/{repo}/pulls/{n}/requested_reviewers \
+  -f reviewers[]=<configured-copilot-login>
+```
+
+The configured login is the same value read from
+`~/.flow/config.json` `bots.copilot` (default
+`copilot-pull-request-reviewer`) used for detection elsewhere in this
+section. The `{owner}/{repo}` template is `gh api`'s documented
+substitution, so no manual repo resolution is needed.
+
+The retrigger is **one-shot per `flow-ci-wait` invocation**, on
+purpose. The worst-case wait stays bounded at `existing 20-min cap +
+one 10-min Copilot timeout` rather than an unbounded retrigger loop
+on a fix that keeps landing while we wait. The supervisor's
+ci-fix-loop re-invocation grants a fresh retrigger budget per fix
+cycle — so a second fix on the same PR still gets exactly one
+re-request, just from the next `flow-ci-wait` invocation rather than
+the current one.
+
+The retrigger is **gated on CI terminal** (`isCiTerminal(...) ===
+true`). Re-requesting Copilot against a commit that may be
+force-pushed mid-CI wastes the one-shot budget on a SHA that won't
+exist by the time Copilot reviews it. The gate also means a stale
+review observed during a pending-CI poll just causes the loop to
+continue — the retrigger fires on the first post-terminal poll that
+still observes the stale review.
+
+The **10-min Copilot timeout** branch in the decision matrix reuses
+the existing `copilotTimeout` constant; on retrigger, `ciTerminalAt`
+is reset to the current `elapsedSec` so the timeout window is
+measured from re-request, not from the original CI-terminal moment.
+A fresh review with `commit.oid === headRefOid` lands → exit
+`proceed-to-review` with `copilotRetriggered: true`. No fresh review
+within 10 min → exit `proceed-to-review-no-bot` with
+`copilotRetriggered: true`.
+
+**Failure mode: POST non-zero still consumes the budget.** A 422,
+403, or any other non-zero exit from the retrigger POST is logged
+but does NOT free the one-shot budget — the supervisor's ci-fix-loop
+re-invocation is the recovery path, not an in-loop retry. The
+emitted JSON carries `copilotRetriggered: true` on POST failure so
+the supervisor can observe that the attempt happened.
+
+PR #161 is the historical incident: Copilot reviewed once at commit
+`1c59a70` at `2026-05-19T01:18:59Z`, the fix commit `91e18e8` was
+pushed at `~01:29Z` advancing `headRefOid`, and `flow-ci-wait`
+short-circuited at poll 1 / elapsed 0s because `copilotConfigured=true`
+and a Copilot review existed against the stale commit. The PR's
+`requested_reviewers` was `[]` at the time of the short-circuit,
+confirming GitHub's auto-removal after the first review — there was
+no way for the helper to know Copilot would re-review without an
+explicit re-request POST.
+
 ### Why per-PR `reviewRequests` and not `gh api .../installations`
 
 The intuitive alternative — `gh api repos/<owner>/<repo>/installations`
@@ -196,8 +273,10 @@ gh pr checks <pr> --json name,state
 # Reviews from any source (Copilot, humans, other bots). Run every
 # iteration regardless of presence flags — review state is also where
 # `pr_state` (OPEN/MERGED/CLOSED) is sourced from, which the decision
-# matrix needs even for repos with no CI configured.
-gh pr view <pr> --json reviews,state
+# matrix needs even for repos with no CI configured. `headRefOid` is
+# the PR's current HEAD SHA, needed by the stale-Copilot-review
+# retrigger branch under "## Copilot reviewer" below.
+gh pr view <pr> --json reviews,state,headRefOid
 ```
 
 Combine the two JSON payloads in shell (jq) to derive a single state
@@ -224,6 +303,7 @@ Re-evaluate after each poll. The `ci_passed` / `ci_failed` /
 | `ci_passed` | `ci_failed` | `copilot_posted` | Elapsed | Decision |
 |---|---|---|---|---|
 | true | — | true | — | **proceed to step 8 (review)**. |
+| true | — | false (latest Copilot review against a stale commit), retrigger budget not consumed | — | **fire retrigger POST**, reset the Copilot timeout window, keep polling. See "Copilot reviewer → Retrigger on stale review (one-shot)" above. |
 | true | — | false | < 10 min after `ci_terminal` | **keep polling** (waiting on Copilot). |
 | true | — | false | ≥ 10 min after `ci_terminal` | **proceed to step 8 without bot review** (Copilot timed out). |
 | — | true | — | — | **loop back to step 5 in fix mode** (cap: 3 fix-loops total before escalation). Pass the failing-check log into the implement-fix prompt. |
