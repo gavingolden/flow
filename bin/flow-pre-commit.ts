@@ -702,7 +702,7 @@ Runs verification checks with automatic scope detection.
 Detects which project areas have changes and runs the appropriate checks.
 
 Options:
-  --scope <scopes>   Comma-separated scopes: src, scripts, docs
+  --scope <scopes>   Comma-separated scopes: src, scripts, docs, actions
   --pr <number>      Detect scopes from PR changed files
   --pre-push         Read refs from stdin (used by .githooks/pre-push)
   --json             Emit a single bounded JSON object on stdout instead
@@ -719,6 +719,7 @@ Check mapping:
   src:            npm run typecheck, npm run test
   scripts:        npm run typecheck:scripts, npm run test
   docs:           flow-md-validate .
+  actions:        actionlint .github/workflows/
   root-fallback:  npm run typecheck, npm run test
                   (fires when no other scope matched)
 

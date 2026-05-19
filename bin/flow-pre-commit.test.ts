@@ -371,6 +371,17 @@ describe(runCheck, () => {
     expect(result.passed).toBe(false);
     expect(result.skipReason).toBeUndefined();
   });
+
+  it("does NOT skip a real actionlint lint failure (non-127 exit, stderr without command-not-found markers)", () => {
+    const result = runCheck(
+      "actionlint .github/workflows/",
+      ["actionlint", ".github/workflows/"],
+      "actions",
+      exitWith(1, "workflows/foo.yml:42:9: shellcheck reported issue in this script"),
+    );
+    expect(result.passed).toBe(false);
+    expect(result.skipReason).toBeUndefined();
+  });
 });
 
 // --- Factories for pre-push ---
