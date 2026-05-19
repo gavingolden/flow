@@ -528,17 +528,20 @@ describe("/coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md ↔ 
     expect(
       agentsCallers.length,
       `AGENTS.md /coder exemption section must list exactly 3 callers ` +
-        `(/new-feature, /verify, /refactoring). Found: ${JSON.stringify(agentsCallers)}`,
+        `(/new-feature, /verify, /refactoring). Found: ${JSON.stringify(agentsCallers)}. ` +
+        `If you are intentionally adding a 4th caller, update this assertion in lockstep with the three docs.`,
     ).toBe(3);
     expect(
       pipelineCallers.length,
       `flow-pipeline/SKILL.md Task-tool exemption #6 block must list exactly 3 callers ` +
-        `(/new-feature, /verify, /refactoring). Found: ${JSON.stringify(pipelineCallers)}`,
+        `(/new-feature, /verify, /refactoring). Found: ${JSON.stringify(pipelineCallers)}. ` +
+        `If you are intentionally adding a 4th caller, update this assertion in lockstep with the three docs.`,
     ).toBe(3);
     expect(
       coderCallers.length,
       `coder/SKILL.md frontmatter description must list exactly 3 callers ` +
-        `(/new-feature, /verify, /refactoring). Found: ${JSON.stringify(coderCallers)}`,
+        `(/new-feature, /verify, /refactoring). Found: ${JSON.stringify(coderCallers)}. ` +
+        `If you are intentionally adding a 4th caller, update this assertion in lockstep with the three docs.`,
     ).toBe(3);
   });
 

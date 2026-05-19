@@ -178,7 +178,7 @@
         },
         {
           "name": "supply_chain_agent_fired",
-          "check": "supply-chain.json contains at least one entry referencing 'package.json' or 'top-level'"
+          "check": "supply-chain.json contains at least one entry referencing 'engines' (the deleted field) or another name from the rubric's closed set (bin|main|exports|types|engines|files)"
         }
       ]
     }
