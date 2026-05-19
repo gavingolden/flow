@@ -60,30 +60,7 @@ Either path follows the same operational rhythm:
 
 ### Reusable-workflow example
 
-```yaml
-# .github/workflows/prune-cf-pages.yml
-name: prune-cf-pages
-on:
-  schedule:
-    - cron: '0 7 * * *'   # 07:00 UTC daily
-  workflow_dispatch:
-jobs:
-  prune:
-    permissions:
-      contents: read
-    uses: gavingolden/flow/.github/workflows/cloudflare-pages-prune.yml@<sha>
-    with:
-      project: my-project
-      older_than_days: 30
-      branch: '!main'      # optional
-      dry_run: false       # default; set true for a dry-run validation pass
-    secrets:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      # Optional; required only in the private→private cross-repo case.
-      # See SKILL.md section 1 for full rationale.
-      WORKFLOW_REPO_TOKEN: ${{ secrets.WORKFLOW_REPO_TOKEN }}
-```
+See `SKILL.md` section 1 for the canonical reusable-workflow snippet and its inputs/secrets contract.
 
 ### When to vendor instead
 

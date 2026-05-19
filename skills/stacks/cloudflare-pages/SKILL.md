@@ -86,7 +86,7 @@ jobs:
       project: my-project
       older_than_days: 30
       branch: '!main'      # optional; omit to match all branches
-      dry_run: false       # default; set true for a dry-run validation pass
+      dry_run: false       # default; deletes deployments. set true for a dry-run validation pass
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -125,9 +125,10 @@ Inputs:
   script's `--branch` flag. Supports positive (`feat/*`) or negative
   (`!main`) globs. Empty string omits `--branch` so the script matches
   all branches.
-- `dry_run` (boolean, optional, default `false`) — performs the prune;
-  set true for a dry-run validation pass that invokes the script with
-  `--dry-run` and only prints the would-delete list.
+- `dry_run` (boolean, optional, default `false`) — **permanently deletes**
+  Cloudflare Pages deployments matched by the filter via `DELETE ?force=true`
+  REST calls; set true for a safe dry-run validation pass that invokes the
+  script with `--dry-run` and only prints the would-delete list.
 
 Secrets:
 
@@ -150,6 +151,11 @@ script directly when you need to:
   `--no-keep-aliased`, `--keep-production-latest` /
   `--no-keep-production-latest`, `--max <N>`, or the script's full
   `--older-than` syntax (ISO date / ISO datetime in addition to `<N>d`).
+
+Note the intentional asymmetry: the workflow input `dry_run` defaults to
+`false` (scheduled/unattended use, where opt-in dry-run would defeat the
+cron), while the script CLI below defaults to `--dry-run` (interactive
+vendor use, where the safe default protects ad-hoc operators).
 
 ```bash
 cp ~/.claude/skills/cloudflare-pages/templates/prune-cf-deployments.ts <your-project>/scripts/
