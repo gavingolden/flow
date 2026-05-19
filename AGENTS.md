@@ -58,11 +58,36 @@ of `docs/phases/` describe the deleted orchestrator's phase contracts
 ## Output style
 
 Token-efficient response guidelines for any agent working in this repo.
-Ordered by token-savings impact (highest first); rules #1 and #4 are the
+Ordered by token-savings impact (highest first); rules "Don't echo file
+contents or full diffs into chat." and "Calibrate length to task." are the
 two highest-leverage rules not already covered by Claude Code's built-in
 prompt. Source: research consensus from leaked Claude Code, Cursor, and
 Aider system prompts plus Anthropic's prompting docs.
 
+- **Verify factual claims before emitting them.** Always try to verify
+  factual claims proactively via an API request, doc fetch, or
+  filesystem check before propagating them into edits, PR bodies, or
+  scripts — especially values that have been latent/unvalidated for a
+  while. Concrete trigger categories: SHAs, file paths, line numbers,
+  URLs, issue/PR numbers, version strings, env-var names, API surface
+  shapes (function names, exported symbols, flag names), dates,
+  exemption counts, deprecated CLI flags. Anti-patterns to call out
+  explicitly: paraphrasing `AGENTS.md` from memory in a commit-message
+  Why-section, copy-pasting a prior PR body section without re-checking
+  its citations, citing line numbers from a stale `Read`, claiming an
+  exemption count that has since changed, hardcoding a SHA from earlier
+  in the session without re-running `git rev-parse`, quoting a CLI flag
+  from memory after `--help` shape may have changed. Per-category
+  verification recipes — line number: `Read` the file at the exact path
+  before citing; SHA: `git rev-parse <ref>`; URL: `curl -sI` or follow
+  the link; PR/issue number + state: `gh pr view <n> --json title,state,mergedAt`;
+  exemption count: `grep -cE '<anchored-pattern>' <file>` (never
+  unanchored substring); CLI flag: `<verb> --help`; file/path
+  existence: `test -f <path>`; exported symbol or function name:
+  `grep -n '<symbol>' <module>`. The rule is 'always *try*' with
+  judgement, not blanket pessimisation — a claim like 'this is a
+  TypeScript file' doesn't need a verification round-trip; a claim
+  like 'this matches `/foo/` on line 42' does. When in doubt, verify.
 - **Don't echo file contents or full diffs into chat.** Read with tools
   and reference findings as `path:line`. The user can open the file;
   pasting it back wastes tokens and clutters scrollback.
@@ -252,6 +277,19 @@ old silent-pass hole is closed.
   Subagent — all six covered by "Task-tool exemption" bullets below;
   no other skill or step may call Task.
 - Don't add features beyond the task's stated scope.
+- Don't propagate unverified factual claims. If you're about to emit
+  a SHA, file path, line number, URL, issue/PR number, version
+  string, env-var name, API surface shape, date, exemption count, or
+  deprecated CLI flag into an edit, PR body, commit message, or
+  script, verify the value live against its source (`Read`, `git
+  rev-parse`, `gh`, `grep`, `--help`) before emitting it. The
+  operational detail and per-category verification recipes live in
+  `## Output style` under 'Verify factual claims before emitting
+  them.' Latent values that were correct at a past read silently rot
+  — line numbers shift, SHAs advance, exemption counts grow, CLI
+  flags get renamed — and the aggregate erodes the textual evidence
+  the rest of the pipeline (auto-merge gate, multi-agent review,
+  fix-applier) relies on.
 - Don't introduce a database. Markdown plan files plus
   `~/.flow/state/<slug>.json` are the state store; if the queue ever
   outgrows that, swap in Beads via an adapter rather than building

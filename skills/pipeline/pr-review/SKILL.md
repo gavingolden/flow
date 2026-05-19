@@ -959,6 +959,8 @@ have to read commit-by-commit to reconstruct intent. Conversely, if commit bodie
 uniformly one-liners on a non-trivial PR, note it as a `suggestion` that future commits
 should capture rationale inline (per `AGENTS.md` Committing rules).
 
+**Proactive verification.** Before drafting or editing any factual claim into the PR body — a cited commit SHA, a line number, a referenced file path, a version string, an exemption count, an `--help` flag, a cross-referenced PR or issue number — verify the value live against its source (`Read` the file, `git rev-parse <ref>`, `gh pr view <n> --json title,state,mergedAt`, `grep -cE '<anchored>'`, `<verb> --help`). This is the proactive counterpart to Step 11d's Accuracy Sync — 11d catches drift *after* the description has been written; this catches it at the moment of emission. The canonical rule body, the full trigger-category list, anti-patterns, and per-category verification recipes live in `AGENTS.md` under `## Output style` — 'Verify factual claims before emitting them.' Anchor by section name, not by line number; line numbers themselves are a trigger category.
+
 ### 11a. Structure Check
 
 Check whether the PR description follows the standardized format with these sections:

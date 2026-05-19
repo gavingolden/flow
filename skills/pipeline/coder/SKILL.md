@@ -213,6 +213,8 @@ you genuinely encountered none — silence is not the default. Do not call
 deferred-worthy observations as `anti_patterns_found` and let the parent
 caller file the issue if appropriate.
 
+Proactive verification of cited identifiers. Before writing an Edit/Write tool call that cites a file path, line number, function name, exported symbol, import path, env-var name, or URL, verify the value live against its source: read the file at the exact path, grep for the symbol in the canonical module, run `git rev-parse <ref>` for a SHA, run `gh pr view <n>` for PR/issue state. Latent values from earlier in this subagent's session may have drifted — re-read before citing. The canonical rule lives in AGENTS.md under `## Output style` — 'Verify factual claims before emitting them.'
+
 Return a one-paragraph summary (3–5 sentences) that surfaces BOTH sides
 of what you learned: at least one positive (top edit's intent, the verify
 verdict, edit count applied) AND at least one negative (top entry from

@@ -276,6 +276,8 @@ After the user approves the critical analysis and test specs, seed a PR descript
 PR tells a coherent story from the start. Writing the description before implementation
 (rather than after) ensures it captures intent — not just a post-hoc summary of what was built.
 
+**Proactive verification at the seed moment.** Before writing any factual claim into the seeded PR description — a cited file path, line number, function/flag name, commit SHA, version string, referenced PR/issue number — verify the value live against its source (`Read` the file at the exact path, `git rev-parse <ref>`, `gh pr view <n> --json title,state,mergedAt`, `grep -cE '<anchored>'`, `<verb> --help`). Seeding the description proactively-verified means `/pr-review` Step 11d's post-hoc Accuracy Sync has nothing to fix up later. The canonical rule body — full trigger-category list, anti-patterns, per-category verification recipes — lives in `AGENTS.md` under `## Output style` — 'Verify factual claims before emitting them.' Anchor by section name; line numbers are themselves a trigger category.
+
 **If `.flow-tmp/pr-description-draft.md` exists in the working directory** (left by
 `product-planning`): use it as-is. It was already distilled from a full PRD and approved by
 the user. Skip to Step 5.
