@@ -57,7 +57,7 @@ in-process for skills; shell out for scripts; never delegate.
 > tool from this skill — **except for the named exceptions below**.
 > Never spawn a separate `claude -p` subprocess. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
-> calls, and (c) the six narrowly-named Task-tool exceptions that
+> calls, and (c) the seven narrowly-named Task-tool exceptions that
 > follow.
 >
 > The two constraints behind the rule above are (1) sub-agents can't
@@ -65,9 +65,9 @@ in-process for skills; shell out for scripts; never delegate.
 > with sub-agents would bloat past the context window. The supervisor
 > is itself a top-level Claude Code session (started by `flow new`
 > opening tmux + `claude`), so constraint (1) does not apply to *its*
-> Task calls — it applies to *its* sub-agents. All six exemptions
+> Task calls — it applies to *its* sub-agents. All seven exemptions
 > below are also one-shot, not long-running, so constraint (2) doesn't
-> apply either. They are the **only six** authorised Task-tool
+> apply either. They are the **only seven** authorised Task-tool
 > fan-out sites from this supervisor; no other skill or step may call
 > Task. Each is anchored on its step heading name rather than its
 > number so it survives future renumbering. Same narrow-and-named
@@ -75,7 +75,7 @@ in-process for skills; shell out for scripts; never delegate.
 > auto-merge exemptions in `AGENTS.md`. If a future skill needs the
 > same license, add it here by name rather than generalising the rule.
 >
-> **Load the Task tool at each spawn site.** Each of the six spawn
+> **Load the Task tool at each spawn site.** Each of the seven spawn
 > procedures below must instruct the supervisor to load the Task
 > tool schema via `ToolSearch query="select:Task"` *before* invoking
 > Task (or its alias `Agent`). In Claude Code sessions where neither `Task` nor its alias `Agent` is
@@ -90,8 +90,8 @@ in-process for skills; shell out for scripts; never delegate.
 > contract that each exemption is justified by. See each exemption's
 > spawn procedure for the canonical "Load the Task tool before
 > spawning" paragraph and `# Failure paths` below for the escalation
-> script. This is a sibling note to the six exemption blocks below,
-> not a seventh exemption.
+> script. This is a sibling note to the seven exemption blocks below,
+> not an eighth exemption.
 >
 > **Task-tool exemption #1: `/pr-review` Independent Multi-Agent
 > Review.** When the supervisor invokes `/pr-review` in step 8,
@@ -217,6 +217,37 @@ in-process for skills; shell out for scripts; never delegate.
 > `/refactoring` step 3 read once and reuse. The contract is documented bidirectionally in
 > `skills/pipeline/coder/SKILL.md`'s "Independent Edit-Applier Subagent"
 > section and `AGENTS.md` `## Don'ts`.
+>
+> **Task-tool exemption #7: `/pr-review` Independent Gatekeeper Subagent.**
+> When `/flow-pipeline` step 8 loads `/pr-review` and `/pr-review` reaches
+> its "Independent Gatekeeper Subagent" step (Step 1.5), one gatekeeper
+> agent is spawned via the Task tool with a per-spawn `model: "haiku"`
+> override. This is the first Task-tool exemption justified primarily by
+> **cost-routing** rather than primarily by context isolation — the Task
+> tool's per-spawn `model: "sonnet"|"opus"|"haiku"` enum lets this spawn
+> site downgrade from Sonnet to Haiku, short-circuiting the four-agent
+> Sonnet fan-out on closed/merged/trivial/no-new-commits PRs that
+> deterministic skip rules can rule out from a single `gh pr view --json
+> state,isDraft,additions,deletions,commits,author` metadata fetch.
+> Context-isolation still holds — the metadata fetch and the skip-rule
+> eval don't pollute the supervisor's transcript — but it's the secondary
+> win. The same two rationales apply — top-level Task call (constraint 1
+> doesn't apply), one-shot fan-out (constraint 2 doesn't apply) — plus the
+> cost-routing override the per-spawn `model: "haiku"` enum enables. The
+> only handoff to the wrapper is the structured artifact at
+> `<worktree>/.flow-tmp/gatekeeper-result.json` (typed fields:
+> `decision`, `reason`, `skip_kind?`, `summary`); the wrapper reads it
+> once and branches: `"skip"` writes a well-formed
+> `pr-review-result.json` with `status: "clean"` and `completed_steps:
+> ["1", "1.5"]` so `/flow-pipeline` step 8's branch-on-`.status` logic
+> sees a clean result and proceeds normally to the auto-merge gate;
+> `"proceed"` continues to Step 2 unchanged. On missing Task-tool schema
+> at the Step 1.5 spawn-site preamble, the escalation tag is
+> `task-tool-unavailable: pr-review-gatekeeper` — propagated by
+> `/pr-review` through `pr-review-result.json` and consumed verbatim by
+> step 8's branch-on-`.status` logic. The contract is documented
+> bidirectionally in `skills/pipeline/pr-review/SKILL.md`'s "Independent
+> Gatekeeper Subagent" section and `AGENTS.md` `## Don'ts`.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -599,7 +630,7 @@ request as the argument:
 
 `/product-planning` is itself a thin wrapper that spawns one
 **Independent Discovery Subagent** via the Task tool (the second of
-the six named Task-tool exemptions in "Hard rules" above). The
+the seven named Task-tool exemptions in "Hard rules" above). The
 subagent does all the discovery in its own isolated context — reading
 the README, scanning the skill directory, examining domain models,
 drafting the PRD — and writes the consolidated artifact to
@@ -725,7 +756,7 @@ pass the user's request:
 ```
 
 `/new-feature` is itself a thin wrapper that spawns one **Independent
-Scout Subagent** via the Task tool (the third of the six named
+Scout Subagent** via the Task tool (the third of the seven named
 Task-tool exemptions in "Hard rules" above) on its wider-scope path.
 The subagent reads the codebase in its isolated context — affected
 modules, relevant tests, public API surface, anti-patterns / off-limits
@@ -1020,7 +1051,7 @@ Invoke `/pr-review` in-process with the PR number:
 ```
 
 `/pr-review` itself spawns one **Fix-Applier Subagent** via the Task
-tool (the fourth of the six named Task-tool exemptions in "Hard
+tool (the fourth of the seven named Task-tool exemptions in "Hard
 rules" above) to handle the per-finding address loop, the pre-commit
 run, the commit + push, and the `/verify` re-run — all inside the
 subagent's isolated context. The subagent writes a structured
@@ -1102,7 +1133,8 @@ three string literals `"clean"`, `"partial"`, or `"escalated"`:
 - `"escalated"` → propagate the `.escalation_tag` verbatim into
   `NEEDS HUMAN: <escalation_tag>` and bail. No retry: the
   escalation tag names a documented bail-out site
-  (`task-tool-unavailable: pr-review-multi-agent-review`,
+  (`task-tool-unavailable: pr-review-gatekeeper`,
+  `task-tool-unavailable: pr-review-multi-agent-review`,
   `task-tool-unavailable: pr-review-fix-applier`, or
   `fix-applier-missing-artifact`) for which the resolution is
   user-action, not retry.
@@ -1643,7 +1675,7 @@ worktree + PR intact.
 
 ## Task-tool unavailable (no retries)
 
-Fires when any of the six spawn procedures' load step
+Fires when any of the seven spawn procedures' load step
 (`ToolSearch query="select:Task"`) returns a response that does not
 contain *either* a `<function>{"name": "Task", ...}</function>` *or* a
 `<function>{"name": "Agent", ...}</function>` line — i.e. the harness
@@ -1665,14 +1697,15 @@ flow-notify --status needs-human --reason "task-tool-unavailable: <exemption-nam
 The helper parses the `:`-suffix and appends ` (spawn site:
 <exemption-name>)` to `NEXT_ACTION_BY_REASON["task-tool-unavailable"]`
 so the rendered NEXT ACTION line names the exact spawn site that lost
-its Task tool — without this, all six exemption sites would collapse
+its Task tool — without this, all seven exemption sites would collapse
 to the same generic remediation string. The sentinel line is byte-exact
 `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
 
 `<exemption-name>` is the spawn site's canonical name — one of
-`pr-review-multi-agent-review`, `pr-review-fix-applier`,
-`product-planning-discovery`, `new-feature-scout`,
-`coder-edit-applier`, `flow-pipeline-merge-resolver`.
+`pr-review-gatekeeper`, `pr-review-multi-agent-review`,
+`pr-review-fix-applier`, `product-planning-discovery`,
+`new-feature-scout`, `coder-edit-applier`,
+`flow-pipeline-merge-resolver`.
 
 No retry is appropriate because the deferred-tool surfacing is
 environmental — user remediation is to re-run in a session where
@@ -1759,13 +1792,14 @@ After each phase transition:
 - `flow ls` (run from any terminal) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the six named exceptions in "Hard rules" above:
+  via the seven named exceptions in "Hard rules" above:
   `/pr-review`'s "Independent Multi-Agent Review",
   `/product-planning`'s "Independent Discovery Subagent",
   `/new-feature`'s "Independent Scout Subagent",
   `/pr-review`'s "Independent Fix-Applier Subagent",
   step 10's "Merge-Conflict Resolver Subagent",
-  and `/coder`'s "Independent Edit-Applier Subagent".
+  `/coder`'s "Independent Edit-Applier Subagent",
+  and `/pr-review`'s "Independent Gatekeeper Subagent".
   No other skill or step may call Task.
 - The supervisor never spawned a `claude -p` subprocess.
 
