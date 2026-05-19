@@ -221,6 +221,34 @@ exclusively on: **could an attacker exploit this code?**
    npm audit --json
    ```
 
+   If the manual `npm audit --json` itself returns an error envelope
+   (`{"error": {"code": "<CODE>", ...}}` with no `vulnerabilities` key — the same
+   shape the lens guards against with
+   `skipped_reason: "npm-audit-no-vulnerabilities-key"`), interpret the error
+   code rather than treating the missing key as "clean":
+
+   - **`ENOLOCK`** (no `package-lock.json` on disk) — surface a `question`
+     (non-blocking) noting the consumer lacks a lockfile, so CVE coverage is
+     uncertain for this review. Confidence 80–85. The author may have
+     intentionally shipped a library-only `package.json` (answer: noted, no
+     action) or the lockfile may be accidentally missing (answer: re-run
+     `npm install` then re-run audit). Either way, the finding is audit-trail,
+     not a verdict.
+   - **`ENOAUDIT`, `ENETUNREACH`, `ECONNREFUSED`, `ETIMEDOUT`** (registry
+     unreachable from the agent's network), or any unrecognised error code
+     (default to this branch as the safer interpretation) — surface a `todo`
+     (non-blocking) noting CVE coverage is uncertain for this review and
+     recommending the author re-run `npm audit` locally before merge.
+     Confidence 80–85. Unlike `ENOLOCK`, this isn't a question for the author —
+     coverage is plainly absent and the remediation is mechanical.
+
+   `issue (blocking)` is reserved for diff-evident threats (a malicious-package
+   name, a typo-squat pattern in the dep additions themselves), never for
+   audit-tool failures. An unresolved audit is an audit-trail gap, not an
+   exploitation path; if you can name the threat from the diff directly,
+   surface that as `issue (blocking)` on its own merits, independent of whether
+   the audit ran.
+
    If you can't run the audit locally either, surface a `question` flagging that
    the dependency lens didn't run and the consumer should confirm via their own
    audit recipe before merging dep changes.
