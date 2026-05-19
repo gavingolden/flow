@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   QUALIFYING_PR_TRIGGERS,
+  allMergeCommitsBetween,
   cadenceFor,
   decideOnPoll,
   deriveCheckState,
@@ -1255,6 +1256,7 @@ describe("run() integration — Copilot retrigger", () => {
       readWorkflowsDir: () => true,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -1297,6 +1299,7 @@ describe("run() integration — Copilot retrigger", () => {
       readWorkflowsDir: () => true,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -1324,6 +1327,7 @@ describe("run() integration — Copilot retrigger", () => {
       readWorkflowsDir: () => true,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -1335,6 +1339,10 @@ describe("run() integration — Copilot retrigger", () => {
   });
 
   it("(4) retrigger gated on CI terminal: stale review with pending CI → no POST until CI is terminal", async () => {
+    // readCommitsAreAllMerges:() => false preserves prior behavior; the
+    // trigger-gated-on-CI-terminal test never reaches the new check on the
+    // pending-CI polls (CI-terminal gate blocks first), so this only matters
+    // on poll 3 — and false means we don't divert the retrigger.
     const clock = makeFakeClock();
     const stale = staleCopilotReview(STALE_SHA);
     const PENDING_CHECKS: Check[] = [{ name: "test", state: "IN_PROGRESS" }];
@@ -1363,6 +1371,7 @@ describe("run() integration — Copilot retrigger", () => {
       readWorkflowsDir: () => true,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -1403,6 +1412,7 @@ describe("run() integration — Copilot retrigger", () => {
       readWorkflowsDir: () => true,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -1414,6 +1424,163 @@ describe("run() integration — Copilot retrigger", () => {
     // POST stderr is surfaced (polling-protocol.md "POST non-zero is logged"
     // contract — see fix in bin/flow-ci-wait.ts run() retrigger site).
     expect(cap.stderr.join("")).toMatch(/Copilot retrigger POST failed/);
+  });
+
+  it("(6) skips retrigger when every intervening commit is a merge", async () => {
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    // Stale review + readCommitsAreAllMerges:() => true → no POST in gh.calls,
+    // copilotRetriggered:false, decision proceeds via the existing-fresh-review
+    // branch (the stale review still counts as "posted" pre-retrigger). The
+    // first poll observes the stale review at HEAD_SHA, the merge-only check
+    // diverts the retrigger, and deriveCopilotPosted (pre-retrigger semantics)
+    // sees a POSTED Copilot review → exit proceed-to-review.
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => true,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.copilotRetriggered).toBe(false);
+    // Exactly zero POSTs went out.
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(0);
+    // Decision proceeds via the existing-fresh-review or copilot-timeout
+    // branches — for this single-poll fixture (CI-passed + stale-but-posted
+    // Copilot review), the decision matrix exits proceed-to-review on poll 1.
+    expect(result.decision).toBe("proceed-to-review");
+    // The merge-only stderr line fires so the user sees why the loop didn't
+    // retrigger.
+    expect(cap.stderr.join("")).toMatch(/every intervening commit is a merge, skipping retrigger/);
+  });
+
+  it("(7) fires retrigger when at least one intervening commit is a regular non-merge commit", async () => {
+    // Pin the default-behavior contract: same setup as test (1) but with
+    // readCommitsAreAllMerges:() => false explicitly, asserting the
+    // retrigger still fires (no regression from the new check when at
+    // least one intervening commit is a non-merge).
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    const fresh = staleCopilotReview(HEAD_SHA);
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.copilotRetriggered).toBe(true);
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
+    expect(cap.stderr.join("")).toMatch(/Copilot review stale.*re-requested at poll 1/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6c. allMergeCommitsBetween — unit tests
+// ---------------------------------------------------------------------------
+
+describe(allMergeCommitsBetween, () => {
+  function ghFromQueue(queue: Array<{ stdout: string; exitCode: number }>): GhRunner & {
+    calls: string[][];
+  } {
+    const calls: string[][] = [];
+    let cursor = 0;
+    const fn = ((argv: string[]) => {
+      calls.push(argv);
+      const next = queue[cursor++];
+      if (!next) return { stdout: "", stderr: "", exitCode: 1 };
+      return { stdout: next.stdout, stderr: "", exitCode: next.exitCode };
+    }) as GhRunner & { calls: string[][] };
+    fn.calls = calls;
+    return fn;
+  }
+
+  it("returns true when every commit has >= 2 parents (all-merges)", () => {
+    const gh = ghFromQueue([
+      {
+        stdout: JSON.stringify([
+          { sha: "a", parents: [{ sha: "p1" }, { sha: "p2" }] },
+          { sha: "b", parents: [{ sha: "p3" }, { sha: "p4" }] },
+        ]),
+        exitCode: 0,
+      },
+    ]);
+    expect(allMergeCommitsBetween("from", "to", gh)).toBe(true);
+  });
+
+  it("returns false when at least one commit has < 2 parents (one non-merge)", () => {
+    const gh = ghFromQueue([
+      {
+        stdout: JSON.stringify([
+          { sha: "a", parents: [{ sha: "p1" }, { sha: "p2" }] },
+          { sha: "b", parents: [{ sha: "p3" }] }, // regular commit
+        ]),
+        exitCode: 0,
+      },
+    ]);
+    expect(allMergeCommitsBetween("from", "to", gh)).toBe(false);
+  });
+
+  it("returns false when gh exits non-zero (fail-open)", () => {
+    const gh = ghFromQueue([{ stdout: "", exitCode: 1 }]);
+    expect(allMergeCommitsBetween("from", "to", gh)).toBe(false);
+  });
+
+  it("returns false on malformed JSON", () => {
+    const gh = ghFromQueue([{ stdout: "not-json{", exitCode: 0 }]);
+    expect(allMergeCommitsBetween("from", "to", gh)).toBe(false);
+  });
+
+  it("returns false on an empty commits array (no commits to skip on)", () => {
+    const gh = ghFromQueue([{ stdout: "[]", exitCode: 0 }]);
+    expect(allMergeCommitsBetween("from", "to", gh)).toBe(false);
+  });
+
+  it("returns true on a single merge commit", () => {
+    const gh = ghFromQueue([
+      {
+        stdout: JSON.stringify([{ sha: "a", parents: [{ sha: "p1" }, { sha: "p2" }] }]),
+        exitCode: 0,
+      },
+    ]);
+    expect(allMergeCommitsBetween("from", "to", gh)).toBe(true);
+  });
+
+  it("builds the documented gh api argv with the compare endpoint and --jq .commits", () => {
+    const gh = ghFromQueue([{ stdout: "[]", exitCode: 0 }]);
+    allMergeCommitsBetween("oldsha", "newsha", gh);
+    expect(gh.calls[0]).toEqual([
+      "api",
+      "repos/{owner}/{repo}/compare/oldsha...newsha",
+      "--jq",
+      ".commits",
+    ]);
   });
 });
 

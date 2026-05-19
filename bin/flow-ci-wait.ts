@@ -213,6 +213,55 @@ export function isCopilotReviewStale(
 }
 
 /**
+ * Returns true iff every commit between `fromSha` (exclusive) and
+ * `toSha` (inclusive) is a merge commit (has >= 2 parents).
+ *
+ * Why: merging main into a PR branch as a pre-merge integration step
+ * advances `headRefOid` without introducing author-authored changes
+ * that warrant another Copilot pass — the diff vs base is unchanged
+ * from Copilot's perspective. Firing the stale-review retrigger in
+ * that case burns the one-shot budget on a no-op review.
+ *
+ * Failure semantics — fail-open: any `gh` non-zero exit, malformed
+ * JSON, or empty commits array collapses to `false` so the caller
+ * proceeds to fire the retrigger. A transient `gh` hiccup must not
+ * suppress a real retrigger.
+ *
+ * Conservative direction: false negative = one wasted POST on a no-op
+ * review (cheap — one HTTP request per invocation); false positive =
+ * re-introduces PR #161's "merged before Copilot reviewed the fix"
+ * bug (expensive — silent correctness regression). The cheaper
+ * failure mode is to fire the POST.
+ */
+export function allMergeCommitsBetween(
+  fromSha: string,
+  toSha: string,
+  gh: GhRunner,
+): boolean {
+  const r = gh([
+    "api",
+    `repos/{owner}/{repo}/compare/${fromSha}...${toSha}`,
+    "--jq",
+    ".commits",
+  ]);
+  if (r.exitCode !== 0) return false;
+  try {
+    const parsed = JSON.parse(r.stdout) as unknown;
+    if (!Array.isArray(parsed)) return false;
+    if (parsed.length === 0) return false;
+    return parsed.every(
+      (c) =>
+        typeof c === "object" &&
+        c !== null &&
+        Array.isArray((c as { parents?: unknown }).parents) &&
+        ((c as { parents: unknown[] }).parents.length >= 2),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Re-requests the configured Copilot login on the PR via the GitHub
  * `requested_reviewers` endpoint — the same endpoint the GitHub UI's
  * "Re-request review" button uses, and the only documented way to force
@@ -319,6 +368,14 @@ export type Deps = {
    * injected `gh`. Tests inject a fake to avoid sequencing list+view calls.
    */
   readHistoricalBotReview?: (login: string) => boolean;
+  /**
+   * Returns true iff every commit between `fromSha` (exclusive) and
+   * `toSha` (inclusive) is a merge commit. Default uses
+   * `allMergeCommitsBetween` against the injected `gh`. Tests inject
+   * a fake to skip sequencing a compare-API call. Mirrors the
+   * `readHistoricalBotReview` pattern.
+   */
+  readCommitsAreAllMerges?: (fromSha: string, toSha: string) => boolean;
   /** Test-only: override the cwd used by readWorkflowsDir. */
   cwd?: string;
 };
@@ -640,6 +697,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const readCopilotLogin = deps.readCopilotLogin ?? defaultReadCopilotLogin;
   const readHistoricalBotReview =
     deps.readHistoricalBotReview ?? ((login: string) => fetchHistoricalBotReview(login, gh));
+  const readCommitsAreAllMerges =
+    deps.readCommitsAreAllMerges ??
+    ((fromSha: string, toSha: string) => allMergeCommitsBetween(fromSha, toSha, gh));
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -741,25 +801,39 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         copilotLogin,
       );
       if (isCopilotReviewStale(latestCopilotCommit, prInfo.headRefOid)) {
-        const retrigger = retriggerCopilotReview(parsed.pr, copilotLogin, gh);
-        copilotRetriggered = true;
-        // Reset the Copilot timeout window so the existing 10-min branch
-        // measures from re-request, not from original CI terminal.
-        ciTerminalAt = elapsedSec;
-        // Surface POST failure stderr first so the user-facing log matches
-        // polling-protocol.md's "POST non-zero is logged" contract; the
-        // attempt still consumed the one-shot budget so the standard
-        // re-requested line still fires.
-        if (!retrigger.ok) {
+        // Merge-only skip: when every intervening commit between the
+        // reviewed SHA and headRefOid is a merge commit, the diff vs
+        // base is unchanged from Copilot's perspective and re-firing
+        // would burn the one-shot budget on a no-op review. latestCopilotCommit
+        // is guaranteed non-null here because isCopilotReviewStale
+        // returned true (which requires a non-null commit).
+        if (readCommitsAreAllMerges(latestCopilotCommit as string, prInfo.headRefOid)) {
+          const oldShort = (latestCopilotCommit as string).slice(0, 8);
+          const newShort = prInfo.headRefOid.slice(0, 8);
           process.stderr.write(
-            `Copilot retrigger POST failed: ${retrigger.stderr.slice(0, 200)}\n`,
+            `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — every intervening commit is a merge, skipping retrigger\n`,
+          );
+        } else {
+          const retrigger = retriggerCopilotReview(parsed.pr, copilotLogin, gh);
+          copilotRetriggered = true;
+          // Reset the Copilot timeout window so the existing 10-min branch
+          // measures from re-request, not from original CI terminal.
+          ciTerminalAt = elapsedSec;
+          // Surface POST failure stderr first so the user-facing log matches
+          // polling-protocol.md's "POST non-zero is logged" contract; the
+          // attempt still consumed the one-shot budget so the standard
+          // re-requested line still fires.
+          if (!retrigger.ok) {
+            process.stderr.write(
+              `Copilot retrigger POST failed: ${retrigger.stderr.slice(0, 200)}\n`,
+            );
+          }
+          const oldShort = (latestCopilotCommit as string).slice(0, 8);
+          const newShort = prInfo.headRefOid.slice(0, 8);
+          process.stderr.write(
+            `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — re-requested at poll ${pollNum}\n`,
           );
         }
-        const oldShort = (latestCopilotCommit ?? "").slice(0, 8);
-        const newShort = prInfo.headRefOid.slice(0, 8);
-        process.stderr.write(
-          `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — re-requested at poll ${pollNum}\n`,
-        );
       }
     }
 

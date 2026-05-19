@@ -202,6 +202,20 @@ review observed during a pending-CI poll just causes the loop to
 continue — the retrigger fires on the first post-terminal poll that
 still observes the stale review.
 
+- **Merge-only exclusion.** When every commit between the
+  Copilot-reviewed commit and the current `headRefOid` is a merge
+  commit (e.g. merging main into the PR branch as a pre-merge
+  integration step), the retrigger is skipped — the diff vs base is
+  unchanged from Copilot's perspective and another review would be a
+  no-op POST burning the one-shot budget. Detected via
+  `gh api repos/{owner}/{repo}/compare/<old>...<new> --jq .commits`
+  returning commits whose `parents` arrays all have length >= 2; see
+  the `allMergeCommitsBetween` helper in `bin/flow-ci-wait.ts`. Fails
+  open (any `gh` hiccup falls through to firing the retrigger) — the
+  cheaper failure mode is one wasted POST per invocation; the
+  expensive failure mode (skipping when a real fix exists) would
+  re-introduce PR #161.
+
 The **10-min Copilot timeout** branch in the decision matrix reuses
 the existing `copilotTimeout` constant; on retrigger, `ciTerminalAt`
 is reset to the current `elapsedSec` so the timeout window is
