@@ -112,54 +112,19 @@ trade-off is `.flow-tmp/fix-applier-result.json` itself — its typed fields
 
 ## Independent Fix-Applier Subagent
 
-**Task-tool fan-out is intentional.** This step ("Independent Fix-Applier
-Subagent") spawns one fix-applier agent via the Task tool. When `/pr-review`
-is loaded in-process by `/flow-pipeline` (the supervisor's step 8), this
-fan-out is permitted by the named Task-tool exception in
-`skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section (itself
-anchored on this step's heading name, not its number, so it survives
-future renumbering). Outside the supervisor context (e.g. invoked directly
-from a user session), the Task tool is unrestricted, so the spawn runs
-identically. Either path: one subagent, returns artifact on disk + a brief
-summary.
-
-**Verify re-run inside the subagent — load-bearing.** Unlike the discovery
-subagent, the fix-applier re-runs `/verify` *after* applying fixes, before
-returning. CI failures caused by the fix surface in-context where the fix
-rationale is still live, not after the subagent exits and CI catches the
-breakage in step 7 of `/flow-pipeline`. Skipping this re-run returns the
-refactor to its pre-PR-95 shape.
-
-**Negative-findings slots are required.** The artifact's
-`rejected_alternatives` and `anti_patterns_found` arrays are not optional
-decorations — they are the slots where the subagent records what it
-learned should NOT be done. The spawn prompt below tells the subagent to
-populate them proactively; the schema makes them required keys (empty
-arrays are permitted only when the subagent genuinely encountered no
-alternatives or anti-patterns).
+Spawned via the Task tool — one fix-applier agent that returns an
+artifact on disk plus a brief summary. The bidirectional contract for
+this exemption (named, scoped, rationale'd) lives in `AGENTS.md` under
+the `## Don'ts` section. The fan-out exists for context isolation:
+per-finding fix prose, `flow-pre-commit` output, and the `/verify`
+re-run stay inside the subagent rather than landing in the supervisor's
+transcript.
 
 ## Spawn procedure
 
 The wrapper spawns the subagent at Step 8. Before the spawn:
 
-**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-fix-applier"` per the # Result artifact contract below (write-`.tmp` → validate-`.tmp` → `mv`). Worked example:
-
-```bash
-RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
-cat > "$RESULT_PATH.tmp" <<'EOF'
-{
-  "status": "escalated",
-  "completed_steps": ["1", "2", "3", "4", "5"],
-  "missed_steps": ["6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
-  "escalation_tag": "task-tool-unavailable: pr-review-fix-applier",
-  "summary": "Bailed at the Fix-Applier spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
-}
-EOF
-bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
-  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
-```
-
-The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-fix-applier` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier`, write the result artifact, and do not fall back to in-line execution.
 
 1. Resolve the working directory absolutely into a single shell variable
    `$WORKTREE` and use it everywhere downstream — never re-derive in any
@@ -344,35 +309,33 @@ validate + `mv` order guarantees a half-written or off-shape
 artifact never sits on disk where a reader expects a well-formed
 JSON object. Overwrite any prior artifact; do not append.
 
-**Exit-path wiring.**
+**Exit-path wiring.** The wrapper writes the result artifact at
+`<worktree>/.flow-tmp/pr-review-result.json` on every exit path. The
+firing trigger for each `escalation_tag` is named below: the
+multi-agent-review tag is raised by Step 3's preamble when
+`ToolSearch query="select:Task"` returns neither `"name": "Task"` nor
+`"name": "Agent"`; the fix-applier tag is raised analogously by the
+Fix-Applier spawn-procedure preamble before the Task call; the
+missing-artifact tag is raised by Step 8's existence check on
+`$ARTIFACT_PATH`. The `"partial"` row fires when at least one step
+listed in this skill's # Instructions was not reached because an
+earlier escalation, retry-exhausted, or user redirect terminated the
+run before the wrapper got there — see the `"partial"` definition in
+the `# Result artifact` section above. Deferred-finding paths
+(Step 6's deferral bar, Step 7's "skip with reason") count as
+`completed_steps` — deferral is a documented Step 6/7 outcome, not an
+escalation. The `--resume-from` flag merges new `completed_steps` into
+the prior artifact's list; on escalation paths the unreached step
+labels go in `missed_steps` while the labels that did run go in
+`completed_steps`.
 
-- **Clean Step 13 completion** → `status: "clean"`,
-  `completed_steps` contains all top-level step labels that ran,
-  `missed_steps: []`, `escalation_tag: null`. Deferred-finding paths
-  (Step 6's deferral bar, Step 7's "skip with reason") still count as
-  completed_steps — deferral is a documented Step 6/7 outcome, not an
-  escalation.
-- **`task-tool-unavailable: pr-review-multi-agent-review`** (raised
-  by Step 3's preamble when `ToolSearch query="select:Task"` returns
-  neither `"name": "Task"` nor `"name": "Agent"`) → `status:
-  "escalated"`, `escalation_tag: "task-tool-unavailable:
-  pr-review-multi-agent-review"`, `completed_steps` lists Steps 1
-  and 2, `missed_steps` lists 3 onward.
-- **`task-tool-unavailable: pr-review-fix-applier`** (raised by the
-  Spawn procedure's preamble before the Fix-Applier Task call) →
-  `status: "escalated"`, `escalation_tag: "task-tool-unavailable:
-  pr-review-fix-applier"`, `completed_steps` includes everything
-  that ran before the spawn site, `missed_steps` lists the
-  Fix-Applier-owned Steps 6/7/7.5/8 plus anything downstream.
-- **`fix-applier-missing-artifact`** (Step 8's existence check
-  failed) → `status: "escalated"`, `escalation_tag:
-  "fix-applier-missing-artifact"`, `completed_steps` includes
-  through Step 8 spawn, `missed_steps` lists 9 onward.
-- **Multi-agent review failure** (Step 3 retry-exhausted or any of
-  the four agents returned a structural error the wrapper can't
-  parse) → `status: "escalated"`, `escalation_tag` carries the
-  verbatim wrapper-level escalation tag, partial step lists per
-  above.
+| Status | Escalation tag | Completed steps (representative) | Missed steps (representative) |
+|---|---|---|---|
+| `"clean"` | `null` | All step labels that ran | `[]` |
+| `"escalated"` | `task-tool-unavailable: pr-review-multi-agent-review` | `["1", "2"]` | `["3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
+| `"escalated"` | `task-tool-unavailable: pr-review-fix-applier` | `["1", "2", "3", "4", "5"]` | Fix-Applier-owned Steps `["6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
+| `"escalated"` | `fix-applier-missing-artifact` | `["1", "2", "3", "4", "5", "8"]` | `["8c", "9", "10", "11", "12", "13"]` |
+| `"partial"` | `null` | Steps that ran | Steps that didn't |
 
 **`--resume-from <step-number>` flag.** When `$ARGUMENTS` contains
 `--resume-from <N>` (where `<N>` is one of the canonical step labels
@@ -419,14 +382,12 @@ This is the core of the skill. You will spawn 4 specialized review agents in par
 each examining the PR from a different angle. Their independent perspectives catch more
 than any single reviewer could.
 
-**Task-tool fan-out is intentional.** This step ("Independent Multi-Agent Review")
-spawns the four review agents via the Task tool. When `/pr-review` is loaded in-process
-by `/flow-pipeline` (the supervisor's step 8), this fan-out is permitted by the named
-Task-tool exception in `skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section
-(itself anchored on this step's heading name, not its number, so it survives future
-renumbering). Outside the supervisor context (e.g. invoked directly from a user session),
-the Task tool is unrestricted, so the fan-out runs identically. Either path: four agents
-in parallel, then merge.
+Spawned via the Task tool — four review agents in parallel, then merge.
+The bidirectional contract for this exemption (named, scoped,
+rationale'd) lives in `AGENTS.md` under the `## Don'ts` section. The
+fan-out exists for context isolation: each agent's per-file reads,
+checklist enumeration, and per-finding rationale stay inside its own
+subagent rather than landing in the supervisor's transcript.
 
 **Preparation** (before spawning):
 
@@ -472,24 +433,7 @@ in parallel, then merge.
 
 5. Read `references/agent-prompts.md` for the prompt templates.
 
-**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the four parallel spawns will silently fall through to in-line execution unless the schema is loaded first. Before the Task calls below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-multi-agent-review"` per the # Result artifact contract above (write-`.tmp` → validate-`.tmp` → `mv`). Worked example:
-
-```bash
-RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
-cat > "$RESULT_PATH.tmp" <<'EOF'
-{
-  "status": "escalated",
-  "completed_steps": ["1", "2"],
-  "missed_steps": ["3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
-  "escalation_tag": "task-tool-unavailable: pr-review-multi-agent-review",
-  "summary": "Bailed at the Multi-Agent Review spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
-}
-EOF
-bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
-  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
-```
-
-The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
+**Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 
 **Spawn 4 agents in parallel**, each as a subagent. For each agent:
 
@@ -605,13 +549,13 @@ canonical `$ARTIFACT_PATH` resolved during the spawn procedure (the
 single source of truth for the artifact's location):
 
 ```bash
-test -s "$ARTIFACT_PATH" \
-  || {
-       # Write the wrapper-level result artifact recording the escalation
-       # before bailing — every exit path must leave pr-review-result.json
-       # on disk so the supervisor can branch on .status.
-       RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
-       cat > "$RESULT_PATH.tmp" <<'EOF'
+test -s "$ARTIFACT_PATH" || {
+  # Write the escalation result artifact per the
+  # `fix-applier-missing-artifact` recipe in
+  # references/escalation-recipes.md — every exit path must leave
+  # pr-review-result.json on disk so the supervisor can branch on .status.
+  RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+  cat > "$RESULT_PATH.tmp" <<'EOF'
 {
   "status": "escalated",
   "completed_steps": ["1", "2", "3", "4", "5", "8"],
@@ -620,12 +564,14 @@ test -s "$ARTIFACT_PATH" \
   "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing or empty. Wrapper bailed at Step 8's existence check; supervisor must restart."
 }
 EOF
-       bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
-         && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
-       echo "NEEDS HUMAN: fix-applier-missing-artifact" >&2;
-       exit 1;
-     }
+  bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+    && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+  echo "NEEDS HUMAN: fix-applier-missing-artifact" >&2
+  exit 1
+}
 ```
+
+On missing or empty artifact, follow the `fix-applier-missing-artifact` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) (inlined in the bash block above) — escalate `NEEDS HUMAN: fix-applier-missing-artifact` and write the result artifact. Every exit path must leave `pr-review-result.json` on disk so the supervisor can branch on `.status`.
 
 On missing or empty artifact, surface the failure to the supervisor — **do
 not** retry the Task call. Re-invocation is the supervisor's decision; a
