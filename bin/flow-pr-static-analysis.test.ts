@@ -7,6 +7,7 @@ import {
   parseBiomeJson,
   parseCoverageJson,
   parseEslintJson,
+  parseNpmAuditJson,
   parseSemgrepJson,
   parseTscOutput,
   run,
@@ -37,6 +38,46 @@ function makeSemgrepJson(
       extra: { severity: r.severity, message: r.message ?? r.rule },
     })),
   });
+}
+
+function makeNpmAuditJson(
+  specs: Array<{
+    pkg: string;
+    severity: "low" | "moderate" | "high" | "critical";
+    isDirect?: boolean;
+    ghsaId?: string;
+    title?: string;
+    viaIncludesSiblingString?: string;
+  }>,
+): string {
+  const vulnerabilities: Record<string, unknown> = {};
+  for (const s of specs) {
+    const via: unknown[] = [
+      {
+        source: 1234,
+        name: s.pkg,
+        dependency: s.pkg,
+        title: s.title ?? `Vulnerability in ${s.pkg}`,
+        url: `https://github.com/advisories/${s.ghsaId ?? "GHSA-xxxx-xxxx-xxxx"}`,
+        severity: s.severity,
+        cwe: ["CWE-79"],
+        cvss: { score: 7.5, vectorString: "CVSS:3.1/AV:N" },
+        range: "<1.0.0",
+      },
+    ];
+    if (s.viaIncludesSiblingString) via.push(s.viaIncludesSiblingString);
+    vulnerabilities[s.pkg] = {
+      name: s.pkg,
+      severity: s.severity,
+      isDirect: s.isDirect ?? true,
+      via,
+      effects: [],
+      range: "<1.0.0",
+      nodes: [`node_modules/${s.pkg}`],
+      fixAvailable: true,
+    };
+  }
+  return JSON.stringify({ auditReportVersion: 2, vulnerabilities });
 }
 
 function makeBiomeJsonOldShape(
@@ -334,6 +375,120 @@ describe(parseCoverageJson, () => {
   });
 });
 
+// --- parseNpmAuditJson -----------------------------------------------------
+
+describe(parseNpmAuditJson, () => {
+  const samplePackageJson = '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
+
+  it("parses one high-severity finding into a Finding with file=package.json and resolved line", () => {
+    const json = makeNpmAuditJson([
+      { pkg: "lodash", severity: "high", ghsaId: "GHSA-jf85-cpcp-j695", title: "Prototype Pollution in lodash" },
+    ]);
+    const findings = parseNpmAuditJson(json, samplePackageJson);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toMatchObject({
+      file: "package.json",
+      line: 3, // "lodash" appears on line 3 of samplePackageJson
+      rule_id: "GHSA-jf85-cpcp-j695",
+      source: "npm-audit",
+      severity: "error",
+      confidence: 90,
+      message: "Prototype Pollution in lodash",
+    });
+  });
+
+  it("returns [] on empty vulnerabilities object", () => {
+    expect(parseNpmAuditJson(JSON.stringify({ auditReportVersion: 2, vulnerabilities: {} }), samplePackageJson)).toEqual([]);
+  });
+
+  it("returns [] on malformed JSON input", () => {
+    expect(parseNpmAuditJson("{not json", samplePackageJson)).toEqual([]);
+  });
+
+  it("returns [] when top-level vulnerabilities key is missing", () => {
+    expect(parseNpmAuditJson(JSON.stringify({ auditReportVersion: 2 }), samplePackageJson)).toEqual([]);
+  });
+
+  it("filters out transitive (isDirect=false) entries", () => {
+    const json = JSON.stringify({
+      auditReportVersion: 2,
+      vulnerabilities: {
+        lodash: {
+          name: "lodash",
+          severity: "high",
+          isDirect: true,
+          via: [{ source: 1, title: "direct vuln", url: "https://github.com/advisories/GHSA-aaaa-aaaa-aaaa", severity: "high" }],
+        },
+        "some-transitive": {
+          name: "some-transitive",
+          severity: "critical",
+          isDirect: false,
+          via: [{ source: 2, title: "transitive vuln", url: "https://github.com/advisories/GHSA-bbbb-bbbb-bbbb", severity: "critical" }],
+        },
+      },
+    });
+    const findings = parseNpmAuditJson(json, samplePackageJson);
+    expect(findings).toHaveLength(1);
+    expect(findings[0].message).toBe("direct vuln");
+  });
+
+  it("skips string via entries to avoid double-counting sibling CVEs", () => {
+    const json = makeNpmAuditJson([
+      { pkg: "lodash", severity: "high", ghsaId: "GHSA-xxxx-xxxx-xxxx", viaIncludesSiblingString: "lodash.merge" },
+    ]);
+    const findings = parseNpmAuditJson(json, samplePackageJson);
+    // Even though via has [object, "lodash.merge"], only the object should produce a finding.
+    expect(findings).toHaveLength(1);
+  });
+
+  it("extracts GHSA ID from via.url", () => {
+    const json = makeNpmAuditJson([
+      { pkg: "lodash", severity: "high", ghsaId: "GHSA-67mh-4wv8-2f99" },
+    ]);
+    const findings = parseNpmAuditJson(json, samplePackageJson);
+    expect(findings[0].rule_id).toBe("GHSA-67mh-4wv8-2f99");
+  });
+
+  it("falls back to String(via.source) when via.url is absent", () => {
+    const json = JSON.stringify({
+      auditReportVersion: 2,
+      vulnerabilities: {
+        lodash: {
+          name: "lodash",
+          severity: "high",
+          isDirect: true,
+          via: [{ source: 9876, title: "no-url vuln", severity: "high" }],
+        },
+      },
+    });
+    const findings = parseNpmAuditJson(json, samplePackageJson);
+    expect(findings[0].rule_id).toBe("9876");
+  });
+
+  it("resolves the line number against packageJsonContent", () => {
+    const longPackageJson = '{\n  "name": "x",\n  "version": "1.0.0",\n  "dependencies": {\n    "axios": "0.21.0"\n  }\n}';
+    const json = makeNpmAuditJson([
+      { pkg: "axios", severity: "moderate", ghsaId: "GHSA-test-test-test" },
+    ]);
+    const findings = parseNpmAuditJson(json, longPackageJson);
+    expect(findings[0].line).toBe(5); // "axios" on line 5
+  });
+
+  it("falls back to line 1 when packageJsonContent is null", () => {
+    const json = makeNpmAuditJson([
+      { pkg: "lodash", severity: "high" },
+    ]);
+    expect(parseNpmAuditJson(json, null)[0].line).toBe(1);
+  });
+
+  it("falls back to line 1 when package name doesn't match anything in packageJsonContent", () => {
+    const json = makeNpmAuditJson([
+      { pkg: "not-in-package-json", severity: "high" },
+    ]);
+    expect(parseNpmAuditJson(json, samplePackageJson)[0].line).toBe(1);
+  });
+});
+
 // --- computeChangedLines ---------------------------------------------------
 
 describe(computeChangedLines, () => {
@@ -583,6 +738,11 @@ describe(run, () => {
     expect(result.meta.types.skipped_reason).toBe("no-tsconfig");
     expect(result.meta.lint.skipped_reason).toBe("no-lint-config");
     expect(result.meta.coverage.skipped_reason).toBe("no-coverage-output");
+    expect(Array.isArray(result.dependencies)).toBe(true);
+    expect(result.dependencies).toEqual([]);
+    // Default mockDeps has fileExists=false and which=null; the dependencies
+    // lens skips at the first guard (no package.json).
+    expect(["no-package-json", "npm-not-on-path"]).toContain(result.meta.dependencies.skipped_reason);
     expect(result.meta.pr).toBe(42);
     expect(result.meta.min_confidence).toBe(80);
   });
@@ -594,7 +754,7 @@ describe(run, () => {
     const code = await run(["7"], deps);
     expect(code).toBe(0);
     const result = JSON.parse(outs.join(""));
-    for (const lens of ["security", "types", "coverage", "lint"] as const) {
+    for (const lens of ["security", "types", "coverage", "lint", "dependencies"] as const) {
       expect(result.meta[lens].skipped_reason).toBe("gh-pr-diff-failed");
     }
     expect(errs.join("")).toMatch(/gh pr diff 7 failed/);
@@ -1060,5 +1220,170 @@ describe(spawnAsync, () => {
     // window didn't get extended.
     expect(elapsed).toBeGreaterThanOrEqual(1900);
     expect(elapsed).toBeLessThanOrEqual(2800);
+  });
+
+  it("runs npm audit and surfaces dependency findings on changed package.json lines", async () => {
+    const packageJsonContent = '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
+    const auditStdout = makeNpmAuditJson([
+      { pkg: "lodash", severity: "high", ghsaId: "GHSA-jf85-cpcp-j695", title: "Prototype Pollution" },
+    ]);
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
+    const readFile = vi.fn().mockImplementation((p: string) =>
+      p.endsWith("package.json") ? packageJsonContent : null,
+    );
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: auditStdout,
+      stderr: "",
+      exitCode: 1, // npm audit exits 1 when vulnerabilities are found
+      timedOut: false,
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "package.json", hunks: [{ oldStart: 1, newStart: 1, lines: ["+l1", "+l2", "+l3", "+l4", "+l5"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.dependencies.ran).toBe(true);
+    expect(result.dependencies).toHaveLength(1);
+    expect(result.dependencies[0]).toMatchObject({
+      file: "package.json",
+      rule_id: "GHSA-jf85-cpcp-j695",
+      source: "npm-audit",
+      confidence: 90,
+    });
+    expect(spawn).toHaveBeenCalledWith(
+      "npm",
+      ["audit", "--json"],
+      expect.any(Object),
+    );
+  });
+
+  it("skips the dependencies lens with no-package-json when package.json is absent", async () => {
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      fileExists: vi.fn().mockReturnValue(false),
+      which: vi.fn().mockReturnValue(null),
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.dependencies.ran).toBe(false);
+    expect(result.meta.dependencies.skipped_reason).toBe("no-package-json");
+  });
+
+  it("skips the dependencies lens with npm-not-on-path when npm is missing", async () => {
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi.fn().mockReturnValue(null); // npm missing
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      fileExists,
+      which,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.dependencies.ran).toBe(false);
+    expect(result.meta.dependencies.skipped_reason).toBe("npm-not-on-path");
+  });
+
+  it("skips the dependencies lens with timeout when npm audit times out", async () => {
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
+    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: -1, timedOut: true });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      fileExists,
+      which,
+      spawn,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.dependencies.ran).toBe(false);
+    expect(result.meta.dependencies.skipped_reason).toBe("timeout");
+  });
+
+  it("skips the dependencies lens with npm-exit-<n> when npm audit exits with a non-{0,1} code", async () => {
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
+    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "boom", exitCode: 2, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      fileExists,
+      which,
+      spawn,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.dependencies.ran).toBe(false);
+    expect(result.meta.dependencies.skipped_reason).toBe("npm-exit-2");
+  });
+
+  it("treats npm audit exit 1 as the 'found vulnerabilities' path, not a catastrophic skip", async () => {
+    const packageJsonContent = '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
+    const auditStdout = makeNpmAuditJson([
+      { pkg: "lodash", severity: "moderate", ghsaId: "GHSA-aaaa-aaaa-aaaa" },
+    ]);
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
+    const readFile = vi.fn().mockImplementation((p: string) =>
+      p.endsWith("package.json") ? packageJsonContent : null,
+    );
+    const spawn = vi.fn().mockResolvedValue({ stdout: auditStdout, stderr: "", exitCode: 1, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "package.json", hunks: [{ oldStart: 1, newStart: 1, lines: ["+l1", "+l2", "+l3"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      fileExists,
+      which,
+      readFile,
+      spawn,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.dependencies.ran).toBe(true);
+    expect(result.meta.dependencies.skipped_reason).toBeUndefined();
+    expect(result.dependencies).toHaveLength(1);
   });
 });

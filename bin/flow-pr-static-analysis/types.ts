@@ -1,6 +1,6 @@
 // --- Types -----------------------------------------------------------------
 
-export type LensName = "security" | "types" | "coverage" | "lint";
+export type LensName = "security" | "types" | "coverage" | "lint" | "dependencies";
 
 export type Severity = "error" | "warning" | "info";
 
@@ -9,7 +9,9 @@ export type Source =
   | "biome"
   | "eslint"
   | "tsc"
-  | "coverage";
+  | "coverage"
+  | "npm-audit"
+  | "bun-audit";
 
 export type Finding = {
   file: string;
@@ -37,11 +39,13 @@ export type AnalysisResult = {
   types: Finding[];
   coverage: Finding[];
   lint: Finding[];
+  dependencies: Finding[];
   meta: {
     security: LensMeta;
     types: LensMeta;
     coverage: LensMeta;
     lint: LensMeta;
+    dependencies: LensMeta;
     pr: number;
     min_confidence: number;
     duration_ms: number;

@@ -40,6 +40,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { HELP_TEXT, parseArgs } from "./flow-pr-static-analysis/cli";
 import {
   runCoverageLens,
+  runDependenciesLens,
   runLintLens,
   runSecurityLens,
   runTypesLens,
@@ -69,6 +70,7 @@ export {
   parseBiomeJson,
   parseCoverageJson,
   parseEslintJson,
+  parseNpmAuditJson,
   parseSemgrepJson,
   parseTscOutput,
 } from "./flow-pr-static-analysis/parsers";
@@ -228,12 +230,13 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       duration_ms: 0,
     });
     const result: AnalysisResult = {
-      security: [], types: [], coverage: [], lint: [],
+      security: [], types: [], coverage: [], lint: [], dependencies: [],
       meta: {
         security: empty("gh-pr-diff-failed"),
         types: empty("gh-pr-diff-failed"),
         coverage: empty("gh-pr-diff-failed"),
         lint: empty("gh-pr-diff-failed"),
+        dependencies: empty("gh-pr-diff-failed"),
         pr: parsed.pr,
         min_confidence: parsed.minConfidence,
         duration_ms: now() - startAll,
@@ -244,11 +247,12 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   }
   const changedLines = computeChangedLines(diffResult.stdout);
 
-  const [security, types, coverage, lint] = await Promise.all([
+  const [security, types, coverage, lint, dependencies] = await Promise.all([
     runSecurityLens(parsed, lensDeps),
     runTypesLens(parsed, lensDeps),
     runCoverageLens(parsed, lensDeps),
     runLintLens(parsed, lensDeps),
+    runDependenciesLens(parsed, lensDeps),
   ]);
 
   const filterAndScope = (findings: Finding[]): Finding[] =>
@@ -259,11 +263,13 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     types: filterAndScope(types.findings),
     coverage: filterAndScope(coverage.findings),
     lint: filterAndScope(lint.findings),
+    dependencies: filterAndScope(dependencies.findings),
     meta: {
       security: security.meta,
       types: types.meta,
       coverage: coverage.meta,
       lint: lint.meta,
+      dependencies: dependencies.meta,
       pr: parsed.pr,
       min_confidence: parsed.minConfidence,
       duration_ms: now() - startAll,
