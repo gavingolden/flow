@@ -2,7 +2,12 @@
  * Tests for flow-pre-commit.ts
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   buildFailureExcerpt,
   checksForScope,
@@ -15,12 +20,14 @@ import {
   getChangedFilesForPush,
   parsePrePushInput,
   parseScopes,
+  runCheck,
   stripAnsi,
   type CheckReport,
   type CheckResult,
   type GitOps,
   type JsonReport,
   type PrePushRef,
+  type Runner,
   type Scope,
 } from "./flow-pre-commit";
 
@@ -65,10 +72,26 @@ describe(detectScopesFromFiles, () => {
     expect(detectScopesFromFiles(["bin/flow-pre-commit.ts"])).toEqual(["scripts"]);
   });
 
-  it("should detect scripts scope from .github/workflows/ files (regression: workflow YAML edits trip the bin/ vitest suite that hosts workflow-shape regression tests)", () => {
+  it("should detect BOTH scripts and actions scopes from .github/workflows/*.yml files (regression: workflow YAML edits trip the bin/ vitest workflow-shape regression suite AND actionlint coverage — different defect classes)", () => {
     expect(detectScopesFromFiles([".github/workflows/cloudflare-pages-prune.yml"])).toEqual([
       "scripts",
+      "actions",
     ]);
+  });
+
+  it("should detect both scripts and actions for .github/workflows/*.yaml (extension variant)", () => {
+    expect(detectScopesFromFiles([".github/workflows/release.yaml"])).toEqual([
+      "scripts",
+      "actions",
+    ]);
+  });
+
+  it("should NOT trip actions for .github/workflows-archive/foo.yml (prefix exactness — `.startsWith('.github/workflows/')` is false for `.github/workflows-archive/`, so the file lands in root-fallback)", () => {
+    expect(detectScopesFromFiles([".github/workflows-archive/foo.yml"])).toEqual(["root-fallback"]);
+  });
+
+  it("should NOT trip actions for .github/workflows/notes.md (extension exactness — .md doesn't match .yml/.yaml; the file still trips scripts via prefix and docs via .md extension)", () => {
+    expect(detectScopesFromFiles([".github/workflows/notes.md"])).toEqual(["scripts", "docs"]);
   });
 
   it("should detect multiple scopes from mixed files", () => {
@@ -206,6 +229,10 @@ describe(parseScopes, () => {
     expect(parseScopes("docs")).toEqual(["docs"]);
   });
 
+  it("should accept the actions scope", () => {
+    expect(parseScopes("actions")).toEqual(["actions"]);
+  });
+
   it("should round-trip src,scripts,docs", () => {
     expect(parseScopes("docs,scripts,src")).toEqual(["src", "scripts", "docs"]);
   });
@@ -231,6 +258,13 @@ describe(checksForScope, () => {
   it("should return flow-md-validate for docs", () => {
     const checks = checksForScope("docs");
     expect(checks).toEqual([{ name: "flow-md-validate .", argv: ["flow-md-validate", "."] }]);
+  });
+
+  it("should return actionlint .github/workflows/ for actions", () => {
+    const checks = checksForScope("actions");
+    expect(checks).toEqual([
+      { name: "actionlint .github/workflows/", argv: ["actionlint", ".github/workflows/"] },
+    ]);
   });
 
   it("should return typecheck and test for root-fallback", () => {
@@ -265,6 +299,88 @@ describe(filterDefinedChecks, () => {
   it("passes through non-npm checks untouched", () => {
     const custom = [{ name: "eslint", argv: ["eslint", "."] }];
     expect(filterDefinedChecks(custom, new Set())).toEqual(custom);
+  });
+});
+
+describe(runCheck, () => {
+  function ok(): Runner {
+    return () => ({ stdout: "all good", stderr: "", exitCode: 0 });
+  }
+
+  function exitWith(code: number, stderr = ""): Runner {
+    return () => ({ stdout: "", stderr, exitCode: code });
+  }
+
+  function throwing(err: unknown): Runner {
+    return () => {
+      throw err;
+    };
+  }
+
+  it("returns passed:true with no skipReason when runner returns exit 0", () => {
+    const result = runCheck("actionlint", ["actionlint", "."], "actions", ok());
+    expect(result.passed).toBe(true);
+    expect(result.skipReason).toBeUndefined();
+    expect(result.output).toContain("all good");
+  });
+
+  it("returns skipReason actionlint-not-installed when runner exits 127 for actionlint", () => {
+    const result = runCheck(
+      "actionlint .github/workflows/",
+      ["actionlint", ".github/workflows/"],
+      "actions",
+      exitWith(127, "actionlint: command not found"),
+    );
+    expect(result.passed).toBe(true);
+    expect(result.skipReason).toBe("actionlint-not-installed");
+    expect(result.output).toContain("actionlint not installed");
+  });
+
+  it("returns skipReason when runner throws an ENOENT error for actionlint", () => {
+    const enoent = Object.assign(new Error("spawn actionlint ENOENT: no such file or directory"), {
+      code: "ENOENT",
+    });
+    const result = runCheck(
+      "actionlint .github/workflows/",
+      ["actionlint", ".github/workflows/"],
+      "actions",
+      throwing(enoent),
+    );
+    expect(result.passed).toBe(true);
+    expect(result.skipReason).toBe("actionlint-not-installed");
+  });
+
+  it("returns skipReason when stderr matches command-not-found and exit is non-zero (e.g. shell wrapper exit 1)", () => {
+    const result = runCheck(
+      "actionlint .github/workflows/",
+      ["actionlint", ".github/workflows/"],
+      "actions",
+      exitWith(1, "bash: actionlint: command not found"),
+    );
+    expect(result.passed).toBe(true);
+    expect(result.skipReason).toBe("actionlint-not-installed");
+  });
+
+  it("does NOT skip for other tools — npm exit 127 still surfaces as failed", () => {
+    const result = runCheck(
+      "npm run typecheck",
+      ["npm", "run", "typecheck"],
+      "src",
+      exitWith(127, "npm: command not found"),
+    );
+    expect(result.passed).toBe(false);
+    expect(result.skipReason).toBeUndefined();
+  });
+
+  it("does NOT skip a real actionlint lint failure (non-127 exit, stderr without command-not-found markers)", () => {
+    const result = runCheck(
+      "actionlint .github/workflows/",
+      ["actionlint", ".github/workflows/"],
+      "actions",
+      exitWith(1, "workflows/foo.yml:42:9: shellcheck reported issue in this script"),
+    );
+    expect(result.passed).toBe(false);
+    expect(result.skipReason).toBeUndefined();
   });
 });
 
@@ -553,6 +669,58 @@ describe(formatReport, () => {
     expect(withoutFallback).not.toContain("root-fallback → matched");
   });
 
+  it("renders a SKIP marker when a result has skipReason and does not emit FAIL", () => {
+    const report = createReport({
+      scopes: ["actions"] as Scope[],
+      results: [
+        createResult({
+          name: "actionlint .github/workflows/",
+          scope: "actions",
+          passed: true,
+          output: "actionlint not installed — skipped",
+          skipReason: "actionlint-not-installed",
+        }),
+      ],
+      allPassed: true,
+    });
+    const output = formatReport(report);
+    expect(output).toContain("SKIP");
+    expect(output).toContain("actionlint not installed");
+    expect(output).not.toContain("FAIL");
+  });
+
+  it("shows skipped count alongside passed count in the summary line", () => {
+    const allSkipped = createReport({
+      scopes: ["actions"] as Scope[],
+      results: [
+        createResult({
+          name: "actionlint .github/workflows/",
+          scope: "actions",
+          passed: true,
+          skipReason: "actionlint-not-installed",
+          output: "actionlint not installed — skipped",
+        }),
+      ],
+      allPassed: true,
+    });
+    expect(formatReport(allSkipped)).toContain("(1 skipped)");
+
+    const mixed = createReport({
+      scopes: ["src", "actions"] as Scope[],
+      results: [
+        createResult({ name: "npm run typecheck", scope: "src", passed: true }),
+        createResult({
+          name: "actionlint .github/workflows/",
+          scope: "actions",
+          passed: true,
+          skipReason: "actionlint-not-installed",
+        }),
+      ],
+      allPassed: true,
+    });
+    expect(formatReport(mixed)).toContain("All 1 checks passed (1 skipped).");
+  });
+
   it("shows distinct no-checks-ran message when reason is no-checks-defined", () => {
     const noChecksDefined = formatReport(
       createReport({
@@ -735,6 +903,31 @@ describe(formatJsonReport, () => {
     expect(parsedEmpty).not.toHaveProperty("unmatchedFiles");
   });
 
+  it("emits skipReason on a per-result entry when it is set", () => {
+    const report = createReport({
+      scopes: ["actions"] as Scope[],
+      results: [
+        createResult({
+          name: "actionlint .github/workflows/",
+          scope: "actions",
+          passed: true,
+          skipReason: "actionlint-not-installed",
+        }),
+      ],
+      allPassed: true,
+    });
+    const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
+    expect(parsed.results[0].skipReason).toBe("actionlint-not-installed");
+  });
+
+  it("omits skipReason on per-result entries when undefined", () => {
+    const report = createReport({
+      results: [createResult({ passed: true })],
+    });
+    const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
+    expect(parsed.results[0]).not.toHaveProperty("skipReason");
+  });
+
   it("emits the reason field when set to no-checks-defined and omits it otherwise", () => {
     const withReason = JSON.parse(
       formatJsonReport(
@@ -752,4 +945,70 @@ describe(formatJsonReport, () => {
     const withoutReason = JSON.parse(formatJsonReport(createReport({}))) as JsonReport;
     expect(withoutReason).not.toHaveProperty("reason");
   });
+});
+
+describe("integration: root-fallback + no-checks-defined silent-pass hole", () => {
+  // End-to-end regression test against the silent-pass hole closed in
+  // computeAllPassedAndReason: a non-empty diff that produces zero checks
+  // (no matching npm scripts) must emit allPassed:false + reason:
+  // "no-checks-defined", not a silent allPassed:true. Uses node:child_process
+  // (cross-runtime) to spawn `bun bin/flow-pre-commit.ts` so the test runs
+  // under both node-vitest (default `npm run test`) and bun-vitest. A
+  // Bun.spawnSync-based variant would silently skip under node-vitest,
+  // defeating the entire point of automating issue #150's manual Test Step 5.
+  let tmpDir: string;
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+
+  beforeAll(() => {
+    if (!bunOnPath) return;
+    tmpDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-"));
+    mkdirSync(join(tmpDir, "apps", "web", "src"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify({ name: "fixture", version: "0.0.1" }, null, 2),
+    );
+    // Initialise an empty git repo on `main` and seed an empty commit so HEAD
+    // exists; then write the test file AFTER the commit and `git add` it so
+    // it surfaces as a staged change in `git diff --name-only HEAD` (the
+    // command flow-pre-commit uses internally — it sees tracked changes, not
+    // untracked files).
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
+    spawnSync(
+      "git",
+      [
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--allow-empty",
+        "-q",
+        "-m",
+        "init",
+      ],
+      { cwd: tmpDir },
+    );
+    writeFileSync(join(tmpDir, "apps", "web", "src", "x.ts"), "export const x = 1;\n");
+    spawnSync("git", ["add", "apps/web/src/x.ts"], { cwd: tmpDir });
+  });
+
+  afterAll(() => {
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it.skipIf(!bunOnPath)(
+    "flow-pre-commit --json against a tmpdir fixture reports allPassed:false reason:no-checks-defined scopes:[root-fallback]",
+    () => {
+      const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const scriptPath = resolve(here, "flow-pre-commit.ts");
+      const result = spawnSync("bun", [scriptPath, "--json"], {
+        cwd: tmpDir,
+        encoding: "utf8",
+      });
+      const report = JSON.parse(result.stdout) as JsonReport;
+      expect(report.allPassed).toBe(false);
+      expect(report.reason).toBe("no-checks-defined");
+      expect(report.scopes).toContain("root-fallback");
+    },
+  );
 });

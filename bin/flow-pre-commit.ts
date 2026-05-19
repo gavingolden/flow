@@ -16,11 +16,17 @@ import { readFileSync } from "node:fs";
 
 // --- Types ---
 
-export type Scope = "src" | "scripts" | "docs" | "root-fallback";
+export type Scope = "src" | "scripts" | "docs" | "actions" | "root-fallback";
 
 export type ScopeMatcher = {
   prefixes?: string[];
   extensions?: string[];
+  /**
+   * When true and BOTH prefixes and extensions are defined, a file must match
+   * at least one of each (AND). Default (undefined/false) keeps the legacy
+   * OR-match: any prefix OR any extension is enough.
+   */
+  requireAll?: boolean;
 };
 
 export type CheckResult = {
@@ -29,6 +35,13 @@ export type CheckResult = {
   passed: boolean;
   durationMs: number;
   output: string;
+  /**
+   * Set when a check was skipped instead of run (e.g. an optional external
+   * tool is not installed on PATH). A skipped result is still counted as
+   * `passed: true` so the overall gate doesn't fail; downstream renderers
+   * use `skipReason` to surface it distinctly.
+   */
+  skipReason?: "actionlint-not-installed";
 };
 
 export type CheckReport = {
@@ -83,6 +96,7 @@ export type JsonResult = {
   passed: boolean;
   durationMs: number;
   failure?: FailureExcerpt;
+  skipReason?: "actionlint-not-installed";
 };
 
 export type JsonReport = {
@@ -118,10 +132,9 @@ type CheckDef = {
 
 // --- Constants ---
 
-const ALL_SCOPES: Scope[] = ["src", "scripts", "docs", "root-fallback"];
 // Path-based scopes only — root-fallback is a sentinel scope (not a matcher)
 // that fires when a non-empty diff produced no specific-scope matches.
-const SPECIFIC_SCOPES: Exclude<Scope, "root-fallback">[] = ["src", "scripts", "docs"];
+const SPECIFIC_SCOPES: Exclude<Scope, "root-fallback">[] = ["src", "scripts", "docs", "actions"];
 const ZERO_SHA = "0000000000000000000000000000000000000000";
 
 // `scripts/` is the install location in target repos; `bin/` is the canonical
@@ -135,12 +148,24 @@ const ZERO_SHA = "0000000000000000000000000000000000000000";
 // `docs` matches by extension (.md), not prefix — markdown files live everywhere
 // (root-level READMEs, docs/, skills/.../SKILL.md). Prefix matching would miss
 // most of them.
+//
+// `actions` is an AND-matcher: a file must live under `.github/workflows/`
+// AND end in `.yml`/`.yaml` to trip it (a markdown note under the workflows
+// dir does not). Workflow YAML edits trip BOTH `scripts` (which runs the
+// bin/ workflow-shape regression tests) AND `actions` (which runs
+// `actionlint` against the workflows dir) — different defect classes, so
+// both checks run.
 const SCOPE_MATCHERS: Record<Exclude<Scope, "root-fallback">, ScopeMatcher> = {
   src: { prefixes: ["src/"] },
   scripts: {
     prefixes: ["scripts/", "templates/scripts/", "bin/", ".github/workflows/"],
   },
   docs: { extensions: [".md"] },
+  actions: {
+    prefixes: [".github/workflows/"],
+    extensions: [".yml", ".yaml"],
+    requireAll: true,
+  },
 };
 
 // --- Helpers ---
@@ -225,9 +250,12 @@ export function computeAllPassedAndReason(
 }
 
 function matchesScope(file: string, matcher: ScopeMatcher): boolean {
-  if (matcher.prefixes?.some((p) => file.startsWith(p))) return true;
-  if (matcher.extensions?.some((e) => file.endsWith(e))) return true;
-  return false;
+  const prefixHit = matcher.prefixes?.some((p) => file.startsWith(p)) ?? false;
+  const extHit = matcher.extensions?.some((e) => file.endsWith(e)) ?? false;
+  if (matcher.requireAll && matcher.prefixes && matcher.extensions) {
+    return prefixHit && extHit;
+  }
+  return prefixHit || extHit;
 }
 
 function describeMatcher(matcher: ScopeMatcher): string {
@@ -274,6 +302,13 @@ export function checksForScope(scope: Scope): CheckDef[] {
       ];
     case "docs":
       return [{ name: "flow-md-validate .", argv: ["flow-md-validate", "."] }];
+    case "actions":
+      return [
+        {
+          name: "actionlint .github/workflows/",
+          argv: ["actionlint", ".github/workflows/"],
+        },
+      ];
     case "root-fallback":
       // Mirror src's check set: a consumer repo whose source layout doesn't
       // match flow's prefixes still expects typecheck + test at the root.
@@ -302,10 +337,56 @@ export function filterDefinedChecks(
 
 // --- Check Runners ---
 
-function runCheck(name: string, argv: string[], scope: Scope): CheckResult {
+export type Runner = (argv: string[]) => { stdout: string; stderr: string; exitCode: number };
+
+const COMMAND_NOT_FOUND_REGEX = /command not found|ENOENT|: not found/i;
+
+export function runCheck(
+  name: string,
+  argv: string[],
+  scope: Scope,
+  runner: Runner = run,
+): CheckResult {
   const start = performance.now();
-  const { stdout, stderr, exitCode } = run(argv);
+  let stdout = "";
+  let stderr = "";
+  let exitCode = 0;
+  try {
+    const r = runner(argv);
+    stdout = r.stdout;
+    stderr = r.stderr;
+    exitCode = r.exitCode;
+  } catch (e: unknown) {
+    // ENOENT-shaped errors (e.g. Bun.spawnSync on some platforms throws when
+    // the binary isn't on PATH instead of returning exit 127). Treat as 127
+    // so the downstream missing-binary branch fires.
+    const code = (e as { code?: string } | null | undefined)?.code;
+    const message = String((e as { message?: string } | null | undefined)?.message ?? "");
+    if (code === "ENOENT" || /ENOENT|not found/i.test(message)) {
+      exitCode = 127;
+      stderr = message || "ENOENT";
+    } else {
+      throw e;
+    }
+  }
   const durationMs = Math.round(performance.now() - start);
+
+  // actionlint is treated as an OPTIONAL tool — when not installed on PATH,
+  // emit a per-result skipReason rather than failing the gate (parallel to
+  // how filterDefinedChecks handles missing npm scripts).
+  if (
+    argv[0] === "actionlint" &&
+    (exitCode === 127 || COMMAND_NOT_FOUND_REGEX.test(stderr))
+  ) {
+    return {
+      name,
+      scope,
+      passed: true,
+      durationMs,
+      output: "actionlint not installed — skipped",
+      skipReason: "actionlint-not-installed",
+    };
+  }
 
   return {
     name,
@@ -477,11 +558,17 @@ export function formatReport(report: CheckReport): string {
   }
 
   for (const result of report.results) {
-    const icon = result.passed ? "PASS" : "FAIL";
+    const icon = result.skipReason ? "SKIP" : result.passed ? "PASS" : "FAIL";
     const duration = formatDuration(result.durationMs);
     lines.push(`  ${icon}  ${result.name} (${duration})`);
 
-    if (!result.passed && result.output) {
+    if (result.skipReason && result.output) {
+      const indented = result.output
+        .split("\n")
+        .map((line) => `        ${line}`)
+        .join("\n");
+      lines.push(indented);
+    } else if (!result.passed && result.output) {
       const indented = result.output
         .split("\n")
         .map((line) => `        ${line}`)
@@ -492,18 +579,30 @@ export function formatReport(report: CheckReport): string {
   }
 
   lines.push("");
-  const passed = report.results.filter((r) => r.passed).length;
-  const total = report.results.length;
-  if (total === 0) {
+  const skipped = report.results.filter((r) => r.skipReason).length;
+  const ran = report.results.filter((r) => !r.skipReason);
+  const passed = ran.filter((r) => r.passed).length;
+  const total = ran.length;
+  if (total === 0 && skipped === 0) {
     if (report.reason === "no-checks-defined") {
       lines.push("No checks ran (no matching npm scripts defined in package.json).");
     } else {
       lines.push("No checks ran.");
     }
+  } else if (report.allPassed) {
+    if (skipped > 0 && total === 0) {
+      lines.push(`No checks ran (${skipped} skipped).`);
+    } else if (skipped > 0) {
+      lines.push(`All ${total} checks passed (${skipped} skipped).`);
+    } else {
+      lines.push(`All ${total} checks passed.`);
+    }
   } else {
-    lines.push(
-      report.allPassed ? `All ${total} checks passed.` : `${passed}/${total} checks passed.`,
-    );
+    if (skipped > 0) {
+      lines.push(`${passed}/${total} checks passed (${skipped} skipped).`);
+    } else {
+      lines.push(`${passed}/${total} checks passed.`);
+    }
   }
 
   return lines.join("\n");
@@ -580,6 +679,7 @@ export function formatJsonReport(report: CheckReport): string {
         durationMs: r.durationMs,
       };
       if (!r.passed) result.failure = buildFailureExcerpt(r.output);
+      if (r.skipReason) result.skipReason = r.skipReason;
       return result;
     }),
     allPassed: report.allPassed,
@@ -602,7 +702,7 @@ Runs verification checks with automatic scope detection.
 Detects which project areas have changes and runs the appropriate checks.
 
 Options:
-  --scope <scopes>   Comma-separated scopes: src, scripts, docs
+  --scope <scopes>   Comma-separated scopes: src, scripts, docs, actions
   --pr <number>      Detect scopes from PR changed files
   --pre-push         Read refs from stdin (used by .githooks/pre-push)
   --json             Emit a single bounded JSON object on stdout instead
@@ -619,6 +719,7 @@ Check mapping:
   src:            npm run typecheck, npm run test
   scripts:        npm run typecheck:scripts, npm run test
   docs:           flow-md-validate .
+  actions:        actionlint .github/workflows/
   root-fallback:  npm run typecheck, npm run test
                   (fires when no other scope matched)
 
