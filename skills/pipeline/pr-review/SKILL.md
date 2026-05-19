@@ -203,6 +203,31 @@ The artifact's JSON shape is documented in [references/gatekeeper-spawn-prompt.m
 artifact is single-use, read once by the wrapper, and discarded after the
 branch decision.
 
+# Independent Consolidator-Validator Subagent
+
+This skill spawns one **Independent Consolidator-Validator Subagent**
+via the Task tool at Step 3.5 — after the six-agent multi-agent review
+at Step 3 and before Step 4's finding-consumption pass. The subagent
+reads the six per-agent JSON outputs at
+`$WORKTREE/.flow-tmp/agent-output-<lens>.json`, validates each via
+`bun bin/lib/agent-finding-schema.ts --validate`, merges +
+dedups + threshold-filters, runs a second-opinion validation pass on
+>=80-confidence non-praise survivors, and writes a structured artifact
+at `<worktree>/.flow-tmp/consolidator-result.json` with five top-level
+keys: `consolidated_findings`, `dropped_by_validation`,
+`rejected_alternatives`, `anti_patterns_found`, `summary`. The full
+prose, procedure, and prompt template live in
+[references/consolidator-instructions.md](references/consolidator-instructions.md).
+
+The fan-out is the **eighth** named Task-tool exemption; the bidirectional
+contract lives in `AGENTS.md` `## Don'ts` and
+`skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" exemption #8.
+Context isolation is primary: the per-agent JSON reads, the
+second-opinion validation prose, and the dedup reasoning all stay
+inside the subagent rather than landing in the wrapper's transcript.
+Step 4 reads the artifact body exactly once and reuses the parsed
+object across Steps 4–7.
+
 # Fix-Applier Subagent
 
 This skill spawns one **Fix-Applier Subagent** via the Task tool at Step 8 to
@@ -339,15 +364,18 @@ summary:          string
 
 **Canonical step labels.** `completed_steps[]` and `missed_steps[]`
 use this skill's own step numbering: the top-level numbers `"1"`,
-`"1.5"`, `"2"`, `"3"`, `"4"`, `"5"`, `"6"`, `"7"`, `"7.5"`, `"8"`,
-`"8c"`, `"9"`, `"10"`, `"11"`, `"12"`, `"13"` (the sub-step labels
-actually present in the # Instructions section above). Sub-steps
-like `"8c"` appear only when the wrapper bails out mid-step 8 after
-`8b` returned but before `8c.i` ticked any boxes; otherwise
+`"1.5"`, `"2"`, `"3"`, `"3.5"`, `"4"`, `"5"`, `"6"`, `"7"`, `"7.5"`,
+`"8"`, `"8c"`, `"9"`, `"10"`, `"11"`, `"12"`, `"13"` (the sub-step
+labels actually present in the # Instructions section above).
+Sub-steps like `"8c"` appear only when the wrapper bails out mid-step
+8 after `8b` returned but before `8c.i` ticked any boxes; otherwise
 `completed_steps` records just the parent number (`"8"`). Step
 `"1.5"` is the Gatekeeper short-circuit: on a skip verdict
 `completed_steps` is exactly `["1", "1.5"]` and every other step
-label lands in `missed_steps`.
+label lands in `missed_steps`. Step `"3.5"` is the
+Consolidator-Validator step: on a schema-failure or missing-artifact
+escalation `completed_steps` is exactly `["1", "1.5", "2", "3"]` and
+`"3.5"` onward lands in `missed_steps`.
 
 **When each `status` fires:**
 
@@ -429,6 +457,8 @@ labels go in `missed_steps` while the labels that did run go in
 | `"escalated"` | `task-tool-unavailable: pr-review-multi-agent-review` | `["1", "2"]` | `["3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `task-tool-unavailable: pr-review-fix-applier` | `["1", "2", "3", "4", "5"]` | Fix-Applier-owned Steps `["6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `gatekeeper-missing-artifact` | `["1"]` | `["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
+| `"escalated"` | `consolidator-schema-failure` | `["1", "1.5", "2", "3"]` | `["3.5", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
+| `"escalated"` | `consolidator-missing-artifact` | `["1", "1.5", "2", "3"]` | `["3.5", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `fix-applier-missing-artifact` | `["1", "2", "3", "4", "5", "8"]` | `["8c", "9", "10", "11", "12", "13"]` |
 | `"partial"` | `null` | Steps that ran | Steps that didn't |
 
@@ -519,16 +549,24 @@ After the subagent returns:
 
    - **`"skip"`** → write `<worktree>/.flow-tmp/pr-review-result.json`
      with the well-formed shape below via the atomic write-`.tmp` →
-     validate → `mv` protocol, then exit clean. Worked example:
+     validate → `mv` protocol, guarded by the **read-before-overwrite**
+     contract from
+     [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)
+     so a prior escalation site's `status: "escalated"` verdict is
+     never silently overwritten. Then exit clean. Worked example:
 
      ```bash
      SUMMARY=$(jq -r '.summary' "$ARTIFACT_PATH")
      RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+
+     # read-before-overwrite guard — see references/result-artifact-write-protocol.md
+     [ -f "$RESULT_PATH" ] && [ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null)" = "escalated" ] && exit 0
+
      cat > "$RESULT_PATH.tmp" <<EOF
      {
        "status": "clean",
        "completed_steps": ["1", "1.5"],
-       "missed_steps": ["2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+       "missed_steps": ["2", "3", "3.5", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
        "escalation_tag": null,
        "summary": $(printf '%s' "$SUMMARY" | jq -Rs .)
      }
@@ -643,40 +681,91 @@ subagent rather than landing in the supervisor's transcript.
 - Instruct agents to treat commit bodies as author intent: a finding that contradicts a
   stated rationale should cite the commit and explain why the rationale doesn't hold,
   rather than assuming the author didn't consider the alternative.
+- **Persist each agent's findings to disk before returning.** Instruct
+  each agent in its spawn prompt: "Return your findings via the Task
+  tool result envelope AND write them to
+  `$WORKTREE/.flow-tmp/agent-output-<lens>.json` before returning,"
+  where `<lens>` is the kebab-case lens name from the table below
+  (`bug-detection`, `security`, `pattern-consistency`, `performance`,
+  `supply-chain`, `test-coverage`). The per-agent file is the Step 3.5
+  Consolidator-Validator subagent's input — without it the consolidator
+  has no per-agent output to merge. The on-disk JSON object must have
+  shape `{findings: [...]}` (matching the per-agent schema in
+  `bin/lib/agent-finding-schema.ts`); an empty findings array is the
+  correct value when the agent found nothing noteworthy.
 
 The 6 agents:
 
-| Agent                   | Focus                                                                            | Checklist sections                          | Static-analysis lens |
-| ----------------------- | -------------------------------------------------------------------------------- | ------------------------------------------- | -------------------- |
-| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts                      | Error Handling, Type Safety                 | `types` (tsc errors) |
-| **Security**            | OWASP top 10, input validation, auth, secrets, injection                         | Security                                    | `security` (semgrep) |
-| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code                        | Consistency, Lifecycle/Cleanup, Composition | `lint` (biome/eslint, shared with Performance) |
-| **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | Performance (review-checklist.md §Performance) | `lint` (biome/eslint, shared with Pattern/Consistency) |
-| **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | Part 3 §Removing a Top-Level Field          | `none` (synthetic `meta.ran=false` block) |
-| **Test Coverage**       | Missing tests, untested edges, test quality, env setup                           | Test Environment                            | `coverage` (Istanbul/c8/vitest) |
+| Agent                   | Focus                                                                            | Checklist sections                          | Static-analysis lens | On-disk output path |
+| ----------------------- | -------------------------------------------------------------------------------- | ------------------------------------------- | -------------------- | ------------------- |
+| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts                      | Error Handling, Type Safety                 | `types` (tsc errors) | `agent-output-bug-detection.json` |
+| **Security**            | OWASP top 10, input validation, auth, secrets, injection                         | Security                                    | `security` (semgrep) | `agent-output-security.json` |
+| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code                        | Consistency, Lifecycle/Cleanup, Composition | `lint` (biome/eslint, shared with Performance) | `agent-output-pattern-consistency.json` |
+| **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | Performance (review-checklist.md §Performance) | `lint` (biome/eslint, shared with Pattern/Consistency) | `agent-output-performance.json` |
+| **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | Part 3 §Removing a Top-Level Field          | `none` (synthetic `meta.ran=false` block) | `agent-output-supply-chain.json` |
+| **Test Coverage**       | Missing tests, untested edges, test quality, env setup                           | Test Environment                            | `coverage` (Istanbul/c8/vitest) | `agent-output-test-coverage.json` |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
-`decoration`, `confidence`, `subject`, `body`.
+`decoration`, `confidence`, `subject`, `body`. The on-disk artifact at
+`$WORKTREE/.flow-tmp/agent-output-<lens>.json` wraps that array in
+`{findings: [...]}` per the per-agent schema validated at Step 3.5.
 
 Wait for all 6 agents to complete before proceeding.
 
-## 4. Merge and Filter Findings
+## 3.5. Independent Consolidator-Validator
 
-Collect all agent findings and apply these filters:
+Spawn the **Independent Consolidator-Validator Subagent** (see
+§ Independent Consolidator-Validator Subagent above; full prose in
+[references/consolidator-instructions.md](references/consolidator-instructions.md))
+to merge the six per-agent outputs, apply confidence threshold +
+dedup + praise specificity, and run a second-opinion validation pass
+before Step 4 consumes them.
 
-1. **Confidence threshold**: Remove findings with confidence < 80. Praise is exempt.
-2. **Deduplication**: If two findings reference the same file + overlapping line range +
-   same issue class, keep the one with higher confidence. Two findings at the same location
-   about different issues (e.g., null deref vs. injection risk) are NOT duplicates.
-3. **Praise specificity**: A `praise` finding must name the specific behaviour,
-   file:line, or pattern being praised — e.g. "the X path correctly handles the Y
-   edge case", "the new pure helper at foo.ts:42 is straightforward to test".
-   Drop content-free openers/closers ("great work!", "nice refactor!", "looks
-   great overall!") before the report. Test: if removing the praise sentence
-   removes no information a reviewer would act on, drop it. A specific praise of
-   one thing is better than a generic praise of everything; zero praise is fine
-   when no specific positive observation can be made.
-4. **Sort**: Blocking findings first, then by file path, then by line number.
+**Load the Task tool before spawning.** See
+[references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md);
+on missing schema, escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-consolidator-validator` and write the result artifact.
+
+Resolve `$WORKTREE` and `ARTIFACT_PATH="$WORKTREE/.flow-tmp/consolidator-result.json"`,
+then make exactly one Task-tool call with `subagent_type:
+general-purpose`. The prompt cites
+`references/consolidator-instructions.md` as the absolute-path
+instructions and passes `$WORKTREE`, `$SKILL_DIR`, the six per-agent
+paths at `$WORKTREE/.flow-tmp/agent-output-<lens>.json` (lenses:
+`bug-detection`, `security`, `pattern-consistency`, `performance`,
+`supply-chain`, `test-coverage`), the static-analysis path at
+`$WORKTREE/.flow-tmp/static-analysis.json`, and `$ARTIFACT_PATH`.
+
+After the subagent returns:
+
+1. **Existence check**: `test -s "$ARTIFACT_PATH"`. On missing or
+   empty artifact, escalate `NEEDS HUMAN: consolidator-missing-artifact`
+   per the `consolidator-missing-artifact` recipe in
+   [references/escalation-recipes.md](references/escalation-recipes.md)
+   and write `pr-review-result.json` with `status: "escalated"`. Do
+   not retry the Task call.
+2. **Schema validation**: `bun bin/lib/agent-finding-schema.ts
+   --validate "$ARTIFACT_PATH"`. On exit 1, escalate `NEEDS HUMAN:
+   consolidator-schema-failure` per the `consolidator-schema-failure`
+   recipe in
+   [references/escalation-recipes.md](references/escalation-recipes.md).
+3. **Read once**, parse into a typed object, reuse across Steps 4–7.
+
+## 4. Consume Consolidated Findings
+
+Read `consolidator-result.json` once (already validated in Step 3.5).
+Iterate `consolidated_findings[]`. Each finding has a `finding_id`,
+`agent_source`, and the standard fields `{file, line, end_line, label,
+decoration, confidence, subject, body}`. The confidence threshold
+(>=80 for non-praise; praise exempt), the `(file, line ± 2 lines
+window, issue-class)` dedup, the praise-specificity filter, and the
+second-opinion validation pass have already been applied by the
+consolidator — the wrapper does not re-derive any of those filters
+here. Sort the surviving findings: blocking first, then by file path,
+then by line number. Hand off to Step 5 (Auto-Apply Path Decision).
+
+The consolidator's `dropped_by_validation[]` is surfaced in the Step
+12 report under a "dropped during validation" disposition so the
+reviewer can audit what was filtered out and why.
 
 ## 5. Retrospective
 
@@ -1439,9 +1528,22 @@ invocation (deduplicating against any prior list when `--resume-from` was
 used), `missed_steps: []`, `escalation_tag: null`, and a one-paragraph
 `summary` mirroring the Step 12 structured report's headline. Validate the
 shape via `bun bin/lib/pr-review-result-schema.ts --validate <path>` then
-atomically write. This is the single signal `/flow-pipeline` step 8 reads
-to decide whether to continue (`"clean"`) or branch into the partial-retry
-path (`"partial"`) or escalate verbatim (`"escalated"`).
+atomically write. The write MUST be guarded by the
+**read-before-overwrite** contract from
+[references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)
+— if a prior site already wrote `status: "escalated"`, exit cleanly
+without touching the file (escalation always wins over clean):
+
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+
+# read-before-overwrite guard — see references/result-artifact-write-protocol.md
+[ -f "$RESULT_PATH" ] && [ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null)" = "escalated" ] && exit 0
+```
+
+This is the single signal `/flow-pipeline` step 8 reads to decide
+whether to continue (`"clean"`) or branch into the partial-retry path
+(`"partial"`) or escalate verbatim (`"escalated"`).
 
 **Also write the `pr-review-last-sha` marker file on this clean-completion
 path.** The marker is the load-bearing input the Step 1.5 Gatekeeper's

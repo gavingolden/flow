@@ -297,26 +297,27 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     return [...agentsContent.matchAll(re)].map((m) => normaliseExemption(m[1]));
   }
 
-  it("flow-pipeline/SKILL.md Hard rules lists exactly 7 Task-tool exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 8 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
       exemptions.length,
-      "flow-pipeline/SKILL.md must list exactly 7 Task-tool exemption blocks " +
+      "flow-pipeline/SKILL.md must list exactly 8 Task-tool exemption blocks " +
         "(one each for /pr-review Multi-Agent Review, /product-planning Discovery " +
         "Subagent, /new-feature Scout Subagent, /pr-review Fix-Applier Subagent, " +
         "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, /coder " +
-        "Edit-Applier Subagent, and /pr-review Step 1.5 Gatekeeper Subagent). " +
+        "Edit-Applier Subagent, /pr-review Step 1.5 Gatekeeper Subagent, and " +
+        "/pr-review Step 3.5 Consolidator-Validator Subagent). " +
         "Found: " + JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(8);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 7 Task-tool exemption bullets", () => {
+  it("AGENTS.md ## Don'ts lists exactly 8 Task-tool exemption bullets", () => {
     const exemptions = extractAgentsExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 7 Task-tool exemption bullets. " +
+      "AGENTS.md ## Don'ts must list exactly 8 Task-tool exemption bullets. " +
         "Found: " + JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(8);
   });
 
   it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
@@ -338,43 +339,43 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("flow-pipeline/SKILL.md Hard rules preamble references seven exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules preamble references eight exemptions", () => {
     expect(
-      skillStripped.match(/the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
-      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only seven** authorised " +
+      skillStripped.match(/the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only eight** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Hard rules opening references seven Task-tool exceptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules opening references eight Task-tool exceptions", () => {
     expect(
-      skillStripped.match(/the\s+seven\s+narrowly-named Task-tool exceptions that\s+follow/),
-      "flow-pipeline/SKILL.md Hard rules opening must say 'the seven narrowly-named " +
+      skillStripped.match(/the\s+eight\s+narrowly-named Task-tool exceptions that\s+follow/),
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the eight narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
     ).toBeTruthy();
   });
 
-  it("AGENTS.md upstream prose references seven exceptions", () => {
+  it("AGENTS.md upstream prose references eight exceptions", () => {
     expect(
-      agentsContent.match(/\*\*with seven narrowly-named exceptions\*\*/),
-      "AGENTS.md ## Supervisor and sub-skills must say '**with seven narrowly-named exceptions**'. " +
+      agentsContent.match(/\*\*with eight narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with eight narrowly-named exceptions**'. " +
         "The count must match the bullet list under ## Don'ts.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/The seven\s+named exceptions are/),
-      "AGENTS.md ## Don'ts parent bullet must say 'The seven named exceptions are'. " +
+      agentsContent.match(/The eight\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The eight named exceptions are'. " +
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
-      "AGENTS.md ## Don'ts closer must say 'the **only seven** authorised Task-tool fan-out sites'. " +
+      agentsContent.match(/the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "AGENTS.md ## Don'ts closer must say 'the **only eight** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Verification (this skill) lists all seven exemptions by name", () => {
+  it("flow-pipeline/SKILL.md Verification (this skill) lists all eight exemptions by name", () => {
     const verificationSection =
       content.split("# Verification")[1] ?? content.split("# Verification (this skill)")[1] ?? "";
     expect(
@@ -406,13 +407,19 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       verificationSection.includes("Independent Edit-Applier Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Edit-Applier Subagent' " +
         "as one of the named Task-tool exemptions. The sixth exemption was added in the " +
-        "/coder refactor; this list must enumerate all seven.",
+        "/coder refactor; this list must enumerate all eight.",
     ).toBe(true);
     expect(
       verificationSection.includes("Independent Gatekeeper Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Gatekeeper Subagent' " +
         "as one of the named Task-tool exemptions. The seventh exemption was added in the " +
-        "/pr-review Step 1.5 Gatekeeper refactor; this list must enumerate all seven.",
+        "/pr-review Step 1.5 Gatekeeper refactor; this list must enumerate all eight.",
+    ).toBe(true);
+    expect(
+      verificationSection.includes("Independent Consolidator-Validator Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Independent Consolidator-Validator Subagent' " +
+        "as one of the named Task-tool exemptions. The eighth exemption was added in the " +
+        "/pr-review Step 3.5 Consolidator-Validator refactor; this list must enumerate all eight.",
     ).toBe(true);
   });
 });
@@ -615,6 +622,86 @@ describe("Gatekeeper artifact JSON schema drift (pr-review/SKILL.md)", () => {
   });
 });
 
+describe("Consolidator artifact JSON schema drift (pr-review/SKILL.md)", () => {
+  // The Consolidator-Validator subagent's artifact at
+  // <worktree>/.flow-tmp/consolidator-result.json has five top-level keys.
+  // All five are required (no optional fields, unlike the Gatekeeper's
+  // skip_kind). The runtime validator at bin/lib/agent-finding-schema.ts
+  // enforces the same shape; this lint pins the prose contract in
+  // pr-review/SKILL.md and references/consolidator-instructions.md so a
+  // field rename can't silently drift away from the runtime check.
+  const CONSOLIDATOR_REQUIRED_KEYS = [
+    "consolidated_findings",
+    "dropped_by_validation",
+    "rejected_alternatives",
+    "anti_patterns_found",
+    "summary",
+  ];
+
+  const CONSOLIDATOR_INSTRUCTIONS_PATH = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "pr-review",
+    "references",
+    "consolidator-instructions.md",
+  );
+  const consolidatorInstructionsContent = fs.readFileSync(
+    CONSOLIDATOR_INSTRUCTIONS_PATH,
+    "utf8",
+  );
+
+  it.each(CONSOLIDATOR_REQUIRED_KEYS)(
+    "pr-review/SKILL.md declares the '%s' top-level key for the consolidator artifact",
+    (key) => {
+      expect(
+        prReviewContent.includes(`\`${key}\``),
+        `pr-review/SKILL.md must reference '\`${key}\`' as one of the ` +
+          `consolidator artifact's typed fields. Drift here means a field ` +
+          `rename in bin/lib/agent-finding-schema.ts could silently drift ` +
+          `away from the prose contract — Step 4's reader would silently ` +
+          `read the wrong key.`,
+      ).toBe(true);
+    },
+  );
+
+  it.each(CONSOLIDATOR_REQUIRED_KEYS)(
+    "references/consolidator-instructions.md declares the '%s' top-level key in the artifact schema",
+    (key) => {
+      expect(
+        consolidatorInstructionsContent.includes(key),
+        `references/consolidator-instructions.md must include '${key}' in ` +
+          `the artifact schema documentation. Drift between this file and ` +
+          `pr-review/SKILL.md silently breaks the wrapper-subagent contract.`,
+      ).toBe(true);
+    },
+  );
+
+  it("pr-review/SKILL.md has an Independent Consolidator-Validator Subagent section", () => {
+    expect(
+      prReviewContent.includes("# Independent Consolidator-Validator Subagent"),
+      "pr-review/SKILL.md must have a top-level '# Independent Consolidator-Validator Subagent' " +
+        "section. The exemption in flow-pipeline/SKILL.md Hard rules and AGENTS.md " +
+        "## Don'ts is anchored on this heading name.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md declares the Step 3.5 label and the consolidator-result.json path", () => {
+    expect(
+      prReviewContent.includes("3.5"),
+      "pr-review/SKILL.md must reference '3.5' as a canonical step label so " +
+        "the result-artifact step enumeration stays in sync with the new step.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("consolidator-result.json"),
+      "pr-review/SKILL.md must reference 'consolidator-result.json' so the " +
+        "artifact path is grep-discoverable. Drift here means the Step 3.5 " +
+        "post-spawn existence check could silently fall through.",
+    ).toBe(true);
+  });
+});
+
 describe("pr-review result-artifact contract lint", () => {
   it("pr-review SKILL.md frontmatter does not include `context: fork`", () => {
     expect(
@@ -682,7 +769,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all seven spawn sites", () => {
+describe("Task-tool ToolSearch-load preamble at all eight spawn sites", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/pr-review/SKILL.md",
@@ -695,6 +782,10 @@ describe("Task-tool ToolSearch-load preamble at all seven spawn sites", () => {
     {
       file: "skills/pipeline/pr-review/SKILL.md",
       exemption_name: "pr-review-gatekeeper",
+    },
+    {
+      file: "skills/pipeline/pr-review/SKILL.md",
+      exemption_name: "pr-review-consolidator-validator",
     },
     {
       file: "skills/pipeline/product-planning/SKILL.md",
@@ -747,6 +838,7 @@ describe("Task-tool ToolSearch-load preamble at all seven spawn sites", () => {
   const REFACTORED_SITES = new Set([
     "pr-review-multi-agent-review",
     "pr-review-fix-applier",
+    "pr-review-consolidator-validator",
     "flow-pipeline-merge-resolver",
   ]);
   const PREAMBLE_REF_PATH = path.resolve(
@@ -878,12 +970,14 @@ describe("pr-review include-by-reference structure", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("references/escalation-recipes.md carries all three escalation-tag literals", () => {
+  it("references/escalation-recipes.md carries all five escalation-tag literals", () => {
     const content = fs.readFileSync(ESCALATION_RECIPES_PATH, "utf8");
     for (const tag of [
       "task-tool-unavailable: pr-review-multi-agent-review",
       "task-tool-unavailable: pr-review-fix-applier",
       "fix-applier-missing-artifact",
+      "consolidator-schema-failure",
+      "consolidator-missing-artifact",
     ]) {
       expect(
         content.includes(tag),
@@ -910,17 +1004,18 @@ describe("pr-review include-by-reference structure", () => {
     expect(
       preambleLinks,
       `pr-review/SKILL.md must link to references/task-tool-exemption-preamble.md ` +
-        `at least twice (once per spawn site: Fix-Applier and Multi-Agent Review).`,
-    ).toBeGreaterThanOrEqual(2);
+        `at least three times (once per spawn site: Fix-Applier, Multi-Agent ` +
+        `Review, and Consolidator-Validator).`,
+    ).toBeGreaterThanOrEqual(3);
     const recipesLinks = (
       content.match(/references\/escalation-recipes\.md/g) ?? []
     ).length;
     expect(
       recipesLinks,
       `pr-review/SKILL.md must link to references/escalation-recipes.md at least ` +
-        `three times (once per escalation path: multi-agent-review, fix-applier, ` +
-        `missing-artifact).`,
-    ).toBeGreaterThanOrEqual(3);
+        `five times (once per escalation path: multi-agent-review, fix-applier, ` +
+        `missing-artifact, consolidator-schema-failure, consolidator-missing-artifact).`,
+    ).toBeGreaterThanOrEqual(5);
   });
 
   it("skills/pipeline/pr-review/SKILL.md line count stays under the post-refactor budget", () => {
@@ -934,22 +1029,24 @@ describe("pr-review include-by-reference structure", () => {
     );
     const content = fs.readFileSync(prReviewSkillPath, "utf8");
     const lineCount = content.split("\n").length;
-    // A second include-by-reference pass extracted the Gatekeeper and
-    // Fix-Applier spawn-prompt templates to dedicated reference files and
-    // collapsed the redundant fix-applier-missing-artifact heredoc to a
-    // single recipe-pointer line. Starting count was 1708 lines; the three
-    // moves landed at ~1556 lines. The 1625-line ceiling locks in those
-    // savings with modest headroom — material regrowth would unwind the
-    // refactor. Further reduction toward the original <800 aspiration would
-    // require trimming skill-behavior prose (Step 8/11/12 sections), which
-    // is a separate, behavior-risk scope.
+    // Budget bumped to 1850 to absorb the Step 3.5 Consolidator-Validator
+    // refactor: new pointer section (~25 lines), new Step 3.5 step body
+    // (~40 lines), expanded Step 3 fan-out (agent-output-<lens>.json
+    // write instructions + lengthened table), renamed Step 4 prose, two
+    // new escalated rows in the result-artifact table, and the
+    // read-before-overwrite guard inlined at Steps 1.5 and 13. This
+    // raise sits on top of the earlier include-by-reference pass that
+    // extracted the Gatekeeper and Fix-Applier spawn-prompt templates
+    // to dedicated reference files and collapsed the redundant
+    // fix-applier-missing-artifact heredoc (1708 → ~1556 before this
+    // step landed); the new ceiling reflects the new step's scope, not
+    // a regrowth of previously-trimmed prose.
     expect(
       lineCount,
-      `pr-review/SKILL.md line count must stay under the post-refactor budget ` +
-        `of 1625 lines. The latest include-by-reference pass trimmed this file ` +
-        `from 1708 to ~1556 lines; material regrowth past 1625 would unwind ` +
-        `that work.`,
-    ).toBeLessThan(1625);
+      `pr-review/SKILL.md line count must stay under the post-Consolidator ` +
+        `budget of 1850 lines. Material regrowth past this ceiling would ` +
+        `indicate unrelated bloat creeping back in.`,
+    ).toBeLessThan(1850);
   });
 
   it("skills/pipeline/pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
