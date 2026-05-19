@@ -1207,7 +1207,7 @@ force-pushes, and returns a brief summary. The supervisor never sees
 the rebase output, the per-file resolution prose, or the force-push
 transcript — only the artifact and the summary.
 
-**Load the Task tool before spawning** before the Task call below — see [../pr-review/references/task-tool-exemption-preamble.md](../pr-review/references/task-tool-exemption-preamble.md) for the full rationale. On missing schema: escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit (do not fall back to in-line execution).
+**Load the Task tool before spawning** — i.e. before the Task call below. See [../pr-review/references/task-tool-exemption-preamble.md](../pr-review/references/task-tool-exemption-preamble.md) for the full rationale. On missing schema: escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit (do not fall back to in-line execution).
 
 Resolve the inputs the subagent needs, then make exactly **one**
 Task call:
