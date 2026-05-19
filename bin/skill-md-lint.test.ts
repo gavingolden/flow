@@ -424,6 +424,163 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
   });
 });
 
+describe("/coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md ↔ coder/SKILL.md)", () => {
+  /**
+   * The /coder skill is invoked by three callers via the wider-scope path of
+   * each caller's hybrid threshold: /new-feature step 5, /verify step 3, and
+   * /refactoring step 3. The caller list is documented in three places:
+   *
+   *   - AGENTS.md `## Don'ts` — /coder Task-tool exemption bullet body prose.
+   *   - flow-pipeline/SKILL.md "Hard rules" — Task-tool exemption #6 block.
+   *   - coder/SKILL.md frontmatter `description:` field.
+   *
+   * If a future change adds or removes a caller (e.g. a new skill starts
+   * invoking /coder, or one of the existing three stops doing so), all three
+   * documents must update in lockstep. This lint anchors the three sets so a
+   * unilateral edit on any one side fails fast with a message that names the
+   * divergent file AND the missing/extra caller.
+   *
+   * Extraction strategy: within each anchor section, match backticked
+   * `/skill-name` tokens that appear immediately before a `step <N>` body-
+   * prose marker. The `/flow-pipeline` token is filtered out — it's the
+   * supervisor, not a /coder caller (and appears in two of the three sections
+   * as "When `/flow-pipeline` step 5 loads ..." framing prose).
+   */
+
+  /**
+   * Slice the /coder Task-tool exemption bullet from AGENTS.md, bounded by
+   * the next `**Task-tool exemption` marker or end-of-string.
+   */
+  function sliceAgentsCoderSection(): string {
+    const startMarker =
+      "**Task-tool exemption: `/flow-pipeline` → `/coder` Independent";
+    const startIdx = agentsContent.indexOf(startMarker);
+    if (startIdx === -1) return "";
+    const rest = agentsContent.slice(startIdx + startMarker.length);
+    const nextMarkerIdx = rest.indexOf("**Task-tool exemption");
+    return nextMarkerIdx === -1 ? rest : rest.slice(0, nextMarkerIdx);
+  }
+
+  /**
+   * Slice the Task-tool exemption #6 block from flow-pipeline/SKILL.md,
+   * bounded by the next `**Task-tool exemption` marker. Strip blockquote
+   * `> ` prefixes so cross-line regexes match contiguous prose.
+   */
+  function slicePipelineCoderSection(): string {
+    const stripped = stripBlockquoteMarkers(content);
+    const startMarker =
+      "**Task-tool exemption #6: `/coder` Independent Edit-Applier Subagent.**";
+    const startIdx = stripped.indexOf(startMarker);
+    if (startIdx === -1) return "";
+    const rest = stripped.slice(startIdx + startMarker.length);
+    const nextMarkerIdx = rest.indexOf("**Task-tool exemption");
+    return nextMarkerIdx === -1 ? rest : rest.slice(0, nextMarkerIdx);
+  }
+
+  /**
+   * Slice the frontmatter `description:` block from coder/SKILL.md, bounded
+   * by the closing `---` frontmatter delimiter. The canonical text names all
+   * three callers via the `<caller> step N` pattern.
+   */
+  function sliceCoderFrontmatter(): string {
+    const lines = coderContent.split("\n");
+    if (lines[0] !== "---") return "";
+    let endIdx = -1;
+    for (let i = 1; i < lines.length; i++) {
+      if (lines[i] === "---") {
+        endIdx = i;
+        break;
+      }
+    }
+    if (endIdx === -1) return "";
+    return lines.slice(1, endIdx).join("\n");
+  }
+
+  /**
+   * Extract `/skill-name` tokens that appear immediately before a `step <N>`
+   * body-prose marker. Normalise: strip backticks, strip leading slash,
+   * lowercase. Filter out `/flow-pipeline` (the supervisor, not a /coder
+   * caller). Dedupe + sort.
+   */
+  function extractCallers(section: string): string[] {
+    const re = /`\/([a-z][a-z-]+)`\s+step\s+\d+/g;
+    const raw = [...section.matchAll(re)].map((m) => m[1].toLowerCase());
+    const filtered = raw.filter((name) => name !== "flow-pipeline");
+    return [...new Set(filtered)].sort();
+  }
+
+  function extractAgentsCallers(): string[] {
+    return extractCallers(sliceAgentsCoderSection());
+  }
+
+  function extractPipelineCallers(): string[] {
+    return extractCallers(slicePipelineCoderSection());
+  }
+
+  function extractCoderCallers(): string[] {
+    return extractCallers(sliceCoderFrontmatter());
+  }
+
+  it("AGENTS.md, flow-pipeline/SKILL.md, and coder/SKILL.md each list exactly 3 /coder callers", () => {
+    const agentsCallers = extractAgentsCallers();
+    const pipelineCallers = extractPipelineCallers();
+    const coderCallers = extractCoderCallers();
+    expect(
+      agentsCallers.length,
+      `AGENTS.md /coder exemption section must list exactly 3 callers ` +
+        `(/new-feature, /verify, /refactoring). Found: ${JSON.stringify(agentsCallers)}. ` +
+        `If you are intentionally adding a 4th caller, update this assertion in lockstep with the three docs.`,
+    ).toBe(3);
+    expect(
+      pipelineCallers.length,
+      `flow-pipeline/SKILL.md Task-tool exemption #6 block must list exactly 3 callers ` +
+        `(/new-feature, /verify, /refactoring). Found: ${JSON.stringify(pipelineCallers)}. ` +
+        `If you are intentionally adding a 4th caller, update this assertion in lockstep with the three docs.`,
+    ).toBe(3);
+    expect(
+      coderCallers.length,
+      `coder/SKILL.md frontmatter description must list exactly 3 callers ` +
+        `(/new-feature, /verify, /refactoring). Found: ${JSON.stringify(coderCallers)}. ` +
+        `If you are intentionally adding a 4th caller, update this assertion in lockstep with the three docs.`,
+    ).toBe(3);
+  });
+
+  it("AGENTS.md, flow-pipeline/SKILL.md, and coder/SKILL.md list the same set of /coder callers", () => {
+    const agentsCallers = extractAgentsCallers();
+    const pipelineCallers = extractPipelineCallers();
+    const coderCallers = extractCoderCallers();
+
+    const onlyInAgents = agentsCallers.filter(
+      (c) => !pipelineCallers.includes(c) || !coderCallers.includes(c),
+    );
+    const onlyInPipeline = pipelineCallers.filter(
+      (c) => !agentsCallers.includes(c) || !coderCallers.includes(c),
+    );
+    const onlyInCoder = coderCallers.filter(
+      (c) => !agentsCallers.includes(c) || !pipelineCallers.includes(c),
+    );
+
+    expect(
+      onlyInAgents,
+      `Callers in AGENTS.md but missing from flow-pipeline/SKILL.md or coder/SKILL.md: ${JSON.stringify(onlyInAgents)}. ` +
+        `The three documents enumerate /coder's callers bidirectionally; if you add one to one ` +
+        `side, you must add it to the other two.`,
+    ).toEqual([]);
+    expect(
+      onlyInPipeline,
+      `Callers in flow-pipeline/SKILL.md but missing from AGENTS.md or coder/SKILL.md: ${JSON.stringify(onlyInPipeline)}. ` +
+        `The three documents enumerate /coder's callers bidirectionally; if you add one to one ` +
+        `side, you must add it to the other two.`,
+    ).toEqual([]);
+    expect(
+      onlyInCoder,
+      `Callers in coder/SKILL.md but missing from AGENTS.md or flow-pipeline/SKILL.md: ${JSON.stringify(onlyInCoder)}. ` +
+        `The three documents enumerate /coder's callers bidirectionally; if you add one to one ` +
+        `side, you must add it to the other two.`,
+    ).toEqual([]);
+  });
+});
+
 describe("Fix-Applier artifact JSON schema drift (pr-review/SKILL.md ↔ references/fix-applier-instructions.md)", () => {
   const REQUIRED_KEYS = [
     "commits",

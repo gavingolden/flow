@@ -153,6 +153,34 @@
           "check": "If PR introduces UI changes, report's PR Description Quality section references dark-mode and/or empty/error/loading-state coverage when the description omits them; if PR introduces a data provider, 'Upstream shape drift' coverage is referenced when missing"
         }
       ]
+    },
+    {
+      "id": 4,
+      "prompt": "Review PR #999 — synthetic fixture with an await-in-loop sequential pattern (e.g. `for (const item of items) { await processItem(item); }`) inside a new module, plus a package.json edit that deletes the top-level `engines` field. The PR is a standalone review with no prior comments.",
+      "expected_output": "Standalone review mode: spawns 6 agents including Performance and Supply-Chain; both agents fire content-bearing findings; produces conventional comments and structured report.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "produced_structured_report",
+          "check": "report.md contains '## PR Review Report' and '### Summary' and '### Findings' and '### Pre-Commit Checks'"
+        },
+        {
+          "name": "conventional_comments_used",
+          "check": "findings.json entries use label field with values from: praise, nitpick, suggestion, issue, todo, question"
+        },
+        {
+          "name": "multi_agent_coverage",
+          "check": "agent-findings/ directory contains 6 JSON files for the 6 agent types"
+        },
+        {
+          "name": "performance_agent_fired",
+          "check": "performance.json contains at least one entry referencing 'await' or 'sequential'"
+        },
+        {
+          "name": "supply_chain_agent_fired",
+          "check": "supply-chain.json contains at least one entry referencing 'engines' (the deleted field) or another name from the rubric's closed set (bin|main|exports|types|engines|files)"
+        }
+      ]
     }
   ]
 }
