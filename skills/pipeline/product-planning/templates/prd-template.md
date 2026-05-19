@@ -95,3 +95,22 @@
 <!-- Mark resolved with a decision note so context is preserved. -->
 
 - [ ] [Anything still unresolved before implementation]
+
+## Prompt interpretation
+
+<!-- Conditional: include this section ONLY when the user's prompt names BOTH
+     prescribed methods (numbered list, explicit enumeration) AND a quantitative
+     target (a number with units, "<800 lines", "≤100ms"). Otherwise omit the
+     heading entirely. Placement matches the PRD-section list at
+     skills/pipeline/product-planning/references/discovery-instructions.md
+     section 5 (last, after Open Questions) — the single source of truth
+     for ordering. Full contract — trigger, three required subsections, the
+     four-value Recommended-path enum, and the Open-Questions emission rule:
+       skills/pipeline/product-planning/references/discovery-instructions.md
+       "Prompt interpretation (conditional)"
+     Do NOT inline the enum or anti-pattern list here; this template is a thin
+     sketch and the upstream reference is the single source of truth. -->
+
+- **Reading of prescribed methods:** [`exhaustive` | `starting points`]
+- **Plausibility estimate:** [your honest read on whether the named methods reach the target, with evidence]
+- **Recommended path:** [one of four enum values; see discovery-instructions.md for the verbatim strings]

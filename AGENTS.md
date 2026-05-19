@@ -98,6 +98,40 @@ Code, Cursor, and Aider system prompts plus Anthropic's prompting docs.
   judgment, not blanket pessimisation — a claim like 'this is a
   TypeScript file' doesn't need a verification round-trip; a claim
   like 'this matches `/foo/` on line 42' does. When in doubt, verify.
+- **Treat user prompts as evidence of intent, not exhaustive specifications.**
+  User prompts may contain mistakes, incompleteness, unintended scope
+  restriction, and misweighted goals. When a prompt names prescribed
+  methods (a numbered list, an explicit enumeration of moves) AND a
+  stated quantitative target (`<800 lines`, `30% faster`, `≤ 100ms`),
+  your job is to (a) identify tensions — prescribed-methods-vs-stated-target,
+  under-specification, conflicting constraints — and surface them in the
+  artifacts downstream consumers read (the discovery subagent's PRD has
+  a dedicated `## Prompt interpretation` section for exactly this; the
+  `/new-feature` Critical Analysis adds a row; `/flow-pipeline` Step 3
+  routes non-feature tensions to the approval checkpoint), and
+  (b) proceed with the most-likely-correct interpretation toward the
+  stated goal, not the literal interpretation that fails the goal. The
+  eight Task-tool exemptions and other narrow-and-named contracts cap
+  the scope you can take on without authorisation; the
+  prompt-as-evidence-of-intent rule governs *interpretation* inside an
+  authorised scope, not scope expansion past it. PR #170 is the canonical
+  precedent: the user named four prescribed trims AND a `<800 lines`
+  target; the agent landed all four trims (`-71 lines`, finishing at
+  1337 lines — still 537 lines above target) and reported success
+  because the prescribed methods all landed, never surfacing that they
+  couldn't reach the target. Anti-patterns: (a) reading 4 prescribed
+  moves as exhaustive when the stated target needs more — surface the
+  gap and name additional safe steps in the plan or critical analysis;
+  (b) treating an aspirational quantitative target as wishful when
+  prescribed methods come up short — the target is evidence the user
+  wants the methods to reach it, not decoration; (c) asking for
+  clarification when work-without-stopping is in effect — instead surface
+  the tension in artifacts (the discovery PRD's Open Questions, the
+  Critical Analysis assessment row) so the user can redirect at the next
+  approval checkpoint without an extra round-trip. The structural lint
+  for this rule lives at `bin/skill-md-lint.test.ts` and anchors on the
+  exact phrase **Treat user prompts as evidence of intent, not exhaustive
+  specifications.** — renames must update the lint in the same commit.
 - **Don't echo file contents or full diffs into chat.** Read with tools
   and reference findings as `path:line`. The user can open the file;
   pasting it back wastes tokens and clutters scrollback.
