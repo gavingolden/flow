@@ -448,7 +448,7 @@ subagent rather than landing in the supervisor's transcript.
   - Security: `jq '{findings: .security, meta: .meta.security}' .flow-tmp/static-analysis.json`
   - Pattern/Consistency: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json` (shared with Performance — both agents receive the `lint` lens; each prompt's False-Positive-Avoidance section tells it to drop findings outside its domain)
   - Performance: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json` (shared with Pattern/Consistency — same `lint` lens, different domain filter)
-  - Supply-Chain: `jq -n '{findings: [], meta: {ran: false, skipped_reason: "no supply-chain pre-digest lens"}}'` (synthetic — no real lens; the agent falls back to its own diff inspection per the shared-context-block fallback rule)
+  - Supply-Chain: `jq -n '{findings: [], meta: {ran: false, skipped_reason: "no supply-chain pre-digest lens", duration_ms: 0}}'` (synthetic — no real lens; the agent falls back to its own diff inspection per the shared-context-block fallback rule)
   - Test Coverage: `jq '{findings: .coverage, meta: .meta.coverage}' .flow-tmp/static-analysis.json`
 - Append the agent-specific section (Role, Process, False Positive Avoidance)
 - Include paths to `references/review-checklist.md` and `references/conventional-comments.md`

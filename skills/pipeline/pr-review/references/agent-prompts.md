@@ -254,7 +254,8 @@ Your concern is: **does this code fit naturally into the existing codebase?**
 ### Process
 
 1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`lint`** lens — biome or eslint
-   diagnostics (confidence 75–90, source `biome` or `eslint`) on PR-touched lines.
+   diagnostics (source `biome` or `eslint`) on PR-touched lines, already filtered to
+   `confidence >= min_confidence` (default 80) by the static-analysis helper.
    These are the linter's view of consistency: unused imports, dead code, missing
    `await`s, naming-convention drift, etc. Confirm each by Reading the cited
    `file:line`. Drop linter findings the project has explicitly disabled or that the
@@ -306,7 +307,8 @@ introduce a measurable performance regression in a realistic scenario?**
 ### Process
 
 1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`lint`** lens — biome or eslint
-   diagnostics (confidence 75–90, source `biome` or `eslint`) on PR-touched lines.
+   diagnostics (source `biome` or `eslint`) on PR-touched lines, already filtered to
+   `confidence >= min_confidence` (default 80) by the static-analysis helper.
    This lens is shared with the Pattern & Consistency agent; for your purposes the
    high-signal rules are perf-flavoured (`no-await-in-loop`, `require-await`, and any
    `complexity`/`max-depth` warnings). Confirm each cited finding by Reading the
@@ -370,7 +372,7 @@ user-facing flow?**
 ### Process
 
 1. Your `{{STATIC_ANALYSIS_FACTS}}` block is a synthetic empty findings block —
-   `{findings: [], meta: {ran: false, skipped_reason: "no supply-chain pre-digest lens"}}`.
+   `{findings: [], meta: {ran: false, skipped_reason: "no supply-chain pre-digest lens", duration_ms: 0}}`.
    No pre-digest lens covers semver / license / dependency-graph diff today, so
    `meta.ran=false` fires unconditionally for this agent. Per the shared context
    block's fallback rule, fall back entirely to your own diff inspection — there
