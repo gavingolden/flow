@@ -171,16 +171,18 @@ is one Claude Code chat session, sub-skills (`/product-planning`,
 `/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses, **with six narrowly-named exceptions**
+`claude -p ...` subprocesses, **with seven narrowly-named exceptions**
 — see the "Task-tool exemption: `/flow-pipeline` → `/pr-review`
 Independent Multi-Agent Review", "Task-tool exemption:
 `/flow-pipeline` → `/product-planning` Independent Discovery Subagent",
 "Task-tool exemption: `/flow-pipeline` → `/new-feature` Independent
 Scout Subagent", "Task-tool exemption: `/flow-pipeline` →
-`/pr-review` Fix-Applier Subagent", and "Task-tool exemption:
-`/flow-pipeline` → Merge-Conflict Resolver Subagent", and
+`/pr-review` Fix-Applier Subagent", "Task-tool exemption:
+`/flow-pipeline` → Merge-Conflict Resolver Subagent",
 "Task-tool exemption: `/flow-pipeline` → `/coder` Independent
-Edit-Applier Subagent" entries under `## Don'ts` below.
+Edit-Applier Subagent", and "Task-tool exemption: `/flow-pipeline` →
+`/pr-review` Independent Gatekeeper Subagent" entries under
+`## Don'ts` below.
 This sidesteps two limits at once:
 
 1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
@@ -278,13 +280,14 @@ old silent-pass hole is closed.
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The six
+- Don't spawn sub-agents from the supervisor. See above. The seven
   named exceptions are `/pr-review`'s Independent Multi-Agent Review
   step, `/product-planning`'s Independent Discovery Subagent,
   `/new-feature`'s Independent Scout Subagent, `/pr-review`'s
   Fix-Applier Subagent, `/flow-pipeline` step 10's Merge-Conflict
-  Resolver Subagent, and `/coder`'s Independent Edit-Applier
-  Subagent — all six covered by "Task-tool exemption" bullets below;
+  Resolver Subagent, `/coder`'s Independent Edit-Applier
+  Subagent, and `/pr-review` Step 1.5's Independent Gatekeeper
+  Subagent — all seven covered by "Task-tool exemption" bullets below;
   no other skill or step may call Task.
 - Don't add features beyond the task's stated scope.
 - Don't propagate unverified factual claims. If you're about to emit
@@ -520,11 +523,49 @@ old silent-pass hole is closed.
     Subagent" section. Same narrow-and-named contract as the
     exemptions above. Together with the `/pr-review` Multi-Agent
     Review, `/product-planning` Discovery Subagent, `/new-feature`
-    Scout Subagent, `/pr-review` Fix-Applier Subagent, and
-    `/flow-pipeline`'s Merge-Conflict Resolver Subagent entries,
-    these are the **only six** authorised Task-tool fan-out sites
+    Scout Subagent, `/pr-review` Fix-Applier Subagent,
+    `/flow-pipeline`'s Merge-Conflict Resolver Subagent, and
+    `/pr-review`'s Independent Gatekeeper Subagent entries,
+    these are the **only seven** authorised Task-tool fan-out sites
     from `/flow-pipeline`; no other skill or step may call Task.
-  - **Task-tool spawn sites must load Task first.** Each of the six
+  - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
+    Gatekeeper Subagent.** When `/flow-pipeline` step 8 loads
+    `/pr-review` and `/pr-review` reaches its "Independent Gatekeeper
+    Subagent" step (Step 1.5), one gatekeeper agent is spawned via
+    the Task tool with a per-spawn `model: "haiku"` override to
+    short-circuit cheap "this PR isn't worth a full review" verdicts
+    before the four-agent Sonnet fan-out fires. The exemption is
+    anchored on the step heading name rather than its number so it
+    survives future `/pr-review` renumbering. Rationale: this is the
+    first Task-tool exemption justified primarily by **cost-routing**
+    rather than primarily by context isolation — the Task tool's
+    per-spawn `model: "sonnet"|"opus"|"haiku"` enum lets this spawn
+    site downgrade from Sonnet to Haiku, short-circuiting the
+    four-agent Sonnet fan-out on closed/merged/trivial/no-new-commits
+    PRs that deterministic skip rules can rule out from a single
+    `gh pr view --json
+    state,isDraft,additions,deletions,commits,author` metadata fetch.
+    Context isolation is the secondary win: the `gh pr view` metadata
+    fetch and the skip-rule eval stay inside the subagent rather than
+    polluting the supervisor's transcript. The same two boilerplate
+    rationales also apply — top-level Task call (constraint 1 doesn't
+    apply because the supervisor is itself a top-level Claude Code
+    session), one-shot fan-out (constraint 2 doesn't apply because
+    the subagent returns artifact + summary then exits). The only
+    handoff to the wrapper is the structured artifact at
+    `<worktree>/.flow-tmp/gatekeeper-result.json` (typed fields:
+    `decision`, `reason`, `skip_kind?`, `summary`); the wrapper reads
+    it once and branches: `"skip"` writes a well-formed
+    `pr-review-result.json` with `status: "clean"` and
+    `completed_steps: ["1", "1.5"]` so `/flow-pipeline` Step 8 sees a
+    clean result and proceeds normally to the auto-merge gate;
+    `"proceed"` continues to Step 2 unchanged. The contract is
+    documented bidirectionally in
+    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
+    `skills/pipeline/pr-review/SKILL.md`'s "Independent Gatekeeper
+    Subagent" section. Same narrow-and-named contract as the
+    exemptions above.
+  - **Task-tool spawn sites must load Task first.** Each of the seven
     Task-tool exemption sites above must instruct the supervisor to
     load the Task tool schema via `ToolSearch query="select:Task"`
     before invoking Task (or its alias `Agent`). In Claude Code sessions where neither `Task` nor its alias `Agent`
@@ -537,9 +578,9 @@ old silent-pass hole is closed.
     <exemption-name>` rather than falling back inline; each spawn
     procedure carries the canonical "Load the Task tool before
     spawning" paragraph, and `bin/skill-md-lint.test.ts` enforces
-    its presence at all six sites. Same narrow-and-named hygiene as
-    the Task-tool exemptions above — this is a sibling guard, not a
-    seventh exemption.
+    its presence at all seven sites. Same narrow-and-named hygiene as
+    the Task-tool exemptions above — this is a sibling guard, not an
+    eighth exemption.
   - **AskUserQuestion exemption: `/flow-pipeline` step 4 candidate-
     issues sub-step.** `/flow-pipeline`'s "Hard rules" forbid arbitrary
     `AskUserQuestion` calls from the supervisor, with one named

@@ -277,25 +277,26 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     return [...agentsContent.matchAll(re)].map((m) => normaliseExemption(m[1]));
   }
 
-  it("flow-pipeline/SKILL.md Hard rules lists exactly 6 Task-tool exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 7 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
       exemptions.length,
-      "flow-pipeline/SKILL.md must list exactly 6 Task-tool exemption blocks " +
+      "flow-pipeline/SKILL.md must list exactly 7 Task-tool exemption blocks " +
         "(one each for /pr-review Multi-Agent Review, /product-planning Discovery " +
         "Subagent, /new-feature Scout Subagent, /pr-review Fix-Applier Subagent, " +
-        "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, and /coder " +
-        "Edit-Applier Subagent). Found: " + JSON.stringify(exemptions),
-    ).toBe(6);
+        "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, /coder " +
+        "Edit-Applier Subagent, and /pr-review Step 1.5 Gatekeeper Subagent). " +
+        "Found: " + JSON.stringify(exemptions),
+    ).toBe(7);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 6 Task-tool exemption bullets", () => {
+  it("AGENTS.md ## Don'ts lists exactly 7 Task-tool exemption bullets", () => {
     const exemptions = extractAgentsExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 6 Task-tool exemption bullets. " +
+      "AGENTS.md ## Don'ts must list exactly 7 Task-tool exemption bullets. " +
         "Found: " + JSON.stringify(exemptions),
-    ).toBe(6);
+    ).toBe(7);
   });
 
   it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
@@ -317,43 +318,43 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("flow-pipeline/SKILL.md Hard rules preamble references six exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules preamble references seven exemptions", () => {
     expect(
-      skillStripped.match(/the\s+\*\*only six\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
-      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only six** authorised " +
+      skillStripped.match(/the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only seven** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Hard rules opening references six Task-tool exceptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules opening references seven Task-tool exceptions", () => {
     expect(
-      skillStripped.match(/the\s+six\s+narrowly-named Task-tool exceptions that\s+follow/),
-      "flow-pipeline/SKILL.md Hard rules opening must say 'the six narrowly-named " +
+      skillStripped.match(/the\s+seven\s+narrowly-named Task-tool exceptions that\s+follow/),
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the seven narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
     ).toBeTruthy();
   });
 
-  it("AGENTS.md upstream prose references six exceptions", () => {
+  it("AGENTS.md upstream prose references seven exceptions", () => {
     expect(
-      agentsContent.match(/\*\*with six narrowly-named exceptions\*\*/),
-      "AGENTS.md ## Supervisor and sub-skills must say '**with six narrowly-named exceptions**'. " +
+      agentsContent.match(/\*\*with seven narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with seven narrowly-named exceptions**'. " +
         "The count must match the bullet list under ## Don'ts.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/The six\s+named exceptions are/),
-      "AGENTS.md ## Don'ts parent bullet must say 'The six named exceptions are'. " +
+      agentsContent.match(/The seven\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The seven named exceptions are'. " +
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/the\s+\*\*only six\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
-      "AGENTS.md ## Don'ts closer must say 'the **only six** authorised Task-tool fan-out sites'. " +
+      agentsContent.match(/the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "AGENTS.md ## Don'ts closer must say 'the **only seven** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Verification (this skill) lists all six exemptions by name", () => {
+  it("flow-pipeline/SKILL.md Verification (this skill) lists all seven exemptions by name", () => {
     const verificationSection =
       content.split("# Verification")[1] ?? content.split("# Verification (this skill)")[1] ?? "";
     expect(
@@ -385,7 +386,13 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       verificationSection.includes("Independent Edit-Applier Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Edit-Applier Subagent' " +
         "as one of the named Task-tool exemptions. The sixth exemption was added in the " +
-        "/coder refactor; this list must enumerate all six.",
+        "/coder refactor; this list must enumerate all seven.",
+    ).toBe(true);
+    expect(
+      verificationSection.includes("Independent Gatekeeper Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Independent Gatekeeper Subagent' " +
+        "as one of the named Task-tool exemptions. The seventh exemption was added in the " +
+        "/pr-review Step 1.5 Gatekeeper refactor; this list must enumerate all seven.",
     ).toBe(true);
   });
 });
@@ -522,6 +529,67 @@ describe("Edit-Applier artifact JSON schema drift (coder/SKILL.md ↔ references
   });
 });
 
+describe("Gatekeeper artifact JSON schema drift (pr-review/SKILL.md)", () => {
+  // skip_kind is intentionally NOT in the required-keys list — it's emitted
+  // only on `decision: "skip"` and omitted on `decision: "proceed"`. The
+  // sibling Fix-Applier and Edit-Applier schemas list every key as required;
+  // the Gatekeeper's optional skip_kind diverges from that pattern by design.
+  const GATEKEEPER_REQUIRED_KEYS = ["decision", "reason", "summary"];
+
+  it.each(GATEKEEPER_REQUIRED_KEYS)(
+    "pr-review/SKILL.md declares the '%s' top-level key for the gatekeeper artifact",
+    (key) => {
+      expect(
+        prReviewContent.includes(`\`${key}\``),
+        `pr-review/SKILL.md must reference '\`${key}\`' as one of the gatekeeper ` +
+          `artifact's typed fields. Drift here means the wrapper's branch-on-.decision ` +
+          `logic at Step 1.5 silently falls through if the Haiku subagent renames a ` +
+          `field. Mirrors the parallel Fix-Applier and Edit-Applier schema-drift lints ` +
+          `above.`,
+      ).toBe(true);
+    },
+  );
+
+  it("pr-review/SKILL.md documents the optional 'skip_kind' field for the gatekeeper artifact", () => {
+    expect(
+      prReviewContent.includes("`skip_kind`") || prReviewContent.includes('"skip_kind"'),
+      "pr-review/SKILL.md must reference 'skip_kind' (as `skip_kind` or \"skip_kind\") " +
+        "in the Gatekeeper subagent's documented artifact shape. The field is optional " +
+        "(emitted only on decision: \"skip\") but the prose must still surface it so the " +
+        "wrapper's reader knows to expect it on skip verdicts.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md has an Independent Gatekeeper Subagent section", () => {
+    expect(
+      prReviewContent.includes("# Independent Gatekeeper Subagent"),
+      "pr-review/SKILL.md must have a top-level '# Independent Gatekeeper Subagent' " +
+        "section. The exemption in flow-pipeline/SKILL.md Hard rules and AGENTS.md " +
+        "## Don'ts is anchored on this heading name.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md writes the 'pr-review-last-sha' marker on the clean Step 13 path AND reads it in the Gatekeeper", () => {
+    // The marker file is the load-bearing input to the Gatekeeper's
+    // "no-new-commits" skip rule. Without a write site on the clean Step 13
+    // completion path, the most cost-effective skip rule is permanently
+    // unreachable — every invocation falls through to the full Sonnet fan-out
+    // even when the PR head SHA is unchanged since the last clean review.
+    // This lint asserts the literal appears at least twice in pr-review/SKILL.md
+    // (one read in the Gatekeeper spawn prompt template, one write in Step 13's
+    // clean-completion block) so the paired-contract regression can't recur.
+    const occurrences = prReviewContent.split("pr-review-last-sha").length - 1;
+    expect(
+      occurrences,
+      `pr-review/SKILL.md must reference 'pr-review-last-sha' at least twice (one ` +
+        `read in the Gatekeeper spawn prompt template's no-new-commits skip rule, ` +
+        `one write in Step 13's clean-completion block). Found ${occurrences} ` +
+        `occurrence(s). A read-without-write means the skip rule is dead code; a ` +
+        `write-without-read means the marker is never consulted.`,
+    ).toBeGreaterThanOrEqual(2);
+  });
+});
+
 describe("pr-review result-artifact contract lint", () => {
   it("pr-review SKILL.md frontmatter does not include `context: fork`", () => {
     expect(
@@ -589,7 +657,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all six spawn sites", () => {
+describe("Task-tool ToolSearch-load preamble at all seven spawn sites", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/pr-review/SKILL.md",
@@ -598,6 +666,10 @@ describe("Task-tool ToolSearch-load preamble at all six spawn sites", () => {
     {
       file: "skills/pipeline/pr-review/SKILL.md",
       exemption_name: "pr-review-fix-applier",
+    },
+    {
+      file: "skills/pipeline/pr-review/SKILL.md",
+      exemption_name: "pr-review-gatekeeper",
     },
     {
       file: "skills/pipeline/product-planning/SKILL.md",

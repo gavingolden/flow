@@ -76,6 +76,226 @@ Reference files (read on demand, not upfront):
   description Testability.
 - `references/report-template.md` — output format for the final report. Read at Step 12.
 
+# Independent Gatekeeper Subagent
+
+This skill spawns one **Independent Gatekeeper Subagent** via the Task tool at
+Step 1.5 — between Step 1 (Parse the PR Identifier) and Step 2 (Fetch and
+Pre-Flight) — to short-circuit cheap "this PR isn't worth a full review"
+verdicts before the four-agent Sonnet fan-out fires. The subagent runs in its
+own isolated context: it fetches PR metadata via a single `gh pr view --json
+state,isDraft,additions,deletions,commits,author` call, applies deterministic
+skip rules, and writes a structured artifact at
+`<worktree>/.flow-tmp/gatekeeper-result.json`. The wrapper reads it exactly
+once on Step 1.5 return and branches on `.decision`: `"skip"` writes a
+well-formed `pr-review-result.json` with `status: "clean"` and
+`completed_steps: ["1", "1.5"]` so `/flow-pipeline` step 8 sees a clean result
+and proceeds normally to the auto-merge gate; `"proceed"` falls through to
+Step 2 unchanged. The Gatekeeper never reads diff content, never runs
+static-analysis — its job is the cost-routing call, not the review.
+
+The supervisor session that loads this skill (typically `/flow-pipeline`
+step 8, but also any direct caller) only ever sees:
+
+1. The prose of this SKILL.md (the wrapper).
+2. The Task-tool call's prompt and brief result envelope.
+3. The one-paragraph summary the subagent returns.
+4. One read of `.flow-tmp/gatekeeper-result.json` body (Step 1.5), parsed
+   once and discarded after the branch decision is made (it is **not**
+   reused downstream — `gatekeeper-result.json` is single-use, distinct
+   from `pr-review-result.json` and `fix-applier-result.json`).
+
+It never sees the `gh pr view` JSON, the skip-rule eval logic, or the
+metadata that drove the decision. Those stay inside the subagent's context.
+
+**Task-tool fan-out is intentional.** This step ("Independent Gatekeeper
+Subagent") spawns one gatekeeper agent via the Task tool with a per-spawn
+`model: "haiku"` override. When `/pr-review` is loaded in-process by
+`/flow-pipeline` (the supervisor's step 8), this fan-out is permitted by
+the named Task-tool exception in
+`skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section (itself
+anchored on this step's heading name, not its number, so it survives
+future renumbering). Outside the supervisor context (e.g. invoked directly
+from a user session), the Task tool is unrestricted, so the spawn runs
+identically. Either path: one subagent, returns artifact on disk + a brief
+summary. The justification for this exemption is **cost-routing first**:
+the per-spawn `model: "haiku"` override short-circuits the downstream
+four-agent Sonnet fan-out on closed/merged/trivial/no-new-commits PRs.
+Context isolation is a secondary win — the `gh pr view` metadata fetch
+and skip-rule eval don't pollute the supervisor's transcript.
+
+## Spawn procedure
+
+The wrapper spawns the subagent at Step 1.5. Before the spawn:
+
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-gatekeeper` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-gatekeeper"` per the # Result artifact contract below (write-`.tmp` → validate-`.tmp` → `mv`). Worked example:
+
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1"],
+  "missed_steps": ["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "task-tool-unavailable: pr-review-gatekeeper",
+  "summary": "Bailed at the Gatekeeper spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
+}
+EOF
+bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+```
+
+The fan-out's value is its cost-routing override (Sonnet → Haiku) and its context isolation; an in-line fallback breaks both contracts that this exemption is justified by.
+
+1. Resolve the working directory absolutely into a single shell variable
+   `$WORKTREE` and use it everywhere downstream. If the caller passed a
+   `WORKTREE` value (typical when invoked from `/flow-pipeline`), use it
+   as-is. Otherwise, set `WORKTREE="$(pwd)"` explicitly so every subsequent
+   `"$WORKTREE/..."` expansion has a defined value. Then derive the
+   artifact path from it:
+
+   ```bash
+   WORKTREE="${WORKTREE:-$(pwd)}"
+   ARTIFACT_PATH="$WORKTREE/.flow-tmp/gatekeeper-result.json"
+   ```
+
+2. Resolve the skill base directory absolutely. Capture it as `SKILL_DIR`
+   from the Skill tool's "Base directory for this skill" line at the top
+   of this SKILL.md when loaded. Create the consumer-side `.flow-tmp/`
+   directory now (single side-effect attribution site for the parent dir;
+   the subagent only writes the file):
+
+   ```bash
+   mkdir -p "$WORKTREE/.flow-tmp"
+   ```
+
+3. Make exactly **one** Task-tool call:
+
+   ```
+   subagent_type: general-purpose
+   model: "haiku"
+   description:   Gatekeeper for /pr-review
+   prompt:        <the prompt template below, with variables filled in>
+   ```
+
+   The `model: "haiku"` per-spawn override is the load-bearing
+   cost-routing knob — do not omit it.
+
+4. When the subagent returns, treat its 3–5 sentence summary as the chat
+   output. Then do a cheap existence check against `$ARTIFACT_PATH`
+   (`test -s "$ARTIFACT_PATH"`); on missing or empty artifact, surface
+   the failure to the caller per the # Result artifact contract below.
+
+5. Read the artifact body once and branch on `.decision`:
+   - `"skip"` → write `<worktree>/.flow-tmp/pr-review-result.json` with
+     `status: "clean"`, `completed_steps: ["1", "1.5"]`, `missed_steps`
+     listing every other step label, `escalation_tag: null`, and
+     `summary` set to the gatekeeper's summary string. Validate via
+     `bun bin/lib/pr-review-result-schema.ts --validate <.tmp>`, then
+     atomically `mv` into place. Exit clean.
+   - `"proceed"` → fall through to Step 2 unchanged.
+
+## Spawn prompt template
+
+Fill in the four `{{...}}` placeholders before passing to the Task tool:
+
+```
+You are the Independent Gatekeeper Subagent for `/pr-review`. You run in an
+isolated context with `model: "haiku"` and return an artifact on disk plus a
+brief summary. Your job is single-purpose: decide whether a full /pr-review
+run is worth its Sonnet cost, or whether a deterministic skip rule applies.
+
+PR identifier:
+  {{PR_NUMBER}}
+
+Working directory (cd here before any gh call):
+  {{WORKTREE}}
+
+Skill base directory:
+  {{SKILL_DIR}}
+
+Write the structured artifact to (absolute path):
+  {{ARTIFACT_PATH}}
+
+Procedure:
+
+1. Run exactly one metadata fetch:
+
+   ```bash
+   gh pr view "$PR_NUMBER" --json state,isDraft,additions,deletions,commits,author
+   ```
+
+   Do NOT run `gh pr diff`, do NOT Read any changed file, do NOT invoke
+   static-analysis. Metadata only — content reads defeat the cost-routing
+   rationale.
+
+2. Apply the skip rules in this order. The first match wins:
+
+   - **`gh pr view` itself failed** (non-zero exit, network/auth/rate-limit/
+     malformed PR number) → `decision: "proceed"`, `reason: "gh-error:
+     <one-line stderr>"`. Falling forward is safer than escalating; Step 2's
+     `flow-fetch-pr-review` has its own error handling.
+
+   - **Closed or merged** (`.state == "CLOSED"` or `.state == "MERGED"`) →
+     `decision: "skip"`, `skip_kind: "closed-or-merged"`, `reason: "PR is
+     <state>"`.
+
+   - **Draft** (`.isDraft == true`) → `decision: "proceed"`, `reason:
+     "draft"`. The Gatekeeper does NOT skip drafts; the existing Step 2
+     pre-flight emits its own draft warning, and a draft PR may still want
+     the multi-agent review for in-progress feedback. The reason field
+     surfaces the draft status to the summary.
+
+   - **Trivial diff** (`.additions + .deletions < 10` AND every
+     `.commits[].messageHeadline` matches one of `^chore: regenerate`,
+     `^chore: regen`, `^docs: fix typo`, `^chore: bump`) →
+     `decision: "skip"`, `skip_kind: "trivial-diff"`, `reason: "<N>-line
+     diff; every commit headline matches typo/regen pattern"`.
+
+   - **No new commits since prior clean run** (`<worktree>/.flow-tmp/
+     pr-review-result.json` exists with `status: "clean"` AND a sibling
+     `<worktree>/.flow-tmp/pr-review-last-sha` marker file exists AND its
+     contents match `.commits[-1].oid` from the metadata fetch) →
+     `decision: "skip"`, `skip_kind: "no-new-commits"`, `reason: "PR head
+     SHA <sha> unchanged since prior clean /pr-review run"`. Without
+     **both** the prior artifact AND the marker file, conservatively
+     return `"proceed"`.
+
+   - **Otherwise** → `decision: "proceed"`, `reason: "no skip rule
+     matched"`.
+
+3. Write the artifact at the absolute path passed in `ARTIFACT_PATH` with
+   typed fields:
+
+   ```json
+   {
+     "decision": "proceed" | "skip",
+     "reason": "<one-line rationale>",
+     "skip_kind": "closed-or-merged" | "trivial-diff" | "no-new-commits",
+     "summary": "<3-5 sentence summary surfacing both sides>"
+   }
+   ```
+
+   The four typed fields are: `decision` (string, one of `"proceed"` or
+   `"skip"`), `reason` (string, one-line rationale the wrapper surfaces in
+   its summary), `skip_kind` (optional string, one of `"closed-or-merged"`,
+   `"trivial-diff"`, or `"no-new-commits"`), and `summary` (string, 3-5
+   sentences). `skip_kind` is required when `decision == "skip"` and
+   omitted when `decision == "proceed"`. Use the write-`.tmp` → `mv`
+   atomic protocol.
+
+4. Return a one-paragraph summary (3-5 sentences) that surfaces BOTH sides
+   of what you observed: at least one positive (the decision + skip_kind,
+   if any, plus the cost-saving outcome) AND at least one negative (any
+   ambiguous metadata, any rule that nearly matched but didn't, or any
+   off-pattern observation worth surfacing). A summary that names only the
+   positive verdict fails the contract.
+```
+
+The artifact's JSON shape is documented above and is **not** shared with
+`pr-review-result.json` or `fix-applier-result.json` — the Gatekeeper's
+artifact is single-use, read once by the wrapper, and discarded after the
+branch decision.
+
 # Fix-Applier Subagent
 
 This skill spawns one **Fix-Applier Subagent** via the Task tool at Step 8 to
@@ -257,12 +477,15 @@ summary:          string
 
 **Canonical step labels.** `completed_steps[]` and `missed_steps[]`
 use this skill's own step numbering: the top-level numbers `"1"`,
-`"2"`, `"3"`, `"4"`, `"5"`, `"6"`, `"7"`, `"7.5"`, `"8"`, `"8c"`,
-`"9"`, `"10"`, `"11"`, `"12"`, `"13"` (the sub-step labels actually
-present in the # Instructions section above). Sub-steps like `"8c"`
-appear only when the wrapper bails out mid-step 8 after `8b` returned
-but before `8c.i` ticked any boxes; otherwise `completed_steps`
-records just the parent number (`"8"`).
+`"1.5"`, `"2"`, `"3"`, `"4"`, `"5"`, `"6"`, `"7"`, `"7.5"`, `"8"`,
+`"8c"`, `"9"`, `"10"`, `"11"`, `"12"`, `"13"` (the sub-step labels
+actually present in the # Instructions section above). Sub-steps
+like `"8c"` appear only when the wrapper bails out mid-step 8 after
+`8b` returned but before `8c.i` ticked any boxes; otherwise
+`completed_steps` records just the parent number (`"8"`). Step
+`"1.5"` is the Gatekeeper short-circuit: on a skip verdict
+`completed_steps` is exactly `["1", "1.5"]` and every other step
+label lands in `missed_steps`.
 
 **When each `status` fires:**
 
@@ -276,13 +499,20 @@ records just the parent number (`"8"`).
   unreached step labels go in `missed_steps[]`; the labels that did run
   go in `completed_steps[]`.
 - `"escalated"` — the skill bailed at a documented escalation site
-  (`task-tool-unavailable: pr-review-multi-agent-review`,
+  (`task-tool-unavailable: pr-review-gatekeeper`,
+  `task-tool-unavailable: pr-review-multi-agent-review`,
   `task-tool-unavailable: pr-review-fix-applier`,
-  `fix-applier-missing-artifact`, or a multi-agent review failure
-  surfaced verbatim from Step 3). `escalation_tag` carries the
-  tag string the wrapper would have printed to scrollback; the
-  supervisor consumes it directly (see `/flow-pipeline` step 8 for
-  the propagation contract).
+  `gatekeeper-missing-artifact`, `fix-applier-missing-artifact`, or
+  a multi-agent review failure surfaced verbatim from Step 3).
+  `escalation_tag` carries the tag string the wrapper would have
+  printed to scrollback; the supervisor consumes it directly (see
+  `/flow-pipeline` step 8 for the propagation contract). The
+  Gatekeeper escalation tag fires when the Step 1.5 preamble's
+  `ToolSearch query="select:Task"` cannot find Task or Agent in
+  the response; the `gatekeeper-missing-artifact` tag fires when
+  the Gatekeeper subagent returned but wrote no artifact at
+  `<worktree>/.flow-tmp/gatekeeper-result.json` (the wrapper's
+  cheap existence check at Step 1.5 failed).
 
 **Write contract.** The wrapper writes the artifact on **every exit
 path** — clean Step 13 completion, every escalation site, and the
@@ -332,8 +562,11 @@ labels go in `missed_steps` while the labels that did run go in
 | Status | Escalation tag | Completed steps (representative) | Missed steps (representative) |
 |---|---|---|---|
 | `"clean"` | `null` | All step labels that ran | `[]` |
+| `"clean"` (Step 1.5 Gatekeeper skip) | `null` | `["1", "1.5"]` | `["2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
+| `"escalated"` | `task-tool-unavailable: pr-review-gatekeeper` | `["1"]` | `["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `task-tool-unavailable: pr-review-multi-agent-review` | `["1", "2"]` | `["3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `task-tool-unavailable: pr-review-fix-applier` | `["1", "2", "3", "4", "5"]` | Fix-Applier-owned Steps `["6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
+| `"escalated"` | `gatekeeper-missing-artifact` | `["1"]` | `["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"]` |
 | `"escalated"` | `fix-applier-missing-artifact` | `["1", "2", "3", "4", "5", "8"]` | `["8c", "9", "10", "11", "12", "13"]` |
 | `"partial"` | `null` | Steps that ran | Steps that didn't |
 
@@ -357,6 +590,98 @@ existing run, not to fabricate one.
 
 Use `$ARGUMENTS` as the PR number or URL. If empty, ask the user. Extract the numeric PR
 number from URLs like `https://github.com/owner/repo/pull/100`.
+
+## 1.5. Gatekeeper
+
+Spawn the **Independent Gatekeeper Subagent** (see § Independent Gatekeeper
+Subagent above for the rationale, the full spawn procedure, and the spawn
+prompt template) to short-circuit cheap "this PR isn't worth a full review"
+verdicts before the four-agent Sonnet fan-out fires. The subagent runs with
+`model: "haiku"` on its one Task call — the per-spawn cost-routing override
+is the load-bearing knob.
+
+**Load the Task tool before spawning.** Same preamble pattern as the
+Multi-Agent Review (Step 3) and the Fix-Applier (Step 8): run
+`ToolSearch query="select:Task"` and confirm the response contains either
+a `<function>{"name": "Task", ...}</function>` or a
+`<function>{"name": "Agent", ...}</function>` line. On missing schema,
+escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-gatekeeper` and
+write `<worktree>/.flow-tmp/pr-review-result.json` with `status:
+"escalated"`, `escalation_tag: "task-tool-unavailable:
+pr-review-gatekeeper"`, `completed_steps: ["1"]`, and `missed_steps`
+listing `"1.5"` onward per the # Result artifact contract above. Do NOT
+fall back to in-line execution — the cost-routing rationale collapses if
+the metadata fetch + skip-rule eval run inside the supervisor's Sonnet
+session.
+
+Resolve `$WORKTREE` and `$ARTIFACT_PATH`, create the parent directory,
+make exactly one Task call with `model: "haiku"`:
+
+```bash
+WORKTREE="${WORKTREE:-$(pwd)}"
+ARTIFACT_PATH="$WORKTREE/.flow-tmp/gatekeeper-result.json"
+mkdir -p "$WORKTREE/.flow-tmp"
+# Task call with model: "haiku" using the prompt template from the
+# § Independent Gatekeeper Subagent section above.
+```
+
+After the subagent returns:
+
+1. Existence check: `test -s "$ARTIFACT_PATH"`. On missing or empty
+   artifact, escalate `NEEDS HUMAN: gatekeeper-missing-artifact` and
+   write the result artifact with `status: "escalated"` per the same
+   atomic write protocol — do not retry the Task call. Worked example
+   (mirrors the `task-tool-unavailable: pr-review-fix-applier` heredoc
+   higher up in this SKILL.md):
+
+   ```bash
+   RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+   cat > "$RESULT_PATH.tmp" <<'EOF'
+   {
+     "status": "escalated",
+     "completed_steps": ["1"],
+     "missed_steps": ["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+     "escalation_tag": "gatekeeper-missing-artifact",
+     "summary": "Gatekeeper subagent returned but wrote no artifact at .flow-tmp/gatekeeper-result.json; supervisor must escalate without retry per the no-retry-on-missing-artifact contract."
+   }
+   EOF
+   bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+     && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+   ```
+
+   The full per-field shape is documented in the # Result artifact
+   "Exit-path wiring" table above; the heredoc here is the on-site
+   reference so a reader of Step 1.5 doesn't have to scroll back up
+   to assemble the escalation artifact.
+2. Read the artifact body **exactly once** and branch on `.decision`:
+
+   - **`"skip"`** → write `<worktree>/.flow-tmp/pr-review-result.json`
+     with the well-formed shape below via the atomic write-`.tmp` →
+     validate → `mv` protocol, then exit clean. Worked example:
+
+     ```bash
+     SUMMARY=$(jq -r '.summary' "$ARTIFACT_PATH")
+     RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+     cat > "$RESULT_PATH.tmp" <<EOF
+     {
+       "status": "clean",
+       "completed_steps": ["1", "1.5"],
+       "missed_steps": ["2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+       "escalation_tag": null,
+       "summary": $(printf '%s' "$SUMMARY" | jq -Rs .)
+     }
+     EOF
+     bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+       && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+     ```
+
+     The `"1.5"` step label is part of the canonical step labels
+     enumerated in the # Result artifact section above; the supervisor
+     (`/flow-pipeline` step 8) sees a `status: "clean"` result and
+     continues to the auto-merge gate as if the full review ran.
+   - **`"proceed"`** → fall through to Step 2 unchanged. The gatekeeper
+     artifact is single-use; the wrapper does not re-read it after this
+     branch decision.
 
 ## 2. Fetch and Pre-Flight
 
@@ -1257,6 +1582,31 @@ shape via `bun bin/lib/pr-review-result-schema.ts --validate <path>` then
 atomically write. This is the single signal `/flow-pipeline` step 8 reads
 to decide whether to continue (`"clean"`) or branch into the partial-retry
 path (`"partial"`) or escalate verbatim (`"escalated"`).
+
+**Also write the `pr-review-last-sha` marker file on this clean-completion
+path.** The marker is the load-bearing input the Step 1.5 Gatekeeper's
+"no-new-commits" skip rule consults — without it, the most cost-effective
+skip rule is permanently unreachable and every subsequent `/pr-review`
+invocation falls through to the full Sonnet fan-out even when the PR head
+SHA is unchanged. Capture the PR's current head SHA from
+`gh pr view --json commits` and write it atomically alongside the result
+artifact:
+
+```bash
+HEAD_SHA=$(gh pr view "$PR_NUMBER" --json commits --jq '.commits[-1].oid')
+printf '%s\n' "$HEAD_SHA" > "$WORKTREE/.flow-tmp/pr-review-last-sha.tmp"
+mv "$WORKTREE/.flow-tmp/pr-review-last-sha.tmp" "$WORKTREE/.flow-tmp/pr-review-last-sha"
+```
+
+The marker write is scoped **only** to this clean-Step-13 completion path.
+Escalation paths (`status: "escalated"`) and partial paths
+(`status: "partial"`) MUST NOT write the marker — those don't represent a
+fully-reviewed PR, so the next invocation should fall through to a real
+review rather than a Gatekeeper skip. The marker file's read site lives in
+the § Independent Gatekeeper Subagent section's spawn prompt template
+above; `bin/skill-md-lint.test.ts` asserts the literal `pr-review-last-sha`
+appears at least twice in this SKILL.md (one read in Gatekeeper, one write
+here) so this paired-contract regression can't recur silently.
 
 # Anti-Patterns
 
