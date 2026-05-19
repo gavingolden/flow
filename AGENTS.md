@@ -111,7 +111,7 @@ Code, Cursor, and Aider system prompts plus Anthropic's prompting docs.
   routes non-feature tensions to the approval checkpoint), and
   (b) proceed with the most-likely-correct interpretation toward the
   stated goal, not the literal interpretation that fails the goal. The
-  seven Task-tool exemptions and other narrow-and-named contracts cap
+  eight Task-tool exemptions and other narrow-and-named contracts cap
   the scope you can take on without authorisation; the
   prompt-as-evidence-of-intent rule governs *interpretation* inside an
   authorised scope, not scope expansion past it. PR #170 is the canonical

@@ -683,13 +683,14 @@ subagent rather than landing in the supervisor's transcript.
    fi
    ```
 
-   Pass this value as `{{PROMPT_INTERPRETATION_TENSION}}` when filling
-   the **Pattern & Consistency Agent's** prompt template — the other
-   five agents ignore the variable but still receive the substituted
-   value in their shared-context block (cheap to include; keeps the
-   per-agent template-fill code symmetric). See
-   `references/agent-prompts.md` Pattern & Consistency Agent Process
-   step 8 for the conditional behaviour the flag triggers.
+   Pass this value as `{{PROMPT_INTERPRETATION_TENSION}}` only when
+   filling the **Pattern & Consistency Agent's** prompt template — the
+   shared-context block at `references/agent-prompts.md` lines 12–60
+   has no `{{PROMPT_INTERPRETATION_TENSION}}` slot, and the other five
+   agents have no `Process` step that reads the variable, so passing it
+   to them would be a no-op. See `references/agent-prompts.md` Pattern
+   & Consistency Agent Process step 8 for the conditional behaviour
+   the flag triggers.
 
 6. Read `references/agent-prompts.md` for the prompt templates.
 
@@ -700,7 +701,9 @@ subagent rather than landing in the supervisor's transcript.
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
   `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
-  `{{STATIC_ANALYSIS_FACTS}}`. For the static-analysis variable, substitute a single
+  `{{STATIC_ANALYSIS_FACTS}}`, and (Pattern & Consistency Agent only)
+  `{{PROMPT_INTERPRETATION_TENSION}}` from `$PROMPT_INTERPRETATION_TENSION`
+  computed in step 5 above. For the static-analysis variable, substitute a single
   self-contained JSON object containing both the lens findings and the matching meta
   slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
   needs both. Use this `jq` filter against `.flow-tmp/static-analysis.json` per agent:

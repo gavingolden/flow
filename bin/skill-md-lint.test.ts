@@ -105,6 +105,24 @@ const FIX_APPLIER_SPAWN_PROMPT_PATH = path.resolve(
   "references",
   "fix-applier-spawn-prompt.md",
 );
+const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "product-planning",
+  "references",
+  "discovery-instructions.md",
+);
+const AGENT_PROMPTS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "references",
+  "agent-prompts.md",
+);
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
@@ -116,6 +134,8 @@ const reportTemplateContent = fs.readFileSync(REPORT_TEMPLATE_PATH, "utf8");
 const manualTestRubricContent = fs.readFileSync(MANUAL_TEST_RUBRIC_PATH, "utf8");
 const gatekeeperSpawnPromptContent = fs.readFileSync(GATEKEEPER_SPAWN_PROMPT_PATH, "utf8");
 const fixApplierSpawnPromptContent = fs.readFileSync(FIX_APPLIER_SPAWN_PROMPT_PATH, "utf8");
+const discoveryInstructionsContent = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+const agentPromptsContent = fs.readFileSync(AGENT_PROMPTS_PATH, "utf8");
 
 /**
  * Strip markdown blockquote `> ` prefixes from line starts so cross-line
@@ -750,6 +770,62 @@ describe("AGENTS.md Output style anchors", () => {
       "AGENTS.md must reference 'PR #170' inside the prompt-as-evidence-of-intent " +
         "rule body. This is the canonical precedent for the rule (four prescribed " +
         "trims landed at -71 lines vs a <800-line target, with no tension surfaced).",
+    ).toBe(true);
+  });
+});
+
+describe("Prompt-interpretation contract anchors", () => {
+  // discovery-instructions.md is the single source of truth for the four-value
+  // Recommended-path enum that bin/flow-step3-route.ts exact-matches against.
+  // bin/flow-step3-route.test.ts enumerates the four values, but nothing
+  // catches a drop / rename in discovery-instructions.md itself — that's the
+  // upstream silent-drift footgun this anchor block guards.
+  it.each([
+    "methods plausibly reach target",
+    "extend scope with named additional safe steps",
+    "relax target",
+    "split into multiple pipelines",
+  ])(
+    "discovery-instructions.md contains the Recommended-path enum value '%s'",
+    (enumValue) => {
+      expect(
+        discoveryInstructionsContent.includes(enumValue),
+        `discovery-instructions.md must contain the verbatim Recommended-path enum ` +
+          `value '${enumValue}'. This file is the single source of truth (see the ` +
+          `"Single source of truth" paragraph in the same file); bin/flow-step3-route.ts ` +
+          `exact-matches against the first string, and drift here silently routes ` +
+          `pipeline runs the wrong way. Rename the value in lock-step across this ` +
+          `file, bin/flow-step3-route.ts, and bin/flow-step3-route.test.ts.`,
+      ).toBe(true);
+    },
+  );
+
+  it("discovery-instructions.md contains the '### Prompt interpretation (conditional)' heading", () => {
+    expect(
+      discoveryInstructionsContent.includes("### Prompt interpretation (conditional)"),
+      "discovery-instructions.md must contain the heading " +
+        "'### Prompt interpretation (conditional)' verbatim. The PRD template " +
+        "(skills/pipeline/product-planning/templates/prd-template.md), pr-review's " +
+        "Gatekeeper spawn prompt (skills/pipeline/pr-review/references/gatekeeper-spawn-prompt.md), " +
+        "and the AGENTS.md Output style rule all cite this heading by name. " +
+        "Renaming requires a lock-step update across those four files.",
+    ).toBe(true);
+  });
+
+  // agent-prompts.md's Pattern & Consistency Agent step 8 anchor is referenced
+  // from skills/pipeline/pr-review/SKILL.md step 5 (the {{PROMPT_INTERPRETATION_TENSION}}
+  // template-variable substitution site). Dropping the step would leave the
+  // template variable un-consumed, and the SKILL.md prose would still claim a
+  // step exists that the linter can't find.
+  it("agent-prompts.md Pattern & Consistency Process contains the 'Prompt-interpretation tension check' anchor", () => {
+    expect(
+      agentPromptsContent.includes("Prompt-interpretation tension check (conditional)"),
+      "agent-prompts.md must contain the anchor literal " +
+        "'Prompt-interpretation tension check (conditional)' inside the Pattern & " +
+        "Consistency Agent's Process section (step 8). This is the consumer of " +
+        "the {{PROMPT_INTERPRETATION_TENSION}} template variable substituted by " +
+        "pr-review/SKILL.md step 5 — dropping the step would leave the variable " +
+        "un-consumed and the Gatekeeper-side tension signal silently dead.",
     ).toBe(true);
   });
 });

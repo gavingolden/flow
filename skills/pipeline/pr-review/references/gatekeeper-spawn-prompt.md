@@ -39,8 +39,11 @@ Procedure:
 
    - **`gh pr view` itself failed** (non-zero exit, network/auth/rate-limit/
      malformed PR number) → `decision: "proceed"`, `reason: "gh-error:
-     <one-line stderr>"`. Falling forward is safer than escalating; Step 2's
-     `flow-fetch-pr-review` has its own error handling.
+     <one-line stderr>"`; also emit `prompt_interpretation_tension: false`
+     (no body available to inspect — conservative default per the
+     always-emit invariant at lines 84 and 117–120). Falling forward is
+     safer than escalating; Step 2's `flow-fetch-pr-review` has its own
+     error handling.
 
    - **Closed or merged** (`.state == "CLOSED"` or `.state == "MERGED"`) →
      `decision: "skip"`, `skip_kind: "closed-or-merged"`, `reason: "PR is
