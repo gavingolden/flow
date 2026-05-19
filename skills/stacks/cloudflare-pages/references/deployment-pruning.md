@@ -76,7 +76,7 @@ jobs:
       project: my-project
       older_than_days: 30
       branch: '!main'      # optional
-      dry_run: true        # default; set false to actually delete
+      dry_run: false       # default; set true for a dry-run validation pass
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
