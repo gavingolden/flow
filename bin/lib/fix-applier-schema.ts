@@ -4,8 +4,9 @@
  *
  * The schema is documented prose-only in
  * `skills/pipeline/pr-review/references/fix-applier-instructions.md` step 9
- * and `skills/pipeline/pr-review/SKILL.md`'s spawn-prompt template, with a
- * top-level-keys lint at `bin/skill-md-lint.test.ts`. This module is the
+ * and `skills/pipeline/pr-review/references/fix-applier-spawn-prompt.md`'s
+ * spawn-prompt template, with a top-level-keys lint at
+ * `bin/skill-md-lint.test.ts`. This module is the
  * runtime counterpart: a wrapper that has just received the artifact can
  * call `validateFixApplierResult(parsed)` to confirm shape before
  * consuming `commits[]`, `deferred[]`, etc.

@@ -196,102 +196,9 @@ The fan-out's value is its cost-routing override (Sonnet → Haiku) and its cont
 
 ## Spawn prompt template
 
-Fill in the four `{{...}}` placeholders before passing to the Task tool:
+See [references/gatekeeper-spawn-prompt.md](references/gatekeeper-spawn-prompt.md) for the verbatim template (four `{{...}}` placeholders).
 
-```
-You are the Independent Gatekeeper Subagent for `/pr-review`. You run in an
-isolated context with `model: "haiku"` and return an artifact on disk plus a
-brief summary. Your job is single-purpose: decide whether a full /pr-review
-run is worth its Sonnet cost, or whether a deterministic skip rule applies.
-
-PR identifier:
-  {{PR_NUMBER}}
-
-Working directory (cd here before any gh call):
-  {{WORKTREE}}
-
-Skill base directory:
-  {{SKILL_DIR}}
-
-Write the structured artifact to (absolute path):
-  {{ARTIFACT_PATH}}
-
-Procedure:
-
-1. Run exactly one metadata fetch:
-
-   ```bash
-   gh pr view "$PR_NUMBER" --json state,isDraft,additions,deletions,commits,author
-   ```
-
-   Do NOT run `gh pr diff`, do NOT Read any changed file, do NOT invoke
-   static-analysis. Metadata only — content reads defeat the cost-routing
-   rationale.
-
-2. Apply the skip rules in this order. The first match wins:
-
-   - **`gh pr view` itself failed** (non-zero exit, network/auth/rate-limit/
-     malformed PR number) → `decision: "proceed"`, `reason: "gh-error:
-     <one-line stderr>"`. Falling forward is safer than escalating; Step 2's
-     `flow-fetch-pr-review` has its own error handling.
-
-   - **Closed or merged** (`.state == "CLOSED"` or `.state == "MERGED"`) →
-     `decision: "skip"`, `skip_kind: "closed-or-merged"`, `reason: "PR is
-     <state>"`.
-
-   - **Draft** (`.isDraft == true`) → `decision: "proceed"`, `reason:
-     "draft"`. The Gatekeeper does NOT skip drafts; the existing Step 2
-     pre-flight emits its own draft warning, and a draft PR may still want
-     the multi-agent review for in-progress feedback. The reason field
-     surfaces the draft status to the summary.
-
-   - **Trivial diff** (`.additions + .deletions < 10` AND every
-     `.commits[].messageHeadline` matches one of `^chore: regenerate`,
-     `^chore: regen`, `^docs: fix typo`, `^chore: bump`) →
-     `decision: "skip"`, `skip_kind: "trivial-diff"`, `reason: "<N>-line
-     diff; every commit headline matches typo/regen pattern"`.
-
-   - **No new commits since prior clean run** (`<worktree>/.flow-tmp/
-     pr-review-result.json` exists with `status: "clean"` AND a sibling
-     `<worktree>/.flow-tmp/pr-review-last-sha` marker file exists AND its
-     contents match `.commits[-1].oid` from the metadata fetch) →
-     `decision: "skip"`, `skip_kind: "no-new-commits"`, `reason: "PR head
-     SHA <sha> unchanged since prior clean /pr-review run"`. Without
-     **both** the prior artifact AND the marker file, conservatively
-     return `"proceed"`.
-
-   - **Otherwise** → `decision: "proceed"`, `reason: "no skip rule
-     matched"`.
-
-3. Write the artifact at the absolute path passed in `ARTIFACT_PATH` with
-   typed fields:
-
-   ```json
-   {
-     "decision": "proceed" | "skip",
-     "reason": "<one-line rationale>",
-     "skip_kind": "closed-or-merged" | "trivial-diff" | "no-new-commits",
-     "summary": "<3-5 sentence summary surfacing both sides>"
-   }
-   ```
-
-   The four typed fields are: `decision` (string, one of `"proceed"` or
-   `"skip"`), `reason` (string, one-line rationale the wrapper surfaces in
-   its summary), `skip_kind` (optional string, one of `"closed-or-merged"`,
-   `"trivial-diff"`, or `"no-new-commits"`), and `summary` (string, 3-5
-   sentences). `skip_kind` is required when `decision == "skip"` and
-   omitted when `decision == "proceed"`. Use the write-`.tmp` → `mv`
-   atomic protocol.
-
-4. Return a one-paragraph summary (3-5 sentences) that surfaces BOTH sides
-   of what you observed: at least one positive (the decision + skip_kind,
-   if any, plus the cost-saving outcome) AND at least one negative (any
-   ambiguous metadata, any rule that nearly matched but didn't, or any
-   off-pattern observation worth surfacing). A summary that names only the
-   positive verdict fails the contract.
-```
-
-The artifact's JSON shape is documented above and is **not** shared with
+The artifact's JSON shape is documented in [references/gatekeeper-spawn-prompt.md](references/gatekeeper-spawn-prompt.md) and is **not** shared with
 `pr-review-result.json` or `fix-applier-result.json` — the Gatekeeper's
 artifact is single-use, read once by the wrapper, and discarded after the
 branch decision.
@@ -400,52 +307,7 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
 
 ## Spawn prompt template
 
-Fill in the six `{{...}}` placeholders before passing to the Task tool:
-
-```
-You are the Fix-Applier Subagent for `/pr-review`. You run in an isolated
-context and return an artifact on disk plus a brief summary.
-
-Read the full instructions at:
-  {{INSTRUCTIONS_PATH}}
-
-PR fetch output (verbatim from `flow-fetch-pr-review`):
-  {{FETCH_OUTPUT}}
-
-PR number:
-  {{PR_NUMBER}}
-
-Working directory (cd here before reading any project files):
-  {{WORKTREE}}
-
-Skill base directory (resolve sibling references against this absolute
-path — they do not exist relative to {{WORKTREE}}):
-  {{SKILL_DIR}}
-
-Write the structured artifact to (absolute path):
-  {{ARTIFACT_PATH}}
-
-Follow the fix-applier-instructions.md steps in order. You are one-shot —
-do not ask the user clarifying questions. When ambiguity blocks a fix,
-defer it with a `reason` that names the ambiguity, or record an
-`anti_patterns_found` entry; do not pause waiting for input.
-
-Populate `rejected_alternatives` for every fix you considered and rolled
-back, and `anti_patterns_found` for every observation that did not reach
-the >=80 confidence bar but the next agent session should know about. An
-empty array is permitted only when you genuinely encountered none —
-silence is not the default. Do not call `gh issue create`, `linear`, or
-any tracker integration; flow has no GitHub-issue creation today.
-`tracker_entry_url` defaults to empty string when no in-repo tracker
-exists.
-
-Return a one-paragraph summary (3–5 sentences) that surfaces BOTH sides
-of what you learned: at least one positive (top fix's intent, the verify
-verdict, finding count addressed) AND at least one negative (top entry
-from `rejected_alternatives` or `anti_patterns_found`). A summary that
-names only positive findings fails the contract. Do not paste the
-artifact JSON back; the artifact on disk is the record.
-```
+See [references/fix-applier-spawn-prompt.md](references/fix-applier-spawn-prompt.md) for the verbatim template (six `{{...}}` placeholders).
 
 The artifact's JSON schema is documented verbatim in
 `references/fix-applier-instructions.md` step 9. Both files declare the
@@ -899,8 +761,6 @@ EOF
   exit 1
 }
 ```
-
-On missing or empty artifact, follow the `fix-applier-missing-artifact` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) (inlined in the bash block above) — escalate `NEEDS HUMAN: fix-applier-missing-artifact` and write the result artifact. Every exit path must leave `pr-review-result.json` on disk so the supervisor can branch on `.status`.
 
 On missing or empty artifact, surface the failure to the supervisor — **do
 not** retry the Task call. Re-invocation is the supervisor's decision; a
@@ -1603,10 +1463,10 @@ Escalation paths (`status: "escalated"`) and partial paths
 (`status: "partial"`) MUST NOT write the marker — those don't represent a
 fully-reviewed PR, so the next invocation should fall through to a real
 review rather than a Gatekeeper skip. The marker file's read site lives in
-the § Independent Gatekeeper Subagent section's spawn prompt template
-above; `bin/skill-md-lint.test.ts` asserts the literal `pr-review-last-sha`
-appears at least twice in this SKILL.md (one read in Gatekeeper, one write
-here) so this paired-contract regression can't recur silently.
+[references/gatekeeper-spawn-prompt.md](references/gatekeeper-spawn-prompt.md);
+`bin/skill-md-lint.test.ts` asserts the literal `pr-review-last-sha`
+appears in both the spawn-prompt reference (read site) and here (write
+site) so this paired-contract regression can't recur silently.
 
 # Anti-Patterns
 

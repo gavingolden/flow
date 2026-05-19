@@ -87,6 +87,24 @@ const MANUAL_TEST_RUBRIC_PATH = path.resolve(
   "references",
   "manual-test-rubric.md",
 );
+const GATEKEEPER_SPAWN_PROMPT_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "references",
+  "gatekeeper-spawn-prompt.md",
+);
+const FIX_APPLIER_SPAWN_PROMPT_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "references",
+  "fix-applier-spawn-prompt.md",
+);
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
@@ -96,6 +114,8 @@ const coderContent = fs.readFileSync(CODER_SKILL_MD_PATH, "utf8");
 const coderInstructionsContent = fs.readFileSync(CODER_INSTRUCTIONS_PATH, "utf8");
 const reportTemplateContent = fs.readFileSync(REPORT_TEMPLATE_PATH, "utf8");
 const manualTestRubricContent = fs.readFileSync(MANUAL_TEST_RUBRIC_PATH, "utf8");
+const gatekeeperSpawnPromptContent = fs.readFileSync(GATEKEEPER_SPAWN_PROMPT_PATH, "utf8");
+const fixApplierSpawnPromptContent = fs.readFileSync(FIX_APPLIER_SPAWN_PROMPT_PATH, "utf8");
 
 /**
  * Strip markdown blockquote `> ` prefixes from line starts so cross-line
@@ -438,14 +458,14 @@ describe("Fix-Applier artifact JSON schema drift (pr-review/SKILL.md ↔ referen
     ).toBe(true);
   });
 
-  it("pr-review/SKILL.md spawn-prompt template instructs the subagent on negative-findings slots", () => {
+  it("pr-review/references/fix-applier-spawn-prompt.md instructs the subagent on negative-findings slots", () => {
     const hasNegativeFindings =
-      prReviewContent.includes("rejected_alternatives") &&
-      prReviewContent.includes("anti_patterns_found") &&
-      prReviewContent.includes("silence is not the default");
+      fixApplierSpawnPromptContent.includes("rejected_alternatives") &&
+      fixApplierSpawnPromptContent.includes("anti_patterns_found") &&
+      fixApplierSpawnPromptContent.includes("silence is not the default");
     expect(
       hasNegativeFindings,
-      "pr-review/SKILL.md's spawn prompt template must affirmatively instruct the subagent to " +
+      "pr-review/references/fix-applier-spawn-prompt.md must affirmatively instruct the subagent to " +
         "populate 'rejected_alternatives' and 'anti_patterns_found' (and warn that 'silence is " +
         "not the default'). Without this, the subagent defaults to leaving the slots empty and " +
         "the user-redirect contract is silently broken.",
@@ -537,11 +557,11 @@ describe("Gatekeeper artifact JSON schema drift (pr-review/SKILL.md)", () => {
   const GATEKEEPER_REQUIRED_KEYS = ["decision", "reason", "summary"];
 
   it.each(GATEKEEPER_REQUIRED_KEYS)(
-    "pr-review/SKILL.md declares the '%s' top-level key for the gatekeeper artifact",
+    "pr-review/references/gatekeeper-spawn-prompt.md declares the '%s' top-level key for the gatekeeper artifact",
     (key) => {
       expect(
-        prReviewContent.includes(`\`${key}\``),
-        `pr-review/SKILL.md must reference '\`${key}\`' as one of the gatekeeper ` +
+        gatekeeperSpawnPromptContent.includes(`\`${key}\``),
+        `pr-review/references/gatekeeper-spawn-prompt.md must reference '\`${key}\`' as one of the gatekeeper ` +
           `artifact's typed fields. Drift here means the wrapper's branch-on-.decision ` +
           `logic at Step 1.5 silently falls through if the Haiku subagent renames a ` +
           `field. Mirrors the parallel Fix-Applier and Edit-Applier schema-drift lints ` +
@@ -550,10 +570,11 @@ describe("Gatekeeper artifact JSON schema drift (pr-review/SKILL.md)", () => {
     },
   );
 
-  it("pr-review/SKILL.md documents the optional 'skip_kind' field for the gatekeeper artifact", () => {
+  it("pr-review/references/gatekeeper-spawn-prompt.md documents the optional 'skip_kind' field for the gatekeeper artifact", () => {
     expect(
-      prReviewContent.includes("`skip_kind`") || prReviewContent.includes('"skip_kind"'),
-      "pr-review/SKILL.md must reference 'skip_kind' (as `skip_kind` or \"skip_kind\") " +
+      gatekeeperSpawnPromptContent.includes("`skip_kind`") ||
+        gatekeeperSpawnPromptContent.includes('"skip_kind"'),
+      "pr-review/references/gatekeeper-spawn-prompt.md must reference 'skip_kind' (as `skip_kind` or \"skip_kind\") " +
         "in the Gatekeeper subagent's documented artifact shape. The field is optional " +
         "(emitted only on decision: \"skip\") but the prose must still surface it so the " +
         "wrapper's reader knows to expect it on skip verdicts.",
@@ -569,24 +590,28 @@ describe("Gatekeeper artifact JSON schema drift (pr-review/SKILL.md)", () => {
     ).toBe(true);
   });
 
-  it("pr-review/SKILL.md writes the 'pr-review-last-sha' marker on the clean Step 13 path AND reads it in the Gatekeeper", () => {
+  it("pr-review-last-sha: read-site lives in the Gatekeeper spawn prompt reference AND write-site lives in pr-review/SKILL.md Step 13", () => {
     // The marker file is the load-bearing input to the Gatekeeper's
     // "no-new-commits" skip rule. Without a write site on the clean Step 13
     // completion path, the most cost-effective skip rule is permanently
     // unreachable — every invocation falls through to the full Sonnet fan-out
     // even when the PR head SHA is unchanged since the last clean review.
-    // This lint asserts the literal appears at least twice in pr-review/SKILL.md
-    // (one read in the Gatekeeper spawn prompt template, one write in Step 13's
-    // clean-completion block) so the paired-contract regression can't recur.
-    const occurrences = prReviewContent.split("pr-review-last-sha").length - 1;
+    // After the spawn-prompt extraction, the read-site moved to the new
+    // reference file while the write-site stayed in SKILL.md's Step 13
+    // clean-completion block. This lint asserts both sides of the paired
+    // contract so a future drift can't silently break the skip rule.
     expect(
-      occurrences,
-      `pr-review/SKILL.md must reference 'pr-review-last-sha' at least twice (one ` +
-        `read in the Gatekeeper spawn prompt template's no-new-commits skip rule, ` +
-        `one write in Step 13's clean-completion block). Found ${occurrences} ` +
-        `occurrence(s). A read-without-write means the skip rule is dead code; a ` +
-        `write-without-read means the marker is never consulted.`,
-    ).toBeGreaterThanOrEqual(2);
+      gatekeeperSpawnPromptContent.includes("pr-review-last-sha"),
+      `pr-review/references/gatekeeper-spawn-prompt.md must reference ` +
+        `'pr-review-last-sha' as the read-site for the no-new-commits skip rule. ` +
+        `A missing read means the skip rule is dead code.`,
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("pr-review-last-sha"),
+      `pr-review/SKILL.md must reference 'pr-review-last-sha' as the write-site ` +
+        `in Step 13's clean-completion block. A missing write means the marker is ` +
+        `never created and the skip rule's metadata check always falls through.`,
+    ).toBe(true);
   });
 });
 
@@ -909,20 +934,22 @@ describe("pr-review include-by-reference structure", () => {
     );
     const content = fs.readFileSync(prReviewSkillPath, "utf8");
     const lineCount = content.split("\n").length;
-    // The include-by-reference refactor reduced SKILL.md from 1408 to ~1337
-    // lines via four mechanical moves (preamble extraction, bookkeeping
-    // collapse, escalation-recipe link-out, exit-path table). The 1400-line
-    // ceiling locks in those savings with modest headroom — material regrowth
-    // would unwind the refactor. Further reduction toward the original <800
-    // aspiration would require trimming skill-behavior prose (Step 8/11/12
-    // sections), which is a separate, behavior-risk scope.
+    // A second include-by-reference pass extracted the Gatekeeper and
+    // Fix-Applier spawn-prompt templates to dedicated reference files and
+    // collapsed the redundant fix-applier-missing-artifact heredoc to a
+    // single recipe-pointer line. Starting count was 1708 lines; the three
+    // moves landed at ~1556 lines. The 1625-line ceiling locks in those
+    // savings with modest headroom — material regrowth would unwind the
+    // refactor. Further reduction toward the original <800 aspiration would
+    // require trimming skill-behavior prose (Step 8/11/12 sections), which
+    // is a separate, behavior-risk scope.
     expect(
       lineCount,
       `pr-review/SKILL.md line count must stay under the post-refactor budget ` +
-        `of 1400 lines. The include-by-reference refactor trimmed this file ` +
-        `from 1408 to ~1337 lines; material regrowth past 1400 would unwind ` +
+        `of 1625 lines. The latest include-by-reference pass trimmed this file ` +
+        `from 1708 to ~1556 lines; material regrowth past 1625 would unwind ` +
         `that work.`,
-    ).toBeLessThan(1400);
+    ).toBeLessThan(1625);
   });
 
   it("skills/pipeline/pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
