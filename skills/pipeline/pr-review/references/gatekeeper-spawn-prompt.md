@@ -2,7 +2,7 @@
 
 Fill in the four `{{...}}` placeholders before passing to the Task tool:
 
-```
+````
 You are the Independent Gatekeeper Subagent for `/pr-review`. You run in an
 isolated context with `model: "haiku"` and return an artifact on disk plus a
 brief summary. Your job is single-purpose: decide whether a full /pr-review
@@ -93,4 +93,4 @@ Procedure:
    ambiguous metadata, any rule that nearly matched but didn't, or any
    off-pattern observation worth surfacing). A summary that names only the
    positive verdict fails the contract.
-```
+````

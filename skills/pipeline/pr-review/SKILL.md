@@ -741,14 +741,26 @@ single source of truth for the artifact's location):
 
 ```bash
 test -s "$ARTIFACT_PATH" || {
-  # Write the escalation result artifact via the `fix-applier-missing-artifact`
-  # recipe in references/escalation-recipes.md.
+  # Write the escalation result artifact per the
+  # `fix-applier-missing-artifact` recipe in
+  # references/escalation-recipes.md — every exit path must leave
+  # pr-review-result.json on disk so the supervisor can branch on .status.
+  RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+  cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1", "2", "3", "4", "5", "8"],
+  "missed_steps": ["8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "fix-applier-missing-artifact",
+  "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing or empty. Wrapper bailed at Step 8's existence check; supervisor must restart."
+}
+EOF
+  bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+    && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
   echo "NEEDS HUMAN: fix-applier-missing-artifact" >&2
   exit 1
 }
 ```
-
-On missing or empty artifact, follow the `fix-applier-missing-artifact` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: fix-applier-missing-artifact` and write the result artifact. Every exit path must leave `pr-review-result.json` on disk so the supervisor can branch on `.status`.
 
 On missing or empty artifact, surface the failure to the supervisor — **do
 not** retry the Task call. Re-invocation is the supervisor's decision; a
@@ -1451,10 +1463,10 @@ Escalation paths (`status: "escalated"`) and partial paths
 (`status: "partial"`) MUST NOT write the marker — those don't represent a
 fully-reviewed PR, so the next invocation should fall through to a real
 review rather than a Gatekeeper skip. The marker file's read site lives in
-the § Independent Gatekeeper Subagent section's spawn prompt template
-above; `bin/skill-md-lint.test.ts` asserts the literal `pr-review-last-sha`
-appears at least twice in this SKILL.md (one read in Gatekeeper, one write
-here) so this paired-contract regression can't recur silently.
+[references/gatekeeper-spawn-prompt.md](references/gatekeeper-spawn-prompt.md);
+`bin/skill-md-lint.test.ts` asserts the literal `pr-review-last-sha`
+appears in both the spawn-prompt reference (read site) and here (write
+site) so this paired-contract regression can't recur silently.
 
 # Anti-Patterns
 
