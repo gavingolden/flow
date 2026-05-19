@@ -970,11 +970,12 @@ describe("pr-review include-by-reference structure", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("references/escalation-recipes.md carries all five escalation-tag literals", () => {
+  it("references/escalation-recipes.md carries all six escalation-tag literals", () => {
     const content = fs.readFileSync(ESCALATION_RECIPES_PATH, "utf8");
     for (const tag of [
       "task-tool-unavailable: pr-review-multi-agent-review",
       "task-tool-unavailable: pr-review-fix-applier",
+      "task-tool-unavailable: pr-review-consolidator-validator",
       "fix-applier-missing-artifact",
       "consolidator-schema-failure",
       "consolidator-missing-artifact",
@@ -1014,7 +1015,9 @@ describe("pr-review include-by-reference structure", () => {
       recipesLinks,
       `pr-review/SKILL.md must link to references/escalation-recipes.md at least ` +
         `five times (once per escalation path: multi-agent-review, fix-applier, ` +
-        `missing-artifact, consolidator-schema-failure, consolidator-missing-artifact).`,
+        `missing-artifact, consolidator-schema-failure, consolidator-missing-artifact). ` +
+        `consolidator-validator's spawn-preamble references the recipe via the ` +
+        `task-tool-exemption-preamble link, so its link count is not counted here.`,
     ).toBeGreaterThanOrEqual(5);
   });
 

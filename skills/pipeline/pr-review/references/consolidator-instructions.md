@@ -54,8 +54,12 @@ The wrapper passes you these inputs in its spawn prompt:
 - The static-analysis JSON path at
   `$WORKTREE/.flow-tmp/static-analysis.json` (for context only — you
   don't re-derive from it; the agents already absorbed it).
-- The PR diff path and PR metadata (for the second-opinion validation
-  pass's in-scope check).
+- The PR diff path (`DIFF_PATH`, typically
+  `$WORKTREE/.flow-tmp/diff.txt` — `flow-pr-diff <number>` output)
+  and the PR metadata (`PR_METADATA`, the `gh pr view --json
+  number,title,headRefName,baseRefName` JSON the wrapper saved to
+  scratch, or the same fields inlined). Both feed the second-opinion
+  validation pass's in-scope-of-diff check below.
 - The absolute artifact path to write
   (`$WORKTREE/.flow-tmp/consolidator-result.json`).
 
@@ -83,12 +87,16 @@ Exit-1 outcomes are split by source:
   `consolidator-schema-failure` recipe in
   [references/escalation-recipes.md](escalation-recipes.md), then exit.
 
-Escalation writes overwrite any prior `pr-review-result.json` —
-escalation always wins over a prior clean status. The
-read-before-overwrite guard from
+Escalation writes overwrite any prior `pr-review-result.json` with
+`status: "clean"` — escalation always wins over a prior clean status.
+But the read-before-overwrite guard from
 [references/result-artifact-write-protocol.md](result-artifact-write-protocol.md)
-is NOT applied to these escalation writes; it applies only to
-clean-exit writes.
+DOES apply to these escalation writes too: if the prior artifact is
+already `status: "escalated"` (from an even earlier subagent), skip
+the write and exit. This prevents a less-specific escalation tag from
+clobbering a more-specific one. The recipes in
+[references/escalation-recipes.md](escalation-recipes.md) include the
+guard inline.
 
 ### (b) Merge into a single array
 

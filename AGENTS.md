@@ -593,8 +593,9 @@ old silent-pass hole is closed.
     `rejected_alternatives`, `anti_patterns_found`, `summary`); the
     wrapper reads it exactly once at Step 4 and reuses the parsed
     object across Steps 4–7. The contract is documented
-    bidirectionally in `skills/pipeline/pr-review/SKILL.md`'s
-    "Independent Consolidator-Validator Subagent" section and
+    bidirectionally in `skills/pipeline/flow-pipeline/SKILL.md`
+    "Hard rules", `skills/pipeline/pr-review/SKILL.md`'s
+    "Independent Consolidator-Validator Subagent" section, and
     `skills/pipeline/pr-review/references/consolidator-instructions.md`.
     Same narrow-and-named contract as the exemptions above.
   - **Task-tool spawn sites must load Task first.** Each of the eight

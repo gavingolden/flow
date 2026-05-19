@@ -299,6 +299,42 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
     if (!result.ok) expect(result.reason).toContain("finding_id");
   });
 
+  it("rejects when a dropped_by_validation entry has a non-object original_finding", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    fixture.dropped_by_validation = [
+      {
+        finding_id: "security:src/x.ts:1:issue",
+        original_finding: "not-an-object",
+        reason: "false-positive",
+      },
+    ];
+    const result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("original_finding");
+  });
+
+  it("rejects when a dropped_by_validation entry has an empty reason", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    fixture.dropped_by_validation = [
+      {
+        finding_id: "security:src/x.ts:1:issue",
+        original_finding: { foo: "bar" },
+        reason: "",
+      },
+    ];
+    const result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("reason");
+  });
+
+  it("rejects when a consolidated_findings entry is not a plain object (null)", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    fixture.consolidated_findings = [null];
+    const result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("consolidated_findings");
+  });
+
   it("rejects when rejected_alternatives contains a non-string entry", () => {
     const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
     fixture.rejected_alternatives = [{ obj: true }];

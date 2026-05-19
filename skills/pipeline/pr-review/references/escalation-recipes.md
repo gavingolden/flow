@@ -1,13 +1,22 @@
 # Escalation Recipes
 
-This file carries the three worked heredoc + validate + `mv` recipes
+This file carries the six worked heredoc + validate + `mv` recipes
 for the bail-out paths in `/pr-review`'s wrapper. Each recipe writes
 `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
 and the per-tag `completed_steps[]` / `missed_steps[]` arrays the
 supervisor's branch-on-status logic reads at `/flow-pipeline` step 8.
-The three blocks are kept distinct (not templated) because the
+The six blocks are kept distinct (not templated) because the
 per-tag arrays differ in load-bearing ways — see each recipe's intro
 for what fires it.
+
+All recipes must wrap their write with the read-before-overwrite
+guard documented in
+[result-artifact-write-protocol.md](result-artifact-write-protocol.md):
+if `pr-review-result.json` already exists with `status: "escalated"`
+(written by a subagent with a more specific tag), the wrapper's
+generic escalation must NOT overwrite it. Each heredoc below should
+be preceded by the guard's `[ "$(jq -r '.status' "$RESULT_PATH"
+2>/dev/null || true)" = "escalated" ] && exit 0` check.
 
 ## `task-tool-unavailable: pr-review-multi-agent-review`
 
@@ -17,6 +26,7 @@ ran before the bail; Steps 3 onward did not.
 
 ```bash
 RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
 cat > "$RESULT_PATH.tmp" <<'EOF'
 {
   "status": "escalated",
@@ -39,6 +49,7 @@ Fix-Applier-owned Steps 6/7/7.5/8 and downstream did not.
 
 ```bash
 RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
 cat > "$RESULT_PATH.tmp" <<'EOF'
 {
   "status": "escalated",
@@ -62,6 +73,7 @@ did not.
 
 ```bash
 RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
 cat > "$RESULT_PATH.tmp" <<'EOF'
 {
   "status": "escalated",
@@ -69,6 +81,30 @@ cat > "$RESULT_PATH.tmp" <<'EOF'
   "missed_steps": ["8c", "9", "10", "11", "12", "13"],
   "escalation_tag": "fix-applier-missing-artifact",
   "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing or empty. Wrapper bailed at Step 8's existence check; supervisor must restart."
+}
+EOF
+bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
+```
+
+## `task-tool-unavailable: pr-review-consolidator-validator`
+
+Raised by Step 3.5's spawn-site preamble when
+`ToolSearch query="select:Task"` returns neither `"name": "Task"` nor
+`"name": "Agent"`. Steps 1, 1.5 (Gatekeeper), and 2 (Fetch) ran
+successfully; Step 3.5 bailed before fanning out the multi-agent
+review, so Step 3 (and everything after) did not run.
+
+```bash
+RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
+cat > "$RESULT_PATH.tmp" <<'EOF'
+{
+  "status": "escalated",
+  "completed_steps": ["1", "1.5", "2"],
+  "missed_steps": ["3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+  "escalation_tag": "task-tool-unavailable: pr-review-consolidator-validator",
+  "summary": "Bailed at the Step 3.5 Consolidator-Validator spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
 }
 EOF
 bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
@@ -86,14 +122,16 @@ produced malformed JSON), OR when the consolidator's own pre-`mv`
 produced malformed JSON in its candidate file). Steps 1, 1.5, 2, and
 3 ran before the bail; Steps 3.5 onward did not.
 
-This is an escalation write — it overwrites any prior status. The
-read-before-overwrite guard in
+This is an escalation write. The read-before-overwrite guard in
 [result-artifact-write-protocol.md](result-artifact-write-protocol.md)
-does NOT apply here; escalation overwriting a prior `status: "clean"`
-is the correct behaviour.
+DOES apply: if a prior `status: "escalated"` is already on disk (a
+subagent with a more specific tag), skip the write rather than
+clobber the specific tag with this generic one. Overwriting a prior
+`status: "clean"` remains correct.
 
 ```bash
 RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
 cat > "$RESULT_PATH.tmp" <<'EOF'
 {
   "status": "escalated",
@@ -115,14 +153,17 @@ Consolidator-Validator subagent returned but its artifact is missing
 or empty — the subagent crashed before writing). Steps 1, 1.5, 2, and
 3 ran before the bail; Steps 3.5 onward did not.
 
-This is an escalation write — same exception as
+This is an escalation write — same contract as
 `consolidator-schema-failure` above. The read-before-overwrite guard
 in [result-artifact-write-protocol.md](result-artifact-write-protocol.md)
-does NOT apply to escalation writes; escalation overwriting a prior
-`status: "clean"` is the correct behaviour.
+DOES apply: if a prior `status: "escalated"` is already on disk
+(written by the consolidator itself with a more specific tag like
+`consolidator-schema-failure`), skip the write rather than overwrite
+the specific tag with this generic one.
 
 ```bash
 RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
+[ "$(jq -r '.status' "$RESULT_PATH" 2>/dev/null || true)" = "escalated" ] && exit 0
 cat > "$RESULT_PATH.tmp" <<'EOF'
 {
   "status": "escalated",

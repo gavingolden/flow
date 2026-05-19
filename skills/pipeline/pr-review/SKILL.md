@@ -725,15 +725,36 @@ before Step 4 consumes them.
 [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md);
 on missing schema, escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-consolidator-validator` and write the result artifact.
 
-Resolve `$WORKTREE` and `ARTIFACT_PATH="$WORKTREE/.flow-tmp/consolidator-result.json"`,
-then make exactly one Task-tool call with `subagent_type:
+Resolve `$WORKTREE` and `ARTIFACT_PATH="$WORKTREE/.flow-tmp/consolidator-result.json"`.
+Before the Task call, also resolve `DIFF_PATH` and `PR_METADATA` from
+the wrapper's scratch state:
+
+```bash
+DIFF_PATH="$WORKTREE/.flow-tmp/diff.txt"          # flow-pr-diff output captured at fetch time
+PR_METADATA_PATH="$WORKTREE/.flow-tmp/pr-metadata.json"  # gh pr view --json ... output captured at fetch time
+```
+
+If those files don't already exist on the wrapper side, write them
+now so the subagent gets a stable absolute path for each:
+
+```bash
+flow-pr-diff "$PR_NUMBER" > "$DIFF_PATH"
+gh pr view "$PR_NUMBER" --json number,title,headRefName,baseRefName,headRefOid > "$PR_METADATA_PATH"
+```
+
+Then make exactly one Task-tool call with `subagent_type:
 general-purpose`. The prompt cites
 `references/consolidator-instructions.md` as the absolute-path
 instructions and passes `$WORKTREE`, `$SKILL_DIR`, the six per-agent
 paths at `$WORKTREE/.flow-tmp/agent-output-<lens>.json` (lenses:
 `bug-detection`, `security`, `pattern-consistency`, `performance`,
 `supply-chain`, `test-coverage`), the static-analysis path at
-`$WORKTREE/.flow-tmp/static-analysis.json`, and `$ARTIFACT_PATH`.
+`$WORKTREE/.flow-tmp/static-analysis.json`, `$DIFF_PATH`,
+`$PR_METADATA_PATH`, and `$ARTIFACT_PATH`. `DIFF_PATH` and
+`PR_METADATA_PATH` feed the consolidator's second-opinion
+in-scope-of-diff check (see
+[references/consolidator-instructions.md](references/consolidator-instructions.md)
+§ Inputs).
 
 After the subagent returns:
 
@@ -741,13 +762,20 @@ After the subagent returns:
    empty artifact, escalate `NEEDS HUMAN: consolidator-missing-artifact`
    per the `consolidator-missing-artifact` recipe in
    [references/escalation-recipes.md](references/escalation-recipes.md)
-   and write `pr-review-result.json` with `status: "escalated"`. Do
-   not retry the Task call.
+   and write `pr-review-result.json` with `status: "escalated"`. The
+   recipe inlines the read-before-overwrite guard from
+   [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md):
+   if the subagent already wrote `status: "escalated"` with a more
+   specific tag (e.g. `consolidator-schema-failure`), the wrapper's
+   write is skipped so the specific tag is preserved. Do not retry
+   the Task call.
 2. **Schema validation**: `bun bin/lib/agent-finding-schema.ts
    --validate "$ARTIFACT_PATH"`. On exit 1, escalate `NEEDS HUMAN:
    consolidator-schema-failure` per the `consolidator-schema-failure`
    recipe in
    [references/escalation-recipes.md](references/escalation-recipes.md).
+   Same read-before-overwrite guard: if a more specific subagent
+   escalation already exists on disk, the wrapper does not overwrite.
 3. **Read once**, parse into a typed object, reuse across Steps 4–7.
 
 ## 4. Consume Consolidated Findings
