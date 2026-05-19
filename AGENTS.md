@@ -57,12 +57,14 @@ of `docs/phases/` describe the deleted orchestrator's phase contracts
 
 ## Output style
 
-Token-efficient response guidelines for any agent working in this repo.
-Ordered by token-savings impact (highest first); rules "Don't echo file
-contents or full diffs into chat." and "Calibrate length to task." are the
-two highest-leverage rules not already covered by Claude Code's built-in
-prompt. Source: research consensus from leaked Claude Code, Cursor, and
-Aider system prompts plus Anthropic's prompting docs.
+Response guidelines for any agent working in this repo. The first entry
+is an accuracy rule — a precondition for every other rule that emits
+prose, citations, or recipes; the remaining bullets are ordered by
+token-savings impact (highest first), where "Don't echo file contents
+or full diffs into chat." and "Calibrate length to task." are the two
+highest-leverage token-savings rules not already covered by Claude
+Code's built-in prompt. Source: research consensus from leaked Claude
+Code, Cursor, and Aider system prompts plus Anthropic's prompting docs.
 
 - **Verify factual claims before emitting them.** Always try to verify
   factual claims proactively via an API request, doc fetch, or
@@ -80,12 +82,20 @@ Aider system prompts plus Anthropic's prompting docs.
   from memory after `--help` shape may have changed. Per-category
   verification recipes — line number: `Read` the file at the exact path
   before citing; SHA: `git rev-parse <ref>`; URL: `curl -sI` or follow
-  the link; PR/issue number + state: `gh pr view <n> --json title,state,mergedAt`;
-  exemption count: `grep -cE '<anchored-pattern>' <file>` (never
+  the link; PR number + state: `gh pr view <n> --json title,state,mergedAt`;
+  issue number + state: `gh issue view <n> --json title,state` (the
+  PR variant verifies pull requests only — a plain issue lookup against
+  `gh pr view` fails or surfaces the wrong record); exemption count or
+  any other count: `grep -cE '<anchored-pattern>' <file>` (never
   unanchored substring); CLI flag: `<verb> --help`; file/path
   existence: `test -f <path>`; exported symbol or function name:
-  `grep -n '<symbol>' <module>`. The rule is 'always *try*' with
-  judgement, not blanket pessimisation — a claim like 'this is a
+  `grep -n '<symbol>' <module>`; version string: `<verb> --version` or
+  `jq -r .version package.json`; env-var name: `grep -n '<NAME>' .env.example`
+  (presence in the example file is the canonical source-of-truth check);
+  date: `git log --format='%ad' --date=short -1 <ref>` for a commit or
+  tag, `gh api repos/{owner}/{repo}/issues/<n> --jq .created_at` for an
+  issue or PR creation date. The rule is 'always *try*' with
+  judgment, not blanket pessimisation — a claim like 'this is a
   TypeScript file' doesn't need a verification round-trip; a claim
   like 'this matches `/foo/` on line 42' does. When in doubt, verify.
 - **Don't echo file contents or full diffs into chat.** Read with tools
@@ -278,11 +288,12 @@ old silent-pass hole is closed.
   no other skill or step may call Task.
 - Don't add features beyond the task's stated scope.
 - Don't propagate unverified factual claims. If you're about to emit
-  a SHA, file path, line number, URL, issue/PR number, version
-  string, env-var name, API surface shape, date, exemption count, or
-  deprecated CLI flag into an edit, PR body, commit message, or
-  script, verify the value live against its source (`Read`, `git
-  rev-parse`, `gh`, `grep`, `--help`) before emitting it. The
+  a SHA, file path, line number, URL, PR number, issue number,
+  version string, env-var name, API surface shape, date, exemption
+  count, or deprecated CLI flag into an edit, PR body, commit
+  message, or script, verify the value live against its source
+  (`Read`, `git rev-parse`, `gh pr view` for PRs, `gh issue view`
+  for issues, `grep`, `--help`) before emitting it. The
   operational detail and per-category verification recipes live in
   `## Output style` under 'Verify factual claims before emitting
   them.' Latent values that were correct at a past read silently rot

@@ -166,13 +166,22 @@ fully off npm is a deliberate change, not something to do incidentally.
   read, hardcoding a SHA from earlier in the session without
   re-running `git rev-parse`. Per-category verification recipes —
   line number: read the file at the exact path before citing; SHA:
-  `git rev-parse <ref>`; URL: `curl -sI` or follow the link; PR/issue
-  number + state: `gh pr view <n> --json title,state,mergedAt`; count
+  `git rev-parse <ref>`; URL: `curl -sI` or follow the link; PR
+  number + state: `gh pr view <n> --json title,state,mergedAt`;
+  issue number + state: `gh issue view <n> --json title,state` (the
+  PR variant verifies pull requests only — a plain issue lookup
+  against `gh pr view` fails or surfaces the wrong record); count
   of anything: `grep -cE '<anchored-pattern>' <file>` (never
   unanchored substring); CLI flag: `<verb> --help`; file/path
   existence: `test -f <path>`; exported symbol or function name:
-  `grep -n '<symbol>' <module>`. The rule is 'always *try*' with
-  judgement, not blanket pessimisation — when in doubt, verify.
+  `grep -n '<symbol>' <module>`; version string: `<verb> --version`
+  or `jq -r .version package.json`; env-var name:
+  `grep -n '<NAME>' .env.example` (presence in the example file is
+  the canonical source-of-truth check); date:
+  `git log --format='%ad' --date=short -1 <ref>` for a commit or
+  tag, `gh api repos/{owner}/{repo}/issues/<n> --jq .created_at`
+  for an issue or PR creation date. The rule is 'always *try*' with
+  judgment, not blanket pessimisation — when in doubt, verify.
 
 ## Critical Judgment
 
