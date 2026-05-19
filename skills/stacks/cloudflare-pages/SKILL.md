@@ -86,7 +86,7 @@ jobs:
       project: my-project
       older_than_days: 30
       branch: '!main'      # optional; omit to match all branches
-      dry_run: true        # default; set false to actually delete
+      dry_run: false       # default; set true for a dry-run validation pass
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -125,9 +125,9 @@ Inputs:
   script's `--branch` flag. Supports positive (`feat/*`) or negative
   (`!main`) globs. Empty string omits `--branch` so the script matches
   all branches.
-- `dry_run` (boolean, optional, default `true`) — fail-safe default. When
-  true, invokes the script with `--dry-run` and only prints the would-
-  delete list. Set `false` to actually delete (`--apply`).
+- `dry_run` (boolean, optional, default `false`) — performs the prune;
+  set true for a dry-run validation pass that invokes the script with
+  `--dry-run` and only prints the would-delete list.
 
 Secrets:
 
@@ -266,8 +266,8 @@ scripts). For full rationale see `references/env-vars-and-build.md`.
   block.
 - For the private→private cross-repo case, `WORKFLOW_REPO_TOKEN` is also
   set as a secret in the calling repo and passed through.
-- First trigger runs with `dry_run: true` (the default) and the job log
-  contains `mode=DRY-RUN`.
+- First trigger runs with `dry_run: false` (the default) and the job log
+  contains `mode=APPLY`.
 
 **Vendor path:**
 
