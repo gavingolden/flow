@@ -16,6 +16,7 @@ import { readManifest } from "./manifest";
 import { LockTimeoutError } from "./lock";
 import { removeIfManagedSymlink } from "./symlink";
 import { countStopHook } from "./settings-merge";
+import { discoverHelpers } from "./sources";
 
 let scratch!: string;
 let flowSource!: string;
@@ -106,6 +107,18 @@ describe("flow setup", () => {
     setup();
     const t = targets();
     expect(fs.existsSync(path.join(t.binDir, "flow-helper.test"))).toBe(false);
+  });
+
+  it("discovers flow-annotate-pr and flow-fetch-intent-comments helpers", () => {
+    // Regression guard: discoverHelpers should auto-pick up every *.ts file
+    // under bin/ (excluding tests + the flow wrapper). Run against the real
+    // repo's bin/ directory rather than the synthetic fixture so this test
+    // fires if a future refactor breaks discovery for the new helpers.
+    const repoRoot = path.resolve(__dirname, "..", "..");
+    const helpers = discoverHelpers(repoRoot);
+    const names = helpers.map((h) => h.displayName);
+    expect(names).toContain("flow-annotate-pr");
+    expect(names).toContain("flow-fetch-intent-comments");
   });
 
   it("writes a manifest recording every symlink it created", () => {

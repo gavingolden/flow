@@ -24,6 +24,7 @@ focus only on your domain and do it thoroughly.
 - Commit messages (full bodies):
 {{COMMIT_MESSAGES}}
 - Changed files: {{CHANGED_FILES_LIST}}
+- Existing intent annotations (author's per-hunk rationale): {{EXISTING_INTENT_COMMENTS}}
 
 ## Your Inputs
 - The full diff is below
@@ -42,6 +43,10 @@ rules). Treat them as primary signal for author intent:
 - If commit bodies are consistently empty or just restate the diff on a non-trivial PR,
   surface this once as a `suggestion` (not per-commit) so the author can backfill rationale
   into the PR description.
+
+## Using Existing Intent Annotations
+
+The `**why:** `-prefixed comments surfaced under `{{EXISTING_INTENT_COMMENTS}}` are author-authored intent annotations from `/new-feature` Step 5b — treat them as commit-body equivalents scoped to the specific hunk they annotate. The fetch+filter is anchored on the `**why:** ` prefix + author identity + `<!-- flow-intent-v1 -->` integrity-suffix triple-check, so the substituted block only contains genuine author intent (reviewer-authored comments are not exposed here, only via your own Read of the review section later in the skill). If your candidate finding's concern is already addressed by an intent annotation at the same `file:line`, either (a) DROP the finding as already-explained, or (b) raise it as a `**question:**` with the specific reason the rationale does not hold — for example, the annotation claims correctness via a precondition that doesn't actually hold on the changed lines, or the rationale applies only to an adjacent branch the finding actually concerns. Do NOT raise a `**suggestion:**` or `**issue:**` whose suggested fix the intent annotation already justified — that would surface noise the author has pre-rebutted at the diff site. Treat the comments as input context, not as targets for further review (you are not reviewing the rationale's prose quality; you are reviewing the code).
 
 ## Output Format
 

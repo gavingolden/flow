@@ -694,6 +694,15 @@ subagent rather than landing in the supervisor's transcript.
 
 6. Read `references/agent-prompts.md` for the prompt templates.
 
+6. Fetch author-authored intent annotations and substitute into the per-agent prompt:
+
+   ```bash
+   mkdir -p .flow-tmp
+   bun bin/flow-fetch-intent-comments.ts <number> > .flow-tmp/intent-comments.md
+   ```
+
+   Read the file contents and substitute as the value of `{{EXISTING_INTENT_COMMENTS}}` in each agent's prompt. The fetch+filter is anchored on the `**why:** ` prefix + author identity + `<!-- flow-intent-v1 -->` integrity-suffix triple-check (anti-injection); it does NOT expose any reviewer-authored comments to the agents — preserving the anti-anchoring guard above (`DO NOT read the review comments section yet`). When no author intent annotations exist on the PR, the file contains the literal `(none — author posted no intent annotations)`; substitute that string as-is.
+
 **Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 
 **Spawn 6 agents in parallel**, each as a subagent. For each agent:
@@ -701,7 +710,8 @@ subagent rather than landing in the supervisor's transcript.
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
   `{{COMMIT_MESSAGES}}` (full bodies from step 3), `{{CHANGED_FILES_LIST}}`, `{{DIFF}}`,
-  `{{STATIC_ANALYSIS_FACTS}}`, and (Pattern & Consistency Agent only)
+  `{{STATIC_ANALYSIS_FACTS}}`, `{{EXISTING_INTENT_COMMENTS}}` (from step 6's
+  `.flow-tmp/intent-comments.md`), and (Pattern & Consistency Agent only)
   `{{PROMPT_INTERPRETATION_TENSION}}` from `$PROMPT_INTERPRETATION_TENSION`
   computed in step 5 above. For the static-analysis variable, substitute a single
   self-contained JSON object containing both the lens findings and the matching meta

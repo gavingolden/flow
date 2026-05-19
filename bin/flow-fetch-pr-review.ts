@@ -111,7 +111,7 @@ function fetchReviews(prNumber: number): Review[] {
   return parseNdjson<Review>(output);
 }
 
-function fetchComments(prNumber: number): ReviewComment[] {
+export function fetchComments(prNumber: number): ReviewComment[] {
   const output = gh([
     "api",
     "--paginate",
@@ -120,6 +120,23 @@ function fetchComments(prNumber: number): ReviewComment[] {
     ".[] | {path, line, start_line, body, diff_hunk, html_url, user: {login: .user.login}, in_reply_to_id, id}",
   ]);
   return parseNdjson<ReviewComment>(output);
+}
+
+/**
+ * Returns the PR author's login. Used by the intent-comment filter to
+ * enforce identity (only the author's `**why:** ` comments count as
+ * intent annotations — defends against reviewer-injected lookalikes).
+ */
+export function fetchPrAuthorLogin(prNumber: number): string {
+  return gh([
+    "pr",
+    "view",
+    String(prNumber),
+    "--json",
+    "author",
+    "--jq",
+    ".author.login",
+  ]);
 }
 
 // --- Formatting ---
