@@ -140,7 +140,7 @@ relevant source file directly. Fix the issue in the source file.
    ```
 
    `/coder` is itself a thin wrapper that spawns one **Independent
-   Edit-Applier Subagent** via the Task tool (the fifth named Task-tool
+   Edit-Applier Subagent** via the Task tool (the sixth named Task-tool
    exemption — see `skills/pipeline/flow-pipeline/SKILL.md` "Hard
    rules"). The subagent opens each cited file, makes the fix, runs
    `flow-pre-commit --json` against the post-edit worktree, and writes
