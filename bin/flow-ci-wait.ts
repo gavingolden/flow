@@ -59,7 +59,12 @@ export type CheckState =
   | { kind: "all-passed" }
   | { kind: "failed"; failedChecks: Check[] };
 
-export type Review = { author: { login: string }; state: string };
+export type Review = {
+  author: { login: string };
+  state: string;
+  /** SHA the review was submitted against. Null when `gh` omits commit.oid. */
+  commitOid: string | null;
+};
 
 export type PrState = "OPEN" | "MERGED" | "CLOSED";
 
@@ -159,6 +164,133 @@ export function isCiTerminal(ci: CheckState, ciConfigured: boolean): boolean {
   return ci.kind === "all-passed" || ci.kind === "failed";
 }
 
+/**
+ * Returns the commit SHA of the most-recent (by array order, which `gh`
+ * emits in submission order) review whose author login matches the
+ * configured Copilot login case-insensitively and whose state is a posted
+ * state (APPROVED / CHANGES_REQUESTED / COMMENTED). PENDING and DISMISSED
+ * reviews are excluded — same posted-state taxonomy as
+ * `deriveCopilotPosted`. Returns null when no qualifying review exists or
+ * when the matched review's `commitOid` is null.
+ *
+ * PR #161 is the historical incident: Copilot reviewed commit
+ * `1c59a70...` and a fix commit `91e18e8...` advanced `headRefOid`; the
+ * helper needs the original review's commit SHA to detect that the
+ * existing review is stale.
+ */
+export function extractLatestCopilotReviewCommit(
+  reviews: Review[],
+  configuredLogin: string,
+): string | null {
+  const target = configuredLogin.toLowerCase();
+  let latest: string | null = null;
+  // last-write-wins semantics on commitOid: when the latest matching review
+  // has no commit.oid in the gh projection, we treat the whole signal as null
+  // rather than falling back to an earlier review — preferring a safer
+  // single-source-of-truth read over a stitched-together approximation.
+  for (const r of reviews) {
+    if (r.author.login.toLowerCase() !== target) continue;
+    if (!REVIEW_POSTED_STATES.has(r.state)) continue;
+    latest = r.commitOid;
+  }
+  return latest;
+}
+
+/**
+ * Returns true iff the latest Copilot review's commit SHA is non-null AND
+ * differs from the PR's current `headRefOid`. A null latest commit
+ * collapses to false (no review to be stale); an empty `headRefOid`
+ * collapses to false (transient `gh` projection miss; safer to keep the
+ * existing decision matrix than fire a retrigger against an empty SHA).
+ */
+export function isCopilotReviewStale(
+  latestCopilotCommit: string | null,
+  headRefOid: string,
+): boolean {
+  if (latestCopilotCommit === null) return false;
+  if (headRefOid === "") return false;
+  return latestCopilotCommit !== headRefOid;
+}
+
+/**
+ * Returns true iff every commit between `fromSha` (exclusive) and
+ * `toSha` (inclusive) is a merge commit (has >= 2 parents).
+ *
+ * Why: merging main into a PR branch as a pre-merge integration step
+ * advances `headRefOid` without introducing author-authored changes
+ * that warrant another Copilot pass — the diff vs base is unchanged
+ * from Copilot's perspective. Firing the stale-review retrigger in
+ * that case burns the one-shot budget on a no-op review.
+ *
+ * Failure semantics — fail-open: any `gh` non-zero exit, malformed
+ * JSON, or empty commits array collapses to `false` so the caller
+ * proceeds to fire the retrigger. A transient `gh` hiccup must not
+ * suppress a real retrigger.
+ *
+ * Conservative direction: false negative = one wasted POST on a no-op
+ * review (cheap — one HTTP request per invocation); false positive =
+ * re-introduces PR #161's "merged before Copilot reviewed the fix"
+ * bug (expensive — silent correctness regression). The cheaper
+ * failure mode is to fire the POST.
+ */
+export function allMergeCommitsBetween(
+  fromSha: string,
+  toSha: string,
+  gh: GhRunner,
+): boolean {
+  const r = gh([
+    "api",
+    `repos/{owner}/{repo}/compare/${fromSha}...${toSha}`,
+    "--jq",
+    ".commits",
+  ]);
+  if (r.exitCode !== 0) return false;
+  try {
+    const parsed = JSON.parse(r.stdout) as unknown;
+    if (!Array.isArray(parsed)) return false;
+    if (parsed.length === 0) return false;
+    return parsed.every(
+      (c) =>
+        typeof c === "object" &&
+        c !== null &&
+        Array.isArray((c as { parents?: unknown }).parents) &&
+        ((c as { parents: unknown[] }).parents.length >= 2),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Re-requests the configured Copilot login on the PR via the GitHub
+ * `requested_reviewers` endpoint — the same endpoint the GitHub UI's
+ * "Re-request review" button uses, and the only documented way to force
+ * Copilot to re-review after its initial review removed it from
+ * `requested_reviewers`. The `{owner}/{repo}` template is `gh api`'s
+ * documented substitution, so no manual repo resolution is needed.
+ *
+ * Returns `{ ok: true, stderr: "" }` on `exitCode === 0`, `{ ok: false,
+ * stderr: r.stderr }` otherwise. No retry logic; the caller (the run
+ * loop) consumes the one-shot retrigger budget regardless of POST
+ * success per the PRD's recorded-on-failure rule.
+ */
+export function retriggerCopilotReview(
+  prNumber: number,
+  login: string,
+  gh: GhRunner,
+): { ok: boolean; stderr: string } {
+  const r = gh([
+    "api",
+    "-X",
+    "POST",
+    `repos/{owner}/{repo}/pulls/${prNumber}/requested_reviewers`,
+    "-f",
+    `reviewers[]=${login}`,
+  ]);
+  if (r.exitCode === 0) return { ok: true, stderr: "" };
+  return { ok: false, stderr: r.stderr };
+}
+
 // --- Pure decision -- the matrix from polling-protocol.md -----------------
 
 /**
@@ -236,6 +368,14 @@ export type Deps = {
    * injected `gh`. Tests inject a fake to avoid sequencing list+view calls.
    */
   readHistoricalBotReview?: (login: string) => boolean;
+  /**
+   * Returns true iff every commit between `fromSha` (exclusive) and
+   * `toSha` (inclusive) is a merge commit. Default uses
+   * `allMergeCommitsBetween` against the injected `gh`. Tests inject
+   * a fake to skip sequencing a compare-API call. Mirrors the
+   * `readHistoricalBotReview` pattern.
+   */
+  readCommitsAreAllMerges?: (fromSha: string, toSha: string) => boolean;
   /** Test-only: override the cwd used by readWorkflowsDir. */
   cwd?: string;
 };
@@ -412,16 +552,27 @@ export function fetchHistoricalBotReview(
   return false;
 }
 
-type PrObservation = { state: PrState; url: string; reviews: Review[] };
+type PrObservation = {
+  state: PrState;
+  url: string;
+  reviews: Review[];
+  /** Current HEAD SHA of the PR branch. Empty string when `gh` omits it. */
+  headRefOid: string;
+};
 
 export function observePr(prNumber: number, gh: GhRunner): PrObservation | null {
-  const r = gh(["pr", "view", String(prNumber), "--json", "state,url,reviews"]);
+  const r = gh(["pr", "view", String(prNumber), "--json", "state,url,reviews,headRefOid"]);
   if (r.exitCode !== 0) return null;
   try {
     const parsed = JSON.parse(r.stdout) as {
       state?: string;
       url?: string;
-      reviews?: Array<{ author?: { login?: string }; state?: string }>;
+      reviews?: Array<{
+        author?: { login?: string };
+        state?: string;
+        commit?: { oid?: string } | null;
+      }>;
+      headRefOid?: string;
     };
     if (
       typeof parsed.url !== "string" ||
@@ -431,11 +582,19 @@ export function observePr(prNumber: number, gh: GhRunner): PrObservation | null 
     }
     const reviews: Review[] = (parsed.reviews ?? [])
       .filter(
-        (rv): rv is { author: { login: string }; state: string } =>
+        (rv): rv is { author: { login: string }; state: string; commit?: { oid?: string } | null } =>
           typeof rv.author?.login === "string" && typeof rv.state === "string",
       )
-      .map((rv) => ({ author: { login: rv.author.login }, state: rv.state }));
-    return { state: parsed.state, url: parsed.url, reviews };
+      .map((rv) => ({
+        author: { login: rv.author.login },
+        state: rv.state,
+        commitOid:
+          rv.commit && typeof rv.commit.oid === "string" && rv.commit.oid.length > 0
+            ? rv.commit.oid
+            : null,
+      }));
+    const headRefOid = typeof parsed.headRefOid === "string" ? parsed.headRefOid : "";
+    return { state: parsed.state, url: parsed.url, reviews, headRefOid };
   } catch {
     return null;
   }
@@ -520,6 +679,13 @@ export type RunResult = {
   ciFailedChecks?: Check[];
   copilotConfigured: boolean;
   ciConfigured: boolean;
+  /**
+   * True iff the stale-review retrigger POST was attempted in this
+   * invocation. Recorded on POST failure too — the budget is consumed
+   * either way; the supervisor's ci-fix-loop re-invocation is the
+   * recovery path.
+   */
+  copilotRetriggered: boolean;
 };
 
 export async function run(argv: string[], deps: Deps = {}): Promise<number> {
@@ -531,6 +697,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const readCopilotLogin = deps.readCopilotLogin ?? defaultReadCopilotLogin;
   const readHistoricalBotReview =
     deps.readHistoricalBotReview ?? ((login: string) => fetchHistoricalBotReview(login, gh));
+  const readCommitsAreAllMerges =
+    deps.readCommitsAreAllMerges ??
+    ((fromSha: string, toSha: string) => allMergeCommitsBetween(fromSha, toSha, gh));
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -565,6 +734,10 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   let ciTerminalAt: number | null = null;
   let lastPrState: PrState = "OPEN";
   let lastPrUrl = "";
+  // One-shot per invocation. Recorded true on POST failure too; the
+  // supervisor's ci-fix-loop re-invocation grants a fresh budget per fix
+  // cycle. See plan.md "Story 3" + "Open Questions" assumption.
+  let copilotRetriggered = false;
 
   while (true) {
     pollNum++;
@@ -590,6 +763,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
           prUrl: lastPrUrl,
           copilotConfigured,
           ciConfigured,
+          copilotRetriggered,
         });
         return 0;
       }
@@ -610,7 +784,68 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       ciTerminalAt = elapsedSec;
     }
 
-    const copilotPosted = deriveCopilotPosted(prInfo.reviews, copilotLogin);
+    // Stale-Copilot-review retrigger (PR #161 incident). Fire the
+    // `requested_reviewers` POST when (a) Copilot is configured, (b) the
+    // one-shot budget is unused, (c) CI is terminal — gating on terminal
+    // avoids burning the budget on a commit that may be force-pushed mid-
+    // CI — and (d) the latest Copilot review is against a SHA older than
+    // the PR's current headRefOid. Recorded as consumed on POST failure
+    // too; the supervisor's ci-fix-loop re-invocation is the recovery path.
+    if (
+      copilotConfigured &&
+      !copilotRetriggered &&
+      isCiTerminal(ci, ciConfigured)
+    ) {
+      const latestCopilotCommit = extractLatestCopilotReviewCommit(
+        prInfo.reviews,
+        copilotLogin,
+      );
+      if (isCopilotReviewStale(latestCopilotCommit, prInfo.headRefOid)) {
+        // Merge-only skip: when every intervening commit between the
+        // reviewed SHA and headRefOid is a merge commit, the diff vs
+        // base is unchanged from Copilot's perspective and re-firing
+        // would burn the one-shot budget on a no-op review. latestCopilotCommit
+        // is guaranteed non-null here because isCopilotReviewStale
+        // returned true (which requires a non-null commit).
+        if (readCommitsAreAllMerges(latestCopilotCommit as string, prInfo.headRefOid)) {
+          const oldShort = (latestCopilotCommit as string).slice(0, 8);
+          const newShort = prInfo.headRefOid.slice(0, 8);
+          process.stderr.write(
+            `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — every intervening commit is a merge, skipping retrigger\n`,
+          );
+        } else {
+          const retrigger = retriggerCopilotReview(parsed.pr, copilotLogin, gh);
+          copilotRetriggered = true;
+          // Reset the Copilot timeout window so the existing 10-min branch
+          // measures from re-request, not from original CI terminal.
+          ciTerminalAt = elapsedSec;
+          // Surface POST failure stderr first so the user-facing log matches
+          // polling-protocol.md's "POST non-zero is logged" contract; the
+          // attempt still consumed the one-shot budget so the standard
+          // re-requested line still fires.
+          if (!retrigger.ok) {
+            process.stderr.write(
+              `Copilot retrigger POST failed: ${retrigger.stderr.slice(0, 200)}\n`,
+            );
+          }
+          const oldShort = (latestCopilotCommit as string).slice(0, 8);
+          const newShort = prInfo.headRefOid.slice(0, 8);
+          process.stderr.write(
+            `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — re-requested at poll ${pollNum}\n`,
+          );
+        }
+      }
+    }
+
+    // Once retriggered, the existing-review path is invalidated for the
+    // rest of polling — the stale review's state is still POSTED but it
+    // was against the prior commit. The fresh review is recognised by
+    // its commit.oid matching the current headRefOid. Before retrigger,
+    // the original semantics apply (any POSTED Copilot review counts).
+    const copilotPosted = copilotRetriggered
+      ? extractLatestCopilotReviewCommit(prInfo.reviews, copilotLogin) ===
+        prInfo.headRefOid
+      : deriveCopilotPosted(prInfo.reviews, copilotLogin);
 
     const verdict = decideOnPoll({
       pollNum,
@@ -635,6 +870,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         prUrl: prInfo.url,
         copilotConfigured,
         ciConfigured,
+        copilotRetriggered,
       };
       if (verdict.ciFailedChecks) result.ciFailedChecks = verdict.ciFailedChecks;
       emitResult(result);
