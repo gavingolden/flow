@@ -340,7 +340,7 @@ old silent-pass hole is closed.
     forbids the supervisor from calling the `Task` / `Agent` tool,
     with named exceptions only: when `/flow-pipeline` step 8 loads
     `/pr-review` and `/pr-review` reaches its "Independent
-    Multi-Agent Review" step, four review agents are spawned in
+    Multi-Agent Review" step, six review agents are spawned in
     parallel via the Task tool. The exemption is anchored on the
     step heading name rather than its number so it survives future
     `/pr-review` renumbering. Rationale: the supervisor is itself a
@@ -353,7 +353,7 @@ old silent-pass hole is closed.
     `skills/pipeline/pr-review/SKILL.md`'s Independent Multi-Agent
     Review preamble. Both fan-outs now run from the supervisor's
     in-process Skill load — the `context: fork` frontmatter directive
-    has been removed from `/pr-review`, so the four review agents are
+    has been removed from `/pr-review`, so the six review agents are
     spawned inside the supervisor's own session rather than a forked
     subprocess. Same narrow-and-named contract as the
     `/pr-review` and `/flow-pipeline` exemptions above.

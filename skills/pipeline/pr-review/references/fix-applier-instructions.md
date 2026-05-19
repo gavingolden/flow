@@ -35,7 +35,7 @@ Before drafting any fix, load the inputs:
 - Read the PR fetch output the wrapper passed you. Extract: the filtered
   finding set (each entry has `file`, `line`, `end_line`, `label`,
   `decoration`, `confidence`, `subject`, `body`, and an agent category like
-  `Bug-Detection`/`Security`/`Pattern-Consistency`/`Test-Coverage`), the
+  `Bug-Detection`/`Security`/`Pattern-Consistency`/`Performance`/`Supply-Chain`/`Test-Coverage`), the
   inline review comments to address (each has `comment_id`, `path`, `line`,
   `body`), and the head SHA captured at fetch time.
 - Read `<SKILL_DIR>/references/conventional-comments.md` for the labelling
@@ -301,7 +301,7 @@ Don't ask for confirmation; the exemption removes the ambiguity.
 - Commit message: conventional-commits prefix (`fix:`, `chore:`,
   `refactor:`) + `(pr-review #$PR_NUMBER)` suffix in the subject. The body
   explains the *why* (what the finding was) and references the agent's
-  category (e.g. "Bug-Detection", "Pattern-Consistency").
+  category (e.g. "Bug-Detection", "Pattern-Consistency", "Performance", "Supply-Chain").
 - If the PR is **still open**: commit on the PR's branch and `git push`.
 - If the PR is **already merged**: switch to `main`, pull, commit there,
   and `git push`. Do not leave fixes stranded on a merged branch.

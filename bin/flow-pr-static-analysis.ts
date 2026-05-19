@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Pre-digests deterministic facts (security, types, lint, coverage) for a PR
- * so `/pr-review`'s four review agents stop re-deriving the same low-level
+ * so `/pr-review`'s six review agents stop re-deriving the same low-level
  * findings from raw diff inspection on every run. Each lens shells out to
  * the consumer's already-installed tooling (semgrep, biome or eslint, tsc,
  * coverage report), parses native output into a unified `Finding` shape,

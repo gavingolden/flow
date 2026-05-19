@@ -39,7 +39,7 @@ Helpers (installed globally by `flow setup` and on PATH):
   summaries, and inline comments from GitHub
 - `flow-pr-diff` — wraps `gh pr diff <number>` and per-file caps each block at 300
   source lines (head 200 + tail 100) plus one marker line between them, so a
-  truncated block emits at most 301 lines on the wire. Used at Step 3 so the four
+  truncated block emits at most 301 lines on the wire. Used at Step 3 so the six
   parallel review agents don't each receive a 50–100 KB raw diff in their prompt
   context; agents are already instructed to Read the changed files in full for
   surrounding context, so the diff is a "what changed at a glance" hint, not the
@@ -50,7 +50,7 @@ Helpers (installed globally by `flow setup` and on PATH):
   `{file, line, rule_id, confidence, severity, source}` shape, filters to PR-touched
   lines, and emits a single combined JSON envelope keyed by lens
   (`{security, types, coverage, lint, meta}`). Default `--min-confidence 80`. Used
-  at Step 3 so each of the four review agents receives only the lens subset
+  at Step 3 so each of the six review agents receives only the lens subset
   relevant to its role, instead of re-deriving the same low-level facts from raw
   diff inspection. Tool-presence detection is graceful: any missing tool produces
   `meta.<lens>.ran=false` + `skipped_reason` and the lens emits `[]`; the helper
@@ -69,7 +69,7 @@ Reference files (read on demand, not upfront):
   Read at Step 3 when preparing agent context.
 - `references/conventional-comments.md` — labeling framework (praise/nitpick/suggestion/
   issue/todo/question) with decorations. Read at Step 3 when preparing agent context.
-- `references/agent-prompts.md` — prompt templates for the 4 specialized review agents.
+- `references/agent-prompts.md` — prompt templates for the 6 specialized review agents.
   Read at Step 3 when spawning agents.
 - `references/manual-test-rubric.md` — depth rubric for the "Test Steps" criterion
   (happy/unhappy/edges + PR-type scenario menus). Read at Step 11 when evaluating
@@ -378,11 +378,11 @@ Then perform pre-flight checks on the output:
 
 ## 3. Independent Multi-Agent Review
 
-This is the core of the skill. You will spawn 4 specialized review agents in parallel,
+This is the core of the skill. You will spawn 6 specialized review agents in parallel,
 each examining the PR from a different angle. Their independent perspectives catch more
 than any single reviewer could.
 
-Spawned via the Task tool — four review agents in parallel, then merge.
+Spawned via the Task tool — six review agents in parallel, then merge.
 The bidirectional contract for this exemption (named, scoped,
 rationale'd) lives in `AGENTS.md` under the `## Don'ts` section. The
 fan-out exists for context isolation: each agent's per-file reads,
@@ -435,7 +435,7 @@ subagent rather than landing in the supervisor's transcript.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 
-**Spawn 4 agents in parallel**, each as a subagent. For each agent:
+**Spawn 6 agents in parallel**, each as a subagent. For each agent:
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
@@ -446,7 +446,9 @@ subagent rather than landing in the supervisor's transcript.
   needs both. Use this `jq` filter against `.flow-tmp/static-analysis.json` per agent:
   - Bug Detection: `jq '{findings: .types, meta: .meta.types}' .flow-tmp/static-analysis.json`
   - Security: `jq '{findings: .security, meta: .meta.security}' .flow-tmp/static-analysis.json`
-  - Pattern/Consistency: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json`
+  - Pattern/Consistency: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json` (shared with Performance — both agents receive the `lint` lens; each prompt's False-Positive-Avoidance section tells it to drop findings outside its domain)
+  - Performance: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json` (shared with Pattern/Consistency — same `lint` lens, different domain filter)
+  - Supply-Chain: `jq -n '{findings: [], meta: {ran: false, skipped_reason: "no supply-chain pre-digest lens", duration_ms: 0}}'` (synthetic — no real lens; the agent falls back to its own diff inspection per the shared-context-block fallback rule)
   - Test Coverage: `jq '{findings: .coverage, meta: .meta.coverage}' .flow-tmp/static-analysis.json`
 - Append the agent-specific section (Role, Process, False Positive Avoidance)
 - Include paths to `references/review-checklist.md` and `references/conventional-comments.md`
@@ -455,19 +457,21 @@ subagent rather than landing in the supervisor's transcript.
   stated rationale should cite the commit and explain why the rationale doesn't hold,
   rather than assuming the author didn't consider the alternative.
 
-The 4 agents:
+The 6 agents:
 
-| Agent                   | Focus                                                       | Checklist sections                          | Static-analysis lens |
-| ----------------------- | ----------------------------------------------------------- | ------------------------------------------- | -------------------- |
-| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts | Error Handling, Type Safety                 | `types` (tsc errors) |
-| **Security**            | OWASP top 10, input validation, auth, secrets, injection    | Security                                    | `security` (semgrep) |
-| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code   | Consistency, Lifecycle/Cleanup, Composition | `lint` (biome/eslint) |
-| **Test Coverage**       | Missing tests, untested edges, test quality, env setup      | Test Environment                            | `coverage` (Istanbul/c8/vitest) |
+| Agent                   | Focus                                                                            | Checklist sections                          | Static-analysis lens |
+| ----------------------- | -------------------------------------------------------------------------------- | ------------------------------------------- | -------------------- |
+| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts                      | Error Handling, Type Safety                 | `types` (tsc errors) |
+| **Security**            | OWASP top 10, input validation, auth, secrets, injection                         | Security                                    | `security` (semgrep) |
+| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code                        | Consistency, Lifecycle/Cleanup, Composition | `lint` (biome/eslint, shared with Performance) |
+| **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | Performance (review-checklist.md §Performance) | `lint` (biome/eslint, shared with Pattern/Consistency) |
+| **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | Part 3 §Removing a Top-Level Field          | `none` (synthetic `meta.ran=false` block) |
+| **Test Coverage**       | Missing tests, untested edges, test quality, env setup                           | Test Environment                            | `coverage` (Istanbul/c8/vitest) |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
 `decoration`, `confidence`, `subject`, `body`.
 
-Wait for all 4 agents to complete before proceeding.
+Wait for all 6 agents to complete before proceeding.
 
 ## 4. Merge and Filter Findings
 

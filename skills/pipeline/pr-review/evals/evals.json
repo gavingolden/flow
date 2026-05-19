@@ -4,7 +4,7 @@
     {
       "id": 1,
       "prompt": "Review PR #146 — I want a fresh code review before asking anyone to look at it",
-      "expected_output": "Standalone review mode: spawns 4 agents, produces findings with conventional comments, posts review to PR, runs pre-commit checks, produces structured report.",
+      "expected_output": "Standalone review mode: spawns 6 agents, produces findings with conventional comments, posts review to PR, runs pre-commit checks, produces structured report.",
       "files": [],
       "assertions": [
         {
@@ -33,7 +33,7 @@
         },
         {
           "name": "multi_agent_coverage",
-          "check": "agent-findings/ directory contains 4 JSON files for the 4 agent types"
+          "check": "agent-findings/ directory contains 6 JSON files for the 6 agent types"
         },
         {
           "name": "independent_review_performed",
@@ -92,7 +92,7 @@
           "name": "independent_before_comments",
           "check": "Transcript shows independent review completed before reading comments"
         },
-        { "name": "multi_agent_coverage", "check": "agent-findings/ contains 4 agent JSON files" },
+        { "name": "multi_agent_coverage", "check": "agent-findings/ contains 6 agent JSON files" },
         {
           "name": "disposition_summary_present",
           "check": "report.md contains '### Disposition Summary' with Addressed and Deferred counts"
@@ -135,7 +135,7 @@
           "check": "Either asked for clarification or defaulted to address mode given existing comments"
         },
         { "name": "retrospective_included", "check": "Report contains retrospective section" },
-        { "name": "multi_agent_coverage", "check": "4 agent perspectives represented" },
+        { "name": "multi_agent_coverage", "check": "agent-findings/ contains 6 agent JSON files" },
         {
           "name": "independent_before_comments",
           "check": "Independent review before reading comments"

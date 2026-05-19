@@ -1153,6 +1153,63 @@ sections before approving.
 
 ---
 
+## Agent Prompt Cites A Confidence Range That Diverges From The Helper's Filter Default
+
+Agent role prompts that describe a pre-digest lens's payload sometimes
+restate the lens's *internal* confidence-score range (e.g., "biome
+diagnostics 75–90") rather than the *filtered* range the agent actually
+receives. The helper applies `confidence >= min_confidence` (default 80)
+before emitting findings, so any range whose lower bound is below the
+default is a lie about what shows up in the agent's
+`{{STATIC_ANALYSIS_FACTS}}` block. Reviewers reading the prompt expect
+to see confidence-77 findings; they never will.
+
+### What to look for
+
+- Agent prompts in `references/agent-prompts.md` that name a numeric
+  confidence range for a static-analysis lens's input (e.g., "confidence
+  N–M", "scores N to M").
+- A divergence between that range's lower bound and the helper's
+  `min_confidence` default in the matching CLI parser
+  (`bin/flow-pr-static-analysis/cli.ts:37`).
+- Multiple agent sections that share a lens (e.g., Performance and
+  Pattern/Consistency both consume `lint`) — drift risk multiplies
+  across sites.
+
+### How to check
+
+1. For each agent prompt's Process step 1, identify any numeric
+   confidence range it cites for its lens payload.
+2. Grep the static-analysis helper for the matching `min_confidence`
+   default: `grep -n 'minConfidence:' bin/flow-pr-static-analysis/cli.ts`.
+3. If the prompt's lower bound is below the default, the cite is wrong
+   — the agent will never see findings in that lower band. Prefer prose
+   that names `min_confidence` directly over a baked-in range.
+
+### Example — Performance agent prompt cites 75–90 (PR #169)
+
+```markdown
+BAD: claims findings the agent will never see, because the helper
+     filters to confidence >= 80 before emitting.
+1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`lint`** lens —
+   biome or eslint diagnostics (confidence 75–90, source `biome` or
+   `eslint`) on PR-touched lines.
+
+GOOD: references the filter default by name; the prose stays true even
+      if the default moves.
+1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`lint`** lens —
+   biome or eslint diagnostics (source `biome` or `eslint`) on
+   PR-touched lines, already filtered to `confidence >= min_confidence`
+   (default 80) by the static-analysis helper.
+```
+
+**General rule:** Agent prompts describing a lens payload must name
+the helper's filter defaults rather than restate the lens's internal
+score range — the helper's output, not its input, is what the agent
+actually sees.
+
+---
+
 ## Doc Arithmetic Drift From Code Constants
 
 Prose budgets ("capped at 200 lines", "head 200 + marker + tail 100 =
