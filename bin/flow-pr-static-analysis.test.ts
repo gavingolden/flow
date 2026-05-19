@@ -1030,7 +1030,7 @@ describe(run, () => {
   });
 });
 
-describe("spawnAsync", () => {
+describe(spawnAsync, () => {
   it("resolves with exitCode from a real subprocess close", async () => {
     const result = await spawnAsync(process.execPath, ["-e", "process.exit(7)"], {});
     expect(result.exitCode).toBe(7);
