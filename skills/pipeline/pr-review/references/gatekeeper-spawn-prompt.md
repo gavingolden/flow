@@ -1,5 +1,16 @@
 # Gatekeeper Subagent — spawn prompt template
 
+This file is the spawn-prompt template for the Independent Gatekeeper
+Subagent. It is read by the `/pr-review` wrapper at Step 1.5 — the
+composer of the Task call — not by the subagent itself, which only ever
+receives the rendered prompt after the four `{{...}}` placeholders are
+substituted in. Consult this file at Step 1.5, before the Task call
+fires, to pull the template body into the spawn invocation. The JSON
+schema fenced block embedded in step 3 of the prompt body doubles as
+the canonical artifact-shape documentation for `gatekeeper-result.json`:
+SKILL.md's `# Independent Gatekeeper Subagent` section points readers
+here for the typed-field shape rather than duplicating it.
+
 Fill in the four `{{...}}` placeholders before passing to the Task tool:
 
 ````
