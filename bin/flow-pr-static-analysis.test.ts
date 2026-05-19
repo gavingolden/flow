@@ -10,6 +10,8 @@ import {
   parseSemgrepJson,
   parseTscOutput,
   run,
+  spawnAsync,
+  type CmdResult,
   type Deps,
   type Finding,
 } from "./flow-pr-static-analysis";
@@ -928,23 +930,35 @@ describe(run, () => {
     expect(tscCall![1]).toEqual(["-p", "tsconfig.scripts.json", "--noEmit", "--pretty", "false"]);
   });
 
-  it("should run lenses concurrently against the event loop", async () => {
-    // Regression guardrail: if defaultSpawn ever reverts to spawnSync, the
-    // four lenses serialise and duration_ms approaches sum(delays). Real
-    // setTimeout-backed promises let us assert genuine event-loop concurrency.
-    const delayResolve = (ms: number, value: { stdout: string; stderr: string; exitCode: number; timedOut: boolean }) =>
-      new Promise<typeof value>((resolve) => setTimeout(() => resolve(value), ms));
+  it("should issue all lens spawns before any resolves", async () => {
+    // Regression guardrail: if Promise.all is converted to sequential await,
+    // the second lens cannot enter the registry until the first one has
+    // resolved — this assertion catches that serialisation directly, without
+    // wall-clock dependency.
+    const resolverRegistry = new Map<
+      string,
+      { resolve: (r: CmdResult) => void; resolved: boolean }
+    >();
     const spawn = vi.fn().mockImplementation((cmd: string) => {
-      if (cmd.endsWith("semgrep") || cmd === "semgrep") {
-        return delayResolve(100, { stdout: '{"results":[]}', stderr: "", exitCode: 0, timedOut: false });
-      }
-      if (cmd.endsWith("tsc") || cmd === "tsc") {
-        return delayResolve(200, { stdout: "", stderr: "", exitCode: 0, timedOut: false });
-      }
-      if (cmd.endsWith("biome") || cmd === "biome") {
-        return delayResolve(150, { stdout: '{"diagnostics":[]}', stderr: "", exitCode: 0, timedOut: false });
-      }
-      return delayResolve(10, { stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      const key =
+        cmd.endsWith("semgrep") || cmd === "semgrep"
+          ? "semgrep"
+          : cmd.endsWith("tsc") || cmd === "tsc"
+            ? "tsc"
+            : cmd.endsWith("biome") || cmd === "biome"
+              ? "biome"
+              : null;
+      if (!key) return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      return new Promise<CmdResult>((resolve) => {
+        const entry = {
+          resolve: (r: CmdResult) => {
+            entry.resolved = true;
+            resolve(r);
+          },
+          resolved: false,
+        };
+        resolverRegistry.set(key, entry);
+      });
     });
     const which = vi.fn().mockImplementation((cmd: string) => {
       if (cmd === "semgrep") return "/usr/bin/semgrep";
@@ -987,15 +1001,64 @@ describe(run, () => {
       fileExists,
       readFile,
     });
-    await run(["7"], deps);
+    const runPromise = run(["7"], deps);
+    // Give the event loop a chance to issue all three concurrent spawns.
+    await new Promise((r) => setImmediate(r));
+    const expectedKeys = ["semgrep", "tsc", "biome"];
+    for (const key of expectedKeys) {
+      expect(
+        resolverRegistry.has(key),
+        `${key} was not spawned before any resolved — serialised regression`,
+      ).toBe(true);
+      expect(
+        resolverRegistry.get(key)!.resolved,
+        `${key} resolved before all spawns were issued`,
+      ).toBe(false);
+    }
+    for (const key of expectedKeys) {
+      resolverRegistry.get(key)!.resolve(
+        key === "semgrep"
+          ? { stdout: '{"results":[]}', stderr: "", exitCode: 0, timedOut: false }
+          : key === "tsc"
+            ? { stdout: "", stderr: "", exitCode: 0, timedOut: false }
+            : { stdout: '{"diagnostics":[]}', stderr: "", exitCode: 0, timedOut: false },
+      );
+    }
+    await runPromise;
     const result = JSON.parse(outs.join(""));
-    // Sum of delays is 100+150+200 = 450ms; the slowest lens is 200ms.
-    // Concurrent execution: duration_ms ≈ max(200) plus scheduling overhead.
-    // Sequential execution would be ≈ sum(450) + cascading slop, easily 600+ms
-    // on a busy CI runner; setTimeout slop also drives the concurrent path past
-    // 450ms on slow runners. Widen the upper bound to 600 so the test still
-    // distinguishes serial-await from Promise.all without going flaky.
-    expect(result.meta.duration_ms).toBeLessThan(600);
-    expect(result.meta.duration_ms).toBeGreaterThanOrEqual(200);
+    expect(result.meta.types.ran).toBe(true);
+  });
+});
+
+describe("spawnAsync", () => {
+  it("resolves with exitCode from a real subprocess close", async () => {
+    const result = await spawnAsync(process.execPath, ["-e", "process.exit(7)"], {});
+    expect(result.exitCode).toBe(7);
+    expect(result.timedOut).toBe(false);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toBe("");
+  });
+
+  it("resolves (not rejects) with exitCode -1 and error message on ENOENT", async () => {
+    const result = await spawnAsync("/nonexistent/binary", [], {});
+    expect(result.exitCode).toBe(-1);
+    expect(result.timedOut).toBe(false);
+    expect(result.stderr).toMatch(/ENOENT|no such file|spawn .* ENOENT|nonexistent\/binary/);
+  });
+
+  it("escalates SIGTERM to SIGKILL after the 2s grace window", { timeout: 5000 }, async () => {
+    const start = Date.now();
+    const result = await spawnAsync(
+      process.execPath,
+      ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"],
+      { timeoutMs: 200 },
+    );
+    const elapsed = Date.now() - start;
+    expect(result.timedOut).toBe(true);
+    // Lower bound proves SIGKILL did the killing (SIGTERM alone would have
+    // killed a non-trapping process within ms). Upper bound proves the grace
+    // window didn't get extended.
+    expect(elapsed).toBeGreaterThanOrEqual(1900);
+    expect(elapsed).toBeLessThanOrEqual(2800);
   });
 });

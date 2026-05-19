@@ -76,6 +76,7 @@ export { parseArgs } from "./flow-pr-static-analysis/cli";
 export type {
   AnalysisResult,
   Args,
+  CmdResult,
   Deps,
   Finding,
   GhRunner,
@@ -89,14 +90,17 @@ export type {
 
 const MAX_STREAM_BYTES = 32 * 1024 * 1024;
 
-const defaultSpawn: SpawnRunner = (cmd, args, opts) =>
+// Shared async spawn used by both defaultSpawn (timeout-armed) and defaultGh
+// (no timeout). Caller opts in to a SIGTERM/SIGKILL escalation by setting
+// `opts.timeoutMs`; omitting it skips the timeout machinery entirely so
+// non-timeout consumers (gh) don't keep the event loop alive on a stray timer.
+export const spawnAsync: SpawnRunner = (cmd, args, opts) =>
   new Promise<CmdResult>((resolve) => {
-    const child = spawn(cmd, args, { cwd: opts.cwd });
+    const child = spawn(cmd, args, opts.cwd !== undefined ? { cwd: opts.cwd } : undefined);
     let stdout = "";
     let stderr = "";
     let stdoutLen = 0;
     let stderrLen = 0;
-    let timedOut = false;
     let settled = false;
     // maxBuffer parity with spawnSync: on overflow we stop appending but keep
     // the process running, matching spawnSync's truncate-rather-than-kill.
@@ -124,20 +128,34 @@ const defaultSpawn: SpawnRunner = (cmd, args, opts) =>
         stderrLen = MAX_STREAM_BYTES;
       }
     });
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-    }, opts.timeoutMs);
+    let timer: NodeJS.Timeout | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
+    let timedOut = false;
+    if (opts.timeoutMs !== undefined) {
+      timer = setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+        // Grace window: if the child traps SIGTERM, escalate to SIGKILL after
+        // 2s. The .unref() is load-bearing — without it a resolved spawn keeps
+        // the event loop alive for the full 2s and hangs vitest at shutdown.
+        killTimer = setTimeout(() => {
+          if (!settled) child.kill("SIGKILL");
+        }, 2000);
+        killTimer.unref();
+      }, opts.timeoutMs);
+    }
     child.on("error", (err) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       resolve({ stdout: "", stderr: String(err), exitCode: -1, timedOut: false });
     });
     child.on("close", (code) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       resolve({
         stdout,
         stderr,
@@ -147,54 +165,9 @@ const defaultSpawn: SpawnRunner = (cmd, args, opts) =>
     });
   });
 
-const defaultGh: GhRunner = (argv) =>
-  new Promise<CmdResult>((resolve) => {
-    const child = spawn("gh", argv);
-    let stdout = "";
-    let stderr = "";
-    let stdoutLen = 0;
-    let stderrLen = 0;
-    let settled = false;
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      if (stdoutLen >= MAX_STREAM_BYTES) return;
-      const remaining = MAX_STREAM_BYTES - stdoutLen;
-      if (chunk.length <= remaining) {
-        stdout += chunk;
-        stdoutLen += chunk.length;
-      } else {
-        stdout += chunk.slice(0, remaining);
-        stdoutLen = MAX_STREAM_BYTES;
-      }
-    });
-    child.stderr.on("data", (chunk: string) => {
-      if (stderrLen >= MAX_STREAM_BYTES) return;
-      const remaining = MAX_STREAM_BYTES - stderrLen;
-      if (chunk.length <= remaining) {
-        stderr += chunk;
-        stderrLen += chunk.length;
-      } else {
-        stderr += chunk.slice(0, remaining);
-        stderrLen = MAX_STREAM_BYTES;
-      }
-    });
-    child.on("error", (err) => {
-      if (settled) return;
-      settled = true;
-      resolve({ stdout: "", stderr: String(err), exitCode: -1, timedOut: false });
-    });
-    child.on("close", (code) => {
-      if (settled) return;
-      settled = true;
-      resolve({
-        stdout,
-        stderr,
-        exitCode: code ?? -1,
-        timedOut: false,
-      });
-    });
-  });
+const defaultSpawn: SpawnRunner = (cmd, args, opts) => spawnAsync(cmd, args, opts);
+
+const defaultGh: GhRunner = (argv) => spawnAsync("gh", argv, {});
 
 // Deliberately sync: called once per lens before the parallel critical path,
 // so converting would balloon test-mock churn for zero perf gain. The file
