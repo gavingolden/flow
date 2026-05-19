@@ -44,14 +44,15 @@ on:
         default: ''
       dry_run:
         description: >-
-          When true (default), invokes the script with --dry-run and only
-          prints the would-delete list. When false, invokes with --apply and
-          performs the deletes. Defaulting to true is the fail-safe — a
-          caller that forgets the input gets a no-op log instead of an
-          accidental mass-deletion.
+          When false (default), invokes the script with --apply and performs
+          the deletes. When true, invokes with --dry-run and only prints the
+          would-delete list. Defaulting to false matches the workflow's
+          purpose — pruning — so a caller that forgets the input gets the
+          intended prune instead of a silent no-op; opt in to dry-run by
+          setting dry_run: true for a validation pass.
         type: boolean
         required: false
-        default: true
+        default: false
     secrets:
       CLOUDFLARE_API_TOKEN:
         description: Cloudflare API token with Account.Cloudflare Pages:Edit scope.
