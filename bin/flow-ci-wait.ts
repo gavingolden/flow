@@ -184,6 +184,10 @@ export function extractLatestCopilotReviewCommit(
 ): string | null {
   const target = configuredLogin.toLowerCase();
   let latest: string | null = null;
+  // last-write-wins semantics on commitOid: when the latest matching review
+  // has no commit.oid in the gh projection, we treat the whole signal as null
+  // rather than falling back to an earlier review — preferring a safer
+  // single-source-of-truth read over a stitched-together approximation.
   for (const r of reviews) {
     if (r.author.login.toLowerCase() !== target) continue;
     if (!REVIEW_POSTED_STATES.has(r.state)) continue;
@@ -737,11 +741,20 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         copilotLogin,
       );
       if (isCopilotReviewStale(latestCopilotCommit, prInfo.headRefOid)) {
-        retriggerCopilotReview(parsed.pr, copilotLogin, gh);
+        const retrigger = retriggerCopilotReview(parsed.pr, copilotLogin, gh);
         copilotRetriggered = true;
         // Reset the Copilot timeout window so the existing 10-min branch
         // measures from re-request, not from original CI terminal.
         ciTerminalAt = elapsedSec;
+        // Surface POST failure stderr first so the user-facing log matches
+        // polling-protocol.md's "POST non-zero is logged" contract; the
+        // attempt still consumed the one-shot budget so the standard
+        // re-requested line still fires.
+        if (!retrigger.ok) {
+          process.stderr.write(
+            `Copilot retrigger POST failed: ${retrigger.stderr.slice(0, 200)}\n`,
+          );
+        }
         const oldShort = (latestCopilotCommit ?? "").slice(0, 8);
         const newShort = prInfo.headRefOid.slice(0, 8);
         process.stderr.write(

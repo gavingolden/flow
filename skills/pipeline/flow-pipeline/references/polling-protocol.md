@@ -175,7 +175,7 @@ one-shot retrigger budget for this `flow-ci-wait` invocation is
 unused, the helper fires the re-request POST:
 
 ```bash
-gh api -X POST /repos/{owner}/{repo}/pulls/{n}/requested_reviewers \
+gh api -X POST repos/{owner}/{repo}/pulls/{n}/requested_reviewers \
   -f reviewers[]=<configured-copilot-login>
 ```
 
@@ -303,7 +303,7 @@ Re-evaluate after each poll. The `ci_passed` / `ci_failed` /
 | `ci_passed` | `ci_failed` | `copilot_posted` | Elapsed | Decision |
 |---|---|---|---|---|
 | true | — | true | — | **proceed to step 8 (review)**. |
-| true | — | false (latest Copilot review against a stale commit), retrigger budget not consumed | — | **fire retrigger POST**, reset the Copilot timeout window, keep polling. See "Copilot reviewer → Retrigger on stale review (one-shot)" above. |
+| true | — | false | stale-review + budget unused, post-`ci_terminal` | **fire retrigger POST**, reset Copilot timeout, keep polling. See "Retrigger on stale review" above. |
 | true | — | false | < 10 min after `ci_terminal` | **keep polling** (waiting on Copilot). |
 | true | — | false | ≥ 10 min after `ci_terminal` | **proceed to step 8 without bot review** (Copilot timed out). |
 | — | true | — | — | **loop back to step 5 in fix mode** (cap: 3 fix-loops total before escalation). Pass the failing-check log into the implement-fix prompt. |

@@ -323,6 +323,14 @@ describe(extractLatestCopilotReviewCommit, () => {
     ];
     expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBeNull();
   });
+
+  it("returns null when the latest qualifying review has a null commitOid even when an earlier matching review had a real SHA", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "COMMENTED", commitOid: "sha-old" },
+      { author: { login: LOGIN }, state: "COMMENTED", commitOid: null },
+    ];
+    expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -340,6 +348,10 @@ describe(isCopilotReviewStale, () => {
 
   it("returns true when the latest Copilot commit differs from headRefOid", () => {
     expect(isCopilotReviewStale("sha-old", "sha-head")).toBe(true);
+  });
+
+  it("returns false when headRefOid is empty (transient gh projection miss)", () => {
+    expect(isCopilotReviewStale("sha-old", "")).toBe(false);
   });
 });
 
@@ -1252,6 +1264,9 @@ describe("run() integration — Copilot retrigger", () => {
     expect(result.polls).toBe(2);
     // Exactly one POST landed in the call sequence.
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
+    // Pins the user-facing stderr contract documented in the PR body's
+    // User-facing changes section.
+    expect(cap.stderr.join("")).toMatch(/Copilot review stale.*re-requested at poll 1/);
   });
 
   it("(2) one-shot enforcement: stale review + no fresh review → proceed-to-review-no-bot, exactly one POST", async () => {
@@ -1396,6 +1411,9 @@ describe("run() integration — Copilot retrigger", () => {
     expect(result.copilotRetriggered).toBe(true);
     // No second POST attempt even though the first failed.
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
+    // POST stderr is surfaced (polling-protocol.md "POST non-zero is logged"
+    // contract — see fix in bin/flow-ci-wait.ts run() retrigger site).
+    expect(cap.stderr.join("")).toMatch(/Copilot retrigger POST failed/);
   });
 });
 
