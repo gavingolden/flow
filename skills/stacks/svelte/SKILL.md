@@ -462,6 +462,16 @@ client-side errors. It does **not** fire for errors caught by `<svelte:boundary>
 You're mutating `$state` inside `$derived` or `$derived.by`. Move the mutation to
 construction time or use a separate `$effect`. See `references/svelte5-patterns.md`.
 
+**`vi.resetModules()` breaks component renders (`effect_orphan`):**
+Calling `vi.resetModules()` between tests hands the component-under-test a fresh
+`svelte` runtime via its re-evaluated imports, while `@testing-library/svelte` keeps
+the original runtime it loaded at suite start. `$effect` calls in the component
+register against the wrong runtime instance, surfacing as
+`Svelte error: effect_orphan` at render time. Workaround: run one test per file with
+module-level setup before the harness import, and drop `vi.resetModules()` between
+tests — you lose cross-test isolation but sidestep the runtime mismatch. Reproduced
+in `gavingolden/pokemon` PR #39 (commit `af5c5f7`).
+
 **Memory leaks from `$effect.root`:**
 The destroy function returned by `$effect.root` is not being called. Switch to
 component-scoped `$effect` or ensure cleanup runs in `onDestroy`.

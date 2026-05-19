@@ -151,6 +151,17 @@ afterAll(() => vi.unstubAllGlobals());
 - The component under test must be imported with dynamic `import()` **after** `vi.mock()` calls.
   Static `import` at the top of the file bypasses the mock.
 
+**`vi.resetModules()` breaks Svelte 5 component renders (`effect_orphan`):**
+
+- Symptom: `Svelte error: effect_orphan` at render time after adding `vi.resetModules()`
+  between tests.
+- Root cause: `vi.resetModules()` hands the component-under-test a fresh `svelte` runtime
+  through its re-evaluated imports, while `@testing-library/svelte` keeps its original
+  runtime — `$effect` calls register against the wrong runtime instance.
+- Workaround: one test per file with module-level setup before the harness import, no
+  `vi.resetModules()` between tests. Loses cross-test isolation but sidesteps the
+  runtime mismatch. Reproduced in `gavingolden/pokemon` PR #39 (commit `af5c5f7`).
+
 **`userEvent` interactions not reflecting in DOM:**
 
 - Ensure you `await` user event calls. `userEvent.setup()` returns an async API — every
