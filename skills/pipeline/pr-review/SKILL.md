@@ -203,6 +203,20 @@ The artifact's JSON shape is documented in [references/gatekeeper-spawn-prompt.m
 artifact is single-use, read once by the wrapper, and discarded after the
 branch decision.
 
+The artifact additionally carries a `prompt_interpretation_tension:
+boolean` always-emit field detected by the Gatekeeper subagent from
+the originating PR body's Why section (see the spawn-prompt template
+linked above for the heuristic). The field is independent of the
+skip-decision branch and is consumed by Step 2's Pattern & Consistency
+Agent — see `Step 2`'s multi-agent prep below for how the wrapper reads
+the field from the artifact and passes it as the `{{PROMPT_INTERPRETATION_TENSION}}`
+template variable. The canonical detection heuristic lives in
+`skills/pipeline/product-planning/references/discovery-instructions.md`
+"Prompt interpretation (conditional)"; the AGENTS.md `## Output style`
+rule **Treat user prompts as evidence of intent, not exhaustive
+specifications.** documents the rationale, and PR #170 is the
+canonical precedent.
+
 # Independent Consolidator-Validator Subagent
 
 This skill spawns one **Independent Consolidator-Validator Subagent**
@@ -656,7 +670,28 @@ subagent rather than landing in the supervisor's transcript.
    STATIC_ANALYSIS=$(cat .flow-tmp/static-analysis.json)
    ```
 
-5. Read `references/agent-prompts.md` for the prompt templates.
+5. Read the Gatekeeper-side prompt-interpretation tension flag from
+   the artifact written by Step 1.5 (when present); default to
+   `false` when no Gatekeeper artifact exists (Step 1.5 was skipped
+   or this is a direct `/pr-review` invocation outside `/flow-pipeline`):
+
+   ```bash
+   if [ -f "$WORKTREE/.flow-tmp/gatekeeper-result.json" ]; then
+     PROMPT_INTERPRETATION_TENSION=$(jq -r '.prompt_interpretation_tension // false' "$WORKTREE/.flow-tmp/gatekeeper-result.json")
+   else
+     PROMPT_INTERPRETATION_TENSION=false
+   fi
+   ```
+
+   Pass this value as `{{PROMPT_INTERPRETATION_TENSION}}` when filling
+   the **Pattern & Consistency Agent's** prompt template — the other
+   five agents ignore the variable but still receive the substituted
+   value in their shared-context block (cheap to include; keeps the
+   per-agent template-fill code symmetric). See
+   `references/agent-prompts.md` Pattern & Consistency Agent Process
+   step 8 for the conditional behaviour the flag triggers.
+
+6. Read `references/agent-prompts.md` for the prompt templates.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 

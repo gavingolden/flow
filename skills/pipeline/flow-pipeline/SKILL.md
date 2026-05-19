@@ -712,8 +712,54 @@ context-cost win the subagent fan-out is designed to deliver).
   Then end the turn. Wait for the user to attach and respond.
   The next turn re-enters at step 4.
 - Non-feature intent (`bug`/`refactor`/`docs`/`infra`/`chore`) →
-  continue directly to step 5. The plan still exists on disk for
-  traceability, but the user wasn't asked to ratify it.
+  before falling through to step 5, check `.flow-tmp/plan.md` for a
+  prompt-vs-target tension flag via the `flow-step3-route` helper.
+  This is the structural enforcement for the AGENTS.md `## Output
+  style` rule **Treat user prompts as evidence of intent, not
+  exhaustive specifications.** for non-feature intents — without
+  this check, a non-feature prompt that names BOTH prescribed methods
+  AND a quantitative target would silently run to merge with no user
+  checkpoint, even when discovery flagged that the methods can't
+  reach the target.
+
+  ```bash
+  ROUTE=$(flow-step3-route --intent "$INTENT" --plan-md-file "$WORKTREE/.flow-tmp/plan.md")
+  ```
+
+  The helper at `bin/flow-step3-route.ts` returns one of two
+  decisions. The four-cell matrix it implements (feature/non-feature
+  × Prompt-Interpretation absent/`methods plausibly reach target`/
+  any other Recommended path) is documented at
+  `skills/pipeline/product-planning/references/discovery-instructions.md`
+  "Prompt interpretation (conditional)" — the four enum values live
+  there only and the helper exact-matches against them.
+
+  - **`advance-to-step-5`** → no `## Prompt interpretation` section
+    OR the section's Recommended path is `methods plausibly reach
+    target`. Continue directly to step 5 (existing behaviour
+    unchanged). The plan still exists on disk for traceability, but
+    the user wasn't asked to ratify it.
+  - **`route-to-step-4`** → the section is present and the
+    Recommended path is one of `extend scope with named additional
+    safe steps` / `relax target` / `split into multiple pipelines`.
+    Write `phase: plan-pending-review` and render the AWAITING
+    APPROVAL block via `flow-gate-summary` — same call shape as the
+    feature-intent branch above, but with a Why string that names
+    the tension flag:
+
+    ```bash
+    flow-gate-summary --status awaiting-approval \
+      --why "plan ready for review (intent=$INTENT, prompt-interpretation tension)" \
+      --worktree "$WORKTREE" \
+      --plan-file "$WORKTREE/.flow-tmp/plan.md"
+    ```
+
+    Then end the turn. The next turn re-enters at step 4 with the
+    same affirmative/redirect/cancel/ambiguous branches as the
+    feature-intent path. The `plan-pending-review` phase value is
+    reused (no new phase string is introduced); `flow-stop-guard`
+    and `flow-resume-decide` both already handle this phase
+    unchanged for non-feature intents.
 
 If `/product-planning` doesn't write `.flow-tmp/plan.md`, re-invoke
 once with an explicit instruction to write the consolidated artifact.

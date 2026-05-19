@@ -275,7 +275,30 @@ Your concern is: **does this code fit naturally into the existing codebase?**
 6. Check for dead code introduced by the PR — unused imports, unreachable branches,
    commented-out code without an explanation.
 7. Check the review checklist sections: Consistency, Lifecycle/Cleanup, Composition.
-8. Output your findings as JSON.
+8. **Prompt-interpretation tension check (conditional).** When the spawn prompt's
+   `{{PROMPT_INTERPRETATION_TENSION}}` variable is the literal string `true`, the
+   originating PR body names BOTH prescribed methods (a numbered list or explicit
+   enumeration of moves) AND a quantitative target (a number with units like
+   `<800 lines`, `30% faster`, `≤100ms`). This is the Gatekeeper-side signal documented
+   at `skills/pipeline/pr-review/SKILL.md` Step 1.5 — see also the AGENTS.md
+   `## Output style` rule **Treat user prompts as evidence of intent, not exhaustive
+   specifications.** for the full rationale and PR #170 precedent. Apply this
+   additional pass:
+   - Compare the PR's implementation to the stated quantitative target. Did the
+     prescribed methods plausibly reach the target, or did they fall short?
+   - When the implementation landed only the prescribed methods AND fell short of the
+     named target AND the PR body / commit messages do NOT acknowledge the gap
+     (the AGENTS.md rule asks the author to surface the tension explicitly), flag
+     a `suggestion`-confidence finding labelled "Prompt-interpretation tension not
+     surfaced" whose subject names the gap (e.g. "PR landed -71 lines vs the stated
+     <800-line target — neither the PR body nor any commit body names the gap or
+     proposes a follow-up").
+   - When the implementation reached the target, or when the gap IS acknowledged in
+     the PR body / commit bodies (the author named it, proposed a follow-up, or
+     explicitly relaxed the target with rationale), skip the finding.
+   When the spawn-prompt variable is `false` or missing, skip this step entirely —
+   existing reviewer behaviour is unchanged for PRs without the tension flag.
+9. Output your findings as JSON.
 
 ### False Positive Avoidance
 

@@ -235,6 +235,26 @@ scout report back; the artifact on disk is the record.
     section names off-limits surfaces or rejected approaches that
     intersect the feature, raise them in the analysis so the user
     sees the foreclosed paths alongside the recommended one.
+  - **Surface prompt-interpretation tension.** When `.flow-tmp/plan.md`
+    exists (typical when `/flow-pipeline` ran `/product-planning` upstream)
+    and contains a `## Prompt interpretation` section whose **Recommended
+    path** is anything other than `methods plausibly reach target`, the
+    upstream discovery flagged a tension between prescribed methods and
+    the stated target (see
+    `skills/pipeline/product-planning/references/discovery-instructions.md`
+    "Prompt interpretation (conditional)" for the four-value enum). Add a
+    **Prompt interpretation** row to the assessment table whose Assessment
+    cell names the tension verbatim from plan.md and surfaces the
+    Recommended path; if a parallel signal in the scout's `## anti_patterns`
+    section names foreclosed-by-prescribed-method surfaces, mention that
+    too. This is the downstream half of the AGENTS.md `## Output style`
+    rule **Treat user prompts as evidence of intent, not exhaustive
+    specifications.** — discovery flags the tension upstream, this step
+    surfaces it before implementation kicks in so the user sees the gap
+    alongside the recommendation. When plan.md has no `## Prompt
+    interpretation` section, or the section's Recommended path is
+    `methods plausibly reach target`, omit the row entirely (the original
+    five-row table is unchanged for no-tension prompts).
 
 ## 3. Write `it.todo()` Test Specs
 

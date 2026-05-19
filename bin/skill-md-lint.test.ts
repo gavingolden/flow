@@ -561,7 +561,20 @@ describe("Gatekeeper artifact JSON schema drift (pr-review/SKILL.md)", () => {
   // only on `decision: "skip"` and omitted on `decision: "proceed"`. The
   // sibling Fix-Applier and Edit-Applier schemas list every key as required;
   // the Gatekeeper's optional skip_kind diverges from that pattern by design.
-  const GATEKEEPER_REQUIRED_KEYS = ["decision", "reason", "summary"];
+  //
+  // prompt_interpretation_tension IS in the required-keys list — it's emitted
+  // on every verdict (always-emit boolean, never undefined) so the downstream
+  // Pattern & Consistency Agent at Step 2 can read it from the artifact
+  // unconditionally. Sibling contract: skills/pipeline/product-planning/
+  // references/discovery-instructions.md "Prompt interpretation (conditional)"
+  // is the single source of truth for the detection heuristic and the
+  // four-value Recommended-path enum.
+  const GATEKEEPER_REQUIRED_KEYS = [
+    "decision",
+    "reason",
+    "summary",
+    "prompt_interpretation_tension",
+  ];
 
   it.each(GATEKEEPER_REQUIRED_KEYS)(
     "pr-review/references/gatekeeper-spawn-prompt.md declares the '%s' top-level key for the gatekeeper artifact",
@@ -698,6 +711,45 @@ describe("Consolidator artifact JSON schema drift (pr-review/SKILL.md)", () => {
       "pr-review/SKILL.md must reference 'consolidator-result.json' so the " +
         "artifact path is grep-discoverable. Drift here means the Step 3.5 " +
         "post-spawn existence check could silently fall through.",
+    ).toBe(true);
+  });
+});
+
+describe("AGENTS.md Output style anchors", () => {
+  it("AGENTS.md contains the prompt-as-evidence-of-intent rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Treat user prompts as evidence of intent,
+    // not exhaustive specifications.** is the stable lint hook for the rule
+    // documented at AGENTS.md `## Output style`. Downstream contracts
+    // (skills/pipeline/product-planning/references/discovery-instructions.md's
+    // "Prompt interpretation (conditional)" sub-section,
+    // skills/pipeline/new-feature/SKILL.md Step 2's tension surfacing,
+    // skills/pipeline/flow-pipeline/SKILL.md Step 3's non-feature-intent
+    // routing, skills/pipeline/pr-review/SKILL.md Step 1.5's Gatekeeper
+    // tension field) all refer to this rule by name. Renaming the rule's
+    // anchor phrase requires updating this assertion in the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Treat user prompts as evidence of intent, not exhaustive specifications\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Treat user prompts as evidence of intent, not exhaustive specifications.**' " +
+        "exactly once at the start of a list item in `## Output style`. " +
+        "Found " + (matches?.length ?? 0) + " match(es).",
+    ).toBe(1);
+  });
+
+  it("AGENTS.md prompt-as-evidence rule names PR #170 as the canonical precedent", () => {
+    // The rule body's PR #170 precedent reference is load-bearing: it grounds
+    // the abstract "treat prompts as intent" instruction in a concrete failure
+    // mode the reader can search for. If the precedent reference is lost in
+    // a future rewrite, the rule becomes pure abstraction and the connection
+    // to the canonical incident gets harder to recover.
+    expect(
+      agentsContent.includes("PR #170"),
+      "AGENTS.md must reference 'PR #170' inside the prompt-as-evidence-of-intent " +
+        "rule body. This is the canonical precedent for the rule (four prescribed " +
+        "trims landed at -71 lines vs a <800-line target, with no tension surfaced).",
     ).toBe(true);
   });
 });

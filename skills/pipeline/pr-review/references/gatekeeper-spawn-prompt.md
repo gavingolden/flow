@@ -25,12 +25,15 @@ Procedure:
 1. Run exactly one metadata fetch:
 
    ```bash
-   gh pr view "$PR_NUMBER" --json state,isDraft,additions,deletions,commits,author
+   gh pr view "$PR_NUMBER" --json state,isDraft,additions,deletions,commits,author,body
    ```
 
    Do NOT run `gh pr diff`, do NOT Read any changed file, do NOT invoke
    static-analysis. Metadata only — content reads defeat the cost-routing
-   rationale.
+   rationale. The `body` field is metadata (the PR description prose
+   the user wrote when opening the PR, not the changed-file content);
+   it is needed for the `prompt_interpretation_tension` detection in
+   step 2 below.
 
 2. Apply the skip rules in this order. The first match wins:
 
@@ -67,6 +70,30 @@ Procedure:
    - **Otherwise** → `decision: "proceed"`, `reason: "no skip rule
      matched"`.
 
+   Independently of the skip rules above, also detect a
+   **prompt-interpretation tension flag** on the PR body's Why
+   section. Read `.body` from the same `gh pr view` call (request
+   `body` in the `--json` list above) and check whether the body's
+   `## Why` section (or the first heading-bounded paragraph if no
+   `## Why` exists) names BOTH (a) **prescribed methods** — a
+   numbered list, an explicit enumeration of moves, "do X then Y
+   then Z" phrasing — AND (b) a **quantitative target** — a number
+   with units (`<800 lines`, `30% faster`, `≤ 100ms`), a coverage
+   percentage, a latency budget. Apply prose judgment, not regex.
+   When both signals are present, emit `prompt_interpretation_tension:
+   true` in the artifact; otherwise emit `false`. Always-emit the
+   field (never omit). Same detection heuristic as
+   `skills/pipeline/product-planning/references/discovery-instructions.md`
+   "Prompt interpretation (conditional)"; the canonical signal list
+   lives there. PR #170 is the precedent — the PR body named four
+   prescribed trims AND `<800 lines`; the originating /pr-review run
+   reported clean because no Gatekeeper-side signal surfaced the gap.
+   This field gives the multi-agent reviewer downstream a reason to
+   look for that gap in its consistency pass. The field is
+   independent of `decision` — it can be `true` alongside `skip` or
+   `proceed`; the consumer (`/pr-review` Step 2's Pattern & Consistency
+   Agent) reads it from the artifact regardless of the skip verdict.
+
 3. Write the artifact at the absolute path passed in `ARTIFACT_PATH` with
    typed fields:
 
@@ -75,17 +102,23 @@ Procedure:
      "decision": "proceed" | "skip",
      "reason": "<one-line rationale>",
      "skip_kind": "closed-or-merged" | "trivial-diff" | "no-new-commits",
+     "prompt_interpretation_tension": true | false,
      "summary": "<3-5 sentence summary surfacing both sides>"
    }
    ```
 
-   The four typed fields are: `decision` (string, one of `"proceed"` or
+   The five typed fields are: `decision` (string, one of `"proceed"` or
    `"skip"`), `reason` (string, one-line rationale the wrapper surfaces in
    its summary), `skip_kind` (optional string, one of `"closed-or-merged"`,
-   `"trivial-diff"`, or `"no-new-commits"`), and `summary` (string, 3-5
-   sentences). `skip_kind` is required when `decision == "skip"` and
-   omitted when `decision == "proceed"`. Use the write-`.tmp` → `mv`
-   atomic protocol.
+   `"trivial-diff"`, or `"no-new-commits"`),
+   `prompt_interpretation_tension` (boolean, always-emitted — `true`
+   when the PR body's `## Why` section names BOTH prescribed methods
+   AND a quantitative target per the heuristic above; `false`
+   otherwise), and `summary` (string, 3-5 sentences). `skip_kind` is
+   required when `decision == "skip"` and omitted when `decision ==
+   "proceed"`; `prompt_interpretation_tension` is required on every
+   verdict so the downstream Pattern & Consistency Agent can read it
+   unconditionally. Use the write-`.tmp` → `mv` atomic protocol.
 
 4. Return a one-paragraph summary (3-5 sentences) that surfaces BOTH sides
    of what you observed: at least one positive (the decision + skip_kind,
