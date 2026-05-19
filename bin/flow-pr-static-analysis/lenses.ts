@@ -3,6 +3,7 @@ import {
   parseBiomeJson,
   parseCoverageJson,
   parseEslintJson,
+  parseNpmAuditJson,
   parseSemgrepJson,
   parseTscOutput,
   relativise,
@@ -204,6 +205,49 @@ export const runCoverageLens: LensRun = async (args, deps) => {
   deps.writeErr(`[coverage] reading ${relativise(candidate, deps.cwd)}\n`);
   return {
     findings: parseCoverageJson(content, deps.cwd),
+    meta: { ran: true, duration_ms: deps.now() - start },
+  };
+};
+
+export const runDependenciesLens: LensRun = async (args, deps) => {
+  const start = deps.now();
+  if (!deps.fileExists(path.join(deps.cwd, "package.json"))) {
+    return timedSkip(start, "no-package-json");
+  }
+  if (!deps.which("npm")) return timedSkip(start, "npm-not-on-path");
+  const packageJsonContent = deps.readFile(path.join(deps.cwd, "package.json"));
+  deps.writeErr("[dependencies] running npm audit --json\n");
+  const r = await deps.spawn("npm", ["audit", "--json"], {
+    cwd: deps.cwd,
+    timeoutMs: args.maxToolTimeoutSec * 1000,
+  });
+  if (r.timedOut) return timedSkip(start, "timeout");
+  // npm audit exits 0 when there are no vulnerabilities and 1 when there are;
+  // both paths emit the JSON envelope on stdout. Anything else is an
+  // npm/configuration error and stdout is typically empty.
+  if (r.exitCode !== 0 && r.exitCode !== 1) {
+    return timedSkip(start, `npm-exit-${r.exitCode}`);
+  }
+  // npm audit also exits 1 when the audit itself couldn't run (no
+  // package-lock.json, network failure, ENOAUDIT, etc.). In that case stdout
+  // is `{"error": {"code": "ENOLOCK", ...}}` — no `vulnerabilities` key.
+  // Treat that shape as a skip rather than a falsely-clean ran=true verdict.
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(r.stdout);
+  } catch {
+    parsed = null;
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !("vulnerabilities" in (parsed as Record<string, unknown>))
+  ) {
+    return timedSkip(start, "npm-audit-no-vulnerabilities-key");
+  }
+  const findings = parseNpmAuditJson(r.stdout, packageJsonContent);
+  return {
+    findings,
     meta: { ran: true, duration_ms: deps.now() - start },
   };
 };

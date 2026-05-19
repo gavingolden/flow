@@ -16,7 +16,7 @@ Options:
                             coverage/coverage-final.json in the worktree).
   --help, -h                Show this help.
 
-Output: a single JSON object on stdout when all four lenses settle. Per-tool
+Output: a single JSON object on stdout when all lenses settle. Per-tool
 progress is on stderr so the JSON is cleanly capturable.
 
 Exit codes:

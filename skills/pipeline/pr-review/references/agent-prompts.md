@@ -98,8 +98,8 @@ a missed finding that a human reviewer will catch.
 ## Static Analysis Facts
 
 The block below is your lens's pre-digested static-analysis output from
-`flow-pr-static-analysis` (semgrep / biome-or-eslint / tsc / Istanbul-coverage,
-filtered to PR-touched lines, filtered to `confidence >= min_confidence`). The
+`flow-pr-static-analysis` (semgrep / biome-or-eslint / tsc / Istanbul-coverage / npm-audit),
+filtered to PR-touched lines and to `confidence >= min_confidence`. The
 substituted block is a single JSON object of shape `{findings: [...], meta: {...}}`,
 where each finding has the shape `{file, line, end_line?, rule_id, message,
 confidence, severity?, source}` and `meta` carries the lens's `ran` /
@@ -206,23 +206,41 @@ exclusively on: **could an attacker exploit this code?**
    for exploitable, non-blocking for defensive). False positives are common in this
    lens (e.g., a hardcoded "secret" in a test fixture) — drop them rather than
    forwarding noise to the author.
-2. Read each changed file in full. Identify trust boundaries — where does user-controlled
+2. Your `{{STATIC_ANALYSIS_FACTS}}` block also contains the **`dependencies`** lens —
+   `npm audit --json` findings (source `npm-audit`) scanning `package.json`
+   additions in the diff, scoped to direct dependencies. Each finding under
+   the `dependencies` block carries `{file, line, rule_id (CVE/GHSA ID), confidence}`
+   keyed to the offending `package.json` entry. Confirm each by Reading the cited
+   `file:line` to verify the dep was actually added/bumped in this PR (the diff scope
+   already filters, but a sanity check costs nothing) and surface real vulnerabilities
+   as `issue` with the GHSA/CVE ID in the rule_id and a brief upgrade recommendation.
+   When `meta.dependencies.ran=false` (typically because the consumer hasn't set up
+   the lens or `npm` is not on PATH), fall back to a manual audit:
+
+   ```bash
+   npm audit --json
+   ```
+
+   If you can't run the audit locally either, surface a `question` flagging that
+   the dependency lens didn't run and the consumer should confirm via their own
+   audit recipe before merging dep changes.
+3. Read each changed file in full. Identify trust boundaries — where does user-controlled
    data enter the system? (HTTP request bodies, URL parameters, form fields, file uploads,
    external API responses)
-3. Trace data flow from each input to where it's used. At each step, check:
+4. Trace data flow from each input to where it's used. At each step, check:
    - Is the data validated/sanitized before reaching a sensitive operation?
    - Could the data be crafted to break out of its expected context? (SQL injection,
      XSS, command injection, path traversal, template injection)
-4. Check authentication and authorization:
+5. Check authentication and authorization:
    - Are auth checks performed server-side?
    - Could the check be bypassed by manipulating the request?
    - Are permissions checked for the specific resource, not just "is logged in"?
-5. Search for secrets in the diff:
+6. Search for secrets in the diff:
    - High-entropy strings that look like API keys or tokens
    - Strings matching patterns: `sk-`, `pk-`, `ghp_`, `Bearer `, base64-encoded blocks
    - Configuration that embeds credentials directly
-6. Check the review checklist Security section.
-7. Output your findings as JSON.
+7. Check the review checklist Security section.
+8. Output your findings as JSON.
 
 ### False Positive Avoidance
 
@@ -233,7 +251,6 @@ Do NOT flag:
 - Environment variable references in `.env.example` or documentation
 - Server-side code that only processes trusted internal data
 - CORS configurations on intentionally public APIs
-- Dependencies with known CVEs (that's a supply chain scanner's job, not code review)
 - Security patterns that are already handled by the framework (e.g., SvelteKit's built-in
   XSS prevention for template expressions)
 
@@ -422,8 +439,7 @@ Do NOT flag:
 - Top-level field deletions where the same PR scrubs every README / docs / onboarding
   reference — the deletion is intentional and the consumer-facing surface is
   consistent
-- Security vulnerabilities in dependencies — that's the Security Agent's job
-  (and a CVE scanner's job in CI), not yours
+- Security vulnerabilities in dependencies — that's the Security Agent's job, not yours
 
 ---
 

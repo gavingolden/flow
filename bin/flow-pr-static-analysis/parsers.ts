@@ -27,6 +27,13 @@ export const TSC_CONFIDENCE = 100; // deterministic compiler output
 
 export const COVERAGE_UNCOVERED_CONFIDENCE = 85;
 
+export const NPM_AUDIT_CONFIDENCE: Record<string, number> = {
+  low: 60,
+  moderate: 80,
+  high: 90,
+  critical: 95,
+};
+
 // --- Pure parsers ----------------------------------------------------------
 
 /**
@@ -312,6 +319,101 @@ export function parseCoverageJson(content: string, worktree: string): Finding[] 
     }
   }
   return out;
+}
+
+/**
+ * Parse `npm audit --json` output (v7+ shape:
+ * `{auditReportVersion: 2, vulnerabilities: {<pkg>: {name, severity, isDirect,
+ * via, effects, range, nodes, fixAvailable}}}`). The `via` array is mixed:
+ * string entries point back into the same vulnerabilities map (sibling-package
+ * references, skipped to avoid double-counting) and object entries carry the
+ * actual advisory metadata. Transitive (`isDirect=false`) findings are
+ * filtered out — v1 scope is direct deps only.
+ */
+export function parseNpmAuditJson(
+  stdout: string,
+  packageJsonContent: string | null,
+): Finding[] {
+  if (!stdout.trim()) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return [];
+  }
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    !(parsed as { vulnerabilities?: unknown }).vulnerabilities ||
+    typeof (parsed as { vulnerabilities?: unknown }).vulnerabilities !== "object"
+  ) {
+    return [];
+  }
+  const vulns = (parsed as { vulnerabilities: Record<string, unknown> }).vulnerabilities;
+  const out: Finding[] = [];
+  for (const [pkgName, vulnRaw] of Object.entries(vulns)) {
+    if (!vulnRaw || typeof vulnRaw !== "object") continue;
+    const vuln = vulnRaw as {
+      name?: string;
+      severity?: string;
+      isDirect?: boolean;
+      via?: unknown[];
+    };
+    if (vuln.isDirect === false) continue;
+    if (!Array.isArray(vuln.via)) continue;
+    const line = resolveNpmAuditLine(pkgName, packageJsonContent);
+    for (const via of vuln.via) {
+      // Skip string entries — they're sibling-package references that point
+      // back into the same vulnerabilities map; emitting them double-counts
+      // the same CVE across the dependency chain.
+      if (typeof via !== "object" || via === null) continue;
+      const v = via as {
+        source?: number;
+        title?: string;
+        url?: string;
+        severity?: string;
+      };
+      const severity = (v.severity ?? vuln.severity ?? "low").toLowerCase();
+      const confidence = NPM_AUDIT_CONFIDENCE[severity] ?? 60;
+      const ruleId = extractGhsaId(v.url) ?? (v.source !== undefined ? String(v.source) : "npm-audit/unknown");
+      out.push({
+        file: "package.json",
+        line,
+        rule_id: ruleId,
+        message: v.title ?? `Vulnerability in ${pkgName}`,
+        confidence,
+        severity: mapNpmAuditSeverity(severity),
+        source: "npm-audit",
+      });
+    }
+  }
+  return out;
+}
+
+function extractGhsaId(url: string | undefined): string | null {
+  if (!url) return null;
+  const m = url.match(/GHSA-[a-z0-9-]+/i);
+  return m ? m[0] : null;
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function resolveNpmAuditLine(pkgName: string, packageJsonContent: string | null): number {
+  if (packageJsonContent === null) return 1;
+  const re = new RegExp(`"${escapeRegex(pkgName)}"\\s*:`);
+  const lines = packageJsonContent.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    if (re.test(lines[i])) return i + 1;
+  }
+  return 1;
+}
+
+function mapNpmAuditSeverity(s: string): Severity {
+  if (s === "critical" || s === "high") return "error";
+  if (s === "moderate") return "warning";
+  return "info";
 }
 
 // --- Diff scoping ----------------------------------------------------------
