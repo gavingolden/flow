@@ -130,14 +130,14 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Checkout gavingolden/flow at the caller-resolved SHA
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           repository: gavingolden/flow
           ref: ${{ steps.flow-sha.outputs.sha }}
           token: ${{ secrets.WORKFLOW_REPO_TOKEN || github.token }}
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76 # v2.0.2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Run prune-cf-deployments.ts
         env:
