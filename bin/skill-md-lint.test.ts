@@ -52,6 +52,15 @@ const FIX_APPLIER_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "fix-applier-instructions.md",
 );
+const CONSOLIDATOR_INSTRUCTIONS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "references",
+  "consolidator-instructions.md",
+);
 const CODER_SKILL_MD_PATH = path.resolve(
   HERE,
   "..",
@@ -94,6 +103,10 @@ const prReviewContent = fs.readFileSync(PR_REVIEW_SKILL_MD_PATH, "utf8");
 const fixApplierContent = fs.readFileSync(FIX_APPLIER_INSTRUCTIONS_PATH, "utf8");
 const coderContent = fs.readFileSync(CODER_SKILL_MD_PATH, "utf8");
 const coderInstructionsContent = fs.readFileSync(CODER_INSTRUCTIONS_PATH, "utf8");
+const consolidatorInstructionsContent = fs.readFileSync(
+  CONSOLIDATOR_INSTRUCTIONS_PATH,
+  "utf8",
+);
 const reportTemplateContent = fs.readFileSync(REPORT_TEMPLATE_PATH, "utf8");
 const manualTestRubricContent = fs.readFileSync(MANUAL_TEST_RUBRIC_PATH, "utf8");
 
@@ -277,26 +290,27 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     return [...agentsContent.matchAll(re)].map((m) => normaliseExemption(m[1]));
   }
 
-  it("flow-pipeline/SKILL.md Hard rules lists exactly 7 Task-tool exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules lists exactly 8 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
       exemptions.length,
-      "flow-pipeline/SKILL.md must list exactly 7 Task-tool exemption blocks " +
+      "flow-pipeline/SKILL.md must list exactly 8 Task-tool exemption blocks " +
         "(one each for /pr-review Multi-Agent Review, /product-planning Discovery " +
         "Subagent, /new-feature Scout Subagent, /pr-review Fix-Applier Subagent, " +
         "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, /coder " +
-        "Edit-Applier Subagent, and /pr-review Step 1.5 Gatekeeper Subagent). " +
+        "Edit-Applier Subagent, /pr-review Step 1.5 Gatekeeper Subagent, and " +
+        "/pr-review Independent Consolidator + Validator Subagent). " +
         "Found: " + JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(8);
   });
 
-  it("AGENTS.md ## Don'ts lists exactly 7 Task-tool exemption bullets", () => {
+  it("AGENTS.md ## Don'ts lists exactly 8 Task-tool exemption bullets", () => {
     const exemptions = extractAgentsExemptions();
     expect(
       exemptions.length,
-      "AGENTS.md ## Don'ts must list exactly 7 Task-tool exemption bullets. " +
+      "AGENTS.md ## Don'ts must list exactly 8 Task-tool exemption bullets. " +
         "Found: " + JSON.stringify(exemptions),
-    ).toBe(7);
+    ).toBe(8);
   });
 
   it("AGENTS.md and flow-pipeline/SKILL.md list the same set of exemptions", () => {
@@ -318,43 +332,43 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     ).toBe(0);
   });
 
-  it("flow-pipeline/SKILL.md Hard rules preamble references seven exemptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules preamble references eight exemptions", () => {
     expect(
-      skillStripped.match(/the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
-      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only seven** authorised " +
+      skillStripped.match(/the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only eight** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Hard rules opening references seven Task-tool exceptions", () => {
+  it("flow-pipeline/SKILL.md Hard rules opening references eight Task-tool exceptions", () => {
     expect(
-      skillStripped.match(/the\s+seven\s+narrowly-named Task-tool exceptions that\s+follow/),
-      "flow-pipeline/SKILL.md Hard rules opening must say 'the seven narrowly-named " +
+      skillStripped.match(/the\s+eight\s+narrowly-named Task-tool exceptions that\s+follow/),
+      "flow-pipeline/SKILL.md Hard rules opening must say 'the eight narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
     ).toBeTruthy();
   });
 
-  it("AGENTS.md upstream prose references seven exceptions", () => {
+  it("AGENTS.md upstream prose references eight exceptions", () => {
     expect(
-      agentsContent.match(/\*\*with seven narrowly-named exceptions\*\*/),
-      "AGENTS.md ## Supervisor and sub-skills must say '**with seven narrowly-named exceptions**'. " +
+      agentsContent.match(/\*\*with eight narrowly-named exceptions\*\*/),
+      "AGENTS.md ## Supervisor and sub-skills must say '**with eight narrowly-named exceptions**'. " +
         "The count must match the bullet list under ## Don'ts.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/The seven\s+named exceptions are/),
-      "AGENTS.md ## Don'ts parent bullet must say 'The seven named exceptions are'. " +
+      agentsContent.match(/The eight\s+named exceptions are/),
+      "AGENTS.md ## Don'ts parent bullet must say 'The eight named exceptions are'. " +
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/the\s+\*\*only seven\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
-      "AGENTS.md ## Don'ts closer must say 'the **only seven** authorised Task-tool fan-out sites'. " +
+      agentsContent.match(/the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      "AGENTS.md ## Don'ts closer must say 'the **only eight** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
   });
 
-  it("flow-pipeline/SKILL.md Verification (this skill) lists all seven exemptions by name", () => {
+  it("flow-pipeline/SKILL.md Verification (this skill) lists all eight exemptions by name", () => {
     const verificationSection =
       content.split("# Verification")[1] ?? content.split("# Verification (this skill)")[1] ?? "";
     expect(
@@ -386,13 +400,19 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       verificationSection.includes("Independent Edit-Applier Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Edit-Applier Subagent' " +
         "as one of the named Task-tool exemptions. The sixth exemption was added in the " +
-        "/coder refactor; this list must enumerate all seven.",
+        "/coder refactor; this list must enumerate all eight.",
     ).toBe(true);
     expect(
       verificationSection.includes("Independent Gatekeeper Subagent"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Gatekeeper Subagent' " +
         "as one of the named Task-tool exemptions. The seventh exemption was added in the " +
-        "/pr-review Step 1.5 Gatekeeper refactor; this list must enumerate all seven.",
+        "/pr-review Step 1.5 Gatekeeper refactor; this list must enumerate all eight.",
+    ).toBe(true);
+    expect(
+      verificationSection.includes("Independent Consolidator + Validator Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Independent Consolidator + Validator Subagent' " +
+        "as one of the named Task-tool exemptions. The eighth exemption was added in the " +
+        "/pr-review Consolidator + Validator refactor; this list must enumerate all eight.",
     ).toBe(true);
   });
 });
@@ -590,6 +610,65 @@ describe("Gatekeeper artifact JSON schema drift (pr-review/SKILL.md)", () => {
   });
 });
 
+describe("Consolidator artifact JSON schema drift (pr-review/SKILL.md ↔ references/consolidator-instructions.md)", () => {
+  const CONSOLIDATOR_REQUIRED_KEYS = [
+    "consolidated_findings",
+    "dropped_by_validation",
+    "rejected_alternatives",
+    "anti_patterns_found",
+    "summary",
+  ];
+
+  it.each(CONSOLIDATOR_REQUIRED_KEYS)(
+    "pr-review/SKILL.md declares the '%s' top-level key for the consolidator artifact",
+    (key) => {
+      expect(
+        prReviewContent.includes(`\`${key}\``),
+        `pr-review/SKILL.md must reference '\`${key}\`' as one of the consolidator artifact's ` +
+          `typed fields. Missing the key here means a downstream Step (4 / Consume Consolidated ` +
+          `Findings) consumer drifts away from the schema documented in ` +
+          `references/consolidator-instructions.md.`,
+      ).toBe(true);
+    },
+  );
+
+  it.each(CONSOLIDATOR_REQUIRED_KEYS)(
+    "references/consolidator-instructions.md declares the '%s' top-level key in the artifact schema",
+    (key) => {
+      expect(
+        consolidatorInstructionsContent.includes(`"${key}"`),
+        `references/consolidator-instructions.md '# Result artifact' section must include ` +
+          `'"${key}"' inside the JSON schema fenced block. Drift between this file and ` +
+          `pr-review/SKILL.md silently breaks the wrapper-subagent contract.`,
+      ).toBe(true);
+    },
+  );
+
+  it("pr-review/SKILL.md has a Consolidator + Validator Subagent section", () => {
+    expect(
+      prReviewContent.includes("# Consolidator + Validator Subagent"),
+      "pr-review/SKILL.md must have a '# Consolidator + Validator Subagent' section that " +
+        "documents the spawn procedure and prompt template. The exemption in " +
+        "flow-pipeline/SKILL.md Hard rules and AGENTS.md ## Don'ts is anchored on this " +
+        "heading name.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md spawn-prompt template instructs subagent on negative-findings slots", () => {
+    const hasNegativeFindings =
+      prReviewContent.includes("rejected_alternatives") &&
+      prReviewContent.includes("anti_patterns_found") &&
+      prReviewContent.includes("silence is not the default");
+    expect(
+      hasNegativeFindings,
+      "pr-review/SKILL.md's Consolidator + Validator spawn-prompt template must affirmatively " +
+        "instruct the subagent to populate 'rejected_alternatives' and 'anti_patterns_found' " +
+        "(and warn that 'silence is not the default'). Without this, the subagent defaults to " +
+        "leaving the slots empty and the both-sides return contract is silently broken.",
+    ).toBe(true);
+  });
+});
+
 describe("pr-review result-artifact contract lint", () => {
   it("pr-review SKILL.md frontmatter does not include `context: fork`", () => {
     expect(
@@ -657,7 +736,7 @@ describe("pr-review result-artifact contract lint", () => {
   );
 });
 
-describe("Task-tool ToolSearch-load preamble at all seven spawn sites", () => {
+describe("Task-tool ToolSearch-load preamble at all eight spawn sites", () => {
   const SITES: ReadonlyArray<{ file: string; exemption_name: string }> = [
     {
       file: "skills/pipeline/pr-review/SKILL.md",
@@ -686,6 +765,10 @@ describe("Task-tool ToolSearch-load preamble at all seven spawn sites", () => {
     {
       file: "skills/pipeline/flow-pipeline/SKILL.md",
       exemption_name: "flow-pipeline-merge-resolver",
+    },
+    {
+      file: "skills/pipeline/pr-review/SKILL.md",
+      exemption_name: "pr-review-consolidator-validator",
     },
   ];
 

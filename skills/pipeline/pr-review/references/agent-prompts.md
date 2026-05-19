@@ -47,6 +47,8 @@ rules). Treat them as primary signal for author intent:
 
 Return a JSON array of findings. Each finding is an object:
 
+Before returning, also write your JSON array to `{{AGENT_OUTPUT_PATH}}` (an absolute path the orchestrator provides per-agent) so the downstream Consolidator + Validator Subagent can read it from disk.
+
 {
   "file": "src/lib/store.ts",
   "line": 42,

@@ -171,7 +171,7 @@ is one Claude Code chat session, sub-skills (`/product-planning`,
 `/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses, **with seven narrowly-named exceptions**
+`claude -p ...` subprocesses, **with eight narrowly-named exceptions**
 — see the "Task-tool exemption: `/flow-pipeline` → `/pr-review`
 Independent Multi-Agent Review", "Task-tool exemption:
 `/flow-pipeline` → `/product-planning` Independent Discovery Subagent",
@@ -180,9 +180,10 @@ Scout Subagent", "Task-tool exemption: `/flow-pipeline` →
 `/pr-review` Fix-Applier Subagent", "Task-tool exemption:
 `/flow-pipeline` → Merge-Conflict Resolver Subagent",
 "Task-tool exemption: `/flow-pipeline` → `/coder` Independent
-Edit-Applier Subagent", and "Task-tool exemption: `/flow-pipeline` →
-`/pr-review` Independent Gatekeeper Subagent" entries under
-`## Don'ts` below.
+Edit-Applier Subagent", "Task-tool exemption: `/flow-pipeline` →
+`/pr-review` Independent Gatekeeper Subagent", and "Task-tool
+exemption: `/flow-pipeline` → `/pr-review` Independent Consolidator
++ Validator Subagent" entries under `## Don'ts` below.
 This sidesteps two limits at once:
 
 1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
@@ -280,14 +281,15 @@ old silent-pass hole is closed.
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The seven
+- Don't spawn sub-agents from the supervisor. See above. The eight
   named exceptions are `/pr-review`'s Independent Multi-Agent Review
   step, `/product-planning`'s Independent Discovery Subagent,
   `/new-feature`'s Independent Scout Subagent, `/pr-review`'s
   Fix-Applier Subagent, `/flow-pipeline` step 10's Merge-Conflict
   Resolver Subagent, `/coder`'s Independent Edit-Applier
-  Subagent, and `/pr-review` Step 1.5's Independent Gatekeeper
-  Subagent — all seven covered by "Task-tool exemption" bullets below;
+  Subagent, `/pr-review` Step 1.5's Independent Gatekeeper
+  Subagent, and `/pr-review`'s Independent Consolidator + Validator
+  Subagent — all eight covered by "Task-tool exemption" bullets below;
   no other skill or step may call Task.
 - Don't add features beyond the task's stated scope.
 - Don't propagate unverified factual claims. If you're about to emit
@@ -521,13 +523,7 @@ old silent-pass hole is closed.
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
     `skills/pipeline/coder/SKILL.md`'s "Independent Edit-Applier
     Subagent" section. Same narrow-and-named contract as the
-    exemptions above. Together with the `/pr-review` Multi-Agent
-    Review, `/product-planning` Discovery Subagent, `/new-feature`
-    Scout Subagent, `/pr-review` Fix-Applier Subagent,
-    `/flow-pipeline`'s Merge-Conflict Resolver Subagent, and
-    `/pr-review`'s Independent Gatekeeper Subagent entries,
-    these are the **only seven** authorised Task-tool fan-out sites
-    from `/flow-pipeline`; no other skill or step may call Task.
+    exemptions above.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
     Gatekeeper Subagent.** When `/flow-pipeline` step 8 loads
     `/pr-review` and `/pr-review` reaches its "Independent Gatekeeper
@@ -565,7 +561,56 @@ old silent-pass hole is closed.
     `skills/pipeline/pr-review/SKILL.md`'s "Independent Gatekeeper
     Subagent" section. Same narrow-and-named contract as the
     exemptions above.
-  - **Task-tool spawn sites must load Task first.** Each of the seven
+  - **Task-tool exemption: `/flow-pipeline` → `/pr-review`
+    Independent Consolidator + Validator Subagent.** When
+    `/flow-pipeline` step 8 loads `/pr-review` and `/pr-review`
+    reaches its "Independent Consolidator + Validator Subagent" step
+    (Step 3.5 of the # Instructions section), one consolidator agent
+    is spawned via the Task tool to merge the four review agents'
+    raw JSON arrays into a single deduplicated, threshold-filtered,
+    second-opinion-validated finding set. The subagent writes a
+    structured artifact at
+    `<worktree>/.flow-tmp/consolidator-result.json` (typed fields:
+    `consolidated_findings`, `dropped_by_validation`,
+    `rejected_alternatives`, `anti_patterns_found`, `summary`). The
+    per-finding shape inside `consolidated_findings[]` is validated
+    by `bin/lib/agent-finding-schema.ts` (the same module the
+    consolidator runs against each of the four raw agent outputs in
+    Step 1 of its instructions); the artifact shape itself is
+    validated by `bin/lib/consolidator-result-schema.ts`. The
+    exemption is anchored on the step heading name rather than its
+    number so it survives future `/pr-review` renumbering, and
+    names the escalation tag
+    `task-tool-unavailable: pr-review-consolidator-validator` for
+    the Task-tool-load preamble's bail-out path. Rationale: the
+    same two constraints as above — the supervisor is top-level so
+    the one-level sub-agent cap doesn't apply to *its* Task calls
+    (the call from `/pr-review` is itself a top-level-supervisor-loaded
+    skill's call); and the consolidator is one-shot, returning the
+    artifact plus a brief both-sides summary, then exits. The reason
+    this exemption exists at all is two-fold: context cost (the four
+    raw agent JSON arrays — typically several hundred lines apiece —
+    stay inside the subagent's session rather than landing in the
+    supervisor's transcript at the most token-expensive point of
+    `/pr-review`'s run) and the in-context second-opinion validation
+    pass — the subagent re-reads each ≥80-confidence non-praise
+    finding's cited `file:line` *before* keeping it in
+    `consolidated_findings[]`, so false positives surface in-context
+    where the agent's claim and the actual code are both visible,
+    not after they leak through to the Fix-Applier and force a
+    second judgment call there. The contract is documented
+    bidirectionally in
+    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
+    `skills/pipeline/pr-review/SKILL.md`'s "# Consolidator +
+    Validator Subagent" section. Together with the `/pr-review`
+    Multi-Agent Review, `/product-planning` Discovery Subagent,
+    `/new-feature` Scout Subagent, `/pr-review` Fix-Applier
+    Subagent, `/flow-pipeline`'s Merge-Conflict Resolver Subagent,
+    `/coder`'s Edit-Applier Subagent, and `/pr-review`'s
+    Independent Gatekeeper Subagent entries, these are the
+    **only eight** authorised Task-tool fan-out sites from
+    `/flow-pipeline`; no other skill or step may call Task.
+  - **Task-tool spawn sites must load Task first.** Each of the eight
     Task-tool exemption sites above must instruct the supervisor to
     load the Task tool schema via `ToolSearch query="select:Task"`
     before invoking Task (or its alias `Agent`). In Claude Code sessions where neither `Task` nor its alias `Agent`
@@ -578,9 +623,9 @@ old silent-pass hole is closed.
     <exemption-name>` rather than falling back inline; each spawn
     procedure carries the canonical "Load the Task tool before
     spawning" paragraph, and `bin/skill-md-lint.test.ts` enforces
-    its presence at all seven sites. Same narrow-and-named hygiene as
-    the Task-tool exemptions above — this is a sibling guard, not an
-    eighth exemption.
+    its presence at all eight sites. Same narrow-and-named hygiene as
+    the Task-tool exemptions above — this is a sibling guard, not a
+    ninth exemption.
   - **AskUserQuestion exemption: `/flow-pipeline` step 4 candidate-
     issues sub-step.** `/flow-pipeline`'s "Hard rules" forbid arbitrary
     `AskUserQuestion` calls from the supervisor, with one named
