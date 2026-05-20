@@ -166,6 +166,32 @@ function parseCreateOutput(stdout: string): { number: number; url: string } | { 
   return { number: Number(match[1]), url };
 }
 
+type LabelResult = { kind: "ok" } | { kind: "error"; message: string };
+
+/**
+ * Ensure every label exists on the current repo before `gh issue create`.
+ *
+ * `gh issue create --label <name>` rejects labels the repo doesn't have, so
+ * a fresh repo (one that never had the flow-agent/deferred-review/
+ * out-of-scope-discovery labels created) fails on the first call. `gh label
+ * create <name> --force` provisions a missing label and updates an existing
+ * one, so the call is idempotent and needs no `gh label list` pre-check. A
+ * non-zero exit (e.g. no `repo` write scope) aborts before `gh issue create`
+ * rather than letting the create call fail later on the unknown label.
+ */
+export function ensureLabels(labels: string[], gh: GhRunner): LabelResult {
+  for (const label of labels) {
+    const r = gh(["label", "create", label, "--force"]);
+    if (r.exitCode !== 0) {
+      return {
+        kind: "error",
+        message: r.stderr.trim() || `gh label create ${label} failed (${r.exitCode})`,
+      };
+    }
+  }
+  return { kind: "ok" };
+}
+
 function buildCreateArgv(args: Args): string[] {
   const out = ["issue", "create", "--title", args.title, "--body-file", args.bodyFile];
   for (const label of args.labels) out.push("--label", label);
@@ -213,6 +239,14 @@ export function run(argv: string[], deps: Deps = {}): number {
     };
     process.stdout.write(JSON.stringify(out) + "\n");
     return 0;
+  }
+
+  if (parsed.labels.length > 0) {
+    const labelResult = ensureLabels(parsed.labels, gh);
+    if (labelResult.kind === "error") {
+      console.error(`flow-create-issue: ${labelResult.message}`);
+      return 1;
+    }
   }
 
   const created = gh(buildCreateArgv(parsed));
