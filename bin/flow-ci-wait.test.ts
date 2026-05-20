@@ -13,6 +13,7 @@ import {
   fetchHistoricalBotReview,
   hasQualifyingWorkflowTrigger,
   isCopilotReviewStale,
+  isSmallFollowup,
   parseArgs,
   retriggerCopilotReview,
   run,
@@ -1257,6 +1258,7 @@ describe("run() integration — Copilot retrigger", () => {
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -1300,6 +1302,7 @@ describe("run() integration — Copilot retrigger", () => {
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -1372,6 +1375,7 @@ describe("run() integration — Copilot retrigger", () => {
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -1413,6 +1417,7 @@ describe("run() integration — Copilot retrigger", () => {
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -1490,6 +1495,79 @@ describe("run() integration — Copilot retrigger", () => {
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.copilotRetriggered).toBe(true);
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
+    expect(cap.stderr.join("")).toMatch(/Copilot review stale.*re-requested at poll 1/);
+  });
+
+  it("(8) skips retrigger when intervening commits are a small follow-up", async () => {
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    // Stale review + readIsSmallFollowup:() => true (and readCommitsAreAllMerges
+    // false, so the merge-only branch is skipped) → no POST, copilotRetriggered
+    // false, decision proceeds via the existing-fresh-review branch (the stale
+    // review still counts as "posted" pre-retrigger). Single-poll fixture: CI
+    // all-passed + stale-but-posted Copilot review → exit proceed-to-review.
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => true,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.copilotRetriggered).toBe(false);
+    // Exactly zero POSTs went out.
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(0);
+    expect(result.decision).toBe("proceed-to-review");
+    // The small-follow-up stderr line fires so the user sees why the loop
+    // didn't retrigger.
+    expect(cap.stderr.join("")).toMatch(/small follow-up, skipping retrigger/);
+  });
+
+  it("(9) fires retrigger when the intervening change is over the small-follow-up thresholds", async () => {
+    // Over-threshold regression guard: same setup as test (7) but with
+    // readIsSmallFollowup:() => false explicitly, asserting the retrigger
+    // still fires when the intervening change is neither merge-only nor a
+    // small follow-up.
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    const fresh = staleCopilotReview(HEAD_SHA);
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -1581,6 +1659,121 @@ describe(allMergeCommitsBetween, () => {
       "--jq",
       ".commits",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6d. isSmallFollowup — unit tests
+// ---------------------------------------------------------------------------
+
+describe(isSmallFollowup, () => {
+  function ghFromQueue(queue: Array<{ stdout: string; exitCode: number }>): GhRunner & {
+    calls: string[][];
+  } {
+    const calls: string[][] = [];
+    let cursor = 0;
+    const fn = ((argv: string[]) => {
+      calls.push(argv);
+      const next = queue[cursor++];
+      if (!next) return { stdout: "", stderr: "", exitCode: 1 };
+      return { stdout: next.stdout, stderr: "", exitCode: next.exitCode };
+    }) as GhRunner & { calls: string[][] };
+    fn.calls = calls;
+    return fn;
+  }
+
+  it("returns true when every commit message carries the (pr-review #N) marker (kind signal)", () => {
+    const gh = ghFromQueue([
+      {
+        stdout: JSON.stringify({
+          messages: ["fix(x): thing (pr-review #97)", "chore(y): z (pr-review #97)"],
+          // Files large enough to exceed the size thresholds — the kind
+          // signal must short-circuit before the size signal is consulted.
+          files: [{ additions: 200, deletions: 100, filename: "a.ts" }],
+        }),
+        exitCode: 0,
+      },
+    ]);
+    expect(isSmallFollowup("from", "to", gh)).toBe(true);
+  });
+
+  it("returns true on non-fix-applier messages when total LOC <= 15 and files <= 3 (size signal)", () => {
+    const gh = ghFromQueue([
+      {
+        stdout: JSON.stringify({
+          messages: ["feat: small change", "docs: tweak"],
+          files: [
+            { additions: 5, deletions: 3, filename: "a.ts" },
+            { additions: 2, deletions: 1, filename: "b.ts" },
+          ],
+        }),
+        exitCode: 0,
+      },
+    ]);
+    expect(isSmallFollowup("from", "to", gh)).toBe(true);
+  });
+
+  it("returns false when total LOC exceeds 15 (over-LOC)", () => {
+    const gh = ghFromQueue([
+      {
+        stdout: JSON.stringify({
+          messages: ["feat: bigger change"],
+          files: [{ additions: 20, deletions: 0, filename: "a.ts" }],
+        }),
+        exitCode: 0,
+      },
+    ]);
+    expect(isSmallFollowup("from", "to", gh)).toBe(false);
+  });
+
+  it("returns false when more than 3 distinct files are touched (over-files)", () => {
+    const gh = ghFromQueue([
+      {
+        stdout: JSON.stringify({
+          messages: ["feat: spread-out change"],
+          files: [
+            { additions: 1, deletions: 0, filename: "a.ts" },
+            { additions: 1, deletions: 0, filename: "b.ts" },
+            { additions: 1, deletions: 0, filename: "c.ts" },
+            { additions: 1, deletions: 0, filename: "d.ts" },
+          ],
+        }),
+        exitCode: 0,
+      },
+    ]);
+    expect(isSmallFollowup("from", "to", gh)).toBe(false);
+  });
+
+  it("returns false when gh exits non-zero (fail-open)", () => {
+    const gh = ghFromQueue([{ stdout: "", exitCode: 1 }]);
+    expect(isSmallFollowup("from", "to", gh)).toBe(false);
+  });
+
+  it("returns false on malformed JSON (fail-open)", () => {
+    const gh = ghFromQueue([{ stdout: "not-json{", exitCode: 0 }]);
+    expect(isSmallFollowup("from", "to", gh)).toBe(false);
+  });
+
+  it("returns false on an empty messages array (fail-open / no commits)", () => {
+    const gh = ghFromQueue([
+      { stdout: JSON.stringify({ messages: [], files: [] }), exitCode: 0 },
+    ]);
+    expect(isSmallFollowup("from", "to", gh)).toBe(false);
+  });
+
+  it("falls through to the size signal when only some messages carry the marker", () => {
+    const gh = ghFromQueue([
+      {
+        stdout: JSON.stringify({
+          // One marked, one not → kind signal false; size signal then
+          // fires on a small diff and decides true.
+          messages: ["fix(x): thing (pr-review #97)", "feat: unmarked"],
+          files: [{ additions: 4, deletions: 2, filename: "a.ts" }],
+        }),
+        exitCode: 0,
+      },
+    ]);
+    expect(isSmallFollowup("from", "to", gh)).toBe(true);
   });
 });
 

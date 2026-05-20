@@ -261,6 +261,100 @@ export function allMergeCommitsBetween(
   }
 }
 
+/** Total changed LOC at or below which the size signal treats an
+ * intervening change as a small follow-up. Hardcoded constant — see
+ * .flow-tmp/plan.md 'Resolved decisions'. */
+export const SMALL_FOLLOWUP_MAX_LOC = 15;
+
+/** Distinct files touched at or below which the size signal treats an
+ * intervening change as a small follow-up. */
+export const SMALL_FOLLOWUP_MAX_FILES = 3;
+
+/**
+ * Marks a `/pr-review` fix-applier review-fix commit. Fix-applier
+ * commits carry a `(pr-review #<PR_NUMBER>)` suffix in the subject —
+ * source of truth:
+ * skills/pipeline/pr-review/references/fix-applier-instructions.md §7.
+ */
+export const FIX_APPLIER_COMMIT_MARKER = /\(pr-review #\d+\)/;
+
+/**
+ * Returns true iff the commits between `fromSha` (exclusive) and
+ * `toSha` (inclusive) are a 'small follow-up' — a change unlikely to
+ * surface new Copilot findings, so re-requesting a review would waste
+ * a paid Copilot credit on a no-op pass.
+ *
+ * A follow-up is small when EITHER signal matches (OR composition):
+ *  - Kind signal: every intervening commit subject carries the
+ *    `/pr-review` fix-applier marker (FIX_APPLIER_COMMIT_MARKER). A
+ *    fix-applier commit is by construction a narrow review-fix.
+ *  - Size signal: total changed LOC (additions + deletions summed
+ *    across files) <= SMALL_FOLLOWUP_MAX_LOC AND distinct files
+ *    touched <= SMALL_FOLLOWUP_MAX_FILES (LOC and files compose with
+ *    AND).
+ *
+ * Failure semantics — fail-open: any `gh` non-zero exit, malformed
+ * JSON, or empty commits array collapses to `false` so the caller
+ * proceeds to fire the retrigger. A transient `gh` hiccup must not
+ * suppress a real retrigger.
+ *
+ * Conservative direction: false negative = one wasted POST on a no-op
+ * review (cheap — one HTTP request per invocation); false positive =
+ * suppresses a real fix's Copilot review, re-introducing PR #161's
+ * stale-review correctness regression (expensive). The cheaper
+ * failure mode is to fire the POST. Mirrors `allMergeCommitsBetween`.
+ */
+export function isSmallFollowup(
+  fromSha: string,
+  toSha: string,
+  gh: GhRunner,
+): boolean {
+  const r = gh([
+    "api",
+    `repos/{owner}/{repo}/compare/${fromSha}...${toSha}`,
+    "--jq",
+    "{ messages: [.commits[].commit.message], files: [.files[]? | { additions, deletions, filename }] }",
+  ]);
+  if (r.exitCode !== 0) return false;
+  try {
+    const parsed = JSON.parse(r.stdout) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return false;
+    const messages = (parsed as { messages?: unknown }).messages;
+    const files = (parsed as { files?: unknown }).files;
+    if (!Array.isArray(messages) || messages.length === 0) return false;
+
+    // Kind signal: every intervening commit is a /pr-review fix-applier
+    // review-fix commit (subject line carries the (pr-review #N) marker).
+    const allFixApplier = messages.every(
+      (m) =>
+        typeof m === "string" &&
+        FIX_APPLIER_COMMIT_MARKER.test(m.split("\n")[0]),
+    );
+    if (allFixApplier) return true;
+
+    // Size signal: small total diff AND few distinct files touched.
+    if (!Array.isArray(files)) return false;
+    let loc = 0;
+    const names = new Set<string>();
+    for (const f of files) {
+      if (typeof f !== "object" || f === null) continue;
+      const fo = f as {
+        additions?: unknown;
+        deletions?: unknown;
+        filename?: unknown;
+      };
+      if (typeof fo.additions === "number") loc += fo.additions;
+      if (typeof fo.deletions === "number") loc += fo.deletions;
+      if (typeof fo.filename === "string") names.add(fo.filename);
+    }
+    return (
+      loc <= SMALL_FOLLOWUP_MAX_LOC && names.size <= SMALL_FOLLOWUP_MAX_FILES
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Re-requests the configured Copilot login on the PR via the GitHub
  * `requested_reviewers` endpoint — the same endpoint the GitHub UI's
@@ -376,6 +470,14 @@ export type Deps = {
    * `readHistoricalBotReview` pattern.
    */
   readCommitsAreAllMerges?: (fromSha: string, toSha: string) => boolean;
+  /**
+   * Returns true iff the commits between `fromSha` (exclusive) and
+   * `toSha` (inclusive) are a 'small follow-up' unlikely to surface
+   * new Copilot findings. Default uses `isSmallFollowup` against the
+   * injected `gh`. Tests inject a fake to skip sequencing a
+   * compare-API call. Mirrors the `readCommitsAreAllMerges` pattern.
+   */
+  readIsSmallFollowup?: (fromSha: string, toSha: string) => boolean;
   /** Test-only: override the cwd used by readWorkflowsDir. */
   cwd?: string;
 };
@@ -700,6 +802,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const readCommitsAreAllMerges =
     deps.readCommitsAreAllMerges ??
     ((fromSha: string, toSha: string) => allMergeCommitsBetween(fromSha, toSha, gh));
+  const readIsSmallFollowup =
+    deps.readIsSmallFollowup ??
+    ((fromSha: string, toSha: string) => isSmallFollowup(fromSha, toSha, gh));
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -812,6 +917,20 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
           const newShort = prInfo.headRefOid.slice(0, 8);
           process.stderr.write(
             `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — every intervening commit is a merge, skipping retrigger\n`,
+          );
+        } else if (
+          readIsSmallFollowup(latestCopilotCommit as string, prInfo.headRefOid)
+        ) {
+          // Small-follow-up skip: when the only intervening commits are
+          // a small follow-up (every commit a /pr-review fix-applier
+          // review-fix, or a change under the LOC/files thresholds),
+          // re-requesting Copilot would burn a paid credit on a review
+          // unlikely to surface findings. Sibling of the merge-only
+          // skip above; same one-shot-budget-saving intent.
+          const oldShort = (latestCopilotCommit as string).slice(0, 8);
+          const newShort = prInfo.headRefOid.slice(0, 8);
+          process.stderr.write(
+            `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — intervening commits are a small follow-up, skipping retrigger\n`,
           );
         } else {
           const retrigger = retriggerCopilotReview(parsed.pr, copilotLogin, gh);

@@ -216,6 +216,24 @@ still observes the stale review.
   expensive failure mode (skipping when a real fix exists) would
   re-introduce PR #161.
 
+- **Small-follow-up exclusion.** When the only commits between the
+  Copilot-reviewed commit and the current `headRefOid` are a 'small
+  follow-up', the retrigger is skipped — re-requesting Copilot would
+  burn a paid credit on a review unlikely to surface findings. A
+  follow-up counts as small when EITHER (a) every intervening commit
+  is a `/pr-review` fix-applier review-fix commit, detected by the
+  `(pr-review #N)` subject marker (`FIX_APPLIER_COMMIT_MARKER`); OR
+  (b) total changed LOC (additions + deletions) is `<=
+  SMALL_FOLLOWUP_MAX_LOC` (15) AND distinct files touched is `<=
+  SMALL_FOLLOWUP_MAX_FILES` (3). Detected via
+  `gh api repos/{owner}/{repo}/compare/<old>...<new>` projecting
+  `commits[].commit.message` and `files[]` additions/deletions/filename;
+  see the `isSmallFollowup` helper in `bin/flow-ci-wait.ts`. It is a
+  sibling of the merge-only exclusion in the same retrigger gate.
+  Fails open (any `gh` hiccup falls through to firing the retrigger)
+  on the same conservative direction — one wasted POST is cheaper than
+  skipping a real fix's review and re-introducing PR #161.
+
 The **10-min Copilot timeout** branch in the decision matrix reuses
 the existing `copilotTimeout` constant; on retrigger, `ciTerminalAt`
 is reset to the current `elapsedSec` so the timeout window is
