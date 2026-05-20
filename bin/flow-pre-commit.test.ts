@@ -306,10 +306,6 @@ describe(checksForScope, () => {
     ]);
   });
 
-  it("includes npm run test in the docs scope so .md-only diffs run structural-anchor lints", () => {
-    expect(checksForScope("docs").map((c) => c.name)).toContain("npm run test");
-  });
-
   it("should return actionlint .github/workflows/ for actions", () => {
     const checks = checksForScope("actions");
     expect(checks).toEqual([
@@ -1184,6 +1180,73 @@ describe("integration: root-fallback + no-checks-defined silent-pass hole", () =
       expect(report.allPassed).toBe(false);
       expect(report.reason).toBe("no-checks-defined");
       expect(report.scopes).toContain("root-fallback");
+    },
+  );
+});
+
+describe("integration: a .md-only diff detects the docs scope and runs npm run test", () => {
+  // End-to-end regression test for the gap this PR closes: a markdown-only
+  // diff must flow detectScopesFromFiles(["x.md"]) -> ["docs"] through main()
+  // so the report carries an actual `npm run test` result. The checksForScope
+  // unit specs above assert the pure function in isolation; this spec covers
+  // the real path — scope detection + filterDefinedChecks + report assembly —
+  // that a future main()-level regression (scope-detection drift, a
+  // filterDefinedChecks change) could silently break without any unit test
+  // catching it. Same node:child_process cross-runtime spawn as the block
+  // above so it runs under both node-vitest and bun-vitest.
+  let tmpDir: string;
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+
+  beforeAll(() => {
+    if (!bunOnPath) return;
+    tmpDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-docs-"));
+    // package.json defines a `test` script so filterDefinedChecks keeps the
+    // `npm run test` check; `test` is a no-op exit-0 so the spawn stays fast
+    // and deterministic regardless of host environment.
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify(
+        { name: "fixture", version: "0.0.1", scripts: { test: "true" } },
+        null,
+        2,
+      ),
+    );
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
+    spawnSync(
+      "git",
+      [
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--allow-empty",
+        "-q",
+        "-m",
+        "init",
+      ],
+      { cwd: tmpDir },
+    );
+    writeFileSync(join(tmpDir, "README.md"), "# fixture\n");
+    spawnSync("git", ["add", "README.md"], { cwd: tmpDir });
+  });
+
+  afterAll(() => {
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it.skipIf(!bunOnPath)(
+    "flow-pre-commit --json on a .md-only diff detects docs and includes npm run test in results",
+    () => {
+      const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const scriptPath = resolve(here, "flow-pre-commit.ts");
+      const result = spawnSync("bun", [scriptPath, "--json"], {
+        cwd: tmpDir,
+        encoding: "utf8",
+      });
+      const report = JSON.parse(result.stdout) as JsonReport;
+      expect(report.scopes).toContain("docs");
+      expect(report.results.map((r) => r.name)).toContain("npm run test");
     },
   );
 });

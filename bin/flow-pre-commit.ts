@@ -312,9 +312,9 @@ export function checksForScope(scope: Scope): CheckDef[] {
       ];
     case "docs":
       // `npm run test` runs after flow-md-validate so .md-only diffs still
-      // exercise the vitest suite — the only place structural-anchor lints
-      // (e.g. bin/skill-md-lint.test.ts) run, since .md-only diffs never
-      // fall through to root-fallback.
+      // exercise the *full* vitest suite — which is the only place
+      // structural-anchor lints (e.g. bin/skill-md-lint.test.ts) run, since
+      // .md-only diffs never fall through to root-fallback.
       return [
         { name: "flow-md-validate .", argv: ["flow-md-validate", "."] },
         { name: "npm run test", argv: ["npm", "run", "test"] },
