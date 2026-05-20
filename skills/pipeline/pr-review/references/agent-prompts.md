@@ -24,7 +24,8 @@ focus only on your domain and do it thoroughly.
 - Commit messages (full bodies):
 {{COMMIT_MESSAGES}}
 - Changed files: {{CHANGED_FILES_LIST}}
-- Existing intent annotations (author's per-hunk rationale): {{EXISTING_INTENT_COMMENTS}}
+- Existing intent annotations (author's per-hunk rationale):
+{{EXISTING_INTENT_COMMENTS}}
 
 ## Your Inputs
 - The full diff is below

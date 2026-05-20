@@ -244,6 +244,18 @@ helper script that doesn't need an LLM at all.
   `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md` for the contract.
 - **Never amend pushed commits.** Make a new commit instead.
 - **Never force-push** without explicit user request.
+- **Inline intent annotations:** review-time-scoped per-hunk rationale
+  authored by `/new-feature` Step 5b as inline review comments on the
+  PR diff (`**why:** <1-2 sentences>` + `<!-- flow-intent-v1 -->`
+  integrity suffix, prefix disjoint from `/pr-review`'s Conventional
+  Comments vocabulary). These inline intent annotations live on the PR
+  diff and do **not** appear in `git log` / `git blame` after merge —
+  durable rationale still
+  belongs in commit-body Why-sections and the PR body's `## Why`. See
+  `skills/pipeline/new-feature/SKILL.md` Step 5b for the trigger contract
+  (rules a/b/c, per-file dedup, ≤8/PR cap, overflow bullet) and
+  `skills/pipeline/pr-review/SKILL.md` Step 3 for how `/pr-review`
+  consumes the annotations as `{{EXISTING_INTENT_COMMENTS}}` context.
 
 Pass multi-line messages through a heredoc:
 
@@ -255,8 +267,6 @@ Why: …
 Approach: …
 EOF
 ```
-
-- **Inline intent annotations** are a review-time-scoped artifact authored by `/new-feature` Step 5b: per-hunk rationale posted as inline review comments on the PR diff to help reviewers reason about non-obvious changes adjacent to where they appear. The canonical body shape is `**why:** <1-2 sentence rationale>` (Markdown bold + colon + space), with a `<!-- flow-intent-v1 -->` integrity suffix that lets `/pr-review` Step 3's fetch+filter distinguish author intent from reviewer-authored comments. The `**why:** ` prefix is deliberately disjoint from `/pr-review`'s Conventional Comments label vocabulary (`**issue:** / **suggestion:** / **nitpick:** / **praise:** / **question:** / **todo:**`) — those labels are reserved for reviewer findings and must not appear in intent annotations. The hunk-level trigger contract (implemented in `bin/flow-annotate-pr.ts`): rule (a) hunk has ≥10 changed lines, rule (b) hunk is a mixed-add-delete restructure (≥4 `+` AND ≥4 `-` lines), rule (c) file's total changed LOC is ≥30 — with per-file dedup so only the first non-trivial hunk in a ≥30-LOC file gets annotated via rule (c) — bounded by ≤1 annotation per hunk and ≤8 annotations per PR. Surplus rolls into the PR body's `## Why` section via an overflow bullet so durable rationale survives the review-time-scoped trade-off. That trade-off is named explicitly: inline intent annotations live on the PR diff and do **not** appear in `git log` or `git blame` after merge, so durable rationale (commit-body Why-sections, the PR body's `## Why`) is still the long-term record; intent annotations are the short-term review aid only. See `skills/pipeline/new-feature/SKILL.md` Step 5b for the implementation contract and `skills/pipeline/pr-review/SKILL.md` Step 3 for how `/pr-review` consumes the annotations as `{{EXISTING_INTENT_COMMENTS}}` context.
 
 ## Development
 

@@ -127,6 +127,29 @@ describe(parseDiff, () => {
   it("returns empty array on empty diff", () => {
     expect(parseDiff("")).toEqual([]);
   });
+
+  it("preserves diff content lines that start with `---` or `+++` (e.g. removing a Markdown `---` separator)", () => {
+    // A deleted source line of `---` (Markdown horizontal-rule separator) renders
+    // as the diff line `----` and must be captured as a `-` line, not silently
+    // dropped as a file-path marker. The `if (!currentHunk) continue;` guard
+    // above already covers real file-path markers, which only appear before the
+    // first `@@` hunk header.
+    const diff = [
+      "diff --git a/a.md b/a.md",
+      "--- a/a.md",
+      "+++ b/a.md",
+      "@@ -1,3 +1,3 @@",
+      " heading",
+      "----",
+      "+++separator",
+    ].join("\n");
+    const files = parseDiff(diff);
+    const lines = files[0].hunks[0].lines;
+    expect(lines.filter((l) => l.kind === "-")).toHaveLength(1);
+    expect(lines.filter((l) => l.kind === "+")).toHaveLength(1);
+    expect(lines.find((l) => l.kind === "-")?.text).toBe("---");
+    expect(lines.find((l) => l.kind === "+")?.text).toBe("++separator");
+  });
 });
 
 // --- countHunkLoc ---

@@ -131,7 +131,6 @@ export function parseDiff(diff: string): FileDiff[] {
 
     if (!currentHunk) continue;
 
-    if (line.startsWith("+++") || line.startsWith("---")) continue; // file path markers
     if (line.startsWith("+")) {
       currentHunk.lines.push({ kind: "+", text: line.slice(1) });
     } else if (line.startsWith("-")) {
