@@ -1,5 +1,17 @@
 # Fix-Applier Subagent — spawn prompt template
 
+This file is the spawn-prompt template for the Independent Fix-Applier
+Subagent. It is read by the `/pr-review` wrapper at the Fix-Applier
+spawn step — the composer of the Task call — not by the subagent
+itself, which only ever receives the rendered prompt after the six
+`{{...}}` placeholders are substituted in. Consult this file at the
+Fix-Applier spawn step, before the Task call fires, to pull the
+template body into the spawn invocation. The procedural source of
+truth for the subagent's per-finding fix loop lives in
+[fix-applier-instructions.md](fix-applier-instructions.md), which the
+wrapper passes through as the `{{INSTRUCTIONS_PATH}}` placeholder so
+the rendered prompt points the subagent at it on read.
+
 Fill in the six `{{...}}` placeholders before passing to the Task tool:
 
 ```
