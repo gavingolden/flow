@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { NEXT_STEP_BY_PHASE } from "./flow-stop-guard";
 import { STEP_PHASES } from "./lib/state";
+import { AGENT_LENS_MAP } from "./flow-pr-agent-lens";
 
 /**
  * Structural lint for `skills/pipeline/flow-pipeline/SKILL.md`.
@@ -598,6 +599,58 @@ describe("/coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md ↔ 
         `The three documents enumerate /coder's callers bidirectionally; if you add one to one ` +
         `side, you must add it to the other two.`,
     ).toEqual([]);
+  });
+});
+
+describe("flow-pr-agent-lens routing map ↔ pr-review/SKILL.md agent table", () => {
+  /**
+   * Parses the bold agent names from the agent table in pr-review/SKILL.md
+   * (rows like `| **Bug Detection** | ...`) and kebab-cases them, then asserts
+   * set-equality against Object.keys(AGENT_LENS_MAP). Same bidirectional
+   * pattern as the "Task-tool exemption symmetry" block above.
+   */
+  const AGENT_NAME_TO_KEBAB: Record<string, string> = {
+    "Bug Detection": "bug-detection",
+    Security: "security",
+    "Pattern/Consistency": "pattern-consistency",
+    Performance: "performance",
+    "Supply-Chain": "supply-chain",
+    "Test Coverage": "test-coverage",
+  };
+
+  function extractSkillAgentKebabs(): string[] {
+    const re = /^\|\s*\*\*([^*]+?)\*\*\s*\|/gm;
+    return [...prReviewContent.matchAll(re)]
+      .map((m) => m[1].trim())
+      .filter((name) => name in AGENT_NAME_TO_KEBAB)
+      .map((name) => AGENT_NAME_TO_KEBAB[name]);
+  }
+
+  it("pr-review/SKILL.md agent table and AGENT_LENS_MAP list the same six agents", () => {
+    const skill = new Set(extractSkillAgentKebabs());
+    const map = new Set(Object.keys(AGENT_LENS_MAP));
+    const onlyInSkill = [...skill].filter((x) => !map.has(x));
+    const onlyInMap = [...map].filter((x) => !skill.has(x));
+    expect(
+      onlyInSkill.length,
+      `SKILL.md agent table contains ${JSON.stringify(onlyInSkill)} but bin/flow-pr-agent-lens.ts ` +
+        "AGENT_LENS_MAP is missing them. Add the matching entry to the map (or rename the table " +
+        "row) so the two stay in sync.",
+    ).toBe(0);
+    expect(
+      onlyInMap.length,
+      `bin/flow-pr-agent-lens.ts AGENT_LENS_MAP contains ${JSON.stringify(onlyInMap)} but ` +
+        "pr-review/SKILL.md agent table is missing them. Add the matching `| **<Name>** | ... |` " +
+        "row to the table (or remove the map entry) so the two stay in sync.",
+    ).toBe(0);
+  });
+
+  it("pr-review/SKILL.md agent table parses exactly six agent rows", () => {
+    expect(
+      extractSkillAgentKebabs().length,
+      "pr-review/SKILL.md agent table must have exactly six rows with bold agent names. " +
+        "If you added or removed an agent, update AGENT_LENS_MAP in bin/flow-pr-agent-lens.ts too.",
+    ).toBe(6);
   });
 });
 

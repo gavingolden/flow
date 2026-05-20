@@ -716,13 +716,10 @@ subagent rather than landing in the supervisor's transcript.
   computed in step 5 above. For the static-analysis variable, substitute a single
   self-contained JSON object containing both the lens findings and the matching meta
   slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
-  needs both. Use this `jq` filter against `.flow-tmp/static-analysis.json` per agent:
-  - Bug Detection: `jq '{findings: .types, meta: .meta.types}' .flow-tmp/static-analysis.json`
-  - Security: `jq '{findings: (.security + .dependencies), meta: {security: .meta.security, dependencies: .meta.dependencies}}' .flow-tmp/static-analysis.json` (merges both semgrep and npm-audit lenses into one facts block; agent's Process step 2 reads `meta.dependencies.ran` to detect skip vs ran=true)
-  - Pattern/Consistency: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json` (shared with Performance — both agents receive the `lint` lens; each prompt's False-Positive-Avoidance section tells it to drop findings outside its domain)
-  - Performance: `jq '{findings: .lint, meta: .meta.lint}' .flow-tmp/static-analysis.json` (shared with Pattern/Consistency — same `lint` lens, different domain filter)
-  - Supply-Chain: `jq -n '{findings: [], meta: {ran: false, skipped_reason: "no supply-chain pre-digest lens", duration_ms: 0}}'` (synthetic — no real lens; the agent falls back to its own diff inspection per the shared-context-block fallback rule)
-  - Test Coverage: `jq '{findings: .coverage, meta: .meta.coverage}' .flow-tmp/static-analysis.json`
+  needs both. Construct each agent's `{{STATIC_ANALYSIS_FACTS}}` block by running
+  `bun bin/flow-pr-agent-lens.ts --agent <kebab-name>` against
+  `.flow-tmp/static-analysis.json` (the lens routing is owned by the helper; the
+  agent table below lists the lens-per-agent for human reference).
 - Append the agent-specific section (Role, Process, False Positive Avoidance)
 - Include paths to `references/review-checklist.md` and `references/conventional-comments.md`
   so agents can read them
@@ -747,7 +744,7 @@ The 6 agents:
 | Agent                   | Focus                                                                            | Checklist sections                          | Static-analysis lens | On-disk output path |
 | ----------------------- | -------------------------------------------------------------------------------- | ------------------------------------------- | -------------------- | ------------------- |
 | **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts                      | Error Handling, Type Safety                 | `types` (tsc errors) | `agent-output-bug-detection.json` |
-| **Security**            | OWASP top 10, input validation, auth, secrets, injection                         | Security                                    | `security` (semgrep) | `agent-output-security.json` |
+| **Security**            | OWASP top 10, input validation, auth, secrets, injection                         | Security                                    | `security` + `dependencies` (semgrep + npm-audit) | `agent-output-security.json` |
 | **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code                        | Consistency, Lifecycle/Cleanup, Composition | `lint` (biome/eslint, shared with Performance) | `agent-output-pattern-consistency.json` |
 | **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | Performance (review-checklist.md §Performance) | `lint` (biome/eslint, shared with Pattern/Consistency) | `agent-output-performance.json` |
 | **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | Part 3 §Removing a Top-Level Field          | `none` (synthetic `meta.ran=false` block) | `agent-output-supply-chain.json` |
