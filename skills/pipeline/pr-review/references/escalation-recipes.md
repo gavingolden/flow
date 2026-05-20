@@ -36,7 +36,7 @@ cat > "$RESULT_PATH.tmp" <<'EOF'
   "summary": "Bailed at the Multi-Agent Review spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
 }
 EOF
-bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
   && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
 ```
 
@@ -59,7 +59,7 @@ cat > "$RESULT_PATH.tmp" <<'EOF'
   "summary": "Bailed at the Fix-Applier spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
 }
 EOF
-bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
   && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
 ```
 
@@ -83,7 +83,7 @@ cat > "$RESULT_PATH.tmp" <<'EOF'
   "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing or empty. Wrapper bailed at Step 8's existence check; supervisor must restart."
 }
 EOF
-bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
   && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
 ```
 
@@ -107,14 +107,14 @@ cat > "$RESULT_PATH.tmp" <<'EOF'
   "summary": "Bailed at the Step 3.5 Consolidator-Validator spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
 }
 EOF
-bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
   && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
 ```
 
 ## `consolidator-schema-failure`
 
 Raised by Step 3.5's Consolidator-Validator subagent when
-`bun bin/lib/agent-finding-schema.ts --validate <per-agent-path>` exits
+`flow-agent-finding-schema --validate <per-agent-path>` exits
 1 on any of the six per-agent outputs (one of the upstream agents
 produced malformed JSON), OR when the consolidator's own pre-`mv`
 `validateConsolidatorResult` call on
@@ -141,7 +141,7 @@ cat > "$RESULT_PATH.tmp" <<'EOF'
   "summary": "Consolidator-Validator subagent failed schema validation — one of the six per-agent outputs (or the consolidator's own .tmp output) did not conform to bin/lib/agent-finding-schema.ts. Wrapper bailed at Step 3.5; supervisor must restart."
 }
 EOF
-bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
   && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
 ```
 
@@ -173,6 +173,6 @@ cat > "$RESULT_PATH.tmp" <<'EOF'
   "summary": "Consolidator-Validator subagent returned but the artifact at .flow-tmp/consolidator-result.json is missing or empty. Wrapper bailed at Step 3.5's existence check; supervisor must restart."
 }
 EOF
-bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
   && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
 ```

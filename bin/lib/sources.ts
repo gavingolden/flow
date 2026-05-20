@@ -17,6 +17,18 @@ import type { SymlinkKind, SymlinkRecord } from "./manifest";
 const SKILL_TIERS = ["pipeline", "universal", "stacks"] as const;
 const COMPLETION_SHELLS = ["bash", "zsh"] as const;
 
+/**
+ * Schema validators under `bin/lib/` that pipeline skills invoke as PATH
+ * binaries. This is an EXPLICIT ALLOWLIST, deliberately NOT a recursive glob
+ * of `bin/lib/` — that directory is overwhelmingly internal library code
+ * (paths.ts, state.ts, git.ts, …) and a glob would symlink non-CLI modules
+ * onto PATH. New validators must be added here by name.
+ */
+const VALIDATOR_MODULES = [
+  "pr-review-result-schema.ts",
+  "agent-finding-schema.ts",
+] as const;
+
 export type SourceEntry = {
   source: string;
   target: string;
@@ -97,6 +109,35 @@ export function discoverHelpers(flowSource: string, targets = DEFAULT_TARGETS): 
 }
 
 /**
+ * Lists the schema validators under <flow-source>/bin/lib/ that pipeline
+ * skills invoke as PATH binaries. Sourced from the explicit `VALIDATOR_MODULES`
+ * allowlist rather than a recursive glob of `bin/lib/` — the directory is
+ * overwhelmingly internal library code and a glob would symlink non-CLI
+ * modules onto PATH. The `flow-` install-target prefix keeps the validators
+ * in the same namespace as every other shipped helper, so pipeline skills
+ * can invoke them by bare name regardless of cwd. Returns [] if `bin/lib`
+ * is absent; filters the allowlist to files that physically exist.
+ */
+export function discoverValidators(
+  flowSource: string,
+  targets = DEFAULT_TARGETS,
+): SourceEntry[] {
+  const libDir = path.join(flowSource, "bin", "lib");
+  if (!existsDir(libDir)) return [];
+  return VALIDATOR_MODULES.filter((name) =>
+    fs.existsSync(path.join(libDir, name)),
+  ).map((name) => {
+    const displayName = `flow-${name.replace(/\.ts$/, "")}`;
+    return {
+      source: path.join(libDir, name),
+      target: path.join(targets.binDir, displayName),
+      kind: "bin" as const,
+      displayName,
+    };
+  });
+}
+
+/**
  * The flow wrapper itself. Symlinked to <binDir>/flow.
  *
  * Anchored to `installRoot`, never `flowSource`. Bun's `import.meta.path`
@@ -163,6 +204,7 @@ export function discoverAll(
     ...discoverSkills(flowSource, targets),
     ...discoverAgents(flowSource, targets),
     ...discoverHelpers(flowSource, targets),
+    ...discoverValidators(flowSource, targets),
     ...discoverCompletions(flowSource, targets),
   ];
   const wrapper = flowWrapperEntry(installRoot, targets);

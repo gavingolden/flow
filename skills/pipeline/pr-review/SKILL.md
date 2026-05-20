@@ -140,7 +140,7 @@ cat > "$RESULT_PATH.tmp" <<'EOF'
   "summary": "Bailed at the Gatekeeper spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
 }
 EOF
-bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
   && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
 ```
 
@@ -190,7 +190,7 @@ The fan-out's value is its cost-routing override (Sonnet → Haiku) and its cont
      `status: "clean"`, `completed_steps: ["1", "1.5"]`, `missed_steps`
      listing every other step label, `escalation_tag: null`, and
      `summary` set to the gatekeeper's summary string. Validate via
-     `bun bin/lib/pr-review-result-schema.ts --validate <.tmp>`, then
+     `flow-pr-review-result-schema --validate <.tmp>`, then
      atomically `mv` into place. Exit clean.
    - `"proceed"` → fall through to Step 2 unchanged.
 
@@ -224,7 +224,7 @@ via the Task tool at Step 3.5 — after the six-agent multi-agent review
 at Step 3 and before Step 4's finding-consumption pass. The subagent
 reads the six per-agent JSON outputs at
 `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, validates each via
-`bun bin/lib/agent-finding-schema.ts --validate`, merges +
+`flow-agent-finding-schema --validate`, merges +
 dedups + threshold-filters, runs a second-opinion validation pass on
 >=80-confidence non-praise survivors, and writes a structured artifact
 at `<worktree>/.flow-tmp/consolidator-result.json` with five top-level
@@ -427,7 +427,7 @@ write-`.tmp` → validate-`.tmp` → `mv`-into-place:
 2. Validate the temp file's shape:
 
    ```bash
-   bun bin/lib/pr-review-result-schema.ts --validate <path>.tmp
+   flow-pr-review-result-schema --validate <path>.tmp
    ```
 
 3. On `ok: true`, `mv <path>.tmp <path>` into place. On validation
@@ -551,7 +551,7 @@ After the subagent returns:
      "summary": "Gatekeeper subagent returned but wrote no artifact at .flow-tmp/gatekeeper-result.json; supervisor must escalate without retry per the no-retry-on-missing-artifact contract."
    }
    EOF
-   bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+   flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
      && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
    ```
 
@@ -585,7 +585,7 @@ After the subagent returns:
        "summary": $(printf '%s' "$SUMMARY" | jq -Rs .)
      }
      EOF
-     bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+     flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
        && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
      ```
 
@@ -698,7 +698,7 @@ subagent rather than landing in the supervisor's transcript.
 
    ```bash
    mkdir -p .flow-tmp
-   bun bin/flow-fetch-intent-comments.ts <number> > .flow-tmp/intent-comments.md
+   flow-fetch-intent-comments <number> > .flow-tmp/intent-comments.md
    ```
 
    Read the file contents and substitute as the value of `{{EXISTING_INTENT_COMMENTS}}` in each agent's prompt. The fetch+filter is anchored on the `**why:** ` prefix + author identity + `<!-- flow-intent-v1 -->` integrity-suffix triple-check (anti-injection); it does NOT expose any reviewer-authored comments to the agents — preserving the anti-anchoring guard above (`DO NOT read the review comments section yet`). When no author intent annotations exist on the PR, the file contains the literal `(none — author posted no intent annotations)`; substitute that string as-is.
@@ -814,7 +814,7 @@ After the subagent returns:
    specific tag (e.g. `consolidator-schema-failure`), the wrapper's
    write is skipped so the specific tag is preserved. Do not retry
    the Task call.
-2. **Schema validation**: `bun bin/lib/agent-finding-schema.ts
+2. **Schema validation**: `flow-agent-finding-schema
    --validate "$ARTIFACT_PATH"`. On exit 1, escalate `NEEDS HUMAN:
    consolidator-schema-failure` per the `consolidator-schema-failure`
    recipe in
@@ -917,7 +917,7 @@ test -s "$ARTIFACT_PATH" || {
   "summary": "Fix-Applier subagent returned but the artifact at .flow-tmp/fix-applier-result.json is missing or empty. Wrapper bailed at Step 8's existence check; supervisor must restart."
 }
 EOF
-  bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+  flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
     && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
   echo "NEEDS HUMAN: fix-applier-missing-artifact" >&2
   exit 1
@@ -1600,7 +1600,7 @@ per the # Result artifact contract above: `status: "clean"`,
 invocation (deduplicating against any prior list when `--resume-from` was
 used), `missed_steps: []`, `escalation_tag: null`, and a one-paragraph
 `summary` mirroring the Step 12 structured report's headline. Validate the
-shape via `bun bin/lib/pr-review-result-schema.ts --validate <path>` then
+shape via `flow-pr-review-result-schema --validate <path>` then
 atomically write. The write MUST be guarded by the
 **read-before-overwrite** contract from
 [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)

@@ -176,6 +176,12 @@ helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 shebangs, and tests next door (`<name>.test.ts`). `flow setup` symlinks each into
 `~/.local/bin/<name>` (extensionless on PATH).
 
+The two schema validators `flow-pr-review-result-schema` and
+`flow-agent-finding-schema` are ALSO symlinked onto PATH by `flow setup` —
+but sourced from `bin/lib/*-schema.ts` via an explicit-allowlist
+`discoverValidators` (distinct from `discoverHelpers`' auto-pickup of every
+`bin/*.ts`), so pipeline skills invoke them by bare name regardless of cwd.
+
 The `flow` wrapper itself is also Bun, at `bin/flow`. It dispatches every
 verb natively — there is no passthrough or legacy entry point.
 

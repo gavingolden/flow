@@ -16,7 +16,7 @@ import { readManifest } from "./manifest";
 import { LockTimeoutError } from "./lock";
 import { removeIfManagedSymlink } from "./symlink";
 import { countStopHook } from "./settings-merge";
-import { discoverHelpers } from "./sources";
+import { discoverHelpers, discoverValidators } from "./sources";
 
 let scratch!: string;
 let flowSource!: string;
@@ -121,6 +121,46 @@ describe("flow setup", () => {
     expect(names).toContain("flow-fetch-intent-comments");
   });
 
+  it("discovers the two schema validators via the discoverValidators allowlist", () => {
+    // Regression guard: discoverValidators ships exactly the two validators
+    // named in the VALIDATOR_MODULES allowlist — pr-review-result-schema and
+    // agent-finding-schema — sourced from bin/lib/ with a `flow-` install
+    // target prefix. It must NOT pick up coder-schema (not on the allowlist)
+    // or any `*-schema.test.ts` file. Run against the real repo's bin/lib/
+    // rather than the synthetic fixture so this test fires if a future
+    // refactor regresses the allowlist or the naming.
+    const repoRoot = path.resolve(__dirname, "..", "..");
+    const validators = discoverValidators(repoRoot);
+    expect(validators).toHaveLength(2);
+    const names = validators.map((v) => path.basename(v.target)).sort();
+    expect(names).toEqual(["flow-agent-finding-schema", "flow-pr-review-result-schema"]);
+    for (const entry of validators) {
+      expect(entry.kind).toBe("bin");
+      expect(entry.source.includes(path.join("bin", "lib"))).toBe(true);
+    }
+    expect(names).not.toContain("flow-coder-schema");
+    expect(names.some((n) => n.endsWith(".test"))).toBe(false);
+  });
+
+  it("discoverValidators drops an allowlisted module whose file is physically absent", () => {
+    // The repo-root test above only exercises the all-files-present case, so
+    // the `.filter(existsSync)` call is never observed dropping anything — a
+    // refactor deleting that filter would still pass. This points
+    // discoverValidators at a fixture bin/lib/ containing only ONE of the two
+    // allowlisted modules and asserts the filter drops the absent one.
+    fs.rmSync(path.join(flowSource, "bin", "lib", "agent-finding-schema.ts"));
+    const validators = discoverValidators(flowSource, targets());
+    expect(validators).toHaveLength(1);
+    expect(path.basename(validators[0].target)).toBe("flow-pr-review-result-schema");
+  });
+
+  it("discoverValidators returns [] when bin/lib is absent", () => {
+    // Covers the `if (!existsDir(libDir)) return []` early-return branch —
+    // otherwise unasserted, since every fixture builds bin/lib/.
+    fs.rmSync(path.join(flowSource, "bin", "lib"), { recursive: true });
+    expect(discoverValidators(flowSource, targets())).toEqual([]);
+  });
+
   it("writes a manifest recording every symlink it created", () => {
     setup();
     const manifest = readManifest(manifestPath);
@@ -129,6 +169,14 @@ describe("flow setup", () => {
     expect(targets_).toContain("reviewer.md");
     expect(targets_).toContain("flow-helper");
     expect(targets_).toContain("flow");
+    // End-to-end integration of discoverValidators through runSetup: the two
+    // allowlisted validators flow into the manifest as `flow-`-prefixed bin
+    // entries, and the non-allowlisted bin/lib/ module does not. This is the
+    // automated counterpart to the PR's manual `grep ~/.flow/installed.json`
+    // Test Step — it asserts the validators actually resolve on PATH.
+    expect(targets_).toContain("flow-pr-review-result-schema");
+    expect(targets_).toContain("flow-agent-finding-schema");
+    expect(targets_).not.toContain("flow-foo-schema");
   });
 
   it("is idempotent: a second run produces only 'exists' results", () => {
@@ -934,6 +982,21 @@ function buildFakeFlowSource(root: string): void {
   fs.writeFileSync(path.join(binDir, "flow-helper.ts"), "#!/usr/bin/env bun\n// helper\n");
   fs.writeFileSync(path.join(binDir, "flow-helper.test.ts"), "// test\n");
   fs.writeFileSync(path.join(binDir, "flow"), "#!/usr/bin/env bun\n// wrapper\n");
+
+  // bin/lib/ — the two allowlisted schema validators plus a non-allowlisted
+  // schema module. discoverValidators must ship exactly the two on the
+  // VALIDATOR_MODULES allowlist; foo-schema.ts proves the allowlist filters.
+  const libDir = path.join(binDir, "lib");
+  fs.mkdirSync(libDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(libDir, "pr-review-result-schema.ts"),
+    "#!/usr/bin/env bun\n// validator\n",
+  );
+  fs.writeFileSync(
+    path.join(libDir, "agent-finding-schema.ts"),
+    "#!/usr/bin/env bun\n// validator\n",
+  );
+  fs.writeFileSync(path.join(libDir, "foo-schema.ts"), "// library-only, not allowlisted\n");
 
   // completions/flow.bash + completions/flow.zsh
   const completionsDir = path.join(root, "completions");
