@@ -213,7 +213,7 @@ tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
 `claude -p ...` subprocesses, **with eight narrowly-named exceptions**
 — see the eight `**Task-tool exemption: ...**` bullets under
-`## Don'ts` below, each with a shared-rationale preamble.
+`## Don'ts` below, preceded by a single shared-rationale preamble.
 This sidesteps two limits at once:
 
 1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
@@ -422,9 +422,13 @@ old silent-pass hole is closed.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
     Multi-Agent Review.** `/flow-pipeline` step 8 loads `/pr-review`;
     at the "Independent Multi-Agent Review" step, six review agents are
-    spawned in parallel via the Task tool. No artifact — the six agents
-    run inside the supervisor's own in-process Skill load (`/pr-review`
-    has no `context: fork` directive).
+    spawned in parallel via the Task tool. No single aggregated result
+    artifact — each agent persists its own
+    `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, and the
+    Consolidator-Validator step produces `consolidator-result.json`; the
+    Multi-Agent Review fan-out itself emits no consolidated artifact of
+    its own. The six agents run inside the supervisor's own in-process
+    Skill load (`/pr-review` has no `context: fork` directive).
   - **Task-tool exemption: `/flow-pipeline` → `/product-planning`
     Independent Discovery Subagent.** `/flow-pipeline` step 3 loads
     `/product-planning`, which spawns one discovery agent via the Task
@@ -473,7 +477,7 @@ old silent-pass hole is closed.
   - **Task-tool exemption: `/flow-pipeline` → `/coder` Independent
     Edit-Applier Subagent.** When a pipeline skill reaches its
     hybrid-threshold wider-scope path — `/new-feature` step 5,
-    `/verify` step 6, or `/refactoring` step 3 — the wrapper invokes
+    `/verify` step 3, or `/refactoring` step 3 — the wrapper invokes
     `/coder` in-process, and `/coder` spawns one edit-applier agent via
     the Task tool to apply the edit-set and run `flow-pre-commit --json`
     against the post-edit worktree. Artifact:
