@@ -298,7 +298,12 @@ and `/coder` rely on, so consumer repos that wire it in as their sole
 gate need to know its surface area. Scope detection is prefix- and
 extension-based against the diff: `src/` trips `src`; `scripts/`,
 `templates/scripts/`, and `bin/` all trip `scripts`; any file with the
-`.md` extension trips `docs`; any changed file with the `backend/`
+`.md` extension trips `docs`, which runs both `flow-md-validate .`
+(internal-link + frontmatter validation) and `npm run test` (so
+structural-anchor lints over SKILL.md / AGENTS.md — e.g.
+`bin/skill-md-lint.test.ts` — catch markdown-only breakage before
+merge, since `.md`-only diffs do not fall through to `root-fallback`);
+any changed file with the `backend/`
 prefix trips `backend`, which runs `go vet -C backend ./...` and
 `go test -C backend ./...` (prefix-only — `backend/go.mod` and
 `backend/go.sum` edits also re-run the gate, since `go vet`/`go test`
