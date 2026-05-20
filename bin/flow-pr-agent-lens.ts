@@ -15,6 +15,7 @@
  * loudly.
  */
 
+import { existsSync, readFileSync } from "node:fs";
 import type { AnalysisResult, Finding, LensMeta, LensName } from "./flow-pr-static-analysis/types";
 
 export type AgentName =
@@ -130,11 +131,10 @@ async function readEnvelope(inPath: string | undefined): Promise<AnalysisResult>
     }
     return JSON.parse(Buffer.concat(chunks).toString("utf8"));
   }
-  const fs = await import("node:fs");
-  if (!fs.existsSync(resolved)) {
+  if (!existsSync(resolved)) {
     throw new Error(`envelope file not found: ${resolved}`);
   }
-  return JSON.parse(fs.readFileSync(resolved, "utf8"));
+  return JSON.parse(readFileSync(resolved, "utf8"));
 }
 
 export async function run(argv: string[]): Promise<number> {

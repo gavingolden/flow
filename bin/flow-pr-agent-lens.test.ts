@@ -206,6 +206,21 @@ describe("run() CLI behaviour", () => {
     expect(stderr).toContain("unknown agent: unknown");
     for (const name of EXPECTED_AGENTS) expect(stderr).toContain(name);
   });
+
+  it("--agent security --in <missing> exits 2 and stderr names the missing file", async () => {
+    const missing = path.join(os.tmpdir(), `flow-pr-agent-lens-missing-${Date.now()}-${Math.random()}.json`);
+    const writes: string[] = [];
+    const spy = vi.spyOn(process.stderr, "write").mockImplementation((s) => {
+      writes.push(s.toString());
+      return true;
+    });
+    const code = await run(["--agent", "security", "--in", missing]);
+    spy.mockRestore();
+    expect(code).toBe(2);
+    const stderr = writes.join("");
+    expect(stderr).toContain("envelope file not found");
+    expect(stderr).toContain(missing);
+  });
 });
 
 describe("CLI end-to-end smoke", () => {
@@ -218,5 +233,21 @@ describe("CLI end-to-end smoke", () => {
     });
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("bug-detection");
+  });
+
+  it("--agent security --in - reads the envelope from stdin and emits the concatenated shape", () => {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const repoRoot = path.resolve(here, "..");
+    const r = spawnSync("bun", ["bin/flow-pr-agent-lens.ts", "--agent", "security", "--in", "-"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      input: JSON.stringify(makeEnvelope()),
+    });
+    expect(r.status).toBe(0);
+    const env = makeEnvelope();
+    expect(JSON.parse(r.stdout)).toEqual({
+      findings: [...env.security, ...env.dependencies],
+      meta: { security: env.meta.security, dependencies: env.meta.dependencies },
+    });
   });
 });
