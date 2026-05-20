@@ -240,6 +240,38 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
       expect(errLines.join(""), `phase=${phase}`).toContain(label);
     }
   });
+
+  it("NEXT_STEP_BY_PHASE points ci-wait-pending back at step 7 (the yielded CI-wait phase)", () => {
+    // ci-wait-pending is a pending phase, so run() exits 0 before building a
+    // reminder — assert the breadcrumb directly via nextStepLabel rather than
+    // via the exit-2 reminder loop above.
+    expect(nextStepLabel("ci-wait-pending")).toBe(
+      "step 7 (ci-wait) — re-read the flow-ci-wait verdict and branch on .decision",
+    );
+  });
+
+  it("exits 0 at the yielded ci-wait-pending phase but still exits 2 at the active ci-wait phase", async () => {
+    // Regression guard: the active poll phase (`ci-wait`) and the yielded
+    // phase (`ci-wait-pending`) must not be conflated — ci-wait blocks the
+    // stop, ci-wait-pending is a legitimate end-state.
+    const pending = makeDeps({
+      stdin: "{}",
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("ci-wait-pending"),
+    });
+    expect(await run(pending.deps)).toBe(0);
+    expect(pending.errLines).toEqual([]);
+
+    const active = makeDeps({
+      stdin: "{}",
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("ci-wait"),
+    });
+    expect(await run(active.deps)).toBe(2);
+    expect(active.errLines.join("")).toContain("DO NOT END THE TURN");
+  });
 });
 
 describe("nextStepLabel + buildReminder", () => {

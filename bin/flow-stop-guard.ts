@@ -135,6 +135,7 @@ export const NEXT_STEP_BY_PHASE: Record<string, string> = {
   "installing-skills": "step 6 (verify)",
   verifying: "step 7 (ci-wait)",
   "ci-wait": "step 8 (review)",
+  "ci-wait-pending": "step 7 (ci-wait) — re-read the flow-ci-wait verdict and branch on .decision",
   reviewing: "step 9 (gate)",
   gating: "step 10 (merge)",
   merging: "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED)",

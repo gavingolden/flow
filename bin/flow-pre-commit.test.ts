@@ -278,16 +278,24 @@ describe(parseScopes, () => {
 });
 
 describe(checksForScope, () => {
-  it("should return typecheck and test for src", () => {
+  it("should return typecheck, test, and lint for src", () => {
     const checks = checksForScope("src");
-    expect(checks).toHaveLength(2);
-    expect(checks.map((c) => c.name)).toEqual(["npm run typecheck", "npm run test"]);
+    expect(checks).toHaveLength(3);
+    expect(checks.map((c) => c.name)).toEqual([
+      "npm run typecheck",
+      "npm run test",
+      "npm run lint",
+    ]);
   });
 
-  it("should return scripts typecheck and test for scripts", () => {
+  it("should return scripts typecheck, test, and lint for scripts", () => {
     const checks = checksForScope("scripts");
-    expect(checks).toHaveLength(2);
-    expect(checks.map((c) => c.name)).toEqual(["npm run typecheck:scripts", "npm run test"]);
+    expect(checks).toHaveLength(3);
+    expect(checks.map((c) => c.name)).toEqual([
+      "npm run typecheck:scripts",
+      "npm run test",
+      "npm run lint",
+    ]);
   });
 
   it("should return flow-md-validate for docs", () => {
@@ -302,12 +310,19 @@ describe(checksForScope, () => {
     ]);
   });
 
-  it("should return typecheck and test for root-fallback", () => {
+  it("should return typecheck, test, and lint for root-fallback", () => {
     const checks = checksForScope("root-fallback");
     expect(checks).toEqual([
       { name: "npm run typecheck", argv: ["npm", "run", "typecheck"] },
       { name: "npm run test", argv: ["npm", "run", "test"] },
+      { name: "npm run lint", argv: ["npm", "run", "lint"] },
     ]);
+  });
+
+  it("does NOT add the lint check to docs, actions, or backend", () => {
+    expect(checksForScope("docs").map((c) => c.name)).not.toContain("npm run lint");
+    expect(checksForScope("actions").map((c) => c.name)).not.toContain("npm run lint");
+    expect(checksForScope("backend").map((c) => c.name)).not.toContain("npm run lint");
   });
 
   it("should return go vet and go test for backend in canonical order", () => {
@@ -322,7 +337,7 @@ describe(checksForScope, () => {
 describe(filterDefinedChecks, () => {
   it("keeps checks whose npm script is defined in package.json", () => {
     const checks = checksForScope("src");
-    const defined = new Set(["typecheck", "test"]);
+    const defined = new Set(["typecheck", "test", "lint"]);
     expect(filterDefinedChecks(checks, defined)).toEqual(checks);
   });
 
@@ -342,6 +357,20 @@ describe(filterDefinedChecks, () => {
   it("passes through non-npm checks untouched", () => {
     const custom = [{ name: "eslint", argv: ["eslint", "."] }];
     expect(filterDefinedChecks(custom, new Set())).toEqual(custom);
+  });
+
+  it("drops the lint check when 'lint' is absent from the defined scripts", () => {
+    // flow's own repo has no `lint` script — the new lint check must stay
+    // inert there rather than failing the gate with a Missing-script error.
+    const checks = checksForScope("src");
+    const filtered = filterDefinedChecks(checks, new Set(["typecheck", "test"]));
+    expect(filtered.map((c) => c.name)).toEqual(["npm run typecheck", "npm run test"]);
+  });
+
+  it("keeps the lint check when 'lint' is present in the defined scripts", () => {
+    const checks = checksForScope("src");
+    const filtered = filterDefinedChecks(checks, new Set(["typecheck", "test", "lint"]));
+    expect(filtered.map((c) => c.name)).toContain("npm run lint");
   });
 });
 
@@ -410,6 +439,17 @@ describe(runCheck, () => {
       ["npm", "run", "typecheck"],
       "src",
       exitWith(127, "npm: command not found"),
+    );
+    expect(result.passed).toBe(false);
+    expect(result.skipReason).toBeUndefined();
+  });
+
+  it("reports passed:false when the lint check exits non-zero (prettier --check failure)", () => {
+    const result = runCheck(
+      "npm run lint",
+      ["npm", "run", "lint"],
+      "src",
+      exitWith(1, "[warn] src/foo.ts\n[warn] Code style issues found in 1 file."),
     );
     expect(result.passed).toBe(false);
     expect(result.skipReason).toBeUndefined();

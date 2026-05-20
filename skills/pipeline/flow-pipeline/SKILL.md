@@ -376,8 +376,13 @@ in-process for skills; shell out for scripts; never delegate.
 > 1 (state writes `phase: triage-pending-clarification`) and step 4
 > (state writes `phase: approval-pending-clarification`); (4) the
 > no-change branch of step 1 (state writes `phase:
-> triaged-no-change`). Every other step transition stays in the
-> same turn. Harness-level enforcement: `flow-stop-guard`
+> triaged-no-change`); (5) step 7's CI-wait yield, where the harness
+> force-backgrounds the long-running `flow-ci-wait` call and the
+> supervisor writes `phase: ci-wait-pending` and ends the turn
+> cleanly rather than hand-rolling a discouraged manual poll loop
+> (see step 7 for the yield-and-resume contract). Every other step
+> transition stays in the same turn. Harness-level enforcement:
+> `flow-stop-guard`
 > (registered as a Claude Code Stop hook by `flow setup`) reads
 > `~/.flow/state/<slug>.json` and blocks any turn-end whose phase
 > is not in this set. See "Harness-level enforcement (Stop hook)"
@@ -401,9 +406,10 @@ Contract:
   must continue.
 - Exits 0 (allows the stop) when phase is in the legitimate-end
   set: any of the four terminals (`merged`, `gated`, `needs-human`,
-  `cancelled`) or the four pending-end phases
+  `cancelled`) or the five pending-end phases
   (`plan-pending-review`, `triaged-no-change`,
-  `triage-pending-clarification`, `approval-pending-clarification`).
+  `triage-pending-clarification`, `approval-pending-clarification`,
+  `ci-wait-pending`).
 - Self-detects: exits 0 (no-op) outside tmux, in non-flow tmux
   windows (no `@flow-slug` set), or when state.json is missing.
   Safe to install in a global Stop hook list.
@@ -412,8 +418,8 @@ Contract:
   subdirectory so `flow ls` does not see it as a phantom pipeline).
 - Legitimate pending exits do NOT consume the budget — phase=
   `plan-pending-review` / `triaged-no-change` /
-  `triage-pending-clarification` / `approval-pending-clarification`
-  all exit 0 without incrementing the counter.
+  `triage-pending-clarification` / `approval-pending-clarification` /
+  `ci-wait-pending` all exit 0 without incrementing the counter.
 - `stop_hook_active` is treated as advisory (used to detect turn
   boundaries via `false`-on-first-stop) rather than authoritative
   budget.
@@ -1087,6 +1093,25 @@ PR_URL=$(printf '%s' "$RESULT" | jq -r '.prUrl // empty')
 CI_FAILED_CHECKS=$(printf '%s' "$RESULT" | jq -r '.ciFailedChecks // empty')
 ```
 
+**Foreground path (the common case).** `flow-ci-wait` completes
+within the harness's foreground budget, `RESULT` is captured inline,
+and the supervisor branches on `.decision` immediately — no turn-end.
+This path is unchanged.
+
+**Yield-and-resume fallback (`ci-wait-pending`).** The poll loop runs
+10–20 min — past the Claude Code harness's foreground budget — so the
+harness may force-background the long-running `flow-ci-wait` call. When
+that happens, the supervisor does **not** hand-roll a discouraged
+manual poll loop to wait it out: it writes `flow-state-update --phase
+ci-wait-pending` and ends the turn cleanly. `ci-wait-pending` is a
+pending phase — `flow-stop-guard` recognises it as a legitimate
+turn-end (see "Harness-level enforcement" above) and the exit does not
+consume the loop-break budget. On the next re-invocation the supervisor
+re-enters step 7, re-reads the now-complete `flow-ci-wait` JSON verdict,
+and branches on `.decision` exactly as the foreground path does below.
+`ci-wait-pending` is taken **only** when the call is backgrounded; the
+foreground path above stays the default.
+
 Branch on `.decision`:
 
 | `.decision` | Action |
@@ -1635,7 +1660,7 @@ Branch on `.resumeAt`:
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/new-feature`. |
 | `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow setup --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
 | `step-6` | Re-enter step 6 (verify). Re-invoke `/verify`. |
-| `step-7` | Re-enter step 7 (ci-wait). Re-enter the poll loop via `flow-ci-wait`. |
+| `step-7` | Re-enter step 7 (ci-wait). Re-enter the poll loop via `flow-ci-wait`. A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-backgrounded pending phase) both resolve here — the supervisor crashed or yielded mid-CI-wait and the poll loop is simply restarted. |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/pr-review <PR>`. |
 | `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — `flow-followups run` then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition) and run `flow-remove-worktree --delete-branch`, write `phase: merged`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
 | `terminal` | Already in a terminal state. Render the corresponding block via `flow-gate-summary --status <merged\|gated\|cancelled> ...` (the same helper every gate-emission site uses) and end without re-running anything. |
@@ -1867,6 +1892,7 @@ plan-pending-review                (step 3 → 4 handoff for feature intent)
 triaged-no-change                  (step 1 no-change branch)
 triage-pending-clarification       (step 1 single clarifying question)
 approval-pending-clarification     (step 4 single clarifying question)
+ci-wait-pending                    (step 7 yield while flow-ci-wait is backgrounded)
 ```
 
 The canonical phase set is exported from `bin/lib/state.ts` as
