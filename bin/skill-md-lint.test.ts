@@ -1328,7 +1328,9 @@ describe("pr-review include-by-reference structure", () => {
     // to dedicated reference files and collapsed the redundant
     // fix-applier-missing-artifact heredoc (1708 → ~1556 before this
     // step landed); the new ceiling reflects the new step's scope, not
-    // a regrowth of previously-trimmed prose.
+    // a regrowth of previously-trimmed prose. The intent-annotation PR
+    // adds ~10 lines for the {{EXISTING_INTENT_COMMENTS}} substitution
+    // block, well under this ceiling.
     expect(
       lineCount,
       `pr-review/SKILL.md line count must stay under the post-Consolidator ` +

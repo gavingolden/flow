@@ -515,7 +515,21 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
    to the caller — `/new-feature` does not retry inside its own
    wrapper; the parent supervisor decides escalation vs re-invoke.
 
-## 5b. Register Local Follow-ups (when applicable)
+## 5b. Annotate Diff (when applicable)
+
+This step runs only after `/coder` returns successfully (Step 5's wider-scope path) AND after `flow-open-pr` returns a PR number — the trigger contract is conjunctive on both pre-conditions, so a successful `/coder` run with no open PR yet, or an open PR without a successful `/coder` (i.e. the trivial-scope inline path that didn't go through `/coder`), both no-op out of this step entirely. The intent is review-time-scoped per-hunk rationale that helps reviewers reason about non-obvious diff changes adjacent to where they appear; durable rationale still belongs in commit bodies and the PR body's `## Why` section.
+
+Run `bun bin/flow-annotate-pr.ts <PR>` against the merged-to-base diff. The helper parses `git diff -U0 <merge-base>...HEAD`, evaluates three trigger rules per hunk — (a) hunk has ≥10 changed lines, (b) hunk is a mixed-add-delete restructure (≥4 `+` AND ≥4 `-` lines), (c) file's total changed LOC is ≥30 with per-file dedup (only the first non-trivial hunk in a ≥30-LOC file gets annotated via rule c) — ranks the matches by priority, caps at 8 candidates per PR, and emits a JSON envelope on stdout: `{candidates: [...], overflowBullet?: string}`. Each candidate carries `{file, line, end_line?, side: "RIGHT"|"LEFT", hunk_excerpt}` but NO `body` field — that is the agent's job.
+
+For each candidate in the envelope, generate a 1-2-sentence rationale in casual tone (incomplete sentences permitted) explaining the non-obvious *why* of the change at that location. Prefix the rationale with the literal `**why:** ` (Markdown bold + colon + space) and suffix it with `\n\n<!-- flow-intent-v1 -->` (newline-newline before the HTML-comment integrity suffix so the suffix is invisible in rendered Markdown). Construct the Finding[] JSON (each entry: `{file, line, end_line?, side, body}`) and pipe it to `bun bin/flow-post-findings.ts <PR>` (or write to `.flow-tmp/intent-findings.json` and pass via `--file`). `flow-post-findings` posts each annotation as an individual inline review comment via the `/comments` endpoint — same shape that `/pr-review` uses for its findings, but with the `**why:** ` prefix marking these as author intent (not a Conventional Comments review finding).
+
+When `overflowBullet` is present (more than 8 hunks matched the trigger rules), append it to the PR body's `## Why` section. Read the current body with `gh pr view <PR> --json body --jq .body > .flow-tmp/pr-body.md`, append the overflow bullet under the existing `## Why` heading, then update with `gh pr edit <PR> --body-file .flow-tmp/pr-body.md`. This preserves the surplus rationale in durable form (the PR body survives the review-time-scoped trade-off named in `AGENTS.md` § Git workflow) when the inline annotation cap is hit.
+
+Failure mode is **non-fatal**. `flow-open-pr` already succeeded before this step ran, so the PR is open and downstream steps can proceed. If `flow-annotate-pr` fails (synthesizing a malformed envelope, network glitch on `git`) or `flow-post-findings` fails (rate limit, transient gh failure), log one line to chat — `annotation post failed: <stderr first line>; PR is open, proceeding to Step 5c` — and proceed to Step 5c. Do not retry; do not block the pipeline.
+
+The no-emoji rule from `AGENTS.md` § Output style applies to the generated rationale bodies. The body MUST NOT use Conventional Comments labels (`**issue:**`, `**suggestion:**`, `**nitpick:**`, `**praise:**`, `**question:**`, `**todo:**`) — those are reserved for `/pr-review` findings, and reusing them here would confuse the reviewer-facing vocabulary. The `**why:** ` prefix is the only authorised label for these annotations.
+
+## 5c. Register Local Follow-ups (when applicable)
 
 When the implementation produces a side-effect the user must replicate on their
 local machine after merge — a new helper added under `bin/` (so the home install
@@ -598,6 +612,7 @@ wasn't used for a UI-only change.
   no per-edit `Edit`/`Write` prose for the wider-scope path.
 - For trivially scoped edits at Step 5: no `/coder` invocation; the
   wrapper logged a one-line trivial-scope reason and edited inline.
+- Step 5b ran the annotator (or trivially-scoped: no annotations posted because no hunks matched rules a/b/c).
 
 # Constraints
 

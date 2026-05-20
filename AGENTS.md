@@ -244,6 +244,18 @@ helper script that doesn't need an LLM at all.
   `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md` for the contract.
 - **Never amend pushed commits.** Make a new commit instead.
 - **Never force-push** without explicit user request.
+- **Inline intent annotations:** review-time-scoped per-hunk rationale
+  authored by `/new-feature` Step 5b as inline review comments on the
+  PR diff (`**why:** <1-2 sentences>` + `<!-- flow-intent-v1 -->`
+  integrity suffix, prefix disjoint from `/pr-review`'s Conventional
+  Comments vocabulary). These inline intent annotations live on the PR
+  diff and do **not** appear in `git log` / `git blame` after merge —
+  durable rationale still
+  belongs in commit-body Why-sections and the PR body's `## Why`. See
+  `skills/pipeline/new-feature/SKILL.md` Step 5b for the trigger contract
+  (rules a/b/c, per-file dedup, ≤8/PR cap, overflow bullet) and
+  `skills/pipeline/pr-review/SKILL.md` Step 3 for how `/pr-review`
+  consumes the annotations as `{{EXISTING_INTENT_COMMENTS}}` context.
 
 Pass multi-line messages through a heredoc:
 
