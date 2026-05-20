@@ -1,0 +1,48 @@
+# CI gate: runs `npm run verify` (typecheck:scripts + vitest) on every PR
+# and on every push to main. This is the server-side backstop for the
+# local-only `flow-pre-commit` gate — a human pushing a PR outside
+# `/flow-pipeline` never invokes that gate, and an in-pipeline run can pass
+# falsely when the PATH-symlinked binary executes stale pre-edit code.
+#
+# Recommended: make the `verify` job a required status check via branch
+# protection on `main` so red PRs cannot be merged. See AGENTS.md.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel superseded PR runs; never cancel an in-flight push-to-main run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 20
+
+      # The vitest suite spawns `bun` directly as a subprocess
+      # (bin/flow-pre-commit.test.ts, bin/flow-new-worktree.test.ts), so the
+      # runner needs Bun on PATH even though `verify` is an npm script.
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify
+        run: npm run verify

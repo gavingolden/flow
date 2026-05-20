@@ -277,6 +277,18 @@ bun bin/flow setup         # global install (skills, agents, helpers, wrapper)
 There is no `npm run build` — flow ships `bin/flow` directly via Bun;
 no compile step.
 
+## CI
+
+`.github/workflows/ci.yml` runs `npm run verify` (`typecheck:scripts` +
+vitest) on every pull request and every push to `main`. It is the
+server-side backstop for the local-only `flow-pre-commit` gate, which a
+human pushing a PR outside `/flow-pipeline` never invokes and which an
+in-pipeline run can pass falsely against stale PATH-symlinked code. The
+runner installs both Node and Bun — the vitest suite spawns `bun` as a
+subprocess. **Make the `verify` job a required status check** via branch
+protection on `main` (Settings → Branches) so a red PR cannot be merged;
+this is a repo-admin setting, not something the workflow file can enforce.
+
 ## What flow is *not*
 
 - The supervisor does not re-implement Claude Code skills inside its own
