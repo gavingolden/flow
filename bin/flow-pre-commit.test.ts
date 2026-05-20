@@ -298,9 +298,16 @@ describe(checksForScope, () => {
     ]);
   });
 
-  it("should return flow-md-validate for docs", () => {
+  it("should return flow-md-validate and npm run test for docs", () => {
     const checks = checksForScope("docs");
-    expect(checks).toEqual([{ name: "flow-md-validate .", argv: ["flow-md-validate", "."] }]);
+    expect(checks).toEqual([
+      { name: "flow-md-validate .", argv: ["flow-md-validate", "."] },
+      { name: "npm run test", argv: ["npm", "run", "test"] },
+    ]);
+  });
+
+  it("includes npm run test in the docs scope so .md-only diffs run structural-anchor lints", () => {
+    expect(checksForScope("docs").map((c) => c.name)).toContain("npm run test");
   });
 
   it("should return actionlint .github/workflows/ for actions", () => {

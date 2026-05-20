@@ -311,7 +311,14 @@ export function checksForScope(scope: Scope): CheckDef[] {
         { name: "npm run lint", argv: ["npm", "run", "lint"] },
       ];
     case "docs":
-      return [{ name: "flow-md-validate .", argv: ["flow-md-validate", "."] }];
+      // `npm run test` runs after flow-md-validate so .md-only diffs still
+      // exercise the vitest suite — the only place structural-anchor lints
+      // (e.g. bin/skill-md-lint.test.ts) run, since .md-only diffs never
+      // fall through to root-fallback.
+      return [
+        { name: "flow-md-validate .", argv: ["flow-md-validate", "."] },
+        { name: "npm run test", argv: ["npm", "run", "test"] },
+      ];
     case "actions":
       return [
         {
@@ -752,7 +759,7 @@ When no flags are given, scopes are auto-detected from \`git diff HEAD\`.
 Check mapping:
   src:            npm run typecheck, npm run test, npm run lint
   scripts:        npm run typecheck:scripts, npm run test, npm run lint
-  docs:           flow-md-validate .
+  docs:           flow-md-validate ., npm run test
   actions:        actionlint .github/workflows/
   backend:        go vet -C backend ./..., go test -C backend ./...
   root-fallback:  npm run typecheck, npm run test, npm run lint
