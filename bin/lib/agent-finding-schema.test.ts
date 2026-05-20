@@ -256,6 +256,24 @@ describe("validateAgentFindings — rejections", () => {
     if (!result.ok) expect(result.reason).toContain("decoration");
   });
 
+  it("rejects a praise finding with a non-string decoration", () => {
+    const result = validateAgentFindings({
+      findings: [
+        {
+          file: "src/x.ts",
+          line: 1,
+          label: "praise",
+          decoration: 42,
+          confidence: 95,
+          subject: "x",
+          body: "y",
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("decoration");
+  });
+
   it("rejects a non-praise finding with the decoration key absent", () => {
     const result = validateAgentFindings({
       findings: [
