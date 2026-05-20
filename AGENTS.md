@@ -212,18 +212,8 @@ is one Claude Code chat session, sub-skills (`/product-planning`,
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
 `claude -p ...` subprocesses, **with eight narrowly-named exceptions**
-— see the "Task-tool exemption: `/flow-pipeline` → `/pr-review`
-Independent Multi-Agent Review", "Task-tool exemption:
-`/flow-pipeline` → `/product-planning` Independent Discovery Subagent",
-"Task-tool exemption: `/flow-pipeline` → `/new-feature` Independent
-Scout Subagent", "Task-tool exemption: `/flow-pipeline` →
-`/pr-review` Fix-Applier Subagent", "Task-tool exemption:
-`/flow-pipeline` → Merge-Conflict Resolver Subagent",
-"Task-tool exemption: `/flow-pipeline` → `/coder` Independent
-Edit-Applier Subagent", "Task-tool exemption: `/flow-pipeline` →
-`/pr-review` Independent Gatekeeper Subagent", and "Task-tool
-exemption: `/flow-pipeline` → `/pr-review` Independent
-Consolidator-Validator Subagent" entries under `## Don'ts` below.
+— see the eight `**Task-tool exemption: ...**` bullets under
+`## Don'ts` below, preceded by a single shared-rationale preamble.
 This sidesteps two limits at once:
 
 1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
@@ -410,264 +400,127 @@ old silent-pass hole is closed.
     out per-pipeline with `flow new --no-auto-merge` (the supervisor
     stops at the gated state regardless of the gate verdict). Same
     narrow-and-named contract as the `/pr-review` exemption above.
+  - **Shared rationale for the eight Task-tool exemptions below.**
+    `/flow-pipeline`'s "Hard rules" forbid the supervisor from calling
+    the `Task` / `Agent` tool, with eight named exceptions. The same
+    rationale covers all eight, so it is stated here once: (a) the
+    supervisor is itself a top-level Claude Code session (started by
+    `flow new` opening tmux + `claude`), so the one-level sub-agent cap
+    doesn't apply to *its* Task calls; (b) each exemption's subagent is
+    one-shot — it returns an artifact plus a brief summary then exits —
+    so the long-running context-bloat constraint doesn't apply either;
+    (c) every exemption is anchored on its step *heading name* rather
+    than its number so it survives future renumbering; (d) every
+    exemption is documented bidirectionally in
+    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and the
+    consumed skill's own SKILL.md; (e) the narrow-and-named-contract
+    discipline applies — each exemption names exactly one spawn site,
+    and a future skill needing the same license must be added here by
+    name rather than generalising the rule. Each bullet below carries
+    only its unique contract: spawn site / triggering step, artifact
+    path, typed artifact fields, and any model override.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
-    Multi-Agent Review.** `/flow-pipeline`'s "Hard rules" section
-    forbids the supervisor from calling the `Task` / `Agent` tool,
-    with named exceptions only: when `/flow-pipeline` step 8 loads
-    `/pr-review` and `/pr-review` reaches its "Independent
-    Multi-Agent Review" step, six review agents are spawned in
-    parallel via the Task tool. The exemption is anchored on the
-    step heading name rather than its number so it survives future
-    `/pr-review` renumbering. Rationale: the supervisor is itself a
-    top-level Claude Code session (started by `flow new` opening tmux
-    + `claude`), so the one-level sub-agent cap doesn't apply to
-    *its* Task calls; and the multi-agent review is one-shot, not
-    long-running, so the context-bloat constraint also doesn't
-    apply. The contract is documented bidirectionally in
-    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
-    `skills/pipeline/pr-review/SKILL.md`'s Independent Multi-Agent
-    Review preamble. Both fan-outs now run from the supervisor's
-    in-process Skill load — the `context: fork` frontmatter directive
-    has been removed from `/pr-review`, so the six review agents are
-    spawned inside the supervisor's own session rather than a forked
-    subprocess. Same narrow-and-named contract as the
-    `/pr-review` and `/flow-pipeline` exemptions above.
+    Multi-Agent Review.** `/flow-pipeline` step 8 loads `/pr-review`;
+    at the "Independent Multi-Agent Review" step, six review agents are
+    spawned in parallel via the Task tool. No single aggregated result
+    artifact — each agent persists its own
+    `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, and the
+    Consolidator-Validator step produces `consolidator-result.json`; the
+    Multi-Agent Review fan-out itself emits no consolidated artifact of
+    its own. The six agents run inside the supervisor's own in-process
+    Skill load (`/pr-review` has no `context: fork` directive).
   - **Task-tool exemption: `/flow-pipeline` → `/product-planning`
-    Independent Discovery Subagent.** When `/flow-pipeline` step 3
-    loads `/product-planning`, the wrapper spawns one discovery
-    agent via the Task tool. The exemption is anchored on the step
-    heading name rather than its number so it survives future
-    `/product-planning` renumbering. Rationale: the same two
-    constraints as above — the supervisor is top-level so the
-    one-level sub-agent cap doesn't apply to *its* Task calls; and
-    the discovery is one-shot, returning artifacts (`.flow-tmp/plan.md`
-    and `.flow-tmp/pr-description-draft.md`) plus a brief summary
-    rather than running long. The reason this exemption exists at
-    all is the context cost: discovery reads the README, scans the
-    skill directory, examines domain models, drafts a PRD — none of
-    which the supervisor refers to in steps 5–10, but all of which
-    would otherwise sit in the supervisor's transcript for the rest
-    of the run. Since the only handoff from `/product-planning` to
-    downstream steps is `.flow-tmp/plan.md` already, isolating the
-    discovery in a subagent costs nothing the supervisor was using.
-    The contract is documented bidirectionally in
-    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
-    `skills/pipeline/product-planning/SKILL.md`'s "Independent
-    Discovery Subagent" preamble. Same narrow-and-named contract as
-    the exemptions above.
+    Independent Discovery Subagent.** `/flow-pipeline` step 3 loads
+    `/product-planning`, which spawns one discovery agent via the Task
+    tool. Artifacts: `.flow-tmp/plan.md` and
+    `.flow-tmp/pr-description-draft.md`. Post-merge-fix invariants:
+    absolute SKILL_DIR + WORKTREE paths, exactly one Task call per
+    invocation, wrapper-owned `mkdir -p .flow-tmp/`, single side-effect
+    attribution site, main-session reads each artifact once and never
+    re-reads.
   - **Task-tool exemption: `/flow-pipeline` → `/new-feature`
-    Independent Scout Subagent.** When `/flow-pipeline` step 5
-    loads `/new-feature`, the wrapper spawns one scout agent via
-    the Task tool — but only on the wider-scope path of its hybrid
-    threshold (≤3 affected files skips the scout entirely). The
-    exemption is anchored on the step heading name rather than its
-    number so it survives future `/new-feature` renumbering.
-    Rationale: the same two constraints as above — the supervisor
-    is top-level so the one-level sub-agent cap doesn't apply to
-    *its* Task calls; and the scout is one-shot, returning an
-    artifact (`.flow-tmp/scout.md`) plus a brief both-sides summary
-    rather than running long. The reason this exemption exists at
-    all is the context cost: scouting reads source files, scans
-    adjacent modules, identifies test coverage, enumerates the
-    public API surface, and flags anti-patterns / off-limits
-    surfaces — none of which the supervisor refers to in steps
-    6–10, but all of which would otherwise sit in the supervisor's
-    transcript for the rest of the run. PR #95 is the precedent:
-    the same surgery applied to `/product-planning`'s discovery,
-    and the `/product-planning` Independent Discovery Subagent
-    exemption above bakes its post-merge-fix invariants (absolute
-    SKILL_DIR + WORKTREE paths, exactly one Task call per
-    invocation, wrapper-owned `mkdir -p .flow-tmp/`, single
-    side-effect attribution site, main-session reads the artifact
-    once and never re-reads). The `/new-feature` scout adopts those
-    invariants verbatim, with one addition specific to this
-    exemption: the subagent's return summary must surface both
-    sides — at least one positive finding and at least one
-    negative finding (off-limits surfaces, rejected approaches,
-    foreclosed shortcuts). The contract is documented
-    bidirectionally in `skills/pipeline/flow-pipeline/SKILL.md`
-    "Hard rules" and `skills/pipeline/new-feature/SKILL.md`'s
-    "Independent Scout Subagent" preamble. Same narrow-and-named
-    contract as the exemptions above.
+    Independent Scout Subagent.** `/flow-pipeline` step 5 loads
+    `/new-feature`, which spawns one scout agent via the Task tool —
+    but only on the wider-scope path of its hybrid threshold (≤3
+    affected files skips the scout). Artifact: `.flow-tmp/scout.md`.
+    The scout adopts the Discovery Subagent's invariants verbatim, plus
+    one addition: its return summary must surface both sides — at least
+    one positive finding and at least one negative finding (off-limits
+    surfaces, rejected approaches, foreclosed shortcuts).
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Fix-Applier
-    Subagent.** When `/flow-pipeline` step 8 loads `/pr-review` and
-    `/pr-review` reaches its "Independent Fix-Applier Subagent" step,
-    one fix-applier agent is spawned via the Task tool to handle the
-    per-finding address loop (Steps 6, 7, 7.5 of `/pr-review`, plus
-    the pre-commit / commit / push that step 8 used to own) inside
-    its own isolated context. The exemption is anchored on the step
-    heading name rather than its number so it survives future
-    `/pr-review` renumbering. Rationale: the same two constraints as
-    above — the supervisor is top-level so the one-level sub-agent
-    cap doesn't apply to *its* Task calls; and the fix-applier is
-    one-shot, returning a structured artifact
-    (`.flow-tmp/fix-applier-result.json` with typed fields `commits`,
+    Subagent.** `/flow-pipeline` step 8 loads `/pr-review`; at the
+    "Independent Fix-Applier Subagent" step, one fix-applier agent is
+    spawned via the Task tool to handle the per-finding address loop
+    plus pre-commit / commit / push. Artifact:
+    `.flow-tmp/fix-applier-result.json` (typed fields `commits`,
     `deferred`, `rejected_alternatives`, `anti_patterns_found`,
-    `summary`) plus a brief summary, then exits. The reason this
-    exemption exists at all is two-fold: context cost (per-finding
-    fix prose, `flow-pre-commit` output, `/verify` re-run transcript
-    are by far the largest sink left in `/flow-pipeline` runs after
-    PR #95) and the in-context verify re-run — the subagent invokes
-    `/verify` against the post-fix worktree *before returning*, so
-    CI breakage caused by a fix surfaces in-context where the fix
-    rationale is still live, not after the subagent exits and the
-    supervisor sees a CI-failed log later in step 7 with no intent
-    context. The contract is documented bidirectionally in
-    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
-    `skills/pipeline/pr-review/SKILL.md`'s "Fix-Applier Subagent"
-    section. Both fan-outs now run from the supervisor's in-process
-    Skill load — the `context: fork` frontmatter directive has been
-    removed from `/pr-review`, so the fix-applier is spawned inside
-    the supervisor's own session rather than a forked subprocess.
-    Same narrow-and-named contract as the exemptions above.
+    `summary`). The subagent invokes `/verify` against the post-fix
+    worktree *before returning*, so a fix's CI breakage surfaces
+    in-context while the fix rationale is still live.
   - **Task-tool exemption: `/flow-pipeline` → Merge-Conflict Resolver
-    Subagent.** When `/flow-pipeline` step 10 fires `gh pr merge
-    --squash` and the call returns a conflict-class failure (stderr
-    matches the documented detection patterns in
+    Subagent.** When `/flow-pipeline` step 10's `gh pr merge --squash`
+    returns a conflict-class failure (stderr matching the detection
+    patterns in
     `skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md`),
-    the supervisor spawns one merge-conflict resolver subagent via
-    the Task tool to handle the rebase + per-file conflict
-    resolution + force-push inside its own isolated context. After
-    the subagent returns, the supervisor retries `gh pr merge
-    --squash` exactly once; on second failure, escalates
-    `NEEDS HUMAN: merge-failed` with the resolver's summary first
-    sentence appended to the reason. The exemption is anchored on
-    the step heading name rather than its number so it survives
-    future `/flow-pipeline` renumbering. Rationale: the same two
-    constraints as above — the supervisor is top-level so the
-    one-level sub-agent cap doesn't apply to *its* Task calls; and
-    the resolver is one-shot, returning a structured artifact
-    (`.flow-tmp/merge-resolver-result.json` with typed fields
+    the supervisor spawns one resolver subagent via the Task tool for
+    the rebase + per-file resolution + force-push. Artifact:
+    `.flow-tmp/merge-resolver-result.json` (typed fields
     `resolved_files`, `ambiguous_resolutions`, `rejected_strategies`,
-    `commits`, `force_push_status`, `summary`) plus a brief
-    summary, then exits. The reason this exemption exists at all is
-    context cost: the rebase output, per-file resolution rationale,
-    and force-push transcript would otherwise sit in the
-    supervisor's transcript at the latest, most token-expensive
-    point in the pipeline — where the supervisor still has the
-    post-merge sweep, step 11's local-follow-ups, and the terminal
-    print left to do. **Force-push is permitted** because the
-    resolver runs as a Task-tool fan-out inside `/flow-pipeline`'s
-    existing auto-merge umbrella, and is scoped to the per-pipeline
-    branch only — never `main`, `master`, or the base branch (the
-    instructions file's branch-name guard is mandatory). The
-    contract is documented bidirectionally in
-    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
-    `skills/pipeline/flow-pipeline/references/merge-resolver-instructions.md`.
-    Same narrow-and-named contract as the exemptions above.
+    `commits`, `force_push_status`, `summary`). After it returns the
+    supervisor retries `gh pr merge --squash` exactly once; on second
+    failure it escalates `NEEDS HUMAN: merge-failed` with the
+    resolver's summary first sentence appended. **Force-push is
+    permitted** here because the resolver runs inside `/flow-pipeline`'s
+    auto-merge umbrella and is scoped to the per-pipeline branch only —
+    never `main`, `master`, or the base branch (the instructions file's
+    branch-name guard is mandatory).
   - **Task-tool exemption: `/flow-pipeline` → `/coder` Independent
-    Edit-Applier Subagent.** When `/flow-pipeline` step 5 loads
-    `/new-feature` (or step 6 loads `/verify`, or any pipeline step
-    loads `/refactoring`) and any of these skills reaches its
-    hybrid-threshold wider-scope path, the wrapper invokes `/coder`
-    in-process; `/coder` itself spawns one edit-applier agent via the
-    Task tool to apply the caller's edit-set, run `flow-pre-commit
-    --json` against the post-edit worktree, and write a structured
-    artifact at `<worktree>/.flow-tmp/coder-result.json` (typed fields:
-    `edits`, `verify_status`, `rejected_alternatives`,
-    `anti_patterns_found`, `summary`). The exemption is anchored on
-    the step heading name rather than its number so it survives future
-    `/coder` renumbering. Rationale: the same two constraints as above
-    — the supervisor is top-level so the one-level sub-agent cap
-    doesn't apply to *its* Task calls (the call from `/new-feature`,
-    `/verify`, or `/refactoring` is itself a
-    top-level-supervisor-loaded skill's call);
-    and the edit-applier is one-shot, returning the artifact plus a
-    brief both-sides summary, then exits. The reason this exemption
-    exists at all is two-fold: context cost (per-edit `Edit`/`Write`
-    tool_use bytes and the diff-bearing `tool_result` text are by far
-    the largest sink left in `/flow-pipeline` runs after the four
-    earlier exemptions landed) and the in-context verify re-run — the
-    subagent invokes `flow-pre-commit --json` against the post-edit
-    worktree *before returning*, so type/lint/test breakage caused by
-    an edit surfaces in-context where the edit rationale is still
-    live, not after the subagent exits. Trivially scoped edits skip
-    the subagent via each caller's own hybrid threshold
-    (`/new-feature` step 5: ≤1 file AND ≤30 LOC AND every file named
-    in the prompt; `/verify` step 3: single-line type/lint error in
-    one file; `/refactoring` step 3: same bar as `/new-feature` step
-    5) and proceed inline. The three thresholds are
-    caller-defined — see each skill's "Spawn procedure (wider-scope
-    path only)" section for the canonical bar. The contract is
-    documented bidirectionally in
-    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
+    Edit-Applier Subagent.** When a pipeline skill reaches its
+    hybrid-threshold wider-scope path — `/new-feature` step 5,
+    `/verify` step 3, or `/refactoring` step 3 — the wrapper invokes
+    `/coder` in-process, and `/coder` spawns one edit-applier agent via
+    the Task tool to apply the edit-set and run `flow-pre-commit --json`
+    against the post-edit worktree. Artifact:
+    `<worktree>/.flow-tmp/coder-result.json` (typed fields `edits`,
+    `verify_status`, `rejected_alternatives`, `anti_patterns_found`,
+    `summary`). The subagent runs the verify re-run *before returning*
+    so an edit's type/lint/test breakage surfaces in-context. Trivially
+    scoped edits skip the subagent via each caller's own hybrid
+    threshold (see each caller's "Spawn procedure (wider-scope path
+    only)" for the canonical bar). The full contract is in
     `skills/pipeline/coder/SKILL.md`'s "Independent Edit-Applier
-    Subagent" section. Same narrow-and-named contract as the
-    exemptions above. Together with the `/pr-review` Multi-Agent
-    Review, `/product-planning` Discovery Subagent, `/new-feature`
-    Scout Subagent, `/pr-review` Fix-Applier Subagent,
-    `/flow-pipeline`'s Merge-Conflict Resolver Subagent,
-    `/pr-review`'s Independent Gatekeeper Subagent, and
-    `/pr-review`'s Independent Consolidator-Validator Subagent
-    entries, these are the **only eight** authorised Task-tool fan-out
+    Subagent" section. Together with the seven other exemptions in this
+    block, these are the **only eight** authorised Task-tool fan-out
     sites from `/flow-pipeline`; no other skill or step may call Task.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
-    Gatekeeper Subagent.** When `/flow-pipeline` step 8 loads
-    `/pr-review` and `/pr-review` reaches its "Independent Gatekeeper
-    Subagent" step (Step 1.5), one gatekeeper agent is spawned via
-    the Task tool with a per-spawn `model: "haiku"` override to
-    short-circuit cheap "this PR isn't worth a full review" verdicts
-    before the four-agent Sonnet fan-out fires. The exemption is
-    anchored on the step heading name rather than its number so it
-    survives future `/pr-review` renumbering. Rationale: this is the
-    first Task-tool exemption justified primarily by **cost-routing**
-    rather than primarily by context isolation — the Task tool's
-    per-spawn `model: "sonnet"|"opus"|"haiku"` enum lets this spawn
-    site downgrade from Sonnet to Haiku, short-circuiting the
-    four-agent Sonnet fan-out on closed/merged/trivial/no-new-commits
-    PRs that deterministic skip rules can rule out from a single
-    `gh pr view --json
+    Gatekeeper Subagent.** `/flow-pipeline` step 8 loads `/pr-review`;
+    at the "Independent Gatekeeper Subagent" step (Step 1.5), one
+    gatekeeper agent is spawned via the Task tool with a per-spawn
+    `model: "haiku"` override — the one exemption justified primarily
+    by **cost-routing** rather than context isolation. It short-circuits
+    the four-agent Sonnet fan-out on closed/merged/trivial/no-new-commits
+    PRs from a single `gh pr view --json
     state,isDraft,additions,deletions,commits,author` metadata fetch.
-    Context isolation is the secondary win: the `gh pr view` metadata
-    fetch and the skip-rule eval stay inside the subagent rather than
-    polluting the supervisor's transcript. The same two boilerplate
-    rationales also apply — top-level Task call (constraint 1 doesn't
-    apply because the supervisor is itself a top-level Claude Code
-    session), one-shot fan-out (constraint 2 doesn't apply because
-    the subagent returns artifact + summary then exits). The only
-    handoff to the wrapper is the structured artifact at
-    `<worktree>/.flow-tmp/gatekeeper-result.json` (typed fields:
-    `decision`, `reason`, `skip_kind?`, `summary`); the wrapper reads
-    it once and branches: `"skip"` writes a well-formed
+    Artifact: `<worktree>/.flow-tmp/gatekeeper-result.json` (typed
+    fields `decision`, `reason`, `skip_kind?`, `summary`). The wrapper
+    branches on it: `"skip"` writes a well-formed
     `pr-review-result.json` with `status: "clean"` and
-    `completed_steps: ["1", "1.5"]` so `/flow-pipeline` Step 8 sees a
-    clean result and proceeds normally to the auto-merge gate;
-    `"proceed"` continues to Step 2 unchanged. The contract is
-    documented bidirectionally in
-    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and
-    `skills/pipeline/pr-review/SKILL.md`'s "Independent Gatekeeper
-    Subagent" section. Same narrow-and-named contract as the
-    exemptions above.
+    `completed_steps: ["1", "1.5"]` so Step 8 sees a clean result and
+    proceeds to the auto-merge gate; `"proceed"` continues to Step 2
+    unchanged.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
-    Consolidator-Validator Subagent.** When `/flow-pipeline` step 8
-    loads `/pr-review` and `/pr-review` reaches its "Independent
-    Consolidator-Validator Subagent" step (Step 3.5), one
-    consolidator-validator agent is spawned via the Task tool. The
-    exemption is anchored on the step heading name rather than its
-    number so it survives future `/pr-review` renumbering. Unlike the
-    Gatekeeper, this is a context-isolation exemption with
-    second-opinion-validation as a new capability — there is NO
-    `model: "haiku"` override; default Sonnet is used because the
-    second-opinion pass needs the larger model's judgment. The same
-    two boilerplate rationales apply — top-level Task call (constraint
-    1 doesn't apply because the supervisor is itself a top-level
-    Claude Code session), one-shot fan-out (constraint 2 doesn't
-    apply because the subagent returns artifact + summary then exits).
-    The additional context-cost win specific to this exemption:
-    per-finding second-opinion prose, the six per-agent JSON output
-    reads, and the dedup-by-clustering reasoning all stay inside the
-    subagent rather than landing in `/pr-review`'s wrapper context.
-    The only handoff to the wrapper is the structured artifact at
-    `<worktree>/.flow-tmp/consolidator-result.json` (typed fields:
+    Consolidator-Validator Subagent.** `/flow-pipeline` step 8 loads
+    `/pr-review`; at the "Independent Consolidator-Validator Subagent"
+    step (Step 3.5), one consolidator-validator agent is spawned via
+    the Task tool. Unlike the Gatekeeper there is **no** `model:
+    "haiku"` override — default Sonnet is used because the
+    second-opinion pass needs the larger model's judgment. Artifact:
+    `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
     `consolidated_findings`, `dropped_by_validation`,
     `rejected_alternatives`, `anti_patterns_found`, `summary`); the
-    wrapper reads it exactly once at Step 4 and reuses the parsed
-    object across Steps 4–7. The contract is documented
-    bidirectionally in `skills/pipeline/flow-pipeline/SKILL.md`
-    "Hard rules", `skills/pipeline/pr-review/SKILL.md`'s
-    "Independent Consolidator-Validator Subagent" section, and
+    wrapper reads it once at Step 4 and reuses the parsed object across
+    Steps 4–7. Also documented in
     `skills/pipeline/pr-review/references/consolidator-instructions.md`.
-    Same narrow-and-named contract as the exemptions above.
   - **Task-tool spawn sites must load Task first.** Each of the eight
     Task-tool exemption sites above must instruct the supervisor to
     load the Task tool schema via `ToolSearch query="select:Task"`
