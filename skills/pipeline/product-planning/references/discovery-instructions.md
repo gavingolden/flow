@@ -226,7 +226,9 @@ to a human reading the file).
 - **Recommended path.** One of these four strings, copied verbatim. The
   `/flow-pipeline` Step 3 routing helper at `bin/flow-step3-route.ts` exact-matches
   against the first string; drift here silently routes runs the wrong way, so the four
-  values are case-sensitive and must not be paraphrased:
+  values are case-sensitive and must not be paraphrased. Emit the value **bare** — no
+  surrounding backticks, no bold, no trailing punctuation — so the producer here and
+  the consumer (`bin/flow-step3-route.ts`) agree on an exact string:
 
   - `methods plausibly reach target` — the prescribed methods fully cover the stated
     target without extension. No tension; downstream consumers treat the run as if no

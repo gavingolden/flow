@@ -187,6 +187,10 @@ export function formatComment(
   const lineRef = formatLineRef(comment);
 
   lines.push(`#### ${lineRef} — @${comment.user.login}`);
+  // Surface the numeric GitHub comment id only for top-level comments —
+  // Step 9 of /pr-review matches replies against top-level comment_ids,
+  // so the id on quoted reply sub-blocks below is intentionally omitted.
+  lines.push(`**Comment ID:** ${comment.id}`);
   lines.push("");
   lines.push(comment.body);
 

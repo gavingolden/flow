@@ -997,14 +997,14 @@ prose without me interpreting anything?
 For each runnable item:
 
 1. Execute it exactly as written, capturing both stdout and stderr to a file.
-   Use `set -o pipefail` so the captured exit code reflects the command's
-   status, not `tee`'s — without pipefail, a failing item is silently
-   recorded as exit 0 and the box gets ticked incorrectly:
+   Run the item with no pipe and capture `$?` directly, so the recorded
+   exit status is shell-agnostic — a piped `tee` capture would leave the
+   exit code in a bash-only pipeline array that is empty under a zsh
+   outer shell, silently ticking the box on a failing item:
 
    ```bash
-   set -o pipefail
-   bash -c 'cmd 2>&1' | tee .flow-tmp/evidence-<n>.txt
-   echo "${PIPESTATUS[0]}" > .flow-tmp/exit-<n>
+   bash -c 'cmd' > .flow-tmp/evidence-<n>.txt 2>&1
+   echo "$?" > .flow-tmp/exit-<n>
    ```
 
    Same discipline as Step 8 — a non-zero exit means investigate and fix the
@@ -1041,15 +1041,13 @@ For each promoted item:
    ```
 
 2. Run it, capturing stdout + stderr + exit code the same way 8c does for
-   author-written runnable items. Use `set -o pipefail` so the captured exit
-   code reflects the promoted script's status, not `tee`'s — without
-   pipefail, a failing assertion is silently recorded as exit 0 and the box
-   gets ticked incorrectly:
+   author-written runnable items. Run the script with no pipe and capture
+   `$?` directly, so the recorded exit status is shell-agnostic and works
+   under both bash and zsh:
 
    ```bash
-   set -o pipefail
-   bash -c '.flow-tmp/promoted-<n>.sh 2>&1' | tee .flow-tmp/evidence-<n>.txt
-   echo "${PIPESTATUS[0]}" > .flow-tmp/exit-<n>
+   bash -c '.flow-tmp/promoted-<n>.sh' > .flow-tmp/evidence-<n>.txt 2>&1
+   echo "$?" > .flow-tmp/exit-<n>
    ```
 
 3. On exit 0, hand off to 8c.i for the box-tick + evidence injection. The

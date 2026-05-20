@@ -156,6 +156,13 @@ describe(formatComment, () => {
     expect(result).toContain("Fix this");
   });
 
+  it("should surface the numeric comment id on a labelled line", () => {
+    const comment = createComment({ id: 123456789, line: 42 });
+    const result = formatComment(comment, new Map());
+
+    expect(result).toContain("**Comment ID:** 123456789");
+  });
+
   it("should include replies as blockquotes", () => {
     const comment = createComment({ id: 1, body: "Fix this" });
     const reply = createComment({
@@ -169,6 +176,26 @@ describe(formatComment, () => {
     const result = formatComment(comment, index);
 
     expect(result).toContain("> **@author:** Done");
+  });
+
+  it("should NOT surface a Comment ID line for reply sub-blocks", () => {
+    // The code comment at flow-fetch-pr-review.ts L191-192 claims the
+    // `**Comment ID:**` line is emitted only for top-level comments —
+    // the reply's own id is intentionally omitted. Pin that claim so a
+    // regression that hoisted the push inside the reply loop is caught.
+    const comment = createComment({ id: 1, body: "Fix this" });
+    const reply = createComment({
+      id: 99,
+      in_reply_to_id: 1,
+      body: "Done",
+      user: { login: "author" },
+    });
+    const index = buildReplyIndex([comment, reply]);
+
+    const result = formatComment(comment, index);
+
+    expect(result).toContain("**Comment ID:** 1");
+    expect(result).not.toContain("**Comment ID:** 99");
   });
 
   it("should handle multiline reply bodies", () => {
