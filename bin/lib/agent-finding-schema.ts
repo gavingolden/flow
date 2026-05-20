@@ -24,9 +24,12 @@
  *
  * Strict on shape, permissive on string content. Labels and decorations
  * are enumerated per the agent-prompts.md spec; the body string content
- * is not enumerated (it's prose). Cross-field rules (e.g. praise must
- * have a non-null body) are not enforced here — that's the prose
- * contract in pr-review/SKILL.md's job.
+ * is not enumerated (it's prose). Cross-field rules are generally not
+ * enforced here — that's the prose contract in pr-review/SKILL.md's job
+ * — with one deliberate exception now enforced: per conventional-
+ * comments.md Rule 2, praise findings may omit `decoration` (an absent
+ * key or `null`), while every other label still requires a valid enum
+ * decoration.
  *
  * CLI mode: `bun bin/lib/agent-finding-schema.ts --validate <path>` —
  * reads the file, parses JSON, and decides which validator to use based
@@ -41,7 +44,7 @@ export type Finding = {
   line: number;
   end_line?: number;
   label: string;
-  decoration: string;
+  decoration?: string | null;
   confidence: number;
   subject: string;
   body: string;
@@ -132,13 +135,28 @@ function validateFinding(
       `findings[${idx}].label must be one of praise|nitpick|suggestion|issue|todo|question (got ${JSON.stringify(f.label)})`,
     );
   }
-  if (!isString(f.decoration)) {
-    return err(`findings[${idx}].decoration must be a string`);
-  }
-  if (!VALID_DECORATIONS.has(f.decoration)) {
-    return err(
-      `findings[${idx}].decoration must be one of blocking|non-blocking|if-minor (got ${JSON.stringify(f.decoration)})`,
-    );
+  if (f.label === "praise") {
+    // why: conventional-comments.md Rule 2 — every finding except praise
+    // MUST have a decoration; praise may omit it (absent key or null).
+    if (f.decoration !== undefined && f.decoration !== null) {
+      if (!isString(f.decoration)) {
+        return err(`findings[${idx}].decoration must be a string`);
+      }
+      if (!VALID_DECORATIONS.has(f.decoration)) {
+        return err(
+          `findings[${idx}].decoration must be one of blocking|non-blocking|if-minor (got ${JSON.stringify(f.decoration)})`,
+        );
+      }
+    }
+  } else {
+    if (!isString(f.decoration)) {
+      return err(`findings[${idx}].decoration must be a string`);
+    }
+    if (!VALID_DECORATIONS.has(f.decoration)) {
+      return err(
+        `findings[${idx}].decoration must be one of blocking|non-blocking|if-minor (got ${JSON.stringify(f.decoration)})`,
+      );
+    }
   }
   if (!isNumber(f.confidence)) {
     return err(`findings[${idx}].confidence must be a number`);
