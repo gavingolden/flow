@@ -13,6 +13,8 @@
  *   - both                     → no annotation
  */
 
+import * as path from "node:path";
+
 import { computeCost, defaultProjectsRoot, EMPTY_COST, type CostBreakdown } from "./cost";
 import { friendlyName } from "./cost-pricing";
 import { argsContainHelp, printVerbHelp } from "./help";
@@ -29,6 +31,7 @@ export type LsOptions = {
 
 export type Row = {
   name: string;
+  repo: string;
   phase: string;
   pr: string;
   lastActivity: string;
@@ -106,6 +109,7 @@ export async function buildRows(
     if (window) matchedWindowIds.add(window.id);
     rows.push({
       name: state.slug,
+      repo: path.basename(state.repo),
       phase: state.phase || "—",
       pr: state.pr ? `#${state.pr}` : "—",
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
@@ -122,6 +126,7 @@ export async function buildRows(
     if (matchedWindowIds.has(window.id)) continue;
     rows.push({
       name: window.name,
+      repo: "",
       phase: "—",
       pr: "—",
       lastActivity:
@@ -147,10 +152,17 @@ export function formatCostCell(cost: CostBreakdown | undefined): string {
   return `${prefix}$${cost.total.toFixed(2)}`;
 }
 
+/** Renders the REPO column cell — an unmanaged `(no state)` row has no
+ * repo, so the empty string falls back to the em-dash placeholder. */
+export function formatRepoCell(repo: string): string {
+  return repo || "—";
+}
+
 function printTable(rows: Row[], opts: LsOptions): void {
   type Col = { header: string; get: (r: Row) => string };
   const cols: Col[] = [
     { header: "NAME", get: (r) => (r.annotation ? `${r.name} ${r.annotation}` : r.name) },
+    { header: "REPO", get: (r) => formatRepoCell(r.repo) },
     { header: "PHASE", get: (r) => r.phase },
     { header: "PR", get: (r) => r.pr },
     { header: "LAST ACTIVITY", get: (r) => r.lastActivity },

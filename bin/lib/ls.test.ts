@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRows, formatCostCell, runLsCli } from "./ls";
+import { buildRows, formatCostCell, formatRepoCell, runLsCli } from "./ls";
 import { encodeProjectSegment } from "./cost";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
@@ -154,6 +154,20 @@ describe(buildRows, () => {
     expect(rows[0].annotation).toBe("");
   });
 
+  it("exposes repo as the basename of state.repo for a managed row", async () => {
+    const rows = await buildRows(
+      [state({ slug: "x", repo: "/Users/me/code/my-project" })],
+      [window({ name: "x" })],
+      NOW,
+    );
+    expect(rows[0].repo).toBe("my-project");
+  });
+
+  it("leaves repo empty for a (no state) row", async () => {
+    const rows = await buildRows([], [window({ name: "manual" })], NOW);
+    expect(rows[0].repo).toBe("");
+  });
+
   it("does not double-count a renamed window as both state row and (no state) row", async () => {
     // Regression: if buildRows used `state.slug ↔ window.name` to gate the
     // (no state) emit, a renamed window would appear twice — once as the
@@ -215,6 +229,16 @@ describe("buildRows + cost", () => {
     expect(rows[0].cost?.total).toBeCloseTo(3, 6);
   });
 
+  it("still populates the repo column when opts.cost is true", async () => {
+    const rows = await buildRows(
+      [state({ slug: "widget-pipeline", repo: "/a/b/widget" })],
+      [window({ name: "widget-pipeline" })],
+      NOW,
+      { cost: true, projectsRoot },
+    );
+    expect(rows[0].repo).toBe("widget");
+  });
+
   it("returns hasData:false in the cost field when no JSONL exists", async () => {
     const rows = await buildRows(
       [state({ slug: "csv-export", repo: "/no/jsonl/here" })],
@@ -252,6 +276,16 @@ describe(formatCostCell, () => {
 });
 
 
+describe(formatRepoCell, () => {
+  it("renders — for an unmanaged (no state) row with no repo", () => {
+    expect(formatRepoCell("")).toBe("—");
+  });
+
+  it("renders the basename verbatim for a managed row", () => {
+    expect(formatRepoCell("my-project")).toBe("my-project");
+  });
+});
+
 describe("runLsCli (--help / -h short-circuit)", () => {
   // The help check must precede every state read and tmux query so the
   // shim is safe to invoke even when ~/.flow/state/ is unreadable.
@@ -269,4 +303,13 @@ describe("runLsCli (--help / -h short-circuit)", () => {
       err.mockRestore();
     });
   }
+
+  it("mentions the repository in the printed ls help text", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const code = await runLsCli(["--help"]);
+    expect(code).toBe(0);
+    const logged = log.mock.calls.map((c) => String(c[0]));
+    expect(logged.some((s) => /repositor/i.test(s))).toBe(true);
+    log.mockRestore();
+  });
 });
