@@ -22,7 +22,14 @@ are forbidden — every finding above the confidence threshold (or praise) appea
 
 #### `path/to/file.ts`
 
-**<label> (<decoration>): <subject>**
+The per-finding heading form is conditional on the label. For `praise`
+findings — which carry no decoration (conventional-comments.md Rule 2) —
+render `**praise: <subject>**` with no parenthesised decoration. For the
+other five labels (`nitpick`, `suggestion`, `issue`, `todo`, `question`),
+render `**<label> (<decoration>): <subject>**`.
+
+**<label> (<decoration>): <subject>**  ← nitpick, suggestion, issue, todo, question
+**praise: <subject>**  ← praise only
 - **Line(s)**: L<start>–L<end>
 - **Agent**: <Bug Detection | Security | Pattern/Consistency | Performance | Supply-Chain | Test Coverage>
 - **Confidence**: <score>/100

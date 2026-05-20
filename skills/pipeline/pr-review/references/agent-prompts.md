@@ -68,6 +68,11 @@ Labels: praise, nitpick, suggestion, issue, todo, question
 Decorations: blocking, non-blocking, if-minor
 Confidence: 0-100 (only findings >= 80 will be surfaced)
 
+`praise` findings omit the `decoration` field (or set it to `null`) — per
+conventional-comments.md Rule 2, every finding except `praise` MUST have a
+decoration, and praise never blocks merge. All other labels require a
+decoration.
+
 If you find nothing noteworthy, return an empty array: []
 
 Include a `praise` finding only when you can name the specific behaviour,

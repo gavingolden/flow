@@ -57,7 +57,6 @@ const VALID_AGENT_FINDINGS: unknown = {
       file: "src/lib/util.ts",
       line: 10,
       label: "praise",
-      decoration: "non-blocking",
       confidence: 95,
       subject: "Pure helper is easy to test",
       body: "The new helper at util.ts:10 has no side effects.",
@@ -125,6 +124,39 @@ describe("validateAgentFindings — happy paths", () => {
           confidence: 85,
           subject: "x",
           body: "y",
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts a praise finding with the decoration key entirely absent", () => {
+    const result = validateAgentFindings({
+      findings: [
+        {
+          file: "src/x.ts",
+          line: 1,
+          label: "praise",
+          confidence: 95,
+          subject: "Clean helper",
+          body: "The new helper is easy to test.",
+        },
+      ],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts a praise finding with decoration set to null", () => {
+    const result = validateAgentFindings({
+      findings: [
+        {
+          file: "src/x.ts",
+          line: 1,
+          label: "praise",
+          decoration: null,
+          confidence: 95,
+          subject: "Clean helper",
+          body: "The new helper is easy to test.",
         },
       ],
     });
@@ -206,6 +238,41 @@ describe("validateAgentFindings — rejections", () => {
     if (!result.ok) expect(result.reason).toContain("decoration");
   });
 
+  it("rejects a praise finding with an invalid enum decoration value", () => {
+    const result = validateAgentFindings({
+      findings: [
+        {
+          file: "src/x.ts",
+          line: 1,
+          label: "praise",
+          decoration: "critical",
+          confidence: 95,
+          subject: "x",
+          body: "y",
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("decoration");
+  });
+
+  it("rejects a non-praise finding with the decoration key absent", () => {
+    const result = validateAgentFindings({
+      findings: [
+        {
+          file: "src/x.ts",
+          line: 1,
+          label: "issue",
+          confidence: 92,
+          subject: "x",
+          body: "y",
+        },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("decoration");
+  });
+
   it("rejects a finding missing 'file'", () => {
     const result = validateAgentFindings({
       findings: [
@@ -242,6 +309,22 @@ describe("validateConsolidatorResult — happy paths", () => {
     const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
     fixture.rejected_alternatives = [];
     fixture.anti_patterns_found = [];
+    const result = validateConsolidatorResult(fixture);
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts a result whose consolidated_findings holds a praise finding with no decoration", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    fixture.consolidated_findings = [
+      {
+        file: "src/lib/util.ts",
+        line: 10,
+        label: "praise",
+        confidence: 95,
+        subject: "Pure helper is easy to test",
+        body: "The new helper at util.ts:10 has no side effects.",
+      },
+    ];
     const result = validateConsolidatorResult(fixture);
     expect(result.ok).toBe(true);
   });
@@ -419,6 +502,28 @@ describe("agent-finding-schema CLI — `--validate <path>`", () => {
 
   it("exits 0 with {ok: true} on stdout for a well-formed per-agent finding artifact", () => {
     withTmpFile(JSON.stringify(VALID_AGENT_FINDINGS), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+      expect(result.stderr).toBe("");
+    });
+  });
+
+  it("exits 0 with {ok: true} for a per-agent artifact whose praise finding omits decoration", () => {
+    const artifact = {
+      findings: [
+        {
+          file: "src/lib/util.ts",
+          line: 10,
+          label: "praise",
+          confidence: 95,
+          subject: "Pure helper is easy to test",
+          body: "The new helper at util.ts:10 has no side effects.",
+        },
+      ],
+    };
+    withTmpFile(JSON.stringify(artifact), (filePath) => {
       const result = runCli(["--validate", filePath]);
       expect(result.status).toBe(0);
       const parsed = JSON.parse(result.stdout.trim());
