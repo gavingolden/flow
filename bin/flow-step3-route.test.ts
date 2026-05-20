@@ -172,8 +172,42 @@ describe(extractRecommendedPath, () => {
     expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
   });
 
+  it.each([",", ";", ":"])(
+    "strips a trailing '%s' off a bare value (non-period terminators)",
+    (terminator) => {
+      const plan = `## Prompt interpretation\n\n- **Recommended path:** methods plausibly reach target${terminator}\n`;
+      expect(extractRecommendedPath(plan)).toBe(
+        "methods plausibly reach target",
+      );
+    },
+  );
+
+  it("strips a multi-char trailing punctuation run", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** methods plausibly reach target.,;:\n`;
+    expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
+  });
+
+  it("strips backticks and a multi-char trailing punctuation run", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** \`methods plausibly reach target\`,;\n`;
+    expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
+  });
+
   it("strips interleaved bold + backticks + a trailing period", () => {
     const plan = `## Prompt interpretation\n\n- **Recommended path:** **\`methods plausibly reach target\`**.\n`;
+    expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
+  });
+
+  it("strips backticks-outside-bold nested decoration (`**value**`)", () => {
+    // The motivating regression named by the intent annotation at
+    // flow-step3-route.ts L194: backticks OUTSIDE bold. The loop's
+    // per-pass branch checks `**` before backtick, so this ordering
+    // routes through a different code path than `**`...`**`.
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** \`**methods plausibly reach target**\`\n`;
+    expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
+  });
+
+  it("strips backticks-outside-bold nested decoration plus a trailing period", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** \`**methods plausibly reach target**\`.\n`;
     expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
   });
 
