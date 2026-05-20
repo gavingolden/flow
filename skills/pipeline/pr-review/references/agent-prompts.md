@@ -236,7 +236,7 @@ exclusively on: **could an attacker exploit this code?**
      not a verdict.
    - **`ENOAUDIT`, `ENETUNREACH`, `ECONNREFUSED`, `ETIMEDOUT`** (registry
      unreachable from the agent's network), or any unrecognised error code
-     (default to this branch as the safer interpretation) — surface a `todo`
+     (default to this branch as the safer interpretation) — surface a `suggestion`
      (non-blocking) noting CVE coverage is uncertain for this review and
      recommending the author re-run `npm audit` locally before merge.
      Confidence 80–85. Unlike `ENOLOCK`, this isn't a question for the author —
