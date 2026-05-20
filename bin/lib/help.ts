@@ -71,6 +71,8 @@ Options:
 
   ls: `flow ls — list active pipelines
 
+Lists each pipeline with its repository, phase, PR, and last activity.
+
 Usage:
   flow ls [--cost [--detail]]
 
