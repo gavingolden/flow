@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRows, formatCostCell, runLsCli } from "./ls";
+import { buildRows, formatCostCell, formatRepoCell, runLsCli } from "./ls";
 import { encodeProjectSegment } from "./cost";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
@@ -275,6 +275,16 @@ describe(formatCostCell, () => {
   });
 });
 
+
+describe(formatRepoCell, () => {
+  it("renders — for an unmanaged (no state) row with no repo", () => {
+    expect(formatRepoCell("")).toBe("—");
+  });
+
+  it("renders the basename verbatim for a managed row", () => {
+    expect(formatRepoCell("my-project")).toBe("my-project");
+  });
+});
 
 describe("runLsCli (--help / -h short-circuit)", () => {
   // The help check must precede every state read and tmux query so the

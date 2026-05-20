@@ -152,11 +152,17 @@ export function formatCostCell(cost: CostBreakdown | undefined): string {
   return `${prefix}$${cost.total.toFixed(2)}`;
 }
 
+/** Renders the REPO column cell — an unmanaged `(no state)` row has no
+ * repo, so the empty string falls back to the em-dash placeholder. */
+export function formatRepoCell(repo: string): string {
+  return repo || "—";
+}
+
 function printTable(rows: Row[], opts: LsOptions): void {
   type Col = { header: string; get: (r: Row) => string };
   const cols: Col[] = [
     { header: "NAME", get: (r) => (r.annotation ? `${r.name} ${r.annotation}` : r.name) },
-    { header: "REPO", get: (r) => r.repo || "—" },
+    { header: "REPO", get: (r) => formatRepoCell(r.repo) },
     { header: "PHASE", get: (r) => r.phase },
     { header: "PR", get: (r) => r.pr },
     { header: "LAST ACTIVITY", get: (r) => r.lastActivity },
