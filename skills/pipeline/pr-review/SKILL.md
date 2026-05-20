@@ -717,7 +717,7 @@ subagent rather than landing in the supervisor's transcript.
   self-contained JSON object containing both the lens findings and the matching meta
   slice — agents are instructed to check `meta.<lens>.ran` so the substituted block
   needs both. Construct each agent's `{{STATIC_ANALYSIS_FACTS}}` block by running
-  `bun bin/flow-pr-agent-lens.ts --agent <kebab-name>` against
+  `flow-pr-agent-lens --agent <kebab-name>` against
   `.flow-tmp/static-analysis.json` (the lens routing is owned by the helper; the
   agent table below lists the lens-per-agent for human reference).
 - Append the agent-specific section (Role, Process, False Positive Avoidance)
