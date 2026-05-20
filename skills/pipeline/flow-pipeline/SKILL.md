@@ -945,7 +945,7 @@ DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null \
                   | sed 's|^refs/remotes/origin/||')
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
 
-ADDED=$(git diff --name-only "origin/$DEFAULT_BRANCH...HEAD" | \
+ADDED=$(git diff --name-only --diff-filter=A "origin/$DEFAULT_BRANCH...HEAD" | \
           grep -E '^(skills|agents)/' || true)
 
 if [ -n "$ADDED" ]; then
@@ -966,11 +966,14 @@ else
 fi
 ```
 
-The detection grep uses `--name-only` plus the triple-dot range so
-the comparison reflects the worktree's diff against the merge-base,
-not the absolute set of changed files. The default-branch resolution
-mirrors `bin/flow-new-worktree.ts` and `bin/flow-pre-commit.ts`; do
-not hardcode `origin/main`.
+The detection grep uses `--name-only` plus `--diff-filter=A` and the
+triple-dot range so the comparison reflects only genuine file
+*additions* in the worktree's diff against the merge-base — matching
+the additions-only intent the `ADDED` variable name already implies.
+Modifications or deletions under `skills/`/`agents/` do not trigger a
+re-symlink; only new files do. The default-branch resolution mirrors
+`bin/flow-new-worktree.ts` and `bin/flow-pre-commit.ts`; do not
+hardcode `origin/main`.
 
 The `--source "$WORKTREE"` argument forces `flow setup` to read its
 content tree from the in-flight worktree rather than the original

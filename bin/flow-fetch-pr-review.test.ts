@@ -156,6 +156,13 @@ describe(formatComment, () => {
     expect(result).toContain("Fix this");
   });
 
+  it("should surface the numeric comment id on a labelled line", () => {
+    const comment = createComment({ id: 123456789, line: 42 });
+    const result = formatComment(comment, new Map());
+
+    expect(result).toContain("**Comment ID:** 123456789");
+  });
+
   it("should include replies as blockquotes", () => {
     const comment = createComment({ id: 1, body: "Fix this" });
     const reply = createComment({

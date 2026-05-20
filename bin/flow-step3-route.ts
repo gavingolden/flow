@@ -27,6 +27,10 @@
  *                            Recommended path is `methods plausibly
  *                            reach target` OR plan.md has no
  *                            Prompt-Interpretation section).
+ *                            Surrounding backtick/bold decoration and
+ *                            a trailing `. , ; :` punctuation run on
+ *                            the enum value are tolerated; case
+ *                            variants and trailing words are not.
  *   "route-to-step-4\n"   — emit AWAITING APPROVAL (feature intent OR
  *                            Recommended path is one of `extend scope
  *                            with named additional safe steps` /
@@ -65,11 +69,13 @@ const ALLOWED_INTENT_SET: ReadonlySet<string> = new Set(ALLOWED_INTENTS);
  * The "no tension" enum value. The other three Recommended-path values
  * (`extend scope with named additional safe steps`, `relax target`,
  * `split into multiple pipelines`) all signal tension; the helper
- * routes to Step 4 for any non-equal value. Exact-string match is
- * intentional: case-sensitive, no trailing-punctuation tolerance,
- * no substring match. "methods plausibly reach target eventually"
- * must NOT match — substring-tolerance is the silent-passthrough
- * footgun this helper exists to prevent.
+ * routes to Step 4 for any non-equal value. The match is exact against
+ * this canonical string AFTER `extractRecommendedPath` strips
+ * surrounding backtick/bold decoration and a trailing `. , ; :`
+ * punctuation run: it is case-sensitive and does NOT tolerate trailing
+ * words or substring variants. "methods plausibly reach target
+ * eventually" must NOT match — substring-tolerance is the
+ * silent-passthrough footgun this helper exists to prevent.
  *
  * Single source of truth for the four enum values:
  * skills/pipeline/product-planning/references/discovery-instructions.md
@@ -129,10 +135,12 @@ export function decideStep3Route(intent: Intent, planMd: string): Decision {
  * does NOT bound it.
  *
  * Value parsing tolerates bullet prefix (`- `), bolded label
- * (`**Recommended path:**`), and surrounding markdown decoration
- * (bolding or backticks around the value itself). It does NOT
- * tolerate trailing punctuation or case variants — exact-string
- * match against the canonical enum is the contract.
+ * (`**Recommended path:**`), surrounding markdown decoration
+ * (any interleaving of bolding and backticks around the value
+ * itself), and a trailing run of `. , ; :` punctuation. It does NOT
+ * tolerate case variants or a trailing WORD (`...target eventually`)
+ * — exact-string match against the canonical enum is the contract,
+ * and a trailing word is a paraphrase, not decoration.
  */
 export function extractRecommendedPath(planMd: string): string | null {
   const sectionMatch = planMd.match(/^## Prompt interpretation\s*$/m);
@@ -156,12 +164,34 @@ export function extractRecommendedPath(planMd: string): string | null {
     return null;
   }
 
+  // Normalise interleaved decoration to the bare enum string. Each
+  // pass strips ONE surrounding `**...**` pair, ONE surrounding
+  // `` `...` `` pair, OR a trailing `. , ; :` punctuation run, then
+  // loops; this collapses any ordering (e.g. backticks outside bold)
+  // and any trailing punctuation. Only decoration chars (* and
+  // backtick) and trailing `. , ; :` are stripped — never
+  // alphanumerics, never case-normalised, so a trailing word survives.
   let value = pathMatch[1].trim();
-  if (value.startsWith("**") && value.endsWith("**") && value.length > 4) {
-    value = value.slice(2, -2).trim();
-  }
-  if (value.startsWith("`") && value.endsWith("`") && value.length > 2) {
-    value = value.slice(1, -1).trim();
+  for (;;) {
+    let changed = false;
+    if (value.startsWith("**") && value.endsWith("**") && value.length > 4) {
+      value = value.slice(2, -2).trim();
+      changed = true;
+    } else if (
+      value.startsWith("`") &&
+      value.endsWith("`") &&
+      value.length > 2
+    ) {
+      value = value.slice(1, -1).trim();
+      changed = true;
+    } else {
+      const detrailed = value.replace(/[.,;:\s]+$/, "");
+      if (detrailed !== value) {
+        value = detrailed;
+        changed = true;
+      }
+    }
+    if (!changed) break;
   }
   return value;
 }

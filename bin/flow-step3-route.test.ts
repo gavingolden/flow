@@ -162,6 +162,28 @@ describe(extractRecommendedPath, () => {
     expect(extractRecommendedPath(plan)).toBe("Methods Plausibly Reach Target");
   });
 
+  it("strips backticks and a trailing period", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** \`methods plausibly reach target\`.\n`;
+    expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
+  });
+
+  it("strips a trailing period off a bare value", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** methods plausibly reach target.\n`;
+    expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
+  });
+
+  it("strips interleaved bold + backticks + a trailing period", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** **\`methods plausibly reach target\`**.\n`;
+    expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
+  });
+
+  it("does NOT strip a trailing word (trailing word is a paraphrase, not decoration)", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** methods plausibly reach target eventually\n`;
+    expect(extractRecommendedPath(plan)).toBe(
+      "methods plausibly reach target eventually",
+    );
+  });
+
   it("ignores a level-3 (###) Prompt-Interpretation heading", () => {
     // discovery-instructions.md specifies a top-level ## heading;
     // level-3 is intentionally not recognised.
@@ -194,6 +216,31 @@ describe("Tension matrix — case-sensitivity and substring guards", () => {
 
   it("treats prefix variants as tension ('roughly methods plausibly reach target')", () => {
     const plan = `## Prompt interpretation\n\n- **Recommended path:** roughly methods plausibly reach target\n`;
+    expect(decideStep3Route("bug", plan)).toBe("route-to-step-4");
+  });
+
+  it("advances to step 5 when the value carries surrounding backticks + a trailing period", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** \`methods plausibly reach target\`.\n`;
+    expect(decideStep3Route("bug", plan)).toBe("advance-to-step-5");
+  });
+
+  it("advances to step 5 when the bare value carries only a trailing period", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** methods plausibly reach target.\n`;
+    expect(decideStep3Route("bug", plan)).toBe("advance-to-step-5");
+  });
+
+  it("advances to step 5 when the value carries bold + backticks + a trailing period", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** **\`methods plausibly reach target\`**.\n`;
+    expect(decideStep3Route("bug", plan)).toBe("advance-to-step-5");
+  });
+
+  it("routes to step 4 for a trailing word ('eventually' is a paraphrase, not punctuation)", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** methods plausibly reach target eventually\n`;
+    expect(decideStep3Route("bug", plan)).toBe("route-to-step-4");
+  });
+
+  it("routes to step 4 for a case variant even with a trailing period", () => {
+    const plan = `## Prompt interpretation\n\n- **Recommended path:** Methods plausibly reach target.\n`;
     expect(decideStep3Route("bug", plan)).toBe("route-to-step-4");
   });
 });
