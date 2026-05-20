@@ -103,6 +103,14 @@ describe("flow-pipeline supervisor SKILL.md", () => {
       expect(hardRules).toMatch(/approval-pending-clarification/);
     });
 
+    it("guard enumerates ci-wait-pending as a legitimate turn-end (step 7 yield)", () => {
+      // ci-wait-pending is the pending phase the supervisor writes when the
+      // harness force-backgrounds the long-running flow-ci-wait call. Same
+      // contract as the other pending phases above — flow-stop-guard reads
+      // the phase string to allow the yield turn-end.
+      expect(hardRules).toMatch(/ci-wait-pending/);
+    });
+
     it("guard names the harness-level enforcement mechanism (flow-stop-guard)", () => {
       expect(hardRules).toMatch(/flow-stop-guard/);
     });
@@ -198,6 +206,21 @@ describe("flow-pipeline supervisor SKILL.md", () => {
       // rather than emitted as ad-hoc prose; the sentinel itself is
       // still byte-exact `MERGED` (the helper's final stdout line).
       expect(step7).toMatch(/flow-gate-summary --status merged/);
+    });
+
+    it("step 7 documents the ci-wait-pending yield-and-resume fallback", () => {
+      // When the harness force-backgrounds the long-running flow-ci-wait
+      // call, the supervisor writes ci-wait-pending and ends the turn
+      // rather than hand-rolling a manual poll loop; on re-invocation it
+      // re-reads the verdict and branches on .decision as in the
+      // foreground path.
+      const step7 = sliceStep(readSkill(), "## Step 7 ");
+      expect(step7).toMatch(/ci-wait-pending/);
+      // Prettier may wrap the flow-state-update command across a line
+      // break, so tolerate intervening whitespace between the flag and
+      // the phase value.
+      expect(step7).toMatch(/--phase\s+ci-wait-pending/);
+      expect(step7).toMatch(/backgrounded?/i);
     });
   });
 });

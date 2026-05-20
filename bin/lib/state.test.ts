@@ -302,12 +302,25 @@ describe("phase constants", () => {
     expect(PENDING_PHASES).toContain("triaged-no-change");
     expect(PENDING_PHASES).toContain("triage-pending-clarification");
     expect(PENDING_PHASES).toContain("approval-pending-clarification");
+    expect(PENDING_PHASES).toContain("ci-wait-pending");
+  });
+
+  it("ci-wait-pending is a pending phase, disjoint from STEP and TERMINAL", () => {
+    // The yielded counterpart to the active `ci-wait` step phase: the
+    // supervisor legitimately ends its turn at ci-wait-pending while
+    // flow-ci-wait runs force-backgrounded.
+    expect(PENDING_PHASES).toContain("ci-wait-pending");
+    expect(STEP_PHASES as readonly string[]).not.toContain("ci-wait-pending");
+    expect(TERMINAL_PHASES as readonly string[]).not.toContain("ci-wait-pending");
+    expect(isLegitimateEndPhase("ci-wait-pending")).toBe(true);
+    expect(isPipelinePhase("ci-wait-pending")).toBe(true);
   });
 
   it("isPipelinePhase narrows known phases", () => {
     expect(isPipelinePhase("implementing")).toBe(true);
     expect(isPipelinePhase("merged")).toBe(true);
     expect(isPipelinePhase("plan-pending-review")).toBe(true);
+    expect(isPipelinePhase("ci-wait-pending")).toBe(true);
     expect(isPipelinePhase("implmenting")).toBe(false);
     expect(isPipelinePhase("")).toBe(false);
   });

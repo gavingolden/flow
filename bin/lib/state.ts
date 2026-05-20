@@ -49,6 +49,7 @@ export const PENDING_PHASES = [
   "triaged-no-change",
   "triage-pending-clarification",
   "approval-pending-clarification",
+  "ci-wait-pending",
 ] as const;
 
 export const STEP_PHASES = [

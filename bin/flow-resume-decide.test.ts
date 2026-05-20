@@ -233,6 +233,19 @@ describe("decide() — row 7 (ci-wait)", () => {
     expect(r.resumeAt).toBe("step-7");
     expect(r.reason).toMatch(/yet/i);
   });
+
+  it("resumes at step-7 when phase is 'ci-wait-pending' (yielded while flow-ci-wait was backgrounded)", () => {
+    // ci-wait-pending implies verify is complete just as ci-wait does, so a
+    // crash while yielded must resume at step-7 (re-enter the poll loop),
+    // not fall through to step-6.
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "ci-wait-pending" }),
+        ciState: { kind: "pending" },
+      }),
+    );
+    expect(r.resumeAt).toBe("step-7");
+  });
 });
 
 describe("decide() — row 8 (pr-review on HEAD)", () => {

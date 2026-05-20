@@ -122,11 +122,15 @@ export type Inputs = {
 export const TERMINAL_PHASES = new Set(["merged", "gated", "cancelled"]);
 
 // Row 4: approval done — phase advanced past plan-pending-review.
+// `ci-wait-pending` (the step-7 yield-while-backgrounded pending phase)
+// implies every earlier phase is complete, so it belongs in all three
+// "phase advanced past row N" sets below alongside `ci-wait`.
 const POST_APPROVAL_PHASES = new Set([
   "implementing",
   "installing-skills",
   "verifying",
   "ci-wait",
+  "ci-wait-pending",
   "reviewing",
   "gating",
   "merging",
@@ -138,6 +142,7 @@ const POST_APPROVAL_PHASES = new Set([
 const POST_SYMLINK_PHASES = new Set([
   "verifying",
   "ci-wait",
+  "ci-wait-pending",
   "reviewing",
   "gating",
   "merging",
@@ -145,9 +150,13 @@ const POST_SYMLINK_PHASES = new Set([
   "gated",
 ]);
 
-// Row 6: verify done — phase advanced past verifying.
+// Row 6: verify done — phase advanced past verifying. `ci-wait-pending`
+// is the step-7 yield-while-backgrounded pending phase; it implies verify
+// is complete just as `ci-wait` does, so a crash while yielded resumes at
+// step-7 (row 7) rather than falling through to step-6.
 const POST_VERIFY_PHASES = new Set([
   "ci-wait",
+  "ci-wait-pending",
   "reviewing",
   "gating",
   "merging",

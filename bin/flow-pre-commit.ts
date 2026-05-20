@@ -3,7 +3,9 @@
  * Runs verification checks with automatic scope detection.
  *
  * Detects which project areas have changes (src, scripts, docs) and runs
- * the appropriate checks for each.
+ * the appropriate checks for each. The `src`, `scripts`, and `root-fallback`
+ * scopes additionally run `npm run lint` (a repo-wide `prettier --check .`);
+ * filterDefinedChecks keeps it inert in repos with no `lint` script.
  *
  * Usage:
  *   flow-pre-commit                    # auto-detect from git diff
@@ -300,11 +302,13 @@ export function checksForScope(scope: Scope): CheckDef[] {
       return [
         { name: "npm run typecheck", argv: ["npm", "run", "typecheck"] },
         { name: "npm run test", argv: ["npm", "run", "test"] },
+        { name: "npm run lint", argv: ["npm", "run", "lint"] },
       ];
     case "scripts":
       return [
         { name: "npm run typecheck:scripts", argv: ["npm", "run", "typecheck:scripts"] },
         { name: "npm run test", argv: ["npm", "run", "test"] },
+        { name: "npm run lint", argv: ["npm", "run", "lint"] },
       ];
     case "docs":
       return [{ name: "flow-md-validate .", argv: ["flow-md-validate", "."] }];
@@ -322,10 +326,11 @@ export function checksForScope(scope: Scope): CheckDef[] {
       ];
     case "root-fallback":
       // Mirror src's check set: a consumer repo whose source layout doesn't
-      // match flow's prefixes still expects typecheck + test at the root.
+      // match flow's prefixes still expects typecheck + test + lint at the root.
       return [
         { name: "npm run typecheck", argv: ["npm", "run", "typecheck"] },
         { name: "npm run test", argv: ["npm", "run", "test"] },
+        { name: "npm run lint", argv: ["npm", "run", "lint"] },
       ];
   }
 }
@@ -745,13 +750,15 @@ Options:
 When no flags are given, scopes are auto-detected from \`git diff HEAD\`.
 
 Check mapping:
-  src:            npm run typecheck, npm run test
-  scripts:        npm run typecheck:scripts, npm run test
+  src:            npm run typecheck, npm run test, npm run lint
+  scripts:        npm run typecheck:scripts, npm run test, npm run lint
   docs:           flow-md-validate .
   actions:        actionlint .github/workflows/
   backend:        go vet -C backend ./..., go test -C backend ./...
-  root-fallback:  npm run typecheck, npm run test
+  root-fallback:  npm run typecheck, npm run test, npm run lint
                   (fires when no other scope matched)
+
+The lint check is skipped when no 'lint' npm script is defined.
 
 The same checks may run multiple times if multiple scopes are detected.
 Each check is run independently and reports its own pass/fail.
