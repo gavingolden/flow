@@ -21,7 +21,7 @@ bun bin/flow setup
 `flow setup`:
 
 - Symlinks every skill from `~/code/flow/skills/{pipeline,universal,stacks}/` into `~/.claude/skills/`. Available in every project, zero per-repo declaration.
-- Symlinks every helper (`flow-new-worktree`, `flow-pre-commit`, `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-remove-worktree`, `flow-state-update`) into `~/.local/bin/`.
+- Symlinks every helper (`flow-new-worktree`, `flow-pre-commit`, `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-remove-worktree`, `flow-state-update`, `flow-pr-review-result-schema`, `flow-agent-finding-schema`) into `~/.local/bin/`.
 - Symlinks the `flow` wrapper itself into `~/.local/bin/flow`.
 - Records every symlink in `~/.flow/installed.json` so `flow setup --upgrade` can reap orphans deterministically.
 

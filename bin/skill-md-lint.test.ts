@@ -1518,3 +1518,52 @@ describe("pr-review Step 11e inversion contract", () => {
     ).toBe(true);
   });
 });
+
+describe("pipeline skills invoke PATH binaries, not cwd-relative bun bin/ paths", () => {
+  // Pipeline skills run from a per-pipeline worktree whose cwd is unknown at
+  // authoring time. An executable invocation written as `bun bin/lib/<x>.ts`
+  // or `bun bin/flow-<x>.ts` only resolves when cwd is the flow repo root —
+  // it breaks in every consumer worktree. `flow setup` symlinks the helpers
+  // (and, via discoverValidators, the schema validators) onto PATH, so the
+  // skills must invoke them by bare name. This lint walks every SKILL.md and
+  // references/*.md under skills/pipeline/ and fails on any `bun bin/lib/` or
+  // `bun bin/flow-` executable-invocation token. The regex anchors on those
+  // two prefixes so it does NOT false-positive on bare `bin/lib/...` prose
+  // path mentions, the `bun bin/<helper>.test.ts` placeholder snippet,
+  // `bun bin/foo --help`, or `bun bin/flow setup`.
+  const PIPELINE_DIR = path.resolve(HERE, "..", "skills", "pipeline");
+  const EXEC_INVOCATION_RE = /bun bin\/(lib\/|flow-)/;
+
+  function walkMarkdown(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        out.push(...walkMarkdown(full));
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        out.push(full);
+      }
+    }
+    return out;
+  }
+
+  const mdFiles = walkMarkdown(PIPELINE_DIR);
+
+  it.each(mdFiles.map((f) => [path.relative(PIPELINE_DIR, f), f]))(
+    "skills/pipeline/%s carries no `bun bin/lib/` or `bun bin/flow-` executable invocation",
+    (_rel, absPath) => {
+      const lines = fs.readFileSync(absPath, "utf8").split("\n");
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        expect(
+          EXEC_INVOCATION_RE.test(line),
+          `${absPath}:${i + 1} invokes a cwd-relative path: ${JSON.stringify(line)}. ` +
+            `Pipeline skills run from an unknown worktree cwd — invoke the bare ` +
+            `PATH-binary name instead (e.g. 'flow-pr-review-result-schema', ` +
+            `'flow-agent-finding-schema', 'flow-fetch-intent-comments'), which ` +
+            `'flow setup' symlinks onto PATH.`,
+        ).toBe(false);
+      }
+    },
+  );
+});

@@ -70,7 +70,7 @@ The wrapper passes you these inputs in its spawn prompt:
 For each of the six per-agent paths, run:
 
 ```bash
-bun bin/lib/agent-finding-schema.ts --validate "$PER_AGENT_PATH"
+flow-agent-finding-schema --validate "$PER_AGENT_PATH"
 ```
 
 Exit-1 outcomes are split by source:
@@ -170,11 +170,11 @@ cat > "$ARTIFACT_PATH.tmp" <<EOF
 }
 EOF
 
-bun bin/lib/agent-finding-schema.ts --validate "$ARTIFACT_PATH.tmp" \
+flow-agent-finding-schema --validate "$ARTIFACT_PATH.tmp" \
   && mv "$ARTIFACT_PATH.tmp" "$ARTIFACT_PATH"
 ```
 
-The `bun bin/lib/agent-finding-schema.ts --validate` invocation
+The `flow-agent-finding-schema --validate` invocation
 dispatches by JSON shape: presence of `consolidated_findings` routes
 to `validateConsolidatorResult`. On validation failure, leave the
 `.tmp` file on disk for inspection and escalate
@@ -230,7 +230,7 @@ Two escalation paths are documented in
 [references/escalation-recipes.md](escalation-recipes.md):
 
 - **`consolidator-schema-failure`** — fires when
-  `bun bin/lib/agent-finding-schema.ts --validate` exits 1 on any of
+  `flow-agent-finding-schema --validate` exits 1 on any of
   the six per-agent outputs (one of the upstream agents produced
   malformed JSON), or on the consolidator's own pre-`mv`
   `validateConsolidatorResult` call (the consolidator itself produced
@@ -278,7 +278,7 @@ Before writing the artifact and returning, self-check:
 - `rejected_alternatives[]` and `anti_patterns_found[]` are populated
   whenever you considered alternatives or saw off-pattern code.
 - The artifact JSON parses and passes
-  `bun bin/lib/agent-finding-schema.ts --validate` on the `.tmp` file
+  `flow-agent-finding-schema --validate` on the `.tmp` file
   before the `mv`.
 - The return summary is 3–5 sentences and surfaces both positive and
   negative findings.

@@ -1180,7 +1180,7 @@ artifact` section). Read it exactly once and validate the shape
 before branching:
 
 ```bash
-bun bin/lib/pr-review-result-schema.ts --validate \
+flow-pr-review-result-schema --validate \
   "$WORKTREE/.flow-tmp/pr-review-result.json"
 ```
 

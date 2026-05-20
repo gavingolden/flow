@@ -16,7 +16,7 @@ import { readManifest } from "./manifest";
 import { LockTimeoutError } from "./lock";
 import { removeIfManagedSymlink } from "./symlink";
 import { countStopHook } from "./settings-merge";
-import { discoverHelpers } from "./sources";
+import { discoverHelpers, discoverValidators } from "./sources";
 
 let scratch!: string;
 let flowSource!: string;
@@ -119,6 +119,27 @@ describe("flow setup", () => {
     const names = helpers.map((h) => h.displayName);
     expect(names).toContain("flow-annotate-pr");
     expect(names).toContain("flow-fetch-intent-comments");
+  });
+
+  it("discovers the two schema validators via the discoverValidators allowlist", () => {
+    // Regression guard: discoverValidators ships exactly the two validators
+    // named in the VALIDATOR_MODULES allowlist — pr-review-result-schema and
+    // agent-finding-schema — sourced from bin/lib/ with a `flow-` install
+    // target prefix. It must NOT pick up coder-schema (not on the allowlist)
+    // or any `*-schema.test.ts` file. Run against the real repo's bin/lib/
+    // rather than the synthetic fixture so this test fires if a future
+    // refactor regresses the allowlist or the naming.
+    const repoRoot = path.resolve(__dirname, "..", "..");
+    const validators = discoverValidators(repoRoot);
+    expect(validators).toHaveLength(2);
+    const names = validators.map((v) => path.basename(v.target)).sort();
+    expect(names).toEqual(["flow-agent-finding-schema", "flow-pr-review-result-schema"]);
+    for (const entry of validators) {
+      expect(entry.kind).toBe("bin");
+      expect(entry.source.includes(path.join("bin", "lib"))).toBe(true);
+    }
+    expect(names).not.toContain("flow-coder-schema");
+    expect(names.some((n) => n.endsWith(".test"))).toBe(false);
   });
 
   it("writes a manifest recording every symlink it created", () => {

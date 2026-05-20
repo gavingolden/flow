@@ -102,7 +102,7 @@ cat > "$RESULT_PATH.tmp" <<EOF
   "summary": "<step-12 headline>"
 }
 EOF
-bun bin/lib/pr-review-result-schema.ts --validate "$RESULT_PATH.tmp" \
+flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
   && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
 ```
 
