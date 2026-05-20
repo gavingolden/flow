@@ -1744,6 +1744,16 @@ describe(isSmallFollowup, () => {
     expect(isSmallFollowup("from", "to", gh)).toBe(false);
   });
 
+  it("returns false when files is absent and the kind signal does not match (fail-open)", () => {
+    const gh = ghFromQueue([
+      {
+        stdout: JSON.stringify({ messages: ["feat: change"] }),
+        exitCode: 0,
+      },
+    ]);
+    expect(isSmallFollowup("from", "to", gh)).toBe(false);
+  });
+
   it("returns false when gh exits non-zero (fail-open)", () => {
     const gh = ghFromQueue([{ stdout: "", exitCode: 1 }]);
     expect(isSmallFollowup("from", "to", gh)).toBe(false);

@@ -294,7 +294,7 @@ export const FIX_APPLIER_COMMIT_MARKER = /\(pr-review #\d+\)/;
  *    AND).
  *
  * Failure semantics — fail-open: any `gh` non-zero exit, malformed
- * JSON, or empty commits array collapses to `false` so the caller
+ * JSON, or empty `messages` array collapses to `false` so the caller
  * proceeds to fire the retrigger. A transient `gh` hiccup must not
  * suppress a real retrigger.
  *
