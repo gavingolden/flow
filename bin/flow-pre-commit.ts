@@ -149,7 +149,10 @@ const ZERO_SHA = "0000000000000000000000000000000000000000";
 //
 // `docs` matches by extension (.md), not prefix — markdown files live everywhere
 // (root-level READMEs, docs/, skills/.../SKILL.md). Prefix matching would miss
-// most of them.
+// most of them. This extension match intentionally covers `.claude/**/*.md` too —
+// skill references and agent docs under a consumer's `.claude/` tree — which is
+// why no `.claude/` prefix is needed in the matcher: the `.md` extension already
+// catches them everywhere they live.
 //
 // `actions` is an AND-matcher: a file must live under `.github/workflows/`
 // AND end in `.yml`/`.yaml` to trip it (a markdown note under the workflows

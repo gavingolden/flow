@@ -132,6 +132,21 @@ describe(detectScopesFromFiles, () => {
     ]);
   });
 
+  it("should detect docs scope from a .claude/ skill-reference markdown path", () => {
+    expect(detectScopesFromFiles([".claude/skills/foo/reference.md"])).toEqual(["docs"]);
+  });
+
+  it("should detect both scripts and docs from a mixed .claude/ markdown + bin/ change", () => {
+    expect(detectScopesFromFiles([".claude/skills/foo/SKILL.md", "bin/x.ts"])).toEqual([
+      "scripts",
+      "docs",
+    ]);
+  });
+
+  it("should NOT trip docs for a .claude/ non-markdown file (extension-not-prefix — settings.json lands in root-fallback)", () => {
+    expect(detectScopesFromFiles([".claude/settings.json"])).toEqual(["root-fallback"]);
+  });
+
   it("should deduplicate scopes", () => {
     const files = ["src/a.ts", "src/b.ts", "src/c.ts"];
     expect(detectScopesFromFiles(files)).toEqual(["src"]);
