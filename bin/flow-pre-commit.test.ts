@@ -143,6 +143,10 @@ describe(detectScopesFromFiles, () => {
     ]);
   });
 
+  it("should NOT trip docs for a .claude/ non-markdown file (extension-not-prefix — settings.json lands in root-fallback)", () => {
+    expect(detectScopesFromFiles([".claude/settings.json"])).toEqual(["root-fallback"]);
+  });
+
   it("should deduplicate scopes", () => {
     const files = ["src/a.ts", "src/b.ts", "src/c.ts"];
     expect(detectScopesFromFiles(files)).toEqual(["src"]);
