@@ -1039,6 +1039,12 @@ function buildFakeFlowSourceWithGit(root: string, skillsInTree: string[]): void 
   run(root, ["add", "."]);
   run(root, ["commit", "-m", "init"]);
   run(root, ["push", "origin", "main"]);
+  // Populate refs/remotes/origin/* explicitly so the fixture genuinely
+  // mirrors a freshly-cloned repo. The backstop probe in symlink.ts
+  // (`git ls-tree -r origin/main`) and the symbolic-ref below both need
+  // refs/remotes/origin/main to exist; not relying on a `git push`
+  // remote-tracking-ref side-effect keeps the fixture deterministic.
+  run(root, ["fetch", "origin"]);
   // Set up origin/HEAD so resolveDefaultBranch's symbolic-ref probe works
   // (mirrors a freshly-cloned repo).
   run(root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);

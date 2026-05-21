@@ -78,3 +78,47 @@ describe("reusable-workflow self-checkout SHA resolution (regression: PR #158 + 
     });
   }
 });
+
+describe("ci.yml verify-gate workflow shape (regression: PR #207)", () => {
+  // ci.yml is not a reusable workflow, so the loop above (`if (!isReusable)
+  // continue;`) gives it zero assertions. These checks are the regression
+  // home for the workflow's own correctness — SHA-pinned actions, both
+  // runtimes, the PR + push-to-main triggers — replacing the one-shot grep
+  // checks the PR #207 Test Steps section carried as a manual checklist.
+  const CI_YML = path.join(WORKFLOWS_DIR, "ci.yml");
+
+  if (!fs.existsSync(CI_YML)) {
+    it.skip("ci.yml not found", () => {});
+    return;
+  }
+
+  const body = fs.readFileSync(CI_YML, "utf8");
+
+  it("invokes `npm run verify`", () => {
+    expect(body).toMatch(/npm run verify/);
+  });
+
+  it("triggers on pull_request and on push to main", () => {
+    expect(body).toMatch(/^\s*pull_request:/m);
+    expect(body).toMatch(/branches:\s*\[\s*main\s*\]/);
+  });
+
+  it("sets up both Node and Bun runtimes", () => {
+    expect(body).toMatch(/actions\/setup-node@/);
+    expect(body).toMatch(/oven-sh\/setup-bun@/);
+  });
+
+  it("SHA-pins every third-party action to a 40-char commit", () => {
+    const usesLines = body
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("uses:") || line.startsWith("- uses:"));
+
+    expect(usesLines.length).toBeGreaterThan(0);
+    for (const line of usesLines) {
+      // `uses: owner/repo@<sha>` — the ref after `@` must be a full 40-char
+      // hex SHA, never a mutable tag or branch.
+      expect(line).toMatch(/uses:\s*[^@\s]+@[0-9a-f]{40}\b/);
+    }
+  });
+});

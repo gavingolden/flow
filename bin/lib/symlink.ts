@@ -62,17 +62,21 @@ export function ensureSymlink(target: string, source: string, force: boolean): L
  * Removes `target` only if it's a symlink we own per the manifest's recorded
  * source. Returns true if removed, false otherwise.
  *
- * The check has two branches:
- *   1. The on-disk symlink points at the recorded source (with realpath
+ * The check has two branches, evaluated dangling-first:
+ *   1. The symlink is dangling (link target does not exist on disk). We
+ *      recorded this target, so reaping it is safe — EXCEPT when
+ *      `shouldDeferDanglingReap` reports the recorded source still lives in
+ *      origin/<default>'s tree (a `git pull` would restore it). This branch
+ *      must run first: a symlink whose recorded source was deleted from the
+ *      working tree still string-matches branch 2 below, so checking branch 2
+ *      first unlinks it before the backstop can run. That bypass was
+ *      Linux-only — macOS's /var → /private/var canonicalization happened to
+ *      make `resolved !== recordedAbs`, dodging the branch-2 match and
+ *      falling through to the backstop by accident.
+ *   2. The on-disk symlink points at the recorded source (with realpath
  *      canonicalization on both sides — `ensureSymlink` writes realpath'd
  *      pointers, and platform-level canonicalization like /var → /private/var
  *      on macOS would otherwise yield false negatives). Remove — still ours.
- *   2. The symlink is dangling (link target does not exist on disk). Remove —
- *      we recorded this target and the file the link pointed at is gone, so
- *      reaping it is safe even if the pointer no longer references the
- *      recorded source. This is the cleanup path for legacy damage left by
- *      prior `--source <worktree>` runs whose worktree was removed
- *      post-merge.
  *
  * Working symlinks pointing somewhere unexpected (the user replaced ours
  * with their own that still resolves) are preserved.
@@ -94,11 +98,6 @@ export function removeIfManagedSymlink(
     // Recorded source no longer exists — fall through to the dangling check.
   }
 
-  if (resolved === recordedAbs || (recordedReal !== null && resolved === recordedReal)) {
-    fs.unlinkSync(target);
-    return true;
-  }
-
   if (!fs.existsSync(resolved)) {
     if (shouldDeferDanglingReap(recordedSource, opts)) {
       const branch = opts!.defaultBranch!;
@@ -108,6 +107,11 @@ export function removeIfManagedSymlink(
       );
       return false;
     }
+    fs.unlinkSync(target);
+    return true;
+  }
+
+  if (resolved === recordedAbs || (recordedReal !== null && resolved === recordedReal)) {
     fs.unlinkSync(target);
     return true;
   }
