@@ -84,12 +84,20 @@ export function parseArgs(argv: string[]): Args | { error: string } {
 
 /**
  * Minimal sanity check on a session ID before it is injected into a PR
- * body or a state file. Rejects empty/whitespace-only values and any
- * value carrying a newline (which would break the single-line marker).
+ * body or a state file. Rejects empty/whitespace-only values, any value
+ * carrying a newline (which would break the single-line marker), and any
+ * value carrying an HTML-comment delimiter (`<!--` / `-->`) — a crafted
+ * `-->` would close `sessionMarker`'s comment early and survive the
+ * auto-merge gate's non-greedy comment strip as live markdown.
  */
 export function isValidSessionId(value: string): boolean {
   const trimmed = value.trim();
-  return trimmed.length > 0 && !value.includes("\n");
+  return (
+    trimmed.length > 0 &&
+    !value.includes("\n") &&
+    !value.includes("-->") &&
+    !value.includes("<!--")
+  );
 }
 
 /**

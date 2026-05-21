@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseArgs, readCurrentPr, run } from "./flow-open-pr";
+import { isValidSessionId, parseArgs, readCurrentPr, run } from "./flow-open-pr";
 import { runUpdate } from "./flow-state-update";
 
 let scratch!: string;
@@ -479,6 +479,24 @@ describe("flow-open-pr run()", () => {
     // The marker is appended only on fresh create — the body file is untouched.
     expect(fs.readFileSync(bodyFile, "utf8")).not.toContain("Claude Code session");
   });
+});
+
+describe("isValidSessionId", () => {
+  const cases: Array<[label: string, input: string, expected: boolean]> = [
+    ["valid UUID-shaped id", "b034430c-03bd-4fa0-8393-9f0859800531", true],
+    ["leading/trailing whitespace but non-empty", "  abc123  ", true],
+    ["empty string", "", false],
+    ["whitespace-only", "   ", false],
+    ["newline-bearing", "id-with\nnewline", false],
+    ["carries an HTML comment closer `-->`", "uuid--> - [ ] injected", false],
+    ["carries an HTML comment opener `<!--`", "uuid<!--x", false],
+  ];
+
+  for (const [label, input, expected] of cases) {
+    it(`${expected ? "accepts" : "rejects"} ${label}`, () => {
+      expect(isValidSessionId(input)).toBe(expected);
+    });
+  }
 });
 
 type GhResponse = { stdout: string; stderr: string; exitCode: number };
