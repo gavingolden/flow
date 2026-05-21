@@ -1039,6 +1039,12 @@ function buildFakeFlowSourceWithGit(root: string, skillsInTree: string[]): void 
   run(root, ["add", "."]);
   run(root, ["commit", "-m", "init"]);
   run(root, ["push", "origin", "main"]);
+  // Populate refs/remotes/origin/* explicitly. `git push` updating the
+  // remote-tracking ref is a side-effect that is not guaranteed across git
+  // versions (git 2.54 no longer creates it here); an explicit fetch is the
+  // version-portable way to land refs/remotes/origin/main, which the backstop
+  // probe (`git ls-tree -r origin/main`) and the symbolic-ref below both need.
+  run(root, ["fetch", "origin"]);
   // Set up origin/HEAD so resolveDefaultBranch's symbolic-ref probe works
   // (mirrors a freshly-cloned repo).
   run(root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
