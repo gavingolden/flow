@@ -4,10 +4,10 @@
 # `/flow-pipeline` never invokes that gate, and an in-pipeline run can pass
 # falsely when the PATH-symlinked binary executes stale pre-edit code.
 #
-# Recommended: make the `CI / verify` check a required status check via
-# branch protection on `main` so red PRs cannot be merged. The selectable
-# check name is the `<workflow name> / <job name>` context — `CI / verify`
-# here, not the bare job name `verify`. See AGENTS.md.
+# Recommended: make the `verify` job a required status check (via a branch
+# ruleset, or classic branch protection) on `main` so red PRs cannot be
+# merged. The status check to select is the job name `verify` (GitHub may
+# display it as `CI / verify` in the PR checks tab). See AGENTS.md.
 
 name: CI
 

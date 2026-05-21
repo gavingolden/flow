@@ -285,10 +285,10 @@ server-side backstop for the local-only `flow-pre-commit` gate, which a
 human pushing a PR outside `/flow-pipeline` never invokes and which an
 in-pipeline run can pass falsely against stale PATH-symlinked code. The
 runner installs both Node and Bun — the vitest suite spawns `bun` as a
-subprocess. **Make the `CI / verify` check a required status check** via
-branch protection on `main` (Settings → Branches) so a red PR cannot be
-merged — the selectable check name is the `<workflow name> / <job name>`
-context (`CI / verify`), not the bare job name `verify`. This is a
+subprocess. **Make the `verify` job a required status check** via a
+branch ruleset (or classic branch protection) on `main` so a red PR
+cannot be merged — the status check to select is the job name `verify`
+(GitHub may display it as `CI / verify` in the PR checks tab). This is a
 repo-admin setting, not something the workflow file can enforce.
 
 ## What flow is *not*
