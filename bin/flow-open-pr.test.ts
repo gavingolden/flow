@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { parseArgs, readCurrentPr, run } from "./flow-open-pr";
+import { isValidSessionId, parseArgs, readCurrentPr, run } from "./flow-open-pr";
 import { runUpdate } from "./flow-state-update";
 
 let scratch!: string;
@@ -180,7 +180,13 @@ describe("flow-open-pr run()", () => {
       { matches: isView, response: prJson },
     ]);
 
-    const exit = run(["alpha", "--body-file", bodyFile, "--title", "feat: x"], { gh, updater });
+    // sessionId: "" pins the no-marker path so the assertion holds
+    // regardless of an ambient CLAUDE_CODE_SESSION_ID in the harness env.
+    const exit = run(["alpha", "--body-file", bodyFile, "--title", "feat: x"], {
+      gh,
+      updater,
+      sessionId: "",
+    });
     expect(exit).toBe(0);
     expect(calls[1]).toEqual(["pr", "create", "--body-file", bodyFile, "--title", "feat: x"]);
     expect(readState("alpha").pr).toBe(142);
@@ -330,6 +336,167 @@ describe("flow-open-pr run()", () => {
     expect(updaterCalls[0]?.[0]).toBe("iota");
     expect(readState("iota").pr).toBe(9);
   });
+
+  // --- session-ID marker + trailer carrier ---------------------------------
+
+  const VALID_SESSION = "b034430c-03bd-4fa0-8393-9f0859800531";
+
+  /** Reads the `--body-file` content from a recorded `gh pr create` call. */
+  function createBodyContent(calls: string[][]): string {
+    const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create");
+    if (!createCall) throw new Error("no pr create call recorded");
+    const idx = createCall.indexOf("--body-file");
+    return fs.readFileSync(createCall[idx + 1], "utf8");
+  }
+
+  it("appends the self-describing marker on a fresh create when the session ID is valid", () => {
+    seedState("marker-create");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 31, url: "https://github.com/x/y/pull/31" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["marker-create", "--body-file", bodyFile], {
+      gh,
+      updater,
+      sessionId: VALID_SESSION,
+    });
+    expect(exit).toBe(0);
+    const body = createBodyContent(calls);
+    expect(body).toContain("## Why"); // original body preserved
+    expect(body).toContain("Claude Code session");
+    expect(body).toContain(VALID_SESSION);
+    expect(body).toContain("<!-- flow:");
+  });
+
+  it("does not append a marker when the session ID is absent", () => {
+    seedState("no-session");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 32, url: "https://github.com/x/y/pull/32" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    // sessionId: "" models the "no CLAUDE_CODE_SESSION_ID" case
+    // deterministically — the empty string fails isValidSessionId.
+    const exit = run(["no-session", "--body-file", bodyFile], { gh, updater, sessionId: "" });
+    expect(exit).toBe(0);
+    // No marker injection ⇒ create still points at the original body file.
+    const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
+    expect(createCall[createCall.indexOf("--body-file") + 1]).toBe(bodyFile);
+    expect(createBodyContent(calls)).not.toContain("Claude Code session");
+  });
+
+  it("does not append a marker when the session ID fails isValidSessionId", () => {
+    seedState("bad-session");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 33, url: "https://github.com/x/y/pull/33" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    // A value carrying a newline fails the guard.
+    const exit = run(["bad-session", "--body-file", bodyFile], {
+      gh,
+      updater,
+      sessionId: "id-with\nnewline",
+    });
+    expect(exit).toBe(0);
+    expect(createBodyContent(calls)).not.toContain("Claude Code session");
+  });
+
+  it("forwards --session-id to the updater on the fresh-create path", () => {
+    seedState("forward-create");
+    const { updater, calls: updaterCalls } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 34, url: "https://github.com/x/y/pull/34" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["forward-create", "--body-file", bodyFile], {
+      gh,
+      updater,
+      sessionId: VALID_SESSION,
+    });
+    expect(exit).toBe(0);
+    expect(updaterCalls[0]).toEqual([
+      "forward-create",
+      "--pr",
+      "34",
+      "--session-id",
+      VALID_SESSION,
+    ]);
+    expect(readState("forward-create").sessionId).toBe(VALID_SESSION);
+  });
+
+  it("forwards --session-id to the updater on the resume (found) path without re-appending the marker", () => {
+    seedState("forward-resume");
+    const { updater, calls: updaterCalls } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 35, url: "https://github.com/x/y/pull/35" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      // Probe-first finds an existing PR — resume path, no create call.
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["forward-resume", "--body-file", bodyFile], {
+      gh,
+      updater,
+      sessionId: VALID_SESSION,
+    });
+    expect(exit).toBe(0);
+    expect(calls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(false);
+    expect(updaterCalls[0]).toEqual([
+      "forward-resume",
+      "--pr",
+      "35",
+      "--session-id",
+      VALID_SESSION,
+    ]);
+    // The marker is appended only on fresh create — the body file is untouched.
+    expect(fs.readFileSync(bodyFile, "utf8")).not.toContain("Claude Code session");
+  });
+});
+
+describe("isValidSessionId", () => {
+  const cases: Array<[label: string, input: string, expected: boolean]> = [
+    ["valid UUID-shaped id", "b034430c-03bd-4fa0-8393-9f0859800531", true],
+    ["leading/trailing whitespace but non-empty", "  abc123  ", true],
+    ["empty string", "", false],
+    ["whitespace-only", "   ", false],
+    ["newline-bearing", "id-with\nnewline", false],
+    ["carries an HTML comment closer `-->`", "uuid--> - [ ] injected", false],
+    ["carries an HTML comment opener `<!--`", "uuid<!--x", false],
+  ];
+
+  for (const [label, input, expected] of cases) {
+    it(`${expected ? "accepts" : "rejects"} ${label}`, () => {
+      expect(isValidSessionId(input)).toBe(expected);
+    });
+  }
 });
 
 type GhResponse = { stdout: string; stderr: string; exitCode: number };

@@ -252,6 +252,24 @@ helper script that doesn't need an LLM at all.
   (rules a/b/c, per-file dedup, ≤8/PR cap, overflow bullet) and
   `skills/pipeline/pr-review/SKILL.md` Step 3 for how `/pr-review`
   consumes the annotations as `{{EXISTING_INTENT_COMMENTS}}` context.
+- **Session marker + trailer:** every PR `flow-open-pr` freshly creates
+  inside a Claude Code harness ends with a single-line, self-describing
+  HTML-comment marker — `<!-- flow: this PR was created by Claude Code
+  session <id> - transcript at ~/.claude/projects/<encoded-cwd>/<id>.jsonl
+  on the originating machine -->` — sourced from the `CLAUDE_CODE_SESSION_ID`
+  env var. It is best-effort and same-machine-only (the transcript lives
+  on the machine that opened the PR); absent the env var the PR opens
+  with no marker. Because the marker is an HTML comment it is invisible
+  in GitHub's rendered view and stripped by the auto-merge gate before
+  it counts unchecked `- [ ]` items. The marker is lost from `git
+  history` on squash-merge, so `/flow-pipeline` step 10 emits the same
+  session ID as a `Claude-Code-Session-Id:` trailer in the squash-merge
+  commit — the durable `git log` / `git blame` counterpart that survives
+  the branch deletion. The carrier bridging the two is the optional
+  `sessionId` string field in `~/.flow/state/<slug>.json`: `flow-open-pr`
+  writes it at PR-open time and step 10 reads it back via `jq` at merge
+  time (never re-reading the env var, which would be wrong on a
+  crash-resumed run).
 
 Pass multi-line messages through a heredoc:
 

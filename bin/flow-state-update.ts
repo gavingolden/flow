@@ -9,7 +9,7 @@
  *
  * Usage:
  *   flow-state-update [<slug>] [--phase <phase>] [--pr <number>] [--worktree <path>]
- *                              [--auto-merge | --no-auto-merge]
+ *                              [--auto-merge | --no-auto-merge] [--session-id <value>]
  *
  * - At least one update flag is required.
  * - The slug is optional when invoked from inside a flow tmux pane: it
@@ -47,6 +47,7 @@ type Args = {
   pr?: number;
   worktree?: string;
   autoMerge?: boolean;
+  sessionId?: string;
 };
 
 /**
@@ -135,6 +136,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--worktree":
         out.worktree = value;
         break;
+      case "--session-id":
+        out.sessionId = value;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -144,10 +148,12 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     out.phase === undefined &&
     out.pr === undefined &&
     out.worktree === undefined &&
-    out.autoMerge === undefined
+    out.autoMerge === undefined &&
+    out.sessionId === undefined
   ) {
     return {
-      error: "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge is required",
+      error:
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id is required",
     };
   }
   return out;
@@ -160,6 +166,7 @@ export function applyUpdate(existing: PipelineState, args: Args): PipelineState 
     pr: args.pr ?? existing.pr,
     worktree: args.worktree ?? existing.worktree,
     autoMerge: args.autoMerge ?? existing.autoMerge,
+    sessionId: args.sessionId ?? existing.sessionId,
     updatedAt: nowIso(),
   };
 }
@@ -183,7 +190,7 @@ export function runUpdate(
     console.error(`flow-state-update: ${parsed.error}`);
     console.error(
       "usage: flow-state-update [<slug>] [--phase <phase>] [--pr <number>] [--worktree <path>]\n" +
-        "                                 [--auto-merge | --no-auto-merge]",
+        "                                 [--auto-merge | --no-auto-merge] [--session-id <value>]",
     );
     return 2;
   }
