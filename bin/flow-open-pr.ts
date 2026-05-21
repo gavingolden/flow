@@ -16,9 +16,18 @@
  *
  * The slug is optional when invoked from inside a flow tmux pane: it
  * auto-resolves from `$TMUX_PANE`'s `@flow-slug` window option.
+ *
+ * When the `CLAUDE_CODE_SESSION_ID` env var is set (Claude Code harness),
+ * a self-describing HTML-comment marker naming that session is appended
+ * to the body of every freshly-created PR, and the ID is written to
+ * `~/.flow/state/<slug>.json` as `sessionId`. Absence of the env var is
+ * the normal "not in a harness" case — the PR opens with no marker.
  */
 
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { runUpdate } from "./flow-state-update";
 import { resolveSlugFromPane } from "./lib/tmux";
 
@@ -71,6 +80,27 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   }
   if (!out.bodyFile) return { error: "--body-file is required" };
   return out;
+}
+
+/**
+ * Minimal sanity check on a session ID before it is injected into a PR
+ * body or a state file. Rejects empty/whitespace-only values and any
+ * value carrying a newline (which would break the single-line marker).
+ */
+export function isValidSessionId(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && !value.includes("\n");
+}
+
+/**
+ * The self-describing PR-body marker. A single-line HTML comment — kept
+ * single-line so the auto-merge gate's `<!-- ... -->` strip removes it
+ * cleanly and it never counts toward the unchecked-`- [ ]` tally. Names
+ * "Claude Code session" in plain text so a future agent recognises the
+ * ID without flow-specific documentation.
+ */
+export function sessionMarker(id: string): string {
+  return `<!-- flow: this PR was created by Claude Code session ${id} - transcript at ~/.claude/projects/<encoded-cwd>/${id}.jsonl on the originating machine -->`;
 }
 
 function buildCreateArgv(args: Args): string[] {
@@ -156,12 +186,20 @@ export type Deps = {
   /** Test seam: pass a custom updater that mirrors `flow-state-update`'s `runUpdate` signature. */
   updater?: (argv: string[]) => number;
   resolveSlug?: () => string | null;
+  /**
+   * Test seam: the Claude Code session ID. Defaults to
+   * `process.env.CLAUDE_CODE_SESSION_ID` so tests inject without
+   * mutating `process.env`. Undefined/invalid ⇒ no marker, no
+   * `--session-id` write.
+   */
+  sessionId?: string;
 };
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const updater = deps.updater ?? runUpdate;
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
+  const sessionId = deps.sessionId ?? process.env.CLAUDE_CODE_SESSION_ID;
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -184,12 +222,27 @@ export function run(argv: string[], deps: Deps = {}): number {
   // Probe first: if a PR already exists for this branch (resume case), skip
   // `gh pr create` entirely. Avoids parsing gh's "already exists" stderr
   // message — the structured `pr view` signal is what we branch on.
+  const validSessionId =
+    sessionId !== undefined && isValidSessionId(sessionId) ? sessionId : undefined;
+
   const probe = probePr(gh);
   let pr: PrInfo;
   if (probe.kind === "found") {
     pr = { number: probe.number, url: probe.url };
   } else if (probe.kind === "none") {
-    const created = gh(buildCreateArgv(parsed));
+    // Fresh-create path only: append the self-describing session marker
+    // to the body. The marker is NOT re-applied on the resume (`found`)
+    // path — flow-open-pr is idempotent and re-editing would duplicate it.
+    let createArgs = parsed;
+    if (validSessionId !== undefined) {
+      const original = fs.readFileSync(parsed.bodyFile, "utf8");
+      const augmented = `${original}\n\n${sessionMarker(validSessionId)}\n`;
+      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-open-pr-body-"));
+      const tmpBody = path.join(tmpDir, "body.md");
+      fs.writeFileSync(tmpBody, augmented);
+      createArgs = { ...parsed, bodyFile: tmpBody };
+    }
+    const created = gh(buildCreateArgv(createArgs));
     if (created.exitCode !== 0) {
       if (created.stderr) process.stderr.write(created.stderr);
       if (created.stdout) process.stderr.write(created.stdout);
@@ -210,7 +263,9 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 1;
   }
 
-  const updateExit = updater([slug, "--pr", String(pr.number)]);
+  const updateArgv = [slug, "--pr", String(pr.number)];
+  if (validSessionId !== undefined) updateArgv.push("--session-id", validSessionId);
+  const updateExit = updater(updateArgv);
   if (updateExit !== 0) return updateExit;
 
   console.log(pr.url);

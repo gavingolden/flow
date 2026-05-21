@@ -176,6 +176,21 @@ describe("state", () => {
     expect(readState("primitive-root", dir)).toBeNull();
   });
 
+  it("readState returns null when state JSON has wrong-type sessionId", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-sessionId.json"),
+      JSON.stringify({
+        slug: "bad-sessionId",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        sessionId: 42,
+      }),
+    );
+    expect(readState("bad-sessionId", dir)).toBeNull();
+  });
+
   it("readState round-trips a full state with every optional field", () => {
     const full: PipelineState = {
       slug: "full",
@@ -185,6 +200,7 @@ describe("state", () => {
       pr: 142,
       worktree: "/tmp/worktree-full",
       autoMerge: false,
+      sessionId: "b034430c-03bd-4fa0-8393-9f0859800531",
     };
     writeState(full, dir);
     expect(readState("full", dir)).toEqual(full);

@@ -1311,9 +1311,29 @@ Branch on `.decision`:
 
 ```bash
 PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-MERGE_STDERR=$(cd "$PRIMARY" && gh pr merge --squash "$PR" 2>&1 1>/dev/null)
+SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+SESSION_ID=$(jq -r '.sessionId // empty' "$HOME/.flow/state/$SLUG.json")
+MERGE_FLAGS=()
+if [ -n "$SESSION_ID" ]; then
+  PR_TITLE=$(gh pr view "$PR" --json title -q .title)
+  PR_BODY=$(gh pr view "$PR" --json body -q .body)
+  MERGE_BODY=$(printf '%s\n\nClaude-Code-Session-Id: %s\n' "$PR_BODY" "$SESSION_ID")
+  MERGE_FLAGS=(--subject "$PR_TITLE" --body "$MERGE_BODY")
+fi
+MERGE_STDERR=$(cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR" 2>&1 1>/dev/null)
 MERGE_RC=$?
 ```
+
+The `Claude-Code-Session-Id:` trailer is best-effort: when `sessionId`
+is present in `~/.flow/state/<slug>.json` (written by `flow-open-pr` at
+PR-open time), it is appended to the squash-commit body so the Claude
+Code session that produced the PR survives into `git log` / `git blame`
+after the feature branch is squashed and deleted. When `sessionId` is
+absent — a PR opened outside a Claude Code harness, or a flow version
+predating this field — `MERGE_FLAGS` stays empty and the merge command
+is byte-identical to today's. The trailer is composed here at step 10,
+strictly after the step 9 auto-merge gate, and the gate inspects only
+the PR body — so adding the trailer cannot affect the gate decision.
 
 The primary worktree always has the base branch checked out (flow's
 invariant), so gh's post-merge `git checkout <base>` runs as a no-op
@@ -1329,14 +1349,14 @@ On non-zero exit, branch on the failure class:
   `Pull Request is not mergeable`, `not mergeable: the merge commit
   cannot be cleanly created`, `merge conflict between`. Spawn the
   Independent Merge-Conflict Resolver Subagent (see below), then
-  retry `(cd "$PRIMARY" && gh pr merge --squash "$PR")` exactly once.
+  retry `(cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR")` exactly once.
   On retry success, continue to the post-merge sweep. On retry
   failure, render the NEEDS HUMAN block via `flow-gate-summary
   --status needs-human --reason merge-failed --pr-url "$PR_URL"
   --why "$(jq -r .summary "$ARTIFACT_PATH" | head -1)"`. End.
 - **Non-conflict** (auth, network, branch-protection denied, required
   check failed, PR closed externally, any unrecognised stderr) —
-  retry `(cd "$PRIMARY" && gh pr merge --squash "$PR")` once. If still
+  retry `(cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR")` once. If still
   failing, escalate via the standard `# Failure paths` block (capture
   follow-ups via `flow-followups run --note-only >
   "$WORKTREE/.flow-tmp/followups-block.txt"` → render via
@@ -1439,7 +1459,7 @@ filled prompt. After it returns:
    re-spawn the resolver — exactly one Task call per run, per the
    exemption contract.)
 2. Read the artifact's `force_push_status`. If `succeeded`, retry
-   `(cd "$PRIMARY" && gh pr merge --squash "$PR")` exactly once. If
+   `(cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR")` exactly once. If
    `failed` or `skipped`, do not retry — render the NEEDS HUMAN
    block via `flow-gate-summary --status needs-human --reason
    merge-failed --pr-url "$PR_URL" --why "$(jq -r .summary

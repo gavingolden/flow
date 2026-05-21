@@ -24,6 +24,13 @@ export type PipelineState = {
    * documented happy-path default).
    */
   autoMerge?: boolean;
+  /**
+   * Claude Code session ID captured by `flow-open-pr` at PR-open time.
+   * Carries the ID to `/flow-pipeline` step 10, which emits it as a
+   * `Claude-Code-Session-Id:` squash-commit trailer. Absent when the PR
+   * was opened outside a Claude Code harness.
+   */
+  sessionId?: string;
   updatedAt: string;
 };
 
@@ -101,6 +108,7 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.pr !== undefined && typeof o.pr !== "number") return false;
   if (o.worktree !== undefined && typeof o.worktree !== "string") return false;
   if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean") return false;
+  if (o.sessionId !== undefined && typeof o.sessionId !== "string") return false;
   return true;
 }
 

@@ -39,7 +39,8 @@ function seed(slug: string, overrides: Partial<PipelineState> = {}): void {
 describe("parseArgs", () => {
   it("requires at least one update flag (empty argv)", () => {
     expect(parseArgs([])).toEqual({
-      error: "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge is required",
+      error:
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id is required",
     });
   });
 
@@ -54,7 +55,8 @@ describe("parseArgs", () => {
 
   it("requires at least one update flag", () => {
     expect(parseArgs(["foo"])).toEqual({
-      error: "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge is required",
+      error:
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id is required",
     });
   });
 
@@ -90,6 +92,19 @@ describe("parseArgs", () => {
       phase: "implementing",
       pr: 142,
       worktree: "/tmp/w",
+    });
+  });
+
+  it("parses --session-id into Args", () => {
+    expect(parseArgs(["foo", "--session-id", "b034430c-03bd-4fa0-8393"])).toEqual({
+      slug: "foo",
+      sessionId: "b034430c-03bd-4fa0-8393",
+    });
+  });
+
+  it("rejects --session-id without a value", () => {
+    expect(parseArgs(["foo", "--session-id"])).toEqual({
+      error: "--session-id requires a value",
     });
   });
 
@@ -227,6 +242,24 @@ describe("runUpdate", () => {
     expect(readState("csv-export", dir)?.autoMerge).toBe(false);
     expect(runUpdate(["csv-export", "--auto-merge"], dir)).toBe(0);
     expect(readState("csv-export", dir)?.autoMerge).toBe(true);
+  });
+
+  it("persists sessionId via --session-id without clobbering pr/worktree/autoMerge", () => {
+    seed("csv-export", { pr: 142, worktree: "/tmp/wt", autoMerge: false });
+    expect(runUpdate(["csv-export", "--session-id", "b034430c-03bd-4fa0"], dir)).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.sessionId).toBe("b034430c-03bd-4fa0");
+    expect(got?.pr).toBe(142);
+    expect(got?.worktree).toBe("/tmp/wt");
+    expect(got?.autoMerge).toBe(false);
+  });
+
+  it("preserves sessionId across phase-only updates", () => {
+    seed("csv-export", { sessionId: "session-xyz" });
+    expect(runUpdate(["csv-export", "--phase", "gating"], dir)).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.sessionId).toBe("session-xyz");
+    expect(got?.phase).toBe("gating");
   });
 
   it("preserves autoMerge across phase-only updates", () => {
