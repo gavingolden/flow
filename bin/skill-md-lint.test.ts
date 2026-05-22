@@ -982,6 +982,29 @@ describe("AGENTS.md Output style anchors", () => {
         "trims landed at -71 lines vs a <800-line target, with no tension surfaced).",
     ).toBe(true);
   });
+
+  it("AGENTS.md contains the middle-ground rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Consider the middle ground when a request
+    // is framed as a binary choice.** is the stable lint hook for the rule
+    // documented at AGENTS.md `## Output style`. Downstream contracts
+    // (skills/pipeline/product-planning/references/discovery-instructions.md's
+    // step 3 Trade-offs row + step 4 Architecture Checkpoint,
+    // skills/pipeline/product-planning/references/discovery-playbook.md's
+    // "Fork" technique, skills/pipeline/new-feature/SKILL.md Step 2's
+    // "Consider alternatives" bullet) all refer to this rule by name.
+    // Renaming the rule's anchor phrase requires updating this assertion
+    // in the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Consider the middle ground when a request is framed as a binary choice\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Consider the middle ground when a request is framed as a binary choice.**' " +
+        "exactly once at the start of a list item in `## Output style`. " +
+        "Found " + (matches?.length ?? 0) + " match(es).",
+    ).toBe(1);
+  });
 });
 
 describe("Prompt-interpretation contract anchors", () => {
