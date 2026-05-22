@@ -91,6 +91,36 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
     ).toBe(true);
   });
 
+  it("pins the absence of the removed --body / MERGE_FLAGS / flow-merge-body machinery", () => {
+    // PR #213 reverted step 10 to a bare `gh pr merge --squash` — the squash
+    // body now comes from gh's default concatenation, not a custom `--body`
+    // built by the deleted `flow-merge-body` helper. Without this negative
+    // assertion a future edit that reintroduces `--body` manipulation would
+    // pass the whole vitest suite.
+    //
+    // An "invocation" is an executable shell line — it always carries `"$PR"`
+    // as the PR argument (same convention the wrapping test above relies on).
+    // Bare-prose backtick mentions like "runs a bare `gh pr merge --squash` —
+    // no `--body`, no `--subject`" are descriptions, not invocations, and are
+    // excluded. Each real invocation must carry no `--body`/`--subject` flag —
+    // the legitimate `--body-file` on the unrelated `flow-create-issue`
+    // post-merge sweep never appears on a `gh pr merge ... "$PR"` line, so it
+    // does not trip a false positive. `MERGE_FLAGS` and `flow-merge-body` were
+    // unique to the removed machinery and must not reappear anywhere.
+    const mergeInvocations = STEP_10.split("\n").filter(
+      (line) => line.includes("gh pr merge") && line.includes('"$PR"'),
+    );
+    for (const line of mergeInvocations) {
+      expect(line, `step 10 merge invocation must carry no --body/--subject: ${line}`).not.toMatch(
+        /--body\b|--subject\b/,
+      );
+    }
+    expect(STEP_10).not.toMatch(/MERGE_FLAGS|flow-merge-body/);
+
+    const mergeCalls = STEP_10.match(/gh pr merge --squash "\$PR"/g) ?? [];
+    expect(mergeCalls).toHaveLength(4);
+  });
+
   it("keeps the auto-merge rubric's action row in sync with the wrapped form", () => {
     const needle = '(cd "$PRIMARY" && gh pr merge --squash';
     expect(

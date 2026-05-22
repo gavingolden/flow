@@ -19,6 +19,7 @@ import { git } from "./lib/git";
 import { resolveSlugFromPane } from "./lib/tmux";
 import { findAvailableSlot, toDirSuffix } from "./lib/worktree-slot";
 import { ensureFlowExcludes, writeBranchMarker } from "./lib/worktree-marker";
+import { installCommitHook } from "./lib/worktree-commit-hook";
 import {
   detectDefaultBranch,
   getPrimaryDir,
@@ -244,6 +245,13 @@ function main(): void {
   // have created the worktree without these.
   writeBranchMarker(chosen.worktreeDir, chosen.branchName);
   ensureFlowExcludes(chosen.worktreeDir);
+  // Best-effort: the session trailer is non-critical, so a config/hook-write
+  // hiccup must not abort worktree creation (unlike the two calls above).
+  try {
+    installCommitHook(chosen.worktreeDir);
+  } catch (e: unknown) {
+    log.warn(`could not install prepare-commit-msg hook: ${e instanceof Error ? e.message : String(e)}`);
+  }
 
   console.log(`
 ${config.reuse ? "✅ Worktree reused!" : "✅ Worktree ready!"}
