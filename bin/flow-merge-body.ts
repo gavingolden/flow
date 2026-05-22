@@ -27,17 +27,21 @@
 const HEADING_RE = /^## Test Steps[ \t]*$/m;
 
 /**
- * Pure transform: keep the narrative before the first `## Test Steps`
- * heading (whole body when the heading is absent), strip HTML comments,
- * trim trailing whitespace, then append the `Claude-Code-Session-Id:`
- * trailer as the final line after one blank-line separator (Git trailer
- * convention).
+ * Pure transform: strip HTML comments first, then keep the narrative
+ * before the first `## Test Steps` heading on the stripped text (whole
+ * body when the heading is absent), trim trailing whitespace, then
+ * append the `Claude-Code-Session-Id:` trailer as the final line after
+ * one blank-line separator (Git trailer convention).
+ *
+ * Stripping before truncation matters: a column-0 `## Test Steps` line
+ * inside an HTML comment must not become a false cut point, and slicing
+ * before stripping would leave a dangling `<!--` opener in the output.
  */
 export function buildMergeBody(rawBody: string, sessionId: string): string {
-  const m = HEADING_RE.exec(rawBody);
-  const narrative = m ? rawBody.slice(0, m.index) : rawBody;
-  const stripped = narrative.replace(/<!--[\s\S]*?-->/g, "");
-  return `${stripped.trimEnd()}\n\nClaude-Code-Session-Id: ${sessionId}`;
+  const stripped = rawBody.replace(/<!--[\s\S]*?-->/g, "");
+  const m = HEADING_RE.exec(stripped);
+  const narrative = m ? stripped.slice(0, m.index) : stripped;
+  return `${narrative.trimEnd()}\n\nClaude-Code-Session-Id: ${sessionId}`;
 }
 
 export type Args = { sessionId: string; body?: string };
