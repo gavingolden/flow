@@ -1391,6 +1391,7 @@ if [ "$GUARD_RC" -ne 0 ]; then
   flow-notify --status needs-human --url "$PR_URL" \
     --reason "gate-override-without-confirmation"
   # End. Do NOT merge, do NOT retry the guard.
+  exit 1
 fi
 ```
 

@@ -462,7 +462,7 @@ old silent-pass hole is closed.
   - **Auto-merge exemption: `/flow-pipeline` step 10.** The
     `/flow-pipeline` skill is exempt from the no-auto-commit / no-auto-
     push default for one narrow, named operation: the documented
-    `gh pr merge --squash --delete-branch <PR>` call inside step 10,
+    `gh pr merge --squash <PR>` call inside step 10,
     only when the auto-merge gate fires (`flow-gate-decide` returns
     `auto-merge` — the Test Steps section has zero unchecked items) and
     only on a PR opened by `/flow-pipeline` itself. The exemption does

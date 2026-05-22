@@ -119,6 +119,20 @@ describe(evaluateMergeGuard, () => {
     expect(evaluateMergeGuard(HAS_UNCHECKED, state, 42, NOW).decision).toBe("blocked");
   });
 
+  it("blocks when the override token has an unparseable confirmedAt", () => {
+    // isGateOverride only typechecks confirmedAt as a string, so a
+    // string-but-unparseable timestamp survives readState and reaches
+    // tokenIsFresh — the malformed value must not clear the merge.
+    const state: PipelineState = {
+      slug: "x",
+      phase: "gating",
+      repo: "/r",
+      updatedAt: "2026-05-22T11:00:00Z",
+      gateOverride: { pr: 42, confirmedAt: "not-a-date" },
+    };
+    expect(evaluateMergeGuard(HAS_UNCHECKED, state, 42, NOW).decision).toBe("blocked");
+  });
+
   it("blocks a missing heading even when a fresh override token is present", () => {
     // A missing heading is an upstream regression, not a user-skipped step —
     // the token must not clear it.
