@@ -97,4 +97,46 @@ describe("runAttach (no-arg branch)", () => {
     expect(tmuxMock.execAttach).toHaveBeenCalledWith("legacy-window");
     err.mockRestore();
   });
+
+  it("should keep the earlier window on an activity tie", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    tmuxMock.sessionExists.mockReturnValue(true);
+    tmuxMock.listWindows.mockReturnValue([
+      { id: "@1", name: "first", slug: "first-slug", activity: 200 },
+      { id: "@2", name: "second", slug: "second-slug", activity: 200 },
+    ]);
+    runAttach();
+    // Strict `>` in the reduce means the first window survives a tie —
+    // pins the documented behavior so a `>` -> `>=` change can't slip through.
+    expect(tmuxMock.execAttach).toHaveBeenCalledWith("first-slug");
+    err.mockRestore();
+  });
+});
+
+describe("runAttach (named branch)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("should attach when the named window exists", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    tmuxMock.sessionExists.mockReturnValue(true);
+    tmuxMock.findWindowBySlug.mockReturnValue({
+      id: "@1",
+      name: "x",
+      slug: "x",
+      activity: 1,
+    });
+    tmuxMock.execAttach.mockReturnValue(0);
+    expect(runAttach("x")).toBe(0);
+    expect(tmuxMock.execAttach).toHaveBeenCalledWith("x");
+    err.mockRestore();
+  });
+
+  it("should exit 1 when the named window is not found", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    tmuxMock.sessionExists.mockReturnValue(true);
+    tmuxMock.findWindowBySlug.mockReturnValue(undefined);
+    expect(runAttach("missing")).toBe(1);
+    expect(tmuxMock.execAttach).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
 });

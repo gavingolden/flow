@@ -52,5 +52,5 @@ export function runAttach(name?: string): number {
     return 1;
   }
 
-  execAttach(name);
+  return execAttach(name);
 }
