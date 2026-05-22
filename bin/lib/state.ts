@@ -31,6 +31,16 @@ export type PipelineState = {
    * was opened outside a Claude Code harness.
    */
   sessionId?: string;
+  /**
+   * Fresh-confirmation token for a gate override. Written by
+   * `flow-merge-guard --record-override` after the user gives an
+   * unambiguous, in-context instruction — confirmed via `AskUserQuestion`
+   * — to merge a `gated` PR anyway. `flow-merge-guard` (check mode)
+   * honours it only when `pr` matches the PR being merged and `confirmedAt`
+   * is inside the freshness window (see `bin/flow-merge-guard.ts`). Absent
+   * on every pipeline that never overrode a gate.
+   */
+  gateOverride?: { pr: number; confirmedAt: string };
   updatedAt: string;
 };
 
@@ -98,6 +108,12 @@ export function statePath(slug: string, dir = FLOW_STATE_DIR): string {
   return path.join(dir, `${slug}.json`);
 }
 
+function isGateOverride(x: unknown): x is { pr: number; confirmedAt: string } {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  return typeof o.pr === "number" && typeof o.confirmedAt === "string";
+}
+
 function isPipelineState(x: unknown): x is PipelineState {
   if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
   const o = x as Record<string, unknown>;
@@ -109,6 +125,7 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.worktree !== undefined && typeof o.worktree !== "string") return false;
   if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean") return false;
   if (o.sessionId !== undefined && typeof o.sessionId !== "string") return false;
+  if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride)) return false;
   return true;
 }
 

@@ -88,6 +88,24 @@ const MANUAL_TEST_RUBRIC_PATH = path.resolve(
   "references",
   "manual-test-rubric.md",
 );
+const AUTO_MERGE_RUBRIC_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-pipeline",
+  "references",
+  "auto-merge-rubric.md",
+);
+const REDIRECT_HANDLING_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-pipeline",
+  "references",
+  "redirect-handling.md",
+);
 const GATEKEEPER_SPAWN_PROMPT_PATH = path.resolve(
   HERE,
   "..",
@@ -133,6 +151,8 @@ const coderContent = fs.readFileSync(CODER_SKILL_MD_PATH, "utf8");
 const coderInstructionsContent = fs.readFileSync(CODER_INSTRUCTIONS_PATH, "utf8");
 const reportTemplateContent = fs.readFileSync(REPORT_TEMPLATE_PATH, "utf8");
 const manualTestRubricContent = fs.readFileSync(MANUAL_TEST_RUBRIC_PATH, "utf8");
+const autoMergeRubricContent = fs.readFileSync(AUTO_MERGE_RUBRIC_PATH, "utf8");
+const redirectHandlingContent = fs.readFileSync(REDIRECT_HANDLING_PATH, "utf8");
 const gatekeeperSpawnPromptContent = fs.readFileSync(GATEKEEPER_SPAWN_PROMPT_PATH, "utf8");
 const fixApplierSpawnPromptContent = fs.readFileSync(FIX_APPLIER_SPAWN_PROMPT_PATH, "utf8");
 const discoveryInstructionsContent = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
@@ -217,8 +237,9 @@ describe("flow-pipeline SKILL.md structural lint", () => {
     expect(
       content.includes("AskUserQuestion"),
       "flow-pipeline SKILL.md must reference 'AskUserQuestion' — the " +
-        "primitive the supervisor calls in step 4's candidate-issues " +
-        "sub-step is the only authorised AskUserQuestion site.",
+        "primitive the supervisor calls at its two authorised sites " +
+        "(step 4's candidate-issues sub-step and step 9's gate-override " +
+        "sub-step).",
     ).toBe(true);
     expect(
       content.includes("# Candidate follow-up issues"),
@@ -1642,4 +1663,116 @@ describe("pipeline skills invoke PATH binaries, not cwd-relative bun bin/ paths"
       }
     },
   );
+});
+
+describe("gate-hardening structural anchors (gated verdict is terminal)", () => {
+  // These anchors guard the process-hardening change that made a `gated`
+  // auto-merge verdict terminal — the supervisor may no longer override it on
+  // its own judgment. Each assertion pins a phrase the hardening depends on;
+  // a rename that drops a phrase must update this lint in the same commit
+  // (the AGENTS.md ## Output style structural-lint rule). The incident: a
+  // supervisor reclassified unchecked functional Test Steps as "subjective
+  // UX", cited a stale "merge" instruction, and shipped a broken feature.
+
+  // AGENTS.md bullets are wrapped prose — collapse whitespace so a phrase
+  // that spans a line break still matches.
+  const agentsNorm = agentsContent.replace(/\s+/g, " ");
+
+  it("flow-pipeline SKILL.md step 9 states a gated verdict is terminal, not advisory", () => {
+    expect(
+      content.includes("terminal, not advisory"),
+      "flow-pipeline SKILL.md step 9 must contain the phrase 'terminal, not " +
+        "advisory' — the anchor for the rule that the supervisor must not " +
+        "merge a gated PR on its own judgment.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md documents the post-verdict gate-override sub-step", () => {
+    expect(
+      content.includes("Gate override (post-verdict"),
+      "flow-pipeline SKILL.md step 9 must contain a 'Gate override " +
+        "(post-verdict, opt-in)' sub-step — the named AskUserQuestion site " +
+        "where a fresh override confirmation is obtained.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md step 10 wires in the flow-merge-guard backstop", () => {
+    expect(
+      content.includes("flow-merge-guard"),
+      "flow-pipeline SKILL.md step 10 must invoke 'flow-merge-guard' — the " +
+        "mechanical backstop that blocks a merge on a gated verdict without a " +
+        "fresh-confirmation token.",
+    ).toBe(true);
+    expect(
+      content.includes("gate-override-without-confirmation"),
+      "flow-pipeline SKILL.md step 10 must escalate " +
+        "'gate-override-without-confirmation' when flow-merge-guard blocks.",
+    ).toBe(true);
+  });
+
+  it("auto-merge-rubric.md states a gated verdict is terminal, not advisory", () => {
+    expect(
+      autoMergeRubricContent.includes("terminal, not advisory"),
+      "auto-merge-rubric.md must contain a 'terminal, not advisory' section " +
+        "so the rubric and SKILL.md step 9 stay in lock-step on the gate's " +
+        "non-advisory status.",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md distinguishes functional from subjective manual checks", () => {
+    expect(
+      manualTestRubricContent.includes("Functional checks"),
+      "manual-test-rubric.md must contain a 'Functional checks' sub-heading " +
+        "splitting the 'Genuinely manual' category.",
+    ).toBe(true);
+    expect(
+      manualTestRubricContent.includes("Subjective checks"),
+      "manual-test-rubric.md must contain a 'Subjective checks' sub-heading " +
+        "splitting the 'Genuinely manual' category.",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md states an unverified functional step blocks merge", () => {
+    expect(
+      manualTestRubricContent.includes("unverified functional step blocks merge"),
+      "manual-test-rubric.md must contain the phrase 'unverified functional " +
+        "step blocks merge' — the rule that a functional manual check may not " +
+        "be reclassified as subjective to wave it through.",
+    ).toBe(true);
+  });
+
+  it("redirect-handling.md requires a gate override to be fresh, unambiguous, and in-context", () => {
+    expect(
+      redirectHandlingContent.includes("## Gate override"),
+      "redirect-handling.md must contain a '## Gate override' section.",
+    ).toBe(true);
+    expect(
+      // Collapse whitespace — the phrase can wrap across a line break.
+      redirectHandlingContent.replace(/\s+/g, " ").includes(
+        "fresh, unambiguous, and in-context",
+      ),
+      "redirect-handling.md must contain the phrase 'fresh, unambiguous, and " +
+        "in-context' — the three-part bar a gate override must clear.",
+    ).toBe(true);
+  });
+
+  it("AGENTS.md auto-merge exemption excludes a gated verdict", () => {
+    expect(
+      agentsNorm.includes("does **not** extend to a `gated` verdict"),
+      "AGENTS.md's auto-merge exemption bullet must state the exemption " +
+        "'does **not** extend to a `gated` verdict' so the squash-merge " +
+        "authority is scoped to the auto-merge verdict only.",
+    ).toBe(true);
+  });
+
+  it("AGENTS.md names the step 9 gate-override AskUserQuestion exemption", () => {
+    expect(
+      agentsNorm.includes(
+        "AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override",
+      ),
+      "AGENTS.md ## Don'ts must carry a named 'AskUserQuestion exemption: " +
+        "`/flow-pipeline` step 9 gate-override' bullet — the second authorised " +
+        "AskUserQuestion site, documented bidirectionally with SKILL.md.",
+    ).toBe(true);
+  });
 });
