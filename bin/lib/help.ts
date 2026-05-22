@@ -85,8 +85,9 @@ Options:
 Usage:
   flow attach [<name>]
 
-If <name> is omitted and exactly one window exists, attach to it.
-Otherwise <name> must match a window in the 'flow' tmux session.`,
+When <name> is omitted, attach into the 'flow' session for browsing; if
+several windows exist the most-recently-active one is focused first.
+With <name>, it must match a window in the 'flow' tmux session.`,
 
   done: `flow done — close a pipeline window and remove its state
 
