@@ -1,6 +1,8 @@
 /**
- * `flow attach [name]` — pure tmux passthrough. If `name` is omitted and
- * exactly one window exists, attach to it. Otherwise error.
+ * `flow attach [name]` — pure tmux passthrough. Bare `flow attach` attaches
+ * into the `flow` session for browsing (focusing the most-recently-active
+ * window when several exist), and errors only when the session or its
+ * windows don't exist.
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";
@@ -32,20 +34,17 @@ export function runAttach(name?: string): number {
 
   const windows = listWindows();
   if (!name) {
-    if (windows.length === 1) {
-      // Prefer the slug (canonical identifier) so execAttach's
-      // slug-keyed resolver finds it via @flow-slug. Fall back to the
-      // display name for pre-upgrade windows that don't carry the
-      // option yet.
-      execAttach(windows[0].slug || windows[0].name);
-    }
     if (windows.length === 0) {
       console.error(`flow attach: no windows in the '${FLOW_SESSION}' session.`);
       return 1;
     }
-    console.error(`flow attach: multiple windows — pick one:`);
-    for (const w of windows) console.error(`  ${w.slug || w.name}`);
-    return 1;
+    // Bare attach lands the user in the session for browsing; with several
+    // windows the most-recently-active is focused so they switch with
+    // native tmux keys (prefix + w / n / p). Prefer the slug (canonical
+    // @flow-slug identifier) and fall back to the display name for
+    // pre-upgrade windows that don't carry the option yet.
+    const target = windows.reduce((a, b) => (b.activity > a.activity ? b : a));
+    return execAttach(target.slug || target.name);
   }
 
   if (!findWindowBySlug(windows, name)) {
@@ -53,5 +52,5 @@ export function runAttach(name?: string): number {
     return 1;
   }
 
-  execAttach(name);
+  return execAttach(name);
 }

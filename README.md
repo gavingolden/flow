@@ -36,7 +36,8 @@ If `flow setup` emits `! hooks/Stop:flow-stop-guard (malformed-json: ...)`, the 
 ```sh
 flow new "add CSV export"        # creates tmux window flow:add-csv-export
 flow ls                          # lists active pipelines
-flow attach add-csv-export       # tmux attach (alias: flow a)
+flow attach add-csv-export       # attach to a specific window (alias: flow a)
+flow attach                      # attach into the session and browse windows
 flow done add-csv-export         # close the window when finished
 flow done --merged               # sweep terminal-state windows
 flow done --orphans              # sweep state files whose tmux window is gone
