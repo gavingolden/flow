@@ -1315,10 +1315,8 @@ SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
 SESSION_ID=$(jq -r '.sessionId // empty' ~/.flow/state/"$SLUG".json)
 MERGE_FLAGS=()
 if [ -n "$SESSION_ID" ]; then
-  PR_TITLE=$(gh pr view "$PR" --json title -q .title)
-  PR_BODY=$(gh pr view "$PR" --json body -q .body)
-  MERGE_BODY=$(printf '%s\n\nClaude-Code-Session-Id: %s\n' "$PR_BODY" "$SESSION_ID")
-  MERGE_FLAGS=(--subject "$PR_TITLE" --body "$MERGE_BODY")
+  MERGE_BODY=$(gh pr view "$PR" --json body -q .body | flow-merge-body --session-id "$SESSION_ID")
+  MERGE_FLAGS=(--body "$MERGE_BODY")
 fi
 MERGE_STDERR=$(cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR" 2>&1 1>/dev/null)
 MERGE_RC=$?
@@ -1331,7 +1329,7 @@ file documents for `SLUG=`). So every retry call site is written to
 **re-derive the `MERGE_FLAGS` preamble in its own block** before
 invoking `gh pr merge` — the array-build snippet (`SLUG=` →
 `SESSION_ID=` → `MERGE_FLAGS=()` → the `if [ -n "$SESSION_ID" ]`
-block) is repeated verbatim in each retry rather than referenced. A
+block, which pipes the PR body through `flow-merge-body`) is repeated verbatim in each retry rather than referenced. A
 retry that ran `gh pr merge --squash "${MERGE_FLAGS[@]}"` against an
 unset array would silently drop the `Claude-Code-Session-Id:` trailer
 on exactly the conflict-resolved and transient-failure paths the
@@ -1339,14 +1337,21 @@ trailer is meant to be durable across.
 
 The `Claude-Code-Session-Id:` trailer is best-effort: when `sessionId`
 is present in `~/.flow/state/<slug>.json` (written by `flow-open-pr` at
-PR-open time), it is appended to the squash-commit body so the Claude
-Code session that produced the PR survives into `git log` / `git blame`
-after the feature branch is squashed and deleted. When `sessionId` is
-absent — a PR opened outside a Claude Code harness, or a flow version
-predating this field — `MERGE_FLAGS` stays empty and the merge command
-is byte-identical to today's. The trailer is composed here at step 10,
-strictly after the step 9 auto-merge gate, and the gate inspects only
-the PR body — so adding the trailer cannot affect the gate decision.
+PR-open time), the `flow-merge-body` helper builds the squash-commit
+body — the PR-body narrative before the first `## Test Steps` heading,
+HTML comments stripped, with the trailer appended as the final line —
+so the Claude Code session that produced the PR survives into `git log`
+/ `git blame` after the feature branch is squashed and deleted, without
+dragging the gate/CI `## Test Steps` scaffolding in with it. `--subject`
+is intentionally not passed: `gh pr merge --squash` defaults the subject
+to `<PR title> (#N)`, so omitting the flag restores that convention for
+free and avoids a doubled-`(#N)` suffix. When `sessionId` is absent — a
+PR opened outside a Claude Code harness, or a flow version predating
+this field — `MERGE_FLAGS` stays empty and the merge command is
+byte-identical to pre-#210 (a bare `gh pr merge --squash`). The trailer
+is composed here at step 10, strictly after the step 9 auto-merge gate,
+and the gate inspects only the live PR body — so adding the trailer
+cannot affect the gate decision.
 
 The primary worktree always has the base branch checked out (flow's
 invariant), so gh's post-merge `git checkout <base>` runs as a no-op
@@ -1370,10 +1375,8 @@ On non-zero exit, branch on the failure class:
   SESSION_ID=$(jq -r '.sessionId // empty' ~/.flow/state/"$SLUG".json)
   MERGE_FLAGS=()
   if [ -n "$SESSION_ID" ]; then
-    PR_TITLE=$(gh pr view "$PR" --json title -q .title)
-    PR_BODY=$(gh pr view "$PR" --json body -q .body)
-    MERGE_BODY=$(printf '%s\n\nClaude-Code-Session-Id: %s\n' "$PR_BODY" "$SESSION_ID")
-    MERGE_FLAGS=(--subject "$PR_TITLE" --body "$MERGE_BODY")
+    MERGE_BODY=$(gh pr view "$PR" --json body -q .body | flow-merge-body --session-id "$SESSION_ID")
+    MERGE_FLAGS=(--body "$MERGE_BODY")
   fi
   (cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR")
   ```
@@ -1392,10 +1395,8 @@ On non-zero exit, branch on the failure class:
   SESSION_ID=$(jq -r '.sessionId // empty' ~/.flow/state/"$SLUG".json)
   MERGE_FLAGS=()
   if [ -n "$SESSION_ID" ]; then
-    PR_TITLE=$(gh pr view "$PR" --json title -q .title)
-    PR_BODY=$(gh pr view "$PR" --json body -q .body)
-    MERGE_BODY=$(printf '%s\n\nClaude-Code-Session-Id: %s\n' "$PR_BODY" "$SESSION_ID")
-    MERGE_FLAGS=(--subject "$PR_TITLE" --body "$MERGE_BODY")
+    MERGE_BODY=$(gh pr view "$PR" --json body -q .body | flow-merge-body --session-id "$SESSION_ID")
+    MERGE_FLAGS=(--body "$MERGE_BODY")
   fi
   (cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR")
   ```
@@ -1512,10 +1513,8 @@ filled prompt. After it returns:
    SESSION_ID=$(jq -r '.sessionId // empty' ~/.flow/state/"$SLUG".json)
    MERGE_FLAGS=()
    if [ -n "$SESSION_ID" ]; then
-     PR_TITLE=$(gh pr view "$PR" --json title -q .title)
-     PR_BODY=$(gh pr view "$PR" --json body -q .body)
-     MERGE_BODY=$(printf '%s\n\nClaude-Code-Session-Id: %s\n' "$PR_BODY" "$SESSION_ID")
-     MERGE_FLAGS=(--subject "$PR_TITLE" --body "$MERGE_BODY")
+     MERGE_BODY=$(gh pr view "$PR" --json body -q .body | flow-merge-body --session-id "$SESSION_ID")
+     MERGE_FLAGS=(--body "$MERGE_BODY")
    fi
    (cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR")
    ```
