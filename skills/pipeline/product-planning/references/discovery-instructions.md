@@ -104,7 +104,7 @@ Categories worth examining (use them as a checklist, not a question list):
 | **Data**              | What data does this need? New tables or existing ones? External API?                                     |
 | **Architecture**      | What layers does this touch? New module or extend an existing one?                                       |
 | **Edge cases**        | What happens when X is empty? How should errors display?                                                 |
-| **Trade-offs**        | Would a simplification be acceptable for v1?                                                             |
+| **Trade-offs**        | Would a simplification be acceptable for v1? If the request is framed as a binary A-or-B choice, is there a middle-ground option? |
 | **Existing patterns** | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.      |
 
 For deeper techniques, load `<SKILL_DIR>/references/discovery-playbook.md`.
@@ -119,6 +119,13 @@ become the "Architecture Decisions" section verbatim:
 - **Data flow:** Where does data originate, how does it transform, where does it render?
 - **New patterns vs. existing:** Does this follow an existing pattern (name it) or
   introduce a new one (justify it)?
+- **Binary-framing check:** If the user described the feature as an either/or choice
+  (A or B), name at least one intermediate option (a hybrid, a phased rollout, a
+  config-gated default) and record the A / middle / B trade-off in the PRD's
+  Architecture Decisions or Open Questions section — silently picking a pole violates
+  the flow `AGENTS.md` `## Output style` rule **Consider the middle ground when a
+  request is framed as a binary choice.** When the choice is genuinely binary, say so
+  explicitly.
 
 Load `<SKILL_DIR>/references/architecture-patterns.md` if you need to verify which
 pattern applies.

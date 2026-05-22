@@ -132,6 +132,31 @@ Code, Cursor, and Aider system prompts plus Anthropic's prompting docs.
   for this rule lives at `bin/skill-md-lint.test.ts` and anchors on the
   exact phrase **Treat user prompts as evidence of intent, not exhaustive
   specifications.** — renames must update the lint in the same commit.
+- **Consider the middle ground when a request is framed as a binary choice.**
+  When a prompt poses an either/or — "should it work like A or B?",
+  "store it in the URL or the database?", "fast or simple?" — the two
+  named poles are evidence of how the user is currently thinking, not a
+  constraint on the solution space. The better answer is frequently an
+  intermediate option: a subset of A's capability with B's simplicity, a
+  phased rollout, a config-gated default, a hybrid that takes the cheap
+  80% of each. Your job is to (a) name at least one such middle-ground
+  option alongside the two poles rather than silently picking a pole,
+  and (b) surface the A / middle / B trade-off in the artifacts
+  downstream consumers read (the discovery subagent's PRD Architecture
+  Decisions / Open Questions sections, the `/new-feature` Critical
+  Analysis "Consider alternatives" bullet) so the user can redirect at
+  the next approval checkpoint. This is the same family as **Treat user
+  prompts as evidence of intent, not exhaustive specifications.** above
+  — a binary framing is one more way a prompt under-specifies — and the
+  same discipline applies: proceed with the most-likely-correct option
+  toward the user's goal and surface the alternatives in artifacts
+  rather than stopping to ask when work-without-stopping is in effect.
+  The genuinely-binary case still exists (a boolean flag, a yes/no
+  migration); the rule is to *check* for a middle ground, not to
+  manufacture one where none exists. The structural lint for this rule
+  lives at `bin/skill-md-lint.test.ts` and anchors on the exact phrase
+  **Consider the middle ground when a request is framed as a binary
+  choice.** — renames must update the lint in the same commit.
 - **Don't echo file contents or full diffs into chat.** Read with tools
   and reference findings as `path:line`. The user can open the file;
   pasting it back wastes tokens and clutters scrollback.
