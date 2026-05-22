@@ -123,8 +123,7 @@ become the "Architecture Decisions" section verbatim:
   (A or B), name at least one intermediate option (a hybrid, a phased rollout, a
   config-gated default) and record the A / middle / B trade-off in the PRD's
   Architecture Decisions or Open Questions section — silently picking a pole violates
-  the flow `AGENTS.md` `## Output style` rule **Consider the middle ground when a
-  request is framed as a binary choice.** When the choice is genuinely binary, say so
+  the flow `AGENTS.md` `## Output style` rule **Consider the middle ground when a request is framed as a binary choice.** When the choice is genuinely binary, say so
   explicitly.
 
 Load `<SKILL_DIR>/references/architecture-patterns.md` if you need to verify which

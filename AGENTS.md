@@ -155,8 +155,7 @@ Code, Cursor, and Aider system prompts plus Anthropic's prompting docs.
   migration); the rule is to *check* for a middle ground, not to
   manufacture one where none exists. The structural lint for this rule
   lives at `bin/skill-md-lint.test.ts` and anchors on the exact phrase
-  **Consider the middle ground when a request is framed as a binary
-  choice.** — renames must update the lint in the same commit.
+  **Consider the middle ground when a request is framed as a binary choice.** — renames must update the lint in the same commit.
 - **Don't echo file contents or full diffs into chat.** Read with tools
   and reference findings as `path:line`. The user can open the file;
   pasting it back wastes tokens and clutters scrollback.

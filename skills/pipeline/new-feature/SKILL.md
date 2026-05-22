@@ -227,8 +227,7 @@ scout report back; the artifact on disk is the record.
   - **Consider alternatives.** Propose at least one alternative approach if one exists.
     Briefly explain the trade-off. When the user's feature description is framed as a
     binary either/or choice (A or B), comparing only the two named poles is
-    insufficient — per the AGENTS.md `## Output style` rule **Consider the middle
-    ground when a request is framed as a binary choice.**, look for and propose an
+    insufficient — per the AGENTS.md `## Output style` rule **Consider the middle ground when a request is framed as a binary choice.**, look for and propose an
     intermediate option (a hybrid, a phased rollout, a config-gated default) and
     explain its trade-off against both poles, rather than defaulting to a pole.
   - **Suggest complementary enhancements.** Proactively identify features or improvements that
