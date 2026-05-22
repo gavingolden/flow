@@ -73,6 +73,49 @@ already mandates `- [ ]` items; pr-review's drafting rules in 11e mandate
 the same. The new gate just keys on the convention that was already in
 force.
 
+## A `gated` verdict is terminal, not advisory
+
+When the gate returns `gated`, that verdict is **terminal** — not a
+suggestion the `/flow-pipeline` supervisor may weigh against its own
+judgment. The supervisor renders the GATED block, writes `phase: gated`,
+and ends. On a `gated` verdict it must **not**:
+
+- run `gh pr merge` on the PR on its own authority;
+- reclassify the PR's unchecked Test Steps items to change the verdict —
+  in particular, relabelling a **functional** manual check (a binary
+  pass/fail observation: a popover opens, a button responds, a page
+  renders) as **subjective UX** to wave it through is a prohibited move
+  (see `skills/pipeline/pr-review/references/manual-test-rubric.md`,
+  "Genuinely manual" → functional vs subjective);
+- treat a "merge" / "ship it" instruction given *before* the gate
+  verdict was surfaced as authorisation to merge.
+
+The gate's whole purpose is to stop a non-functional feature from
+shipping while manual verification steps are still unchecked. An
+unverified functional step means the feature has not been shown to work;
+merging past it on the supervisor's own authority defeats that purpose.
+The incident this contract exists for: a supervisor reached a correct
+`gated` verdict (three unchecked manual steps, one a binary functional
+check — "hover the legend entry, the popover opens"), reclassified them
+as "subjective UX", and merged anyway on a stale instruction. The
+feature was completely broken.
+
+There are exactly two routes from `gated` to merged:
+
+1. **A human merges the PR through GitHub.** Always correct — the human
+   performed the validation the unchecked steps describe.
+2. **A fresh, post-verdict gate override.** The user, in a *new* turn
+   *after* the GATED block was surfaced, gives an unambiguous,
+   in-context instruction to merge the gated PR anyway. The supervisor
+   confirms once via `AskUserQuestion`, records the confirmation token
+   (`flow-merge-guard --record-override`), and only then may step 10
+   proceed — the `flow-merge-guard` step-10 backstop enforces this
+   mechanically. The full contract is in
+   `skills/pipeline/flow-pipeline/references/redirect-handling.md`
+   "Gate override".
+
+A stale or inferred instruction never qualifies for route 2.
+
 ## How to extract the section
 
 Run:

@@ -58,17 +58,67 @@ Apply the **automation test** to every entry in the proposed manual section:
 
 ### Genuinely manual (leave in the checklist)
 
-- **Subjective UX** — "the error message reads naturally", "the toast feels right",
-  "the spacing balances", animations, dark-mode aesthetics — anything where the
-  assertion is "a human would judge it acceptable"
-- **Production-only integrations** — third-party APIs without a sandbox, prod-scoped
-  secrets, real billing flows
-- **Cross-browser / cross-device rendering** — Safari quirks, mobile viewport, screen
-  readers (until the project invests in those harnesses)
-- **Performance under realistic load** — when local-fixture timing isn't representative
-  of prod
-- **Cost-prohibitive infra** — when wiring up the test costs more than the regression
-  risk it would catch (rare; default to "automate it" unless you can name the cost)
+A genuinely-manual step is one the automation test above could not turn into a
+runnable item. Within that category every manual step is one of two kinds, and
+the distinction is **load-bearing for the auto-merge gate** — an agent must
+classify each manual step as functional or subjective, and must never relabel
+one as the other to change a merge outcome.
+
+#### Functional checks
+
+A **functional** manual step asserts a concrete, observable pass/fail outcome:
+the feature either does the thing or it does not. There is no human-taste
+judgment — a second observer would record the same result. Functional checks
+are correctness checks.
+
+- "Hover the legend entry — the popover opens" (the incident check below: a
+  binary observation, and the feature was in fact completely broken)
+- "Click Export — a CSV file downloads"
+- "Open `/portfolio` with the seeded user — the allocation chart renders"
+- "Submit the form with a missing field — an inline error appears"
+- **Production-only integrations** — a third-party API without a sandbox, a
+  prod-scoped secret, a real billing flow actually returns the expected result.
+  The *outcome* is still binary; it just can't be exercised in a fixture.
+- **Cross-browser / cross-device rendering** — the page renders correctly in
+  Safari, on a mobile viewport, with a screen reader. The *outcome* is binary
+  even though the project has no harness for it yet.
+
+**An unverified functional step blocks merge.** A functional manual step that
+is still an unchecked `- [ ]` item is a feature that has *not been shown to
+work*. The auto-merge gate counts it like any other unchecked item and the PR
+stays `gated` — see
+`skills/pipeline/flow-pipeline/references/auto-merge-rubric.md`, "A `gated`
+verdict is terminal, not advisory". Reclassifying a functional step as
+subjective to wave it through is a **prohibited move**: it is the exact
+failure mode the gate exists to catch (a real run merged a broken feature by
+relabelling "hover the legend entry, the popover opens" as "subjective UX").
+
+#### Subjective checks
+
+A **subjective** manual step asserts something only a human can judge: the
+assertion is "a person would find this acceptable", and two observers might
+reasonably disagree. Subjective checks are polish checks, not correctness
+checks.
+
+- "The error message reads naturally", "the toast feels right", "the spacing
+  balances" — anything where the assertion is human taste
+- Animations, transitions, dark-mode aesthetics
+- **Performance feel** — "feels responsive under realistic load" when the
+  judgment is *feel*. A *measured* budget ("p95 < 200ms") is functional and
+  should be automated, not left as a subjective step.
+- **Cost-prohibitive infra** — when wiring up the test costs more than the
+  regression risk it would catch (rare; default to "automate it" unless you
+  can name the cost)
+
+Subjective steps still belong in the checklist and still gate an auto-merge
+while unchecked — the gate counts every unchecked `- [ ]` item and does not
+read checkbox text — but an unchecked subjective step is not evidence the
+feature is broken, only that its finish has not been signed off.
+
+**When in doubt, classify a step as functional.** Over-classifying a
+borderline step as functional keeps the safe default — the PR stays gated
+until a human verifies it — whereas mislabelling a functional step as
+subjective risks shipping a broken feature.
 
 ### Decision shortcut
 

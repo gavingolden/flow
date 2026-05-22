@@ -129,6 +129,8 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
     "Decide: reopen the PR (gh pr reopen <pr>) or run flow done <slug> to clean up",
   "test-steps-section-missing":
     "Attach (flow attach <slug>); edit the PR body to add a ## Test Steps section, then flow new --resume <slug>",
+  "gate-override-without-confirmation":
+    "The PR is gated (unchecked Test Steps remain) and flow-merge-guard refused the merge. Validate the unchecked steps and merge through GitHub yourself, or reply with a fresh, explicit instruction to merge this gated PR anyway so the supervisor can confirm and record the override",
   "merge-failed":
     "Inspect <worktree>/.flow-tmp/merge-resolver-result.json (if present); resolve conflicts manually; then (cd <repo> && gh pr merge --squash <pr>)",
   "merge-resolver-missing-artifact":

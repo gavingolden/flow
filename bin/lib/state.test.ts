@@ -201,9 +201,28 @@ describe("state", () => {
       worktree: "/tmp/worktree-full",
       autoMerge: false,
       sessionId: "b034430c-03bd-4fa0-8393-9f0859800531",
+      gateOverride: { pr: 142, confirmedAt: "2026-05-17T00:05:00Z" },
     };
     writeState(full, dir);
     expect(readState("full", dir)).toEqual(full);
+  });
+
+  it("readState returns null when state JSON has a malformed gateOverride", () => {
+    // gateOverride must be { pr: number, confirmedAt: string }. A token
+    // missing confirmedAt (or with a wrong-typed field) is rejected so a
+    // corrupt token can never silently authorise a merge in flow-merge-guard.
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-override.json"),
+      JSON.stringify({
+        slug: "bad-override",
+        phase: "gating",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        gateOverride: { pr: 142 },
+      }),
+    );
+    expect(readState("bad-override", dir)).toBeNull();
   });
 
   it("listStates skips off-shape JSON files alongside valid ones", () => {

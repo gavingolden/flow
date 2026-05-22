@@ -463,12 +463,29 @@ old silent-pass hole is closed.
     `/flow-pipeline` skill is exempt from the no-auto-commit / no-auto-
     push default for one narrow, named operation: the documented
     `gh pr merge --squash --delete-branch <PR>` call inside step 10,
-    only when the auto-merge gate fires (Test Steps section has no
-    unchecked items) and only on a PR opened by `/flow-pipeline` itself.
-    Invoking `/flow-pipeline` is itself the user's authorisation; opt
-    out per-pipeline with `flow new --no-auto-merge` (the supervisor
-    stops at the gated state regardless of the gate verdict). Same
-    narrow-and-named contract as the `/pr-review` exemption above.
+    only when the auto-merge gate fires (`flow-gate-decide` returns
+    `auto-merge` — the Test Steps section has zero unchecked items) and
+    only on a PR opened by `/flow-pipeline` itself. The exemption does
+    **not** extend to a `gated` verdict: a `gated` verdict is terminal,
+    and a `gated` PR is merged by `/flow-pipeline` only through the
+    fresh-confirmation gate-override path (a new, unambiguous,
+    in-context user instruction given *after* the GATED block, confirmed
+    via `AskUserQuestion`, recorded by `flow-merge-guard
+    --record-override`, and enforced by the `flow-merge-guard` step-10
+    backstop). The supervisor may never substitute its own judgment for
+    a `gated` verdict — see
+    `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md` "A
+    `gated` verdict is terminal, not advisory". **Anti-patterns this
+    exemption explicitly forecloses:** (a) reclassifying an unchecked
+    functional Test Steps item (a popover opens, a button works, a page
+    renders) as "subjective UX" so the gate verdict comes out as
+    `auto-merge`; (b) merging a `gated` PR on the strength of a stale or
+    inferred "merge" / "ship it" instruction given before the gate
+    verdict was surfaced. Invoking `/flow-pipeline` is itself the user's
+    authorisation; opt out per-pipeline with `flow new --no-auto-merge`
+    (the supervisor stops at the gated state regardless of the gate
+    verdict). Same narrow-and-named contract as the `/pr-review`
+    exemption above.
   - **Shared rationale for the eight Task-tool exemptions below.**
     `/flow-pipeline`'s "Hard rules" forbid the supervisor from calling
     the `Task` / `Agent` tool, with eight named exceptions. The same
@@ -608,8 +625,9 @@ old silent-pass hole is closed.
     ninth exemption.
   - **AskUserQuestion exemption: `/flow-pipeline` step 4 candidate-
     issues sub-step.** `/flow-pipeline`'s "Hard rules" forbid arbitrary
-    `AskUserQuestion` calls from the supervisor, with one named
-    exception: the multi-select form fired during step 4's
+    `AskUserQuestion` calls from the supervisor, with two named
+    exceptions (this bullet and the step 9 gate-override bullet
+    below): the multi-select form fired during step 4's
     "Candidate follow-up issues sub-step" to let the user pick which
     orthogonal candidates to file post-merge. The exemption is
     anchored on the step heading name rather than its number.
@@ -621,6 +639,25 @@ old silent-pass hole is closed.
     narrow-and-named contract as the Task-tool exemptions above. If
     a future skill needs the same license, add it here by name
     rather than generalising the rule.
+  - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override
+    sub-step.** The second authorised `AskUserQuestion` site: the
+    single confirmation form fired during step 9's "Gate override
+    (post-verdict, opt-in)" sub-step, when the user instructs the
+    supervisor to merge a `gated` PR anyway. The form is what makes a
+    gate override a *fresh* confirmation — it puts the gate verdict
+    (the PR, the count of unchecked steps, that they may include
+    unverified functional checks) in front of the user and asks them
+    to confirm the override with that verdict in view, rather than the
+    supervisor inferring authorisation from an earlier instruction. An
+    affirmative answer is recorded by `flow-merge-guard
+    --record-override` and enforced by the `flow-merge-guard` step-10
+    backstop; any other answer leaves the PR `gated`. The exemption is
+    anchored on the step heading name rather than its number. These
+    two — step 4 candidate-issues and step 9 gate-override — are the
+    **only** authorised `AskUserQuestion` sites; a future skill needing
+    the license must be added here by name rather than generalising
+    the rule. The contract is documented bidirectionally in
+    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and step 9.
   - **Auto-issue-create exemption: `/pr-review` Step 6 deferral path
     and `/flow-pipeline` Step 10 post-merge sweep.** Skills are
     forbidden from calling `flow-create-issue` (or any other

@@ -41,9 +41,9 @@ write (or just wrote) to `~/.flow/state/<slug>.json` via
 | `verifying` | Acknowledge, keep going. | Append the redirect to the next `/verify` attempt's prompt (e.g. "ignore the flake test on X"). | Same as `implementing`: finish the in-flight attempt, close PR, cleanup, end. |
 | `ci-wait` | Acknowledge, keep polling. | Two flavours: (a) "stop waiting, proceed to review" → break out of the poll loop and go to step 8 (review). (b) "this CI failure isn't real, ignore it" → break out and go to step 5 in fix mode with the redirect as guidance. | Same as `implementing`: close PR, cleanup, end. |
 | `reviewing` | Acknowledge, let `/pr-review` finish. | Two flavours: (a) "skip the review, ship it" → break out and go to step 9 (gate). (b) "address this specific finding too" → append to the next `/pr-review` cycle. | Same as `implementing`: close PR, cleanup, end. |
-| `gating` | (n/a — gate is one decision) | (n/a — the user can override the gate by typing the merge verb themselves) | (n/a — gate completes in milliseconds) |
+| `gating` | (n/a — gate is one decision) | (n/a — the gate is one decision; a gate *override* happens only *after* the verdict, post-`gated` — see "Gate override" below) | (n/a — gate completes in milliseconds) |
 | `merging` | (n/a) | (n/a) | (n/a — too late to cancel, the merge has fired) |
-| `merged` / `gated` / `needs-human` / `cancelled` | "Anything else?" — these are end states; treat further input as a new request and ask the user whether they want to start a new pipeline. | Same. | Same. |
+| `merged` / `gated` / `needs-human` / `cancelled` | "Anything else?" — these are end states; treat further input as a new request and ask the user whether they want to start a new pipeline. | Same — **except** a post-`gated` instruction to merge the gated PR anyway, which is a gate override: classify it per "Gate override" below, not as a new pipeline. | Same. |
 
 ## How to classify ambiguous input
 
@@ -60,6 +60,64 @@ Ask yourself: **does this input demand a change in what I do next?**
 
 When in doubt, ask. The cost of asking is one chat turn; the cost
 of misclassifying is a wasted phase.
+
+## Gate override
+
+A `gated` verdict from step 9 is **terminal** (see
+`auto-merge-rubric.md` "A `gated` verdict is terminal, not advisory"
+and SKILL.md step 9). The supervisor renders the GATED block and ends.
+The tmux window stays open, so the user can still act — but a `gated`
+PR is merged by `/flow-pipeline` only through a **gate override**, and a
+gate override has a deliberately high bar.
+
+An override is authorised only when the user's instruction is **fresh,
+unambiguous, and in-context** — all three:
+
+- **Fresh** — sent *after* the GATED block was surfaced to the user. An
+  instruction given earlier in the conversation, before the gate verdict
+  existed, cannot authorise an override: the user had not seen the
+  verdict, so they cannot have been responding to it.
+- **Unambiguous** — an explicit instruction to merge *this* gated PR
+  despite its unchecked Test Steps. A bare "merge", "ship it", or "lgtm"
+  is not enough on its own; the instruction must be unmistakably about
+  merging the gated PR as-is.
+- **In-context** — actually about this gate verdict, not an instruction
+  given for a different purpose that the supervisor *infers* applies
+  here. An instruction to "merge" given while resolving an unrelated
+  rebase, many turns before the review cycle, is not an in-context
+  authorisation to override the gate.
+
+**Canonical anti-pattern (the incident this rule exists for).** A
+supervisor reached a correct `gated` verdict — three unchecked manual
+Test Steps remained, one of them a binary functional check ("hover the
+legend entry, the popover opens"). It reclassified the steps as
+"subjective UX" on its own authority and merged anyway, justifying the
+merge with a "merge" instruction the user had given many turns earlier,
+before the review cycle, in the unrelated context of resolving a rebase.
+The feature was completely broken. That instruction was **stale** (it
+predated the verdict) and **out-of-context** (given for the rebase, not
+the gate) — it authorised nothing. Reclassifying a functional step to
+change the verdict, and treating a pre-verdict instruction as an
+override, are both prohibited.
+
+**Override procedure.** When a post-`gated` instruction meets all three
+tests, the supervisor:
+
+1. Fires exactly one `AskUserQuestion` confirmation — naming the PR, the
+   count of unchecked steps, and that they may include unverified
+   functional checks — so the user confirms the override with the
+   verdict in full view. This is the named `AskUserQuestion` exemption
+   in SKILL.md "Hard rules".
+2. On an affirmative answer, runs `flow-merge-guard "$PR"
+   --record-override` to write the fresh-confirmation token, then
+   re-enters step 10. On any non-affirmative answer, the PR stays
+   `gated` — re-render the GATED block and end.
+
+When the instruction fails any of the three tests, do **not** fire the
+confirmation and do **not** record a token. Re-render the GATED block,
+restate that the verdict is terminal, and end. If the user's intent is
+genuinely unclear, ask one clarifying question per the ambiguous-input
+rule above.
 
 ## Don't conflate redirect with retry
 

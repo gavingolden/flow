@@ -286,16 +286,22 @@ in-process for skills; shell out for scripts; never delegate.
 > worktrees, branch collisions, review-comment ID mapping,
 > allowlist enforcement on auto-run) that are easy to get wrong.
 
-> **You only call `AskUserQuestion` from the named site.** The
-> supervisor's only authorised `AskUserQuestion` call is in step 4's
+> **You only call `AskUserQuestion` from the two named sites.** The
+> supervisor's only authorised `AskUserQuestion` calls are (a) step 4's
 > "Candidate follow-up issues sub-step" (the multi-select form for
-> picking which orthogonal candidates to file post-merge). Same
-> narrow-and-named contract as the Task-tool exemptions above:
-> `AskUserQuestion` is a different primitive (synchronous user prompt,
-> not a sub-agent fan-out), but a single named site keeps the
-> supervisor's user-prompt surface auditable. No other skill or step
-> may call `AskUserQuestion`. If a future skill needs the same license,
-> add it here by name rather than generalising the rule.
+> picking which orthogonal candidates to file post-merge) and (b) step
+> 9's "Gate override (post-verdict, opt-in)" sub-step (the single
+> confirmation form fired when the user instructs the supervisor to
+> merge a `gated` PR anyway — the form is what makes a gate override a
+> *fresh* confirmation, putting the gate verdict in front of the user
+> rather than letting the supervisor infer authorisation from an
+> earlier instruction). Same narrow-and-named contract as the Task-tool
+> exemptions above: `AskUserQuestion` is a different primitive
+> (synchronous user prompt, not a sub-agent fan-out), but a small named
+> set keeps the supervisor's user-prompt surface auditable. These two
+> are the **only** authorised sites — no other skill or step may call
+> `AskUserQuestion`. If a future skill needs the same license, add it
+> here by name rather than generalising the rule.
 
 > **You only auto-create GitHub issues from the named sites.**
 > `flow-create-issue` may fire only from (a) `/pr-review`'s Step 6
@@ -1305,9 +1311,96 @@ Branch on `.decision`:
 | `escalate-heading-missing` | Render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason test-steps-section-missing --pr-url "$PR_URL" --why "PR body has no ## Test Steps heading — gate cannot evaluate"`. End. |
 | `escalate-gh-error` | Render the NEEDS HUMAN block via `flow-gate-summary --status needs-human --reason gh-error --pr-url "$PR_URL" --why "$(printf '%s' "$REASON" | tr '\n' ' ' | head -c 200)"` (one-line, length-bounded from the `gh` stderr). End. |
 
+**A `gated` verdict is terminal, not advisory.** When `flow-gate-decide`
+returns `gated`, the supervisor renders the GATED block, writes
+`phase: gated`, and ends — full stop. The `gated` verdict is **not** an
+input the supervisor may weigh against its own judgment. The supervisor
+must **not** run `gh pr merge` on a `gated` PR on its own authority; must
+**not** reclassify the PR's unchecked Test Steps items (in particular, it
+must not relabel a functional check — a popover opens, a button works, a
+page renders — as "subjective UX") to make the verdict come out
+differently; and must **not** treat a "merge" / "ship it" instruction
+given *before* the gate verdict was surfaced as authorisation to merge.
+The gate exists precisely to stop a non-functional feature from shipping
+while manual verification steps are still unchecked; overriding it on the
+supervisor's own authority is the exact failure mode this rule
+forecloses. The only two routes from `gated` to merged are (a) a human
+merging the PR through GitHub themselves, or (b) the fresh-confirmation
+gate-override path below. See `references/auto-merge-rubric.md` "A
+`gated` verdict is terminal, not advisory" for the full contract.
+
+### Gate override (post-verdict, opt-in)
+
+A `gated` run has ended, but the tmux window stays open. If the user then
+types a *new* instruction to merge the gated PR anyway, treat it as a
+mid-flight redirect and classify it per `references/redirect-handling.md`
+"Gate override". An override is authorised **only** when the instruction
+is all three of **fresh** (sent after the GATED block was surfaced),
+**unambiguous** (an explicit instruction to merge *this* gated PR despite
+its unchecked steps — not a bare "merge"/"ship it"), and **in-context**
+(actually about this gate verdict, not inferred from an earlier
+instruction given for a different purpose). A stale or pre-verdict
+instruction never qualifies.
+
+When — and only when — the instruction meets all three tests:
+
+```bash
+# 1. Confirm with the verdict in full view. This is the named
+#    AskUserQuestion exemption in "Hard rules" above.
+#    AskUserQuestion: "PR #<n> is gated — <N> Test Steps unverified
+#    (they may include functional checks). Merge anyway?"
+# 2. On an affirmative answer only, record the fresh-confirmation token:
+flow-merge-guard "$PR" --record-override
+# 3. Then re-enter step 10. The flow-merge-guard backstop there reads
+#    the token and lets the merge through.
+```
+
+On any non-affirmative answer — or when the instruction fails any of the
+three tests — do **not** fire the confirmation and do **not** record a
+token. Re-render the GATED block via `flow-gate-summary --status gated
+...`, restate that the verdict is terminal, and end. The PR stays
+`gated`.
+
 ## Step 10 — Merge
 
 **Phase:** `merging`
+
+**Mechanical merge guard — run before every merge.** `flow-merge-guard`
+is the backstop that makes the merge path mechanically unreachable on a
+`gated` verdict the supervisor reached step 10 with anyway. It re-fetches
+the *live* PR body and re-parses the `## Test Steps` section (reusing the
+same audited parse as `flow-gate-decide`), and blocks unless the section
+has zero unchecked items **or** a fresh gate-override token is recorded
+(written by the step 9 "Gate override" sub-step). It is mandatory on
+every merge path: on a legitimate `auto-merge` verdict it is a no-op
+pass, so running it always costs nothing and closes the override hole.
+
+```bash
+GUARD_JSON=$(flow-merge-guard "$PR")
+GUARD_RC=$?
+if [ "$GUARD_RC" -ne 0 ]; then
+  PR_URL=$(gh pr view "$PR" --json url -q .url 2>/dev/null)
+  GUARD_REASON=$(printf '%s' "$GUARD_JSON" | jq -r '.reason // empty' 2>/dev/null)
+  GUARD_REASON=${GUARD_REASON:-"flow-merge-guard exited $GUARD_RC (helper missing from PATH? run flow setup --upgrade)"}
+  flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"
+  flow-gate-summary --status needs-human \
+    --reason gate-override-without-confirmation \
+    --pr-url "$PR_URL" --why "$GUARD_REASON" \
+    --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"
+  flow-state-update --phase needs-human
+  flow-notify --status needs-human --url "$PR_URL" \
+    --reason "gate-override-without-confirmation"
+  # End. Do NOT merge, do NOT retry the guard.
+fi
+```
+
+A non-zero `flow-merge-guard` exit means a `gated` verdict was reached
+without the fresh-confirmation override (exit 1 = blocked), or the guard
+could not run (exit 2 = gh error / bad args, or 127 = helper not yet on
+PATH — the user must run `flow setup --upgrade`). In **every** non-zero
+case the supervisor escalates `NEEDS HUMAN: gate-override-without-confirmation`
+and ends — it never merges past the guard and never retries it. Only
+when `GUARD_RC` is `0` does the supervisor continue to the merge below.
 
 ```bash
 PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
