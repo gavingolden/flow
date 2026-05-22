@@ -143,4 +143,17 @@ describe(installCommitHook, () => {
     const message = commitAndReadMessage(fx.repoDir, "primary.txt", "sess-leak-check");
     expect(message).not.toContain("Claude-Code-Session-Id");
   });
+
+  it("does not affect a sibling worktree that never had installCommitHook run", () => {
+    installCommitHook(fx.worktreeDir);
+    // A second plain `git worktree add` sibling — no installCommitHook call.
+    // Both worktrees share the same common git-dir and `extensions.worktreeConfig`
+    // is a repo-global flag once set by the first install; this proves the
+    // `--worktree`-scoped `core.hooksPath` truly isolates per-worktree and does
+    // not implicitly opt the sibling into the flow hook.
+    const siblingDir = path.join(path.dirname(fx.worktreeDir), "repo-sibling");
+    mustGit(["worktree", "add", "-b", "sibling", siblingDir], fx.repoDir);
+    const message = commitAndReadMessage(siblingDir, "sibling.txt", "sess-sibling-check");
+    expect(message).not.toContain("Claude-Code-Session-Id");
+  });
 });
