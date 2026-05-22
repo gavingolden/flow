@@ -182,6 +182,19 @@ fully off npm is a deliberate change, not something to do incidentally.
   tag, `gh api repos/{owner}/{repo}/issues/<n> --jq .created_at`
   for an issue or PR creation date. The rule is 'always *try*' with
   judgment, not blanket pessimisation — when in doubt, verify.
+- **Consider the middle ground when a request is framed as a binary choice.**
+  When a prompt poses an either/or — "should it work like A or B?",
+  "store it in the URL or the database?", "fast or simple?" — the two
+  named poles are evidence of how the user is currently thinking, not a
+  constraint on the solution space. The better answer is frequently an
+  intermediate option: a subset of A's capability with B's simplicity, a
+  phased rollout, a config-gated default, a hybrid that takes the cheap
+  80% of each. Name at least one such middle-ground option alongside the
+  two poles rather than silently picking a pole, and surface the
+  trade-off where the user will see it (the plan, the PR description, a
+  design note) so they can redirect. The genuinely-binary case still
+  exists (a boolean flag, a yes/no migration); the rule is to *check*
+  for a middle ground, not to manufacture one where none exists.
 
 ## Critical Judgment
 
