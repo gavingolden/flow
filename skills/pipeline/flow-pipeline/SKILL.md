@@ -1311,47 +1311,28 @@ Branch on `.decision`:
 
 ```bash
 PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
-SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
-SESSION_ID=$(jq -r '.sessionId // empty' ~/.flow/state/"$SLUG".json)
-MERGE_FLAGS=()
-if [ -n "$SESSION_ID" ]; then
-  MERGE_BODY=$(gh pr view "$PR" --json body -q .body | flow-merge-body --session-id "$SESSION_ID")
-  MERGE_FLAGS=(--body "$MERGE_BODY")
-fi
-MERGE_STDERR=$(cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR" 2>&1 1>/dev/null)
+MERGE_STDERR=$(cd "$PRIMARY" && gh pr merge --squash "$PR" 2>&1 1>/dev/null)
 MERGE_RC=$?
 ```
 
 **Retry self-containment.** The supervisor runs each retry below as a
-separate Bash tool call, and a fresh shell does not inherit the
-`MERGE_FLAGS` array built above (the same shell-state-loss hazard this
-file documents for `SLUG=`). So every retry call site is written to
-**re-derive the `MERGE_FLAGS` preamble in its own block** before
-invoking `gh pr merge` — the array-build snippet (`SLUG=` →
-`SESSION_ID=` → `MERGE_FLAGS=()` → the `if [ -n "$SESSION_ID" ]`
-block, which pipes the PR body through `flow-merge-body`) is repeated verbatim in each retry rather than referenced. A
-retry that ran `gh pr merge --squash "${MERGE_FLAGS[@]}"` against an
-unset array would silently drop the `Claude-Code-Session-Id:` trailer
-on exactly the conflict-resolved and transient-failure paths the
-trailer is meant to be durable across.
+separate Bash tool call, and a fresh shell does not inherit `$PRIMARY`
+from the block above (a shell-state-loss hazard). So every retry call
+site re-derives `PRIMARY=$(git worktree list ...)` in its own block
+before invoking `gh pr merge` — the merge command itself takes no extra
+flags, so there is nothing else to carry across.
 
-The `Claude-Code-Session-Id:` trailer is best-effort: when `sessionId`
-is present in `~/.flow/state/<slug>.json` (written by `flow-open-pr` at
-PR-open time), the `flow-merge-body` helper builds the squash-commit
-body — the PR-body narrative before the first `## Test Steps` heading,
-HTML comments stripped, with the trailer appended as the final line —
-so the Claude Code session that produced the PR survives into `git log`
-/ `git blame` after the feature branch is squashed and deleted, without
-dragging the gate/CI `## Test Steps` scaffolding in with it. `--subject`
-is intentionally not passed: `gh pr merge --squash` defaults the subject
-to `<PR title> (#N)`, so omitting the flag restores that convention for
-free and avoids a doubled-`(#N)` suffix. When `sessionId` is absent — a
-PR opened outside a Claude Code harness, or a flow version predating
-this field — `MERGE_FLAGS` stays empty and the merge command is
-byte-identical to pre-#210 (a bare `gh pr merge --squash`). The trailer
-is composed here at step 10, strictly after the step 9 auto-merge gate,
-and the gate inspects only the live PR body — so adding the trailer
-cannot affect the gate decision.
+The `Claude-Code-Session-Id:` trailer is no longer composed here. Step
+10 runs a bare `gh pr merge --squash` — no `--body`, no `--subject` —
+so gh builds the squash-commit body from its default concatenation of
+the branch's individual commit messages and defaults the subject to
+`<PR title> (#N)`. The trailer reaches `git log` /
+`git blame` because the per-commit `prepare-commit-msg` hook installed
+by `flow-new-worktree` appends `Claude-Code-Session-Id: <id>` to every
+individual commit in the worktree (when `CLAUDE_CODE_SESSION_ID` is
+set); gh's default concatenation then carries it into the squash-merge
+commit for free. The step 9 auto-merge gate is unaffected — it inspects
+only the live PR body, never the commit trailers.
 
 The primary worktree always has the base branch checked out (flow's
 invariant), so gh's post-merge `git checkout <base>` runs as a no-op
@@ -1367,18 +1348,12 @@ On non-zero exit, branch on the failure class:
   `Pull Request is not mergeable`, `not mergeable: the merge commit
   cannot be cleanly created`, `merge conflict between`. Spawn the
   Independent Merge-Conflict Resolver Subagent (see below), then
-  retry the merge **exactly once** with the preamble re-derived in
-  the same Bash call so the trailer is not dropped:
+  retry the merge **exactly once** with `$PRIMARY` re-derived in the
+  same Bash call:
 
   ```bash
-  SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
-  SESSION_ID=$(jq -r '.sessionId // empty' ~/.flow/state/"$SLUG".json)
-  MERGE_FLAGS=()
-  if [ -n "$SESSION_ID" ]; then
-    MERGE_BODY=$(gh pr view "$PR" --json body -q .body | flow-merge-body --session-id "$SESSION_ID")
-    MERGE_FLAGS=(--body "$MERGE_BODY")
-  fi
-  (cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR")
+  PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
+  (cd "$PRIMARY" && gh pr merge --squash "$PR")
   ```
 
   On retry success, continue to the post-merge sweep. On retry
@@ -1387,18 +1362,12 @@ On non-zero exit, branch on the failure class:
   --why "$(jq -r .summary "$ARTIFACT_PATH" | head -1)"`. End.
 - **Non-conflict** (auth, network, branch-protection denied, required
   check failed, PR closed externally, any unrecognised stderr) —
-  retry the merge once with the preamble re-derived in the same Bash
+  retry the merge once with `$PRIMARY` re-derived in the same Bash
   call:
 
   ```bash
-  SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
-  SESSION_ID=$(jq -r '.sessionId // empty' ~/.flow/state/"$SLUG".json)
-  MERGE_FLAGS=()
-  if [ -n "$SESSION_ID" ]; then
-    MERGE_BODY=$(gh pr view "$PR" --json body -q .body | flow-merge-body --session-id "$SESSION_ID")
-    MERGE_FLAGS=(--body "$MERGE_BODY")
-  fi
-  (cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR")
+  PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
+  (cd "$PRIMARY" && gh pr merge --squash "$PR")
   ```
 
   If still
@@ -1504,19 +1473,13 @@ filled prompt. After it returns:
    re-spawn the resolver — exactly one Task call per run, per the
    exemption contract.)
 2. Read the artifact's `force_push_status`. If `succeeded`, retry the
-   merge **exactly once** with the preamble re-derived in the same
-   Bash call (the supervisor runs this as a fresh shell — `MERGE_FLAGS`
-   from the Step 10 block above is not in scope):
+   merge **exactly once** with `$PRIMARY` re-derived in the same Bash
+   call (the supervisor runs this as a fresh shell — `$PRIMARY` from
+   the Step 10 block above is not in scope):
 
    ```bash
-   SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
-   SESSION_ID=$(jq -r '.sessionId // empty' ~/.flow/state/"$SLUG".json)
-   MERGE_FLAGS=()
-   if [ -n "$SESSION_ID" ]; then
-     MERGE_BODY=$(gh pr view "$PR" --json body -q .body | flow-merge-body --session-id "$SESSION_ID")
-     MERGE_FLAGS=(--body "$MERGE_BODY")
-   fi
-   (cd "$PRIMARY" && gh pr merge --squash "${MERGE_FLAGS[@]}" "$PR")
+   PRIMARY=$(git worktree list --porcelain | awk '/^worktree / {sub(/^worktree /, ""); print; exit}')
+   (cd "$PRIMARY" && gh pr merge --squash "$PR")
    ```
 
    If `failed` or `skipped`, do not retry — render the NEEDS HUMAN

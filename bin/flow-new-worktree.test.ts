@@ -484,6 +484,16 @@ describe("flow-new-worktree (integration)", () => {
       });
       expect(checkIgnore.status, `check-ignore ${p} stderr: ${checkIgnore.stderr}`).toBe(0);
     }
+
+    // flow-new-worktree wires in the prepare-commit-msg hook (best-effort) on
+    // worktree creation — assert the install actually fired. The hook lives
+    // under the worktree's own git-dir (not --git-common-dir), so resolve it
+    // from inside the worktree.
+    const gitDirRaw = mustGit(["rev-parse", "--git-dir"], expectedDir);
+    const gitDir = path.isAbsolute(gitDirRaw)
+      ? gitDirRaw
+      : path.join(expectedDir, gitDirRaw);
+    expect(fs.existsSync(path.join(gitDir, "flow-hooks", "prepare-commit-msg"))).toBe(true);
   });
 
   it("two parallel calls with the same slug return distinct paths and branches", async () => {

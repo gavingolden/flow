@@ -286,14 +286,22 @@ helper script that doesn't need an LLM at all.
   with no marker. Because the marker is an HTML comment it is invisible
   in GitHub's rendered view and stripped by the auto-merge gate before
   it counts unchecked `- [ ]` items. The marker is lost from `git
-  history` on squash-merge, so `/flow-pipeline` step 10 emits the same
-  session ID as a `Claude-Code-Session-Id:` trailer in the squash-merge
-  commit — the durable `git log` / `git blame` counterpart that survives
-  the branch deletion. The carrier bridging the two is the optional
-  `sessionId` string field in `~/.flow/state/<slug>.json`: `flow-open-pr`
-  writes it at PR-open time and step 10 reads it back via `jq` at merge
-  time (never re-reading the env var, which would be wrong on a
-  crash-resumed run).
+  history` on squash-merge, so the same session ID also reaches `git
+  log` / `git blame` as a `Claude-Code-Session-Id:` trailer — but via a
+  per-commit git hook, not step 10. `flow-new-worktree` installs a
+  worktree-scoped `prepare-commit-msg` hook (sourced from
+  `bin/lib/worktree-commit-hook.ts`, scoped via `extensions.worktreeConfig`
+  + a worktree-scoped `core.hooksPath` so it never fires for the user's
+  primary repo) that appends `Claude-Code-Session-Id: <id>` to **every
+  individual commit** made in the worktree when `CLAUDE_CODE_SESSION_ID`
+  is set; it is idempotent (`git interpret-trailers --if-exists doNothing`
+  never double-stamps) and inert when the env var is unset. gh's default
+  squash concatenation of the branch's commit messages then carries the
+  trailer into the squash-merge commit — `/flow-pipeline` step 10 runs a
+  bare `gh pr merge --squash` with zero `--body` manipulation. The
+  optional `sessionId` string field in `~/.flow/state/<slug>.json` is
+  still written by `flow-open-pr` at PR-open time for the HTML-comment
+  marker path, but step 10 no longer reads it.
 
 Pass multi-line messages through a heredoc:
 
