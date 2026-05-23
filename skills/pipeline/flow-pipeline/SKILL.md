@@ -1358,17 +1358,29 @@ needed.
 # 0. Re-query the live gate before deciding fire-form vs refuse-form.
 LIVE=$(flow-gate-decide "$PR")
 LIVE_DECISION=$(printf '%s' "$LIVE" | jq -r '.decision')
-if [ "$LIVE_DECISION" = "auto-merge" ]; then
-  # User cleared the gate themselves between the GATED render and
-  # their merge instruction. No override needed. Do NOT fire
-  # AskUserQuestion, do NOT call --record-override. Route directly
-  # to step 10's auto-merge path; flow-merge-guard there will
-  # re-confirm the cleared gate from the live body.
-  goto step-10
-fi
-# At this point LIVE_DECISION == "gated"; proceed with the override
-# decision per the softened "unambiguous" + retained "fresh" +
-# retained "in-context" tests.
+case "$LIVE_DECISION" in
+  auto-merge)
+    # User cleared the gate themselves between the GATED render and
+    # their merge instruction. No override needed. Do NOT fire
+    # AskUserQuestion, do NOT call --record-override. Route directly
+    # to step 10's auto-merge path; flow-merge-guard there will
+    # re-confirm the cleared gate from the live body.
+    # supervisor: stop processing the override here and re-enter
+    # step 10's auto-merge path with the now-clean verdict.
+    return 0
+    ;;
+  gated)
+    # Gate genuinely still applies; proceed with the override
+    # decision per the softened "unambiguous" + retained "fresh" +
+    # retained "in-context" tests below.
+    ;;
+  merged-externally|closed-no-merge|escalate-heading-missing|escalate-gh-error)
+    # Route per the existing step 9 decision table above; the
+    # override flow does not apply.
+    # supervisor: handle per step 9's main decision table.
+    return 0
+    ;;
+esac
 
 # 1. Confirm with the verdict in full view. This is the named
 #    AskUserQuestion exemption in "Hard rules" above.
