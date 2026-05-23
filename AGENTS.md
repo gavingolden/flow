@@ -255,8 +255,8 @@ helper script that doesn't need an LLM at all.
   authored by `/new-feature` Step 5b as inline review comments on the
   PR diff (`**why:** <1-2 sentences>` + `<!-- flow-intent-v1 -->`
   integrity suffix, prefix disjoint from `/pr-review`'s Conventional
-  Comments vocabulary). They don't survive squash-merge into `git log`
-  / `git blame` — durable rationale still belongs in commit-body
+  Comments vocabulary). They don't appear in `git log` / `git blame`
+  after merge — durable rationale still belongs in commit-body
   Why-sections and the PR body's `## Why`. See
   `skills/pipeline/new-feature/SKILL.md` Step 5b for the trigger contract
   (rules a/b/c, per-file dedup, ≤8/PR cap, overflow bullet) and
@@ -322,7 +322,8 @@ runner installs both Node and Bun — the vitest suite spawns `bun` as a
 subprocess. **Make the `verify` job a required status check** via a
 branch ruleset (or classic branch protection) on `main` so a red PR
 cannot be merged — the status check to select is the job name `verify`
-(GitHub may display it as `CI / verify` in the PR checks tab).
+(GitHub may display it as `CI / verify` in the PR checks tab). This is
+a repo-admin setting, not something the workflow file can enforce.
 
 ## What flow is *not*
 
@@ -360,9 +361,10 @@ trip the `actions` scope, which runs `actionlint .github/workflows/`
 prefix, so the same edit runs both `bin/`'s workflow-shape regression
 tests AND `actionlint` (different defect classes). Both `actionlint`
 and `go` are OPTIONAL tools: when not on `PATH`, the affected checks
-emit a per-result `skipReason: '<tool>-not-installed'` and count as
-`passed: true` rather than failing the gate (parallel to how
-`filterDefinedChecks` handles missing npm scripts). When **no** specific
+emit a per-result `skipReason: 'actionlint-not-installed'` or
+`'go-not-installed'` and count as `passed: true` rather than failing
+the gate (parallel to how `filterDefinedChecks` handles missing npm
+scripts). When **no** specific
 scope matched anything in a non-empty diff, the entire diff lands in
 the `root-fallback` pseudo-scope, which runs `npm run typecheck` and
 `npm run test` from the consumer's repo root — so a monorepo with
@@ -450,7 +452,9 @@ defined), the helper signals `allPassed: false` and emits
     `auto-merge`; (b) merging a `gated` PR on the strength of a stale or
     inferred "merge" / "ship it" instruction given before the gate
     verdict was surfaced. Invoking `/flow-pipeline` is itself the user's
-    authorisation; opt out per-pipeline with `flow new --no-auto-merge`.
+    authorisation; opt out per-pipeline with `flow new --no-auto-merge`
+    (the supervisor stops at the gated state regardless of the gate
+    verdict).
   - **Shared rationale for the eight Task-tool exemptions below.**
     `/flow-pipeline`'s "Hard rules" forbid the supervisor from calling
     the `Task` / `Agent` tool, with eight named exceptions. The same
@@ -473,12 +477,13 @@ defined), the helper signals `allPassed: false` and emits
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
     Multi-Agent Review.** `/flow-pipeline` step 8 loads `/pr-review`;
     at the "Independent Multi-Agent Review" step, six review agents are
-    spawned in parallel via the Task tool. No single aggregated
-    artifact — each agent persists its own
-    `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, and the
-    Consolidator-Validator step produces `consolidator-result.json`.
-    The six agents run inside the supervisor's own in-process Skill
-    load (`/pr-review` has no `context: fork` directive).
+    spawned in parallel via the Task tool. The fan-out itself emits no
+    consolidated artifact — each agent persists its own
+    `$WORKTREE/.flow-tmp/agent-output-<lens>.json`; the downstream
+    Consolidator-Validator step (a separate exemption below) produces
+    `consolidator-result.json`. The six agents run inside the
+    supervisor's own in-process Skill load (`/pr-review` has no
+    `context: fork` directive).
   - **Task-tool exemption: `/flow-pipeline` → `/product-planning`
     Independent Discovery Subagent.** `/flow-pipeline` step 3 loads
     `/product-planning`, which spawns one discovery agent via the Task
