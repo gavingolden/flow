@@ -34,10 +34,6 @@ only skills (`flow-add`, `flow-approve`, `flow-revise`, `flow-watch`,
 dispatches verbs natively (`new`, `ls`, `attach`, `done`, `setup`,
 `migrate`) with no passthrough fallback.
 
-Note: `docs/phases/m2-plan.md`, `docs/phases/m3-plan.md`, and the rest
-of `docs/phases/` describe the deleted orchestrator's phase contracts
-— historical artefacts kept for context.
-
 ## Code conventions
 
 - **Runtime:** Bun for everything under `bin/`. `package.json`
@@ -57,14 +53,10 @@ of `docs/phases/` describe the deleted orchestrator's phase contracts
 
 ## Output style
 
-Response guidelines for any agent working in this repo. The first entry
-is an accuracy rule — a precondition for every other rule that emits
-prose, citations, or recipes; the remaining bullets are ordered by
-token-savings impact (highest first), where "Don't echo file contents
-or full diffs into chat." and "Calibrate length to task." are the two
-highest-leverage token-savings rules not already covered by Claude
-Code's built-in prompt. Source: research consensus from leaked Claude
-Code, Cursor, and Aider system prompts plus Anthropic's prompting docs.
+Response guidelines for any agent working in this repo. The first
+entry is an accuracy rule (a precondition for every other rule that
+emits prose, citations, or recipes); the rest are ordered by
+token-savings impact, highest first.
 
 - **Verify factual claims before emitting them.** Always try to verify
   factual claims proactively via an API request, doc fetch, or
@@ -94,10 +86,7 @@ Code, Cursor, and Aider system prompts plus Anthropic's prompting docs.
   (presence in the example file is the canonical source-of-truth check);
   date: `git log --format='%ad' --date=short -1 <ref>` for a commit or
   tag, `gh api repos/{owner}/{repo}/issues/<n> --jq .created_at` for an
-  issue or PR creation date. The rule is 'always *try*' with
-  judgment, not blanket pessimisation — a claim like 'this is a
-  TypeScript file' doesn't need a verification round-trip; a claim
-  like 'this matches `/foo/` on line 42' does. When in doubt, verify.
+  issue or PR creation date. When in doubt, verify.
 - **Treat user prompts as evidence of intent, not exhaustive specifications.**
   User prompts may contain mistakes, incompleteness, unintended scope
   restriction, and misweighted goals. When a prompt names prescribed
@@ -145,12 +134,12 @@ Code, Cursor, and Aider system prompts plus Anthropic's prompting docs.
   downstream consumers read (the discovery subagent's PRD Architecture
   Decisions / Open Questions sections, the `/new-feature` Critical
   Analysis "Consider alternatives" bullet) so the user can redirect at
-  the next approval checkpoint. This is the same family as **Treat user
-  prompts as evidence of intent, not exhaustive specifications.** above
-  — a binary framing is one more way a prompt under-specifies — and the
-  same discipline applies: proceed with the most-likely-correct option
-  toward the user's goal and surface the alternatives in artifacts
-  rather than stopping to ask when work-without-stopping is in effect.
+  the next approval checkpoint. Same family as **Treat user prompts as
+  evidence of intent, not exhaustive specifications.** above — a binary
+  framing is one more way a prompt under-specifies — and the same
+  discipline applies: proceed with the most-likely-correct option and
+  surface alternatives in artifacts when work-without-stopping is in
+  effect.
   The genuinely-binary case still exists (a boolean flag, a yes/no
   migration); the rule is to *check* for a middle ground, not to
   manufacture one where none exists. The structural lint for this rule
@@ -180,9 +169,7 @@ Code, Cursor, and Aider system prompts plus Anthropic's prompting docs.
   they need the conclusion and the next action.
 - **Default to no code comments.** Add one only when the *why* is
   non-obvious (a constraint, a workaround, a subtle invariant).
-  Restating what the code does is noise. (Same rule as `## Code
-  conventions` above; repeated here because comment-bloat is one of
-  the top sources of agent token waste.)
+  Restating what the code does is noise.
 - **Implement fully — no `// rest of code` placeholders.** Stay in
   scope: don't refactor unrelated code, don't introduce new
   abstractions the task didn't ask for, don't half-finish.
@@ -268,34 +255,31 @@ helper script that doesn't need an LLM at all.
   authored by `/new-feature` Step 5b as inline review comments on the
   PR diff (`**why:** <1-2 sentences>` + `<!-- flow-intent-v1 -->`
   integrity suffix, prefix disjoint from `/pr-review`'s Conventional
-  Comments vocabulary). These inline intent annotations live on the PR
-  diff and do **not** appear in `git log` / `git blame` after merge —
-  durable rationale still
-  belongs in commit-body Why-sections and the PR body's `## Why`. See
+  Comments vocabulary). They don't appear in `git log` / `git blame`
+  after merge — durable rationale still belongs in commit-body
+  Why-sections and the PR body's `## Why`. See
   `skills/pipeline/new-feature/SKILL.md` Step 5b for the trigger contract
   (rules a/b/c, per-file dedup, ≤8/PR cap, overflow bullet) and
   `skills/pipeline/pr-review/SKILL.md` Step 3 for how `/pr-review`
-  consumes the annotations as `{{EXISTING_INTENT_COMMENTS}}` context.
+  consumes them as `{{EXISTING_INTENT_COMMENTS}}` context.
 - **Session marker + trailer:** every PR `flow-open-pr` freshly creates
   inside a Claude Code harness ends with a single-line, self-describing
   HTML-comment marker — `<!-- flow: this PR was created by Claude Code
   session <id> - transcript at ~/.claude/projects/<encoded-cwd>/<id>.jsonl
   on the originating machine -->` — sourced from the `CLAUDE_CODE_SESSION_ID`
-  env var. It is best-effort and same-machine-only (the transcript lives
-  on the machine that opened the PR); absent the env var the PR opens
-  with no marker. Because the marker is an HTML comment it is invisible
+  env var. It is best-effort and same-machine-only; absent the env
+  var the PR opens with no marker. Because the marker is an HTML comment it is invisible
   in GitHub's rendered view and stripped by the auto-merge gate before
   it counts unchecked `- [ ]` items. The marker is lost from `git
   history` on squash-merge, so the same session ID also reaches `git
   log` / `git blame` as a `Claude-Code-Session-Id:` trailer — but via a
   per-commit git hook, not step 10. `flow-new-worktree` installs a
-  worktree-scoped `prepare-commit-msg` hook (sourced from
-  `bin/lib/worktree-commit-hook.ts`, scoped via `extensions.worktreeConfig`
-  + a worktree-scoped `core.hooksPath` so it never fires for the user's
-  primary repo) that appends `Claude-Code-Session-Id: <id>` to **every
-  individual commit** made in the worktree when `CLAUDE_CODE_SESSION_ID`
-  is set; it is idempotent (`git interpret-trailers --if-exists doNothing`
-  never double-stamps) and inert when the env var is unset. gh's default
+  worktree-scoped `prepare-commit-msg` hook (scoped via
+  `extensions.worktreeConfig` + a worktree-scoped `core.hooksPath` so
+  it never fires for the user's primary repo) that appends
+  `Claude-Code-Session-Id: <id>` to **every individual commit** made
+  in the worktree when `CLAUDE_CODE_SESSION_ID` is set; it is
+  idempotent and inert when the env var is unset. gh's default
   squash concatenation of the branch's commit messages then carries the
   trailer into the squash-merge commit — `/flow-pipeline` step 10 runs a
   bare `gh pr merge --squash` with zero `--body` manipulation. The
@@ -338,17 +322,16 @@ runner installs both Node and Bun — the vitest suite spawns `bun` as a
 subprocess. **Make the `verify` job a required status check** via a
 branch ruleset (or classic branch protection) on `main` so a red PR
 cannot be merged — the status check to select is the job name `verify`
-(GitHub may display it as `CI / verify` in the PR checks tab). This is a
-repo-admin setting, not something the workflow file can enforce.
+(GitHub may display it as `CI / verify` in the PR checks tab). This is
+a repo-admin setting, not something the workflow file can enforce.
 
 ## What flow is *not*
 
 - The supervisor does not re-implement Claude Code skills inside its own
-  process. It hosts a skill library at `skills/` and distributes it via
-  symlink (`flow setup`); the wrapper at `bin/flow` only routes verbs to
-  helper scripts and tmux. Pipeline behaviour lives in the
-  `/flow-pipeline` supervisor skill, executed by Claude Code inside a
-  tmux window.
+  process. It hosts a skill library at `skills/` distributed via
+  `flow setup`; `bin/flow` only routes verbs to helper scripts and
+  tmux. Pipeline behaviour lives in the `/flow-pipeline` supervisor
+  skill, executed by Claude Code inside a tmux window.
 - It is not a full SDLC tool. It does not host a web UI, post to Slack,
   open Jira tickets, or manage permissions.
 - It is not a long-running daemon. Each `flow` invocation does one thing
@@ -376,14 +359,12 @@ walk Go packages on their own). Workflow YAML edits under
 trip the `actions` scope, which runs `actionlint .github/workflows/`
 — and they still trip `scripts` via the existing `.github/workflows/`
 prefix, so the same edit runs both `bin/`'s workflow-shape regression
-tests AND `actionlint` (different defect classes). `actionlint` is
-treated as an OPTIONAL tool: when it isn't installed on `PATH`, the
-check emits a per-result `skipReason: 'actionlint-not-installed'` and
-counts as `passed: true` rather than failing the gate (parallel to how
-`filterDefinedChecks` handles missing npm scripts). `go` is treated
-the same way: when it isn't installed on `PATH`, both `backend` checks
-emit a per-result `skipReason: 'go-not-installed'` and count as
-`passed: true` rather than failing the gate. When **no** specific
+tests AND `actionlint` (different defect classes). Both `actionlint`
+and `go` are OPTIONAL tools: when not on `PATH`, the affected checks
+emit a per-result `skipReason: 'actionlint-not-installed'` or
+`'go-not-installed'` and count as `passed: true` rather than failing
+the gate (parallel to how `filterDefinedChecks` handles missing npm
+scripts). When **no** specific
 scope matched anything in a non-empty diff, the entire diff lands in
 the `root-fallback` pseudo-scope, which runs `npm run typecheck` and
 `npm run test` from the consumer's repo root — so a monorepo with
@@ -392,18 +373,16 @@ real verify pass without flow having to learn every layout. The
 fallback is **mutually exclusive** with every specific scope
 (including `backend`): a mixed diff like `src/a.ts` + `apps/web/src/b.ts`
 matches `src` and runs `src`'s checks only — `root-fallback` does not
-also fire; a backend-only diff like `backend/handler.go` matches
-`backend` and `root-fallback` does not fire either. The orphan
-`apps/web/src/b.ts` still surfaces in `unmatchedFiles` for visibility,
-but it doesn't trip an extra check round.
+also fire. The orphan `apps/web/src/b.ts` still surfaces in
+`unmatchedFiles` for visibility, but it doesn't trip an extra check
+round.
 
 For the fallback to do anything, the consumer's root `package.json`
 must define `typecheck` and `test` scripts; `filterDefinedChecks` in
 `bin/flow-pre-commit.ts` drops any check whose npm script is absent.
 When a non-empty diff produces zero checks (no matching npm scripts
 defined), the helper signals `allPassed: false` and emits
-`reason: "no-checks-defined"` rather than silently exiting `0` — the
-old silent-pass hole is closed.
+`reason: "no-checks-defined"` rather than silently exiting `0`.
 
 ## Don'ts
 
@@ -411,24 +390,17 @@ old silent-pass hole is closed.
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
 - Don't spawn sub-agents from the supervisor. See above. The eight
-  named exceptions are `/pr-review`'s Independent Multi-Agent Review
-  step, `/product-planning`'s Independent Discovery Subagent,
-  `/new-feature`'s Independent Scout Subagent, `/pr-review`'s
-  Fix-Applier Subagent, `/flow-pipeline` step 10's Merge-Conflict
-  Resolver Subagent, `/coder`'s Independent Edit-Applier
-  Subagent, `/pr-review` Step 1.5's Independent Gatekeeper
-  Subagent, and `/pr-review` Step 3.5's Independent
-  Consolidator-Validator Subagent — all eight covered by "Task-tool
-  exemption" bullets below; no other skill or step may call Task.
+  named exceptions are `/pr-review`'s Multi-Agent Review,
+  `/product-planning`'s Discovery, `/new-feature`'s Scout,
+  `/pr-review`'s Fix-Applier, `/flow-pipeline` step 10's
+  Merge-Conflict Resolver, `/coder`'s Edit-Applier, `/pr-review`
+  Step 1.5's Gatekeeper, and `/pr-review` Step 3.5's
+  Consolidator-Validator subagents — all eight covered by
+  "Task-tool exemption" bullets below; no other skill or step may
+  call Task.
 - Don't add features beyond the task's stated scope.
-- Don't propagate unverified factual claims. If you're about to emit
-  a SHA, file path, line number, URL, PR number, issue number,
-  version string, env-var name, API surface shape, date, exemption
-  count, or deprecated CLI flag into an edit, PR body, commit
-  message, or script, verify the value live against its source
-  (`Read`, `git rev-parse`, `gh pr view` for PRs, `gh issue view`
-  for issues, `grep`, `--help`) before emitting it. The
-  operational detail and per-category verification recipes live in
+- Don't propagate unverified factual claims. The trigger categories,
+  per-category verification recipes, and anti-patterns live in
   `## Output style` under 'Verify factual claims before emitting
   them.' Latent values that were correct at a past read silently rot
   — line numbers shift, SHAs advance, exemption counts grow, CLI
@@ -447,11 +419,10 @@ old silent-pass hole is closed.
   leave the tree clean before returning.** A skill that finishes with
   uncommitted changes on a feature branch has not finished: the user
   can otherwise merge the branch or move to the next task without the
-  final edits landing. The exemption is scoped to non-base branches:
-  on `main`, pause and ask before committing even when running a
-  code-editing skill, since direct commits to main bypass review.
-  Pushing remains gated by the named exemptions below; creating PRs
-  counts as user-visible action — confirm before pushing.
+  final edits landing. On `main`, pause and ask before committing even
+  when running a code-editing skill, since direct commits to main
+  bypass review. Pushing remains gated by the named exemptions below;
+  creating PRs counts as user-visible action — confirm before pushing.
   - **Auto-push exemption: `pr-review`.** The `pr-review` skill is exempt
     from the no-auto-commit and no-auto-push defaults — invoking
     `/pr-review` is itself the user's explicit instruction to commit and
@@ -469,11 +440,10 @@ old silent-pass hole is closed.
     **not** extend to a `gated` verdict: a `gated` verdict is terminal,
     and a `gated` PR is merged by `/flow-pipeline` only through the
     fresh-confirmation gate-override path (a new, unambiguous,
-    in-context user instruction given *after* the GATED block, confirmed
-    via `AskUserQuestion`, recorded by `flow-merge-guard
-    --record-override`, and enforced by the `flow-merge-guard` step-10
-    backstop). The supervisor may never substitute its own judgment for
-    a `gated` verdict — see
+    in-context user instruction confirmed via `AskUserQuestion`,
+    recorded by `flow-merge-guard --record-override`, enforced by the
+    `flow-merge-guard` step-10 backstop). The supervisor may never
+    substitute its own judgment for a `gated` verdict — see
     `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md` "A
     `gated` verdict is terminal, not advisory". **Anti-patterns this
     exemption explicitly forecloses:** (a) reclassifying an unchecked
@@ -484,8 +454,7 @@ old silent-pass hole is closed.
     verdict was surfaced. Invoking `/flow-pipeline` is itself the user's
     authorisation; opt out per-pipeline with `flow new --no-auto-merge`
     (the supervisor stops at the gated state regardless of the gate
-    verdict). Same narrow-and-named contract as the `/pr-review`
-    exemption above.
+    verdict).
   - **Shared rationale for the eight Task-tool exemptions below.**
     `/flow-pipeline`'s "Hard rules" forbid the supervisor from calling
     the `Task` / `Agent` tool, with eight named exceptions. The same
@@ -508,13 +477,13 @@ old silent-pass hole is closed.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
     Multi-Agent Review.** `/flow-pipeline` step 8 loads `/pr-review`;
     at the "Independent Multi-Agent Review" step, six review agents are
-    spawned in parallel via the Task tool. No single aggregated result
-    artifact — each agent persists its own
-    `$WORKTREE/.flow-tmp/agent-output-<lens>.json`, and the
-    Consolidator-Validator step produces `consolidator-result.json`; the
-    Multi-Agent Review fan-out itself emits no consolidated artifact of
-    its own. The six agents run inside the supervisor's own in-process
-    Skill load (`/pr-review` has no `context: fork` directive).
+    spawned in parallel via the Task tool. The fan-out itself emits no
+    consolidated artifact — each agent persists its own
+    `$WORKTREE/.flow-tmp/agent-output-<lens>.json`; the downstream
+    Consolidator-Validator step (a separate exemption below) produces
+    `consolidator-result.json`. The six agents run inside the
+    supervisor's own in-process Skill load (`/pr-review` has no
+    `context: fork` directive).
   - **Task-tool exemption: `/flow-pipeline` → `/product-planning`
     Independent Discovery Subagent.** `/flow-pipeline` step 3 loads
     `/product-planning`, which spawns one discovery agent via the Task
@@ -558,8 +527,7 @@ old silent-pass hole is closed.
     resolver's summary first sentence appended. **Force-push is
     permitted** here because the resolver runs inside `/flow-pipeline`'s
     auto-merge umbrella and is scoped to the per-pipeline branch only —
-    never `main`, `master`, or the base branch (the instructions file's
-    branch-name guard is mandatory).
+    never `main`, `master`, or the base branch.
   - **Task-tool exemption: `/flow-pipeline` → `/coder` Independent
     Edit-Applier Subagent.** When a pipeline skill reaches its
     hybrid-threshold wider-scope path — `/new-feature` step 5,
@@ -575,23 +543,21 @@ old silent-pass hole is closed.
     threshold (see each caller's "Spawn procedure (wider-scope path
     only)" for the canonical bar). The full contract is in
     `skills/pipeline/coder/SKILL.md`'s "Independent Edit-Applier
-    Subagent" section. Together with the seven other exemptions in this
-    block, these are the **only eight** authorised Task-tool fan-out
-    sites from `/flow-pipeline`; no other skill or step may call Task.
+    Subagent" section. These are the **only eight** authorised Task-tool
+    fan-out sites from `/flow-pipeline`; no other skill or step may call
+    Task.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
     Gatekeeper Subagent.** `/flow-pipeline` step 8 loads `/pr-review`;
     at the "Independent Gatekeeper Subagent" step (Step 1.5), one
     gatekeeper agent is spawned via the Task tool with a per-spawn
-    `model: "haiku"` override — the one exemption justified primarily
-    by **cost-routing** rather than context isolation. It short-circuits
-    the four-agent Sonnet fan-out on closed/merged/trivial/no-new-commits
-    PRs from a single `gh pr view --json
-    state,isDraft,additions,deletions,commits,author` metadata fetch.
-    Artifact: `<worktree>/.flow-tmp/gatekeeper-result.json` (typed
-    fields `decision`, `reason`, `skip_kind?`, `summary`). The wrapper
-    branches on it: `"skip"` writes a well-formed
-    `pr-review-result.json` with `status: "clean"` and
-    `completed_steps: ["1", "1.5"]` so Step 8 sees a clean result and
+    `model: "haiku"` override — justified primarily by **cost-routing**
+    rather than context isolation. It short-circuits the four-agent
+    Sonnet fan-out on closed/merged/trivial/no-new-commits PRs from a
+    single `gh pr view` metadata fetch. Artifact:
+    `<worktree>/.flow-tmp/gatekeeper-result.json` (typed fields
+    `decision`, `reason`, `skip_kind?`, `summary`). The wrapper
+    branches on it: `"skip"` writes a `pr-review-result.json` with
+    `status: "clean"` and `completed_steps: ["1", "1.5"]` so Step 8
     proceeds to the auto-merge gate; `"proceed"` continues to Step 2
     unchanged.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
@@ -610,35 +576,27 @@ old silent-pass hole is closed.
   - **Task-tool spawn sites must load Task first.** Each of the eight
     Task-tool exemption sites above must instruct the supervisor to
     load the Task tool schema via `ToolSearch query="select:Task"`
-    before invoking Task (or its alias `Agent`). In Claude Code sessions where neither `Task` nor its alias `Agent`
-    is surfaced top-level by the harness (both are aliases of the
-    same one-shot subagent-spawn primitive: identical
-    `subagent_type` / `prompt` / `description` schema), an unguarded
+    before invoking Task (or its alias `Agent` — same one-shot
+    subagent-spawn primitive, identical schema). In sessions where
+    neither alias is surfaced top-level by the harness, an unguarded
     invocation silently falls through to in-line execution — the
     inaugural silent-fallback regression was PR #124. On missing
     schema, escalate `NEEDS HUMAN: task-tool-unavailable:
-    <exemption-name>` rather than falling back inline; each spawn
-    procedure carries the canonical "Load the Task tool before
-    spawning" paragraph, and `bin/skill-md-lint.test.ts` enforces
-    its presence at all eight sites. Same narrow-and-named hygiene as
-    the Task-tool exemptions above — this is a sibling guard, not a
-    ninth exemption.
+    <exemption-name>` rather than falling back inline.
+    `bin/skill-md-lint.test.ts` enforces the canonical "Load the Task
+    tool before spawning" paragraph at all eight sites. This is a
+    sibling guard, not a ninth exemption.
   - **AskUserQuestion exemption: `/flow-pipeline` step 4 candidate-
     issues sub-step.** `/flow-pipeline`'s "Hard rules" forbid arbitrary
     `AskUserQuestion` calls from the supervisor, with two named
     exceptions (this bullet and the step 9 gate-override bullet
     below): the multi-select form fired during step 4's
     "Candidate follow-up issues sub-step" to let the user pick which
-    orthogonal candidates to file post-merge. The exemption is
-    anchored on the step heading name rather than its number.
-    Rationale: `AskUserQuestion` is a different primitive from
-    `Task` (it's a synchronous user prompt, not a sub-agent fan-out)
-    so the one-level sub-agent cap doesn't apply, but the
-    narrow-and-named hygiene still does — naming the single fire
-    site keeps the supervisor's user-prompt surface auditable. Same
-    narrow-and-named contract as the Task-tool exemptions above. If
-    a future skill needs the same license, add it here by name
-    rather than generalising the rule.
+    orthogonal candidates to file post-merge. Rationale:
+    `AskUserQuestion` is a synchronous user prompt, not a sub-agent
+    fan-out, so the one-level sub-agent cap doesn't apply — but naming
+    the single fire site keeps the supervisor's user-prompt surface
+    auditable.
   - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override
     sub-step.** The second authorised `AskUserQuestion` site: the
     single confirmation form fired during step 9's "Gate override
@@ -651,13 +609,11 @@ old silent-pass hole is closed.
     supervisor inferring authorisation from an earlier instruction. An
     affirmative answer is recorded by `flow-merge-guard
     --record-override` and enforced by the `flow-merge-guard` step-10
-    backstop; any other answer leaves the PR `gated`. The exemption is
-    anchored on the step heading name rather than its number. These
-    two — step 4 candidate-issues and step 9 gate-override — are the
-    **only** authorised `AskUserQuestion` sites; a future skill needing
-    the license must be added here by name rather than generalising
-    the rule. The contract is documented bidirectionally in
-    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and step 9.
+    backstop; any other answer leaves the PR `gated`. These two — step
+    4 candidate-issues and step 9 gate-override — are the **only**
+    authorised `AskUserQuestion` sites. The contract is documented
+    bidirectionally in `skills/pipeline/flow-pipeline/SKILL.md` "Hard
+    rules" and step 9.
   - **Auto-issue-create exemption: `/pr-review` Step 6 deferral path
     and `/flow-pipeline` Step 10 post-merge sweep.** Skills are
     forbidden from calling `flow-create-issue` (or any other
@@ -673,9 +629,7 @@ old silent-pass hole is closed.
     backlogs with low-confidence noise and races on `gh` rate
     limits; the two named sites have explicit user opt-in (the
     deferral bar for pr-review, the AskUserQuestion form for
-    flow-pipeline). Same narrow-and-named contract as the
-    exemptions above. The contract is documented bidirectionally in
+    flow-pipeline). The contract is documented bidirectionally in
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules",
     `skills/pipeline/pr-review/SKILL.md` Step 6, and
-    `bin/flow-create-issue.ts`. If a future skill needs to file
-    issues, add it here by name rather than generalising the rule.
+    `bin/flow-create-issue.ts`.
