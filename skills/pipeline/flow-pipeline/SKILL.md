@@ -1336,15 +1336,52 @@ types a *new* instruction to merge the gated PR anyway, treat it as a
 mid-flight redirect and classify it per `references/redirect-handling.md`
 "Gate override". An override is authorised **only** when the instruction
 is all three of **fresh** (sent after the GATED block was surfaced),
-**unambiguous** (an explicit instruction to merge *this* gated PR despite
-its unchecked steps — not a bare "merge"/"ship it"), and **in-context**
-(actually about this gate verdict, not inferred from an earlier
-instruction given for a different purpose). A stale or pre-verdict
-instruction never qualifies.
+**unambiguous** (about merging this gated PR — bare "merge"/"ship it"/
+"lgtm" qualify; the `AskUserQuestion` form fired next is itself the
+conscious-confirmation step), and **in-context** (actually about this
+gate verdict, not inferred from an earlier instruction given for a
+different purpose). A stale or pre-verdict instruction never qualifies.
+The "unambiguous" test fails only on inputs that are not about merging
+at all (bare "cool", "thanks", "next").
 
-When — and only when — the instruction meets all three tests:
+**Re-query the live gate first.** Before firing or refusing the
+override, always re-query the live verdict via `flow-gate-decide "$PR"`
+and branch on the result. The supervisor's local context may be stale:
+the user can tick `- [ ]` boxes in the PR body between the GATED render
+and their merge instruction, clearing the gate themselves. The re-query
+lets the supervisor distinguish "gate genuinely still applies, fire the
+override form" from "gate already cleared, proceed on the auto-merge
+path" — without it, the supervisor refuses an override that isn't
+needed.
 
 ```bash
+# 0. Re-query the live gate before deciding fire-form vs refuse-form.
+LIVE=$(flow-gate-decide "$PR")
+LIVE_DECISION=$(printf '%s' "$LIVE" | jq -r '.decision')
+case "$LIVE_DECISION" in
+  auto-merge)
+    # User cleared the gate themselves between the GATED render and
+    # their merge instruction. No override needed. Do NOT fire
+    # AskUserQuestion, do NOT call --record-override. Route directly
+    # to step 10's auto-merge path; flow-merge-guard there will
+    # re-confirm the cleared gate from the live body.
+    # supervisor: stop processing the override here and re-enter
+    # step 10's auto-merge path with the now-clean verdict.
+    return 0
+    ;;
+  gated)
+    # Gate genuinely still applies; proceed with the override
+    # decision per the softened "unambiguous" + retained "fresh" +
+    # retained "in-context" tests below.
+    ;;
+  merged-externally|closed-no-merge|escalate-heading-missing|escalate-gh-error)
+    # Route per the existing step 9 decision table above; the
+    # override flow does not apply.
+    # supervisor: handle per step 9's main decision table.
+    return 0
+    ;;
+esac
+
 # 1. Confirm with the verdict in full view. This is the named
 #    AskUserQuestion exemption in "Hard rules" above.
 #    AskUserQuestion: "PR #<n> is gated — <N> Test Steps unverified
@@ -1355,11 +1392,20 @@ flow-merge-guard "$PR" --record-override
 #    the token and lets the merge through.
 ```
 
-On any non-affirmative answer — or when the instruction fails any of the
-three tests — do **not** fire the confirmation and do **not** record a
-token. Re-render the GATED block via `flow-gate-summary --status gated
-...`, restate that the verdict is terminal, and end. The PR stays
-`gated`.
+On any non-affirmative answer — or when the instruction fails the
+"fresh" or "in-context" test, or the "unambiguous" test on an input
+that isn't about merging at all — do **not** fire the confirmation and
+do **not** record a token. Re-render the GATED block via
+`flow-gate-summary --status gated ...`, restate that the verdict is
+terminal, and end. The PR stays `gated`.
+
+**Step 10 needs no helper plumbing change.** The mechanical merge guard
+`flow-merge-guard` already re-fetches the live PR body via
+`fetchPrInputs` on every call (see `bin/flow-merge-guard.ts`'s `run()`
+entry — same `gh pr view` round-trip `flow-gate-decide` uses). The
+stale-verdict footgun this sub-step's step 0 closes is purely on the
+step 9 supervisor-prose decision path — step 10's backstop was already
+correct.
 
 ## Step 10 — Merge
 

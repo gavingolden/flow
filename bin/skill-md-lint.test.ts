@@ -1696,6 +1696,16 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("flow-pipeline SKILL.md step 9 documents a live re-query before the override decision", () => {
+    expect(
+      content.includes("Re-query the live gate"),
+      "flow-pipeline SKILL.md step 9 must contain the phrase 'Re-query the " +
+        "live gate' — the anchor for the live-gate-decide re-query that runs " +
+        "before the AskUserQuestion override form fires (closes the " +
+        "stale-verdict footgun).",
+    ).toBe(true);
+  });
+
   it("flow-pipeline SKILL.md step 10 wires in the flow-merge-guard backstop", () => {
     expect(
       content.includes("flow-merge-guard"),
@@ -1753,6 +1763,61 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       ),
       "redirect-handling.md must contain the phrase 'fresh, unambiguous, and " +
         "in-context' — the three-part bar a gate override must clear.",
+    ).toBe(true);
+  });
+
+  it("redirect-handling.md documents a live re-query before the override decision", () => {
+    expect(
+      redirectHandlingContent.includes("Re-query the live gate"),
+      "redirect-handling.md must contain the phrase 'Re-query the live " +
+        "gate' in its Gate override section — the anchor for the live-" +
+        "gate-decide re-query step 0 that runs before the override decision.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md + redirect-handling.md pin the genuinely-ambiguous list ('cool', 'thanks', 'next')", () => {
+    // The softened "unambiguous" test refuses ONLY inputs that aren't about
+    // merging at all — anchored on the three-word list "cool", "thanks",
+    // "next". Without this lint a future edit could silently drop the list
+    // from either file (re-tightening the carve-out into a refuse-bare-
+    // "merge" stance, or losing the carve-out's failure case), drifting the
+    // two surfaces out of lock-step. PR #221.
+    expect(
+      content.includes('"cool", "thanks", "next"'),
+      "flow-pipeline SKILL.md step 9 must contain the genuinely-ambiguous " +
+        "list '\"cool\", \"thanks\", \"next\"' verbatim — the anchor for the " +
+        "softened 'unambiguous' test's failure case (inputs that aren't " +
+        "about merging at all).",
+    ).toBe(true);
+    expect(
+      redirectHandlingContent.includes('"cool", "thanks", "next"'),
+      "redirect-handling.md 'Gate override' section must contain the " +
+        "genuinely-ambiguous list '\"cool\", \"thanks\", \"next\"' verbatim — " +
+        "the sibling anchor on the references-doc side; both files must " +
+        "carry the list or they drift out of lock-step.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md + redirect-handling.md pin the merge-vocabulary qualifiers ('ship it', 'lgtm')", () => {
+    // The softened "unambiguous" test ACCEPTS bare merge-vocabulary — "merge",
+    // "ship it", "lgtm" — as sufficient to fire the AskUserQuestion form.
+    // Anchoring on "ship it" + "lgtm" (both present verbatim in both files)
+    // pins the carve-out's accepted-inputs side. A future edit that drops
+    // these qualifiers from either file would silently re-tighten the test
+    // back to a refuse-bare-"merge" stance. PR #221.
+    expect(
+      content.includes('"ship it"') && content.includes('"lgtm"'),
+      "flow-pipeline SKILL.md step 9 must contain the merge-vocabulary " +
+        "qualifiers '\"ship it\"' and '\"lgtm\"' verbatim — the anchors for " +
+        "the softened 'unambiguous' test's accepted-inputs side.",
+    ).toBe(true);
+    expect(
+      redirectHandlingContent.includes('"ship it"') &&
+        redirectHandlingContent.includes('"lgtm"'),
+      "redirect-handling.md 'Gate override' section must contain the " +
+        "merge-vocabulary qualifiers '\"ship it\"' and '\"lgtm\"' verbatim — " +
+        "the sibling anchors on the references-doc side; both files must " +
+        "carry the qualifiers or they drift out of lock-step.",
     ).toBe(true);
   });
 
