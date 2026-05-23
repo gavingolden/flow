@@ -1696,6 +1696,16 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("flow-pipeline SKILL.md step 9 documents a live re-query before the override decision", () => {
+    expect(
+      content.includes("Re-query the live gate"),
+      "flow-pipeline SKILL.md step 9 must contain the phrase 'Re-query the " +
+        "live gate' — the anchor for the live-gate-decide re-query that runs " +
+        "before the AskUserQuestion override form fires (closes the " +
+        "stale-verdict footgun).",
+    ).toBe(true);
+  });
+
   it("flow-pipeline SKILL.md step 10 wires in the flow-merge-guard backstop", () => {
     expect(
       content.includes("flow-merge-guard"),
@@ -1753,6 +1763,15 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       ),
       "redirect-handling.md must contain the phrase 'fresh, unambiguous, and " +
         "in-context' — the three-part bar a gate override must clear.",
+    ).toBe(true);
+  });
+
+  it("redirect-handling.md documents a live re-query before the override decision", () => {
+    expect(
+      redirectHandlingContent.includes("Re-query the live gate"),
+      "redirect-handling.md must contain the phrase 'Re-query the live " +
+        "gate' in its Gate override section — the anchor for the live-" +
+        "gate-decide re-query step 0 that runs before the override decision.",
     ).toBe(true);
   });
 

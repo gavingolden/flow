@@ -77,10 +77,15 @@ unambiguous, and in-context** — all three:
   instruction given earlier in the conversation, before the gate verdict
   existed, cannot authorise an override: the user had not seen the
   verdict, so they cannot have been responding to it.
-- **Unambiguous** — an explicit instruction to merge *this* gated PR
-  despite its unchecked Test Steps. A bare "merge", "ship it", or "lgtm"
-  is not enough on its own; the instruction must be unmistakably about
-  merging the gated PR as-is.
+- **Unambiguous** — an instruction that is *about merging this gated
+  PR*. Bare "merge", "ship it", "lgtm", and equivalent merge-vocabulary
+  inputs all qualify — they are unambiguously about merging, and the
+  `AskUserQuestion` confirmation step that fires next is itself the
+  conscious-confirmation surface that puts the verdict in front of the
+  user. This test fails only on inputs that are not about merging at
+  all — bare "cool", "thanks", "next", "ok", a question about an
+  unrelated topic. Refusing to fire the form on a bare "merge" inverts
+  the form's own design: the form is what makes the override conscious.
 - **In-context** — actually about this gate verdict, not an instruction
   given for a different purpose that the supervisor *infers* applies
   here. An instruction to "merge" given while resolving an unrelated
@@ -100,24 +105,55 @@ the gate) — it authorised nothing. Reclassifying a functional step to
 change the verdict, and treating a pre-verdict instruction as an
 override, are both prohibited.
 
-**Override procedure.** When a post-`gated` instruction meets all three
-tests, the supervisor:
+**Override procedure.** When a post-`gated` instruction reaches the
+supervisor:
 
-1. Fires exactly one `AskUserQuestion` confirmation — naming the PR, the
-   count of unchecked steps, and that they may include unverified
-   functional checks — so the user confirms the override with the
-   verdict in full view. This is the named `AskUserQuestion` exemption
-   in SKILL.md "Hard rules".
-2. On an affirmative answer, runs `flow-merge-guard "$PR"
+0. **Re-query the live gate first.** Before deciding fire-form vs
+   refuse-form, run `flow-gate-decide "$PR"` and branch on the live
+   `decision`. The verdict in the supervisor's local context may be
+   stale: between the GATED render and the user's merge instruction,
+   the user can tick `- [ ]` boxes in the PR body and clear the gate
+   themselves. Without the re-query, the supervisor refuses an override
+   that isn't needed — re-rendering a verdict that no longer holds.
+   - `decision: "auto-merge"` → the user cleared the gate themselves.
+     **No override is needed.** Do NOT fire `AskUserQuestion`, do NOT
+     call `--record-override`. Route directly to step 10's auto-merge
+     path; the mechanical `flow-merge-guard` backstop there will
+     re-confirm the cleared gate from the live body and let the merge
+     through.
+   - `decision: "gated"` → the gate genuinely still applies. Proceed
+     to step 1 below with the softened "unambiguous" + retained
+     "fresh" + retained "in-context" tests.
+   - `decision: "merged-externally"` / `"closed-no-merge"` /
+     `"escalate-heading-missing"` / `"escalate-gh-error"` → route per
+     the existing step 9 decision table.
+1. When the instruction passes all three tests (fresh + unambiguous +
+   in-context), fire exactly one `AskUserQuestion` confirmation —
+   naming the PR, the count of unchecked steps, and that they may
+   include unverified functional checks — so the user confirms the
+   override with the verdict in full view. This is the named
+   `AskUserQuestion` exemption in SKILL.md "Hard rules".
+2. On an affirmative answer, run `flow-merge-guard "$PR"
    --record-override` to write the fresh-confirmation token, then
-   re-enters step 10. On any non-affirmative answer, the PR stays
+   re-enter step 10. On any non-affirmative answer, the PR stays
    `gated` — re-render the GATED block and end.
 
-When the instruction fails any of the three tests, do **not** fire the
-confirmation and do **not** record a token. Re-render the GATED block,
-restate that the verdict is terminal, and end. If the user's intent is
-genuinely unclear, ask one clarifying question per the ambiguous-input
-rule above.
+When the instruction fails the "fresh" or "in-context" test — or the
+"unambiguous" test on an input that isn't about merging at all — do
+**not** fire the confirmation and do **not** record a token. Re-render
+the GATED block, restate that the verdict is terminal, and end. If the
+user's intent is genuinely unclear, ask one clarifying question per the
+ambiguous-input rule above.
+
+Canonical precedent: the rule this section softens was established by
+[PR #216](https://github.com/gavingolden/flow/pull/216) ("feat: make a
+gated auto-merge verdict terminal", merged 2026-05-22). PR #216 made
+the `gated` verdict terminal and added the three-test override bar; the
+present softening keeps the verdict terminal and keeps the three-test
+bar — it only widens the door to the `AskUserQuestion` form so the bare
+"merge" case fires the conscious-confirmation surface rather than
+refusing it, and adds the live re-query so a self-cleared gate routes
+to auto-merge instead of a refused override.
 
 ## Don't conflate redirect with retry
 
