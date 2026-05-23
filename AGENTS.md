@@ -484,8 +484,7 @@ old silent-pass hole is closed.
     verdict was surfaced. Invoking `/flow-pipeline` is itself the user's
     authorisation; opt out per-pipeline with `flow new --no-auto-merge`
     (the supervisor stops at the gated state regardless of the gate
-    verdict). Same narrow-and-named contract as the `/pr-review`
-    exemption above.
+    verdict).
   - **Shared rationale for the eight Task-tool exemptions below.**
     `/flow-pipeline`'s "Hard rules" forbid the supervisor from calling
     the `Task` / `Agent` tool, with eight named exceptions. The same
@@ -575,9 +574,9 @@ old silent-pass hole is closed.
     threshold (see each caller's "Spawn procedure (wider-scope path
     only)" for the canonical bar). The full contract is in
     `skills/pipeline/coder/SKILL.md`'s "Independent Edit-Applier
-    Subagent" section. Together with the seven other exemptions in this
-    block, these are the **only eight** authorised Task-tool fan-out
-    sites from `/flow-pipeline`; no other skill or step may call Task.
+    Subagent" section. These are the **only eight** authorised Task-tool
+    fan-out sites from `/flow-pipeline`; no other skill or step may call
+    Task.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
     Gatekeeper Subagent.** `/flow-pipeline` step 8 loads `/pr-review`;
     at the "Independent Gatekeeper Subagent" step (Step 1.5), one
@@ -620,8 +619,7 @@ old silent-pass hole is closed.
     <exemption-name>` rather than falling back inline; each spawn
     procedure carries the canonical "Load the Task tool before
     spawning" paragraph, and `bin/skill-md-lint.test.ts` enforces
-    its presence at all eight sites. Same narrow-and-named hygiene as
-    the Task-tool exemptions above — this is a sibling guard, not a
+    its presence at all eight sites. This is a sibling guard, not a
     ninth exemption.
   - **AskUserQuestion exemption: `/flow-pipeline` step 4 candidate-
     issues sub-step.** `/flow-pipeline`'s "Hard rules" forbid arbitrary
@@ -629,16 +627,12 @@ old silent-pass hole is closed.
     exceptions (this bullet and the step 9 gate-override bullet
     below): the multi-select form fired during step 4's
     "Candidate follow-up issues sub-step" to let the user pick which
-    orthogonal candidates to file post-merge. The exemption is
-    anchored on the step heading name rather than its number.
-    Rationale: `AskUserQuestion` is a different primitive from
-    `Task` (it's a synchronous user prompt, not a sub-agent fan-out)
-    so the one-level sub-agent cap doesn't apply, but the
-    narrow-and-named hygiene still does — naming the single fire
-    site keeps the supervisor's user-prompt surface auditable. Same
-    narrow-and-named contract as the Task-tool exemptions above. If
-    a future skill needs the same license, add it here by name
-    rather than generalising the rule.
+    orthogonal candidates to file post-merge. Rationale:
+    `AskUserQuestion` is a different primitive from `Task` (it's a
+    synchronous user prompt, not a sub-agent fan-out) so the one-level
+    sub-agent cap doesn't apply, but the narrow-and-named hygiene still
+    does — naming the single fire site keeps the supervisor's
+    user-prompt surface auditable.
   - **AskUserQuestion exemption: `/flow-pipeline` step 9 gate-override
     sub-step.** The second authorised `AskUserQuestion` site: the
     single confirmation form fired during step 9's "Gate override
@@ -651,13 +645,11 @@ old silent-pass hole is closed.
     supervisor inferring authorisation from an earlier instruction. An
     affirmative answer is recorded by `flow-merge-guard
     --record-override` and enforced by the `flow-merge-guard` step-10
-    backstop; any other answer leaves the PR `gated`. The exemption is
-    anchored on the step heading name rather than its number. These
-    two — step 4 candidate-issues and step 9 gate-override — are the
-    **only** authorised `AskUserQuestion` sites; a future skill needing
-    the license must be added here by name rather than generalising
-    the rule. The contract is documented bidirectionally in
-    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules" and step 9.
+    backstop; any other answer leaves the PR `gated`. These two — step
+    4 candidate-issues and step 9 gate-override — are the **only**
+    authorised `AskUserQuestion` sites. The contract is documented
+    bidirectionally in `skills/pipeline/flow-pipeline/SKILL.md` "Hard
+    rules" and step 9.
   - **Auto-issue-create exemption: `/pr-review` Step 6 deferral path
     and `/flow-pipeline` Step 10 post-merge sweep.** Skills are
     forbidden from calling `flow-create-issue` (or any other
@@ -673,9 +665,7 @@ old silent-pass hole is closed.
     backlogs with low-confidence noise and races on `gh` rate
     limits; the two named sites have explicit user opt-in (the
     deferral bar for pr-review, the AskUserQuestion form for
-    flow-pipeline). Same narrow-and-named contract as the
-    exemptions above. The contract is documented bidirectionally in
+    flow-pipeline). The contract is documented bidirectionally in
     `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules",
     `skills/pipeline/pr-review/SKILL.md` Step 6, and
-    `bin/flow-create-issue.ts`. If a future skill needs to file
-    issues, add it here by name rather than generalising the rule.
+    `bin/flow-create-issue.ts`.
