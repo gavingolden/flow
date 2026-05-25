@@ -11,6 +11,7 @@
 
 import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
+import { agentCommand, detectAgent, isAgentRuntime, type AgentRuntime } from "./agent";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { slugify } from "./slug";
 import {
@@ -33,6 +34,12 @@ export type NewOptions = {
   stateDir?: string;
   /** Persist `autoMerge: false` so the supervisor stops at gated. */
   noAutoMerge?: boolean;
+  /**
+   * Pipeline runtime (claude / antigravity). When omitted on a fresh
+   * create, falls back to env-driven detectAgent. On --resume, ignored
+   * — the runtime is read from state.json.
+   */
+  agent?: AgentRuntime;
 };
 
 export function runNew(input: string, options: NewOptions = {}): number {
@@ -69,16 +76,30 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     return runNew(rest[0], { ...options, resume: true });
   }
   const noAutoMerge = args.includes("--no-auto-merge");
+  // Consume `--agent <value>` (eats the next arg). Validate the value
+  // against the AgentRuntime union; reject anything else with exit 2.
+  let agent: AgentRuntime | undefined;
+  const agentIdx = args.indexOf("--agent");
+  let argsAfterAgent = args;
+  if (agentIdx >= 0) {
+    const value = args[agentIdx + 1];
+    if (value === undefined || !isAgentRuntime(value)) {
+      console.error(`flow new: --agent must be one of: claude, antigravity (got ${value ?? "<missing>"})`);
+      return 2;
+    }
+    agent = value;
+    argsAfterAgent = [...args.slice(0, agentIdx), ...args.slice(agentIdx + 2)];
+  }
   // Drop a leading `--` end-of-options sentinel so descriptions written
   // with `flow new -- fix the -h crash` round-trip without the literal
   // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
-  const ddIdx = args.indexOf("--");
+  const ddIdx = argsAfterAgent.indexOf("--");
   const descriptionArgs =
     ddIdx >= 0
-      ? [...args.slice(0, ddIdx), ...args.slice(ddIdx + 1)]
-      : args;
+      ? [...argsAfterAgent.slice(0, ddIdx), ...argsAfterAgent.slice(ddIdx + 1)]
+      : argsAfterAgent;
   const description = descriptionArgs.filter((a) => a !== "--no-auto-merge").join(" ");
-  return runNew(description, { ...options, noAutoMerge });
+  return runNew(description, { ...options, noAutoMerge, agent });
 }
 
 function runFresh(description: string, options: NewOptions): number {
@@ -110,8 +131,9 @@ function runFresh(description: string, options: NewOptions): number {
     return 1;
   }
 
-  const command = options.command ?? defaultCommand(description);
-  const result = createWindow(slug, repo, command);
+  const agent = options.agent ?? detectAgent(process.env);
+  const command = options.command ?? defaultCommand(description, agent);
+  const result = createWindow(slug, repo, command, undefined, agent);
   if (!result.ok) {
     console.error(`flow new: tmux failed to create the window.`);
     if (result.stderr) console.error(`  ${result.stderr}`);
@@ -130,6 +152,7 @@ function runFresh(description: string, options: NewOptions): number {
       repo,
       worktree: existing?.worktree,
       autoMerge: options.noAutoMerge ? false : undefined,
+      agent,
       updatedAt: nowIso(),
     },
     options.stateDir,
@@ -179,10 +202,11 @@ function runResume(name: string, options: NewOptions): number {
     return 1;
   }
 
-  const command = options.command ?? resumeCommand(slug);
+  const agent: AgentRuntime = state.agent ?? "claude";
+  const command = options.command ?? resumeCommand(slug, agent);
   const result = exists
     ? respawnWindow(slug, state.repo, command)
-    : createWindow(slug, state.repo, command);
+    : createWindow(slug, state.repo, command, undefined, agent);
   if (!result.ok) {
     console.error(`flow new --resume: tmux failed to ${exists ? "respawn" : "create"} the window.`);
     if (result.stderr) console.error(`  ${result.stderr}`);
@@ -196,19 +220,20 @@ function runResume(name: string, options: NewOptions): number {
   return 0;
 }
 
-function defaultCommand(description: string): string[] {
+function defaultCommand(description: string, agent: AgentRuntime): string[] {
   // The supervisor skill is invoked by the chat session itself, not by
-  // passing the slash command on the CLI. We launch claude with an initial
-  // prompt that tells the user (and the LLM, once active) what to do.
+  // passing the slash command on the CLI. We launch the runtime with an
+  // initial prompt that tells the user (and the LLM, once active) what
+  // to do. `agentCommand` dispatches the runtime binary.
   const prompt = `Use the /flow-pipeline skill for: ${description}`;
-  return ["claude", prompt];
+  return agentCommand(agent, prompt);
 }
 
-function resumeCommand(slug: string): string[] {
+function resumeCommand(slug: string, agent: AgentRuntime): string[] {
   // The supervisor parses this prefix to detect resume mode and walk the
   // decision tree in references/failure-recovery.md section (b).
   const prompt = `Use the /flow-pipeline skill in --resume mode for: ${slug}`;
-  return ["claude", prompt];
+  return agentCommand(agent, prompt);
 }
 
 function resolveRepoRoot(cwd: string): string | null {

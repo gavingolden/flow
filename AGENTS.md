@@ -215,6 +215,50 @@ When adding a new script, default to Bun. If you need to deviate (e.g.
 a Node-only dependency), confirm with the user first and document the
 exception inline.
 
+## Multi-agent runtime
+
+flow supports two AI runtimes, selectable per-pipeline:
+
+- **Claude Code** (default) — the original target.
+- **Antigravity** (`agy` 1.0.2+) — Google's CLI agent. Requires `agy`
+  on PATH and a `~/.gemini/` directory.
+
+Pick the runtime at pipeline-create time via
+`flow new --agent <claude|antigravity> "<description>"`. When
+`--agent` is absent, `flow new` auto-detects by environment:
+`ANTIGRAVITY_CONVERSATION_ID` (non-empty) ⇒ antigravity, otherwise
+claude. Neither env var set ⇒ claude (the documented default). The
+resolved runtime is persisted in `~/.flow/state/<slug>.json` as the
+optional `agent` field (absent ≡ claude — no migration helper, per
+"No backwards-compat shims" in `## Code conventions`).
+
+Per-runtime side effects attached automatically:
+
+- `flow-open-pr` selects the right session-marker text and transcript
+  path hint based on `state.agent`. Both markers are single-line HTML
+  comments stripped cleanly by the auto-merge gate.
+- The worktree-scoped `prepare-commit-msg` hook emits
+  `Claude-Code-Session-Id: <id>` when `CLAUDE_CODE_SESSION_ID` is set
+  AND/OR `Antigravity-Conversation-Id: <id>` when
+  `ANTIGRAVITY_CONVERSATION_ID` is set. The hook is purely env-driven
+  (no state.json read) so it stays `#!/bin/sh` and per-commit fast.
+- `flow setup --upgrade` installs flow as **both** a Claude Code skill
+  set (`~/.claude/skills/`, `~/.local/bin/`) AND, when `~/.gemini/`
+  exists, an agy plugin at
+  `~/.gemini/config/plugins/flow/` containing
+  `plugin.json`, `gemini-extension.json`, `installed_version.json`,
+  plus `skills/` and `agents/` symlinks back into the flow source.
+
+Known gaps:
+
+- agy cost reporting is not yet supported. `flow ls --cost` renders
+  `—` in the `$ COST` column for antigravity rows and prints a single
+  footnote under the table.
+- The agy Stop-hook parity (the equivalent of flow's Claude Code
+  Stop-hook merge into `~/.claude/settings.json`) is not yet wired.
+- There is no IDE-pane-vs-standalone detection beyond the
+  `ANTIGRAVITY_EDITOR_READY` sentinel.
+
 ## Supervisor and sub-skills: in-process only
 
 This is the load-bearing constraint for `/flow-pipeline`: the supervisor

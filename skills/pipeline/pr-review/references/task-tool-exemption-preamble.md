@@ -16,8 +16,11 @@ harness (both are aliases of the same one-shot subagent-spawn
 primitive: identical `subagent_type` / `prompt` / `description`
 schema), the spawn will silently fall through to in-line execution
 unless the schema is loaded first. Before the Task call at the spawn
-site, run `ToolSearch query="select:Task"` and confirm the response
-contains either a `<function>{"name": "Task", ...}</function>` or a
+site, run `ToolSearch query="select:Task"` (if your harness uses
+deferred tool loading; harnesses that surface Task or Agent top-level
+can skip this load step and proceed directly to the Task call) and
+confirm the response contains either a
+`<function>{"name": "Task", ...}</function>` or a
 `<function>{"name": "Agent", ...}</function>` line. If it does not,
 **do not fall back to in-line execution** — escalate
 `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` and exit. Each

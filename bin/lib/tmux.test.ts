@@ -66,6 +66,19 @@ describe(buildNewWindowArgs, () => {
       "hi",
     ]);
   });
+
+  it("prefixes the display name with 'agy/' when agent is antigravity", () => {
+    const args = buildNewWindowArgs("flow", "my-win", "/tmp", ["agy", "hi"], "antigravity");
+    const nameIdx = args.indexOf("-n");
+    expect(args[nameIdx + 1]).toBe("agy/my-win");
+  });
+
+  it("leaves the display name bare when agent is claude (or undefined)", () => {
+    const claudeArgs = buildNewWindowArgs("flow", "my-win", "/tmp", ["claude", "hi"], "claude");
+    expect(claudeArgs[claudeArgs.indexOf("-n") + 1]).toBe("my-win");
+    const undefArgs = buildNewWindowArgs("flow", "my-win", "/tmp", ["claude", "hi"]);
+    expect(undefArgs[undefArgs.indexOf("-n") + 1]).toBe("my-win");
+  });
 });
 
 describe(buildNewSessionArgs, () => {

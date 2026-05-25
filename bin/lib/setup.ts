@@ -9,6 +9,7 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { CLAUDE_SETTINGS_PATH, FLOW_MANIFEST, resolveFlowSource, SETUP_LOCK_PATH } from "./paths";
 import {
@@ -114,7 +115,7 @@ export type SetupSummary = {
 export function runSetup(options: SetupOptions = {}): SetupSummary {
   const flowSource = options.flowSource ?? resolveFlowSource();
   const installRoot = options.installRoot ?? resolveFlowSource();
-  const targets = options.targets ?? DEFAULT_TARGETS;
+  const targets = withGeminiHome(options.targets ?? DEFAULT_TARGETS, options.homeDir);
   const log = options.quiet ? () => undefined : (msg: string) => console.log(msg);
 
   if (!options.skipPreflight) preflight(targets);
@@ -162,7 +163,14 @@ function runUnderLock(
   log(`      source ${flowSource}`);
 
   for (const entry of entries) {
-    const result = ensureSymlink(entry.target, entry.source, options.force ?? false);
+    let result: LinkResult;
+    if (entry.kind === "gemini-plugin-file") {
+      result = writePluginFile(entry.target, entry.content ?? "");
+    } else {
+      // gemini-plugin-symlink falls through to the symlink path along
+      // with skill/agent/bin/completion — same on-disk shape.
+      result = ensureSymlink(entry.target, entry.source, options.force ?? false);
+    }
     logResult(entry, result, log);
     summary[bucketFor(result)]++;
   }
@@ -295,6 +303,20 @@ function reapOrphans(
   let removed = 0;
   for (const record of previous.symlinks) {
     if (currentTargets.has(record.target)) continue;
+    if (record.kind === "gemini-plugin-file") {
+      // Plugin-manifest files (plugin.json / gemini-extension.json /
+      // installed_version.json) are written as regular files, not symlinks.
+      // Reap by direct unlink rather than via `removeIfManagedSymlink`,
+      // which only handles symlinks.
+      try {
+        fs.unlinkSync(record.target);
+        log(`  - ${path.basename(record.target)}  (orphan removed)`);
+        removed++;
+      } catch {
+        // Already absent — count as a no-op.
+      }
+      continue;
+    }
     if (removeIfManagedSymlink(record.target, record.source, { canonicalRoot, defaultBranch, log })) {
       log(`  - ${path.basename(record.target)}  (orphan removed)`);
       removed++;
@@ -352,6 +374,45 @@ function printSummary(s: SetupSummary, log: (msg: string) => void): void {
     s.blocked ? `${s.blocked} blocked` : null,
   ].filter(Boolean);
   log(parts.length ? `      ${parts.join(", ")}` : "      no changes");
+}
+
+/**
+ * Defaults `geminiHome` to `~/.gemini` when that directory exists on the
+ * user's machine. Single-runtime claude installs (no ~/.gemini) get a
+ * no-op gemini-plugin discovery. Tests passing a `geminiHome` directly
+ * keep their value verbatim — only the undefined-default is inferred.
+ */
+function withGeminiHome(targets: InstallTargets, homeDirOverride?: string): InstallTargets {
+  if (targets.geminiHome !== undefined) return targets;
+  const home = homeDirOverride ?? os.homedir();
+  const candidate = path.join(home, ".gemini");
+  try {
+    if (fs.statSync(candidate).isDirectory()) {
+      return { ...targets, geminiHome: candidate };
+    }
+  } catch {
+    // ~/.gemini missing — single-runtime install path.
+  }
+  return targets;
+}
+
+/**
+ * Materialises a `gemini-plugin-file` entry by writing `content` to
+ * `target`. Returns the same `LinkResult` discriminant the symlink path
+ * uses so the summary buckets stay coherent. Existing content equal
+ * to the candidate is reported as `exists` (idempotent re-runs).
+ */
+function writePluginFile(target: string, content: string): LinkResult {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  let prior: string | null = null;
+  try {
+    prior = fs.readFileSync(target, "utf8");
+  } catch {
+    // Missing — fall through to the create path below.
+  }
+  if (prior === content) return "exists";
+  fs.writeFileSync(target, content);
+  return prior === null ? "created" : "updated";
 }
 
 function commandOnPath(cmd: string): boolean {

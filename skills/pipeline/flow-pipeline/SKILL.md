@@ -78,7 +78,9 @@ in-process for skills; shell out for scripts; never delegate.
 > **Load the Task tool at each spawn site.** Each of the eight spawn
 > procedures below must instruct the supervisor to load the Task
 > tool schema via `ToolSearch query="select:Task"` *before* invoking
-> Task (or its alias `Agent`). In Claude Code sessions where neither `Task` nor its alias `Agent` is
+> Task (or its alias `Agent`) (if your harness uses deferred tool
+> loading; harnesses that surface Task or Agent top-level can skip
+> this load step and proceed directly to the Task call). In Claude Code sessions where neither `Task` nor its alias `Agent` is
 > surfaced top-level by the harness (both are aliases of the same
 > one-shot subagent-spawn primitive: identical `subagent_type` /
 > `prompt` / `description` schema), an unguarded invocation silently
@@ -831,6 +833,13 @@ the supervisor calls — see "Hard rules" above for the
 narrow-and-named exemption that authorises this single site. Other
 skills and steps may not invoke it.
 
+If your harness does not expose AskUserQuestion, fall back to: render
+the candidates as a numbered markdown list (or render the single
+confirmation question as plain markdown for step 9), write
+`phase: approval-pending-clarification`, end the turn, and parse the
+user's next-turn reply as the selection (numbers / 'none' for step 4;
+affirmative/non-affirmative for step 9).
+
 ## Step 5 — Implement
 
 **Phase:** `implementing`
@@ -1399,6 +1408,13 @@ do **not** record a token. Re-render the GATED block via
 `flow-gate-summary --status gated ...`, restate that the verdict is
 terminal, and end. The PR stays `gated`.
 
+If your harness does not expose AskUserQuestion, fall back to: render
+the candidates as a numbered markdown list (or render the single
+confirmation question as plain markdown for step 9), write
+`phase: approval-pending-clarification`, end the turn, and parse the
+user's next-turn reply as the selection (numbers / 'none' for step 4;
+affirmative/non-affirmative for step 9).
+
 **Step 10 needs no helper plumbing change.** The mechanical merge guard
 `flow-merge-guard` already re-fetches the live PR body via
 `fetchPrInputs` on every call (see `bin/flow-merge-guard.ts`'s `run()`
@@ -1532,7 +1548,7 @@ force-pushes, and returns a brief summary. The supervisor never sees
 the rebase output, the per-file resolution prose, or the force-push
 transcript — only the artifact and the summary.
 
-**Load the Task tool before spawning** — i.e. before the Task call below. See [../pr-review/references/task-tool-exemption-preamble.md](../pr-review/references/task-tool-exemption-preamble.md) for the full rationale. On missing schema: escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit (do not fall back to in-line execution).
+**Load the Task tool before spawning** — i.e. before the Task call below (if your harness uses deferred tool loading; harnesses that surface Task or Agent top-level can skip this load step and proceed directly to the Task call). See [../pr-review/references/task-tool-exemption-preamble.md](../pr-review/references/task-tool-exemption-preamble.md) for the full rationale. On missing schema: escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-merge-resolver` and exit (do not fall back to in-line execution).
 
 Resolve the inputs the subagent needs, then make exactly **one**
 Task call:

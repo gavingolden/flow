@@ -1233,6 +1233,41 @@ describe("Task-tool ToolSearch-load preamble at all eight spawn sites", () => {
     "task-tool-exemption-preamble.md",
   );
 
+  // Multi-runtime graceful-fallback qualifier: every spawn site (or its
+  // include-by-reference preamble) must carry the "if your harness uses
+  // deferred tool loading" prose so harnesses where Task/Agent is already
+  // surfaced top-level know they can skip the ToolSearch load step.
+  // Anchors on the phrase substring so prose edits that keep the meaning
+  // continue to pass.
+  const FALLBACK_QUALIFIER = "if your harness uses deferred tool loading";
+
+  it.each(SITES)(
+    "$file (or its include-by-reference preamble) carries the deferred-tool-loading qualifier for $exemption_name",
+    ({ file, exemption_name }) => {
+      const absPath = path.resolve(HERE, "..", ...file.split("/"));
+      const fileContent = fs.readFileSync(absPath, "utf8");
+      const inSkill = fileContent.includes(FALLBACK_QUALIFIER);
+
+      const isRefactored = REFACTORED_SITES.has(exemption_name);
+      const refContent = isRefactored
+        ? fs.readFileSync(PREAMBLE_REF_PATH, "utf8")
+        : "";
+      const inRef = isRefactored && refContent.includes(FALLBACK_QUALIFIER);
+
+      expect(
+        inSkill || inRef,
+        `${file} (or its include-by-reference preamble at ` +
+          `skills/pipeline/pr-review/references/task-tool-exemption-preamble.md ` +
+          `for refactored sites) must include the literal ` +
+          `'${FALLBACK_QUALIFIER}' qualifier near the ToolSearch ` +
+          `instruction for '${exemption_name}'. This is the ` +
+          `multi-runtime graceful-fallback contract: harnesses where ` +
+          `Task or Agent is surfaced top-level must be told they can ` +
+          `skip the deferred-loading dance.`,
+      ).toBe(true);
+    },
+  );
+
   it.each(SITES)(
     "$file names both Task and Agent aliases at the spawn site for $exemption_name",
     ({ file, exemption_name }) => {
@@ -1839,5 +1874,36 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "`/flow-pipeline` step 9 gate-override' bullet — the second authorised " +
         "AskUserQuestion site, documented bidirectionally with SKILL.md.",
     ).toBe(true);
+  });
+});
+
+describe("AskUserQuestion multi-runtime fallback prose", () => {
+  // Both authorised AskUserQuestion sites in /flow-pipeline (step 4
+  // candidate-issues, step 9 gate-override) must carry the graceful-
+  // fallback paragraph so harnesses that don't expose AskUserQuestion
+  // (notably antigravity / agy) get a documented degradation path
+  // rather than silently breaking. The anchor matches a phrase
+  // substring so prose edits keep passing as long as the meaning
+  // survives.
+  const SKILL_PATH = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "flow-pipeline",
+    "SKILL.md",
+  );
+  const ANCHOR = "If your harness does not expose AskUserQuestion";
+
+  it("flow-pipeline SKILL.md contains the AskUserQuestion fallback paragraph at least twice (steps 4 + 9)", () => {
+    const content = fs.readFileSync(SKILL_PATH, "utf8");
+    const occurrences = (content.match(new RegExp(ANCHOR, "g")) ?? []).length;
+    expect(
+      occurrences,
+      `flow-pipeline SKILL.md must include the literal anchor '${ANCHOR}' ` +
+        `at both authorised AskUserQuestion sites (step 4 candidate-issues + ` +
+        `step 9 gate-override). Got ${occurrences} occurrence(s) — expected ` +
+        `>= 2.`,
+    ).toBeGreaterThanOrEqual(2);
   });
 });

@@ -8,7 +8,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_MANIFEST } from "./paths";
 
-export type SymlinkKind = "skill" | "agent" | "bin" | "completion";
+export type SymlinkKind =
+  | "skill"
+  | "agent"
+  | "bin"
+  | "completion"
+  | "gemini-plugin-file"
+  | "gemini-plugin-symlink";
 
 export type SymlinkRecord = {
   source: string;

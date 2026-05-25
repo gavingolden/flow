@@ -1,0 +1,10 @@
+{
+  "name": "flow",
+  "version": "{{VERSION}}",
+  "description": "Multi-agent supervisor pipeline (Claude Code / Antigravity dual-runtime)",
+  "author": {
+    "name": "flow"
+  },
+  "repository": "https://github.com/gavingolden/flow",
+  "license": "MIT"
+}

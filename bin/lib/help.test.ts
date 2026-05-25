@@ -100,6 +100,18 @@ describe("HELP_TOP", () => {
   it("documents 'flow help <verb>' as a top-level form", () => {
     expect(HELP_TOP).toContain("flow help <verb>");
   });
+
+  it("mentions --agent in the flow new summary line", () => {
+    expect(HELP_TOP).toMatch(/flow new[^\n]*--agent/);
+  });
+});
+
+describe("flow new help text", () => {
+  it("documents --agent and names both runtimes", () => {
+    expect(HELP_TEXT.new).toContain("--agent");
+    expect(HELP_TEXT.new).toContain("claude");
+    expect(HELP_TEXT.new).toContain("antigravity");
+  });
 });
 
 describe("printTopHelp", () => {

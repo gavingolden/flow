@@ -35,6 +35,7 @@ If `flow setup` emits `! hooks/Stop:flow-stop-guard (malformed-json: ...)`, the 
 
 ```sh
 flow new "add CSV export"        # creates tmux window flow:add-csv-export
+flow new --agent antigravity "add CSV export"   # same, but launches under agy instead of claude
 flow ls                          # lists active pipelines
 flow attach add-csv-export       # attach to a specific window (alias: flow a)
 flow attach                      # attach into the session and browse windows
@@ -42,6 +43,8 @@ flow done add-csv-export         # close the window when finished
 flow done --merged               # sweep terminal-state windows
 flow done --orphans              # sweep state files whose tmux window is gone
 ```
+
+flow supports two AI runtimes: Claude Code (default) and Antigravity (`agy` 1.0.2+). When both `claude` and `agy` are on `PATH`, the runtime is selectable per-pipeline via `--agent <claude|antigravity>` or auto-detected from `CLAUDE_CODE_SESSION_ID` / `ANTIGRAVITY_CONVERSATION_ID` environment variables.
 
 Each pipeline is a tmux window inside a `flow` session. Inside the window, Claude Code loads the `/flow-pipeline` skill and supervises the run from triage to merge. State lives at `~/.flow/state/<slug>.json` (one JSON per pipeline) plus the worktree on disk plus the PR. There is no `.orchestrator/` directory.
 

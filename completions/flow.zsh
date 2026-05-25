@@ -55,6 +55,7 @@ _flow() {
                     _arguments \
                         '--resume[resume a crashed pipeline]:pipeline:_flow_slugs' \
                         '--no-auto-merge[stop at gated regardless of rubric]' \
+                        '--agent[runtime]:agent:(claude antigravity)' \
                         '*::description:'
                     ;;
                 ls)

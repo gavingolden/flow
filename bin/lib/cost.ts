@@ -33,6 +33,13 @@ export type CostBreakdown = {
   byModel: Record<string, number>;
   unknownModels: string[];
   hasData: boolean;
+  /**
+   * `true` when the active adapter doesn't yet support cost reporting
+   * for the runtime (e.g. AntigravityCostAdapter). UI surfaces (`flow ls`)
+   * key on this to render a footnote instead of pretending the row has
+   * a $0 cost.
+   */
+  unsupported?: boolean;
 };
 
 export const EMPTY_COST: CostBreakdown = {
@@ -42,15 +49,42 @@ export const EMPTY_COST: CostBreakdown = {
   hasData: false,
 };
 
+/**
+ * Per-runtime cost adapter. The Claude adapter scans
+ * `~/.claude/projects/<encoded-cwd>/*.jsonl`; the Antigravity adapter is
+ * a stub returning `EMPTY_COST + unsupported:true` until agy ships a
+ * transcript format flow can parse.
+ */
+export interface AgentCostAdapter {
+  compute(state: PipelineState): Promise<CostBreakdown>;
+}
+
+class ClaudeCostAdapter implements AgentCostAdapter {
+  constructor(private projectsRoot: string) {}
+  async compute(state: PipelineState): Promise<CostBreakdown> {
+    const projectDir = path.join(this.projectsRoot, encodeProjectSegment(state.repo));
+    const jsonls = await findSessionJsonls(projectDir, state.slug);
+    if (jsonls.length === 0) return EMPTY_COST;
+    const partials = await Promise.all(jsonls.map(parseAndPrice));
+    return mergeBreakdowns(partials);
+  }
+}
+
+class AntigravityCostAdapter implements AgentCostAdapter {
+  async compute(_state: PipelineState): Promise<CostBreakdown> {
+    return { ...EMPTY_COST, unsupported: true };
+  }
+}
+
 export async function computeCost(
   state: PipelineState,
   projectsRoot = defaultProjectsRoot(),
 ): Promise<CostBreakdown> {
-  const projectDir = path.join(projectsRoot, encodeProjectSegment(state.repo));
-  const jsonls = await findSessionJsonls(projectDir, state.slug);
-  if (jsonls.length === 0) return EMPTY_COST;
-  const partials = await Promise.all(jsonls.map(parseAndPrice));
-  return mergeBreakdowns(partials);
+  const adapter: AgentCostAdapter =
+    state.agent === "antigravity"
+      ? new AntigravityCostAdapter()
+      : new ClaudeCostAdapter(projectsRoot);
+  return adapter.compute(state);
 }
 
 export function defaultProjectsRoot(): string {

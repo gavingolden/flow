@@ -57,6 +57,7 @@ function commitAndReadMessage(
   dir: string,
   fileName: string,
   sessionId: string | undefined,
+  agyConvId?: string | undefined,
 ): string {
   fs.writeFileSync(path.join(dir, fileName), `content ${Date.now()}-${Math.random()}\n`);
   const env = { ...process.env };
@@ -64,6 +65,11 @@ function commitAndReadMessage(
     delete env.CLAUDE_CODE_SESSION_ID;
   } else {
     env.CLAUDE_CODE_SESSION_ID = sessionId;
+  }
+  if (agyConvId === undefined) {
+    delete env.ANTIGRAVITY_CONVERSATION_ID;
+  } else {
+    env.ANTIGRAVITY_CONVERSATION_ID = agyConvId;
   }
   mustGit(["add", fileName], dir, env);
   mustGit(["commit", "-m", `commit ${fileName}`], dir, env);
@@ -155,5 +161,36 @@ describe(installCommitHook, () => {
     mustGit(["worktree", "add", "-b", "sibling", siblingDir], fx.repoDir);
     const message = commitAndReadMessage(siblingDir, "sibling.txt", "sess-sibling-check");
     expect(message).not.toContain("Claude-Code-Session-Id");
+  });
+
+  it("stamps an Antigravity-Conversation-Id trailer when only ANTIGRAVITY_CONVERSATION_ID is set", () => {
+    installCommitHook(fx.worktreeDir);
+    const message = commitAndReadMessage(fx.worktreeDir, "agy-only.txt", undefined, "conv-agy-1");
+    expect(message.trimEnd()).toMatch(/\nAntigravity-Conversation-Id: conv-agy-1$/);
+    expect(message).not.toContain("Claude-Code-Session-Id");
+  });
+
+  it("stamps both trailers when both env vars are set", () => {
+    installCommitHook(fx.worktreeDir);
+    const message = commitAndReadMessage(fx.worktreeDir, "both.txt", "sess-x", "conv-y");
+    expect(message).toContain("Claude-Code-Session-Id: sess-x");
+    expect(message).toContain("Antigravity-Conversation-Id: conv-y");
+  });
+
+  it("adds no trailers when neither env var is set", () => {
+    installCommitHook(fx.worktreeDir);
+    const message = commitAndReadMessage(fx.worktreeDir, "neither.txt", undefined, undefined);
+    expect(message).not.toContain("Claude-Code-Session-Id");
+    expect(message).not.toContain("Antigravity-Conversation-Id");
+  });
+
+  it("does not double-stamp the Antigravity-Conversation-Id trailer", () => {
+    installCommitHook(fx.worktreeDir);
+    // First commit sets the trailer; the second amend over the same message
+    // must remain idempotent because --if-exists doNothing is in effect.
+    commitAndReadMessage(fx.worktreeDir, "agy-dup-1.txt", undefined, "conv-dup");
+    const message = commitAndReadMessage(fx.worktreeDir, "agy-dup-2.txt", undefined, "conv-dup");
+    const occurrences = (message.match(/Antigravity-Conversation-Id:/g) ?? []).length;
+    expect(occurrences).toBe(1);
   });
 });

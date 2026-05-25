@@ -28,7 +28,9 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { getAgentSessionId, type AgentRuntime } from "./lib/agent";
 import { runUpdate } from "./flow-state-update";
+import { readState } from "./lib/state";
 import { resolveSlugFromPane } from "./lib/tmux";
 
 type Args = {
@@ -104,10 +106,14 @@ export function isValidSessionId(value: string): boolean {
  * The self-describing PR-body marker. A single-line HTML comment — kept
  * single-line so the auto-merge gate's `<!-- ... -->` strip removes it
  * cleanly and it never counts toward the unchecked-`- [ ]` tally. Names
- * "Claude Code session" in plain text so a future agent recognises the
- * ID without flow-specific documentation.
+ * the runtime + id in plain text so a future agent recognises the ID
+ * without flow-specific documentation. Per-runtime transcript path is
+ * the canonical on-disk location for that runtime's session log.
  */
-export function sessionMarker(id: string): string {
+export function sessionMarker(agent: AgentRuntime, id: string): string {
+  if (agent === "antigravity") {
+    return `<!-- flow: this PR was created by Antigravity conversation ${id} - transcript at ~/.gemini/antigravity/conversations/${id}/ on the originating machine -->`;
+  }
   return `<!-- flow: this PR was created by Claude Code session ${id} - transcript at ~/.claude/projects/<encoded-cwd>/${id}.jsonl on the originating machine -->`;
 }
 
@@ -195,19 +201,24 @@ export type Deps = {
   updater?: (argv: string[]) => number;
   resolveSlug?: () => string | null;
   /**
-   * Test seam: the Claude Code session ID. Defaults to
-   * `process.env.CLAUDE_CODE_SESSION_ID` so tests inject without
+   * Test seam: the runtime session/conversation ID. Defaults to
+   * `getAgentSessionId(agent, process.env)` so tests inject without
    * mutating `process.env`. Undefined/invalid ⇒ no marker, no
    * `--session-id` write.
    */
   sessionId?: string;
+  /**
+   * Test seam: the runtime persisted in state.json. Production reads it
+   * via `readState(slug)`; absent ≡ "claude". Tests inject directly to
+   * avoid needing a real ~/.flow/state file.
+   */
+  agent?: AgentRuntime;
 };
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const updater = deps.updater ?? runUpdate;
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
-  const sessionId = deps.sessionId ?? process.env.CLAUDE_CODE_SESSION_ID;
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -227,6 +238,12 @@ export function run(argv: string[], deps: Deps = {}): number {
     return 2;
   }
 
+  // Runtime resolution: deps.agent (test seam) → state.json → "claude".
+  // The runtime selects the session-marker text and the env var consulted
+  // for an ambient session/conversation ID when deps.sessionId is unset.
+  const agent: AgentRuntime = deps.agent ?? readState(slug)?.agent ?? "claude";
+  const sessionId = deps.sessionId ?? getAgentSessionId(agent, process.env);
+
   // Probe first: if a PR already exists for this branch (resume case), skip
   // `gh pr create` entirely. Avoids parsing gh's "already exists" stderr
   // message — the structured `pr view` signal is what we branch on.
@@ -244,7 +261,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     let createArgs = parsed;
     if (validSessionId !== undefined) {
       const original = fs.readFileSync(parsed.bodyFile, "utf8");
-      const augmented = `${original}\n\n${sessionMarker(validSessionId)}\n`;
+      const augmented = `${original}\n\n${sessionMarker(agent, validSessionId)}\n`;
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-open-pr-body-"));
       const tmpBody = path.join(tmpDir, "body.md");
       fs.writeFileSync(tmpBody, augmented);

@@ -202,9 +202,60 @@ describe("state", () => {
       autoMerge: false,
       sessionId: "b034430c-03bd-4fa0-8393-9f0859800531",
       gateOverride: { pr: 142, confirmedAt: "2026-05-17T00:05:00Z" },
+      agent: "antigravity",
     };
     writeState(full, dir);
     expect(readState("full", dir)).toEqual(full);
+  });
+
+  it("readState round-trips a state with agent:'claude'", () => {
+    const s = fixture("claude-agent", { agent: "claude" });
+    writeState(s, dir);
+    expect(readState("claude-agent", dir)).toEqual(s);
+  });
+
+  it("readState round-trips a state with agent:'antigravity'", () => {
+    const s = fixture("agy-agent", { agent: "antigravity" });
+    writeState(s, dir);
+    expect(readState("agy-agent", dir)).toEqual(s);
+  });
+
+  it("readState returns null when state JSON has wrong-type agent (number)", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-agent-type.json"),
+      JSON.stringify({
+        slug: "bad-agent-type",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        agent: 42,
+      }),
+    );
+    expect(readState("bad-agent-type", dir)).toBeNull();
+  });
+
+  it("readState returns null when state JSON has agent outside the union (e.g. 'openai')", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-agent-value.json"),
+      JSON.stringify({
+        slug: "bad-agent-value",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        agent: "openai",
+      }),
+    );
+    expect(readState("bad-agent-value", dir)).toBeNull();
+  });
+
+  it("readState round-trips an absent-agent state cleanly", () => {
+    const s = fixture("no-agent");
+    writeState(s, dir);
+    const got = readState("no-agent", dir);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("agent");
   });
 
   it("readState returns null when state JSON has a malformed gateOverride", () => {

@@ -12,8 +12,20 @@
  * the option set fall back to name-matching.
  */
 
+import type { AgentRuntime } from "./agent";
+
 export const FLOW_SESSION = "flow";
 const FLOW_SLUG_OPTION = "@flow-slug";
+
+/**
+ * Window display-name string: an `agy/<slug>` prefix for antigravity
+ * pipelines, bare `<slug>` otherwise. The `@flow-slug` user option set
+ * separately by `createWindow` is always the bare slug — display tweaks
+ * never participate in slug-based lookup (`findWindowBySlug`).
+ */
+function displayName(slug: string, agent: AgentRuntime | undefined): string {
+  return agent === "antigravity" ? `agy/${slug}` : slug;
+}
 
 export type ResolveSlugDeps = {
   env?: NodeJS.ProcessEnv;
@@ -144,10 +156,11 @@ export function createWindow(
   cwd: string,
   command: string[],
   session = FLOW_SESSION,
+  agent?: AgentRuntime,
 ): { ok: boolean; stderr: string } {
   const args = sessionExists(session)
-    ? buildNewWindowArgs(session, slug, cwd, command)
-    : buildNewSessionArgs(session, slug, cwd, command);
+    ? buildNewWindowArgs(session, slug, cwd, command, agent)
+    : buildNewSessionArgs(session, slug, cwd, command, agent);
   const r = tmux(args);
   if (r.exitCode !== 0) return { ok: false, stderr: r.stderr };
   // Output of `-P -F '#{window_id}'` is the new window's id (e.g. `@7`).
@@ -173,13 +186,14 @@ export function buildNewWindowArgs(
   name: string,
   cwd: string,
   command: string[],
+  agent?: AgentRuntime,
 ): string[] {
   return [
     "new-window",
     "-t",
     sessionTarget(session),
     "-n",
-    name,
+    displayName(name, agent),
     "-c",
     cwd,
     "-P",
@@ -195,6 +209,7 @@ export function buildNewSessionArgs(
   name: string,
   cwd: string,
   command: string[],
+  agent?: AgentRuntime,
 ): string[] {
   return [
     "new-session",
@@ -202,7 +217,7 @@ export function buildNewSessionArgs(
     "-s",
     session,
     "-n",
-    name,
+    displayName(name, agent),
     "-c",
     cwd,
     "-P",

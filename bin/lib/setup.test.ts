@@ -956,6 +956,98 @@ describe("flow setup", () => {
   });
 });
 
+describe("agy plugin install (gemini-plugin kinds)", () => {
+  function setupAgy(geminiHome: string | undefined, force = false) {
+    return runSetup({
+      flowSource,
+      installRoot: flowSource,
+      targets: { ...targets(), geminiHome },
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      force,
+      quiet: true,
+    });
+  }
+
+  it("materialises plugin.json / gemini-extension.json / installed_version.json under geminiHome", () => {
+    const geminiHome = path.join(homeDir, ".gemini");
+    setupAgy(geminiHome);
+    const pluginRoot = path.join(geminiHome, "config", "plugins", "flow");
+
+    for (const file of ["plugin.json", "gemini-extension.json", "installed_version.json"]) {
+      const p = path.join(pluginRoot, file);
+      expect(fs.existsSync(p), `${file} missing`).toBe(true);
+      const parsed = JSON.parse(fs.readFileSync(p, "utf8"));
+      // Files are written, NOT symlinks — round-trip through JSON.parse.
+      expect(parsed).toBeTypeOf("object");
+    }
+    const pluginJson = JSON.parse(
+      fs.readFileSync(path.join(pluginRoot, "plugin.json"), "utf8"),
+    );
+    expect(pluginJson.name).toBe("flow");
+    expect(pluginJson.version).toBe("9.9.9"); // matches fixture package.json
+    const verFile = JSON.parse(
+      fs.readFileSync(path.join(pluginRoot, "installed_version.json"), "utf8"),
+    );
+    expect(verFile.version).toBe("9.9.9");
+  });
+
+  it("symlinks skills/ and agents/ under the plugin root", () => {
+    const geminiHome = path.join(homeDir, ".gemini");
+    setupAgy(geminiHome);
+    const pluginRoot = path.join(geminiHome, "config", "plugins", "flow");
+    expect(fs.lstatSync(path.join(pluginRoot, "skills")).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(path.join(pluginRoot, "agents")).isSymbolicLink()).toBe(true);
+    const skillsResolved = fs.realpathSync(path.join(pluginRoot, "skills"));
+    expect(skillsResolved).toBe(fs.realpathSync(path.join(flowSource, "skills")));
+    const agentsResolved = fs.realpathSync(path.join(pluginRoot, "agents"));
+    expect(agentsResolved).toBe(fs.realpathSync(path.join(flowSource, "agents")));
+  });
+
+  it("is a no-op when geminiHome is undefined (claude-only install)", () => {
+    setupAgy(undefined);
+    // The default geminiHome inference checks if ~/.gemini exists, but
+    // homeDir is a scratch dir without ~/.gemini, so even the default
+    // does nothing here.
+    expect(fs.existsSync(path.join(homeDir, ".gemini", "config", "plugins", "flow"))).toBe(false);
+  });
+
+  it("orphan-reaps agy plugin entries when a prior install no longer needs them", () => {
+    const geminiHome = path.join(homeDir, ".gemini");
+    // First run materialises the plugin install.
+    setupAgy(geminiHome);
+    const pluginJson = path.join(geminiHome, "config", "plugins", "flow", "plugin.json");
+    expect(fs.existsSync(pluginJson)).toBe(true);
+
+    // Second run with --upgrade against a brand-new homeDir that has no
+    // ~/.gemini directory: withGeminiHome's auto-inference falls through
+    // and discoverGeminiPlugin returns [] so the prior plugin.json is
+    // orphaned and should reap.
+    const cleanHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-setup-clean-"));
+    try {
+      runSetup({
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(), // geminiHome stays undefined; default inference uses cleanHome
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir: cleanHome,
+        settingsPath: settingsPath(),
+        upgrade: true,
+        pullCanonicalFirst: false,
+        quiet: true,
+      });
+    } finally {
+      fs.rmSync(cleanHome, { recursive: true, force: true });
+    }
+    expect(fs.existsSync(pluginJson)).toBe(false);
+  });
+});
+
 // --- Fixture builders ---
 
 function buildFakeFlowSource(root: string): void {
@@ -1003,6 +1095,39 @@ function buildFakeFlowSource(root: string): void {
   fs.mkdirSync(completionsDir, { recursive: true });
   fs.writeFileSync(path.join(completionsDir, "flow.bash"), "# fake bash completion\n");
   fs.writeFileSync(path.join(completionsDir, "flow.zsh"), "#compdef flow\n# fake\n");
+
+  // templates/agy-plugin/*.template — needed by discoverGeminiPlugin when
+  // a geminiHome target is supplied.
+  const tmplDir = path.join(root, "templates", "agy-plugin");
+  fs.mkdirSync(tmplDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(tmplDir, "plugin.json.template"),
+    `{
+  "name": "flow",
+  "version": "{{VERSION}}",
+  "description": "Multi-agent supervisor pipeline (Claude Code / Antigravity dual-runtime)",
+  "author": { "name": "flow" },
+  "repository": "https://github.com/gavingolden/flow",
+  "license": "MIT"
+}
+`,
+  );
+  fs.writeFileSync(
+    path.join(tmplDir, "gemini-extension.json.template"),
+    `{
+  "name": "flow",
+  "description": "Multi-agent supervisor pipeline for Claude Code and Antigravity",
+  "version": "{{VERSION}}",
+  "author": { "name": "flow" }
+}
+`,
+  );
+
+  // package.json — discoverGeminiPlugin reads `version` from it.
+  fs.writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify({ name: "flow", version: "9.9.9" }, null, 2) + "\n",
+  );
 }
 
 /**
