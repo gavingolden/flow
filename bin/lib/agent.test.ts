@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   AGENT_RUNTIMES,
   agentCommand,
   detectAgent,
   getAgentSessionId,
   isAgentRuntime,
+  prewriteAgyTrust,
   type AgentRuntime,
 } from "./agent";
 
@@ -105,5 +109,75 @@ describe(isAgentRuntime, () => {
 describe("AGENT_RUNTIMES", () => {
   it("contains both supported runtimes", () => {
     expect(AGENT_RUNTIMES).toEqual(["claude", "antigravity"]);
+  });
+});
+
+describe(prewriteAgyTrust, () => {
+  let homeDir: string;
+  let worktree: string;
+
+  beforeEach(() => {
+    homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-agent-trust-"));
+    worktree = fs.mkdtempSync(path.join(os.tmpdir(), "flow-agent-wt-"));
+    // Simulate agy installed: the function gates on the existence of
+    // ~/.gemini/config/'s parent directory (~/.gemini/).
+    fs.mkdirSync(path.join(homeDir, ".gemini", "config"), { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(worktree, { recursive: true, force: true });
+  });
+
+  it("creates the project file with allowWrite:true and a workspace symlink", () => {
+    const uuid = prewriteAgyTrust(worktree, homeDir);
+    expect(uuid).not.toBeNull();
+
+    const projectFile = path.join(homeDir, ".gemini", "config", "projects", `${uuid}.json`);
+    expect(fs.existsSync(projectFile)).toBe(true);
+    const record = JSON.parse(fs.readFileSync(projectFile, "utf8"));
+    expect(record.id).toBe(uuid);
+    expect(record.name).toBe(worktree);
+    expect(record.projectResources.resources[0].gitFolder.folderUri).toBe(`file://${worktree}`);
+    expect(record.projectResources.resources[0].gitFolder.allowWrite).toBe(true);
+
+    const breadcrumb = path.join(worktree, ".antigravitycli", `${uuid}.json`);
+    expect(fs.lstatSync(breadcrumb).isSymbolicLink()).toBe(true);
+    expect(fs.readlinkSync(breadcrumb)).toBe(projectFile);
+  });
+
+  it("is idempotent — reuses the existing uuid when the project record already names this worktree", () => {
+    const first = prewriteAgyTrust(worktree, homeDir);
+    const second = prewriteAgyTrust(worktree, homeDir);
+    expect(second).toBe(first);
+    // Still exactly one project file.
+    const projectsDir = path.join(homeDir, ".gemini", "config", "projects");
+    expect(fs.readdirSync(projectsDir)).toHaveLength(1);
+  });
+
+  it("is a no-op when ~/.gemini/ does not exist (agy not installed)", () => {
+    const cleanHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-agent-clean-"));
+    try {
+      const uuid = prewriteAgyTrust(worktree, cleanHome);
+      expect(uuid).toBeNull();
+      // No project file, no breadcrumb dir.
+      expect(fs.existsSync(path.join(cleanHome, ".gemini"))).toBe(false);
+      expect(fs.existsSync(path.join(worktree, ".antigravitycli"))).toBe(false);
+    } finally {
+      fs.rmSync(cleanHome, { recursive: true, force: true });
+    }
+  });
+
+  it("replaces a stale breadcrumb symlink without crashing", () => {
+    fs.mkdirSync(path.join(worktree, ".antigravitycli"), { recursive: true });
+    // Pre-existing symlink pointing nowhere useful.
+    const stale = path.join(worktree, ".antigravitycli", "stale.json");
+    fs.symlinkSync("/nowhere", stale);
+    const uuid = prewriteAgyTrust(worktree, homeDir);
+    expect(uuid).not.toBeNull();
+    // New symlink exists alongside the stale one — function only
+    // removes the file at its own target path, not pre-existing entries.
+    expect(fs.existsSync(path.join(worktree, ".antigravitycli", `${uuid}.json`))).toBe(true);
+    expect(fs.lstatSync(stale).isSymbolicLink()).toBe(true);
   });
 });

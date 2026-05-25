@@ -262,6 +262,22 @@ Per-runtime side effects attached automatically:
   AND/OR `Antigravity-Conversation-Id: <id>` when
   `ANTIGRAVITY_CONVERSATION_ID` is set. The hook is purely env-driven
   (no state.json read) so it stays `#!/bin/sh` and per-commit fast.
+- `flow new --agent antigravity` pre-writes agy's workspace trust record
+  (`~/.gemini/config/projects/<uuid>.json` with `allowWrite: true` plus
+  the matching `<worktree>/.antigravitycli/<uuid>.json` symlink) before
+  the tmux window spawns. Without it agy hangs on the interactive
+  "Do you trust this folder?" TUI prompt even with
+  `--dangerously-skip-permissions` (issue #223). Idempotent.
+- `flow new --agent antigravity` sets the per-window
+  `@claude_state="working"` option after the spawn, so the user's tmux
+  status bar colors antigravity windows the same way Claude Code's
+  hooks color claude ones. Value is static — agy 1.0.2 has no hook
+  surface for live state transitions (issue #223) — but the visual
+  distinction from non-flow windows holds.
+- `flow-rename-window` preserves the `agy/` window-name prefix for
+  antigravity pipelines so the supervisor's step-1 rename (which would
+  otherwise overwrite the prefix) keeps the at-a-glance runtime
+  indicator visible.
 
 Known gaps (issue #223):
 

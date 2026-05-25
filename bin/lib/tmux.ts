@@ -235,6 +235,23 @@ export function killWindow(slug: string, session = FLOW_SESSION): boolean {
 }
 
 /**
+ * Sets the per-window `@claude_state` option so the user's tmux status bar
+ * colors agy windows the same way Claude Code's
+ * `~/.claude/hooks/tmux-state-*.sh` hooks color claude ones. agy 1.0.2
+ * has no equivalent hook surface (issue #223), so the value is static —
+ * always "working" until the window closes — but the window still stands
+ * out visually from non-flow windows. Best-effort: silently no-ops when
+ * the window can't be found (caller already logged its own success/failure).
+ */
+export function tagAgentWindow(slug: string, session = FLOW_SESSION): boolean {
+  const window = findWindowBySlug(listWindows(session), slug);
+  if (!window) return false;
+  return (
+    tmux(["set-option", "-w", "-t", window.id, "@claude_state", "working"]).exitCode === 0
+  );
+}
+
+/**
  * Reruns `command` inside the named window's first pane, replacing whatever
  * was there. Used by `flow new --resume` when the window survived the crash —
  * preserves the pane id so the user's tmux scrollback addressing stays valid.

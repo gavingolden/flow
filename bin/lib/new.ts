@@ -11,12 +11,19 @@
 
 import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
-import { agentCommand, detectAgent, isAgentRuntime, type AgentRuntime } from "./agent";
+import {
+  agentCommand,
+  detectAgent,
+  isAgentRuntime,
+  prewriteAgyTrust,
+  type AgentRuntime,
+} from "./agent";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { slugify } from "./slug";
 import {
   createWindow,
   respawnWindow,
+  tagAgentWindow,
   windowExists,
   isPaneAlive,
   FLOW_SESSION,
@@ -133,12 +140,23 @@ function runFresh(description: string, options: NewOptions): number {
 
   const agent = options.agent ?? detectAgent(process.env);
   const command = options.command ?? defaultCommand(description, agent);
+  // Pre-write agy's workspace trust record before spawning; otherwise
+  // agy hangs on the interactive "Do you trust this folder?" prompt
+  // even with --dangerously-skip-permissions (issue #223). No-op for
+  // claude and for machines without ~/.gemini/.
+  if (agent === "antigravity") prewriteAgyTrust(repo);
   const result = createWindow(slug, repo, command, undefined, agent);
   if (!result.ok) {
     console.error(`flow new: tmux failed to create the window.`);
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 1;
   }
+  // Color the antigravity window in the user's tmux status bar by
+  // setting the same per-window option Claude Code's hooks (in
+  // ~/.claude/hooks/tmux-state-*.sh) use. Static "working" — agy lacks
+  // a hook surface for live state transitions (issue #223). At least
+  // the window stands out from non-flow windows.
+  if (agent === "antigravity") tagAgentWindow(slug);
 
   // Write the initial state file. The supervisor (PR 2) overwrites
   // worktree + phase + pr at each transition. Pre-existing state for the
@@ -204,6 +222,10 @@ function runResume(name: string, options: NewOptions): number {
 
   const agent: AgentRuntime = state.agent ?? "claude";
   const command = options.command ?? resumeCommand(slug, agent);
+  // Pre-write agy trust before respawn too — agy still checks trust on
+  // every fresh session even when the project record exists, so a
+  // resumed pipeline benefits from the same idempotent write.
+  if (agent === "antigravity") prewriteAgyTrust(state.repo);
   const result = exists
     ? respawnWindow(slug, state.repo, command)
     : createWindow(slug, state.repo, command, undefined, agent);
@@ -212,6 +234,7 @@ function runResume(name: string, options: NewOptions): number {
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 1;
   }
+  if (agent === "antigravity") tagAgentWindow(slug);
 
   // Phase + worktree + pr stay as the crash left them. The supervisor's
   // first real transition is what updates state.json.

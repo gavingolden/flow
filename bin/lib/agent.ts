@@ -84,3 +84,98 @@ export function getAgentSessionId(
   if (typeof raw !== "string" || raw.length === 0) return undefined;
   return raw;
 }
+
+/**
+ * Pre-writes agy's workspace trust file so the first run in a new
+ * worktree doesn't hang on the interactive "Do you trust this folder?"
+ * TUI prompt. agy stores trust state at
+ * `~/.gemini/config/projects/<uuid>.json` and symlinks the same file
+ * from `<workspace>/.antigravitycli/<uuid>.json`. `--dangerously-skip-permissions`
+ * is misleadingly named — it bypasses tool-permission requests but does
+ * NOT bypass this workspace-level trust prompt (verified live in PR #222
+ * smoke testing).
+ *
+ * No-op when agy isn't installed (heuristic: `~/.gemini/` absent).
+ * Returns the uuid written for the trust record, or null on no-op /
+ * write failure. Idempotent — when a trust record for the same workspace
+ * already exists in `~/.gemini/config/projects/`, the existing UUID is
+ * reused rather than written again.
+ */
+export function prewriteAgyTrust(
+  worktreePath: string,
+  homeDir: string = require("os").homedir(),
+): string | null {
+  const fs = require("node:fs") as typeof import("node:fs");
+  const path = require("node:path") as typeof import("node:path");
+  const crypto = require("node:crypto") as typeof import("node:crypto");
+
+  const projectsDir = path.join(homeDir, ".gemini", "config", "projects");
+  // agy not installed (no ~/.gemini/config/) — no-op silently.
+  if (!fs.existsSync(path.dirname(projectsDir))) return null;
+
+  // Idempotency: scan for an existing project record matching this
+  // worktree path before generating a fresh UUID. agy's own project
+  // file uses an absolute "name" field for the workspace.
+  let uuid: string | null = null;
+  try {
+    fs.mkdirSync(projectsDir, { recursive: true });
+    for (const entry of fs.readdirSync(projectsDir)) {
+      if (!entry.endsWith(".json")) continue;
+      try {
+        const parsed = JSON.parse(fs.readFileSync(path.join(projectsDir, entry), "utf8"));
+        if (parsed?.name === worktreePath) {
+          uuid = entry.replace(/\.json$/, "");
+          break;
+        }
+      } catch {
+        // Skip malformed records — they're agy's problem, not ours.
+      }
+    }
+  } catch {
+    // Directory unreadable — fall through and try to write fresh.
+  }
+
+  if (!uuid) uuid = crypto.randomUUID();
+
+  const projectFile = path.join(projectsDir, `${uuid}.json`);
+  // The shape mirrors what we observed agy write when the user
+  // confirms the trust prompt interactively. `allowWrite: true` is the
+  // load-bearing field — it marks the workspace as fully trusted so
+  // the prompt is skipped on the next agy run.
+  const record = {
+    id: uuid,
+    name: worktreePath,
+    projectResources: {
+      resources: [{ gitFolder: { folderUri: `file://${worktreePath}`, allowWrite: true } }],
+    },
+  };
+  try {
+    fs.writeFileSync(projectFile, JSON.stringify(record, null, 2));
+  } catch {
+    return null;
+  }
+
+  // Symlink the worktree-side breadcrumb. agy reads this on startup
+  // to find its project record — without it, the workspace appears
+  // unknown and agy falls back to the trust prompt regardless of the
+  // ~/.gemini/config/projects/ entry.
+  const breadcrumbDir = path.join(worktreePath, ".antigravitycli");
+  const breadcrumb = path.join(breadcrumbDir, `${uuid}.json`);
+  try {
+    fs.mkdirSync(breadcrumbDir, { recursive: true });
+    // Replace any prior symlink to avoid pointing at a stale record.
+    try {
+      fs.unlinkSync(breadcrumb);
+    } catch {
+      // Wasn't there — fine.
+    }
+    fs.symlinkSync(projectFile, breadcrumb);
+  } catch {
+    // Worktree may be read-only or removed — the project file alone is
+    // enough for agy to find the record by `name`, so swallow rather
+    // than fail. The trust prompt may still appear in that case, but
+    // the spawn won't crash.
+  }
+
+  return uuid;
+}

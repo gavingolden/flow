@@ -11,6 +11,7 @@ const tmuxMock = vi.hoisted(() => ({
   isPaneAlive: vi.fn<(name: string) => boolean>(() => false),
   createWindow: vi.fn<(name: string, cwd: string, command: string[], session?: string, agent?: "claude" | "antigravity") => { ok: boolean; stderr: string }>(() => ({ ok: true, stderr: "" })),
   respawnWindow: vi.fn<(name: string, cwd: string, command: string[]) => { ok: boolean; stderr: string }>(() => ({ ok: true, stderr: "" })),
+  tagAgentWindow: vi.fn<(slug: string) => boolean>(() => true),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);
@@ -39,6 +40,7 @@ beforeEach(() => {
   tmuxMock.isPaneAlive.mockReset().mockReturnValue(false);
   tmuxMock.createWindow.mockReset().mockReturnValue({ ok: true, stderr: "" });
   tmuxMock.respawnWindow.mockReset().mockReturnValue({ ok: true, stderr: "" });
+  tmuxMock.tagAgentWindow.mockReset().mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -280,7 +282,9 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       // The antigravity spawn rewrites the prompt to a Read-the-file
       // instruction because agy 1.0.2 doesn't expose skills as slash
       // commands (issue #223). --dangerously-skip-permissions bypasses
-      // the first-directory trust prompt.
+      // tool permissions; -i tells agy to consume the positional as
+      // the initial prompt; tagAgentWindow sets @claude_state for the
+      // status-bar coloring.
       spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
       const code = runNewCli(["--agent", "antigravity", "CSV export"], { stateDir, cwd: repoDir });
       expect(code).toBe(0);
@@ -291,6 +295,16 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       expect(command[1]).toBe("--dangerously-skip-permissions");
       expect(command[2]).toBe("-i");
       expect(command[3]).toMatch(/^Read the file at .+\/\.claude\/skills\/flow-pipeline\/SKILL\.md in full, then follow its instructions for: CSV export$/);
+      // tagAgentWindow is called exactly once with the resolved slug —
+      // sets @claude_state="working" for the user's tmux status bar.
+      expect(tmuxMock.tagAgentWindow).toHaveBeenCalledWith("csv-export");
+    });
+
+    it("does NOT call tagAgentWindow for --agent claude (regression guard)", () => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      const code = runNewCli(["--agent", "claude", "CSV export"], { stateDir, cwd: repoDir });
+      expect(code).toBe(0);
+      expect(tmuxMock.tagAgentWindow).not.toHaveBeenCalled();
     });
 
     it("exits 2 with a clear stderr when --agent value is invalid", () => {
