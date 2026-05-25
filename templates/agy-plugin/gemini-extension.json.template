@@ -1,8 +1,0 @@
-{
-  "name": "flow",
-  "description": "Multi-agent supervisor pipeline for Claude Code and Antigravity",
-  "version": "{{VERSION}}",
-  "author": {
-    "name": "flow"
-  }
-}

@@ -276,7 +276,11 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       expect(command[0]).toBe("claude");
     });
 
-    it("persists agent:'antigravity' and launches ['agy', ...] when --agent antigravity is passed", () => {
+    it("persists agent:'antigravity' and launches ['agy', '--dangerously-skip-permissions', '<Read instruction>'] when --agent antigravity is passed", () => {
+      // The antigravity spawn rewrites the prompt to a Read-the-file
+      // instruction because agy 1.0.2 doesn't expose skills as slash
+      // commands (issue #223). --dangerously-skip-permissions bypasses
+      // the first-directory trust prompt.
       spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
       const code = runNewCli(["--agent", "antigravity", "CSV export"], { stateDir, cwd: repoDir });
       expect(code).toBe(0);
@@ -284,6 +288,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       expect(raw.agent).toBe("antigravity");
       const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
       expect(command[0]).toBe("agy");
+      expect(command[1]).toBe("--dangerously-skip-permissions");
+      expect(command[2]).toMatch(/^Read the file at .+\/\.claude\/skills\/flow-pipeline\/SKILL\.md in full, then follow its instructions for: CSV export$/);
     });
 
     it("exits 2 with a clear stderr when --agent value is invalid", () => {
@@ -320,17 +326,16 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       expect(raw.agent).toBe("claude");
     });
 
-    it("resume with seeded agent:'antigravity' launches ['agy', ...] for the resume prompt", () => {
+    it("resume with seeded agent:'antigravity' launches the Read-the-file resume prompt", () => {
       seedState("agy-resume", repoDir, { agent: "antigravity" });
       tmuxMock.windowExists.mockReturnValue(true);
       tmuxMock.isPaneAlive.mockReturnValue(false);
       const code = runNew("agy-resume", { resume: true, stateDir });
       expect(code).toBe(0);
       const [, , command] = tmuxMock.respawnWindow.mock.calls[0]!;
-      expect(command).toEqual([
-        "agy",
-        "Use the /flow-pipeline skill in --resume mode for: agy-resume",
-      ]);
+      expect(command[0]).toBe("agy");
+      expect(command[1]).toBe("--dangerously-skip-permissions");
+      expect(command[2]).toMatch(/^Read the file at .+\/\.claude\/skills\/flow-pipeline\/SKILL\.md in full, then follow its instructions in --resume mode for: agy-resume$/);
     });
   });
 

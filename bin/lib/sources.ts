@@ -35,12 +35,6 @@ export type SourceEntry = {
   kind: SymlinkKind;
   /** Pretty name used in install summary output. */
   displayName: string;
-  /**
-   * For `gemini-plugin-file` kinds: the rendered file content to write.
-   * Other kinds leave this undefined and the setup loop creates a
-   * symlink from `target` → `source`.
-   */
-  content?: string;
 };
 
 export type InstallTargets = {
@@ -48,13 +42,6 @@ export type InstallTargets = {
   agentsDir: string;
   binDir: string;
   completionsDir: string;
-  /**
-   * Root for the agy plugin install. When undefined, the gemini-plugin
-   * discovery path is a no-op (single-runtime claude install). Defaults
-   * in setup.ts to `~/.gemini` when that directory exists on the user's
-   * machine.
-   */
-  geminiHome?: string;
 };
 
 export const DEFAULT_TARGETS: InstallTargets = {
@@ -200,86 +187,6 @@ export function discoverCompletions(
 }
 
 /**
- * Lists the agy plugin install entries: rendered plugin manifest files
- * (`plugin.json`, `gemini-extension.json`, `installed_version.json`) plus
- * skills/agents directory symlinks. Returns [] when `geminiHome` is
- * undefined — the single-runtime claude install case.
- *
- * Templates are read from `<flow-source>/templates/agy-plugin/` and the
- * literal `{{VERSION}}` placeholder is replaced with the current flow
- * version from package.json. The skill/agent links point at the
- * canonical `<flow-source>/skills` and `<flow-source>/agents` roots —
- * an explicit allowlist, NOT a recursive glob (same rule as
- * `discoverValidators`).
- */
-export function discoverGeminiPlugin(
-  flowSource: string,
-  geminiHome: string | undefined,
-): SourceEntry[] {
-  if (!geminiHome) return [];
-  const pluginRoot = path.join(geminiHome, "config", "plugins", "flow");
-  const templatesDir = path.join(flowSource, "templates", "agy-plugin");
-  const version = readFlowVersion(flowSource);
-
-  const entries: SourceEntry[] = [];
-
-  for (const file of ["plugin.json", "gemini-extension.json"] as const) {
-    const tmpl = path.join(templatesDir, `${file}.template`);
-    if (!fs.existsSync(tmpl)) continue;
-    const rendered = fs.readFileSync(tmpl, "utf8").replace(/\{\{VERSION\}\}/g, version);
-    entries.push({
-      source: tmpl,
-      target: path.join(pluginRoot, file),
-      kind: "gemini-plugin-file",
-      displayName: `agy/${file}`,
-      content: rendered,
-    });
-  }
-
-  // installed_version.json is generated, not template-rendered. Source
-  // points at the templates dir so the manifest carries a stable owner
-  // path even though no template file exists for this entry.
-  entries.push({
-    source: path.join(templatesDir, "installed_version.json"),
-    target: path.join(pluginRoot, "installed_version.json"),
-    kind: "gemini-plugin-file",
-    displayName: "agy/installed_version.json",
-    content: JSON.stringify({ version }, null, 2) + "\n",
-  });
-
-  const skillsSource = path.join(flowSource, "skills");
-  const agentsSource = path.join(flowSource, "agents");
-  if (existsDir(skillsSource)) {
-    entries.push({
-      source: skillsSource,
-      target: path.join(pluginRoot, "skills"),
-      kind: "gemini-plugin-symlink",
-      displayName: "agy/skills",
-    });
-  }
-  if (existsDir(agentsSource)) {
-    entries.push({
-      source: agentsSource,
-      target: path.join(pluginRoot, "agents"),
-      kind: "gemini-plugin-symlink",
-      displayName: "agy/agents",
-    });
-  }
-  return entries;
-}
-
-function readFlowVersion(flowSource: string): string {
-  try {
-    const pkg = JSON.parse(
-      fs.readFileSync(path.join(flowSource, "package.json"), "utf8"),
-    ) as { version?: string };
-    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
-  } catch {
-    return "0.0.0";
-  }
-}
-
-/**
  * All entries `flow setup` should install, in display order.
  *
  * Content discovery (skills/agents/helpers/completions) reads from
@@ -299,7 +206,6 @@ export function discoverAll(
     ...discoverHelpers(flowSource, targets),
     ...discoverValidators(flowSource, targets),
     ...discoverCompletions(flowSource, targets),
-    ...discoverGeminiPlugin(flowSource, targets.geminiHome),
   ];
   const wrapper = flowWrapperEntry(installRoot, targets);
   if (wrapper) all.push(wrapper);

@@ -24,9 +24,41 @@ export function detectAgent(env: NodeJS.ProcessEnv): AgentRuntime {
   return "claude";
 }
 
-/** Two-tuple of [bin, prompt] launched in the tmux window. */
-export function agentCommand(agent: AgentRuntime, prompt: string): [string, string] {
-  return agent === "antigravity" ? ["agy", prompt] : ["claude", prompt];
+/**
+ * Returns the command argv launched in the tmux window. Claude is a
+ * 2-tuple `[claude, prompt]` — claude's slash-command harness picks up
+ * `/flow-pipeline` from the prompt and loads its `SKILL.md` as the
+ * activation. agy 1.0.2 has no slash-command-as-skill discovery (only
+ * `/goal`, `/schedule`, `/grill-me`, `/teamwork-preview` are built in;
+ * see flow issue #223), so for antigravity we rewrite the prompt as a
+ * Read-the-file instruction against the canonical install path. We also
+ * pass `--dangerously-skip-permissions` to bypass agy's
+ * first-directory-access trust prompt (which would otherwise hang every
+ * `flow new` on a fresh worktree).
+ */
+export function agentCommand(
+  agent: AgentRuntime,
+  prompt: string,
+  homeDir: string = require("os").homedir(),
+): string[] {
+  if (agent === "claude") return ["claude", prompt];
+  // antigravity: rewrite "Use the /<name> skill <body>" → Read instruction.
+  // The skill files are installed at ~/.claude/skills/<name>/SKILL.md by
+  // `flow setup` (Claude Code's discovery path); agy doesn't care that
+  // the dir name has "claude" in it — Read works against any absolute
+  // path. Falling back to the raw prompt on a non-matching shape keeps
+  // the function usable for ad-hoc agy invocations.
+  const match = prompt.match(/^Use the \/(\S+) skill (.+)$/s);
+  if (!match) {
+    return ["agy", "--dangerously-skip-permissions", prompt];
+  }
+  const [, skillName, body] = match;
+  const skillPath = `${homeDir}/.claude/skills/${skillName}/SKILL.md`;
+  return [
+    "agy",
+    "--dangerously-skip-permissions",
+    `Read the file at ${skillPath} in full, then follow its instructions ${body}`,
+  ];
 }
 
 /**

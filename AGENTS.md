@@ -220,8 +220,8 @@ exception inline.
 flow supports two AI runtimes, selectable per-pipeline:
 
 - **Claude Code** (default) — the original target.
-- **Antigravity** (`agy` 1.0.2+) — Google's CLI agent. Requires `agy`
-  on PATH and a `~/.gemini/` directory.
+- **Antigravity** (`agy` 1.0.2+) — Google's CLI agent, billed against
+  the user's Google AI Ultra account. Requires `agy` on PATH.
 
 Pick the runtime at pipeline-create time via
 `flow new --agent <claude|antigravity> "<description>"`. When
@@ -231,6 +231,26 @@ claude. Neither env var set ⇒ claude (the documented default). The
 resolved runtime is persisted in `~/.flow/state/<slug>.json` as the
 optional `agent` field (absent ≡ claude — no migration helper, per
 "No backwards-compat shims" in `## Code conventions`).
+
+The antigravity spawn shape differs from claude for two reasons rooted
+in agy 1.0.2 limitations (tracked in flow issue #223):
+
+1. **agy doesn't surface skills as slash commands.** Only the four
+   built-ins (`/goal`, `/schedule`, `/grill-me`, `/teamwork-preview`)
+   are user-invokable. `agentCommand("antigravity", prompt)` therefore
+   rewrites the `Use the /flow-pipeline skill for: <desc>` form into
+   `Read the file at ~/.claude/skills/flow-pipeline/SKILL.md in full,
+   then follow its instructions for: <desc>`. The same install location
+   (`~/.claude/skills/`) feeds both runtimes — agy reads the file via
+   its `Read` tool; "claude" in the path name is incidental.
+2. **agy's first-directory trust prompt blocks automation.** Every
+   `flow new` creates a fresh worktree, and agy would prompt
+   interactively before letting the supervisor touch any file.
+   `agentCommand("antigravity", ...)` passes
+   `--dangerously-skip-permissions` to bypass it. This auto-approves
+   every tool permission request — flow's pipeline becomes the trust
+   boundary, not agy's prompts. A more granular path is tracked in
+   issue #223.
 
 Per-runtime side effects attached automatically:
 
@@ -242,22 +262,19 @@ Per-runtime side effects attached automatically:
   AND/OR `Antigravity-Conversation-Id: <id>` when
   `ANTIGRAVITY_CONVERSATION_ID` is set. The hook is purely env-driven
   (no state.json read) so it stays `#!/bin/sh` and per-commit fast.
-- `flow setup --upgrade` installs flow as **both** a Claude Code skill
-  set (`~/.claude/skills/`, `~/.local/bin/`) AND, when `~/.gemini/`
-  exists, an agy plugin at
-  `~/.gemini/config/plugins/flow/` containing
-  `plugin.json`, `gemini-extension.json`, `installed_version.json`,
-  plus `skills/` and `agents/` symlinks back into the flow source.
 
-Known gaps:
+Known gaps (issue #223):
 
 - agy cost reporting is not yet supported. `flow ls --cost` renders
   `—` in the `$ COST` column for antigravity rows and prints a single
   footnote under the table.
-- The agy Stop-hook parity (the equivalent of flow's Claude Code
-  Stop-hook merge into `~/.claude/settings.json`) is not yet wired.
-- There is no IDE-pane-vs-standalone detection beyond the
-  `ANTIGRAVITY_EDITOR_READY` sentinel.
+- agy Stop-hook parity is not yet wired.
+- agy's `plugin install` / `plugin import` is destructive (truncates
+  plugin.json + SKILL.md in place). flow deliberately does NOT register
+  itself via either command. Antigravity skill loading goes through
+  agy's `Read` tool against the canonical `~/.claude/skills/` paths
+  (same dir flow setup writes for Claude Code) — agy doesn't need flow
+  to be a registered "plugin" to read those files.
 
 ## Supervisor and sub-skills: in-process only
 

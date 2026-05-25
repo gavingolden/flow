@@ -53,6 +53,23 @@ in-process for skills; shell out for scripts; never delegate.
 
 # Hard rules
 
+> **Sub-skill invocation across harnesses.** Every `/<skill-name>`
+> invocation in this document (e.g. `/product-planning`,
+> `/new-feature`, `/verify`, `/pr-review`, `/coder`) means "load that
+> skill into the current context." If your harness exposes the slash
+> command (Claude Code does), invoke it via the `Skill` tool. If your
+> harness does NOT expose it as a slash command (e.g. agy 1.0.2 — see
+> flow issue #223), fall back to: Read the file at
+> `~/.claude/skills/<skill-name>/SKILL.md` in full, then follow its
+> instructions inline. The `~/.claude/` path is where `flow setup`
+> installs skills regardless of which runtime is running — agy reads
+> the file via its `Read` tool just as Claude Code's `Skill` tool
+> loads it. Any sub-skill the loaded skill itself invokes (e.g.
+> `/coder` from inside `/new-feature`) recurses the same pattern.
+> Pass the sub-skill's arguments as the prompt following the Read
+> instruction. This is the third leg of the same graceful-fallback
+> contract as the `AskUserQuestion` and `ToolSearch` clauses below.
+>
 > **You are never a sub-agent.** Never call the `Task` / `Agent`
 > tool from this skill — **except for the named exceptions below**.
 > Never spawn a separate `claude -p` subprocess. The supervisor's
