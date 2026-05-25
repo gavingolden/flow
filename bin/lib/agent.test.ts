@@ -120,8 +120,8 @@ describe(prewriteAgyTrust, () => {
     homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-agent-trust-"));
     worktree = fs.mkdtempSync(path.join(os.tmpdir(), "flow-agent-wt-"));
     // Simulate agy installed: the function gates on the existence of
-    // ~/.gemini/config/'s parent directory (~/.gemini/).
-    fs.mkdirSync(path.join(homeDir, ".gemini", "config"), { recursive: true });
+    // ~/.gemini/.
+    fs.mkdirSync(path.join(homeDir, ".gemini"), { recursive: true });
   });
 
   afterEach(() => {
@@ -129,21 +129,56 @@ describe(prewriteAgyTrust, () => {
     fs.rmSync(worktree, { recursive: true, force: true });
   });
 
-  it("creates the project file with allowWrite:true and a workspace symlink", () => {
+  it("appends worktree to trustedWorkspaces, writes project record + breadcrumb symlink", () => {
     const uuid = prewriteAgyTrust(worktree, homeDir);
     expect(uuid).not.toBeNull();
 
+    // Workspace-trust source of truth: trustedWorkspaces in agy settings.
+    const settingsPath = path.join(homeDir, ".gemini", "antigravity-cli", "settings.json");
+    expect(fs.existsSync(settingsPath)).toBe(true);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    expect(settings.trustedWorkspaces).toContain(worktree);
+
+    // Project record (created for UUID tracking even though it's not
+    // the trust mechanism).
     const projectFile = path.join(homeDir, ".gemini", "config", "projects", `${uuid}.json`);
     expect(fs.existsSync(projectFile)).toBe(true);
     const record = JSON.parse(fs.readFileSync(projectFile, "utf8"));
     expect(record.id).toBe(uuid);
     expect(record.name).toBe(worktree);
-    expect(record.projectResources.resources[0].gitFolder.folderUri).toBe(`file://${worktree}`);
-    expect(record.projectResources.resources[0].gitFolder.allowWrite).toBe(true);
 
     const breadcrumb = path.join(worktree, ".antigravitycli", `${uuid}.json`);
     expect(fs.lstatSync(breadcrumb).isSymbolicLink()).toBe(true);
     expect(fs.readlinkSync(breadcrumb)).toBe(projectFile);
+  });
+
+  it("preserves prior trustedWorkspaces entries and other settings keys", () => {
+    const settingsPath = path.join(homeDir, ".gemini", "antigravity-cli", "settings.json");
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        model: "Claude Opus 4.6 (Thinking)",
+        trustedWorkspaces: ["/some/other/path"],
+      }),
+    );
+    prewriteAgyTrust(worktree, homeDir);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    expect(settings.model).toBe("Claude Opus 4.6 (Thinking)");
+    expect(settings.trustedWorkspaces).toEqual(["/some/other/path", worktree]);
+  });
+
+  it("does not duplicate a trustedWorkspaces entry on repeat calls", () => {
+    prewriteAgyTrust(worktree, homeDir);
+    prewriteAgyTrust(worktree, homeDir);
+    const settings = JSON.parse(
+      fs.readFileSync(
+        path.join(homeDir, ".gemini", "antigravity-cli", "settings.json"),
+        "utf8",
+      ),
+    );
+    const occurrences = settings.trustedWorkspaces.filter((p: string) => p === worktree);
+    expect(occurrences).toHaveLength(1);
   });
 
   it("is idempotent — reuses the existing uuid when the project record already names this worktree", () => {

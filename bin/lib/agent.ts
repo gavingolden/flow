@@ -86,20 +86,30 @@ export function getAgentSessionId(
 }
 
 /**
- * Pre-writes agy's workspace trust file so the first run in a new
+ * Pre-writes agy's workspace trust state so the first run in a new
  * worktree doesn't hang on the interactive "Do you trust this folder?"
- * TUI prompt. agy stores trust state at
- * `~/.gemini/config/projects/<uuid>.json` and symlinks the same file
- * from `<workspace>/.antigravitycli/<uuid>.json`. `--dangerously-skip-permissions`
- * is misleadingly named — it bypasses tool-permission requests but does
- * NOT bypass this workspace-level trust prompt (verified live in PR #222
- * smoke testing).
+ * TUI prompt. `--dangerously-skip-permissions` is misleadingly named —
+ * it bypasses tool-permission requests but does NOT bypass this
+ * workspace-level trust prompt (verified live during PR #222 smoke
+ * testing — see flow issue #223).
+ *
+ * The load-bearing state is the `trustedWorkspaces` array at
+ * `~/.gemini/antigravity-cli/settings.json`. agy writes the workspace
+ * path to this array after the user confirms the trust prompt
+ * interactively; appending it ourselves before the spawn short-circuits
+ * the prompt entirely.
+ *
+ * Also pre-creates the per-project record at
+ * `~/.gemini/config/projects/<uuid>.json` and the matching breadcrumb
+ * symlink at `<worktree>/.antigravitycli/<uuid>.json`. agy creates
+ * these on its own when missing, but pre-writing them gives flow a
+ * stable UUID for the worktree (handy for future tooling that wants
+ * to correlate agy conversations back to a pipeline).
  *
  * No-op when agy isn't installed (heuristic: `~/.gemini/` absent).
- * Returns the uuid written for the trust record, or null on no-op /
- * write failure. Idempotent — when a trust record for the same workspace
- * already exists in `~/.gemini/config/projects/`, the existing UUID is
- * reused rather than written again.
+ * Returns the uuid written for the project record, or null on no-op.
+ * Idempotent — both the `trustedWorkspaces` append and the project
+ * record creation are guarded by existing-membership checks.
  */
 export function prewriteAgyTrust(
   worktreePath: string,
@@ -109,13 +119,36 @@ export function prewriteAgyTrust(
   const path = require("node:path") as typeof import("node:path");
   const crypto = require("node:crypto") as typeof import("node:crypto");
 
-  const projectsDir = path.join(homeDir, ".gemini", "config", "projects");
-  // agy not installed (no ~/.gemini/config/) — no-op silently.
-  if (!fs.existsSync(path.dirname(projectsDir))) return null;
+  const geminiHome = path.join(homeDir, ".gemini");
+  // agy not installed (no ~/.gemini/) — no-op silently.
+  if (!fs.existsSync(geminiHome)) return null;
 
-  // Idempotency: scan for an existing project record matching this
-  // worktree path before generating a fresh UUID. agy's own project
-  // file uses an absolute "name" field for the workspace.
+  // The settings file is the workspace-trust source of truth. Create
+  // the parent dir if missing (agy itself does this on first run).
+  const settingsPath = path.join(geminiHome, "antigravity-cli", "settings.json");
+  try {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    let settings: { trustedWorkspaces?: string[]; [k: string]: unknown } = {};
+    try {
+      settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    } catch {
+      // Missing or malformed — start fresh. agy validates on its end.
+    }
+    const trusted = Array.isArray(settings.trustedWorkspaces)
+      ? settings.trustedWorkspaces
+      : [];
+    if (!trusted.includes(worktreePath)) {
+      settings.trustedWorkspaces = [...trusted, worktreePath];
+      fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+    }
+  } catch {
+    // Couldn't write settings — the spawn will fall back to the trust
+    // prompt, but won't crash.
+  }
+
+  // Project record. Idempotency: scan for an existing record matching
+  // this worktree path before generating a fresh UUID.
+  const projectsDir = path.join(geminiHome, "config", "projects");
   let uuid: string | null = null;
   try {
     fs.mkdirSync(projectsDir, { recursive: true });
@@ -138,10 +171,6 @@ export function prewriteAgyTrust(
   if (!uuid) uuid = crypto.randomUUID();
 
   const projectFile = path.join(projectsDir, `${uuid}.json`);
-  // The shape mirrors what we observed agy write when the user
-  // confirms the trust prompt interactively. `allowWrite: true` is the
-  // load-bearing field — it marks the workspace as fully trusted so
-  // the prompt is skipped on the next agy run.
   const record = {
     id: uuid,
     name: worktreePath,
@@ -155,15 +184,12 @@ export function prewriteAgyTrust(
     return null;
   }
 
-  // Symlink the worktree-side breadcrumb. agy reads this on startup
-  // to find its project record — without it, the workspace appears
-  // unknown and agy falls back to the trust prompt regardless of the
-  // ~/.gemini/config/projects/ entry.
+  // Symlink the worktree-side breadcrumb so agy can rediscover the
+  // record via the workspace dir on subsequent runs.
   const breadcrumbDir = path.join(worktreePath, ".antigravitycli");
   const breadcrumb = path.join(breadcrumbDir, `${uuid}.json`);
   try {
     fs.mkdirSync(breadcrumbDir, { recursive: true });
-    // Replace any prior symlink to avoid pointing at a stale record.
     try {
       fs.unlinkSync(breadcrumb);
     } catch {
@@ -171,10 +197,8 @@ export function prewriteAgyTrust(
     }
     fs.symlinkSync(projectFile, breadcrumb);
   } catch {
-    // Worktree may be read-only or removed — the project file alone is
-    // enough for agy to find the record by `name`, so swallow rather
-    // than fail. The trust prompt may still appear in that case, but
-    // the spawn won't crash.
+    // Worktree may be read-only or removed — the project file alone
+    // is enough; swallow rather than fail.
   }
 
   return uuid;
