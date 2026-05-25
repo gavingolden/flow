@@ -78,6 +78,7 @@ export async function runLs(opts: LsOptions = {}): Promise<number> {
 
   printTable(rows, opts);
   if (opts.cost && opts.detail) printDetail(rows);
+  warnUnsupportedCost(rows);
   warnUnknownModels(rows);
   return 0;
 }
@@ -201,5 +202,16 @@ function warnUnknownModels(rows: Row[]): void {
   if (unknown.size === 0) return;
   console.error(
     `flow ls: unknown model(s) — cost may be undercount: ${[...unknown].sort().join(", ")}`,
+  );
+}
+
+function warnUnsupportedCost(rows: Row[]): void {
+  let count = 0;
+  for (const row of rows) {
+    if (row.cost?.unsupported === true) count++;
+  }
+  if (count === 0) return;
+  console.log(
+    "Note: agy cost reporting unsupported (--agent antigravity); $ column shows — for those rows.",
   );
 }

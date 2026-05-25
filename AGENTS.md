@@ -215,6 +215,83 @@ When adding a new script, default to Bun. If you need to deviate (e.g.
 a Node-only dependency), confirm with the user first and document the
 exception inline.
 
+## Multi-agent runtime
+
+flow supports two AI runtimes, selectable per-pipeline:
+
+- **Claude Code** (default) — the original target.
+- **Antigravity** (`agy` 1.0.2+) — Google's CLI agent, billed against
+  the user's Google AI Ultra account. Requires `agy` on PATH.
+
+Pick the runtime at pipeline-create time via
+`flow new --agent <claude|antigravity> "<description>"`. When
+`--agent` is absent, `flow new` auto-detects by environment:
+`ANTIGRAVITY_CONVERSATION_ID` (non-empty) ⇒ antigravity, otherwise
+claude. Neither env var set ⇒ claude (the documented default). The
+resolved runtime is persisted in `~/.flow/state/<slug>.json` as the
+optional `agent` field (absent ≡ claude — no migration helper, per
+"No backwards-compat shims" in `## Code conventions`).
+
+The antigravity spawn shape differs from claude for two reasons rooted
+in agy 1.0.2 limitations (tracked in flow issue #223):
+
+1. **agy doesn't surface skills as slash commands.** Only the four
+   built-ins (`/goal`, `/schedule`, `/grill-me`, `/teamwork-preview`)
+   are user-invokable. `agentCommand("antigravity", prompt)` therefore
+   rewrites the `Use the /flow-pipeline skill for: <desc>` form into
+   `Read the file at ~/.claude/skills/flow-pipeline/SKILL.md in full,
+   then follow its instructions for: <desc>`. The same install location
+   (`~/.claude/skills/`) feeds both runtimes — agy reads the file via
+   its `Read` tool; "claude" in the path name is incidental.
+2. **agy's first-directory trust prompt blocks automation.** Every
+   `flow new` creates a fresh worktree, and agy would prompt
+   interactively before letting the supervisor touch any file.
+   `agentCommand("antigravity", ...)` passes
+   `--dangerously-skip-permissions` to bypass it. This auto-approves
+   every tool permission request — flow's pipeline becomes the trust
+   boundary, not agy's prompts. A more granular path is tracked in
+   issue #223.
+
+Per-runtime side effects attached automatically:
+
+- `flow-open-pr` selects the right session-marker text and transcript
+  path hint based on `state.agent`. Both markers are single-line HTML
+  comments stripped cleanly by the auto-merge gate.
+- The worktree-scoped `prepare-commit-msg` hook emits
+  `Claude-Code-Session-Id: <id>` when `CLAUDE_CODE_SESSION_ID` is set
+  AND/OR `Antigravity-Conversation-Id: <id>` when
+  `ANTIGRAVITY_CONVERSATION_ID` is set. The hook is purely env-driven
+  (no state.json read) so it stays `#!/bin/sh` and per-commit fast.
+- `flow new --agent antigravity` pre-writes agy's workspace trust record
+  (`~/.gemini/config/projects/<uuid>.json` with `allowWrite: true` plus
+  the matching `<worktree>/.antigravitycli/<uuid>.json` symlink) before
+  the tmux window spawns. Without it agy hangs on the interactive
+  "Do you trust this folder?" TUI prompt even with
+  `--dangerously-skip-permissions` (issue #223). Idempotent.
+- `flow new --agent antigravity` sets the per-window
+  `@claude_state="working"` option after the spawn, so the user's tmux
+  status bar colors antigravity windows the same way Claude Code's
+  hooks color claude ones. Value is static — agy 1.0.2 has no hook
+  surface for live state transitions (issue #223) — but the visual
+  distinction from non-flow windows holds.
+- `flow-rename-window` preserves the `agy/` window-name prefix for
+  antigravity pipelines so the supervisor's step-1 rename (which would
+  otherwise overwrite the prefix) keeps the at-a-glance runtime
+  indicator visible.
+
+Known gaps (issue #223):
+
+- agy cost reporting is not yet supported. `flow ls --cost` renders
+  `—` in the `$ COST` column for antigravity rows and prints a single
+  footnote under the table.
+- agy Stop-hook parity is not yet wired.
+- agy's `plugin install` / `plugin import` is destructive (truncates
+  plugin.json + SKILL.md in place). flow deliberately does NOT register
+  itself via either command. Antigravity skill loading goes through
+  agy's `Read` tool against the canonical `~/.claude/skills/` paths
+  (same dir flow setup writes for Claude Code) — agy doesn't need flow
+  to be a registered "plugin" to read those files.
+
 ## Supervisor and sub-skills: in-process only
 
 This is the load-bearing constraint for `/flow-pipeline`: the supervisor

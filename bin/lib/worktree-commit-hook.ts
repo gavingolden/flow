@@ -5,17 +5,25 @@ import { git } from "./git";
 /**
  * POSIX shell `prepare-commit-msg` hook body. When `CLAUDE_CODE_SESSION_ID`
  * is set and non-empty, appends a `Claude-Code-Session-Id:` trailer to the
- * commit-message file (`$1`) via `git interpret-trailers`. A no-op when the
- * env var is unset/empty. `--if-exists doNothing` makes a re-stamp (a
+ * commit-message file (`$1`) via `git interpret-trailers`. When
+ * `ANTIGRAVITY_CONVERSATION_ID` is set and non-empty, appends an
+ * `Antigravity-Conversation-Id:` trailer in parallel. A no-op when both
+ * env vars are unset/empty. `--if-exists doNothing` makes a re-stamp (a
  * `git commit --amend` over an already-trailered message) idempotent.
  *
- * Authored as `#!/bin/sh` — NOT a Bun shebang — because git invokes this on
- * every commit and a per-commit interpreter start is real latency.
+ * Authored as `#!/bin/sh` — NOT a Bun shebang — because git invokes this
+ * on every commit and a per-commit interpreter start is real latency.
+ * The hook is purely env-driven; it never reads state.json (parsing JSON
+ * in /bin/sh would require spawning an interpreter on every commit).
  */
 export const PREPARE_COMMIT_MSG_HOOK = `#!/bin/sh
 if [ -n "$CLAUDE_CODE_SESSION_ID" ]; then
   git interpret-trailers --if-exists doNothing --in-place \\
     --trailer "Claude-Code-Session-Id: $CLAUDE_CODE_SESSION_ID" "$1"
+fi
+if [ -n "$ANTIGRAVITY_CONVERSATION_ID" ]; then
+  git interpret-trailers --if-exists doNothing --in-place \\
+    --trailer "Antigravity-Conversation-Id: $ANTIGRAVITY_CONVERSATION_ID" "$1"
 fi
 `;
 

@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isValidSessionId, parseArgs, readCurrentPr, run } from "./flow-open-pr";
+import { isValidSessionId, parseArgs, readCurrentPr, run, sessionMarker } from "./flow-open-pr";
 import { runUpdate } from "./flow-state-update";
 
 let scratch!: string;
@@ -478,6 +478,101 @@ describe("flow-open-pr run()", () => {
     ]);
     // The marker is appended only on fresh create — the body file is untouched.
     expect(fs.readFileSync(bodyFile, "utf8")).not.toContain("Claude Code session");
+  });
+
+  // --- runtime-aware marker (antigravity) ----------------------------------
+
+  it("appends the Antigravity marker on a fresh create when agent is antigravity", () => {
+    seedState("agy-create");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 41, url: "https://github.com/x/y/pull/41" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["agy-create", "--body-file", bodyFile], {
+      gh,
+      updater,
+      sessionId: VALID_SESSION,
+      agent: "antigravity",
+    });
+    expect(exit).toBe(0);
+    const body = createBodyContent(calls);
+    expect(body).toContain("Antigravity conversation");
+    expect(body).toContain(VALID_SESSION);
+    expect(body).toContain("<!-- flow:");
+    expect(body).not.toContain("Claude Code session");
+  });
+
+  it("does not append a marker on antigravity when the session ID is absent", () => {
+    seedState("agy-no-session");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 42, url: "https://github.com/x/y/pull/42" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["agy-no-session", "--body-file", bodyFile], {
+      gh,
+      updater,
+      sessionId: "",
+      agent: "antigravity",
+    });
+    expect(exit).toBe(0);
+    const body = createBodyContent(calls);
+    expect(body).not.toContain("Antigravity conversation");
+    expect(body).not.toContain("Claude Code session");
+  });
+
+  it("does not re-append the marker on the resume (found) path for antigravity", () => {
+    seedState("agy-resume");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({ number: 43, url: "https://github.com/x/y/pull/43" }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls } = makeGhSequence([
+      { matches: isView, response: prJson },
+    ]);
+    const exit = run(["agy-resume", "--body-file", bodyFile], {
+      gh,
+      updater,
+      sessionId: VALID_SESSION,
+      agent: "antigravity",
+    });
+    expect(exit).toBe(0);
+    expect(calls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(false);
+    // No create call ⇒ no body augmentation; original body file is unchanged.
+    expect(fs.readFileSync(bodyFile, "utf8")).not.toContain("Antigravity conversation");
+  });
+});
+
+describe("sessionMarker (runtime-aware)", () => {
+  it("returns the Antigravity HTML comment for agent='antigravity'", () => {
+    const out = sessionMarker("antigravity", "abc-123");
+    expect(out).toBe(
+      "<!-- flow: this PR was created by Antigravity conversation abc-123 - transcript at ~/.gemini/antigravity/conversations/abc-123/ on the originating machine -->",
+    );
+    expect(out.split("\n")).toHaveLength(1);
+  });
+
+  it("returns the Claude HTML comment for agent='claude' (regression guard)", () => {
+    const out = sessionMarker("claude", "def-456");
+    expect(out).toBe(
+      "<!-- flow: this PR was created by Claude Code session def-456 - transcript at ~/.claude/projects/<encoded-cwd>/def-456.jsonl on the originating machine -->",
+    );
+    expect(out.split("\n")).toHaveLength(1);
   });
 });
 

@@ -36,9 +36,10 @@ Usage:
                                         --no-completions skips rc-file editing;
                                         --no-hooks skips the Stop-hook merge into ~/.claude/settings.json;
                                         --repair-settings backs up and rewrites ~/.claude/settings.json when malformed)
-  flow new [--no-auto-merge] <description>
+  flow new [--no-auto-merge] [--agent <runtime>] <description>
                                         start a new pipeline in a tmux window
-                                        (--no-auto-merge stops at gated regardless of rubric)
+                                        (--no-auto-merge stops at gated regardless of rubric;
+                                        --agent picks claude or antigravity, auto-detected from env when omitted)
   flow new --resume <name>              resume a crashed pipeline in its existing window
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach [<name>]                  attach to a pipeline window  (alias: a)
@@ -62,11 +63,14 @@ export const HELP_TEXT: Record<string, string> = {
   new: `flow new — start a new pipeline in a tmux window
 
 Usage:
-  flow new [--no-auto-merge] <description>
+  flow new [--no-auto-merge] [--agent <claude|antigravity>] <description>
   flow new --resume <name>
 
 Options:
   --no-auto-merge       stop at gated regardless of the auto-merge rubric
+  --agent <runtime>     pick the AI runtime (claude | antigravity); auto-detected
+                        from CLAUDE_CODE_SESSION_ID / ANTIGRAVITY_CONVERSATION_ID
+                        env vars when omitted
   --resume <name>       resume a crashed pipeline in its existing window`,
 
   ls: `flow ls — list active pipelines
@@ -120,6 +124,9 @@ Options:
 
 Usage:
   flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--repair-settings]
+
+When ~/.gemini/ exists, additionally installs the agy plugin at
+~/.gemini/config/plugins/flow/ so flow runs under Antigravity too.
 
 Options:
   --upgrade              update existing symlinks to point at the current source

@@ -9,6 +9,9 @@ dist/
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 
+# Antigravity CLI per-directory trust state (written by agy on first run)
+.antigravitycli/
+
 # managed by flow runtime
 .flow-branch
 # end flow runtime

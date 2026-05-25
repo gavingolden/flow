@@ -10,6 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { isAgentRuntime, type AgentRuntime } from "./agent";
 import { FLOW_STATE_DIR } from "./paths";
 
 export type PipelineState = {
@@ -41,6 +42,14 @@ export type PipelineState = {
    * on every pipeline that never overrode a gate.
    */
   gateOverride?: { pr: number; confirmedAt: string };
+  /**
+   * Which AI runtime this pipeline targets. Absent ≡ "claude" — the
+   * documented happy-path default. Set by `flow new --agent <runtime>`
+   * or by env-driven detection at `flow new` time. Consumed by
+   * `flow-open-pr` (session-marker selection), `bin/lib/cost.ts`
+   * (per-runtime cost adapter), and `bin/lib/ls.ts` (footnote).
+   */
+  agent?: AgentRuntime;
   updatedAt: string;
 };
 
@@ -126,6 +135,7 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean") return false;
   if (o.sessionId !== undefined && typeof o.sessionId !== "string") return false;
   if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride)) return false;
+  if (o.agent !== undefined && !isAgentRuntime(o.agent)) return false;
   return true;
 }
 

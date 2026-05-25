@@ -1003,6 +1003,14 @@ function buildFakeFlowSource(root: string): void {
   fs.mkdirSync(completionsDir, { recursive: true });
   fs.writeFileSync(path.join(completionsDir, "flow.bash"), "# fake bash completion\n");
   fs.writeFileSync(path.join(completionsDir, "flow.zsh"), "#compdef flow\n# fake\n");
+
+  // package.json — present so the fake source root mirrors a real flow
+  // checkout. Several setup helpers read it; tests assert version-specific
+  // behaviour via this fixture.
+  fs.writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify({ name: "flow", version: "9.9.9" }, null, 2) + "\n",
+  );
 }
 
 /**

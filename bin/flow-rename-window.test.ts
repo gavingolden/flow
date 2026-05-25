@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { parseArgs, run, type SpawnResult } from "./flow-rename-window";
+import { effectiveTitle, parseArgs, run, type SpawnResult } from "./flow-rename-window";
 import type { TmuxWindow } from "./lib/tmux";
+import type { PipelineState } from "./lib/state";
+
+function state(overrides: Partial<PipelineState>): PipelineState {
+  return {
+    slug: "csv-export",
+    phase: "triaging",
+    repo: "/tmp/repo",
+    updatedAt: "2026-05-25T00:00:00Z",
+    ...overrides,
+  };
+}
 
 function w(overrides: Partial<TmuxWindow>): TmuxWindow {
   return { id: "@1", name: "csv-export", slug: "csv-export", activity: 0, ...overrides };
@@ -208,5 +219,88 @@ describe(run, () => {
     });
     expect(exit).toBe(2);
     expect(err.join("")).toContain("@flow-slug");
+  });
+});
+
+describe(effectiveTitle, () => {
+  it("returns the raw title unchanged for claude (or absent agent)", () => {
+    expect(effectiveTitle("my title", state({ agent: "claude" }))).toBe("my title");
+    expect(effectiveTitle("my title", state({ agent: undefined }))).toBe("my title");
+    expect(effectiveTitle("my title", null)).toBe("my title");
+  });
+
+  it("prefixes with 'agy/' for antigravity", () => {
+    expect(effectiveTitle("smoke test", state({ agent: "antigravity" }))).toBe(
+      "agy/smoke test",
+    );
+  });
+
+  it("does not double-prefix when the caller already included 'agy/'", () => {
+    // Direct invocations may pass the prefixed form explicitly — the
+    // function must not produce `agy/agy/...`.
+    expect(effectiveTitle("agy/already-prefixed", state({ agent: "antigravity" }))).toBe(
+      "agy/already-prefixed",
+    );
+  });
+});
+
+describe("run — runtime prefix preservation", () => {
+  it("prefixes the tmux-rename argument with 'agy/' for antigravity windows", () => {
+    const calls: string[][] = [];
+    const exit = run(["agy-smoke", "smoke test"], {
+      listWindows: () => [
+        { id: "@7", name: "agy/agy-smoke", slug: "agy-smoke", activity: 0 },
+      ],
+      spawnTmux: (args) => {
+        calls.push(args);
+        return { exitCode: 0, stderr: "" };
+      },
+      resolveSlug: () => null,
+      readState: () => state({ slug: "agy-smoke", agent: "antigravity" }),
+      writeOut: () => {},
+      writeErr: () => {},
+    });
+    expect(exit).toBe(0);
+    expect(calls).toHaveLength(1);
+    // The buildRenameArgs format is ['rename-window', '-t', <id>, <title>].
+    expect(calls[0]).toEqual(["rename-window", "-t", "@7", "agy/smoke test"]);
+  });
+
+  it("leaves the title untouched for claude windows (regression guard)", () => {
+    const calls: string[][] = [];
+    const exit = run(["csv-export", "add CSV export"], {
+      listWindows: () => [
+        { id: "@7", name: "csv-export", slug: "csv-export", activity: 0 },
+      ],
+      spawnTmux: (args) => {
+        calls.push(args);
+        return { exitCode: 0, stderr: "" };
+      },
+      resolveSlug: () => null,
+      readState: () => state({ agent: "claude" }),
+      writeOut: () => {},
+      writeErr: () => {},
+    });
+    expect(exit).toBe(0);
+    expect(calls[0]).toEqual(["rename-window", "-t", "@7", "add CSV export"]);
+  });
+
+  it("falls through to the raw title when readState returns null (non-flow window)", () => {
+    const calls: string[][] = [];
+    const exit = run(["csv-export", "manual rename"], {
+      listWindows: () => [
+        { id: "@7", name: "csv-export", slug: "csv-export", activity: 0 },
+      ],
+      spawnTmux: (args) => {
+        calls.push(args);
+        return { exitCode: 0, stderr: "" };
+      },
+      resolveSlug: () => null,
+      readState: () => null,
+      writeOut: () => {},
+      writeErr: () => {},
+    });
+    expect(exit).toBe(0);
+    expect(calls[0]).toEqual(["rename-window", "-t", "@7", "manual rename"]);
   });
 });

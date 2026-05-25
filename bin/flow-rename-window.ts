@@ -27,6 +27,7 @@ import {
   resolveSlugFromPane,
   type TmuxWindow,
 } from "./lib/tmux";
+import { readState, type PipelineState } from "./lib/state";
 
 const HELP_TEXT = `flow-rename-window — rename a pipeline's tmux window display title
 
@@ -74,9 +75,29 @@ export type Deps = {
   listWindows: () => TmuxWindow[];
   spawnTmux: (args: string[]) => SpawnResult;
   resolveSlug: () => string | null;
+  readState: (slug: string) => PipelineState | null;
   writeErr: (s: string) => void;
   writeOut: (s: string) => void;
 };
+
+/**
+ * Antigravity-runtime windows are spawned with an `agy/` prefix on the
+ * tmux window name so the user sees at a glance which subscription a
+ * pipeline is burning. This skill's rename would otherwise overwrite
+ * that prefix on every supervisor step-1 invocation, dropping the
+ * visual indicator. Preserve it transparently — the rename caller
+ * shouldn't need to know about the runtime.
+ *
+ * The fence is: only prefix when state.agent === "antigravity" AND the
+ * caller didn't already include the prefix. That second clause keeps
+ * an explicit `flow-rename-window slug "agy/foo"` from doubling up to
+ * `agy/agy/foo`.
+ */
+export function effectiveTitle(rawTitle: string, state: PipelineState | null): string {
+  if (state?.agent !== "antigravity") return rawTitle;
+  if (rawTitle.startsWith("agy/")) return rawTitle;
+  return `agy/${rawTitle}`;
+}
 
 export function run(argv: string[], deps?: Partial<Deps>): number {
   const writeErr = deps?.writeErr ?? ((s) => process.stderr.write(s));
@@ -105,6 +126,7 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
 
   const lister = deps?.listWindows ?? listWindows;
   const spawn = deps?.spawnTmux ?? defaultSpawn;
+  const readStateFn = deps?.readState ?? ((s: string) => readState(s));
   const window = findWindowBySlug(lister(), slug);
   if (!window) {
     writeErr(
@@ -112,7 +134,13 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
     );
     return 1;
   }
-  const result = spawn(buildRenameArgs(window.id, parsed.title));
+  // Read state to preserve runtime-specific prefixes (e.g. `agy/` for
+  // antigravity). Missing state → fall through with the raw title;
+  // that's the safe default for direct user invocations on non-flow
+  // windows or pre-state-write scenarios.
+  const state = readStateFn(slug);
+  const title = effectiveTitle(parsed.title, state);
+  const result = spawn(buildRenameArgs(window.id, title));
   if (result.exitCode !== 0) {
     writeErr(
       `flow-rename-window: tmux rename-window failed: ${result.stderr || "no stderr"}\n`,

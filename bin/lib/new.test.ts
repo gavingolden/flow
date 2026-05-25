@@ -9,14 +9,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const tmuxMock = vi.hoisted(() => ({
   windowExists: vi.fn<(name: string) => boolean>(() => false),
   isPaneAlive: vi.fn<(name: string) => boolean>(() => false),
-  createWindow: vi.fn<(name: string, cwd: string, command: string[]) => { ok: boolean; stderr: string }>(() => ({ ok: true, stderr: "" })),
+  createWindow: vi.fn<(name: string, cwd: string, command: string[], session?: string, agent?: "claude" | "antigravity") => { ok: boolean; stderr: string }>(() => ({ ok: true, stderr: "" })),
   respawnWindow: vi.fn<(name: string, cwd: string, command: string[]) => { ok: boolean; stderr: string }>(() => ({ ok: true, stderr: "" })),
+  tagAgentWindow: vi.fn<(slug: string) => boolean>(() => true),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);
 
 import { runNew, runNewCli } from "./new";
 import { writeState } from "./state";
+import type { PipelineState } from "./state";
 
 let stateDir!: string;
 let repoDir!: string;
@@ -38,6 +40,7 @@ beforeEach(() => {
   tmuxMock.isPaneAlive.mockReset().mockReturnValue(false);
   tmuxMock.createWindow.mockReset().mockReturnValue({ ok: true, stderr: "" });
   tmuxMock.respawnWindow.mockReset().mockReturnValue({ ok: true, stderr: "" });
+  tmuxMock.tagAgentWindow.mockReset().mockReturnValue(true);
 });
 
 afterEach(() => {
@@ -46,13 +49,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function seedState(slug: string, repo = repoDir): void {
+function seedState(slug: string, repo = repoDir, overrides: Partial<PipelineState> = {}): void {
   writeState(
     {
       slug,
       phase: "verifying",
       repo,
       updatedAt: new Date().toISOString(),
+      ...overrides,
     },
     stateDir,
   );
@@ -247,6 +251,108 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     const code = runNewCli(["--resume", "--help"], { stateDir });
     expect(code).toBe(0);
     expect(errors).toEqual([]);
+  });
+
+  describe("--agent flag", () => {
+    // Pin env vars so detectAgent's fallback is deterministic across cases.
+    const origAgy = process.env.ANTIGRAVITY_CONVERSATION_ID;
+    const origClaude = process.env.CLAUDE_CODE_SESSION_ID;
+    beforeEach(() => {
+      delete process.env.ANTIGRAVITY_CONVERSATION_ID;
+      delete process.env.CLAUDE_CODE_SESSION_ID;
+    });
+    afterEach(() => {
+      if (origAgy !== undefined) process.env.ANTIGRAVITY_CONVERSATION_ID = origAgy;
+      else delete process.env.ANTIGRAVITY_CONVERSATION_ID;
+      if (origClaude !== undefined) process.env.CLAUDE_CODE_SESSION_ID = origClaude;
+      else delete process.env.CLAUDE_CODE_SESSION_ID;
+    });
+
+    it("persists agent:'claude' and launches ['claude', ...] when --agent claude is passed", () => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      const code = runNewCli(["--agent", "claude", "CSV export"], { stateDir, cwd: repoDir });
+      expect(code).toBe(0);
+      const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+      expect(raw.agent).toBe("claude");
+      const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
+      expect(command[0]).toBe("claude");
+    });
+
+    it("persists agent:'antigravity' and launches ['agy', '--dangerously-skip-permissions', '<Read instruction>'] when --agent antigravity is passed", () => {
+      // The antigravity spawn rewrites the prompt to a Read-the-file
+      // instruction because agy 1.0.2 doesn't expose skills as slash
+      // commands (issue #223). --dangerously-skip-permissions bypasses
+      // tool permissions; -i tells agy to consume the positional as
+      // the initial prompt; tagAgentWindow sets @claude_state for the
+      // status-bar coloring.
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      const code = runNewCli(["--agent", "antigravity", "CSV export"], { stateDir, cwd: repoDir });
+      expect(code).toBe(0);
+      const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+      expect(raw.agent).toBe("antigravity");
+      const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
+      expect(command[0]).toBe("agy");
+      expect(command[1]).toBe("--dangerously-skip-permissions");
+      expect(command[2]).toBe("-i");
+      expect(command[3]).toMatch(/^Read the file at .+\/\.claude\/skills\/flow-pipeline\/SKILL\.md in full, then follow its instructions for: CSV export$/);
+      // tagAgentWindow is called exactly once with the resolved slug —
+      // sets @claude_state="working" for the user's tmux status bar.
+      expect(tmuxMock.tagAgentWindow).toHaveBeenCalledWith("csv-export");
+    });
+
+    it("does NOT call tagAgentWindow for --agent claude (regression guard)", () => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      const code = runNewCli(["--agent", "claude", "CSV export"], { stateDir, cwd: repoDir });
+      expect(code).toBe(0);
+      expect(tmuxMock.tagAgentWindow).not.toHaveBeenCalled();
+    });
+
+    it("exits 2 with a clear stderr when --agent value is invalid", () => {
+      const code = runNewCli(["--agent", "gpt", "CSV export"], { stateDir });
+      expect(code).toBe(2);
+      expect(errors.join("\n")).toMatch(/--agent must be one of: claude, antigravity/);
+      expect(errors.join("\n")).toContain("gpt");
+      expect(fs.readdirSync(stateDir)).toEqual([]);
+    });
+
+    it("auto-detects 'antigravity' from ANTIGRAVITY_CONVERSATION_ID when --agent is absent", () => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      process.env.ANTIGRAVITY_CONVERSATION_ID = "conv-1";
+      const code = runNewCli(["CSV export"], { stateDir, cwd: repoDir });
+      expect(code).toBe(0);
+      const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+      expect(raw.agent).toBe("antigravity");
+    });
+
+    it("auto-detects 'claude' from CLAUDE_CODE_SESSION_ID when --agent is absent", () => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      process.env.CLAUDE_CODE_SESSION_ID = "sess-1";
+      const code = runNewCli(["CSV export"], { stateDir, cwd: repoDir });
+      expect(code).toBe(0);
+      const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+      expect(raw.agent).toBe("claude");
+    });
+
+    it("defaults to 'claude' when neither --agent nor env vars are set", () => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      const code = runNewCli(["CSV export"], { stateDir, cwd: repoDir });
+      expect(code).toBe(0);
+      const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+      expect(raw.agent).toBe("claude");
+    });
+
+    it("resume with seeded agent:'antigravity' launches the Read-the-file resume prompt", () => {
+      seedState("agy-resume", repoDir, { agent: "antigravity" });
+      tmuxMock.windowExists.mockReturnValue(true);
+      tmuxMock.isPaneAlive.mockReturnValue(false);
+      const code = runNew("agy-resume", { resume: true, stateDir });
+      expect(code).toBe(0);
+      const [, , command] = tmuxMock.respawnWindow.mock.calls[0]!;
+      expect(command[0]).toBe("agy");
+      expect(command[1]).toBe("--dangerously-skip-permissions");
+      expect(command[2]).toBe("-i");
+      expect(command[3]).toMatch(/^Read the file at .+\/\.claude\/skills\/flow-pipeline\/SKILL\.md in full, then follow its instructions in --resume mode for: agy-resume$/);
+    });
   });
 
   it("treats -h after `--` as part of the description, not a help flag", () => {

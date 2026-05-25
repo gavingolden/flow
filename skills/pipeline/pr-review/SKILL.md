@@ -127,7 +127,7 @@ and skip-rule eval don't pollute the supervisor's transcript.
 
 The wrapper spawns the subagent at Step 1.5. Before the spawn:
 
-**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-gatekeeper` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-gatekeeper"` per the # Result artifact contract below (write-`.tmp` → validate-`.tmp` → `mv`). Worked example:
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` (if your harness uses deferred tool loading; harnesses that surface Task or Agent top-level can skip this load step and proceed directly to the Task call) and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-gatekeeper` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-gatekeeper"` per the # Result artifact contract below (write-`.tmp` → validate-`.tmp` → `mv`). Worked example:
 
 ```bash
 RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
@@ -290,7 +290,7 @@ transcript.
 
 The wrapper spawns the subagent at Step 8. Before the spawn:
 
-**Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-fix-applier` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier`, write the result artifact, and do not fall back to in-line execution.
+**Load the Task tool before spawning** — i.e. before the Task call below (if your harness uses deferred tool loading; harnesses that surface Task or Agent top-level can skip this load step and proceed directly to the Task call). See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-fix-applier` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier`, write the result artifact, and do not fall back to in-line execution.
 
 1. Resolve the working directory absolutely into a single shell variable
    `$WORKTREE` and use it everywhere downstream — never re-derive in any
@@ -508,7 +508,10 @@ is the load-bearing knob.
 
 **Load the Task tool before spawning.** Same preamble pattern as the
 Multi-Agent Review (Step 3) and the Fix-Applier (Step 8): run
-`ToolSearch query="select:Task"` and confirm the response contains either
+`ToolSearch query="select:Task"` (if your harness uses deferred tool
+loading; harnesses that surface Task or Agent top-level can skip this
+load step and proceed directly to the Task call) and confirm the
+response contains either
 a `<function>{"name": "Task", ...}</function>` or a
 `<function>{"name": "Agent", ...}</function>` line. On missing schema,
 escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-gatekeeper` and
@@ -703,7 +706,7 @@ subagent rather than landing in the supervisor's transcript.
 
    Read the file contents and substitute as the value of `{{EXISTING_INTENT_COMMENTS}}` in each agent's prompt. The fetch+filter is anchored on the `**why:** ` prefix + author identity + `<!-- flow-intent-v1 -->` integrity-suffix triple-check (anti-injection); it does NOT expose any reviewer-authored comments to the agents — preserving the anti-anchoring guard above (`DO NOT read the review comments section yet`). When no author intent annotations exist on the PR, the file contains the literal `(none — author posted no intent annotations)`; substitute that string as-is.
 
-**Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
+**Load the Task tool before spawning** — i.e. before the Task call below (if your harness uses deferred tool loading; harnesses that surface Task or Agent top-level can skip this load step and proceed directly to the Task call). See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 
 **Spawn 6 agents in parallel**, each as a subagent. For each agent:
 
@@ -766,7 +769,9 @@ to merge the six per-agent outputs, apply confidence threshold +
 dedup + praise specificity, and run a second-opinion validation pass
 before Step 4 consumes them.
 
-**Load the Task tool before spawning.** See
+**Load the Task tool before spawning** (if your harness uses deferred
+tool loading; harnesses that surface Task or Agent top-level can skip
+this load step and proceed directly to the Task call). See
 [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md);
 on missing schema, escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-consolidator-validator` and write the result artifact.
 

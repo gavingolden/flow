@@ -268,6 +268,27 @@ describe(computeCost, () => {
     expect(cost.total).toBeCloseTo(3, 6);
   });
 
+  it("returns an unsupported breakdown for agent:'antigravity' without touching the JSONL path", async () => {
+    // AntigravityCostAdapter is a stub: regardless of any matching JSONL,
+    // computeCost returns EMPTY_COST plus unsupported:true so `flow ls` can
+    // render a footnote instead of a $0 row.
+    writeJsonl("session.jsonl", [
+      seedEvent(),
+      assistant("claude-sonnet-4-6", {
+        input_tokens: 1_000_000,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      }),
+    ]);
+    const cost = await computeCost(state({ agent: "antigravity" }), tmpRoot);
+    expect(cost.hasData).toBe(false);
+    expect(cost.unsupported).toBe(true);
+    expect(cost.total).toBe(0);
+    expect(cost.byModel).toEqual({});
+    expect(cost.unknownModels).toEqual([]);
+  });
+
   it("sums across all matching JSONLs when a pipeline has multiple sessions (resume)", async () => {
     // `flow new --resume` spawns a fresh Claude session and writes a second
     // JSONL whose seed-prompt also extracts back to the same slug. Cost must

@@ -286,6 +286,70 @@ describe(formatRepoCell, () => {
   });
 });
 
+describe("agy cost-unsupported footnote", () => {
+  // Mock state.listStates + tmux.listWindows so runLs() reads our fixtures
+  // instead of touching the user's ~/.flow/state. computeCost still runs;
+  // it's the AntigravityCostAdapter (state.agent === 'antigravity') that
+  // emits the unsupported:true marker the footnote keys on.
+  let stateMock: { listStates: ReturnType<typeof vi.fn> };
+  let tmuxMockLocal: { listWindows: ReturnType<typeof vi.fn>; findWindowBySlug: typeof import("./tmux").findWindowBySlug };
+
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.doUnmock("./state");
+    vi.doUnmock("./tmux");
+  });
+
+  async function runLsWithFixture(states: PipelineState[], opts: { cost?: boolean } = {}) {
+    const tmuxReal = await import("./tmux");
+    stateMock = { listStates: vi.fn(() => states) };
+    tmuxMockLocal = {
+      listWindows: vi.fn(() => []),
+      findWindowBySlug: tmuxReal.findWindowBySlug,
+    };
+    vi.doMock("./state", async () => {
+      const actual = await vi.importActual<typeof import("./state")>("./state");
+      return { ...actual, listStates: stateMock.listStates };
+    });
+    vi.doMock("./tmux", async () => {
+      const actual = await vi.importActual<typeof import("./tmux")>("./tmux");
+      return { ...actual, listWindows: tmuxMockLocal.listWindows };
+    });
+    const { runLs } = await import("./ls");
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(" "));
+    });
+    await runLs({ cost: opts.cost ?? true });
+    spy.mockRestore();
+    return logs;
+  }
+
+  it("prints the agy footnote exactly once when one antigravity row is present", async () => {
+    const logs = await runLsWithFixture([state({ slug: "agy-1", agent: "antigravity" })]);
+    const footnotes = logs.filter((l) => l.includes("agy cost reporting unsupported"));
+    expect(footnotes).toHaveLength(1);
+  });
+
+  it("prints the agy footnote exactly once when multiple antigravity rows are present", async () => {
+    const logs = await runLsWithFixture([
+      state({ slug: "agy-1", agent: "antigravity" }),
+      state({ slug: "agy-2", agent: "antigravity" }),
+    ]);
+    const footnotes = logs.filter((l) => l.includes("agy cost reporting unsupported"));
+    expect(footnotes).toHaveLength(1);
+  });
+
+  it("does not print the footnote when no antigravity rows are present", async () => {
+    const logs = await runLsWithFixture([state({ slug: "claude-1" })]);
+    const footnotes = logs.filter((l) => l.includes("agy cost reporting unsupported"));
+    expect(footnotes).toHaveLength(0);
+  });
+});
+
 describe("runLsCli (--help / -h short-circuit)", () => {
   // The help check must precede every state read and tmux query so the
   // shim is safe to invoke even when ~/.flow/state/ is unreadable.
