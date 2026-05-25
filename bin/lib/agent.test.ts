@@ -28,11 +28,15 @@ describe(agentCommand, () => {
   it("rewrites /flow-pipeline skill activation to a Read instruction for antigravity", () => {
     // agy 1.0.2 doesn't surface skills as slash commands (see issue #223);
     // the prompt is transformed to instruct agy to Read the file directly.
-    // Also passes --dangerously-skip-permissions to bypass the trust prompt.
+    // --dangerously-skip-permissions bypasses the trust prompt; -i tells
+    // agy to accept the positional as the initial interactive prompt
+    // (without -i, agy ignores the positional and sits at an empty
+    // prompt — verified live during PR #222 smoke testing).
     const cmd = agentCommand("antigravity", "Use the /flow-pipeline skill for: csv export", "/h");
     expect(cmd).toEqual([
       "agy",
       "--dangerously-skip-permissions",
+      "-i",
       "Read the file at /h/.claude/skills/flow-pipeline/SKILL.md in full, then follow its instructions for: csv export",
     ]);
   });
@@ -46,6 +50,7 @@ describe(agentCommand, () => {
     expect(cmd).toEqual([
       "agy",
       "--dangerously-skip-permissions",
+      "-i",
       "Read the file at /h/.claude/skills/flow-pipeline/SKILL.md in full, then follow its instructions in --resume mode for: my-slug",
     ]);
   });
@@ -54,6 +59,7 @@ describe(agentCommand, () => {
     expect(agentCommand("antigravity", "hello", "/h")).toEqual([
       "agy",
       "--dangerously-skip-permissions",
+      "-i",
       "hello",
     ]);
   });

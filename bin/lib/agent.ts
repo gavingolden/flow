@@ -48,15 +48,22 @@ export function agentCommand(
   // the dir name has "claude" in it — Read works against any absolute
   // path. Falling back to the raw prompt on a non-matching shape keeps
   // the function usable for ad-hoc agy invocations.
+  //
+  // The `-i` (short for `--prompt-interactive`) flag is load-bearing: it
+  // tells agy to accept the positional prompt as the initial input and
+  // continue the session interactively. Without it agy ignores the
+  // positional and sits at an empty prompt — verified live during PR #222
+  // smoke testing.
   const match = prompt.match(/^Use the \/(\S+) skill (.+)$/s);
   if (!match) {
-    return ["agy", "--dangerously-skip-permissions", prompt];
+    return ["agy", "--dangerously-skip-permissions", "-i", prompt];
   }
   const [, skillName, body] = match;
   const skillPath = `${homeDir}/.claude/skills/${skillName}/SKILL.md`;
   return [
     "agy",
     "--dangerously-skip-permissions",
+    "-i",
     `Read the file at ${skillPath} in full, then follow its instructions ${body}`,
   ];
 }

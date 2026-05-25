@@ -289,7 +289,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
       expect(command[0]).toBe("agy");
       expect(command[1]).toBe("--dangerously-skip-permissions");
-      expect(command[2]).toMatch(/^Read the file at .+\/\.claude\/skills\/flow-pipeline\/SKILL\.md in full, then follow its instructions for: CSV export$/);
+      expect(command[2]).toBe("-i");
+      expect(command[3]).toMatch(/^Read the file at .+\/\.claude\/skills\/flow-pipeline\/SKILL\.md in full, then follow its instructions for: CSV export$/);
     });
 
     it("exits 2 with a clear stderr when --agent value is invalid", () => {
@@ -335,7 +336,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       const [, , command] = tmuxMock.respawnWindow.mock.calls[0]!;
       expect(command[0]).toBe("agy");
       expect(command[1]).toBe("--dangerously-skip-permissions");
-      expect(command[2]).toMatch(/^Read the file at .+\/\.claude\/skills\/flow-pipeline\/SKILL\.md in full, then follow its instructions in --resume mode for: agy-resume$/);
+      expect(command[2]).toBe("-i");
+      expect(command[3]).toMatch(/^Read the file at .+\/\.claude\/skills\/flow-pipeline\/SKILL\.md in full, then follow its instructions in --resume mode for: agy-resume$/);
     });
   });
 
