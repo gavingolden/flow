@@ -71,6 +71,26 @@ start-of-loop cap check (`ELAPSED >= 1200`) finally trips, versus
 `/40` would be misleading. The 20-min budget is still printed as
 `elapsed Xm Ys of 20m`.
 
+### Per-poll `requested_reviewers` in-progress signal
+
+When Copilot is configured, each poll also re-reads `requested_reviewers`
+(`gh pr view <n> --json reviewRequests`) rather than caching the
+loop-entry value — GitHub auto-removes Copilot from the list once it
+posts its review, so membership genuinely changes across polls. The read
+feeds a `copilotRequestedThisPoll` flag that distinguishes a healthy
+in-progress wait from a dead one. When CI is terminal and no Copilot
+review has posted yet, the loop emits one of two stderr variants:
+
+- `Copilot queued, still waiting` — the configured login is present in
+  this poll's `requested_reviewers` (queued; the review is expected).
+- `no Copilot review yet` — the login is absent (none queued this poll).
+
+This is observability only: `copilotRequestedThisPoll` informs the
+stderr line, not the pure decision matrix (`decideOnPoll` does not
+branch on it). The same per-poll read is reused by the post-POST
+verification when a retrigger fires on that iteration (see "Retrigger on
+stale review").
+
 ## Presence checks
 
 The first poll on a freshly-opened PR may legitimately return empty
@@ -234,6 +254,30 @@ still observes the stale review.
   on the same conservative direction — one wasted POST is cheaper than
   skipping a real fix's review and re-introducing PR #161.
 
+- **Post-POST verification (silent-rejection short-circuit).** A
+  zero-exit POST does **not** prove Copilot was actually queued: GitHub
+  can accept the request (exit 0) yet silently decline to add the login
+  to `requested_reviewers` — e.g. a wrong/non-reviewer login, a
+  permissions gap, or a plan-tier gate. Trusting the bare exit code there
+  hangs the loop for the full 10-minute Copilot timeout on a review that
+  will never post. So after a **POST-ok** the loop re-reads
+  `requested_reviewers` (`gh pr view <n> --json reviewRequests`, the same
+  lowercased-membership read used elsewhere) and branches:
+  - **Login present (queued confirmed):** today's behavior —
+    `copilotRetriggered := true`, reset the Copilot-timeout window
+    (`ciTerminalAt := elapsedSec`), and keep polling for the fresh
+    review.
+  - **Login absent (silent rejection):** write a `NOTICE` line to stderr
+    naming the silent rejection, leave `copilotRetriggered := false`, do
+    **not** reset `ciTerminalAt`, and immediately
+    `emitResult({ decision: "proceed-to-review-no-bot", copilotRetriggered: false })`
+    and return — in the same poll, elapsed well below the 600s timeout
+    (no 10-minute wait). This is an early emit at the retrigger call
+    site, not a new decision-matrix row; the pure decision matrix is
+    unchanged. The re-read only runs on the POST-ok path and is shared
+    with the per-poll `requested_reviewers` read (see "Per-poll
+    counter").
+
 The **10-min Copilot timeout** branch in the decision matrix reuses
 the existing `copilotTimeout` constant; on retrigger, `ciTerminalAt`
 is reset to the current `elapsedSec` so the timeout window is
@@ -243,12 +287,22 @@ A fresh review with `commit.oid === headRefOid` lands → exit
 within 10 min → exit `proceed-to-review-no-bot` with
 `copilotRetriggered: true`.
 
-**Failure mode: POST non-zero still consumes the budget.** A 422,
-403, or any other non-zero exit from the retrigger POST is logged
-but does NOT free the one-shot budget — the supervisor's ci-fix-loop
-re-invocation is the recovery path, not an in-loop retry. The
-emitted JSON carries `copilotRetriggered: true` on POST failure so
-the supervisor can observe that the attempt happened.
+**Failure mode — two distinct cases.**
+
+- **POST non-zero (422 / 403 / network).** A non-zero exit from the
+  retrigger POST is logged but does NOT free the one-shot budget; it
+  sets `copilotRetriggered := true` and (unlike the silent-rejection
+  case) does **not** trigger a post-POST re-read — the loop falls
+  through to the existing decision matrix and exits
+  `proceed-to-review-no-bot` only at the 10-minute Copilot timeout. The
+  emitted JSON carries `copilotRetriggered: true` so the supervisor can
+  observe the attempt happened; the ci-fix-loop re-invocation is the
+  recovery path, not an in-loop retry.
+- **POST ok but Copilot not queued (silent rejection).** Caught by the
+  post-POST `requested_reviewers` re-read above. Unlike the non-zero
+  case, this short-circuits **immediately** (no 10-minute wait) with
+  `copilotRetriggered: false` and `decision: proceed-to-review-no-bot`;
+  `ciTerminalAt` is not reset.
 
 PR #161 is the historical incident: Copilot reviewed once at commit
 `1c59a70` at `2026-05-19T01:18:59Z`, the fix commit `91e18e8` was

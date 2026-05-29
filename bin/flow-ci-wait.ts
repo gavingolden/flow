@@ -78,6 +78,13 @@ export type PollState = {
   ci: CheckState;
   /** Raw observation. The override (COPILOT_REQUESTED=0 → vacuously true) is applied inside decideOnPoll. */
   copilotPosted: boolean;
+  /**
+   * True iff the configured Copilot login was present in THIS poll's
+   * `requested_reviewers` read (re-read each poll, not cached — GitHub
+   * auto-removes Copilot once it posts its review). Informs the per-poll
+   * stderr distinction only; `decideOnPoll` does not branch on it.
+   */
+  copilotRequestedThisPoll: boolean;
   ciConfigured: boolean;
   copilotConfigured: boolean;
   /** Wall-clock cap in seconds. Default 1200 (20 min). */
@@ -878,6 +885,15 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     lastPrState = prInfo.state;
     lastPrUrl = prInfo.url;
 
+    // Per-poll requested_reviewers read (item 1). Re-read every poll rather
+    // than caching the loop-entry value: GitHub auto-removes Copilot from
+    // requested_reviewers once it posts its review, so membership genuinely
+    // changes across polls. Only meaningful when Copilot is configured; skip
+    // the gh call otherwise.
+    const copilotRequestedThisPoll = copilotConfigured
+      ? fetchRequestedReviewers(parsed.pr, gh).includes(copilotLogin.toLowerCase())
+      : false;
+
     // Observe CI checks only when CI is configured (presence override).
     const ci: CheckState = ciConfigured
       ? deriveCheckState(observeChecks(parsed.pr, gh))
@@ -934,24 +950,59 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
           );
         } else {
           const retrigger = retriggerCopilotReview(parsed.pr, copilotLogin, gh);
-          copilotRetriggered = true;
-          // Reset the Copilot timeout window so the existing 10-min branch
-          // measures from re-request, not from original CI terminal.
-          ciTerminalAt = elapsedSec;
-          // Surface POST failure stderr first so the user-facing log matches
-          // polling-protocol.md's "POST non-zero is logged" contract; the
-          // attempt still consumed the one-shot budget so the standard
-          // re-requested line still fires.
+          const oldShort = (latestCopilotCommit as string).slice(0, 8);
+          const newShort = prInfo.headRefOid.slice(0, 8);
           if (!retrigger.ok) {
+            // POST non-zero (the existing 422/403 path): unchanged. The
+            // attempt consumed the one-shot budget; mark retriggered, reset
+            // the Copilot timeout window, log the POST failure, and fall
+            // through to the existing decision matrix.
+            copilotRetriggered = true;
+            ciTerminalAt = elapsedSec;
             process.stderr.write(
               `Copilot retrigger POST failed: ${retrigger.stderr.slice(0, 200)}\n`,
             );
+            process.stderr.write(
+              `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — re-requested at poll ${pollNum}\n`,
+            );
+          } else {
+            // POST ok — verify Copilot is actually queued (item 2). GitHub can
+            // return exit 0 while silently declining to add Copilot to
+            // requested_reviewers; re-read and confirm membership rather than
+            // trusting the POST blindly.
+            const queued = fetchRequestedReviewers(parsed.pr, gh).includes(
+              copilotLogin.toLowerCase(),
+            );
+            if (queued) {
+              // Confirmed queued: today's behavior. Reset the Copilot timeout
+              // window so the existing 10-min branch measures from re-request.
+              copilotRetriggered = true;
+              ciTerminalAt = elapsedSec;
+              process.stderr.write(
+                `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — re-requested at poll ${pollNum}\n`,
+              );
+            } else {
+              // Silent rejection: POST accepted but Copilot was not queued.
+              // Do NOT set copilotRetriggered or reset ciTerminalAt — that
+              // would burn the full 10-min Copilot timeout on a review that
+              // will never post. Short-circuit immediately, mirroring the
+              // transient-gh early-emit above. copilotRetriggered stays false.
+              process.stderr.write(
+                `NOTICE: Copilot retrigger POST returned ok but ${copilotLogin} is not in requested_reviewers — silent rejection, not queued. Proceeding to review without bot.\n`,
+              );
+              emitResult({
+                decision: "proceed-to-review-no-bot",
+                polls: pollNum,
+                elapsedSec,
+                prState: prInfo.state,
+                prUrl: prInfo.url,
+                copilotConfigured,
+                ciConfigured,
+                copilotRetriggered,
+              });
+              return 0;
+            }
           }
-          const oldShort = (latestCopilotCommit as string).slice(0, 8);
-          const newShort = prInfo.headRefOid.slice(0, 8);
-          process.stderr.write(
-            `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — re-requested at poll ${pollNum}\n`,
-          );
         }
       }
     }
@@ -966,6 +1017,18 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         prInfo.headRefOid
       : deriveCopilotPosted(prInfo.reviews, copilotLogin);
 
+    // Per-poll in-progress distinction (item 1). When CI is terminal and we
+    // are still waiting on a Copilot review that has not posted, distinguish
+    // "queued, still waiting" (a healthy wait) from "no Copilot review yet"
+    // (none queued) using the per-poll requested_reviewers membership.
+    if (copilotConfigured && isCiTerminal(ci, ciConfigured) && !copilotPosted) {
+      process.stderr.write(
+        copilotRequestedThisPoll
+          ? "Copilot queued, still waiting\n"
+          : "no Copilot review yet\n",
+      );
+    }
+
     const verdict = decideOnPoll({
       pollNum,
       elapsedSec,
@@ -974,6 +1037,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       prUrl: prInfo.url,
       ci,
       copilotPosted,
+      copilotRequestedThisPoll,
       ciConfigured,
       copilotConfigured,
       maxElapsed,
