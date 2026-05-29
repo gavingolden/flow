@@ -205,6 +205,27 @@ describe("runNew (fresh)", () => {
     const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
     expect(raw.autoMerge).toBe(false);
   });
+
+  it("does not persist waitForCopilot by default (absent ≡ false / auto-detect ON)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNew("CSV export", { stateDir, cwd: repoDir, command: ["true"] });
+    expect(code).toBe(0);
+    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+    expect(raw).not.toHaveProperty("waitForCopilot");
+  });
+
+  it("persists waitForCopilot: true when waitForCopilot option is true", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      waitForCopilot: true,
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+    expect(raw.waitForCopilot).toBe(true);
+  });
 });
 
 describe("runNewCli (--help / -h short-circuit)", () => {
@@ -247,6 +268,19 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     const code = runNewCli(["--resume", "--help"], { stateDir });
     expect(code).toBe(0);
     expect(errors).toEqual([]);
+  });
+
+  it("runNewCli --wait-for-copilot writes waitForCopilot: true and excludes the flag from the slug", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(
+      ["--wait-for-copilot", "do", "thing"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(0);
+    // Slug must not include "wait-for-copilot" tokens; description was "do thing".
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
+    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"));
+    expect(raw.waitForCopilot).toBe(true);
   });
 
   it("treats -h after `--` as part of the description, not a help flag", () => {

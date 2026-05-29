@@ -25,6 +25,13 @@ export type PipelineState = {
    */
   autoMerge?: boolean;
   /**
+   * When true, `flow-ci-wait` waits the full 10-min Copilot timeout
+   * even when the auto-detect signals (no Copilot review by the
+   * claim-deadline, or self-dismissed on the current SHA) would skip.
+   * Absent ≡ false (auto-detect ON — the documented default).
+   */
+  waitForCopilot?: boolean;
+  /**
    * Claude Code session ID captured by `flow-open-pr` at PR-open time.
    * Carries the ID to `/flow-pipeline` step 10, which emits it as a
    * `Claude-Code-Session-Id:` squash-commit trailer. Absent when the PR
@@ -124,6 +131,7 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.pr !== undefined && typeof o.pr !== "number") return false;
   if (o.worktree !== undefined && typeof o.worktree !== "string") return false;
   if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean") return false;
+  if (o.waitForCopilot !== undefined && typeof o.waitForCopilot !== "boolean") return false;
   if (o.sessionId !== undefined && typeof o.sessionId !== "string") return false;
   if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride)) return false;
   return true;

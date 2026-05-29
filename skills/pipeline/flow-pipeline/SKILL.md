@@ -1126,7 +1126,7 @@ Branch on `.decision`:
 | `.decision` | Action |
 |---|---|
 | `proceed-to-review` | Continue to step 8. |
-| `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal. |
+| `proceed-to-review-no-bot` | Same as above; the bot review timed out 10 min after CI went terminal, or the Copilot auto-detect short-circuited (see `copilotSkipReason` JSON field — one of `unclaimed-after-deadline`, `self-dismissed`, or `null` when the 10-min timeout fired). |
 | `ci-failed` | Continue to step 5 mode=fix. Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
 | `merged-externally` | PR was merged externally mid-flight. Capture follow-ups output to a file: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (still executes auto-allowlisted entries; `>` captures the rendered block). Render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally mid-flight; supervisor cleaned up the worktree" --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"` **BEFORE** the terminal state transition, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry (the helper silently suppresses the FOLLOW-UPS slot when the file is empty; its final stdout line is the byte-exact sentinel `MERGED`). Then `flow-remove-worktree --delete-branch`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
@@ -1139,6 +1139,16 @@ Branch on `.decision`:
 internally — no workflows in `.github/workflows/` collapses to
 vacuously-passing CI; bot not requested as a reviewer collapses to
 vacuously-posted (skipping the 10-min timeout).
+
+`--wait-for-copilot` is a per-pipeline opt-out of the Copilot
+auto-detect short-circuits (see
+`references/polling-protocol.md` "Claim-deadline auto-detect" and
+"Self-dismissal short-circuit"). The supervisor reads the
+`waitForCopilot` field from state.json (`jq -r '.waitForCopilot //
+empty'`) and appends `--wait-for-copilot` to the `flow-ci-wait` call
+when the value is the literal `true`. Absent ≡ false ≡ auto-detect ON
+(the documented default). The flag is set per-pipeline via
+`flow new --wait-for-copilot "<description>"`.
 
 **Fix-loop cap: 3 total ci-fix loops** across the whole pipeline.
 After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.

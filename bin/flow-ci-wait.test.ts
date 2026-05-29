@@ -9,6 +9,7 @@ import {
   decideOnPoll,
   deriveCheckState,
   deriveCopilotPosted,
+  deriveCopilotSkipReason,
   extractLatestCopilotReviewCommit,
   fetchHistoricalBotReview,
   hasQualifyingWorkflowTrigger,
@@ -354,6 +355,150 @@ describe(isCopilotReviewStale, () => {
 
   it("returns false when headRefOid is empty (transient gh projection miss)", () => {
     expect(isCopilotReviewStale("sha-old", "")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3a-2b. deriveCopilotSkipReason — Copilot auto-detect short-circuit
+// ---------------------------------------------------------------------------
+
+describe(deriveCopilotSkipReason, () => {
+  const LOGIN = "copilot-pull-request-reviewer";
+  const HEAD = "sha-head";
+  const OLDER = "sha-older";
+
+  function baseArgs(overrides: Partial<Parameters<typeof deriveCopilotSkipReason>[0]> = {}) {
+    return {
+      reviews: [] as Review[],
+      headRefOid: HEAD,
+      copilotLogin: LOGIN,
+      ciTerminalAt: 0,
+      elapsedSec: 60,
+      claimDeadlineSec: 60,
+      waitForCopilot: false,
+      requestedReviewers: [] as string[],
+      ...overrides,
+    };
+  }
+
+  it("returns 'self-dismissed' when copilot DISMISSED on the current SHA with no fresher non-dismissed review", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: HEAD },
+    ];
+    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe("self-dismissed");
+  });
+
+  it("returns null when DISMISSED is on an older SHA but a posted review exists on the current SHA", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: OLDER },
+      { author: { login: LOGIN }, state: "COMMENTED", commitOid: HEAD },
+    ];
+    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBeNull();
+  });
+
+  it("returns null when DISMISSED is on an older SHA and no review exists on the current SHA (older-SHA dismiss does not signal self-dismissed)", () => {
+    // DISMISSED on OLDER alone should NOT trigger self-dismissed — the
+    // current-SHA pre-condition is what makes self-dismissed a strong
+    // signal. (Falls through to unclaimed-after-deadline once CI terminal
+    // + deadline elapsed since there's no current-SHA review of any kind.)
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: OLDER },
+    ];
+    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe(
+      "unclaimed-after-deadline",
+    );
+  });
+
+  it("returns 'unclaimed-after-deadline' when CI terminal + deadline elapsed + no review of any kind + not requested", () => {
+    expect(
+      deriveCopilotSkipReason(
+        baseArgs({
+          reviews: [],
+          ciTerminalAt: 0,
+          elapsedSec: 60,
+          claimDeadlineSec: 60,
+        }),
+      ),
+    ).toBe("unclaimed-after-deadline");
+  });
+
+  it("returns null when ciTerminalAt is null (CI not yet terminal)", () => {
+    expect(
+      deriveCopilotSkipReason(baseArgs({ ciTerminalAt: null, elapsedSec: 600 })),
+    ).toBeNull();
+  });
+
+  it("returns null when the deadline has not yet elapsed", () => {
+    expect(
+      deriveCopilotSkipReason(baseArgs({ ciTerminalAt: 0, elapsedSec: 30, claimDeadlineSec: 60 })),
+    ).toBeNull();
+  });
+
+  it("returns null when a PENDING Copilot review exists on the current headRefOid (claimed)", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "PENDING", commitOid: HEAD },
+    ];
+    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBeNull();
+  });
+
+  it("returns null when Copilot is in requestedReviewers with a COMMENTED review on current SHA (also claimed by review)", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "COMMENTED", commitOid: HEAD },
+    ];
+    expect(
+      deriveCopilotSkipReason(
+        baseArgs({ reviews, requestedReviewers: [LOGIN] }),
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null when Copilot is in requestedReviewers (claimed via reviewer-request)", () => {
+    expect(
+      deriveCopilotSkipReason(baseArgs({ requestedReviewers: [LOGIN] })),
+    ).toBeNull();
+  });
+
+  it("returns null for every signal when waitForCopilot is true (user opt-out)", () => {
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: HEAD },
+    ];
+    expect(
+      deriveCopilotSkipReason(baseArgs({ reviews, waitForCopilot: true })),
+    ).toBeNull();
+    expect(
+      deriveCopilotSkipReason(
+        baseArgs({ reviews: [], ciTerminalAt: 0, elapsedSec: 600, waitForCopilot: true }),
+      ),
+    ).toBeNull();
+  });
+
+  it("matches the configured login case-insensitively (mixed-case in response)", () => {
+    const reviews: Review[] = [
+      {
+        author: { login: "Copilot-Pull-Request-Reviewer" },
+        state: "DISMISSED",
+        commitOid: HEAD,
+      },
+    ];
+    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe("self-dismissed");
+  });
+
+  it("precedence: self-dismissed wins over unclaimed-after-deadline when both signals apply", () => {
+    // DISMISSED on current SHA + ciTerminalAt + deadline elapsed + no
+    // non-dismissed review on current SHA — both signals fire; self-dismissed
+    // is the stronger signal so it must win.
+    const reviews: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: HEAD },
+    ];
+    expect(
+      deriveCopilotSkipReason(
+        baseArgs({ reviews, ciTerminalAt: 0, elapsedSec: 600, claimDeadlineSec: 60 }),
+      ),
+    ).toBe("self-dismissed");
+  });
+
+  it("returns null when headRefOid is empty (transient gh projection miss)", () => {
+    expect(deriveCopilotSkipReason(baseArgs({ headRefOid: "" }))).toBeNull();
   });
 });
 
@@ -705,6 +850,45 @@ describe(parseArgs, () => {
   it("rejects a non-integer PR", () => {
     expect(parseArgs(["abc"])).toEqual({ error: "PR must be a positive integer, got 'abc'" });
   });
+
+  // --- --wait-for-copilot (boolean presence) ---
+  it("accepts --wait-for-copilot as a boolean flag", () => {
+    expect(parseArgs(["100", "--wait-for-copilot"])).toEqual({
+      pr: 100,
+      waitForCopilot: true,
+    });
+  });
+  it("defaults waitForCopilot to absent when the flag is omitted", () => {
+    expect(parseArgs(["100"])).toEqual({ pr: 100 });
+  });
+
+  // --- --claim-deadline-sec (positive-integer value) ---
+  it("accepts --claim-deadline-sec with a positive integer value", () => {
+    expect(parseArgs(["100", "--claim-deadline-sec", "30"])).toEqual({
+      pr: 100,
+      claimDeadlineSec: 30,
+    });
+  });
+  it("errors when --claim-deadline-sec is missing its value", () => {
+    expect(parseArgs(["100", "--claim-deadline-sec"])).toEqual({
+      error: "--claim-deadline-sec requires a value",
+    });
+  });
+  it("errors when --claim-deadline-sec is non-numeric", () => {
+    expect(parseArgs(["100", "--claim-deadline-sec", "abc"])).toEqual({
+      error: "--claim-deadline-sec must be a positive integer, got 'abc'",
+    });
+  });
+  it("errors when --claim-deadline-sec is negative", () => {
+    expect(parseArgs(["100", "--claim-deadline-sec", "-5"])).toEqual({
+      error: "--claim-deadline-sec must be a positive integer, got '-5'",
+    });
+  });
+  it("errors when --claim-deadline-sec is zero", () => {
+    expect(parseArgs(["100", "--claim-deadline-sec", "0"])).toEqual({
+      error: "--claim-deadline-sec must be a positive integer, got '0'",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -785,7 +969,7 @@ const isPrView = (argv: string[]) =>
   argv[0] === "pr" &&
   argv[1] === "view" &&
   argv.includes("--json") &&
-  argv[argv.indexOf("--json") + 1] === "state,url,reviews,headRefOid";
+  argv[argv.indexOf("--json") + 1] === "state,url,reviews,headRefOid,reviewRequests";
 
 const isPrChecks = (argv: string[]) => argv[0] === "pr" && argv[1] === "checks";
 
@@ -810,6 +994,7 @@ function prViewResponse(
   state: "OPEN" | "MERGED" | "CLOSED",
   reviews: Review[] = [],
   headRefOid: string = STABLE_HEAD_SHA,
+  reviewRequests: string[] = [],
 ) {
   // The wire payload nests commit.oid under each review; the parser flattens
   // to commitOid. Stringify the wire shape, not the parsed shape.
@@ -819,7 +1004,13 @@ function prViewResponse(
     commit: r.commitOid !== null ? { oid: r.commitOid } : null,
   }));
   return {
-    stdout: JSON.stringify({ state, url: PR_URL, reviews: wireReviews, headRefOid }),
+    stdout: JSON.stringify({
+      state,
+      url: PR_URL,
+      reviews: wireReviews,
+      headRefOid,
+      reviewRequests: reviewRequests.map((login) => ({ login })),
+    }),
     stderr: "",
     exitCode: 0,
   };
@@ -937,8 +1128,25 @@ describe("run() integration", () => {
   it("exits 0 with 'proceed-to-review-no-bot' JSON after the 10-min copilot timeout", async () => {
     const clock = makeFakeClock();
     // Build a sequence: review-requests once, then 12 polls each (prView + prChecks).
-    // CI is all-passed from poll 1 onward; copilot never posts. The 10-min
-    // copilot timeout fires when elapsed-since-ci-terminal >= 600s.
+    // CI is all-passed from poll 1 onward; copilot never POSTs a posted-state
+    // review. The 10-min copilot timeout fires when elapsed-since-ci-terminal
+    // >= 600s.
+    //
+    // PENDING-Copilot-review fixture rationale: under the new auto-detect
+    // default, `unclaimed-after-deadline` would fire ~60s after CI terminal
+    // (no Copilot review of any kind on current headRefOid + not in
+    // requestedReviewers). To keep this test exercising the original 10-min
+    // path, include a PENDING Copilot review on STABLE_HEAD_SHA — PENDING
+    // counts as "a review of some kind on the current SHA" so the
+    // unclaimed-after-deadline precondition fails, and PENDING is not
+    // DISMISSED so the self-dismissed path also stays inert.
+    const PENDING_COPILOT_ON_HEAD: Review[] = [
+      {
+        author: { login: "copilot-pull-request-reviewer" },
+        state: "PENDING",
+        commitOid: STABLE_HEAD_SHA,
+      },
+    ];
     const steps: GhStep[] = [
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
     ];
@@ -946,7 +1154,7 @@ describe("run() integration", () => {
     // Cadence ramp: 30×5 + 60×5 + 90×… → poll 12 elapsed=540s (<600), poll 13
     // elapsed=630s (>=600) → exit. 15 iterations gives headroom.
     for (let i = 0; i < 15; i++) {
-      steps.push({ matches: isPrView, response: prViewResponse("OPEN", []) });
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD) });
       steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
     }
     const gh = makeGhSequence(steps);
@@ -1097,11 +1305,21 @@ describe("run() integration", () => {
     // CI is all-passed from poll 1; copilot has not yet posted. The fallback
     // resolves copilotConfigured=true, so the loop must NOT exit poll 1 with
     // proceed-to-review — it must wait for the bot review or its 10-min timeout.
+    // PENDING-on-current-SHA included so the new auto-detect skip
+    // ('unclaimed-after-deadline') does not short-circuit the 10-min path —
+    // same rationale as the canonical 10-min timeout test above.
+    const PENDING_COPILOT_ON_HEAD: Review[] = [
+      {
+        author: { login: "copilot-pull-request-reviewer" },
+        state: "PENDING",
+        commitOid: STABLE_HEAD_SHA,
+      },
+    ];
     const steps: GhStep[] = [
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
     ];
     for (let i = 0; i < 15; i++) {
-      steps.push({ matches: isPrView, response: prViewResponse("OPEN", []) });
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD) });
       steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
     }
     const gh = makeGhSequence(steps);
@@ -1576,6 +1794,166 @@ describe("run() integration — Copilot retrigger", () => {
     expect(result.copilotRetriggered).toBe(true);
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
     expect(cap.stderr.join("")).toMatch(/Copilot review stale.*re-requested at poll 1/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6b-2. run() integration — Copilot auto-detect short-circuit
+//
+// Covers the two new exit attributions:
+//   - 'unclaimed-after-deadline': CI terminal + claim deadline elapsed +
+//     no Copilot review of any state on the current headRefOid + Copilot
+//     not in requestedReviewers.
+//   - 'self-dismissed': DISMISSED Copilot review on the current headRefOid
+//     with no non-dismissed review by the same login on the same SHA.
+// Both suppressed by --wait-for-copilot.
+// ---------------------------------------------------------------------------
+
+describe("run() integration — Copilot auto-detect short-circuit", () => {
+  const LOGIN = "copilot-pull-request-reviewer";
+
+  it("'unclaimed-after-deadline' fires after the claim deadline elapses with no Copilot review and Copilot not requested", async () => {
+    const clock = makeFakeClock();
+    // 30s claim deadline; CI terminal at poll 1 (elapsedSec=0); poll 2 fires
+    // after 30s sleep at elapsedSec=30 → elapsedSec - ciTerminalAt >= 30 → exit.
+    // Copilot not in per-poll reviewRequests, no Copilot review on any SHA.
+    const gh = makeGhSequence([
+      // Loop-entry presence check: copilot is configured (loop-entry only).
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      // Poll 1: CI terminal, no Copilot review, copilot NOT in per-poll requests.
+      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      // Poll 2: same observation, but now 30s elapsed since CI terminal.
+      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100", "--claim-deadline-sec", "30"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotSkipReason).toBe("unclaimed-after-deadline");
+    expect(result.polls).toBe(2);
+    // The auto-detect stderr line attributing the exit.
+    expect(cap.stderr.join("")).toMatch(/Copilot auto-detect: unclaimed-after-deadline/);
+  });
+
+  it("'self-dismissed' fires when DISMISSED on current headRefOid + retrigger POST does NOT fire", async () => {
+    const clock = makeFakeClock();
+    const dismissed: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
+    ];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      // Poll 1: CI terminal + Copilot DISMISSED on current SHA → self-dismissed.
+      { matches: isPrView, response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotSkipReason).toBe("self-dismissed");
+    expect(result.polls).toBe(1);
+    // CRITICAL ORDERING assertion: the stale-review retrigger POST does NOT
+    // fire when self-dismissed short-circuits — the auto-detect runs BEFORE
+    // the retrigger gate. Belt-and-suspenders via the captured gh call log.
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(0);
+  });
+
+  it("--wait-for-copilot suppresses 'self-dismissed' on current-SHA DISMISSED (falls through to retrigger gate)", async () => {
+    const clock = makeFakeClock();
+    // With --wait-for-copilot, the auto-detect short-circuit is inert.
+    // A DISMISSED Copilot review on the current SHA is not "stale" by the
+    // PR #161 predicate (commitOid === headRefOid), so the retrigger
+    // doesn't fire either. The loop runs until the existing 10-min copilot
+    // timeout fires (Copilot has not POSTED).
+    const dismissed: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
+    ];
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+    ];
+    for (let i = 0; i < 15; i++) {
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []) });
+      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+    }
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100", "--wait-for-copilot"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    // copilotSkipReason should be absent (the existing 10-min timeout fired,
+    // not the auto-detect path).
+    expect(result.copilotSkipReason).toBeUndefined();
+    expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
+  });
+
+  it("--wait-for-copilot suppresses 'unclaimed-after-deadline' too (falls through to the 10-min timeout)", async () => {
+    const clock = makeFakeClock();
+    // PENDING Copilot review on current SHA prevents 'unclaimed-after-deadline'
+    // from firing under the auto-detect path (defence in depth, the
+    // --wait-for-copilot flag is the primary suppressor here).
+    const pending: Review[] = [
+      { author: { login: LOGIN }, state: "PENDING", commitOid: STABLE_HEAD_SHA },
+    ];
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+    ];
+    for (let i = 0; i < 15; i++) {
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", pending, STABLE_HEAD_SHA, []) });
+      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+    }
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100", "--wait-for-copilot", "--claim-deadline-sec", "30"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotSkipReason).toBeUndefined();
+    expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
   });
 });
 

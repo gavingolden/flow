@@ -122,6 +122,21 @@ describe("state", () => {
     expect(readState("bad-worktree", dir)).toBeNull();
   });
 
+  it("readState returns null when state JSON has wrong-type waitForCopilot (string instead of boolean)", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-wait-for-copilot.json"),
+      JSON.stringify({
+        slug: "bad-wait-for-copilot",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        waitForCopilot: "true",
+      }),
+    );
+    expect(readState("bad-wait-for-copilot", dir)).toBeNull();
+  });
+
   it.each([
     ["slug", 42],
     ["repo", 99],
@@ -200,6 +215,7 @@ describe("state", () => {
       pr: 142,
       worktree: "/tmp/worktree-full",
       autoMerge: false,
+      waitForCopilot: true,
       sessionId: "b034430c-03bd-4fa0-8393-9f0859800531",
       gateOverride: { pr: 142, confirmedAt: "2026-05-17T00:05:00Z" },
     };
