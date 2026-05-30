@@ -25,6 +25,14 @@ import {
   type RunResult,
 } from "./flow-ci-wait";
 
+// Restore any spies (e.g. captureStreams' process.stdout/stderr.write mocks)
+// between tests so a test that throws before its local cap.restore() cannot
+// leak a spy into a later test. Without this, an unrestored stream spy
+// corrupts a subsequent test's fs/stream calls.
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 // ---------------------------------------------------------------------------
 // 1. cadenceFor
 // ---------------------------------------------------------------------------
@@ -670,6 +678,7 @@ function makePollState(overrides: Partial<PollState> = {}): PollState {
     prUrl: "https://x/y/pull/1",
     ci: { kind: "pending" },
     copilotPosted: false,
+    copilotRequestedThisPoll: true,
     ciConfigured: true,
     copilotConfigured: true,
     maxElapsed: 1200,
@@ -990,6 +999,18 @@ function reviewRequestsResponse(logins: string[]) {
   };
 }
 
+// Per-poll requested_reviewers read (item 1) + post-POST re-read (item 2) are
+// both `gh pr view --json reviewRequests` calls matched by isReviewRequests.
+// COPILOT_QUEUED reflects "Copilot is still queued this poll" (or, after a
+// POST, "the re-read confirms Copilot was queued"). COPILOT_NOT_QUEUED is the
+// silent-rejection / no-bot-queued variant.
+const COPILOT_QUEUED = ["copilot-pull-request-reviewer"];
+const COPILOT_NOT_QUEUED: string[] = [];
+const perPollReviewRequests = (logins: string[] = COPILOT_QUEUED): GhStep => ({
+  matches: isReviewRequests,
+  response: reviewRequestsResponse(logins),
+});
+
 function prViewResponse(
   state: "OPEN" | "MERGED" | "CLOSED",
   reviews: Review[] = [],
@@ -1106,6 +1127,7 @@ describe("run() integration", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -1152,9 +1174,11 @@ describe("run() integration", () => {
     ];
     // ci_terminal lands at elapsedSec=0 (poll 1's all-passed observation).
     // Cadence ramp: 30×5 + 60×5 + 90×… → poll 12 elapsed=540s (<600), poll 13
-    // elapsed=630s (>=600) → exit. 15 iterations gives headroom.
+    // elapsed=630s (>=600) → exit. 15 iterations gives headroom. Each poll also
+    // re-reads requested_reviewers (item 1) between the prView and prChecks reads.
     for (let i = 0; i < 15; i++) {
       steps.push({ matches: isPrView, response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD) });
+      steps.push(perPollReviewRequests());
       steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
     }
     const gh = makeGhSequence(steps);
@@ -1209,6 +1233,7 @@ describe("run() integration", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      perPollReviewRequests(),
       // No isPrChecks step — if the runner calls it, the sequence will fail.
     ]);
     const cap = captureStreams();
@@ -1318,8 +1343,12 @@ describe("run() integration", () => {
     const steps: GhStep[] = [
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
     ];
+    // copilotConfigured=true via the historical fallback, but the in-flight PR's
+    // requested_reviewers stays empty (the org-level auto-review case), so the
+    // per-poll read returns COPILOT_NOT_QUEUED.
     for (let i = 0; i < 15; i++) {
       steps.push({ matches: isPrView, response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD) });
+      steps.push(perPollReviewRequests(COPILOT_NOT_QUEUED));
       steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
     }
     const gh = makeGhSequence(steps);
@@ -1373,6 +1402,7 @@ describe("run() integration", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     let fallbackCalls = 0;
@@ -1461,10 +1491,14 @@ describe("run() integration — Copilot retrigger", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       // Poll 1: stale review observed against HEAD_SHA → retrigger fires.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      // Post-POST re-read (item 2) confirms Copilot is queued → copilotRetriggered.
+      perPollReviewRequests(COPILOT_QUEUED),
       // Poll 2: fresh review at HEAD_SHA → proceed-to-review.
       { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -1499,8 +1533,10 @@ describe("run() integration — Copilot retrigger", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       // Poll 1: stale → retrigger fires.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      perPollReviewRequests(COPILOT_QUEUED), // post-POST re-read confirms queued
     ];
     // Polls 2+ keep observing the stale review (no fresh one ever lands).
     // ciTerminalAt reset to poll-1 elapsed; the 10-min Copilot timeout fires
@@ -1508,6 +1544,7 @@ describe("run() integration — Copilot retrigger", () => {
     // iterations under the 30-30-30-30-30-60-60-60-60-60-90-90-… ramp.
     for (let i = 0; i < 20; i++) {
       steps.push({ matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) });
+      steps.push(perPollReviewRequests());
       steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
     }
     const gh = makeGhSequence(steps);
@@ -1538,6 +1575,7 @@ describe("run() integration — Copilot retrigger", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -1571,16 +1609,21 @@ describe("run() integration — Copilot retrigger", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       // Poll 1: CI pending, stale review observed → NO retrigger fires.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(PENDING_CHECKS) },
       // Poll 2: CI pending, stale review observed → still NO retrigger.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(PENDING_CHECKS) },
       // Poll 3: CI all-passed, stale review observed → retrigger fires.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      perPollReviewRequests(COPILOT_QUEUED), // post-POST re-read confirms queued
       // Poll 4: fresh review lands → proceed-to-review.
       { matches: isPrView, response: prViewResponse("OPEN", staleCopilotReview(HEAD_SHA), HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ];
     const gh = makeGhSequence(steps);
@@ -1612,17 +1655,20 @@ describe("run() integration — Copilot retrigger", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       // Poll 1: stale review → retrigger POST fires but FAILS.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       {
         matches: isRequestedReviewersPost,
         response: { stdout: "", stderr: "HTTP 422", exitCode: 1 },
       },
+      // POST non-zero: NO post-POST re-read (item 2 only re-reads on POST ok).
     ];
     // Polls 2+ still observe the stale review (the POST didn't actually
     // re-request anyone). One-shot cap means no retry; eventual exit at the
     // 10-min Copilot timeout under the no-bot decision branch.
     for (let i = 0; i < 20; i++) {
       steps.push({ matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) });
+      steps.push(perPollReviewRequests());
       steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
     }
     const gh = makeGhSequence(steps);
@@ -1661,6 +1707,7 @@ describe("run() integration — Copilot retrigger", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -1699,9 +1746,12 @@ describe("run() integration — Copilot retrigger", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      perPollReviewRequests(COPILOT_QUEUED), // post-POST re-read confirms queued
       { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -1735,6 +1785,7 @@ describe("run() integration — Copilot retrigger", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -1771,9 +1822,12 @@ describe("run() integration — Copilot retrigger", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      perPollReviewRequests(COPILOT_QUEUED), // post-POST re-read confirms queued
       { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -1794,6 +1848,203 @@ describe("run() integration — Copilot retrigger", () => {
     expect(result.copilotRetriggered).toBe(true);
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
     expect(cap.stderr.join("")).toMatch(/Copilot review stale.*re-requested at poll 1/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6b-2. run() integration — per-poll requested_reviewers signal (item 1)
+//
+// When CI is terminal and no Copilot review has posted, the per-poll stderr
+// distinguishes "Copilot queued, still waiting" (login present in this poll's
+// requested_reviewers) from "no Copilot review yet" (login absent).
+// ---------------------------------------------------------------------------
+
+describe("run() integration — per-poll requested_reviewers signal", () => {
+  it("logs 'Copilot queued, still waiting' when Copilot is in requested_reviewers (CI terminal, no review)", async () => {
+    const clock = makeFakeClock();
+    // CI all-passed from poll 1; Copilot configured + still queued each poll but
+    // never posts → loop until the 10-min timeout. Per-poll read returns the
+    // login, so the queued-variant stderr fires.
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+    ];
+    for (let i = 0; i < 15; i++) {
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", []) });
+      steps.push(perPollReviewRequests(COPILOT_QUEUED));
+      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+    }
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const err = cap.stderr.join("");
+    expect(err).toContain("Copilot queued, still waiting");
+    expect(err).not.toContain("no Copilot review yet");
+  });
+
+  it("logs 'no Copilot review yet' when Copilot is absent from requested_reviewers (CI terminal, no review)", async () => {
+    const clock = makeFakeClock();
+    // Copilot configured via the historical fallback, but the in-flight PR's
+    // requested_reviewers is empty each poll (org-level auto-review case) → the
+    // no-bot-queued variant fires.
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+    ];
+    for (let i = 0; i < 15; i++) {
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", []) });
+      steps.push(perPollReviewRequests(COPILOT_NOT_QUEUED));
+      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+    }
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => true, // fallback → copilotConfigured
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const err = cap.stderr.join("");
+    expect(err).toContain("no Copilot review yet");
+    expect(err).not.toContain("Copilot queued, still waiting");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6b-3. run() integration — post-POST verification / silent rejection (item 2)
+//
+// After a POST-ok retrigger, re-read requested_reviewers. If the login is
+// present → today's behavior (copilotRetriggered:true, loop continues). If
+// absent (silent rejection) → NOTICE on stderr, copilotRetriggered:false,
+// immediate proceed-to-review-no-bot with no 10-min wait.
+// ---------------------------------------------------------------------------
+
+describe("run() integration — post-POST verification (item 2)", () => {
+  it("POST ok + re-read confirms Copilot queued → copilotRetriggered:true, loop continues", async () => {
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    const fresh = staleCopilotReview(HEAD_SHA);
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      // Poll 1: stale → POST → re-read confirms queued.
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      perPollReviewRequests(COPILOT_QUEUED), // re-read: present
+      // Poll 2: fresh review lands → proceed-to-review.
+      { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
+      perPollReviewRequests(),
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.copilotRetriggered).toBe(true);
+    expect(result.polls).toBe(2);
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
+  });
+
+  it("POST ok + re-read misses (silent rejection) → proceed-to-review-no-bot, copilotRetriggered:false, NOTICE, no 10-min wait", async () => {
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      // Poll 1: stale → POST returns ok → re-read does NOT include Copilot.
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      perPollReviewRequests(COPILOT_NOT_QUEUED), // re-read: absent → silent rejection
+      // No further steps: the run must short-circuit and return immediately.
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotRetriggered).toBe(false);
+    // Short-circuit on poll 1, well below the 600s Copilot timeout.
+    expect(result.polls).toBe(1);
+    expect(result.elapsedSec).toBeLessThan(600);
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
+    expect(cap.stderr.join("")).toContain("NOTICE");
+    expect(cap.stderr.join("")).toContain("silent rejection");
+  });
+
+  it("POST non-zero (422/403) path is unchanged: copilotRetriggered:true, no re-read, falls through to the timeout", async () => {
+    const clock = makeFakeClock();
+    const stale = staleCopilotReview(STALE_SHA);
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
+      perPollReviewRequests(),
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      {
+        matches: isRequestedReviewersPost,
+        response: { stdout: "", stderr: "HTTP 422: Unprocessable", exitCode: 1 },
+      },
+      // POST non-zero: NO post-POST re-read. Loop falls through to the 10-min timeout.
+    ];
+    for (let i = 0; i < 15; i++) {
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) });
+      steps.push(perPollReviewRequests());
+      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+    }
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotRetriggered).toBe(true);
+    expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
+    expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
+    expect(cap.stderr.join("")).toContain("Copilot retrigger POST failed");
+    expect(cap.stderr.join("")).not.toContain("NOTICE");
   });
 });
 
@@ -1822,9 +2073,11 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
       // Poll 1: CI terminal, no Copilot review, copilot NOT in per-poll requests.
       { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       // Poll 2: same observation, but now 30s elapsed since CI terminal.
       { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -1857,6 +2110,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
       // Poll 1: CI terminal + Copilot DISMISSED on current SHA → self-dismissed.
       { matches: isPrView, response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -1897,6 +2151,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ];
     for (let i = 0; i < 15; i++) {
       steps.push({ matches: isPrView, response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []) });
+      steps.push(perPollReviewRequests(COPILOT_NOT_QUEUED));
       steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
     }
     const gh = makeGhSequence(steps);
@@ -1936,6 +2191,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     ];
     for (let i = 0; i < 15; i++) {
       steps.push({ matches: isPrView, response: prViewResponse("OPEN", pending, STABLE_HEAD_SHA, []) });
+      steps.push(perPollReviewRequests(COPILOT_NOT_QUEUED));
       steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
     }
     const gh = makeGhSequence(steps);
@@ -1981,6 +2237,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       // is at elapsedSec=0), but on poll 2 it would — except ci-failed
       // already exited at poll 1.
       { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
       { matches: isPrChecks, response: prChecksResponse(failed) },
     ]);
     const cap = captureStreams();
@@ -2015,6 +2272,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
       { matches: isPrView, response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
       { matches: isPrChecks, response: prChecksResponse(failed) },
     ]);
     const cap = captureStreams();
@@ -2051,6 +2309,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
       { matches: isPrView, response: prViewResponse("MERGED", dismissed, STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2082,6 +2341,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
       { matches: isPrView, response: prViewResponse("CLOSED", dismissed, STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2398,6 +2658,7 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2428,12 +2689,15 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       // Poll 1: empty checks → no-checks-reported → loop
       { matches: isPrView, response: prViewResponse("OPEN", []) },
+      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse([]) },
       // Poll 2: empty checks → loop
       { matches: isPrView, response: prViewResponse("OPEN", []) },
+      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse([]) },
       // Poll 3: SUCCESS + Copilot review posted → exit
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      perPollReviewRequests(COPILOT_NOT_QUEUED),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ];
     const gh = makeGhSequence(steps);
