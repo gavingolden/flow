@@ -92,7 +92,7 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
 function runFresh(description: string, options: NewOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow new: description is required.");
-    console.error("usage: flow new [--no-auto-merge] <description>");
+    console.error("usage: flow new [--no-auto-merge] [--wait-for-copilot] <description>");
     return 1;
   }
 

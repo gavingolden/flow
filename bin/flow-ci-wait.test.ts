@@ -1915,9 +1915,11 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     expect(exit).toBe(0);
     const result = JSON.parse(cap.stdout.join("")) as RunResult;
     expect(result.decision).toBe("proceed-to-review-no-bot");
-    // copilotSkipReason should be absent (the existing 10-min timeout fired,
-    // not the auto-detect path).
-    expect(result.copilotSkipReason).toBeUndefined();
+    // copilotSkipReason is null (the existing 10-min timeout fired, not the
+    // auto-detect path). Every normal-exit path now emits null on the wire
+    // so the documented schema and the actual JSON agree — see
+    // polling-protocol.md decision-matrix row for the 10-min timeout.
+    expect(result.copilotSkipReason).toBeNull();
     expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
   });
 
@@ -1952,8 +1954,153 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     expect(exit).toBe(0);
     const result = JSON.parse(cap.stdout.join("")) as RunResult;
     expect(result.decision).toBe("proceed-to-review-no-bot");
-    expect(result.copilotSkipReason).toBeUndefined();
+    expect(result.copilotSkipReason).toBeNull();
     expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
+  });
+
+  // Precedence-guard regression tests. The auto-detect short-circuit in
+  // run() must not pre-empt `decideOnPoll`'s pr-state (MERGED/CLOSED) or
+  // ci-failed branches. Without the guards on the short-circuit, a poll
+  // whose `deriveCopilotSkipReason` returns non-null would silently reroute
+  // ci-failed → proceed-to-review-no-bot (disabling the 3-loop fix-loop
+  // recovery) and merged-externally → proceed-to-review-no-bot (skipping
+  // the documented MERGED cleanup). The fixtures below combine the
+  // auto-detect triggering conditions with each pre-empted branch, so the
+  // regression has a failing test the moment the guards are removed.
+
+  it("ci-failed wins over 'unclaimed-after-deadline' (regression: short-circuit must not bypass ci-failed)", async () => {
+    const clock = makeFakeClock();
+    // Same fixture shape as the 'unclaimed-after-deadline' test above, but CI
+    // is FAILED. Without the `ci.kind !== 'failed'` guard, the helper exits
+    // proceed-to-review-no-bot at poll 2 instead of ci-failed at poll 1.
+    const failed: Check[] = [{ name: "lint", state: "FAILURE" }];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      // Poll 1: CI failed, no Copilot review on current SHA, Copilot not
+      // requested. The auto-detect's deadline hasn't elapsed yet (poll 1
+      // is at elapsedSec=0), but on poll 2 it would — except ci-failed
+      // already exited at poll 1.
+      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isPrChecks, response: prChecksResponse(failed) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100", "--claim-deadline-sec", "30"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("ci-failed");
+    expect(result.copilotSkipReason).toBeNull();
+    expect(result.ciFailedChecks).toEqual(failed);
+  });
+
+  it("ci-failed wins over 'self-dismissed' (regression: short-circuit must not bypass ci-failed)", async () => {
+    const clock = makeFakeClock();
+    // Copilot self-dismissed on current SHA + CI fails on the same poll.
+    // Without the guard, the helper exits proceed-to-review-no-bot via
+    // self-dismissed instead of ci-failed. The fix-loop recovery would be
+    // silently disabled.
+    const failed: Check[] = [{ name: "test", state: "FAILURE" }];
+    const dismissed: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
+    ];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isPrView, response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []) },
+      { matches: isPrChecks, response: prChecksResponse(failed) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("ci-failed");
+    expect(result.copilotSkipReason).toBeNull();
+    expect(result.ciFailedChecks).toEqual(failed);
+  });
+
+  it("merged-externally wins over 'self-dismissed' (regression: short-circuit must not bypass pr-state)", async () => {
+    const clock = makeFakeClock();
+    // PR is MERGED + Copilot self-dismissed on current SHA. Without the
+    // `prInfo.state === 'OPEN'` guard, the helper exits
+    // proceed-to-review-no-bot instead of merged-externally — and the
+    // supervisor's MERGED cleanup block never runs. The `pr checks` step
+    // is required because copilotConfigured=true via reviewRequests forces
+    // ciConfigured=true (the per-poll observeChecks fires before
+    // decideOnPoll routes on prState).
+    const dismissed: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
+    ];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isPrView, response: prViewResponse("MERGED", dismissed, STABLE_HEAD_SHA, []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("merged-externally");
+    expect(result.copilotSkipReason).toBeNull();
+    expect(result.prState).toBe("MERGED");
+  });
+
+  it("pr-closed wins over 'self-dismissed' (regression: short-circuit must not bypass pr-state)", async () => {
+    const clock = makeFakeClock();
+    // PR is CLOSED + Copilot self-dismissed on current SHA. Same shape as
+    // the MERGED test above; both pr-state branches must take precedence.
+    const dismissed: Review[] = [
+      { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
+    ];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isPrView, response: prViewResponse("CLOSED", dismissed, STABLE_HEAD_SHA, []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("pr-closed");
+    expect(result.copilotSkipReason).toBeNull();
+    expect(result.prState).toBe("CLOSED");
   });
 });
 

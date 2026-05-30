@@ -418,7 +418,7 @@ export const DEFAULT_CLAIM_DEADLINE_SEC = 60;
  *   3. CI terminal + deadline    → 'unclaimed-after-deadline'
  *      elapsed + no review of any
  *      kind on current SHA + not
- *      requested + not PENDING
+ *      requested
  *   4. otherwise                 → null
  */
 export function deriveCopilotSkipReason(args: {
@@ -452,15 +452,14 @@ export function deriveCopilotSkipReason(args: {
     args.ciTerminalAt !== null &&
     args.elapsedSec - args.ciTerminalAt >= args.claimDeadlineSec
   ) {
+    // hasAnyReviewOnCurrentSha already filters to login + headRefOid match,
+    // and PENDING is one of the included review states, so a separate
+    // `!hasPendingOnCurrentSha` check would be dead-by-construction: if
+    // `hasAnyReviewOnCurrentSha` is false then no review of any state
+    // (including PENDING) by `target` exists on the current SHA.
     const hasAnyReviewOnCurrentSha = copilotReviewsOnCurrentSha.length > 0;
-    const hasPendingOnCurrentSha = args.reviews.some(
-      (r) =>
-        r.author.login.toLowerCase() === target &&
-        r.state === "PENDING" &&
-        r.commitOid === args.headRefOid,
-    );
     const isRequested = args.requestedReviewers.includes(target);
-    if (!hasAnyReviewOnCurrentSha && !hasPendingOnCurrentSha && !isRequested) {
+    if (!hasAnyReviewOnCurrentSha && !isRequested) {
       return "unclaimed-after-deadline";
     }
   }
@@ -925,11 +924,13 @@ export type RunResult = {
    *   - 'self-dismissed' — Copilot dismissed its own review on the
    *     current `headRefOid` and has no non-dismissed review on the
    *     same SHA.
-   *   - null — the existing 10-min copilot-timeout branch fired, or the
-   *     skip didn't apply.
-   * Absent when the decision was not `proceed-to-review-no-bot`.
+   *   - null — the existing 10-min copilot-timeout branch fired, the
+   *     skip didn't apply, or the decision was not
+   *     `proceed-to-review-no-bot` at all (every normal-exit path
+   *     normalises to null so the wire shape is stable). The field is
+   *     always present on the emitted JSON.
    */
-  copilotSkipReason?: "unclaimed-after-deadline" | "self-dismissed" | null;
+  copilotSkipReason: "unclaimed-after-deadline" | "self-dismissed" | null;
 };
 
 export async function run(argv: string[], deps: Deps = {}): Promise<number> {
@@ -1013,6 +1014,10 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
           copilotConfigured,
           ciConfigured,
           copilotRetriggered,
+          // Mirrors the verdict-driven exit path below: every normal-exit
+          // emits an explicit null so the wire shape stays stable across
+          // the transient-gh-failure ci-hang and the standard ci-hang.
+          copilotSkipReason: null,
         });
         return 0;
       }
@@ -1041,7 +1046,19 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     // no Copilot review of any kind on the current headRefOid + not
     // requested). `--wait-for-copilot` suppresses both. See
     // `deriveCopilotSkipReason` for the precedence rules.
-    if (copilotConfigured && !copilotRetriggered) {
+    //
+    // Precedence guards: the short-circuit must not pre-empt `decideOnPoll`'s
+    // documented pr-state and ci-failed branches. A MERGED/CLOSED PR routes
+    // to `merged-externally` / `pr-closed`; a failed CI routes to `ci-failed`
+    // (which feeds the 3-loop ci-fix recovery). Without these guards the
+    // auto-detect can silently reroute any of those decisions to
+    // `proceed-to-review-no-bot` — see consolidator finding bug-detection:1044.
+    if (
+      copilotConfigured &&
+      !copilotRetriggered &&
+      prInfo.state === "OPEN" &&
+      ci.kind !== "failed"
+    ) {
       const skipReason = deriveCopilotSkipReason({
         reviews: prInfo.reviews,
         headRefOid: prInfo.headRefOid,
@@ -1172,6 +1189,12 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         copilotConfigured,
         ciConfigured,
         copilotRetriggered,
+        // Explicit null on every normal-exit path so the wire JSON matches
+        // the documented schema (`copilotSkipReason: ... | null`). The
+        // auto-detect short-circuit above sets its own non-null value; any
+        // verdict-driven exit (including the 10-min copilot timeout) emits
+        // null. See SKILL.md step 7 and polling-protocol.md decision matrix.
+        copilotSkipReason: null,
       };
       if (verdict.ciFailedChecks) result.ciFailedChecks = verdict.ciFailedChecks;
       emitResult(result);
