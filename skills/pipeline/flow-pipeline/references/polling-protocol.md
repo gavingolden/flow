@@ -314,6 +314,56 @@ confirming GitHub's auto-removal after the first review — there was
 no way for the helper to know Copilot would re-review without an
 explicit re-request POST.
 
+#### Claim-deadline auto-detect
+
+Copilot reviews typically appear within the first minute of CI going
+terminal. When Copilot is configured (`copilotConfigured=true`) but
+has not "claimed" the review within a short post-CI-terminal window,
+the helper short-circuits the full 10-min copilot timeout with
+`decision: 'proceed-to-review-no-bot'` and
+`copilotSkipReason: 'unclaimed-after-deadline'`. The exit attribution
+is recorded in the JSON output for downstream visibility.
+
+The claim deadline is `DEFAULT_CLAIM_DEADLINE_SEC` (60 seconds) by
+default; override via `--claim-deadline-sec <n>` on the helper
+invocation. "Claimed" means **any** of:
+
+- The per-poll `gh pr view --json reviewRequests` projection includes
+  the configured Copilot login (the bot is still in
+  `requested_reviewers`).
+- A PENDING Copilot review exists on the current `headRefOid` (the
+  bot is drafting its review).
+- A non-DISMISSED Copilot review of any state exists on the current
+  `headRefOid` (the bot has POSTED, even informally).
+
+The precondition list lives at `deriveCopilotSkipReason` in
+`bin/flow-ci-wait.ts`; future drift between this doc and the code
+should be detected by the function-name anchor.
+
+Suppress entirely with `--wait-for-copilot` (per-pipeline via
+`flow new --wait-for-copilot "<desc>"`, or per-invocation directly on
+the helper). Suppressed → the existing 10-min copilot-timeout branch
+fires unchanged.
+
+#### Self-dismissal short-circuit
+
+When Copilot dismisses its own review on the current `headRefOid`
+(state `DISMISSED`, `commit.oid === headRefOid`) and no
+non-dismissed Copilot review exists on the same SHA, the helper
+short-circuits with `decision: 'proceed-to-review-no-bot'` and
+`copilotSkipReason: 'self-dismissed'`. The signal is strong: the bot
+explicitly indicated it has no findings on the current commit, so
+waiting the 10-min copilot timeout (or attempting a stale-review
+retrigger) burns budget for no gain.
+
+The detection lives at `deriveCopilotSkipReason` in
+`bin/flow-ci-wait.ts`. Same anchor as the claim-deadline subsection
+above. Same `--wait-for-copilot` suppression rule.
+
+**Critical ordering.** The self-dismissal short-circuit runs **before**
+the stale-review retrigger gate ("Retrigger on stale review" above) so
+a self-dismissed signal does not trigger a doomed re-request POST.
+
 ### Why per-PR `reviewRequests` and not `gh api .../installations`
 
 The intuitive alternative — `gh api repos/<owner>/<repo>/installations`
@@ -340,6 +390,18 @@ When both flags are 0 the loop exits on its first iteration without
 waiting, which is the correct behaviour for a repo with no CI and no
 bot reviewer configured.
 
+The Copilot auto-detect short-circuits ('Claim-deadline auto-detect'
+and 'Self-dismissal short-circuit' above) are suppressed by two flags:
+
+- `--wait-for-copilot` (boolean) suppresses **both** auto-detect rows
+  and restores the full 10-min copilot timeout as the only Copilot
+  exit branch. Per-pipeline via `flow new --wait-for-copilot
+  "<desc>"` (the supervisor reads `waitForCopilot` from state.json
+  and appends the flag), or per-invocation directly on `flow-ci-wait`.
+- `--claim-deadline-sec <n>` (positive integer) overrides the
+  `DEFAULT_CLAIM_DEADLINE_SEC` (60s) post-CI-terminal claim deadline.
+  Direct-invocation only — there is no state.json plumbing.
+
 ## Per-poll commands
 
 Both are read-only and idempotent. The reviews call runs every
@@ -361,8 +423,13 @@ gh pr checks <pr> --json name,state
 # `pr_state` (OPEN/MERGED/CLOSED) is sourced from, which the decision
 # matrix needs even for repos with no CI configured. `headRefOid` is
 # the PR's current HEAD SHA, needed by the stale-Copilot-review
-# retrigger branch under "## Copilot reviewer" below.
-gh pr view <pr> --json reviews,state,headRefOid
+# retrigger branch under "## Copilot reviewer" below. `reviewRequests`
+# is the per-poll requested-reviewers projection (lowercased before
+# matching), consumed by the Copilot auto-detect short-circuits
+# ('Claim-deadline auto-detect' and 'Self-dismissal short-circuit')
+# under "## Copilot reviewer". Re-projected per poll because GitHub
+# auto-removes Copilot after its first review.
+gh pr view <pr> --json reviews,state,headRefOid,reviewRequests
 ```
 
 Combine the two JSON payloads in shell (jq) to derive a single state
@@ -389,9 +456,11 @@ Re-evaluate after each poll. The `ci_passed` / `ci_failed` /
 | `ci_passed` | `ci_failed` | `copilot_posted` | Elapsed | Decision |
 |---|---|---|---|---|
 | true | — | true | — | **proceed to step 8 (review)**. |
+| — | — | — | DISMISSED Copilot review on current `headRefOid` (no fresher non-dismissed review) | **proceed to step 8 without bot review** with `copilotSkipReason: 'self-dismissed'`. Runs BEFORE the retrigger gate so no doomed re-request POST fires. Suppressed by `--wait-for-copilot`. See "Self-dismissal short-circuit" above. |
+| true | — | false | `claim-deadline-sec` (default 60s) after `ci_terminal` AND no Copilot review of any state on current `headRefOid` AND Copilot not in `requested_reviewers` | **proceed to step 8 without bot review** with `copilotSkipReason: 'unclaimed-after-deadline'`. Suppressed by `--wait-for-copilot`. See "Claim-deadline auto-detect" above. |
 | true | — | false | stale-review + budget unused, post-`ci_terminal` | **fire retrigger POST**, reset Copilot timeout, keep polling. See "Retrigger on stale review" above. |
 | true | — | false | < 10 min after `ci_terminal` | **keep polling** (waiting on Copilot). |
-| true | — | false | ≥ 10 min after `ci_terminal` | **proceed to step 8 without bot review** (Copilot timed out). |
+| true | — | false | ≥ 10 min after `ci_terminal` | **proceed to step 8 without bot review** (Copilot timed out; `copilotSkipReason: null`). |
 | — | true | — | — | **loop back to step 5 in fix mode** (cap: 3 fix-loops total before escalation). Pass the failing-check log into the implement-fix prompt. |
 | false | false | — | < 20 min from first poll | **keep polling** (CI still in progress). |
 | false | false | — | ≥ 20 min from first poll | **escalate `NEEDS HUMAN: ci-hang`**. End. |

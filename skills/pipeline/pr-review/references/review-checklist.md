@@ -1254,6 +1254,81 @@ GOOD: budget and wire size separated so the marker is accounted for.
 
 ---
 
+## Doc/Wire Mismatch On Optional Fields
+
+A TypeScript type spec saying `field: T | null` does not guarantee the runtime emits `null`
+for the absent case. Many helpers build their result object conditionally and omit optional
+fields entirely, so the wire JSON carries `undefined` (effectively absent) rather than the
+documented `null` literal. Downstream consumers that read the docs and write
+`x.field === null` checks then silently miss the case.
+
+### What to look for
+
+- A JSON helper whose result type declares `field?: T | null` or `field: T | null` and
+  whose docs / SKILL.md / protocol reference quote `field: null` literally for some path.
+- The helper's result-construction code uses an object literal that only adds the field on
+  the non-null branch (`if (x !== null) result.field = x;`) or omits it from one of several
+  exit-path object literals.
+- Tests for the "null" path that assert `toBeUndefined()` rather than `toBeNull()` —
+  smoking-gun signal that the docs and the wire disagree.
+
+### How to check
+
+1. Grep the helper's source for every site that constructs the result object. Confirm
+   each one either sets the field to its documented value (including an explicit `null`)
+   or follows a documented "absent" contract that the docs match.
+2. Grep the test file for the field name plus `toBeUndefined` / `toBeNull`. The assertion
+   shape is the canonical wire-shape check; if the docs say `null` and the test says
+   `toBeUndefined`, the docs lose.
+3. Decide which side to align: either change the helper to emit the documented value
+   (preferred — stable wire shape, downstream consumers can trust the docs), or change the
+   docs to say "absent" (acceptable for genuinely-optional fields that never appear on
+   most paths). Update the test in the same commit.
+
+### Example — `copilotSkipReason` doc/wire mismatch (PR #224)
+
+```typescript
+// BAD: type says `... | null`, docs quote `null`, helper omits the field
+//      on every normal-exit path, test asserts toBeUndefined.
+export type RunResult = {
+  // ...
+  copilotSkipReason?: "unclaimed-after-deadline" | "self-dismissed" | null;
+};
+
+if (verdict.verdict === "exit") {
+  const result: RunResult = {
+    decision: verdict.decision,
+    // ... copilotSkipReason omitted on this path
+  };
+  emitResult(result);
+}
+
+// In tests:
+expect(result.copilotSkipReason).toBeUndefined(); // ← contradicts the docs
+
+// GOOD: every exit path emits the documented value; field is always
+//       present so downstream `=== null` checks behave as documented.
+copilotSkipReason: "unclaimed-after-deadline" | "self-dismissed" | null;
+
+if (verdict.verdict === "exit") {
+  const result: RunResult = {
+    decision: verdict.decision,
+    // ... explicit null on every normal-exit path
+    copilotSkipReason: null,
+  };
+  emitResult(result);
+}
+
+expect(result.copilotSkipReason).toBeNull();
+```
+
+**General rule:** When reviewing helpers that document `null` literals in their JSON
+contract, verify the wire shape via the test fixtures (`toBeNull` vs `toBeUndefined`) and
+the result-construction sites — a TypeScript type spec alone does not enforce the
+documented contract.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue

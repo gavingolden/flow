@@ -33,6 +33,11 @@ export type NewOptions = {
   stateDir?: string;
   /** Persist `autoMerge: false` so the supervisor stops at gated. */
   noAutoMerge?: boolean;
+  /**
+   * Persist `waitForCopilot: true` so flow-ci-wait waits the full
+   * 10-min Copilot timeout (suppresses the auto-detect skips).
+   */
+  waitForCopilot?: boolean;
 };
 
 export function runNew(input: string, options: NewOptions = {}): number {
@@ -69,6 +74,7 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     return runNew(rest[0], { ...options, resume: true });
   }
   const noAutoMerge = args.includes("--no-auto-merge");
+  const waitForCopilot = args.includes("--wait-for-copilot");
   // Drop a leading `--` end-of-options sentinel so descriptions written
   // with `flow new -- fix the -h crash` round-trip without the literal
   // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
@@ -77,14 +83,16 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     ddIdx >= 0
       ? [...args.slice(0, ddIdx), ...args.slice(ddIdx + 1)]
       : args;
-  const description = descriptionArgs.filter((a) => a !== "--no-auto-merge").join(" ");
-  return runNew(description, { ...options, noAutoMerge });
+  const description = descriptionArgs
+    .filter((a) => a !== "--no-auto-merge" && a !== "--wait-for-copilot")
+    .join(" ");
+  return runNew(description, { ...options, noAutoMerge, waitForCopilot });
 }
 
 function runFresh(description: string, options: NewOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow new: description is required.");
-    console.error("usage: flow new [--no-auto-merge] <description>");
+    console.error("usage: flow new [--no-auto-merge] [--wait-for-copilot] <description>");
     return 1;
   }
 
@@ -130,6 +138,7 @@ function runFresh(description: string, options: NewOptions): number {
       repo,
       worktree: existing?.worktree,
       autoMerge: options.noAutoMerge ? false : undefined,
+      waitForCopilot: options.waitForCopilot ? true : undefined,
       updatedAt: nowIso(),
     },
     options.stateDir,
