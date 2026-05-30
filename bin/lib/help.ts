@@ -36,9 +36,11 @@ Usage:
                                         --no-completions skips rc-file editing;
                                         --no-hooks skips the Stop-hook merge into ~/.claude/settings.json;
                                         --repair-settings backs up and rewrites ~/.claude/settings.json when malformed)
-  flow new [--no-auto-merge] <description>
+  flow new [--no-auto-merge] [--wait-for-copilot] <description>
                                         start a new pipeline in a tmux window
-                                        (--no-auto-merge stops at gated regardless of rubric)
+                                        (--no-auto-merge stops at gated regardless of rubric;
+                                        --wait-for-copilot forces the full 10-min Copilot wait
+                                        even when auto-detect would skip)
   flow new --resume <name>              resume a crashed pipeline in its existing window
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach [<name>]                  attach to a pipeline window  (alias: a)
@@ -62,11 +64,12 @@ export const HELP_TEXT: Record<string, string> = {
   new: `flow new — start a new pipeline in a tmux window
 
 Usage:
-  flow new [--no-auto-merge] <description>
+  flow new [--no-auto-merge] [--wait-for-copilot] <description>
   flow new --resume <name>
 
 Options:
   --no-auto-merge       stop at gated regardless of the auto-merge rubric
+  --wait-for-copilot    force the full 10-min Copilot wait even when auto-detect would skip
   --resume <name>       resume a crashed pipeline in its existing window`,
 
   ls: `flow ls — list active pipelines

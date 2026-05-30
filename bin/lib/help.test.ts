@@ -90,6 +90,15 @@ describe("HELP_TEXT", () => {
   it.each(REQUIRED_VERBS)("entry for '%s' starts with 'flow %s'", (verb) => {
     expect(HELP_TEXT[verb].startsWith(`flow ${verb}`)).toBe(true);
   });
+
+  // Flag-presence guard. The verb-presence assertions above don't catch a
+  // silent deletion of a single flag from the verb's help body. Pin the
+  // newly-added `--wait-for-copilot` flag here so a future editor who
+  // removes it from HELP_TEXT.new sees a red test rather than shipping
+  // stale help text.
+  it("HELP_TEXT.new documents --wait-for-copilot", () => {
+    expect(HELP_TEXT.new).toContain("--wait-for-copilot");
+  });
 });
 
 describe("HELP_TOP", () => {
@@ -99,6 +108,11 @@ describe("HELP_TOP", () => {
 
   it("documents 'flow help <verb>' as a top-level form", () => {
     expect(HELP_TOP).toContain("flow help <verb>");
+  });
+
+  // Same flag-presence guard as above, applied to the top-level help block.
+  it("documents --wait-for-copilot in the `flow new` synopsis", () => {
+    expect(HELP_TOP).toContain("--wait-for-copilot");
   });
 });
 
