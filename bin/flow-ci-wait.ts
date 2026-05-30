@@ -597,7 +597,7 @@ function defaultReadCopilotLogin(): string {
   }
 }
 
-/** Fetches the requested-reviewers list once at loop entry. Returns lowercased logins. */
+/** Fetches the PR's requested-reviewers list (used at loop entry, per-poll, and for post-POST verification). Returns lowercased logins. */
 export function fetchRequestedReviewers(prNumber: number, gh: GhRunner): string[] {
   const r = gh(["pr", "view", String(prNumber), "--json", "reviewRequests"]);
   if (r.exitCode !== 0) return [];
