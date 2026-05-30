@@ -1198,6 +1198,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
                 copilotConfigured,
                 ciConfigured,
                 copilotRetriggered,
+                copilotSkipReason: null,
               });
               return 0;
             }
