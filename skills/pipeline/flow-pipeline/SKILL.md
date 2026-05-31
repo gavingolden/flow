@@ -1083,6 +1083,41 @@ gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 
 **Phase:** `ci-wait`
 
+**Copilot request decision (before the wait).** Copilot review is opt-in
+for non-trivial changes only. Decide whether to request it for this PR
+*before* invoking `flow-ci-wait`, so a declined PR can collapse the bot
+wait. The decision combines the per-pipeline `copilotReview` override
+(from state.json) with `flow-request-copilot`'s deterministic glob
+classifier:
+
+```bash
+OVERRIDE=$(jq -r '.copilotReview // "auto"' ~/.flow/state/"$SLUG".json)
+GLOB_CLASS=$(gh pr diff "$PR" --name-only | flow-request-copilot --classify)
+```
+
+Branch on `$GLOB_CLASS`:
+
+- `always-review` / `never-alone` — the classifier is decisive; the
+  supervisor does **NOT** judge. (`always-review` → request;
+  `never-alone` → decline, unless `$OVERRIDE` is `always`.)
+- `ambiguous` — the supervisor makes its own **inline** trivial /
+  non-trivial judgment against the rubric *"would a reviewer plausibly
+  catch a bug here that CI and the author would miss?"* — with **NO
+  `claude -p` subprocess and NO Task spawn** (the load-bearing
+  no-nested-LLM constraint). When uncertain, **fail open** to
+  requesting. Set `DECISION=non-trivial` (request) or `DECISION=trivial`
+  (decline).
+
+Then fire the helper's request mode (it owns the `requested_reviewers`
+POST + the queued-verification re-read):
+
+```bash
+DECISION_ARG=""    # set to "--decision non-trivial" or "--decision trivial" only for the ambiguous branch
+VERDICT=$(gh pr diff "$PR" --name-only \
+  | flow-request-copilot --pr "$PR" --override "$OVERRIDE" $DECISION_ARG)
+REQUESTED=$(printf '%s' "$VERDICT" | jq -r '.requestCopilot')
+```
+
 `flow-ci-wait` consolidates the entire poll loop (one-shot presence
 checks → cadence ramp → 20-min wall-clock cap → 10-min Copilot
 timeout → CI/Copilot/PR-state decision matrix) into a single Bash
@@ -1095,8 +1130,19 @@ relative to the first ci-terminal poll — lives in
 elapsed XmYYs of 20m, cadence Zs`) is written to stderr so the JSON
 on stdout is cleanly capturable.
 
+When the request decision above was to **decline** (`$REQUESTED` is
+`false`), append `--copilot-not-requested` to the `flow-ci-wait` call.
+This flag — **not** a no-op — is what frees the decline path: it
+hard-forces `copilotConfigured=false`, bypassing BOTH the in-flight
+`reviewRequests` check AND the historical-PR fallback. Without it,
+`readHistoricalBotReview` keeps `copilotConfigured` true in any repo with
+recent Copilot history, so the declined PR would still wait up to the
+10-min Copilot timeout (saving the credit but not the latency).
+
 ```bash
-RESULT=$(flow-ci-wait "$PR")
+NOT_REQUESTED_FLAG=""
+[ "$REQUESTED" = "false" ] && NOT_REQUESTED_FLAG="--copilot-not-requested"
+RESULT=$(flow-ci-wait "$PR" $NOT_REQUESTED_FLAG)
 DECISION=$(printf '%s' "$RESULT" | jq -r '.decision')
 PR_URL=$(printf '%s' "$RESULT" | jq -r '.prUrl // empty')
 CI_FAILED_CHECKS=$(printf '%s' "$RESULT" | jq -r '.ciFailedChecks // empty')

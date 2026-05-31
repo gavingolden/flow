@@ -39,7 +39,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { FLOW_CONFIG } from "./lib/paths";
+import { readCopilotLogin as readCopilotLoginFromConfig } from "./lib/copilot-config";
 
 // --- Types -----------------------------------------------------------------
 
@@ -663,19 +663,13 @@ function defaultReadWorkflowsDir(cwd: string): boolean {
 }
 
 /**
- * Reads the Copilot login from ~/.flow/config.json `bots.copilot`. Falls
- * back to GitHub's default reviewer login when the file or the field is
- * absent.
+ * Reads the Copilot login from ~/.flow/config.json `bots.copilot` via the
+ * shared tolerant boundary reader (accepts both the bare-string login and
+ * the `{ login, globs }` object form). Falls back to GitHub's default
+ * reviewer login when the file or the field is absent.
  */
 function defaultReadCopilotLogin(): string {
-  try {
-    const cfg = JSON.parse(fs.readFileSync(FLOW_CONFIG, "utf8")) as {
-      bots?: { copilot?: string };
-    };
-    return cfg.bots?.copilot ?? "copilot-pull-request-reviewer";
-  } catch {
-    return "copilot-pull-request-reviewer";
-  }
+  return readCopilotLoginFromConfig();
 }
 
 /** Fetches the PR's requested-reviewers list (used at loop entry, per-poll, and for post-POST verification). Returns lowercased logins. */
@@ -839,6 +833,17 @@ export type Args = {
    */
   waitForCopilot?: boolean;
   /**
+   * When true, hard-forces `copilotConfigured = false` — bypassing BOTH
+   * the `requestedReviewers` check and the `readHistoricalBotReview`
+   * historical fallback. Set by `/flow-pipeline` step 7 whenever the
+   * request decision was to DECLINE (auto-mode trivial decline, or
+   * `--copilot-review never`), so a declined PR collapses the bot wait
+   * immediately instead of waiting the 10-min timeout that the historical
+   * fallback would otherwise trigger. Absent ≡ false (current behaviour:
+   * the two signals decide).
+   */
+  copilotNotRequested?: boolean;
+  /**
    * Seconds after CI reaches terminal during which Copilot is expected
    * to claim the review. Default: `DEFAULT_CLAIM_DEADLINE_SEC` (60s).
    * Direct-invocation-only override.
@@ -880,6 +885,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         continue;
       case "--wait-for-copilot":
         out.waitForCopilot = true;
+        continue;
+      case "--copilot-not-requested":
+        out.copilotNotRequested = true;
         continue;
       case "--claim-deadline-sec": {
         if (!value) return { error: "--claim-deadline-sec requires a value" };
@@ -959,11 +967,11 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     if (parsed.error === "help") {
-      console.log("usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--claim-deadline-sec <n>]");
+      console.log("usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>]");
       return 0;
     }
     console.error(`flow-ci-wait: ${parsed.error}`);
-    console.error("usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--claim-deadline-sec <n>]");
+    console.error("usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>]");
     return 2;
   }
 
@@ -982,9 +990,16 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   // 2026-05-03). The history fallback runs only when reviewRequests is
   // negative — the common case (Copilot explicitly requested) stays a
   // single gh call.
+  // `--copilot-not-requested` is the explicit decline signal from
+  // /flow-pipeline step 7: the supervisor decided NOT to request Copilot
+  // for this PR. Hard-force false BEFORE the two-signal `||` so neither
+  // the in-flight reviewRequests NOR the historical-PR fallback can keep
+  // the bot wait alive — otherwise a declined PR in a repo with recent
+  // Copilot history would still incur the capped 10-min timeout.
   const copilotConfigured =
-    requestedReviewers.includes(copilotLogin.toLowerCase()) ||
-    readHistoricalBotReview(copilotLogin);
+    !parsed.copilotNotRequested &&
+    (requestedReviewers.includes(copilotLogin.toLowerCase()) ||
+      readHistoricalBotReview(copilotLogin));
 
   const startMs = now();
   let pollNum = 0;

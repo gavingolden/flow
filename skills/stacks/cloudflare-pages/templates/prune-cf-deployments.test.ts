@@ -408,7 +408,10 @@ describe("main() integration via mocked fetch", () => {
       },
       {
         id: "fresh-1",
-        created_on: "2026-05-01T00:00:00Z",
+        // Relative so the fixture never crosses the --older-than 30d cutoff as
+        // the wall clock advances (a hardcoded date was a time-bomb that
+        // detonated 2026-05-31). Always ~1 day old.
+        created_on: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
         deployment_trigger: { metadata: { branch: "feat/y" } },
         aliases: null,
       },
