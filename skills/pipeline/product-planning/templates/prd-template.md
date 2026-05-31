@@ -96,6 +96,16 @@
 
 - [ ] [Anything still unresolved before implementation]
 
+## Recommendation
+
+<!-- Always present (unlike the omit-when-empty sections). One line: verdict +
+     one-line rationale. Verdict enum and the full contract live in
+     skills/pipeline/product-planning/references/discovery-instructions.md
+     "Recommendation" — the single source of truth. Do NOT inline the enum
+     gloss here; this is a thin sketch. -->
+
+**[Proceed | Reconsider scope | Defer | Reject — do nothing]** — [one-line rationale; reference an Open Question when the verdict is not Proceed]
+
 ## Prompt interpretation
 
 <!-- Conditional: include this section ONLY when the user's prompt names BOTH

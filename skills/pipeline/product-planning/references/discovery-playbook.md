@@ -35,9 +35,13 @@ and ask them to pick. Two options is a *starting* framing for a fast conversatio
 
 When the user proposes something complex, suggest a simpler version and ask why it's
 insufficient. This surfaces hidden requirements — or confirms the feature can be smaller.
+The limit case of "simpler version" is "no version" — probe whether the feature is needed
+at all, since "do nothing" is sometimes the right answer (it feeds the discovery
+**Necessity** check and a `Reject — do nothing` recommendation).
 
 - "What if we skipped X for now and just did Y — would that still be useful?"
 - "The simplest version of this would be [description]. What's missing?"
+- "What if we did nothing here — is this needed at all, or does an existing capability cover it?"
 
 ### Connect (Relate to Existing)
 
