@@ -137,6 +137,54 @@ describe("state", () => {
     expect(readState("bad-wait-for-copilot", dir)).toBeNull();
   });
 
+  it.each(["auto", "always", "never"] as const)(
+    "readState accepts copilotReview='%s'",
+    (value) => {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, `cr-${value}.json`),
+        JSON.stringify({
+          slug: `cr-${value}`,
+          phase: "reviewing",
+          repo: "/tmp/repo",
+          updatedAt: "2026-05-17T00:00:00Z",
+          copilotReview: value,
+        }),
+      );
+      expect(readState(`cr-${value}`, dir)?.copilotReview).toBe(value);
+    },
+  );
+
+  it("readState accepts an absent copilotReview field (absent ≡ auto)", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "cr-absent.json"),
+      JSON.stringify({
+        slug: "cr-absent",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    expect(readState("cr-absent", dir)).not.toBeNull();
+    expect(readState("cr-absent", dir)).not.toHaveProperty("copilotReview");
+  });
+
+  it("readState returns null for an invalid copilotReview value (not a member)", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "cr-bad.json"),
+      JSON.stringify({
+        slug: "cr-bad",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        copilotReview: "sometimes",
+      }),
+    );
+    expect(readState("cr-bad", dir)).toBeNull();
+  });
+
   it.each([
     ["slug", 42],
     ["repo", 99],
@@ -216,6 +264,7 @@ describe("state", () => {
       worktree: "/tmp/worktree-full",
       autoMerge: false,
       waitForCopilot: true,
+      copilotReview: "never",
       sessionId: "b034430c-03bd-4fa0-8393-9f0859800531",
       gateOverride: { pr: 142, confirmedAt: "2026-05-17T00:05:00Z" },
     };

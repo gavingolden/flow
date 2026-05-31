@@ -99,6 +99,12 @@ describe("HELP_TEXT", () => {
   it("HELP_TEXT.new documents --wait-for-copilot", () => {
     expect(HELP_TEXT.new).toContain("--wait-for-copilot");
   });
+
+  it("HELP_TEXT.new documents --copilot-review with its three values and the auto default", () => {
+    expect(HELP_TEXT.new).toContain("--copilot-review");
+    expect(HELP_TEXT.new).toContain("auto|always|never");
+    expect(HELP_TEXT.new).toMatch(/default auto/);
+  });
 });
 
 describe("HELP_TOP", () => {
@@ -113,6 +119,10 @@ describe("HELP_TOP", () => {
   // Same flag-presence guard as above, applied to the top-level help block.
   it("documents --wait-for-copilot in the `flow new` synopsis", () => {
     expect(HELP_TOP).toContain("--wait-for-copilot");
+  });
+
+  it("documents --copilot-review in the `flow new` synopsis", () => {
+    expect(HELP_TOP).toContain("--copilot-review");
   });
 });
 

@@ -47,6 +47,12 @@ Each pipeline is a tmux window inside a `flow` session. Inside the window, Claud
 
 The supervisor pauses for plan approval on `feature`-intent tasks (type `approved`, a redirection, or `cancel` into the chat). Non-feature intents (`bug`, `refactor`, `docs`, `infra`, `chore`) run straight through. Every pipeline ends with one of `MERGED`, `GATED: <url>`, `NEEDS HUMAN: <reason>`, or `cancelled` printed to the window's scrollback.
 
+### Opt-in Copilot review
+
+`flow new --copilot-review <auto|always|never>` (default `auto`) controls whether flow requests a Copilot review on the pipeline's PR. In `auto` mode a hybrid classifier requests a review only for non-trivial changes; trivial diffs (lockfiles, snapshots, generated files, docs-only) are declined and skip the bot wait entirely.
+
+**Manual prerequisite:** to actually realize the opt-in, the repo admin must **disable GitHub's repo-level automatic Copilot review** in the GitHub UI (Settings → Copilot → code review). There is no stable API to toggle this programmatically, so flow can't do it for you — and if it stays on, GitHub auto-requests Copilot on every PR and defeats the opt-in. Per-repo glob overrides live under `bots.copilot.globs` in `~/.flow/config.json`.
+
 ## Shell completions
 
 `flow setup` installs bash and zsh tab completion automatically. The completion scripts ship under `completions/` in this repo and are symlinked into `~/.flow/completions/flow.<shell>`. To wire them into your shell, `flow setup` writes a small managed block into each of these rc files **if they already exist** (it never creates an rc file you don't already have):

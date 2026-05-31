@@ -283,6 +283,48 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw.waitForCopilot).toBe(true);
   });
 
+  it.each(["auto", "always", "never"] as const)(
+    "runNewCli --copilot-review %s persists copilotReview and excludes the flag+value from the slug",
+    (value) => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      const code = runNewCli(
+        ["--copilot-review", value, "do", "thing"],
+        { stateDir, cwd: repoDir, command: ["true"] },
+      );
+      expect(code).toBe(0);
+      // Slug must not include the flag or its value token; description was "do thing".
+      expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
+      const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"));
+      expect(raw.copilotReview).toBe(value);
+    },
+  );
+
+  it("runNewCli --copilot-review with an invalid value returns non-zero and writes no state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(
+      ["--copilot-review", "sometimes", "do", "thing"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(errors.join("\n")).toMatch(/auto, always, never/);
+  });
+
+  it("runNewCli --copilot-review with a missing value returns non-zero and writes no state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["--copilot-review"], { stateDir, cwd: repoDir, command: ["true"] });
+    expect(code).toBe(1);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+  });
+
+  it("runNewCli without --copilot-review leaves the field undefined (absent ≡ auto)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["do", "thing"], { stateDir, cwd: repoDir, command: ["true"] });
+    expect(code).toBe(0);
+    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"));
+    expect(raw).not.toHaveProperty("copilotReview");
+  });
+
   it("treats -h after `--` as part of the description, not a help flag", () => {
     // Regression for the over-eager argsContainHelp scan: a description body
     // that happens to contain `-h` (e.g. `flow new -- fix the -h crash`)
