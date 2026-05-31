@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  normalizeFinding,
   validateAgentFindings,
   validateConsolidatorResult,
 } from "./agent-finding-schema";
@@ -479,6 +480,134 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 });
 
+describe("normalizeFinding — label/decoration coercion", () => {
+  it("strips a single surrounding-paren pair from decoration", () => {
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label: "issue",
+      decoration: "(blocking)",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.decoration).toBe("blocking");
+  });
+
+  it.each([
+    "bug-detection",
+    "security",
+    "pattern-consistency",
+    "performance",
+    "supply-chain",
+    "test-coverage",
+    "consistency",
+    "testing",
+    "add-a-test",
+    "doc-fix",
+  ])("coerces lens-name label '%s' to suggestion", (label) => {
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label,
+      decoration: "blocking",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.label).toBe("suggestion");
+  });
+
+  it("leaves an already-valid label untouched", () => {
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.label).toBe("issue");
+  });
+
+  it("leaves a genuinely-unknown label untouched (still fails validation)", () => {
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label: "xyzzy",
+      decoration: "blocking",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.label).toBe("xyzzy");
+    const result = validateAgentFindings({ findings: [out] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("label");
+  });
+
+  it("strips '(critical)' to 'critical' which still fails validation", () => {
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label: "issue",
+      decoration: "(critical)",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.decoration).toBe("critical");
+    const result = validateAgentFindings({ findings: [out] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("decoration");
+  });
+
+  it("is idempotent — running twice equals running once", () => {
+    const input = {
+      file: "src/x.ts",
+      line: 1,
+      label: "consistency",
+      decoration: "(blocking)",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    };
+    const once = normalizeFinding(input);
+    const twice = normalizeFinding(once);
+    expect(twice).toEqual(once);
+  });
+
+  it("does not mutate the input object", () => {
+    const input = {
+      file: "src/x.ts",
+      line: 1,
+      label: "consistency",
+      decoration: "(blocking)",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    };
+    const snapshot = structuredClone(input);
+    normalizeFinding(input);
+    expect(input).toEqual(snapshot);
+  });
+
+  it("preserves praise decoration-optionality after label coercion", () => {
+    // Label is already a valid 'praise'; absent decoration must stay valid.
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label: "praise",
+      confidence: 95,
+      subject: "x",
+      body: "y",
+    });
+    const result = validateAgentFindings({ findings: [out] });
+    expect(result.ok).toBe(true);
+  });
+});
+
 describe("agent-finding-schema CLI — `--validate <path>`", () => {
   it("exits 2 with usage on stderr when --validate flag is missing", () => {
     const result = runCli([]);
@@ -583,6 +712,75 @@ describe("agent-finding-schema CLI — `--validate <path>`", () => {
         expect(parsed.path).toBe(filePath);
       },
     );
+  });
+
+  it("exits 0 for a per-agent file with parenthesized decoration and lens-name label (coerced)", () => {
+    const artifact = {
+      findings: [
+        {
+          file: "src/x.ts",
+          line: 1,
+          label: "consistency",
+          decoration: "(blocking)",
+          confidence: 92,
+          subject: "x",
+          body: "y",
+        },
+      ],
+    };
+    withTmpFile(JSON.stringify(artifact), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+      expect(result.stderr).toBe("");
+    });
+  });
+
+  it("exits 1 with a label-related reason for a per-agent file with a genuinely-unknown label", () => {
+    const artifact = {
+      findings: [
+        {
+          file: "src/x.ts",
+          line: 1,
+          label: "xyzzy",
+          decoration: "blocking",
+          confidence: 92,
+          subject: "x",
+          body: "y",
+        },
+      ],
+    };
+    withTmpFile(JSON.stringify(artifact), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(1);
+      const parsed = JSON.parse(result.stderr.trim());
+      expect(parsed.ok).toBe(false);
+      expect(parsed.reason).toContain("label");
+      expect(parsed.path).toBe(filePath);
+    });
+  });
+
+  it("exits 0 for a consolidator file whose consolidated_findings carry coercible drift", () => {
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    fixture.consolidated_findings = [
+      {
+        file: "src/x.ts",
+        line: 1,
+        label: "testing",
+        decoration: "(non-blocking)",
+        confidence: 92,
+        subject: "x",
+        body: "y",
+      },
+    ];
+    withTmpFile(JSON.stringify(fixture), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+      expect(result.stderr).toBe("");
+    });
   });
 
   it("dispatches by JSON shape — 'consolidated_findings' key picks the consolidator validator", () => {

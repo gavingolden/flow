@@ -87,6 +87,76 @@ const VALID_DECORATIONS: ReadonlySet<string> = new Set([
   "if-minor",
 ]);
 
+// Off-enum labels that agents trivially emit instead of a real label: the
+// six long-form lens names, the two short forms, and two literal phrases.
+// `normalizeFinding` maps any of these to `suggestion` before validation;
+// genuinely-unknown labels (e.g. "xyzzy") are left untouched and still
+// hard-fail. Not a widening of VALID_LABELS — this is a coerce-then-validate
+// pre-pass, never an enum relaxation.
+const LENS_NAME_LABELS: ReadonlySet<string> = new Set([
+  "bug-detection",
+  "security",
+  "pattern-consistency",
+  "performance",
+  "supply-chain",
+  "test-coverage",
+  "consistency",
+  "testing",
+  "add-a-test",
+  "doc-fix",
+]);
+
+// Strip exactly ONE matched leading '(' + trailing ')' pair after trimming,
+// so "(blocking)" -> "blocking" but "((blocking))" -> "(blocking)" (still
+// fails) and "(critical)" -> "critical" (still fails the enum). One pass only.
+function stripOneParenPair(s: string): string {
+  const t = s.trim();
+  if (t.length >= 2 && t.startsWith("(") && t.endsWith(")")) {
+    return t.slice(1, -1);
+  }
+  return t;
+}
+
+/**
+ * Coerce trivially-fixable label/decoration drift on a single finding-shaped
+ * object BEFORE validation. Returns a shallow copy — never mutates the input,
+ * so re-running is idempotent. Label coercion runs first (a lens-name label
+ * becomes `suggestion`, preserving praise's decoration-optionality only when
+ * the label was already/becomes a real one), then decoration paren-stripping.
+ * Only `label` and `decoration` are touched; every other field passes through
+ * untouched so real malformation in those fields still fails validation.
+ */
+export function normalizeFinding(f: unknown): unknown {
+  if (!isPlainObject(f)) return f;
+  const out: Record<string, unknown> = { ...f };
+  if (
+    isString(out.label) &&
+    !VALID_LABELS.has(out.label) &&
+    LENS_NAME_LABELS.has(out.label)
+  ) {
+    out.label = "suggestion";
+  }
+  if (isNonEmptyString(out.decoration)) {
+    out.decoration = stripOneParenPair(out.decoration);
+  }
+  return out;
+}
+
+// Shape-aware walker: normalize each entry of `findings[]` (per-agent) or
+// `consolidated_findings[]` (consolidator). Returns a shallow copy of the
+// container with the normalized array; non-array/absent keys pass through.
+export function normalizeParsedFindings(parsed: unknown): unknown {
+  if (!isPlainObject(parsed)) return parsed;
+  const out: Record<string, unknown> = { ...parsed };
+  if (Array.isArray(out.consolidated_findings)) {
+    out.consolidated_findings = out.consolidated_findings.map(normalizeFinding);
+  }
+  if (Array.isArray(out.findings)) {
+    out.findings = out.findings.map(normalizeFinding);
+  }
+  return out;
+}
+
 function isString(v: unknown): v is string {
   return typeof v === "string";
 }
@@ -316,6 +386,11 @@ async function cliMain(argv: string[]): Promise<number> {
     );
     return 1;
   }
+
+  // Coerce trivially-fixable label/decoration drift on both shapes before
+  // validating, so consolidator-schema-failure fires only on genuinely-
+  // unparseable findings. Invisible to the {ok}/exit-code contract.
+  parsed = normalizeParsedFindings(parsed);
 
   // Decide which validator to use based on JSON shape. Presence of
   // `consolidated_findings` → consolidator artifact; presence of plain
