@@ -38,6 +38,11 @@ export type NewOptions = {
    * 10-min Copilot timeout (suppresses the auto-detect skips).
    */
   waitForCopilot?: boolean;
+  /**
+   * Persist the tri-state Copilot-review opt-in (`auto` | `always` |
+   * `never`). Omitted when absent (absent ≡ `auto`).
+   */
+  copilotReview?: "auto" | "always" | "never";
 };
 
 export function runNew(input: string, options: NewOptions = {}): number {
@@ -75,6 +80,30 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   }
   const noAutoMerge = args.includes("--no-auto-merge");
   const waitForCopilot = args.includes("--wait-for-copilot");
+
+  // --copilot-review <auto|always|never> is a VALUE flag. Validate the enum
+  // here, before any side-effect (slug, tmux, writeState), so an invalid
+  // value exits non-zero and writes no state. The flag + its value token are
+  // both stripped from the description args.
+  const COPILOT_REVIEW_VALUES = ["auto", "always", "never"] as const;
+  let copilotReview: "auto" | "always" | "never" | undefined;
+  const crIdx = args.indexOf("--copilot-review");
+  if (crIdx >= 0) {
+    const value = args[crIdx + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error("flow new: --copilot-review requires a value.");
+      console.error("  expected one of: auto, always, never");
+      return 1;
+    }
+    if (!(COPILOT_REVIEW_VALUES as readonly string[]).includes(value)) {
+      console.error(`flow new: invalid --copilot-review value '${value}'.`);
+      console.error("  expected one of: auto, always, never");
+      return 1;
+    }
+    copilotReview = value as "auto" | "always" | "never";
+  }
+  const crValueToken = crIdx >= 0 ? args[crIdx + 1] : undefined;
+
   // Drop a leading `--` end-of-options sentinel so descriptions written
   // with `flow new -- fix the -h crash` round-trip without the literal
   // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
@@ -83,16 +112,28 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     ddIdx >= 0
       ? [...args.slice(0, ddIdx), ...args.slice(ddIdx + 1)]
       : args;
+  let skipNext = false;
   const description = descriptionArgs
-    .filter((a) => a !== "--no-auto-merge" && a !== "--wait-for-copilot")
+    .filter((a) => {
+      if (skipNext) {
+        skipNext = false;
+        return false;
+      }
+      if (a === "--copilot-review") {
+        // Strip the flag and mark its value token for removal too.
+        skipNext = crValueToken !== undefined && !crValueToken.startsWith("--");
+        return false;
+      }
+      return a !== "--no-auto-merge" && a !== "--wait-for-copilot";
+    })
     .join(" ");
-  return runNew(description, { ...options, noAutoMerge, waitForCopilot });
+  return runNew(description, { ...options, noAutoMerge, waitForCopilot, copilotReview });
 }
 
 function runFresh(description: string, options: NewOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow new: description is required.");
-    console.error("usage: flow new [--no-auto-merge] [--wait-for-copilot] <description>");
+    console.error("usage: flow new [--no-auto-merge] [--wait-for-copilot] [--copilot-review <auto|always|never>] <description>");
     return 1;
   }
 
@@ -139,6 +180,7 @@ function runFresh(description: string, options: NewOptions): number {
       worktree: existing?.worktree,
       autoMerge: options.noAutoMerge ? false : undefined,
       waitForCopilot: options.waitForCopilot ? true : undefined,
+      copilotReview: options.copilotReview,
       updatedAt: nowIso(),
     },
     options.stateDir,

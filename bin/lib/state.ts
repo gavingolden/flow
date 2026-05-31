@@ -32,6 +32,14 @@ export type PipelineState = {
    */
   waitForCopilot?: boolean;
   /**
+   * Tri-state opt-in for Copilot review on this pipeline's PR. `'always'`
+   * always requests, `'never'` never requests, `'auto'` defers to the
+   * hybrid glob/inline-judgment classifier. Set via `flow new
+   * --copilot-review <auto|always|never>`. Absent ≡ `'auto'` (the
+   * documented default).
+   */
+  copilotReview?: "auto" | "always" | "never";
+  /**
    * Claude Code session ID captured by `flow-open-pr` at PR-open time.
    * Carries the ID to `/flow-pipeline` step 10, which emits it as a
    * `Claude-Code-Session-Id:` squash-commit trailer. Absent when the PR
@@ -132,6 +140,13 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.worktree !== undefined && typeof o.worktree !== "string") return false;
   if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean") return false;
   if (o.waitForCopilot !== undefined && typeof o.waitForCopilot !== "boolean") return false;
+  if (
+    o.copilotReview !== undefined &&
+    o.copilotReview !== "auto" &&
+    o.copilotReview !== "always" &&
+    o.copilotReview !== "never"
+  )
+    return false;
   if (o.sessionId !== undefined && typeof o.sessionId !== "string") return false;
   if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride)) return false;
   return true;

@@ -1348,6 +1348,35 @@ describe("run() integration", () => {
     expect(result.polls).toBe(1);
   });
 
+  it("--copilot-not-requested forces copilotConfigured=false even when historical fallback would say true (decline-collapse)", async () => {
+    const clock = makeFakeClock();
+    // reviewRequests EMPTY (no explicit request) and readHistoricalBotReview
+    // returns true — without the flag this repo's history would keep
+    // copilotConfigured true and the declined PR would wait the 10-min
+    // Copilot timeout. With --copilot-not-requested the derivation is hard-
+    // forced false, so poll 1 (CI all-passed) exits proceed-to-review.
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100", "--copilot-not-requested"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => true,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.copilotConfigured).toBe(false);
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.polls).toBe(1);
+  });
+
   it("prints one progress line per iteration to stderr (not stdout)", async () => {
     const clock = makeFakeClock();
     const gh = makeGhSequence([

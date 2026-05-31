@@ -171,6 +171,29 @@ wait that the existing timeout already caps; the worst case of a false
 negative is the PR #78 incident — merging before the bot review posts.
 The fallback prefers the cheaper failure mode.
 
+#### Opt-in request path and the decline collapse
+
+With opt-in Copilot review (`flow new --copilot-review <auto|always|never>`,
+default `auto`), `/flow-pipeline` step 7 decides *before* the wait whether
+to request Copilot for this PR — see SKILL.md step 7's "Copilot request
+decision". On the **request** path nothing here changes: the two signals
+above (in-flight `reviewRequests` + the historical-PR fallback) still
+resolve `copilotConfigured`, and the retrigger / claim-deadline /
+self-dismissal logic all apply unchanged.
+
+On the **decline** path the supervisor passes `flow-ci-wait
+--copilot-not-requested`, which hard-forces `copilotConfigured=false`
+*before* the two-signal `||` is evaluated — so neither `reviewRequests`
+nor the historical-PR fallback can keep the bot wait alive. This is what
+makes a declined trivial PR genuinely collapse the wait
+(`COPILOT_REQUESTED == 0` in the matrix terms below) rather than merely
+saving the credit while still paying the capped 10-min timeout that the
+historical fallback would otherwise trigger in any repo with recent
+Copilot reviews. Note `COPILOT_REQUESTED` remains a **conceptual label
+for `copilotConfigured === false`**, not an environment variable any
+helper reads; `--copilot-not-requested` is simply the explicit CLI signal
+that forces that condition on the decline path.
+
 #### Retrigger on stale review (one-shot)
 
 The historical-PR fallback above answers "is Copilot expected on this
