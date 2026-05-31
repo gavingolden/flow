@@ -364,6 +364,37 @@ above. Same `--wait-for-copilot` suppression rule.
 the stale-review retrigger gate ("Retrigger on stale review" above) so
 a self-dismissed signal does not trigger a doomed re-request POST.
 
+#### Conflict short-circuit
+
+When a PR branch conflicts with base, GitHub cannot build the
+`pull_request` merge ref, so CI never starts — the loop would otherwise
+wait out the full 20-min cap and decide `ci-hang`. The helper instead
+reads the mergeability projection (`gh pr view <pr> --json
+mergeable,mergeStateStatus`) on every OPEN-state poll and emits
+`decision: 'pr-conflicted'` immediately when `mergeStateStatus` is
+`CONFLICTING` or `DIRTY`.
+
+The gate is **exact membership** on `mergeStateStatus` in
+`{CONFLICTING, DIRTY}` — `mergeStateStatus === UNKNOWN` (GitHub still
+computing mergeability) never fires it, and `BEHIND` / `BLOCKED` /
+`UNSTABLE` / `CLEAN` / `HAS_HOOKS` are not conflicts. The classifier
+lives at `deriveConflictState` in `bin/flow-ci-wait.ts`; future drift
+between this doc and the code should be detected by the function-name
+anchor.
+
+The check runs **per poll** because a conflict can appear at loop entry
+(poll 1) or mid-wait (a later poll once base advances), and it runs
+**before** the per-poll `requested_reviewers` / `gh pr checks` reads so a
+conflicted PR never pays for those calls. The OPEN-state guard preserves
+MERGED/CLOSED precedence: a PR that is MERGED or CLOSED falls through to
+the decision matrix and routes to `merged-externally` / `pr-closed`.
+
+The mergeability read **fails open**: a non-zero gh exit or malformed
+JSON (`observeMergeState` returns `null`) keeps the loop polling rather
+than misfiring `pr-conflicted`. This is the opposite conservative
+direction from the retrigger-gate readers — here a false `conflicting`
+(routing a non-conflicted PR to the merge path) is the expensive error.
+
 ### Why per-PR `reviewRequests` and not `gh api .../installations`
 
 The intuitive alternative — `gh api repos/<owner>/<repo>/installations`
@@ -430,6 +461,13 @@ gh pr checks <pr> --json name,state
 # under "## Copilot reviewer". Re-projected per poll because GitHub
 # auto-removes Copilot after its first review.
 gh pr view <pr> --json reviews,state,headRefOid,reviewRequests
+
+# Mergeability projection. Read every iteration on an OPEN PR to detect a
+# branch conflict with base — `mergeStateStatus` is the primary signal (it is
+# UNKNOWN while GitHub is still computing). Consumed by the conflict
+# short-circuit ('Conflict short-circuit' under "## Copilot reviewer"). Fails
+# open: a transient gh error keeps polling rather than misfiring pr-conflicted.
+gh pr view <pr> --json mergeable,mergeStateStatus
 ```
 
 Combine the two JSON payloads in shell (jq) to derive a single state
@@ -461,6 +499,7 @@ Re-evaluate after each poll. The `ci_passed` / `ci_failed` /
 | true | — | false | stale-review + budget unused, post-`ci_terminal` | **fire retrigger POST**, reset Copilot timeout, keep polling. See "Retrigger on stale review" above. |
 | true | — | false | < 10 min after `ci_terminal` | **keep polling** (waiting on Copilot). |
 | true | — | false | ≥ 10 min after `ci_terminal` | **proceed to step 8 without bot review** (Copilot timed out; `copilotSkipReason: null`). |
+| — | — | — | `mergeStateStatus` ∈ {CONFLICTING, DIRTY} on an OPEN PR | **emit `pr-conflicted`** — branch conflicts with base so CI can never start; route to the step-10 merge path. `mergeStateStatus === UNKNOWN` (still computing) never fires it; BEHIND/BLOCKED/UNSTABLE/CLEAN/HAS_HOOKS do not fire it. Fails open on a transient gh error. See "Conflict short-circuit" above. |
 | — | true | — | — | **loop back to step 5 in fix mode** (cap: 3 fix-loops total before escalation). Pass the failing-check log into the implement-fix prompt. |
 | false | false | — | < 20 min from first poll | **keep polling** (CI still in progress). |
 | false | false | — | ≥ 20 min from first poll | **escalate `NEEDS HUMAN: ci-hang`**. End. |

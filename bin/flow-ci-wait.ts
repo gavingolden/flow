@@ -21,7 +21,8 @@
  * Output: a single JSON object on stdout when the loop exits.
  *   {
  *     "decision": "proceed-to-review" | "proceed-to-review-no-bot"
- *               | "ci-failed" | "merged-externally" | "pr-closed" | "ci-hang",
+ *               | "ci-failed" | "merged-externally" | "pr-closed"
+ *               | "pr-conflicted" | "ci-hang",
  *     "polls": number,
  *     "elapsedSec": number,
  *     "prState": "OPEN" | "MERGED" | "CLOSED",
@@ -49,6 +50,7 @@ export type Decision =
   | "ci-failed"
   | "merged-externally"
   | "pr-closed"
+  | "pr-conflicted"
   | "ci-hang";
 
 export type Check = { name: string; state: string };
@@ -111,6 +113,9 @@ export const FAILED_CHECK_STATES = new Set([
   "STALE",
 ]);
 export const REVIEW_POSTED_STATES = new Set(["APPROVED", "CHANGES_REQUESTED", "COMMENTED"]);
+// The two mergeStateStatus values where GitHub cannot build the pull_request
+// merge ref, so CI never starts. Single source of truth for the conflict taxonomy.
+export const CONFLICTING_MERGE_STATES = new Set(["CONFLICTING", "DIRTY"]);
 
 // --- Pure helpers ----------------------------------------------------------
 
@@ -144,6 +149,30 @@ export function deriveCheckState(checks: Check[]): CheckState {
   const failed = checks.filter((c) => FAILED_CHECK_STATES.has(c.state));
   if (failed.length > 0) return { kind: "failed", failedChecks: failed };
   return { kind: "all-passed" };
+}
+
+/**
+ * Classifies a PR's mergeability into a branch-conflict verdict. Gates ONLY
+ * on `mergeStateStatus` exact membership in {CONFLICTING, DIRTY} — the two
+ * states where GitHub cannot build the merge ref so CI never starts.
+ *
+ * `mergeStateStatus` is the primary signal because GitHub reports it as
+ * UNKNOWN while still computing mergeability; exact membership against
+ * {CONFLICTING, DIRTY} naturally excludes that still-computing window. BEHIND /
+ * BLOCKED / UNSTABLE / CLEAN / HAS_HOOKS are not conflicts. The
+ * `mergeable !== "UNKNOWN"` clause is a belt-and-suspenders guard for the
+ * eventual-consistency window where GitHub could momentarily report a stale
+ * CONFLICTING/DIRTY `mergeStateStatus` while `mergeable` is recomputing — we
+ * never short-circuit until mergeability has actually been computed.
+ */
+export function deriveConflictState(
+  mergeable: string,
+  mergeStateStatus: string,
+): { conflicting: boolean } {
+  return {
+    conflicting:
+      mergeable !== "UNKNOWN" && CONFLICTING_MERGE_STATES.has(mergeStateStatus),
+  };
 }
 
 /**
@@ -566,6 +595,14 @@ export type Deps = {
    * compare-API call. Mirrors the `readCommitsAreAllMerges` pattern.
    */
   readIsSmallFollowup?: (fromSha: string, toSha: string) => boolean;
+  /**
+   * Returns the PR's mergeability projection, or null on a transient gh
+   * error / malformed JSON (fail-open = not conflicting). Default uses
+   * `observeMergeState` against the injected `gh`. Tests inject a fake to
+   * drive the conflict short-circuit deterministically without sequencing a
+   * real merge-state gh call.
+   */
+  readMergeState?: () => { mergeable: string; mergeStateStatus: string } | null;
   /** Test-only: override the cwd used by readWorkflowsDir. */
   cwd?: string;
 };
@@ -808,6 +845,35 @@ export function observePr(prNumber: number, gh: GhRunner): PrObservation | null 
   }
 }
 
+/**
+ * Reads the PR's mergeability projection (`mergeable` + `mergeStateStatus`).
+ * FAIL-OPEN: any non-zero exit or malformed JSON returns null. This is the
+ * OPPOSITE conservative direction from the sibling readers (which fail toward
+ * firing a POST) — here a false `conflicting` is the expensive error (it
+ * routes a non-conflicted PR to the merge path), so null (= not conflicting)
+ * is the safe failure mode.
+ */
+export function observeMergeState(
+  prNumber: number,
+  gh: GhRunner,
+): { mergeable: string; mergeStateStatus: string } | null {
+  const r = gh(["pr", "view", String(prNumber), "--json", "mergeable,mergeStateStatus"]);
+  if (r.exitCode !== 0) return null;
+  try {
+    const parsed = JSON.parse(r.stdout) as {
+      mergeable?: unknown;
+      mergeStateStatus?: unknown;
+    };
+    return {
+      mergeable: typeof parsed.mergeable === "string" ? parsed.mergeable : "",
+      mergeStateStatus:
+        typeof parsed.mergeStateStatus === "string" ? parsed.mergeStateStatus : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function observeChecks(prNumber: number, gh: GhRunner): Check[] {
   const r = gh(["pr", "checks", String(prNumber), "--json", "name,state"]);
   if (r.exitCode !== 0) return [];
@@ -972,6 +1038,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const copilotTimeout = parsed.copilotTimeout ?? 600;
   const waitForCopilot = parsed.waitForCopilot ?? false;
   const claimDeadlineSec = parsed.claimDeadlineSec ?? DEFAULT_CLAIM_DEADLINE_SEC;
+  const readMergeState =
+    deps.readMergeState ?? (() => observeMergeState(parsed.pr, gh));
 
   const ciConfigured = readWorkflowsDir();
   const requestedReviewers = fetchRequestedReviewers(parsed.pr, gh);
@@ -1033,6 +1101,42 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     }
     lastPrState = prInfo.state;
     lastPrUrl = prInfo.url;
+
+    // Branch-conflict short-circuit. When the PR branch conflicts with base,
+    // GitHub cannot build the pull_request merge ref, so CI never starts and
+    // the loop would otherwise wait out the full 20-min cap to ci-hang. The
+    // conflict can appear at loop entry (poll 1) or mid-wait (a later poll
+    // once base advances), so this per-poll placement covers both. The
+    // `prInfo.state === "OPEN"` guard preserves MERGED/CLOSED precedence: a
+    // MERGED/CLOSED PR falls through to decideOnPoll, which returns
+    // merged-externally/pr-closed. Placed before the requested_reviewers /
+    // observeChecks reads so a conflicted PR never pays for those gh calls.
+    // Modeled on the Copilot auto-detect early-emit short-circuit below; the
+    // extra observation is read here rather than threaded into PollState (see
+    // the rejected-anti-pattern note at deriveCopilotSkipReason).
+    if (prInfo.state === "OPEN") {
+      const mergeState = readMergeState();
+      if (
+        mergeState !== null &&
+        deriveConflictState(mergeState.mergeable, mergeState.mergeStateStatus).conflicting
+      ) {
+        process.stderr.write(
+          `Branch conflict detected (mergeStateStatus=${mergeState.mergeStateStatus}) — exiting pr-conflicted at poll ${pollNum}\n`,
+        );
+        emitResult({
+          decision: "pr-conflicted",
+          polls: pollNum,
+          elapsedSec,
+          prState: prInfo.state,
+          prUrl: prInfo.url,
+          copilotConfigured,
+          ciConfigured,
+          copilotRetriggered,
+          copilotSkipReason: null,
+        });
+        return 0;
+      }
+    }
 
     // Per-poll requested_reviewers read (item 1). Re-read every poll rather
     // than caching the loop-entry value: GitHub auto-removes Copilot from
