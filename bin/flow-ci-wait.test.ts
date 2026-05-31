@@ -1366,6 +1366,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => true,
     });
