@@ -1,21 +1,16 @@
 # Design Craft Principles
 
+Portable design judgment — the anti-default philosophy, hierarchy, spacing rhythm, surface/depth, and typography *reasoning* — lives in `universal/ui-ux` (`references/visual-design.md`). This file is the Tailwind/shadcn mechanics layer: how that judgment maps to this repo's tokens. Each section below pairs a one-line up-pointer with the retained token specifics.
+
 ## Anti-Default Philosophy
 
-The core test: **if another AI would produce the same output given the same prompt, you failed.**
-
-Every design choice — surface color, border radius, spacing, shadow — must be intentional and
-explainable. Defaults are invisible decisions that accumulate into generic, forgettable interfaces.
-
-Common defaults to reject:
+Portable principle: see `universal/ui-ux` — its Anti-Patterns and `references/visual-design.md` carry the anti-default stance ("if another AI would produce the same output, you failed"). In this repo's tokens, that means rejecting the defaults below:
 
 - Same `rounded-lg bg-card p-4` on every container
 - Uniform `gap-4` everywhere regardless of content relationship
 - Every card at the same elevation
 - Text in only one or two sizes
 - Gray borders at identical opacity on all surfaces
-
-Ask: "Why this value and not another?" If the answer is "it's the default," change it.
 
 ## Product Domain Context
 
@@ -30,6 +25,8 @@ accent colors. Lean into it. Avoid saturated decorative colors that compete with
 
 ## Surface Layering System
 
+Portable principle: see `universal/ui-ux` `references/visual-design.md` — depth communicates hierarchy; elevated surfaces read lighter in dark mode; no two adjacent containers share treatment. Tailwind token mechanics below.
+
 Surfaces communicate hierarchy through depth. Use the existing token progression:
 
 | Layer   | Token           | Use                               |
@@ -42,17 +39,14 @@ Surfaces communicate hierarchy through depth. Use the existing token progression
 Border progression: `border-border` for standard separation, `border-input` for form elements,
 `border-ring` for focus states.
 
-**Dark mode specifics:**
+**Dark mode token specifics:**
 
-- Surfaces go lighter as they elevate (opposite of light mode intuition)
-- Use border opacity to create subtle separation: `border-border/50` for gentle dividers
-- Commit to one shadow strategy — in dark mode, shadows are nearly invisible; rely on surface
-  color differences instead
-
-**Rule:** No two adjacent containers should share the same surface + border treatment unless they
-are peers in a list.
+- Use border opacity for subtle separation: `border-border/50` for gentle dividers.
+- In dark mode, shadows are nearly invisible — rely on the surface-color differences in the table above.
 
 ## Typography Hierarchy
+
+Portable principle: see `universal/ui-ux` `references/visual-design.md` — 3+ typographic levels via size/weight/contrast; decisive jumps. Tailwind token mechanics below.
 
 Every screen should use **3+ levels** of typographic emphasis:
 
@@ -71,6 +65,8 @@ Financial data rules:
 
 ## Spacing System
 
+Portable principle: see `universal/ui-ux` `references/visual-design.md` — spatial proximity mirrors semantic proximity; items semantically closer are spatially closer. Tailwind scale below.
+
 Tailwind's 4px base grid. Spacing communicates content relationships:
 
 | Context               | Spacing             | Rationale                           |
@@ -81,10 +77,9 @@ Tailwind's 4px base grid. Spacing communicates content relationships:
 | Related items         | `gap-1` to `gap-2`  | Items that belong together          |
 | Unrelated sections    | `gap-8` to `gap-12` | Clear content breaks                |
 
-**Rule:** Items that are semantically closer should be spatially closer. If two sections have the
-same gap, ask whether they are actually equally related.
-
 ## Component Composition Patterns
+
+Portable principles: see `universal/ui-ux` — card anatomy and animation restraint in `references/visual-design.md`; empty/loading/interaction states in `references/interaction-ux.md`. Tailwind mechanics below.
 
 **Card structure** — Cards are not just boxes. A well-composed card has:
 
@@ -115,6 +110,8 @@ disabled states. Use `transition-colors` for smooth feedback.
 Duration: `duration-150` to `duration-200`. No decorative animation.
 
 ## Icon Guidelines
+
+Portable principle: see `universal/ui-ux` `references/visual-design.md` — size icons to adjacent text; icon-only controls need an accessible label. Tailwind/package mechanics below.
 
 - Use `lucide-svelte` exclusively for consistency
 - Size icons to match adjacent text: `w-4 h-4` with `text-sm`, `w-5 h-5` with `text-base`
