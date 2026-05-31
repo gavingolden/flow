@@ -5,6 +5,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   normalizeFinding,
+  normalizeParsedFindings,
   validateAgentFindings,
   validateConsolidatorResult,
 } from "./agent-finding-schema";
@@ -563,6 +564,93 @@ describe("normalizeFinding — label/decoration coercion", () => {
     if (!result.ok) expect(result.reason).toContain("decoration");
   });
 
+  it("strips exactly one paren pair — '((blocking))' -> '(blocking)' still fails", () => {
+    // Pins the one-pass-only guarantee documented at
+    // agent-finding-schema.ts:110-111: a double-paren wrap of a *valid*
+    // token must not be unwrapped to the bare token. A future change to a
+    // `while` loop would unwrap to "blocking" and pass — this trips that.
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label: "issue",
+      decoration: "((blocking))",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.decoration).toBe("(blocking)");
+    const result = validateAgentFindings({ findings: [out] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("decoration");
+  });
+
+  it("strips '()' to '' which still fails validation (length>=2 guard boundary)", () => {
+    // '()' is length 2 and both guards pass, so it strips to '' — a
+    // present-but-empty decoration that fails the enum on a different path
+    // than the absent-decoration case. The single-char '(' below proves
+    // the length>=2 guard leaves length-1 input untouched.
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label: "issue",
+      decoration: "()",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.decoration).toBe("");
+    const result = validateAgentFindings({ findings: [out] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("decoration");
+  });
+
+  it("leaves a single-char '(' untouched (length>=2 guard)", () => {
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label: "issue",
+      decoration: "(",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.decoration).toBe("(");
+  });
+
+  it("trims surrounding whitespace on decoration — '  blocking  ' -> 'blocking'", () => {
+    // stripOneParenPair calls .trim() unconditionally (agent-finding-schema.ts:113),
+    // so it rescues whitespace-padded agent output even with no parens. A
+    // future refactor dropping the .trim() would silently stop accepting
+    // ' blocking ' — these two cases trip that.
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label: "issue",
+      decoration: "  blocking  ",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.decoration).toBe("blocking");
+    const result = validateAgentFindings({ findings: [out] });
+    expect(result.ok).toBe(true);
+  });
+
+  it("trims whitespace outside parens — '  (blocking)  ' -> 'blocking'", () => {
+    const out = normalizeFinding({
+      file: "src/x.ts",
+      line: 1,
+      label: "issue",
+      decoration: "  (blocking)  ",
+      confidence: 92,
+      subject: "x",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.decoration).toBe("blocking");
+    const result = validateAgentFindings({ findings: [out] });
+    expect(result.ok).toBe(true);
+  });
+
   it("is idempotent — running twice equals running once", () => {
     const input = {
       file: "src/x.ts",
@@ -605,6 +693,92 @@ describe("normalizeFinding — label/decoration coercion", () => {
     });
     const result = validateAgentFindings({ findings: [out] });
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("normalizeParsedFindings — shape-aware walker", () => {
+  it("normalizes each entry of a per-agent findings[] array", () => {
+    const out = normalizeParsedFindings({
+      findings: [
+        {
+          file: "src/x.ts",
+          line: 1,
+          label: "consistency",
+          decoration: "(blocking)",
+          confidence: 92,
+          subject: "x",
+          body: "y",
+        },
+      ],
+    }) as Record<string, unknown>;
+    const findings = out.findings as Record<string, unknown>[];
+    expect(findings[0].label).toBe("suggestion");
+    expect(findings[0].decoration).toBe("blocking");
+  });
+
+  it("normalizes each entry of a consolidated_findings[] array", () => {
+    const out = normalizeParsedFindings({
+      consolidated_findings: [
+        {
+          file: "src/x.ts",
+          line: 1,
+          label: "testing",
+          decoration: "(non-blocking)",
+          confidence: 92,
+          subject: "x",
+          body: "y",
+        },
+      ],
+    }) as Record<string, unknown>;
+    const findings = out.consolidated_findings as Record<string, unknown>[];
+    expect(findings[0].label).toBe("suggestion");
+    expect(findings[0].decoration).toBe("non-blocking");
+  });
+
+  it("normalizes both arrays independently when an object carries both keys", () => {
+    const out = normalizeParsedFindings({
+      findings: [
+        {
+          file: "a.ts",
+          line: 1,
+          label: "doc-fix",
+          decoration: "(blocking)",
+          confidence: 90,
+          subject: "a",
+          body: "a",
+        },
+      ],
+      consolidated_findings: [
+        {
+          file: "b.ts",
+          line: 2,
+          label: "add-a-test",
+          decoration: "(if-minor)",
+          confidence: 91,
+          subject: "b",
+          body: "b",
+        },
+      ],
+    }) as Record<string, unknown>;
+    const findings = out.findings as Record<string, unknown>[];
+    const consolidated = out.consolidated_findings as Record<string, unknown>[];
+    expect(findings[0].label).toBe("suggestion");
+    expect(findings[0].decoration).toBe("blocking");
+    expect(consolidated[0].label).toBe("suggestion");
+    expect(consolidated[0].decoration).toBe("if-minor");
+  });
+
+  it("returns non-object input untouched (null)", () => {
+    expect(normalizeParsedFindings(null)).toBe(null);
+  });
+
+  it("passes through an object whose 'findings' value is not an array unchanged", () => {
+    // A non-array `findings` is not walked — it flows through so the
+    // downstream validator can emit its own "must be an array" error
+    // rather than this walker throwing.
+    const input = { findings: "x" };
+    const out = normalizeParsedFindings(input) as Record<string, unknown>;
+    expect(out.findings).toBe("x");
   });
 });
 
