@@ -113,8 +113,8 @@
      target (a number with units, "<800 lines", "≤100ms"). Otherwise omit the
      heading entirely. Placement matches the PRD-section list at
      skills/pipeline/product-planning/references/discovery-instructions.md
-     section 5 (last, after Open Questions) — the single source of truth
-     for ordering. Full contract — trigger, three required subsections, the
+     section 5 (last section, after Recommendation) — the single source of
+     truth for ordering. Full contract — trigger, three required subsections, the
      four-value Recommended-path enum, and the Open-Questions emission rule:
        skills/pipeline/product-planning/references/discovery-instructions.md
        "Prompt interpretation (conditional)"
