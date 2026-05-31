@@ -4,7 +4,7 @@ A stack-neutral quality gate to run *before* declaring UI work done. It is a 30�
 
 ## Dimensions
 
-**Composition and craft** (Refactoring UI; Anthropic coherence). Do typography, color, layout, and imagery cohere into one intentional whole, or do they read as independently-chosen pieces? Can you identify primary, secondary, and tertiary content at a glance? Does spacing vary with relationship, or is one gap value applied everywhere? Do adjacent surfaces differ where they should, and does every border earn its place? Coherence across these axes is the design-quality signal Anthropic names; the individual moves are in `visual-design.md`.
+**Composition and craft** (Refactoring UI; Anthropic coherence). Do typography, color, layout, and imagery cohere into one intentional whole, or do they read as independently-chosen pieces? Can you identify primary, secondary, and tertiary content at a glance? Does spacing vary with relationship, or is one gap value applied everywhere? Do adjacent surfaces differ where they should, and does every border earn its place? Coherence across these axes is the design-quality signal Anthropic names; the individual moves are in `visual-design.md`. When the work spans more than one component, extend this check across the set: each component should match the shared foundation (the skill's foundation step) and its sibling components — same scales, roles, surfaces, and treatments — not merely cohere on its own.
 
 **Interaction** (Nielsen-heuristic spot-check). Does every action get visible feedback (status visibility)? Is there a clear exit / undo from every flow (user control)? Do empty, loading, and error states exist and say something useful (error recovery)? Are inputs labelled and errors placed next to their field? See `interaction-ux.md` for the full ten.
 
@@ -21,6 +21,7 @@ Stated without framework-specific class names; the stack skill carries the concr
 - **The uniform-spacing problem.** One gap value applied everywhere flattens the information architecture. Tighten spacing for related items, widen it between unrelated sections.
 - **The flat dark-mode problem.** Every surface uses one fill in dark mode, so elevation disappears. Make elevated surfaces lighter; rely on surface-color difference where shadows are weak.
 - **The decorative-border problem.** Borders added "to look defined" become noise. Keep borders only where they separate something; prefer surface and spacing differences otherwise.
+- **The divergent-siblings problem.** Components designed in isolation each pick their own spacing scale, type ramp, or elevation model, so the set reads as assembled from different products. Anchor every component to the shared foundation rather than re-deciding it per screen — this is the failure mode that parallel, per-component work invites if no foundation was frozen first.
 
 ## Pre-submit workflow
 
