@@ -96,7 +96,7 @@ warranted, help them add the relevant rules to AGENTS.md instead.
 
 Proactively ask questions about edge cases, input/output formats, example files, success criteria, and dependencies. Wait to write test prompts until you've got this part ironed out.
 
-Check available MCPs - if useful for research (searching docs, finding similar skills, looking up best practices), research in parallel via subagents if available, otherwise inline. Come prepared with context to reduce burden on the user.
+Check available MCPs - if useful for research (searching docs, finding similar skills, looking up best practices), research in parallel via subagents if available, otherwise inline. Come prepared with context to reduce burden on the user. When researching, prefer authoritative sources — official vendor documentation (Anthropic, Google, etc.) and peer-reviewed research — over non-authoritative ones such as random blogs (e.g. Medium.com).
 
 ### Write the SKILL.md
 
