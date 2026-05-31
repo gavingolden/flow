@@ -39,6 +39,7 @@ this project's established architecture patterns.
 - Extended rune patterns: `references/svelte5-patterns.md`
 - SvelteKit patterns: `references/sveltekit-patterns.md`
 - Store architecture: `references/store-architecture.md`
+- Portable design/UX judgment (visual hierarchy, spacing, interaction states, accessibility): defer to `universal/ui-ux`
 
 # Instructions
 

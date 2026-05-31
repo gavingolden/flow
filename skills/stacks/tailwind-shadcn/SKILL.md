@@ -31,6 +31,9 @@ output another AI would produce.
   (`@mui/material`), Chakra (`@chakra-ui/react`), Bootstrap, Bulma,
   `styled-components`, `@emotion/*`, `@vanilla-extract/*`, or pure CSS
   Modules / CSS-in-JS with no Tailwind context.
+- Portable, stack-agnostic design/UX judgment (visual hierarchy, spacing
+  rhythm, accessibility, the critique gate) lives in `universal/ui-ux`; this
+  skill is the Tailwind/shadcn mechanics layer that renders that judgment.
 
 # Context
 
@@ -63,7 +66,7 @@ components or pages):
 For minor styling tweaks (color change, spacing fix), a quick mental check suffices. For new
 components or significant redesigns, state the intent before proceeding.
 
-See `references/design-craft.md` for the anti-default philosophy and domain context.
+For the portable anti-default philosophy see `universal/ui-ux`; for this repo's domain context and how it maps to Tailwind tokens see `references/design-craft.md`.
 
 ## 2. Check Existing Components
 
@@ -164,7 +167,7 @@ Before building each significant component, briefly state:
 This takes one sentence per bullet. The purpose is to force intentional decisions before
 writing markup. Skip for trivial changes (swapping an icon, fixing a typo).
 
-See `references/design-craft.md` for surface layering, typography, and spacing systems.
+For the portable rationale behind surface layering, typography, and spacing see `universal/ui-ux` `references/visual-design.md`; for this repo's token mechanics see `references/design-craft.md`.
 
 ## 5. Styling
 
@@ -252,7 +255,7 @@ use native `<form onsubmit>`, pair `<Label for>` with `<Input id>`, and use `bin
 
 ## 13. Critique
 
-After building, pause and run through the critique checklist from `references/critique-protocol.md`:
+After building, pause and run through the critique checklist from `references/critique-protocol.md` (its portable rationale lives in `universal/ui-ux` `references/critique-protocol.md`):
 
 - **Composition** — Can you identify primary, secondary, and tertiary content at a glance? Does
   spacing vary intentionally?
