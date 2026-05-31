@@ -149,6 +149,29 @@ describe(observeMergeState, () => {
     const gh: GhRunner = () => ({ stdout: "not json", stderr: "", exitCode: 0 });
     expect(observeMergeState(100, gh)).toBeNull();
   });
+
+  it("coerces non-string fields to \"\" on valid-JSON-but-wrong-shape payloads", () => {
+    // Pins the absent/non-string-field default: a valid-JSON response whose
+    // mergeable/mergeStateStatus are missing or non-string (e.g. `null`)
+    // coerces each to "" rather than throwing. "" is the safe direction —
+    // it flows into deriveConflictState as not-conflicting.
+    const missing: GhRunner = () => ({ stdout: "{}", stderr: "", exitCode: 0 });
+    expect(observeMergeState(100, missing)).toEqual({
+      mergeable: "",
+      mergeStateStatus: "",
+    });
+
+    const nonString: GhRunner = () => ({
+      stdout: JSON.stringify({ mergeable: 123, mergeStateStatus: null }),
+      stderr: "",
+      exitCode: 0,
+    });
+    const coerced = observeMergeState(100, nonString);
+    expect(coerced).toEqual({ mergeable: "", mergeStateStatus: "" });
+    expect(deriveConflictState(coerced!.mergeable, coerced!.mergeStateStatus).conflicting).toBe(
+      false,
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
