@@ -223,16 +223,22 @@ scout report back; the artifact on disk is the record.
 
 - Within this analysis:
   - **Challenge the feature.** Don't just validate the user's idea. Identify potential
-    downsides, over-engineering risks, or simpler alternatives.
+    downsides, over-engineering risks, or simpler alternatives. Question whether the
+    request is necessary at all — "do nothing / reject the premise" is a legitimate
+    recommendation (the `Reject` verdict already in the assessment table above), not a
+    failure to engage. If an existing capability or no change at all serves the user
+    better, say so and set the Recommendation to `Reject` with a one-line rationale.
   - **Consider alternatives.** Propose at least one alternative approach if one exists.
     Briefly explain the trade-off. When the user's feature description is framed as a
     binary either/or choice (A or B), comparing only the two named poles is
     insufficient — per the AGENTS.md `## Output style` rule **Consider the middle ground when a request is framed as a binary choice.**, look for and propose an
     intermediate option (a hybrid, a phased rollout, a config-gated default) and
     explain its trade-off against both poles, rather than defaulting to a pole.
-  - **Suggest complementary enhancements.** Proactively identify features or improvements that
-    would naturally pair with the requested feature and significantly increase its value.
-    These should be pragmatic suggestions, not scope creep.
+  - **Suggest complementary enhancements, and name mutually-exclusive ones.** Proactively
+    identify features or improvements that would naturally pair with the requested feature
+    (complementary — they increase its value) AND any that are mutually exclusive with it
+    or with each other (conflicting approaches that cannot coexist — surface the trade-off
+    so the user consciously picks one path). These should be pragmatic, not scope creep.
   - **Rank recommendations** by: perceived customer value, technical complexity, likelihood
     of future debt, and composability.
   - **Surface scout's anti-patterns.** When the scout's `## anti_patterns`
