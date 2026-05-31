@@ -86,7 +86,13 @@ token-savings impact, highest first.
   (presence in the example file is the canonical source-of-truth check);
   date: `git log --format='%ad' --date=short -1 <ref>` for a commit or
   tag, `gh api repos/{owner}/{repo}/issues/<n> --jq .created_at` for an
-  issue or PR creation date. When in doubt, verify.
+  issue or PR creation date. Prefer authoritative sources over
+  non-authoritative ones: official vendor documentation (Anthropic,
+  Google, etc.) and peer-reviewed research outrank random blogs (e.g.
+  Medium.com) when researching — especially AI topics — so weight a
+  claim's credibility by its source, and verify anything an official
+  source can confirm against that source rather than a secondary
+  write-up. When in doubt, verify.
 - **Treat user prompts as evidence of intent, not exhaustive specifications.**
   User prompts may contain mistakes, incompleteness, unintended scope
   restriction, and misweighted goals. When a prompt names prescribed
