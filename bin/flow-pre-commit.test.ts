@@ -20,6 +20,7 @@ import {
   getChangedFilesForPush,
   parsePrePushInput,
   parseScopes,
+  resolveDefaultScopeFiles,
   runCheck,
   stripAnsi,
   type CheckReport,
@@ -661,6 +662,69 @@ describe(getChangedFilesForPush, () => {
 
   it("should return empty array for empty refs", () => {
     expect(getChangedFilesForPush([])).toEqual([]);
+  });
+});
+
+describe(resolveDefaultScopeFiles, () => {
+  it("should return the working-tree diff verbatim without consulting merge-base when it is non-empty", () => {
+    const mergeBase = vi.fn();
+    const diffFiles = vi.fn();
+    const defaultBranch = vi.fn();
+    const git = createMockGit({ mergeBase, diffFiles, defaultBranch });
+
+    expect(resolveDefaultScopeFiles(["src/a.ts", "src/b.ts"], git)).toEqual([
+      "src/a.ts",
+      "src/b.ts",
+    ]);
+    expect(mergeBase).not.toHaveBeenCalled();
+    expect(diffFiles).not.toHaveBeenCalled();
+    expect(defaultBranch).not.toHaveBeenCalled();
+  });
+
+  it("should fall back to the merge-base diff when the tree is clean but HEAD is ahead of the default branch", () => {
+    const mergeBase = vi.fn().mockReturnValue("base000");
+    const defaultBranch = vi.fn().mockReturnValue("main");
+    const git = createMockGit({
+      mergeBase,
+      defaultBranch,
+      files: { "base000..HEAD": ["bin/flow-pre-commit.ts"] },
+    });
+
+    expect(resolveDefaultScopeFiles([], git)).toEqual(["bin/flow-pre-commit.ts"]);
+    expect(defaultBranch).toHaveBeenCalled();
+    expect(mergeBase).toHaveBeenCalledWith("main", "HEAD");
+  });
+
+  it("should honor a non-main default branch in the clean-tree fallback", () => {
+    const mergeBase = vi.fn().mockReturnValue("base000");
+    const defaultBranch = vi.fn().mockReturnValue("master");
+    const git = createMockGit({
+      mergeBase,
+      defaultBranch,
+      files: { "base000..HEAD": ["src/x.ts"] },
+    });
+
+    expect(resolveDefaultScopeFiles([], git)).toEqual(["src/x.ts"]);
+    expect(mergeBase).toHaveBeenCalledWith("master", "HEAD");
+  });
+
+  it("should return empty when the tree is clean and HEAD is not ahead of the default branch", () => {
+    // merge-base resolves to HEAD itself, so the `<base>..HEAD` range is empty
+    // — the fallback self-cancels to a no-op, matching pre-change behavior.
+    const git = createMockGit({
+      mergeBase: () => "headsha",
+      files: { "headsha..HEAD": [] },
+    });
+
+    expect(resolveDefaultScopeFiles([], git)).toEqual([]);
+  });
+
+  it("should return empty without throwing when the merge-base cannot be resolved", () => {
+    const diffFiles = vi.fn();
+    const git = createMockGit({ mergeBase: () => null, diffFiles });
+
+    expect(resolveDefaultScopeFiles([], git)).toEqual([]);
+    expect(diffFiles).not.toHaveBeenCalled();
   });
 });
 

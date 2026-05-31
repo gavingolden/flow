@@ -443,8 +443,8 @@ export function runCheck(
 
 function getChangedFiles(): string[] {
   const { stdout } = run(["git", "diff", "--name-only", "HEAD"]);
-  if (!stdout) return [];
-  return stdout.split("\n").filter(Boolean);
+  const workingTreeDiff = stdout ? stdout.split("\n").filter(Boolean) : [];
+  return resolveDefaultScopeFiles(workingTreeDiff, defaultGitOps);
 }
 
 /** Reads package.json from cwd and returns the set of defined npm script names. */
@@ -552,6 +552,29 @@ export function getChangedFilesForPush(refs: PrePushRef[], git: GitOps = default
   }
 
   return [...allFiles];
+}
+
+/**
+ * Resolves the changed-file set for the default auto-detect path.
+ *
+ * A dirty tree's working-tree diff is authoritative. On a clean tree that diff
+ * is empty — and on a feature branch ahead of the default branch, an empty set
+ * would vacuously pass (zero scopes → zero checks → exit 0), so the committed
+ * work never gets verified. This is exactly the state `/verify` hits after the
+ * implement step commits and pushes. Fall back to the merge-base diff so the
+ * committed scopes are still detected. When HEAD is not ahead (clean tree on
+ * the base branch) the `<base>..HEAD` range is empty, so this self-cancels to
+ * the prior no-op. Mirrors the merge-base pattern getChangedFilesForPush uses
+ * for the --pre-push new-branch arm.
+ */
+export function resolveDefaultScopeFiles(
+  workingTreeDiff: string[],
+  git: GitOps = defaultGitOps,
+): string[] {
+  if (workingTreeDiff.length > 0) return workingTreeDiff;
+  const base = git.mergeBase(git.defaultBranch(), "HEAD");
+  if (!base) return [];
+  return git.diffFiles(`${base}..HEAD`);
 }
 
 // --- Output ---

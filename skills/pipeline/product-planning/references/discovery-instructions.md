@@ -105,6 +105,8 @@ Categories worth examining (use them as a checklist, not a question list):
 | **Architecture**      | What layers does this touch? New module or extend an existing one?                                       |
 | **Edge cases**        | What happens when X is empty? How should errors display?                                                 |
 | **Trade-offs**        | Would a simplification be acceptable for v1? If the request is framed as a binary A-or-B choice, is there a middle-ground option? |
+| **Necessity**         | Is this request necessary at all? Could doing nothing, or an existing capability the user has overlooked, serve them just as well? Treat "reject — do nothing" as a legitimate verdict to weigh, not a non-answer; the user invited the feature, but inviting it is not the same as needing it. |
+| **Options & exclusivity** | What other options exist beyond the literal request? Of the adjacent features, which are **complementary** (pair well, increase the request's value) and which are **mutually exclusive** — cannot coexist with the request, or conflict with each other, so the user must pick one path? Name both kinds, not just the complementary ones. |
 | **Existing patterns** | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.      |
 
 For deeper techniques, load `<SKILL_DIR>/references/discovery-playbook.md`.
@@ -140,6 +142,8 @@ format. Sections:
 - **Architecture Decisions** — from the checkpoint above.
 - **Technical Constraints** — framework, security, performance needs.
 - **Open Questions** — every assumption you made plus anything still unresolved.
+- **Recommendation** — a single clear recommendation; see the "Recommendation"
+  sub-section below for the verdict enum and one-line-rationale contract.
 - **Prompt interpretation** (conditional) — when the prompt names BOTH prescribed
   methods AND a quantitative target; see the "Prompt interpretation (conditional)"
   sub-section below for the full contract.
@@ -183,6 +187,29 @@ Bar for inclusion: would the user want to come back to this in a separate sessio
 answer is "no, this is part of the current feature" or "no, this is just a question for
 the user", it does not belong here. Keep the bar high — backlogs full of low-confidence
 candidates are noise.
+
+### Recommendation
+
+After weighing the options, the necessity check, and the trade-offs from step 3, commit to
+**one** recommendation and record it as a short, always-present `## Recommendation` section
+in the PRD. Unlike `# Candidate follow-up issues` and `## Prompt interpretation` — which are
+omit-when-empty — a recommendation is always meaningful and cheap, so emit it on every PRD.
+
+The section is a single line: a verdict plus a one-line rationale. The verdict is one of:
+
+- **Proceed** — build the request as scoped.
+- **Reconsider scope** — build, but with a named scope change (narrower, wider, or a
+  middle-ground option surfaced under the binary-framing check).
+- **Defer** — the request is reasonable but better sequenced after other work; name the
+  blocker.
+- **Reject — do nothing** — the request is not necessary; doing nothing (or pointing the
+  user at an existing capability) serves them better. This is a first-class verdict, not a
+  failure to plan — when the necessity check (step 3) lands here, say so plainly.
+
+When the verdict is anything other than `Proceed`, the rationale should reference the
+relevant Open Question so the user can redirect at the next `plan-pending-review`
+checkpoint. The recommendation is advisory — the user always has the final say at the
+approval gate.
 
 ### Prompt interpretation (conditional)
 

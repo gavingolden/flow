@@ -73,6 +73,13 @@ For each of the six per-agent paths, run:
 flow-agent-finding-schema --validate "$PER_AGENT_PATH"
 ```
 
+The validator now coerces trivially-fixable label/decoration drift (strips a
+single surrounding-paren pair from `decoration`; maps lens-name / `add-a-test`
+/ `doc-fix` labels to `suggestion`) BEFORE validating, so
+`consolidator-schema-failure` fires only on genuinely-unparseable findings;
+`bin/lib/agent-finding-schema.ts` is the authoritative source for exactly what
+is and isn't coerced.
+
 Exit-1 outcomes are split by source:
 
 - **File missing** (`test -s "$PER_AGENT_PATH"` fails): escalate

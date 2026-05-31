@@ -180,7 +180,13 @@ fully off npm is a deliberate change, not something to do incidentally.
   the canonical source-of-truth check); date:
   `git log --format='%ad' --date=short -1 <ref>` for a commit or
   tag, `gh api repos/{owner}/{repo}/issues/<n> --jq .created_at`
-  for an issue or PR creation date. The rule is 'always *try*' with
+  for an issue or PR creation date. Prefer authoritative sources over
+  non-authoritative ones: official vendor documentation (Anthropic,
+  Google, etc.) and peer-reviewed research outrank random blogs (e.g.
+  Medium.com) when researching — especially AI topics — so weight a
+  claim's credibility by its source, and verify anything an official
+  source can confirm against that source rather than a secondary
+  write-up. The rule is 'always *try*' with
   judgment, not blanket pessimisation — when in doubt, verify.
 - **Consider the middle ground when a request is framed as a binary choice.**
   When a prompt poses an either/or — "should it work like A or B?",
