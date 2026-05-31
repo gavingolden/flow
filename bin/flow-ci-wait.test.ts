@@ -8,6 +8,7 @@ import {
   cadenceFor,
   decideOnPoll,
   deriveCheckState,
+  deriveConflictState,
   deriveCopilotPosted,
   deriveCopilotSkipReason,
   extractLatestCopilotReviewCommit,
@@ -15,6 +16,7 @@ import {
   hasQualifyingWorkflowTrigger,
   isCopilotReviewStale,
   isSmallFollowup,
+  observeMergeState,
   parseArgs,
   retriggerCopilotReview,
   run,
@@ -90,6 +92,85 @@ describe(deriveCheckState, () => {
     if (r.kind === "failed") {
       expect(r.failedChecks.map((c) => c.name)).toEqual(["lint", "deploy"]);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2a-2. deriveConflictState — branch-conflict classifier
+// ---------------------------------------------------------------------------
+
+describe(deriveConflictState, () => {
+  it.each(["CONFLICTING", "DIRTY"])(
+    "flags conflicting=true for mergeStateStatus=%s",
+    (status) => {
+      expect(deriveConflictState("MERGEABLE", status).conflicting).toBe(true);
+    },
+  );
+
+  it.each(["CLEAN", "BEHIND", "BLOCKED", "UNSTABLE", "HAS_HOOKS", "UNKNOWN"])(
+    "does NOT flag conflicting for mergeStateStatus=%s",
+    (status) => {
+      expect(deriveConflictState("MERGEABLE", status).conflicting).toBe(false);
+    },
+  );
+
+  it("does NOT flag conflicting while GitHub is still computing (mergeable=UNKNOWN, mergeStateStatus=UNKNOWN)", () => {
+    expect(deriveConflictState("UNKNOWN", "UNKNOWN").conflicting).toBe(false);
+  });
+
+  it("does NOT flag conflicting on a stale CONFLICTING status while mergeable is still recomputing (mergeable=UNKNOWN)", () => {
+    expect(deriveConflictState("UNKNOWN", "CONFLICTING").conflicting).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2a-3. observeMergeState — mergeability reader (fail-open)
+// ---------------------------------------------------------------------------
+
+describe(observeMergeState, () => {
+  it("returns the parsed object on a zero-exit gh call", () => {
+    const gh: GhRunner = () => ({
+      stdout: JSON.stringify({ mergeable: "CONFLICTING", mergeStateStatus: "DIRTY" }),
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(observeMergeState(100, gh)).toEqual({
+      mergeable: "CONFLICTING",
+      mergeStateStatus: "DIRTY",
+    });
+  });
+
+  it("fails open (returns null) on a non-zero exit", () => {
+    const gh: GhRunner = () => ({ stdout: "", stderr: "boom", exitCode: 1 });
+    expect(observeMergeState(100, gh)).toBeNull();
+  });
+
+  it("fails open (returns null) on malformed JSON", () => {
+    const gh: GhRunner = () => ({ stdout: "not json", stderr: "", exitCode: 0 });
+    expect(observeMergeState(100, gh)).toBeNull();
+  });
+
+  it("coerces non-string fields to \"\" on valid-JSON-but-wrong-shape payloads", () => {
+    // Pins the absent/non-string-field default: a valid-JSON response whose
+    // mergeable/mergeStateStatus are missing or non-string (e.g. `null`)
+    // coerces each to "" rather than throwing. "" is the safe direction —
+    // it flows into deriveConflictState as not-conflicting.
+    const missing: GhRunner = () => ({ stdout: "{}", stderr: "", exitCode: 0 });
+    expect(observeMergeState(100, missing)).toEqual({
+      mergeable: "",
+      mergeStateStatus: "",
+    });
+
+    const nonString: GhRunner = () => ({
+      stdout: JSON.stringify({ mergeable: 123, mergeStateStatus: null }),
+      stderr: "",
+      exitCode: 0,
+    });
+    const coerced = observeMergeState(100, nonString);
+    expect(coerced).toEqual({ mergeable: "", mergeStateStatus: "" });
+    expect(deriveConflictState(coerced!.mergeable, coerced!.mergeStateStatus).conflicting).toBe(
+      false,
+    );
   });
 });
 
@@ -1066,6 +1147,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1089,6 +1171,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1112,6 +1195,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1136,6 +1220,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1188,6 +1273,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1218,6 +1304,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1242,6 +1329,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => false, // CI not configured
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1271,6 +1359,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1300,6 +1389,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => true,
     });
@@ -1323,6 +1413,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1340,6 +1431,7 @@ describe("run() integration", () => {
       now: () => 0,
       sleep: async () => {},
       readWorkflowsDir: () => false,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1387,6 +1479,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => true, // historical fallback HIT
     });
@@ -1415,6 +1508,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false, // historical fallback MISS
     });
@@ -1441,6 +1535,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => {
         fallbackCalls++;
@@ -1477,6 +1572,7 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       // No readHistoricalBotReview — exercises the default that uses gh.
     });
@@ -1536,6 +1632,7 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -1583,6 +1680,7 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -1613,6 +1711,7 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -1662,6 +1761,7 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -1707,6 +1807,7 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -1745,6 +1846,7 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => true,
@@ -1789,6 +1891,7 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -1823,6 +1926,7 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -1865,6 +1969,7 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -1909,6 +2014,7 @@ describe("run() integration — per-poll requested_reviewers signal", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1939,6 +2045,7 @@ describe("run() integration — per-poll requested_reviewers signal", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => true, // fallback → copilotConfigured
     });
@@ -1983,6 +2090,7 @@ describe("run() integration — post-POST verification (item 2)", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2016,6 +2124,7 @@ describe("run() integration — post-POST verification (item 2)", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2060,6 +2169,7 @@ describe("run() integration — post-POST verification (item 2)", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2115,6 +2225,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2148,6 +2259,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2190,6 +2302,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2230,6 +2343,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2275,6 +2389,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2310,6 +2425,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2347,6 +2463,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2379,6 +2496,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2390,6 +2508,182 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     expect(result.decision).toBe("pr-closed");
     expect(result.copilotSkipReason).toBeNull();
     expect(result.prState).toBe("CLOSED");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6b-4. run() integration — branch-conflict short-circuit (pr-conflicted)
+//
+// A branch conflict (mergeStateStatus in {CONFLICTING, DIRTY}) means GitHub
+// cannot build the merge ref, so CI never starts. The loop detects this
+// per-poll (covering loop-entry and mid-wait) and emits pr-conflicted
+// immediately rather than waiting out the 20-min cap to ci-hang. UNKNOWN
+// (still computing) and a transient gh failure (readMergeState → null) both
+// keep polling. MERGED/CLOSED precedence is preserved by the OPEN guard.
+// Uses the readMergeState Deps injectable to avoid the strict-order gh trap.
+// ---------------------------------------------------------------------------
+
+describe("run() integration — branch-conflict short-circuit", () => {
+  const LOGIN = "copilot-pull-request-reviewer";
+  const CLEAN_MERGE = { mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" };
+
+  it("(1) CONFLICTING at entry → pr-conflicted at poll 1", async () => {
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => false,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readMergeState: () => ({ mergeable: "CONFLICTING", mergeStateStatus: "CONFLICTING" }),
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("pr-conflicted");
+    expect(result.polls).toBe(1);
+    expect(cap.stderr.join("")).toMatch(/Branch conflict detected/);
+  });
+
+  it("(2) DIRTY at entry → pr-conflicted at poll 1", async () => {
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => false,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "DIRTY" }),
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("pr-conflicted");
+    expect(result.polls).toBe(1);
+  });
+
+  it("(3) mergeable/mergeStateStatus UNKNOWN (still computing) does NOT short-circuit — keeps polling to a terminal decision", async () => {
+    const clock = makeFakeClock();
+    // CI configured + pending on poll 1, all-passed on poll 2; copilot not
+    // configured (empty entry reviewRequests + no history). UNKNOWN merge
+    // state every poll must NOT fire pr-conflicted, so the loop reaches
+    // proceed-to-review on poll 2 (polls > 1).
+    const PENDING_CHECKS: Check[] = [{ name: "test", state: "IN_PROGRESS" }];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(PENDING_CHECKS) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readMergeState: () => ({ mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN" }),
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(result.polls).toBeGreaterThan(1);
+  });
+
+  it("(4) mid-wait flip: CLEAN on poll 1 then CONFLICTING on poll 2 → pr-conflicted on poll 2", async () => {
+    const clock = makeFakeClock();
+    const PENDING_CHECKS: Check[] = [{ name: "test", state: "IN_PROGRESS" }];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      // Poll 1: CLEAN merge state, CI pending → keep polling.
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(PENDING_CHECKS) },
+      // Poll 2: conflict flips in → pr-conflicted before observeChecks.
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+    ]);
+    let call = 0;
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readMergeState: () => {
+        call++;
+        return call === 1
+          ? CLEAN_MERGE
+          : { mergeable: "CONFLICTING", mergeStateStatus: "CONFLICTING" };
+      },
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("pr-conflicted");
+    expect(result.polls).toBe(2);
+  });
+
+  it("(5) transient gh merge-state failure (readMergeState → null) keeps polling — no false pr-conflicted", async () => {
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readMergeState: () => null,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(cap.stderr.join("")).not.toMatch(/Branch conflict detected/);
+  });
+
+  it("(6) precedence: MERGED PR with CONFLICTING merge state → merged-externally (OPEN guard preserves precedence)", async () => {
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("MERGED", []) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => false,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readMergeState: () => ({ mergeable: "CONFLICTING", mergeStateStatus: "CONFLICTING" }),
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("merged-externally");
+    expect(result.prState).toBe("MERGED");
   });
 });
 
@@ -2655,6 +2949,7 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
       now: clock.now,
       sleep: clock.sleep,
       cwd: tmp,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -2696,6 +2991,7 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
       now: clock.now,
       sleep: clock.sleep,
       cwd: tmp,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -2736,6 +3032,7 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
       now: clock.now,
       sleep: clock.sleep,
       cwd: tmp,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => true, // bot is expected → don't short-circuit
     });
@@ -2760,6 +3057,7 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
       now: clock.now,
       sleep: clock.sleep,
       cwd: tmp,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });

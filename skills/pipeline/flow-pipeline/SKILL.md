@@ -1176,6 +1176,7 @@ Branch on `.decision`:
 | `ci-failed` | Continue to step 5 mode=fix. Pass `$CI_FAILED_CHECKS` (extracted above) as the failure log. Subject to the 3-loop ci-fix cap below. |
 | `merged-externally` | PR was merged externally mid-flight. Capture follow-ups output to a file: `flow-followups run > "$WORKTREE/.flow-tmp/followups-block.txt"` (still executes auto-allowlisted entries; `>` captures the rendered block). Render the MERGED block via `flow-gate-summary --status merged --pr-url "$PR_URL" --why "PR was merged externally mid-flight; supervisor cleaned up the worktree" --deferred-file "$WORKTREE/.flow-tmp/followups-block.txt"` **BEFORE** the terminal state transition, so a render failure leaves state.json non-terminal and `flow-stop-guard` nudges retry (the helper silently suppresses the FOLLOW-UPS slot when the file is empty; its final stdout line is the byte-exact sentinel `MERGED`). Then `flow-remove-worktree --delete-branch`, write `phase: merged`, call `flow-notify --status merged --url "$PR_URL"`. End. The roadmap row was self-marked in the PR's diff by `/pr-review` step 7.5; no post-merge sweep required. |
 | `pr-closed` | Escalate `NEEDS HUMAN: pr-closed-mid-flight`. |
+| `pr-conflicted` | Branch conflicts with base; CI can never run. Advance to the step-10 merge path — `gh pr merge --squash` surfaces the conflict-class failure and the existing Merge-Conflict Resolver Subagent rebases onto base, resolves, and force-pushes, after which CI re-runs on the clean head and the pipeline re-enters step 7. Does NOT consume a ci-fix-loop budget slot (conflict remediation is a rebase, not a code fix). |
 | `ci-hang` | Escalate `NEEDS HUMAN: ci-hang`. |
 
 `--copilot-login <login>` overrides the bot login (default reads
@@ -1202,8 +1203,11 @@ After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
 **End condition:** the helper exits 0 with one of the decisions
 above. On `proceed-to-review` / `proceed-to-review-no-bot`, continue
 to step 8. On `ci-failed`, continue to step 5 mode=fix. On
-`merged-externally`, run cleanup and end. On `pr-closed` / `ci-hang`,
-escalate and end.
+`pr-conflicted`, advance to the step-10 merge path (the existing
+Merge-Conflict Resolver Subagent rebases + resolves + force-pushes; no
+ci-fix-loop budget consumed) and re-enter step 7 once CI re-runs on the
+clean head. On `merged-externally`, run cleanup and end. On `pr-closed`
+/ `ci-hang`, escalate and end.
 
 ## Step 8 — Review
 
