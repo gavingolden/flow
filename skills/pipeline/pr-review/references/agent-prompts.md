@@ -68,6 +68,11 @@ Labels: praise, nitpick, suggestion, issue, todo, question
 Decorations: blocking, non-blocking, if-minor
 Confidence: 0-100 (only findings >= 80 will be surfaced)
 
+The decoration MUST be the bare keyword with NO surrounding parentheses:
+write `"blocking"`, never `"(blocking)"`. The lens/agent name (e.g.
+`consistency`, `testing`) is NEVER a valid label — if you intend a
+suggestion, use `"suggestion"`.
+
 `praise` findings omit the `decoration` field (or set it to `null`) — per
 conventional-comments.md Rule 2, every finding except `praise` MUST have a
 decoration, and praise never blocks merge. All other labels require a
