@@ -70,7 +70,7 @@ export type CheckReport = {
    * package.json. Used to override allPassed=true and emit a distinct
    * "No checks ran" message so the silent-pass hole is closed.
    */
-  reason?: "no-checks-defined";
+  reason?: "no-checks-defined" | "unmatched-files";
 };
 
 /**
@@ -107,7 +107,7 @@ export type JsonReport = {
   allPassed: boolean;
   changedFiles?: string[];
   unmatchedFiles?: string[];
-  reason?: "no-checks-defined";
+  reason?: "no-checks-defined" | "unmatched-files";
 };
 
 const HEAD_LINES = 100;
@@ -253,9 +253,15 @@ export function computeUnmatchedFiles(files: string[]): string[] {
 export function computeAllPassedAndReason(
   results: CheckResult[],
   changedFiles: string[] | undefined,
-): { allPassed: boolean; reason?: "no-checks-defined" } {
+  scopes: Scope[],
+  unmatchedFiles: string[] | undefined,
+): { allPassed: boolean; reason?: "no-checks-defined" | "unmatched-files" } {
   if (results.length === 0 && (changedFiles?.length ?? 0) > 0) {
     return { allPassed: false, reason: "no-checks-defined" };
+  }
+  // Mixed-diff orphan gap (#192): a specific scope ran but left files uncovered. root-fallback intentionally claims no files (every changed file is "unmatched"), so fire ONLY when a specific scope matched — never when root-fallback is the detected scope, and never on the --scope path (unmatchedFiles undefined).
+  if (scopes.length > 0 && !scopes.includes("root-fallback") && (unmatchedFiles?.length ?? 0) > 0) {
+    return { allPassed: false, reason: "unmatched-files" };
   }
   return { allPassed: results.every((r) => r.passed) };
 }
@@ -670,6 +676,11 @@ export function formatReport(report: CheckReport): string {
     } else {
       lines.push(`${passed}/${total} checks passed.`);
     }
+    if (report.reason === "unmatched-files") {
+      lines.push(
+        `Gate failed: ${report.unmatchedFiles?.length ?? 0} changed file(s) matched no checked scope (see "Unmatched files" above). Re-run with an explicit --scope to cover them, or extend the scope matchers.`,
+      );
+    }
   }
 
   return lines.join("\n");
@@ -876,7 +887,12 @@ async function main(): Promise<void> {
   const unmatchedFiles =
     changedFiles !== undefined ? computeUnmatchedFiles(changedFiles) : undefined;
 
-  const { allPassed, reason } = computeAllPassedAndReason(results, changedFiles);
+  const { allPassed, reason } = computeAllPassedAndReason(
+    results,
+    changedFiles,
+    scopes,
+    unmatchedFiles,
+  );
 
   const report: CheckReport = {
     scopes,

@@ -217,29 +217,81 @@ describe(computeUnmatchedFiles, () => {
 
 describe(computeAllPassedAndReason, () => {
   it("flags reason='no-checks-defined' + allPassed=false on non-empty diff + empty results", () => {
-    expect(computeAllPassedAndReason([], ["apps/web/src/x.ts"])).toEqual({
+    expect(
+      computeAllPassedAndReason([], ["apps/web/src/x.ts"], ["root-fallback"], ["apps/web/src/x.ts"]),
+    ).toEqual({
       allPassed: false,
       reason: "no-checks-defined",
     });
   });
 
   it("returns allPassed=true with no reason on empty diff + empty results", () => {
-    expect(computeAllPassedAndReason([], [])).toEqual({ allPassed: true });
+    expect(computeAllPassedAndReason([], [], [], [])).toEqual({ allPassed: true });
   });
 
   it("returns allPassed=true with no reason on undefined changedFiles (--scope path)", () => {
-    expect(computeAllPassedAndReason([], undefined)).toEqual({ allPassed: true });
+    expect(computeAllPassedAndReason([], undefined, ["src"], undefined)).toEqual({
+      allPassed: true,
+    });
   });
 
   it("reflects results.every on a mixed pass/fail set", () => {
     const passing = createResult({ passed: true });
     const failing = createResult({ passed: false });
-    expect(computeAllPassedAndReason([passing, failing], ["src/a.ts"])).toEqual({
+    expect(computeAllPassedAndReason([passing, failing], ["src/a.ts"], ["src"], [])).toEqual({
       allPassed: false,
     });
-    expect(computeAllPassedAndReason([passing, passing], ["src/a.ts"])).toEqual({
+    expect(computeAllPassedAndReason([passing, passing], ["src/a.ts"], ["src"], [])).toEqual({
       allPassed: true,
     });
+  });
+
+  it("flags reason='unmatched-files' + allPassed=false on a mixed diff with orphans", () => {
+    const passing = createResult({ passed: true });
+    expect(
+      computeAllPassedAndReason(
+        [passing],
+        ["src/a.ts", "apps/web/src/b.ts"],
+        ["src"],
+        ["apps/web/src/b.ts"],
+      ),
+    ).toEqual({ allPassed: false, reason: "unmatched-files" });
+  });
+
+  it("does NOT flag unmatched-files when root-fallback is the detected scope", () => {
+    const passing = createResult({ passed: true });
+    expect(
+      computeAllPassedAndReason(
+        [passing],
+        ["apps/web/src/b.ts"],
+        ["root-fallback"],
+        ["apps/web/src/b.ts"],
+      ),
+    ).toEqual({ allPassed: true });
+  });
+
+  it("returns allPassed=true when a specific scope matched and there are no orphans", () => {
+    const passing = createResult({ passed: true });
+    expect(computeAllPassedAndReason([passing], ["src/a.ts"], ["src"], [])).toEqual({
+      allPassed: true,
+    });
+  });
+
+  it("does NOT flag unmatched-files on the --scope path (unmatchedFiles undefined)", () => {
+    expect(computeAllPassedAndReason([], undefined, ["src"], undefined)).toEqual({
+      allPassed: true,
+    });
+  });
+
+  it("no-checks-defined takes precedence over unmatched-files on a zero-check mixed diff", () => {
+    expect(
+      computeAllPassedAndReason(
+        [],
+        ["src/a.ts", "apps/web/src/b.ts"],
+        ["src"],
+        ["apps/web/src/b.ts"],
+      ),
+    ).toEqual({ allPassed: false, reason: "no-checks-defined" });
   });
 });
 
@@ -979,6 +1031,23 @@ describe(formatReport, () => {
     expect(emptyDiffNoOp).toContain("No checks ran.");
     expect(emptyDiffNoOp).not.toContain("no matching npm scripts");
   });
+
+  it("renders the distinct 'Gate failed:' line and lists orphans when reason is unmatched-files", () => {
+    const output = formatReport(
+      createReport({
+        scopes: ["src"] as Scope[],
+        results: [createResult({ scope: "src", passed: true })],
+        allPassed: false,
+        changedFiles: ["src/a.ts", "apps/web/src/b.ts"],
+        unmatchedFiles: ["apps/web/src/b.ts"],
+        reason: "unmatched-files",
+      }),
+    );
+    expect(output).toContain("Gate failed:");
+    expect(output).toContain("matched no checked scope");
+    expect(output).toContain("Unmatched files (1):");
+    expect(output).toContain("apps/web/src/b.ts");
+  });
 });
 
 describe(stripAnsi, () => {
@@ -1194,6 +1263,22 @@ describe(formatJsonReport, () => {
 
     const withoutReason = JSON.parse(formatJsonReport(createReport({}))) as JsonReport;
     expect(withoutReason).not.toHaveProperty("reason");
+  });
+
+  it("emits the reason field when set to unmatched-files", () => {
+    const parsed = JSON.parse(
+      formatJsonReport(
+        createReport({
+          scopes: ["src"] as Scope[],
+          results: [createResult({ scope: "src", passed: true })],
+          allPassed: false,
+          changedFiles: ["src/a.ts", "apps/web/src/b.ts"],
+          unmatchedFiles: ["apps/web/src/b.ts"],
+          reason: "unmatched-files",
+        }),
+      ),
+    ) as JsonReport;
+    expect(parsed.reason).toBe("unmatched-files");
   });
 });
 
