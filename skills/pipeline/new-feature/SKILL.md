@@ -228,6 +228,11 @@ scout report back; the artifact on disk is the record.
     recommendation (the `Reject` verdict already in the assessment table above), not a
     failure to engage. If an existing capability or no change at all serves the user
     better, say so and set the Recommendation to `Reject` with a one-line rationale.
+    Minimal scope / anti-over-engineering targets unrequested feature creep, not
+    trivial robustness fixes — for the fix-now-vs-defer bar (when a small,
+    low-risk, in-scope fix must land in-PR rather than be deferred), see
+    `templates/AGENTS.md.template` (`## Anti-Overengineering`) and `/pr-review`'s
+    `references/fix-applier-instructions.md`.
   - **Consider alternatives.** Propose at least one alternative approach if one exists.
     Briefly explain the trade-off. When the user's feature description is framed as a
     binary either/or choice (A or B), comparing only the two named poles is
