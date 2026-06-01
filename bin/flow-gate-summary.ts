@@ -113,6 +113,8 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
     "Attach (flow attach <slug>); redirect /verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log",
   "ci-hang":
     "Attach (flow attach <slug>); inspect GitHub Actions for the stalled check, then flow new --resume <slug>",
+  "pr-blocked":
+    "Branch protection blocks the merge (failing required check, missing required review, CODEOWNERS, or linear-history) and waiting cannot clear it. Satisfy the protection rule on GitHub, then flow new --resume <slug>",
   "ci-fix-exhausted":
     "Attach (flow attach <slug>); inspect the last CI failure log, then redirect /new-feature mode=fix with a targeted fix hint",
   "review-fix-exhausted":
