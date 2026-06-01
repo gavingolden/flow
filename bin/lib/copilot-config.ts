@@ -63,6 +63,14 @@ function extractBotsCopilot(raw: unknown): string | Record<string, unknown> | un
   return undefined;
 }
 
+function extractBotsCopilotClaimDeadlineSec(raw: unknown): number | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const bots = (raw as Record<string, unknown>).bots;
+  if (typeof bots !== "object" || bots === null) return undefined;
+  const n = (bots as Record<string, unknown>).copilotClaimDeadlineSec;
+  return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : undefined;
+}
+
 function stringArray(x: unknown): string[] | undefined {
   if (!Array.isArray(x)) return undefined;
   const out = x.filter((e): e is string => typeof e === "string");
@@ -79,6 +87,13 @@ function mergeGlobs(defaults: string[], configured: string[] | undefined): strin
   const out = [...defaults];
   for (const g of configured) if (!out.includes(g)) out.push(g);
   return out;
+}
+
+/** Global claim-deadline override mirroring `bots.copilot`'s shape — a positive-integer sibling of `bots.copilot`. */
+export function readCopilotClaimDeadlineSec(
+  read: ReadConfigFile = defaultReadConfigFile,
+): number | undefined {
+  return extractBotsCopilotClaimDeadlineSec(read());
 }
 
 /** Login-only accessor — the shape `flow-ci-wait`'s `readCopilotLogin` seam wants. */

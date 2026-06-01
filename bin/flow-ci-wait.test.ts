@@ -2241,6 +2241,114 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     expect(cap.stderr.join("")).toMatch(/Copilot auto-detect: unclaimed-after-deadline/);
   });
 
+  // --- claim-deadline precedence: CLI flag -> config -> default -----------
+  // Observable: with a 30s deadline the short-circuit fires at poll 2
+  // (elapsedSec=30); with the default 60s it only fires at poll 3
+  // (elapsedSec=60). Same fixture shape as the canonical
+  // 'unclaimed-after-deadline' test above.
+  it("config readClaimDeadline (30) drives the deadline when no --claim-deadline-sec flag → fires at poll 2", async () => {
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => LOGIN,
+      readClaimDeadline: () => 30,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotSkipReason).toBe("unclaimed-after-deadline");
+    expect(result.polls).toBe(2);
+  });
+
+  it("--claim-deadline-sec flag (30) overrides config readClaimDeadline (5000) → fires at poll 2", async () => {
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100", "--claim-deadline-sec", "30"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => LOGIN,
+      // High config value loses to the flag; if config won here the
+      // short-circuit would not fire by poll 2 and polls would exceed 2.
+      readClaimDeadline: () => 5000,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotSkipReason).toBe("unclaimed-after-deadline");
+    expect(result.polls).toBe(2);
+  });
+
+  it("falls back to DEFAULT_CLAIM_DEADLINE_SEC (60) when neither flag nor config is set → fires at poll 3", async () => {
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
+      // Poll 1 (elapsedSec=0), poll 2 (elapsedSec=30) — below the 60s
+      // default so no short-circuit yet; poll 3 (elapsedSec=60) fires.
+      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
+      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => LOGIN,
+      readClaimDeadline: () => undefined,
+      readHistoricalBotReview: () => false,
+      readCommitsAreAllMerges: () => false,
+      readIsSmallFollowup: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotSkipReason).toBe("unclaimed-after-deadline");
+    expect(result.polls).toBe(3);
+  });
+
   it("'self-dismissed' fires when DISMISSED on current headRefOid + retrigger POST does NOT fire", async () => {
     const clock = makeFakeClock();
     const dismissed: Review[] = [

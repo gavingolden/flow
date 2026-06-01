@@ -347,9 +347,11 @@ the helper short-circuits the full 10-min copilot timeout with
 `copilotSkipReason: 'unclaimed-after-deadline'`. The exit attribution
 is recorded in the JSON output for downstream visibility.
 
-The claim deadline is `DEFAULT_CLAIM_DEADLINE_SEC` (60 seconds) by
-default; override via `--claim-deadline-sec <n>` on the helper
-invocation. "Claimed" means **any** of:
+The claim deadline resolves with three-tier precedence: the
+`--claim-deadline-sec <n>` flag on the helper invocation wins, then
+the `~/.flow/config.json` `bots.copilotClaimDeadlineSec` global
+override (a positive integer), then `DEFAULT_CLAIM_DEADLINE_SEC`
+(60 seconds). "Claimed" means **any** of:
 
 - The per-poll `gh pr view --json reviewRequests` projection includes
   the configured Copilot login (the bot is still in
@@ -453,8 +455,10 @@ and 'Self-dismissal short-circuit' above) are suppressed by two flags:
   "<desc>"` (the supervisor reads `waitForCopilot` from state.json
   and appends the flag), or per-invocation directly on `flow-ci-wait`.
 - `--claim-deadline-sec <n>` (positive integer) overrides the
-  `DEFAULT_CLAIM_DEADLINE_SEC` (60s) post-CI-terminal claim deadline.
-  Direct-invocation only — there is no state.json plumbing.
+  post-CI-terminal claim deadline with CLI flag → `~/.flow/config.json`
+  `bots.copilotClaimDeadlineSec` (a positive integer) →
+  `DEFAULT_CLAIM_DEADLINE_SEC` (60s) precedence. A global-config tier
+  now exists, but there is still no per-pipeline state.json plumbing.
 
 ## Per-poll commands
 
