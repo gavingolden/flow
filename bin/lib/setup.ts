@@ -29,8 +29,21 @@ import { withFileLock } from "./lock";
 import { applyShellRcCompletions } from "./setup-rc";
 import { ensureStopHook, repairSettings } from "./settings-merge";
 import { fastForwardCanonical, resolveDefaultBranch } from "./git";
+import { findMissingRuntimeDeps, formatMissingDepsError } from "./setup-deps";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
+
+/** Default `installRunner`: run `npm install` at `root` via Bun.spawnSync. */
+function npmInstall(root: string): { ok: boolean; stderr?: string } {
+  const result = Bun.spawnSync(["npm", "install"], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return result.exitCode === 0
+    ? { ok: true }
+    : { ok: false, stderr: result.stderr.toString() };
+}
 
 export type SetupOptions = {
   upgrade?: boolean;
@@ -94,6 +107,18 @@ export type SetupOptions = {
    * — the safe-bailout never stomps user data without explicit opt-in.
    */
   repairSettings?: boolean;
+  /**
+   * If true, when a declared runtime dependency fails to resolve from
+   * `installRoot`, run an install there and re-check before reporting. Off by
+   * default — the default is to report the missing package and exit non-zero.
+   */
+  installDeps?: boolean;
+  /**
+   * Injectable installer used when `installDeps` is true. Defaults to running
+   * `npm install` at the given root via Bun.spawnSync; tests stub it to avoid
+   * shelling out.
+   */
+  installRunner?: (root: string) => { ok: boolean; stderr?: string };
 };
 
 export type SetupSummary = {
@@ -109,6 +134,12 @@ export type SetupSummary = {
    * and escalated to a non-zero CLI exit code.
    */
   validationFailures: string[];
+  /**
+   * Declared runtime dependencies that failed to resolve from `installRoot`
+   * (after an optional `--install-deps` attempt). Non-empty drives a non-zero
+   * CLI exit, parallel to `validationFailures`.
+   */
+  missingRuntimeDeps: string[];
 };
 
 export function runSetup(options: SetupOptions = {}): SetupSummary {
@@ -118,6 +149,24 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   const log = options.quiet ? () => undefined : (msg: string) => console.log(msg);
 
   if (!options.skipPreflight) preflight(targets);
+
+  // Preflight-like timing so a broken node_modules surfaces fast — but
+  // reported through the summary (set inside runUnderLock), never via
+  // process.exit. Check installRoot, NOT flowSource: a `--source <worktree>`
+  // run points flowSource at the worktree while helpers resolve their imports
+  // from the canonical installRoot, so that is the tree whose deps must
+  // resolve. With --install-deps, attempt the install and re-check.
+  let missingRuntimeDeps = findMissingRuntimeDeps(installRoot).missing;
+  if (missingRuntimeDeps.length > 0 && options.installDeps) {
+    const install = (options.installRunner ?? npmInstall)(installRoot);
+    if (!install.ok) {
+      log(`  ! install-deps failed at ${installRoot}: ${install.stderr ?? "no detail"}`);
+    }
+    missingRuntimeDeps = findMissingRuntimeDeps(installRoot).missing;
+  }
+  if (missingRuntimeDeps.length > 0) {
+    log(`  ${formatMissingDepsError(missingRuntimeDeps, installRoot)}`);
+  }
 
   // Outside the lock so two parallel pipelines don't serialize on a network
   // round-trip. Best-effort — log and continue on any failure (same priority
@@ -136,7 +185,7 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   // `flow setup --upgrade` can race on the same skill/agent symlink.
   return withFileLock(
     options.lockPath ?? SETUP_LOCK_PATH,
-    () => runUnderLock(flowSource, installRoot, targets, log, options),
+    () => runUnderLock(flowSource, installRoot, targets, log, options, missingRuntimeDeps),
     { timeoutMs: options.lockTimeoutMs },
   );
 }
@@ -147,6 +196,7 @@ function runUnderLock(
   targets: InstallTargets,
   log: (msg: string) => void,
   options: SetupOptions,
+  missingRuntimeDeps: string[],
 ): SetupSummary {
   const entries = discoverAll(flowSource, installRoot, targets);
   const summary: SetupSummary = {
@@ -156,6 +206,7 @@ function runUnderLock(
     blocked: 0,
     removed: 0,
     validationFailures: [],
+    missingRuntimeDeps,
   };
 
   log(`flow: setup`);

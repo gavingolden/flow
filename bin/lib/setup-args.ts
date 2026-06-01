@@ -15,13 +15,14 @@ export type ParsedSetupArgs = {
   noHooks: boolean;
   pullCanonical: boolean;
   repairSettings: boolean;
+  installDeps: boolean;
   flowSource?: string;
 };
 
 export type SetupArgsResult = ParsedSetupArgs | { error: string };
 
 const USAGE =
-  "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings]";
+  "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]";
 const FLAGS = new Set([
   "--upgrade",
   "--force",
@@ -29,6 +30,7 @@ const FLAGS = new Set([
   "--no-hooks",
   "--no-pull-canonical",
   "--repair-settings",
+  "--install-deps",
 ]);
 
 export function parseSetupArgs(args: string[]): SetupArgsResult {
@@ -39,6 +41,7 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
     noHooks: false,
     pullCanonical: true,
     repairSettings: false,
+    installDeps: false,
   };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -54,6 +57,8 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
       out.pullCanonical = false;
     } else if (arg === "--repair-settings") {
       out.repairSettings = true;
+    } else if (arg === "--install-deps") {
+      out.installDeps = true;
     } else if (arg === "--source") {
       const value = args[i + 1];
       if (!value || FLAGS.has(value) || value === "--source") {
@@ -113,5 +118,9 @@ export function runSetupCli(args: string[], extraOptions?: SetupOptions): number
     opts.installRoot = resolveFlowSource(opts.homeDir);
   }
   const summary = runSetup(opts);
-  return summary.blocked > 0 || summary.validationFailures.length > 0 ? 1 : 0;
+  return summary.blocked > 0 ||
+    summary.validationFailures.length > 0 ||
+    summary.missingRuntimeDeps.length > 0
+    ? 1
+    : 0;
 }
