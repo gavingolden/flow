@@ -1030,6 +1030,59 @@ describe("flow setup", () => {
       expect(ran).toBe(1);
       expect(summary.missingRuntimeDeps).toEqual([]);
     });
+
+    it("installDeps:true with a failing installRunner keeps the dep missing, logs the failure, and exits 1", () => {
+      // The operationally important branch: a real `npm install` failure
+      // (offline, registry 503, lockfile conflict) lands here. A failed
+      // install must NOT silently turn into a green exit — the re-check
+      // leaves missingRuntimeDeps populated and the CLI seam exits 1.
+      fs.rmSync(path.join(flowSource, "node_modules", "picomatch"), {
+        recursive: true,
+        force: true,
+      });
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      try {
+        const installRunner = (): { ok: boolean; stderr: string } => ({
+          ok: false,
+          stderr: "boom",
+        });
+        // Summary seam: the failed install does not clear the missing list.
+        const summary = runSetup({
+          flowSource,
+          installRoot: flowSource,
+          targets: targets(),
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          installDeps: true,
+          installRunner,
+          // quiet: false so the failure line surfaces
+        });
+        expect(summary.missingRuntimeDeps).toEqual(["picomatch"]);
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/install-deps failed at .*: boom/);
+        expect(allLogs).toMatch(/missing runtime dependencies: picomatch/);
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      // Exit-code seam: the same still-missing dep drives runSetupCli to 1.
+      const code = runSetupCli(["--install-deps"], {
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        installRunner: () => ({ ok: false, stderr: "boom" }),
+        quiet: true,
+      });
+      expect(code).toBe(1);
+    });
   });
 });
 

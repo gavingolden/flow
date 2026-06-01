@@ -66,4 +66,9 @@ describe("formatMissingDepsError", () => {
     expect(msg).toContain("/canonical/flow");
     expect(msg).toContain("--install-deps");
   });
+
+  it("comma-joins multiple missing packages (whole-node_modules-absent case)", () => {
+    const msg = formatMissingDepsError(["picomatch", "execa"], "/canonical/flow");
+    expect(msg).toContain("picomatch, execa");
+  });
 });
