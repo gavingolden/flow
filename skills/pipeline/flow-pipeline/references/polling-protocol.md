@@ -418,6 +418,46 @@ than misfiring `pr-conflicted`. This is the opposite conservative
 direction from the retrigger-gate readers — here a false `conflicting`
 (routing a non-conflicted PR to the merge path) is the expensive error.
 
+#### Blocked short-circuit
+
+A PR whose `mergeStateStatus` is `BLOCKED` — a failing required check, a
+missing required review, CODEOWNERS, or a linear-history rule outside the
+`gh pr checks` surface — would otherwise wait out the full 20-min cap and
+decide `ci-hang`, just like a conflict. The helper instead emits
+`decision: 'pr-blocked'` when the PR is still `BLOCKED` at the point the
+loop would have proceeded to review. The classifier lives at
+`deriveBlockedState` in `bin/flow-ci-wait.ts` (mirroring
+`deriveConflictState`'s shape, including the `mergeable !== UNKNOWN`
+still-computing guard); future drift between this doc and the code should
+be detected by the function-name anchor.
+
+The critical difference from the conflict short-circuit is **placement**.
+`BLOCKED` is **not a permanent state** — a PR is legitimately `BLOCKED`
+during the exact window the poll loop exists to wait through: while
+required checks are still pending. Firing at poll entry (as the conflict
+check does) would bail before CI even runs, defeating the entire wait. So
+the blocked check fires **only after CI has reached a terminal state**: it
+intercepts the poll where `decideOnPoll` would otherwise return
+`proceed-to-review` / `proceed-to-review-no-bot` (CI terminal-and-passed
+and the bot-review wait resolved or vacuous) and the PR is *still*
+`BLOCKED`. At that point no pending check remains to clear the block, so
+waiting longer cannot help. It reuses the same poll-scoped mergeability
+read the conflict check already performs (one `gh pr view` per OPEN poll)
+and inherits the same fail-open direction (`null` ⇒ not blocked ⇒ keep
+polling) and OPEN-state precedence (MERGED/CLOSED route to
+`merged-externally` / `pr-closed`).
+
+The routing also differs: a conflict has a mechanical fix the pipeline
+owns (rebase + resolve + force-push), so `pr-conflicted` routes to the
+step-10 merge path. `BLOCKED` has no universal mechanical fix — a missing
+required human review or a failing external status check is outside the
+pipeline's control — so `pr-blocked` escalates `NEEDS HUMAN: pr-blocked`
+rather than adding a remediation path. A required check surfacing as
+`FAILURE` in `gh pr checks` still routes to `ci-failed` (the
+`ci.kind !== 'failed'` precedence is preserved); `pr-blocked` covers only
+the residue where the visible checks all passed yet a protection rule
+still blocks.
+
 ### Why per-PR `reviewRequests` and not `gh api .../installations`
 
 The intuitive alternative — `gh api repos/<owner>/<repo>/installations`
@@ -522,7 +562,8 @@ Re-evaluate after each poll. The `ci_passed` / `ci_failed` /
 | true | — | false | stale-review + budget unused, post-`ci_terminal` | **fire retrigger POST**, reset Copilot timeout, keep polling. See "Retrigger on stale review" above. |
 | true | — | false | < 10 min after `ci_terminal` | **keep polling** (waiting on Copilot). |
 | true | — | false | ≥ 10 min after `ci_terminal` | **proceed to step 8 without bot review** (Copilot timed out; `copilotSkipReason: null`). |
-| — | — | — | `mergeStateStatus` ∈ {CONFLICTING, DIRTY} on an OPEN PR | **emit `pr-conflicted`** — branch conflicts with base so CI can never start; route to the step-10 merge path. `mergeStateStatus === UNKNOWN` (still computing) never fires it; BEHIND/BLOCKED/UNSTABLE/CLEAN/HAS_HOOKS do not fire it. Fails open on a transient gh error. See "Conflict short-circuit" above. |
+| — | — | — | `mergeStateStatus` ∈ {CONFLICTING, DIRTY} on an OPEN PR | **emit `pr-conflicted`** — branch conflicts with base so CI can never start; route to the step-10 merge path. `mergeStateStatus === UNKNOWN` (still computing) never fires it; BEHIND/BLOCKED/UNSTABLE/CLEAN/HAS_HOOKS do not fire it (BLOCKED routes to `pr-blocked` below, not here). Fails open on a transient gh error. See "Conflict short-circuit" above. |
+| true | — | true / timed-out | `mergeStateStatus == BLOCKED` on an OPEN PR at a would-proceed-to-review poll | **emit `pr-blocked`** — a protection rule outside `gh pr checks` (failing required check, missing required review, CODEOWNERS, linear-history) still blocks the merge after CI reached terminal; escalate `NEEDS HUMAN: pr-blocked`. Fires ONLY post-CI-terminal (not at poll entry like `pr-conflicted`) because BLOCKED is a legitimate transient state while required checks pend. `mergeable === UNKNOWN` never fires it; fails open on a transient gh error. See "Blocked short-circuit" above. |
 | — | true | — | — | **loop back to step 5 in fix mode** (cap: 3 fix-loops total before escalation). Pass the failing-check log into the implement-fix prompt. |
 | false | false | — | < 20 min from first poll | **keep polling** (CI still in progress). |
 | false | false | — | ≥ 20 min from first poll | **escalate `NEEDS HUMAN: ci-hang`**. End. |

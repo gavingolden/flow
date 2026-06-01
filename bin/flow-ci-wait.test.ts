@@ -7,6 +7,7 @@ import {
   allMergeCommitsBetween,
   cadenceFor,
   decideOnPoll,
+  deriveBlockedState,
   deriveCheckState,
   deriveConflictState,
   deriveCopilotPosted,
@@ -120,6 +121,34 @@ describe(deriveConflictState, () => {
 
   it("does NOT flag conflicting on a stale CONFLICTING status while mergeable is still recomputing (mergeable=UNKNOWN)", () => {
     expect(deriveConflictState("UNKNOWN", "CONFLICTING").conflicting).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 2a-2b. deriveBlockedState — branch-protection classifier
+// ---------------------------------------------------------------------------
+
+describe(deriveBlockedState, () => {
+  it("flags blocked=true for mergeStateStatus=BLOCKED", () => {
+    expect(deriveBlockedState("MERGEABLE", "BLOCKED").blocked).toBe(true);
+  });
+
+  // The inverse of deriveConflictState's list: a conflict (CONFLICTING/DIRTY)
+  // is NOT a block (it routes to pr-conflicted, not pr-blocked), and the
+  // benign states never block either.
+  it.each(["CLEAN", "BEHIND", "UNSTABLE", "HAS_HOOKS", "CONFLICTING", "DIRTY", "UNKNOWN"])(
+    "does NOT flag blocked for mergeStateStatus=%s",
+    (status) => {
+      expect(deriveBlockedState("MERGEABLE", status).blocked).toBe(false);
+    },
+  );
+
+  it("does NOT flag blocked while GitHub is still computing (mergeable=UNKNOWN, mergeStateStatus=UNKNOWN)", () => {
+    expect(deriveBlockedState("UNKNOWN", "UNKNOWN").blocked).toBe(false);
+  });
+
+  it("does NOT flag blocked on a stale BLOCKED status while mergeable is still recomputing (mergeable=UNKNOWN)", () => {
+    expect(deriveBlockedState("UNKNOWN", "BLOCKED").blocked).toBe(false);
   });
 });
 
@@ -2684,6 +2713,189 @@ describe("run() integration — branch-conflict short-circuit", () => {
     const result = JSON.parse(cap.stdout.join("")) as RunResult;
     expect(result.decision).toBe("merged-externally");
     expect(result.prState).toBe("MERGED");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6b-2. run() integration — branch-protection (pr-blocked) short-circuit
+// ---------------------------------------------------------------------------
+
+describe("run() integration — branch-protection short-circuit", () => {
+  const LOGIN = "copilot-pull-request-reviewer";
+  const BLOCKED_MERGE = { mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED" };
+
+  it("(1) CI vacuously terminal + BLOCKED → pr-blocked at poll 1", async () => {
+    // readWorkflowsDir:false ⇒ CI not configured ⇒ vacuously terminal, so the
+    // poll would otherwise emit proceed-to-review on poll 1. BLOCKED intercepts.
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => false,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readMergeState: () => BLOCKED_MERGE,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("pr-blocked");
+    expect(result.polls).toBe(1);
+    expect(cap.stderr.join("")).toMatch(/Branch protection blocked \(mergeStateStatus=BLOCKED\)/);
+  });
+
+  it("(2) pending CI + BLOCKED does NOT fire while pending — fires only after CI reaches terminal (poll 2)", async () => {
+    // The load-bearing CI-terminal gate: poll 1 has a pending required check
+    // (which is WHY mergeStateStatus is BLOCKED); the short-circuit must NOT
+    // fire there or it would defeat the wait. Poll 2 the check passes but the
+    // PR is still BLOCKED (a non-check protection rule) → pr-blocked.
+    const clock = makeFakeClock();
+    const PENDING_CHECKS: Check[] = [{ name: "test", state: "IN_PROGRESS" }];
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(PENDING_CHECKS) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readMergeState: () => BLOCKED_MERGE,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("pr-blocked");
+    expect(result.polls).toBe(2);
+  });
+
+  it.each(["CLEAN", "BEHIND", "UNSTABLE", "HAS_HOOKS"])(
+    "(3) CI terminal + non-blocking mergeStateStatus=%s → proceed-to-review, never pr-blocked",
+    async (status) => {
+      const clock = makeFakeClock();
+      const gh = makeGhSequence([
+        { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+        { matches: isPrView, response: prViewResponse("OPEN", []) },
+        { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+      ]);
+      const cap = captureStreams();
+      const exit = await run(["100"], {
+        gh,
+        now: clock.now,
+        sleep: clock.sleep,
+        readWorkflowsDir: () => true,
+        readCopilotLogin: () => LOGIN,
+        readHistoricalBotReview: () => false,
+        readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: status }),
+      });
+      cap.restore();
+      expect(exit).toBe(0);
+      const result = JSON.parse(cap.stdout.join("")) as RunResult;
+      expect(result.decision).toBe("proceed-to-review");
+      expect(cap.stderr.join("")).not.toMatch(/Branch protection blocked/);
+    },
+  );
+
+  it("(4) transient gh merge-state failure (readMergeState → null) keeps polling — no false pr-blocked", async () => {
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readMergeState: () => null,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
+    expect(cap.stderr.join("")).not.toMatch(/Branch protection blocked/);
+  });
+
+  it("(5) precedence: MERGED PR with BLOCKED merge state → merged-externally (OPEN guard preserves precedence)", async () => {
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("MERGED", []) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => false,
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => false,
+      readMergeState: () => BLOCKED_MERGE,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("merged-externally");
+    expect(result.prState).toBe("MERGED");
+  });
+
+  it("(6) proceed-to-review-no-bot arm: 10-min copilot timeout + still BLOCKED → pr-blocked", async () => {
+    // Exercises the OTHER interception disjunct: decideOnPoll returns
+    // proceed-to-review-no-bot (the 10-min copilot timeout, not the auto-detect
+    // early-emit which returns before the intercept), and the PR is still
+    // BLOCKED → pr-blocked. Mirrors the canonical 10-min timeout integration
+    // test, including the PENDING-Copilot-on-head fixture that keeps the
+    // unclaimed-after-deadline / self-dismissed auto-detect paths inert so the
+    // verdict flows through decideOnPoll to the intercept.
+    const clock = makeFakeClock();
+    const PENDING_COPILOT_ON_HEAD: Review[] = [
+      {
+        author: { login: "copilot-pull-request-reviewer" },
+        state: "PENDING",
+        commitOid: STABLE_HEAD_SHA,
+      },
+    ];
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+    ];
+    for (let i = 0; i < 15; i++) {
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD) });
+      steps.push(perPollReviewRequests());
+      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+    }
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED" }),
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("pr-blocked");
+    expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
+    expect(cap.stderr.join("")).toMatch(/Branch protection blocked \(mergeStateStatus=BLOCKED\)/);
   });
 });
 

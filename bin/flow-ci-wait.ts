@@ -22,7 +22,7 @@
  *   {
  *     "decision": "proceed-to-review" | "proceed-to-review-no-bot"
  *               | "ci-failed" | "merged-externally" | "pr-closed"
- *               | "pr-conflicted" | "ci-hang",
+ *               | "pr-conflicted" | "pr-blocked" | "ci-hang",
  *     "polls": number,
  *     "elapsedSec": number,
  *     "prState": "OPEN" | "MERGED" | "CLOSED",
@@ -51,6 +51,7 @@ export type Decision =
   | "merged-externally"
   | "pr-closed"
   | "pr-conflicted"
+  | "pr-blocked"
   | "ci-hang";
 
 export type Check = { name: string; state: string };
@@ -116,6 +117,13 @@ export const REVIEW_POSTED_STATES = new Set(["APPROVED", "CHANGES_REQUESTED", "C
 // The two mergeStateStatus values where GitHub cannot build the pull_request
 // merge ref, so CI never starts. Single source of truth for the conflict taxonomy.
 export const CONFLICTING_MERGE_STATES = new Set(["CONFLICTING", "DIRTY"]);
+// The mergeStateStatus value where a protection rule outside the `gh pr checks`
+// surface (a failing required check, a missing required review, CODEOWNERS, a
+// linear-history rule) blocks the merge. Distinct from the conflict taxonomy:
+// BLOCKED is a legitimate *transient* state while required checks are still
+// pending, so the short-circuit that consumes this set is gated on CI-terminal
+// (see the poll loop), unlike the conflict check which fires at poll entry.
+export const BLOCKED_MERGE_STATES = new Set(["BLOCKED"]);
 
 // --- Pure helpers ----------------------------------------------------------
 
@@ -172,6 +180,28 @@ export function deriveConflictState(
   return {
     conflicting:
       mergeable !== "UNKNOWN" && CONFLICTING_MERGE_STATES.has(mergeStateStatus),
+  };
+}
+
+/**
+ * Classifies a PR's mergeability into a branch-protection-blocked verdict.
+ * Gates ONLY on `mergeStateStatus === "BLOCKED"` — a protection rule (failing
+ * required check, missing required review, CODEOWNERS, linear-history) the
+ * pipeline does not own and cannot mechanically clear by waiting.
+ *
+ * Mirrors `deriveConflictState`'s shape, including the `mergeable !== "UNKNOWN"`
+ * still-computing guard, but the verdict routes differently: the caller fires
+ * this check only AFTER CI has reached a terminal state, because BLOCKED is a
+ * legitimate transient state while required checks are still pending — firing
+ * at poll entry (as the conflict check does) would bail before CI even runs.
+ */
+export function deriveBlockedState(
+  mergeable: string,
+  mergeStateStatus: string,
+): { blocked: boolean } {
+  return {
+    blocked:
+      mergeable !== "UNKNOWN" && BLOCKED_MERGE_STATES.has(mergeStateStatus),
   };
 }
 
@@ -1129,8 +1159,14 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     // Modeled on the Copilot auto-detect early-emit short-circuit below; the
     // extra observation is read here rather than threaded into PollState (see
     // the rejected-anti-pattern note at deriveCopilotSkipReason).
+    // Poll-scoped mergeability read, shared by the conflict short-circuit
+    // immediately below and the branch-protection short-circuit after CI
+    // observation, so each OPEN poll makes exactly one
+    // `gh pr view --json mergeable,mergeStateStatus` call. Null on a transient
+    // gh error (fail-open: never short-circuit on a null read).
+    let mergeState: { mergeable: string; mergeStateStatus: string } | null = null;
     if (prInfo.state === "OPEN") {
-      const mergeState = readMergeState();
+      mergeState = readMergeState();
       if (
         mergeState !== null &&
         deriveConflictState(mergeState.mergeable, mergeState.mergeStateStatus).conflicting
@@ -1364,6 +1400,42 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     });
 
     if (verdict.verdict === "exit") {
+      // Branch-protection short-circuit. CI has reached terminal and the PR
+      // would otherwise proceed to review (either Copilot posted, or the
+      // 10-min bot wait timed out), yet mergeStateStatus is still BLOCKED — a
+      // protection rule outside the `gh pr checks` surface (failing required
+      // check, missing required review, CODEOWNERS, linear-history) is blocking
+      // the merge, and waiting longer cannot clear it. Unlike pr-conflicted
+      // (which fires at poll entry, before CI runs), this fires ONLY here:
+      // BLOCKED is a legitimate transient state while required checks are
+      // pending, so gating on a proceed-to-review verdict guarantees CI
+      // finished first. Reuses the poll-scoped mergeState read by the conflict
+      // check above; fail-open — a null read keeps the original review verdict.
+      // The pr-state and ci-failed precedence is inherited for free: decideOnPoll
+      // returns merged-externally/pr-closed/ci-failed before either review
+      // verdict, so this intercept never reroutes them.
+      if (
+        (verdict.decision === "proceed-to-review" ||
+          verdict.decision === "proceed-to-review-no-bot") &&
+        mergeState !== null &&
+        deriveBlockedState(mergeState.mergeable, mergeState.mergeStateStatus).blocked
+      ) {
+        process.stderr.write(
+          `Branch protection blocked (mergeStateStatus=${mergeState.mergeStateStatus}) — exiting pr-blocked at poll ${pollNum}\n`,
+        );
+        emitResult({
+          decision: "pr-blocked",
+          polls: pollNum,
+          elapsedSec,
+          prState: prInfo.state,
+          prUrl: prInfo.url,
+          copilotConfigured,
+          ciConfigured,
+          copilotRetriggered,
+          copilotSkipReason: null,
+        });
+        return 0;
+      }
       const result: RunResult = {
         decision: verdict.decision,
         polls: pollNum,
