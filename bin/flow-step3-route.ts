@@ -174,7 +174,7 @@ export function extractRecommendedPath(planMd: string): string | null {
   // mix and the colon is required (the contract is `**Recommended path:**`,
   // not `**Recommended path**` with no separator).
   const pathMatch = sectionBody.match(
-    /^\s*-?\s*[*`]*Recommended path[*`]*:[*`]*\s*(.+?)\s*$/m,
+    /^[\s-]*[*`]*Recommended path[*`]*:[*`]*\s*(.+?)\s*$/m,
   );
 
   let raw: string;
@@ -186,7 +186,7 @@ export function extractRecommendedPath(planMd: string): string | null {
     // line within the section. The label match is anchored to the line and
     // forbids a colon, so it cannot collide with the colon-form above.
     const driftMatch = sectionBody.match(
-      /^[ \t]*-?[ \t]*[*`]*Recommended path[*`]*\.[*`]*[ \t]*$([\s\S]*)/m,
+      /^[ \t-]*[*`]*Recommended path[*`]*\.[*`]*[ \t]*$([\s\S]*)/m,
     );
     if (!driftMatch) {
       return null;

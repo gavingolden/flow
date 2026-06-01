@@ -266,12 +266,21 @@ describe(extractRecommendedPath, () => {
       expect(extractRecommendedPath(plan)).toBeNull();
     });
 
-    it("does NOT mis-read the sibling 'Reading of prescribed methods' / 'Plausibility estimate' bullets as the drifted value", () => {
+    it("colon-form takes precedence over sibling bullets when both forms are present", () => {
       // Sibling bullets precede the (colon-form) Recommended-path bullet and
       // carry their value on-line; the drifted next-line reader must not
-      // pick a sibling bullet up. Colon-form takes precedence here.
+      // pick a sibling bullet up. Colon-form takes precedence here, so the
+      // drift branch never runs.
       const plan = `## Prompt interpretation\n\n- **Reading of prescribed methods:** exhaustive\n- **Plausibility estimate:** Yes.\n- **Recommended path:** relax target\n`;
       expect(extractRecommendedPath(plan)).toBe("relax target");
+    });
+
+    it("does NOT mis-read a sibling bullet as the drifted value (pure period-form, no colon-form present)", () => {
+      // Bare period-form label with NO colon-form line anywhere, so the drift
+      // branch DOES run: the next non-blank line is a sibling bullet, which
+      // the next-line reader picks up verbatim (it is the genuine next line).
+      const plan = `## Prompt interpretation\n\n- **Recommended path.**\n- relax target\n`;
+      expect(extractRecommendedPath(plan)).toBe("- relax target");
     });
   });
 });
