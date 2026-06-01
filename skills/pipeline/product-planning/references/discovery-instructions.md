@@ -243,7 +243,11 @@ to a human reading the file).
 
 **Section shape.** Three subsections, in this order:
 
-- **Reading of prescribed methods.** One of: `exhaustive` (the user intends the named
+All three are bullets of the form `- **Label:** value` — the label, a colon, and the
+value on the **same line**. Emit them exactly that way; the colon-same-line shape is what
+the consumer parses (see the Recommended-path bullet below).
+
+- **Reading of prescribed methods:** one of `exhaustive` (the user intends the named
   methods as the complete set) or `starting points` (the user is signalling these are
   minimum moves; you may extend). Anchor on the user's framing — verbs like
   "specifically" / "exactly these" / "only" lean exhaustive; verbs like "for example" /
@@ -251,17 +255,20 @@ to a human reading the file).
   `starting points` since literal-spec failures (PR #170) are more costly than
   over-eager extensions.
 
-- **Plausibility estimate.** Your honest read on whether the named methods can plausibly
+- **Plausibility estimate:** your honest read on whether the named methods can plausibly
   reach the named target. Cite evidence (file sizes, current measurements, existing
   patterns) rather than speculation. When you do not have evidence and cannot easily get
   it, say so — "uncertain — would need to run X to verify".
 
-- **Recommended path.** One of these four strings, copied verbatim. The
-  `/flow-pipeline` Step 3 routing helper at `bin/flow-step3-route.ts` exact-matches
-  against the first string; drift here silently routes runs the wrong way, so the four
-  values are case-sensitive and must not be paraphrased. Emit the value **bare** — no
-  surrounding backticks, no bold, no trailing punctuation — so the producer here and
-  the consumer (`bin/flow-step3-route.ts`) agree on an exact string:
+- **Recommended path:** one of these four strings, copied verbatim — emitted on the SAME
+  line as the `**Recommended path:**` label, in the literal one-line form
+  `- **Recommended path:** <enum value>`. The `/flow-pipeline` Step 3 routing helper at
+  `bin/flow-step3-route.ts` machine-parses this one-line colon form and exact-matches
+  against the first string; drift here (a label on its own line, a missing colon, a
+  paraphrased value) silently routes runs the wrong way, so emit the value **bare** — no
+  surrounding backticks, no bold, no trailing punctuation, on the same line as the colon —
+  so the producer here and the consumer (`bin/flow-step3-route.ts`) agree on an exact
+  string:
 
   - `methods plausibly reach target` — the prescribed methods fully cover the stated
     target without extension. No tension; downstream consumers treat the run as if no

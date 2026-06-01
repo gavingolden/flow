@@ -124,3 +124,4 @@
 - **Reading of prescribed methods:** [`exhaustive` | `starting points`]
 - **Plausibility estimate:** [your honest read on whether the named methods reach the target, with evidence]
 - **Recommended path:** [one of four enum values; see discovery-instructions.md for the verbatim strings]
+<!-- Machine-parsed by bin/flow-step3-route.ts: keep this exact one-line form (colon, value on the SAME line). Do not reformat to a label-on-its-own-line shape. -->
