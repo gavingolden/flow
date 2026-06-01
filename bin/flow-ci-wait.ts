@@ -40,7 +40,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { readCopilotLogin as readCopilotLoginFromConfig } from "./lib/copilot-config";
+import {
+  readCopilotClaimDeadlineSec,
+  readCopilotLogin as readCopilotLoginFromConfig,
+} from "./lib/copilot-config";
 
 // --- Types -----------------------------------------------------------------
 
@@ -603,6 +606,8 @@ export type Deps = {
   readWorkflowsDir?: () => boolean;
   /** Returns the configured Copilot login (default: "copilot-pull-request-reviewer"). */
   readCopilotLogin?: () => string;
+  /** Returns the configured claim deadline (positive integer seconds), or undefined when unset. */
+  readClaimDeadline?: () => number | undefined;
   /**
    * Returns true iff the configured Copilot login has reviewed any recent merged
    * PR on the current repo. Default uses fetchHistoricalBotReview against the
@@ -737,6 +742,11 @@ function defaultReadWorkflowsDir(cwd: string): boolean {
  */
 function defaultReadCopilotLogin(): string {
   return readCopilotLoginFromConfig();
+}
+
+/** Default claim-deadline reader: the global `bots.copilotClaimDeadlineSec` override, or undefined. */
+function defaultReadClaimDeadline(): number | undefined {
+  return readCopilotClaimDeadlineSec();
 }
 
 /** Fetches the PR's requested-reviewers list (used at loop entry, per-poll, and for post-POST verification). Returns lowercased logins. */
@@ -1051,6 +1061,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const cwd = deps.cwd ?? process.cwd();
   const readWorkflowsDir = deps.readWorkflowsDir ?? (() => defaultReadWorkflowsDir(cwd));
   const readCopilotLogin = deps.readCopilotLogin ?? defaultReadCopilotLogin;
+  const readClaimDeadline = deps.readClaimDeadline ?? defaultReadClaimDeadline;
   const readHistoricalBotReview =
     deps.readHistoricalBotReview ?? ((login: string) => fetchHistoricalBotReview(login, gh));
   const readCommitsAreAllMerges =
@@ -1075,7 +1086,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const maxElapsed = parsed.maxElapsed ?? 1200;
   const copilotTimeout = parsed.copilotTimeout ?? 600;
   const waitForCopilot = parsed.waitForCopilot ?? false;
-  const claimDeadlineSec = parsed.claimDeadlineSec ?? DEFAULT_CLAIM_DEADLINE_SEC;
+  const claimDeadlineSec =
+    parsed.claimDeadlineSec ?? readClaimDeadline() ?? DEFAULT_CLAIM_DEADLINE_SEC;
   const readMergeState =
     deps.readMergeState ?? (() => observeMergeState(parsed.pr, gh));
 

@@ -3,6 +3,7 @@ import {
   DEFAULT_ALWAYS_REVIEW_GLOBS,
   DEFAULT_COPILOT_LOGIN,
   DEFAULT_NEVER_ALONE_GLOBS,
+  readCopilotClaimDeadlineSec,
   readCopilotConfig,
   readCopilotLogin,
   type ReadConfigFile,
@@ -26,6 +27,50 @@ describe("readCopilotLogin", () => {
 
   it("returns the default login when the config is unreadable (undefined)", () => {
     expect(readCopilotLogin(reader(undefined))).toBe(DEFAULT_COPILOT_LOGIN);
+  });
+});
+
+describe("readCopilotClaimDeadlineSec", () => {
+  it("returns the configured positive integer", () => {
+    expect(readCopilotClaimDeadlineSec(reader({ bots: { copilotClaimDeadlineSec: 180 } }))).toBe(
+      180,
+    );
+  });
+
+  it("returns undefined when bots is absent", () => {
+    expect(readCopilotClaimDeadlineSec(reader({}))).toBeUndefined();
+  });
+
+  it("returns undefined when the copilotClaimDeadlineSec key is absent", () => {
+    expect(readCopilotClaimDeadlineSec(reader({ bots: {} }))).toBeUndefined();
+  });
+
+  it("returns undefined for a string value", () => {
+    expect(
+      readCopilotClaimDeadlineSec(reader({ bots: { copilotClaimDeadlineSec: "soon" } })),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for 0", () => {
+    expect(
+      readCopilotClaimDeadlineSec(reader({ bots: { copilotClaimDeadlineSec: 0 } })),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for a negative value", () => {
+    expect(
+      readCopilotClaimDeadlineSec(reader({ bots: { copilotClaimDeadlineSec: -5 } })),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined for a float", () => {
+    expect(
+      readCopilotClaimDeadlineSec(reader({ bots: { copilotClaimDeadlineSec: 1.5 } })),
+    ).toBeUndefined();
+  });
+
+  it("returns undefined when the config is unreadable (undefined)", () => {
+    expect(readCopilotClaimDeadlineSec(reader(undefined))).toBeUndefined();
   });
 });
 

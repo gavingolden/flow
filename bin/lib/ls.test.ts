@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRows, formatCostCell, formatRepoCell, runLsCli } from "./ls";
+import { buildRows, formatCostCell, formatNameCell, formatRepoCell, runLsCli } from "./ls";
 import { encodeProjectSegment } from "./cost";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
@@ -179,6 +179,39 @@ describe(buildRows, () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].annotation).toBe("");
+  });
+});
+
+describe("buildRows — waitForCopilot indicator", () => {
+  it("carries waitForCopilot:true onto the row and into the NAME cell", async () => {
+    const rows = await buildRows(
+      [state({ slug: "csv-export", waitForCopilot: true })],
+      [window({ name: "csv-export" })],
+      NOW,
+    );
+    expect(rows[0]).toMatchObject({ waitForCopilot: true, annotation: "" });
+    expect(formatNameCell(rows[0])).toBe("csv-export (wait-copilot)");
+  });
+
+  it("leaves waitForCopilot false (no marker) when absent", async () => {
+    const rows = await buildRows(
+      [state({ slug: "csv-export" })],
+      [window({ name: "csv-export" })],
+      NOW,
+    );
+    expect(rows[0].waitForCopilot).toBe(false);
+    expect(formatNameCell(rows[0])).toBe("csv-export");
+  });
+
+  it("(no state) rows are never wait-copilot", async () => {
+    const rows = await buildRows([], [window({ name: "manual" })], NOW);
+    expect(rows[0].waitForCopilot).toBe(false);
+  });
+
+  it("composes a (no window) drift annotation AND the wait-copilot marker", async () => {
+    const rows = await buildRows([state({ slug: "ghost", waitForCopilot: true })], [], NOW);
+    expect(rows[0]).toMatchObject({ annotation: "(no window)", waitForCopilot: true });
+    expect(formatNameCell(rows[0])).toBe("ghost (no window) (wait-copilot)");
   });
 });
 

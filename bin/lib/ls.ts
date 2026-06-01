@@ -36,6 +36,7 @@ export type Row = {
   pr: string;
   lastActivity: string;
   annotation: "" | "(no window)" | "(no state)";
+  waitForCopilot: boolean;
   cost?: CostBreakdown;
 };
 
@@ -114,6 +115,7 @@ export async function buildRows(
       pr: state.pr ? `#${state.pr}` : "—",
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
       annotation: window ? "" : "(no window)",
+      waitForCopilot: state.waitForCopilot === true,
       cost: costs ? costs[i] : undefined,
     });
   }
@@ -132,6 +134,7 @@ export async function buildRows(
       lastActivity:
         window.activity > 0 ? relativeTime(window.activity * 1000, nowMs) : "—",
       annotation: "(no state)",
+      waitForCopilot: false,
       cost: opts.cost ? EMPTY_COST : undefined,
     });
   }
@@ -158,10 +161,19 @@ export function formatRepoCell(repo: string): string {
   return repo || "—";
 }
 
+/** Composes the NAME cell: base name, then any drift annotation, then a
+ * `(wait-copilot)` marker — the two coexist rather than excluding each other. */
+export function formatNameCell(row: Row): string {
+  let cell = row.name;
+  if (row.annotation) cell += ` ${row.annotation}`;
+  if (row.waitForCopilot) cell += " (wait-copilot)";
+  return cell;
+}
+
 function printTable(rows: Row[], opts: LsOptions): void {
   type Col = { header: string; get: (r: Row) => string };
   const cols: Col[] = [
-    { header: "NAME", get: (r) => (r.annotation ? `${r.name} ${r.annotation}` : r.name) },
+    { header: "NAME", get: (r) => formatNameCell(r) },
     { header: "REPO", get: (r) => formatRepoCell(r.repo) },
     { header: "PHASE", get: (r) => r.phase },
     { header: "PR", get: (r) => r.pr },
