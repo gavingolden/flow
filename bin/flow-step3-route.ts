@@ -141,6 +141,22 @@ export function decideStep3Route(intent: Intent, planMd: string): Decision {
  * tolerate case variants or a trailing WORD (`...target eventually`)
  * — exact-string match against the canonical enum is the contract,
  * and a trailing word is a paraphrase, not decoration.
+ *
+ * Two label shapes are accepted:
+ *   1. Canonical colon-same-line — `- **Recommended path:** <value>` —
+ *      with the value on the same line as the colon.
+ *   2. Drifted bold-period/next-line — a label line of the form
+ *      `- **Recommended path.**` (bold, trailing period, NO colon, NO
+ *      same-line value) whose value is the next NON-BLANK line. This
+ *      tolerates the period-form drift the discovery subagent can emit
+ *      when copying the prose label punctuation as output.
+ * Both shapes feed the same decoration-stripping normalisation loop, so
+ * the case/substring/trailing-word guards apply identically. Drifted-form
+ * detection is bounded by the same section slice, so the next-line reader
+ * never bleeds past the section boundary and never mis-fires on the
+ * sibling `Reading of prescribed methods` / `Plausibility estimate`
+ * bullets (those carry their own value on-line and are not period-form
+ * Recommended-path labels).
  */
 export function extractRecommendedPath(planMd: string): string | null {
   const sectionMatch = planMd.match(/^## Prompt interpretation\s*$/m);
@@ -160,8 +176,26 @@ export function extractRecommendedPath(planMd: string): string | null {
   const pathMatch = sectionBody.match(
     /^\s*-?\s*[*`]*Recommended path[*`]*:[*`]*\s*(.+?)\s*$/m,
   );
-  if (!pathMatch) {
-    return null;
+
+  let raw: string;
+  if (pathMatch) {
+    raw = pathMatch[1].trim();
+  } else {
+    // Drifted shape: a bold-period label (`- **Recommended path.**`) with
+    // NO colon and NO same-line value; the value is the next non-blank
+    // line within the section. The label match is anchored to the line and
+    // forbids a colon, so it cannot collide with the colon-form above.
+    const driftMatch = sectionBody.match(
+      /^[ \t]*-?[ \t]*[*`]*Recommended path[*`]*\.[*`]*[ \t]*$([\s\S]*)/m,
+    );
+    if (!driftMatch) {
+      return null;
+    }
+    const nextLineMatch = driftMatch[1].match(/^\s*([^\s].*?)\s*$/m);
+    if (!nextLineMatch) {
+      return null;
+    }
+    raw = nextLineMatch[1].trim();
   }
 
   // Normalise interleaved decoration to the bare enum string. Each
@@ -171,7 +205,7 @@ export function extractRecommendedPath(planMd: string): string | null {
   // and any trailing punctuation. Only decoration chars (* and
   // backtick) and trailing `. , ; :` are stripped — never
   // alphanumerics, never case-normalised, so a trailing word survives.
-  let value = pathMatch[1].trim();
+  let value = raw;
   for (;;) {
     let changed = false;
     if (value.startsWith("**") && value.endsWith("**") && value.length > 4) {

@@ -234,6 +234,46 @@ describe(extractRecommendedPath, () => {
     const plan = `## Prompt interpretation\n\n- **Reading of prescribed methods:** exhaustive\n- **Plausibility estimate:** Yes.\n- **Recommended path:** methods plausibly reach target\n\n## User-Facing Changes\n\n- **Recommended path:** SHOULD-NOT-BE-PICKED-UP\n`;
     expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
   });
+
+  describe("drifted bold-period/next-line label shape", () => {
+    it.each([
+      "methods plausibly reach target",
+      "extend scope with named additional safe steps",
+      "relax target",
+      "split into multiple pipelines",
+    ])(
+      "extracts '%s' from a `- **Recommended path.**` label with the value on the next line",
+      (enumValue) => {
+        const plan = `## Prompt interpretation\n\n- **Recommended path.**\n${enumValue}\n`;
+        expect(extractRecommendedPath(plan)).toBe(enumValue);
+      },
+    );
+
+    it("skips a blank line between the drifted label and the value", () => {
+      const plan = `## Prompt interpretation\n\n- **Recommended path.**\n\n   relax target\n`;
+      expect(extractRecommendedPath(plan)).toBe("relax target");
+    });
+
+    it("flows the drifted value through the decoration-stripping loop", () => {
+      const plan = `## Prompt interpretation\n\n- **Recommended path.**\n\`methods plausibly reach target\`.\n`;
+      expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
+    });
+
+    it("does NOT bleed past the section boundary when the drifted label has no in-section value", () => {
+      // Drifted label is the last line of the section; the only following
+      // non-blank line lives in the NEXT ## section and must NOT be read.
+      const plan = `## Prompt interpretation\n\n- **Recommended path.**\n\n## User-Facing Changes\n\nSHOULD-NOT-BE-PICKED-UP\n`;
+      expect(extractRecommendedPath(plan)).toBeNull();
+    });
+
+    it("does NOT mis-read the sibling 'Reading of prescribed methods' / 'Plausibility estimate' bullets as the drifted value", () => {
+      // Sibling bullets precede the (colon-form) Recommended-path bullet and
+      // carry their value on-line; the drifted next-line reader must not
+      // pick a sibling bullet up. Colon-form takes precedence here.
+      const plan = `## Prompt interpretation\n\n- **Reading of prescribed methods:** exhaustive\n- **Plausibility estimate:** Yes.\n- **Recommended path:** relax target\n`;
+      expect(extractRecommendedPath(plan)).toBe("relax target");
+    });
+  });
 });
 
 describe("Tension matrix — case-sensitivity and substring guards", () => {
@@ -276,6 +316,21 @@ describe("Tension matrix — case-sensitivity and substring guards", () => {
   it("routes to step 4 for a case variant even with a trailing period", () => {
     const plan = `## Prompt interpretation\n\n- **Recommended path:** Methods plausibly reach target.\n`;
     expect(decideStep3Route("bug", plan)).toBe("route-to-step-4");
+  });
+
+  describe("drifted bold-period/next-line label shape (the live bug)", () => {
+    it("routes a non-feature intent to step 4 for a drifted 'relax target' (fails safe)", () => {
+      // The exact live failure: a drifted bold-period label routed runs
+      // the wrong way (advance-to-step-5) before the parser learned the
+      // second shape. With the fix it fails safe to the approval checkpoint.
+      const plan = `## Prompt interpretation\n\n- **Recommended path.**\nrelax target\n`;
+      expect(decideStep3Route("bug", plan)).toBe("route-to-step-4");
+    });
+
+    it("advances a non-feature intent to step 5 for a drifted 'methods plausibly reach target' (no over-trigger)", () => {
+      const plan = `## Prompt interpretation\n\n- **Recommended path.**\nmethods plausibly reach target\n`;
+      expect(decideStep3Route("bug", plan)).toBe("advance-to-step-5");
+    });
   });
 });
 
