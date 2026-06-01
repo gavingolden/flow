@@ -1222,6 +1222,47 @@ describe(spawnAsync, () => {
     expect(elapsed).toBeLessThanOrEqual(2800);
   });
 
+  it(
+    "caps captured stdout at MAX_STREAM_BYTES (32MB) when a subprocess floods the pipe",
+    { timeout: 20000 },
+    async () => {
+      const MAX_STREAM_BYTES = 32 * 1024 * 1024;
+      // Emit 1MB past the cap so the truncate-rather-than-kill branch fires:
+      // the parent stops appending at the cap but the child still runs to a
+      // clean exit (close, not error/kill).
+      const result = await spawnAsync(
+        process.execPath,
+        ["-e", `process.stdout.write("x".repeat(${MAX_STREAM_BYTES} + 1024 * 1024))`],
+        {},
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.timedOut).toBe(false);
+      // Capture truncated at exactly the cap — proves the overflow chunks were
+      // dropped, not buffered, and the process was not killed on overflow.
+      expect(result.stdout.length).toBe(MAX_STREAM_BYTES);
+    },
+  );
+
+  it(
+    "does not arm a timeout when opts.timeoutMs is undefined (process runs to completion)",
+    { timeout: 5000 },
+    async () => {
+      const start = Date.now();
+      // ~300ms-lived process with no timeoutMs: the timer branch is skipped
+      // entirely, so the process exits on its own and timedOut stays false.
+      const result = await spawnAsync(
+        process.execPath,
+        ["-e", "setTimeout(() => process.exit(5), 300)"],
+        {},
+      );
+      const elapsed = Date.now() - start;
+      expect(result.exitCode).toBe(5);
+      expect(result.timedOut).toBe(false);
+      // Lived its full delay — proves nothing cut it short (no armed timer).
+      expect(elapsed).toBeGreaterThanOrEqual(250);
+    },
+  );
+
   it("runs npm audit and surfaces dependency findings on changed package.json lines", async () => {
     const packageJsonContent = '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
     const auditStdout = makeNpmAuditJson([
