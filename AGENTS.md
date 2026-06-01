@@ -380,8 +380,11 @@ fallback is **mutually exclusive** with every specific scope
 (including `backend`): a mixed diff like `src/a.ts` + `apps/web/src/b.ts`
 matches `src` and runs `src`'s checks only — `root-fallback` does not
 also fire. The orphan `apps/web/src/b.ts` still surfaces in
-`unmatchedFiles` for visibility, but it doesn't trip an extra check
-round.
+`unmatchedFiles` — and on such a mixed diff (a specific scope matched
+but some changed files matched no scope) it now FAILS the gate with
+`reason: "unmatched-files"` and a non-zero exit, rather than silently
+passing; the operator re-runs with an explicit `--scope` to cover the
+orphan surface (or extends the scope matchers).
 
 For the fallback to do anything, the consumer's root `package.json`
 must define `typecheck` and `test` scripts; `filterDefinedChecks` in
