@@ -36,6 +36,12 @@ const SKILL_MD_PATH = path.resolve(
   "SKILL.md",
 );
 const AGENTS_MD_PATH = path.resolve(HERE, "..", "AGENTS.md");
+const EXEMPTION_CONTRACTS_PATH = path.resolve(
+  HERE,
+  "..",
+  "references",
+  "exemption-contracts.md",
+);
 const PR_REVIEW_SKILL_MD_PATH = path.resolve(
   HERE,
   "..",
@@ -145,6 +151,7 @@ const AGENT_PROMPTS_PATH = path.resolve(
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
+const exemptionContractsContent = fs.readFileSync(EXEMPTION_CONTRACTS_PATH, "utf8");
 const prReviewContent = fs.readFileSync(PR_REVIEW_SKILL_MD_PATH, "utf8");
 const fixApplierContent = fs.readFileSync(FIX_APPLIER_INSTRUCTIONS_PATH, "utf8");
 const coderContent = fs.readFileSync(CODER_SKILL_MD_PATH, "utf8");
@@ -339,6 +346,23 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     return [...agentsContent.matchAll(re)].map((m) => normaliseExemption(m[1]));
   }
 
+  /**
+   * Extract exemption keys from references/exemption-contracts.md — the
+   * offload target for the per-exemption contract bodies. Each exemption
+   * is a `## <skill-and-heading>` section whose heading text matches the
+   * AGENTS.md opener name (minus the `/flow-pipeline → ` prefix). The
+   * file-level `# Task-tool exemption contracts` title is an h1 and is
+   * not matched. This guards the offloaded file against silent drift
+   * (a section deleted, renamed, or a ninth added) — the same drift
+   * class the AGENTS.md ↔ SKILL.md symmetry above prevents.
+   */
+  function extractContractsExemptions(): string[] {
+    const re = /^## (.+)$/gm;
+    return [...exemptionContractsContent.matchAll(re)].map((m) =>
+      normaliseExemption(m[1]),
+    );
+  }
+
   it("flow-pipeline/SKILL.md Hard rules lists exactly 8 Task-tool exemptions", () => {
     const exemptions = extractSkillExemptions();
     expect(
@@ -378,6 +402,36 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
       `Exemptions in AGENTS.md but missing from flow-pipeline/SKILL.md: ${JSON.stringify(onlyInAgents)}. ` +
         "Add the matching `**Task-tool exemption #N: ...**` block to flow-pipeline/SKILL.md " +
         "Hard rules so the bidirectional contract holds.",
+    ).toBe(0);
+  });
+
+  it("references/exemption-contracts.md lists exactly 8 contract sections", () => {
+    const exemptions = extractContractsExemptions();
+    expect(
+      exemptions.length,
+      "references/exemption-contracts.md must hold exactly 8 `## ` contract " +
+        "sections (one per Task-tool exemption). Found: " +
+        JSON.stringify(exemptions),
+    ).toBe(8);
+  });
+
+  it("references/exemption-contracts.md matches the AGENTS.md exemption set", () => {
+    const contracts = new Set(extractContractsExemptions());
+    const agents = new Set(extractAgentsExemptions());
+    const onlyInContracts = [...contracts].filter((x) => !agents.has(x));
+    const onlyInAgents = [...agents].filter((x) => !contracts.has(x));
+    expect(
+      onlyInContracts.length,
+      `Sections in references/exemption-contracts.md but missing from AGENTS.md openers: ${JSON.stringify(onlyInContracts)}. ` +
+        "The offloaded contract file and the AGENTS.md `## Don'ts` openers enumerate the same " +
+        "eight exemptions; a section heading must match its AGENTS.md opener name (minus the " +
+        "`/flow-pipeline → ` prefix) so a reader hopping AGENTS.md → references lands on the right section.",
+    ).toBe(0);
+    expect(
+      onlyInAgents.length,
+      `AGENTS.md openers but missing from references/exemption-contracts.md: ${JSON.stringify(onlyInAgents)}. ` +
+        "Every offloaded exemption needs its full contract body in the references file so the " +
+        "trimmed AGENTS.md bullet stays discoverable in ≤2 hops.",
     ).toBe(0);
   });
 
