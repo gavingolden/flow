@@ -1048,6 +1048,35 @@ describe(formatReport, () => {
     expect(output).toContain("Unmatched files (1):");
     expect(output).toContain("apps/web/src/b.ts");
   });
+
+  it("renders 'Gate failed:' when all checks were skipped and orphans remain", () => {
+    // A specific scope matched (backend) leaving an orphan, but every check
+    // it spawned was skipped (go not on PATH), so ran-checks total is 0 while
+    // skipped > 0. The line-659 `total === 0 && skipped === 0` guard is false,
+    // so formatReport falls through to the skip-summary + Gate-failed arm.
+    const output = formatReport(
+      createReport({
+        scopes: ["backend"] as Scope[],
+        results: [
+          createResult({
+            name: "go vet -C backend ./...",
+            scope: "backend",
+            passed: true,
+            skipReason: "go-not-installed",
+          }),
+        ],
+        allPassed: false,
+        changedFiles: ["backend/x.go", "root-config.txt"],
+        unmatchedFiles: ["root-config.txt"],
+        reason: "unmatched-files",
+      }),
+    );
+    expect(output).toContain("0/0 checks passed (1 skipped).");
+    expect(output).toContain("Gate failed:");
+    expect(output).toContain("matched no checked scope");
+    expect(output).toContain("Unmatched files (1):");
+    expect(output).toContain("root-config.txt");
+  });
 });
 
 describe(stripAnsi, () => {
