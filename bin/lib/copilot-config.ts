@@ -7,7 +7,8 @@
  * back-compat shim. Anything unreadable, malformed, or wrong-typed
  * collapses to the built-in defaults.
  *
- * Consumed by `flow-ci-wait.ts` (login only, via the `Deps.readCopilotLogin`
+ * Consumed by `flow-ci-wait.ts` (login via the `Deps.readCopilotLogin` seam,
+ * plus the global `bots.copilotClaimDeadlineSec` via the `Deps.readClaimDeadline`
  * seam) and `flow-request-copilot.ts` (login + merged glob sets).
  */
 
