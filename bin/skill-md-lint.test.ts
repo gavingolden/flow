@@ -466,6 +466,31 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
   });
 });
 
+describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warning)", () => {
+  /**
+   * AGENTS.md grows ~10k chars/quarter as new Task-tool exemptions land,
+   * and once cleared Claude Code's 40k per-session performance warning with
+   * little headroom (PR #218). #219 added this guard so the budget is
+   * enforced on every PR via `npm run verify` rather than relying on a
+   * one-time PR-body checkbox. The budget is 34_000, not the 40_000
+   * warning threshold: it locks in the headroom won by offloading the eight
+   * exemption contract bodies to references/exemption-contracts.md (#220)
+   * instead of letting the file silently regrow back toward 40k.
+   */
+  it("AGENTS.md stays under the char budget", () => {
+    const CHAR_BUDGET = 34_000;
+    expect(
+      agentsContent.length,
+      `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
+        `To add a new contract, dedup an equivalent volume first or offload it ` +
+        `to a references/ file (see references/exemption-contracts.md for the ` +
+        `offload-then-trim playbook landed in #220) rather than raising this ` +
+        `budget — the budget keeps AGENTS.md clear of Claude Code's 40k ` +
+        `per-session performance warning.`,
+    ).toBeLessThan(CHAR_BUDGET);
+  });
+});
+
 describe("/coder caller-list symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md ↔ coder/SKILL.md)", () => {
   /**
    * The /coder skill is invoked by three callers via the wider-scope path of
