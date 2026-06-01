@@ -59,9 +59,12 @@ function setup(
     noHooks?: boolean;
     repairSettings?: boolean;
     flowSourceOverride?: string;
+    installRootOverride?: string;
+    installDeps?: boolean;
+    installRunner?: (root: string) => { ok: boolean; stderr?: string };
   } = {},
 ) {
-  const { flowSourceOverride, ...rest } = opts;
+  const { flowSourceOverride, installRootOverride, ...rest } = opts;
   // installRoot defaults to flowSource so the existing test fixtures
   // (which only override flowSource) keep recording fixture-rooted paths
   // in the manifest. Tests that exercise the worktree → install-root
@@ -70,7 +73,7 @@ function setup(
   return runSetup({
     ...rest,
     flowSource: flowSourceOverride ?? flowSource,
-    installRoot: flowSource,
+    installRoot: installRootOverride ?? flowSource,
     targets: targets(),
     skipPreflight: true,
     manifestPath,
@@ -954,6 +957,133 @@ describe("flow setup", () => {
       }
     });
   });
+
+  describe("runtime-dependency resolution check", () => {
+    it("sets summary.missingRuntimeDeps and logs the remediation when a runtime dep is absent", () => {
+      // Drop the resolved node_modules entry for one declared dep.
+      fs.rmSync(path.join(flowSource, "node_modules", "picomatch"), {
+        recursive: true,
+        force: true,
+      });
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      try {
+        const summary = runSetup({
+          flowSource,
+          installRoot: flowSource,
+          targets: targets(),
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          // quiet: false so the remediation line surfaces
+        });
+        expect(summary.missingRuntimeDeps).toEqual(["picomatch"]);
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/missing runtime dependencies: picomatch/);
+        expect(allLogs).toMatch(/npm install/);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("leaves summary.missingRuntimeDeps empty and emits no dep error when all deps resolve", () => {
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      try {
+        const summary = setup();
+        expect(summary.missingRuntimeDeps).toEqual([]);
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).not.toMatch(/missing runtime dependencies/);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("checks installRoot, not flowSource (Story 5): worktree missing the dep, canonical has it", () => {
+      // flowSource (the --source worktree) lacks the dep; installRoot
+      // (canonical) has it. The check must read installRoot and pass.
+      const worktree = path.join(scratch, "worktree");
+      buildFakeFlowSource(worktree);
+      fs.rmSync(path.join(worktree, "node_modules", "picomatch"), {
+        recursive: true,
+        force: true,
+      });
+      const summary = setup({ flowSourceOverride: worktree });
+      expect(summary.missingRuntimeDeps).toEqual([]);
+    });
+
+    it("installDeps:true invokes the injected installRunner and clears the missing list on success", () => {
+      fs.rmSync(path.join(flowSource, "node_modules", "picomatch"), {
+        recursive: true,
+        force: true,
+      });
+      let ran = 0;
+      const installRunner = (root: string): { ok: boolean } => {
+        ran++;
+        // Simulate a successful install by materializing the missing module.
+        const dir = path.join(root, "node_modules", "picomatch");
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "picomatch" }));
+        return { ok: true };
+      };
+      const summary = setup({ installDeps: true, installRunner });
+      expect(ran).toBe(1);
+      expect(summary.missingRuntimeDeps).toEqual([]);
+    });
+
+    it("installDeps:true with a failing installRunner keeps the dep missing, logs the failure, and exits 1", () => {
+      // The operationally important branch: a real `npm install` failure
+      // (offline, registry 503, lockfile conflict) lands here. A failed
+      // install must NOT silently turn into a green exit — the re-check
+      // leaves missingRuntimeDeps populated and the CLI seam exits 1.
+      fs.rmSync(path.join(flowSource, "node_modules", "picomatch"), {
+        recursive: true,
+        force: true,
+      });
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      try {
+        const installRunner = (): { ok: boolean; stderr: string } => ({
+          ok: false,
+          stderr: "boom",
+        });
+        // Summary seam: the failed install does not clear the missing list.
+        const summary = runSetup({
+          flowSource,
+          installRoot: flowSource,
+          targets: targets(),
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          installDeps: true,
+          installRunner,
+          // quiet: false so the failure line surfaces
+        });
+        expect(summary.missingRuntimeDeps).toEqual(["picomatch"]);
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/install-deps failed at .*: boom/);
+        expect(allLogs).toMatch(/missing runtime dependencies: picomatch/);
+      } finally {
+        logSpy.mockRestore();
+      }
+
+      // Exit-code seam: the same still-missing dep drives runSetupCli to 1.
+      const code = runSetupCli(["--install-deps"], {
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        installRunner: () => ({ ok: false, stderr: "boom" }),
+        quiet: true,
+      });
+      expect(code).toBe(1);
+    });
+  });
 });
 
 // --- Fixture builders ---
@@ -1003,6 +1133,28 @@ function buildFakeFlowSource(root: string): void {
   fs.mkdirSync(completionsDir, { recursive: true });
   fs.writeFileSync(path.join(completionsDir, "flow.bash"), "# fake bash completion\n");
   fs.writeFileSync(path.join(completionsDir, "flow.zsh"), "#compdef flow\n# fake\n");
+
+  // package.json declaring two runtime deps, plus a node_modules tree that
+  // resolves both — so the dep-resolution check passes for the default
+  // fixture and only the tests that deliberately drop a dep see `missing`.
+  writeFakePackageJson(root, { picomatch: "^4.0.0", execa: "^9.0.0" });
+  stubNodeModule(root, "picomatch");
+  stubNodeModule(root, "execa");
+}
+
+/** Write a package.json with the given runtime `dependencies` map. */
+function writeFakePackageJson(root: string, deps: Record<string, string>): void {
+  fs.writeFileSync(
+    path.join(root, "package.json"),
+    JSON.stringify({ name: "fake-flow", dependencies: deps }),
+  );
+}
+
+/** Create node_modules/<name>/package.json so the dep resolves on disk. */
+function stubNodeModule(root: string, name: string): void {
+  const dir = path.join(root, "node_modules", name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name }));
 }
 
 /**

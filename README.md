@@ -27,6 +27,10 @@ bun bin/flow setup
 
 Verifies `tmux` is on PATH (a hard requirement for the tmux-driven flow) and warns if `~/.local/bin/` is missing from `PATH`.
 
+Also verifies every declared runtime dependency resolves from the source root: if `node_modules` is missing or stale you get a loud error naming the unresolved package (e.g. `picomatch`) plus the `npm install` remediation and a non-zero exit, instead of the pipeline silently degrading later (the Copilot classifier and static-analysis review lenses fall back to empty/own-judgment results when their picomatch-backed helper throws on a missing module).
+
+Pass the opt-in `flow setup --install-deps` to run `npm install` at the source root and re-check before symlinking, rather than reporting the missing package and exiting.
+
 Update with `cd ~/code/flow && git pull && flow setup --upgrade`.
 
 If `flow setup` emits `! hooks/Stop:flow-stop-guard (malformed-json: ...)`, the user's `~/.claude/settings.json` was malformed before flow touched it (a third-party tool, a crashed editor, or hand-editing typo) and the Stop-hook merge has refused to overwrite it. Run `flow setup --repair-settings` to back up the malformed file to a timestamped sibling (`<path>.flow-backup-<ISO8601>`) and rewrite it with a minimal valid file containing just the Stop hook. The backup is created next to the file the path resolves to, so dotfiles-managed symlinked settings are handled correctly (the symlink is preserved; the underlying target is the file that gets backed up and rewritten).

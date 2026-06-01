@@ -13,6 +13,7 @@ describe("parseSetupArgs", () => {
       noHooks: false,
       pullCanonical: true,
       repairSettings: false,
+      installDeps: false,
     });
   });
 
@@ -24,6 +25,7 @@ describe("parseSetupArgs", () => {
       noHooks: false,
       pullCanonical: true,
       repairSettings: false,
+      installDeps: false,
     });
   });
 
@@ -35,6 +37,7 @@ describe("parseSetupArgs", () => {
       noHooks: false,
       pullCanonical: true,
       repairSettings: false,
+      installDeps: false,
     });
   });
 
@@ -46,6 +49,7 @@ describe("parseSetupArgs", () => {
       noHooks: false,
       pullCanonical: true,
       repairSettings: false,
+      installDeps: false,
     });
   });
 
@@ -57,6 +61,7 @@ describe("parseSetupArgs", () => {
       noHooks: true,
       pullCanonical: true,
       repairSettings: false,
+      installDeps: false,
     });
   });
 
@@ -68,6 +73,7 @@ describe("parseSetupArgs", () => {
       noHooks: false,
       pullCanonical: false,
       repairSettings: false,
+      installDeps: false,
     });
   });
 
@@ -79,6 +85,7 @@ describe("parseSetupArgs", () => {
       noHooks: false,
       pullCanonical: false,
       repairSettings: false,
+      installDeps: false,
     });
   });
 
@@ -90,6 +97,19 @@ describe("parseSetupArgs", () => {
       noHooks: false,
       pullCanonical: true,
       repairSettings: true,
+      installDeps: false,
+    });
+  });
+
+  it("recognizes --install-deps", () => {
+    expect(parseSetupArgs(["--install-deps"])).toEqual({
+      upgrade: false,
+      force: false,
+      noCompletions: false,
+      noHooks: false,
+      pullCanonical: true,
+      repairSettings: false,
+      installDeps: true,
     });
   });
 
@@ -117,6 +137,7 @@ describe("parseSetupArgs", () => {
       noHooks: false,
       pullCanonical: true,
       repairSettings: false,
+      installDeps: false,
       flowSource: "/abs/path",
     });
   });
@@ -139,6 +160,7 @@ describe("parseSetupArgs", () => {
       noHooks: true,
       pullCanonical: false,
       repairSettings: false,
+      installDeps: false,
       flowSource: "/x",
     });
     expect(
@@ -158,6 +180,7 @@ describe("parseSetupArgs", () => {
       noHooks: true,
       pullCanonical: false,
       repairSettings: false,
+      installDeps: false,
       flowSource: "/x",
     });
   });
@@ -201,6 +224,14 @@ describe("parseSetupArgs", () => {
     const result = parseSetupArgs(["--upgrade", "--mystery"]);
     expect(result).toEqual({
       error: "flow setup: unknown option '--mystery'",
+    });
+  });
+
+  it("still rejects a genuinely unknown flag alongside --install-deps", () => {
+    // The new flag must not widen the unknown-flag rejection path.
+    const result = parseSetupArgs(["--install-deps", "--bogus"]);
+    expect(result).toEqual({
+      error: "flow setup: unknown option '--bogus'",
     });
   });
 
@@ -287,13 +318,39 @@ describe("runSetupCli", () => {
     expect(fs.readFileSync(settingsP, "utf8")).toBe("{not valid json");
   });
 
+  it("returns exit code 1 when summary.missingRuntimeDeps > 0 (declared dep not in node_modules)", () => {
+    // installRoot's package.json declares a runtime dep that has no
+    // node_modules/<name>/package.json — the dep-resolution check populates
+    // summary.missingRuntimeDeps and the CLI flips the exit code.
+    fs.writeFileSync(
+      path.join(flowSource, "package.json"),
+      JSON.stringify({ dependencies: { picomatch: "^4.0.0" } }),
+    );
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      const code = runSetupCli([], {
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: path.join(homeDir, ".claude", "settings.json"),
+      });
+      expect(code).toBe(1);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it("returns exit code 2 on a parser error and prints to stderr", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const code = runSetupCli(["--bogus"]);
     expect(code).toBe(2);
     expect(errSpy).toHaveBeenCalledWith("flow setup: unknown option '--bogus'");
     expect(errSpy).toHaveBeenCalledWith(
-      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings]",
+      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]",
     );
     errSpy.mockRestore();
   });
