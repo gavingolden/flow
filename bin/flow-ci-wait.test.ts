@@ -2854,6 +2854,49 @@ describe("run() integration — branch-protection short-circuit", () => {
     expect(result.decision).toBe("merged-externally");
     expect(result.prState).toBe("MERGED");
   });
+
+  it("(6) proceed-to-review-no-bot arm: 10-min copilot timeout + still BLOCKED → pr-blocked", async () => {
+    // Exercises the OTHER interception disjunct: decideOnPoll returns
+    // proceed-to-review-no-bot (the 10-min copilot timeout, not the auto-detect
+    // early-emit which returns before the intercept), and the PR is still
+    // BLOCKED → pr-blocked. Mirrors the canonical 10-min timeout integration
+    // test, including the PENDING-Copilot-on-head fixture that keeps the
+    // unclaimed-after-deadline / self-dismissed auto-detect paths inert so the
+    // verdict flows through decideOnPoll to the intercept.
+    const clock = makeFakeClock();
+    const PENDING_COPILOT_ON_HEAD: Review[] = [
+      {
+        author: { login: "copilot-pull-request-reviewer" },
+        state: "PENDING",
+        commitOid: STABLE_HEAD_SHA,
+      },
+    ];
+    const steps: GhStep[] = [
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+    ];
+    for (let i = 0; i < 15; i++) {
+      steps.push({ matches: isPrView, response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD) });
+      steps.push(perPollReviewRequests());
+      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+    }
+    const gh = makeGhSequence(steps);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED" }),
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("pr-blocked");
+    expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
+    expect(cap.stderr.join("")).toMatch(/Branch protection blocked \(mergeStateStatus=BLOCKED\)/);
+  });
 });
 
 // ---------------------------------------------------------------------------
