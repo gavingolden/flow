@@ -1133,7 +1133,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   // Copilot history would still incur the capped 10-min timeout.
   const copilotConfigured =
     !parsed.copilotNotRequested &&
-    (requestedReviewers.includes(copilotLogin.toLowerCase()) ||
+    (requestedReviewers.some((l) => copilotAuthorMatch(l) === copilotAuthorMatch(copilotLogin)) ||
       readHistoricalBotReview(copilotLogin));
 
   const startMs = now();
@@ -1232,7 +1232,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     // changes across polls. Only meaningful when Copilot is configured; skip
     // the gh call otherwise.
     const copilotRequestedThisPoll = copilotConfigured
-      ? fetchRequestedReviewers(parsed.pr, gh).includes(copilotLogin.toLowerCase())
+      ? fetchRequestedReviewers(parsed.pr, gh).some(
+          (l) => copilotAuthorMatch(l) === copilotAuthorMatch(copilotLogin),
+        )
       : false;
 
     // Observe CI checks only when CI is configured (presence override).

@@ -452,6 +452,17 @@ describe(extractLatestCopilotReviewCommit, () => {
     expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBe("sha-x");
   });
 
+  it("matches a [bot]-suffixed review author against the bare configured login", () => {
+    const reviews: Review[] = [
+      {
+        author: { login: "copilot-pull-request-reviewer[bot]" },
+        state: "COMMENTED",
+        commitOid: "sha-bot",
+      },
+    ];
+    expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBe("sha-bot");
+  });
+
   it("excludes PENDING Copilot reviews", () => {
     const reviews: Review[] = [
       { author: { login: LOGIN }, state: "PENDING", commitOid: "sha-pending" },
@@ -629,6 +640,17 @@ describe(deriveCopilotSkipReason, () => {
     expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe("self-dismissed");
   });
 
+  it("matches a [bot]-suffixed review author against the bare configured login", () => {
+    const reviews: Review[] = [
+      {
+        author: { login: "copilot-pull-request-reviewer[bot]" },
+        state: "DISMISSED",
+        commitOid: HEAD,
+      },
+    ];
+    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe("self-dismissed");
+  });
+
   it("precedence: self-dismissed wins over unclaimed-after-deadline when both signals apply", () => {
     // DISMISSED on current SHA + ciTerminalAt + deadline elapsed + no
     // non-dismissed review on current SHA — both signals fire; self-dismissed
@@ -751,6 +773,19 @@ describe(fetchHistoricalBotReview, () => {
       {
         stdout: JSON.stringify({
           reviews: [{ author: { login: "Copilot-Pull-Request-Reviewer" } }],
+        }),
+        exitCode: 0,
+      },
+    ]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(true);
+  });
+
+  it("matches a [bot]-suffixed review author against the bare configured login", () => {
+    const gh = ghFromQueue([
+      { stdout: JSON.stringify([{ number: 1 }]), exitCode: 0 },
+      {
+        stdout: JSON.stringify({
+          reviews: [{ author: { login: "copilot-pull-request-reviewer[bot]" } }],
         }),
         exitCode: 0,
       },
@@ -1315,6 +1350,36 @@ describe("run() integration", () => {
     const result = JSON.parse(cap.stdout.join("")) as RunResult;
     expect(result.decision).toBe("proceed-to-review");
     expect(result.ciConfigured).toBe(true);
+    expect(result.copilotConfigured).toBe(true);
+  });
+
+  it("derives copilotConfigured=true from a [bot]-suffixed reviewRequests entry (historical fallback off)", async () => {
+    // GitHub may render the requested reviewer as `<login>[bot]` now that the
+    // POST targets the [bot] request form. With readHistoricalBotReview forced
+    // false, the only way copilotConfigured can be true is the suffix-tolerant
+    // reviewRequests membership check at loop entry — and copilotRequestedThisPoll
+    // re-reading the same [bot] form per poll. The exact-match form would miss both.
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer[bot]"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      perPollReviewRequests(["copilot-pull-request-reviewer[bot]"]),
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
     expect(result.copilotConfigured).toBe(true);
   });
 
