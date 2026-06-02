@@ -12,15 +12,20 @@
  *                       × inline judgment) and, on "request", POST Copilot
  *                       to requested_reviewers + verify it queued.
  *
- * The pure cores (`classifyByGlobs`, `resolveRequestDecision`) live in
- * `./lib/copilot-classify` (no fs/gh, unit-testable) and are re-exported
- * here. The request path uses an injectable GhRunner. Fail-open: every
- * uncertainty resolves to REQUESTING.
+ * The pure cores live in `./lib/copilot-classify` (no fs/gh) and are
+ * re-exported here. The request path uses an injectable GhRunner.
+ * Fail-open: every uncertainty resolves to REQUESTING.
  */
 
-import { readCopilotConfig, type ReadConfigFile } from "./lib/copilot-config";
+import {
+  copilotAuthorMatch,
+  copilotRequestTarget,
+  readCopilotConfig,
+  type ReadConfigFile,
+} from "./lib/copilot-config";
 import {
   classifyByGlobs,
+  isNotRequestableCollaborator422,
   resolveRequestDecision,
   type AgentDecision,
   type GlobClass,
@@ -29,6 +34,7 @@ import {
 import {
   retriggerCopilotReview,
   fetchRequestedReviewers,
+  fetchHistoricalBotReview,
   type GhRunner,
 } from "./flow-ci-wait";
 
@@ -50,6 +56,10 @@ type Verdict = {
   reason: string;
   posted?: boolean;
   queued?: boolean;
+  /** False when the POST 422'd with the benign not-requestable-collaborator body. */
+  copilotRequestable?: boolean;
+  /** Set when the POST was skipped (auto-review already on) — distinct from the 422. */
+  requestSkipReason?: string;
 };
 
 function parseArgs(argv: string[]):
@@ -104,18 +114,36 @@ async function readStdinPaths(): Promise<string[]> {
     .filter((l) => l.length > 0);
 }
 
-/** Fires the POST + verifies Copilot actually queued (silent-rejection short-circuit). */
-function postAndVerify(pr: number, login: string, gh: GhRunner): { posted: boolean; queued: boolean } {
-  const post = retriggerCopilotReview(pr, login, gh);
+/**
+ * Fires the POST + verifies Copilot queued. `target` is the requestable
+ * `<login>[bot]` form; `matchLogin` is the bare login for the re-read log.
+ * A 422 "may only be requested from collaborators" body degrades quietly
+ * (copilotRequestable:false, info stderr, no NOTICE); every OTHER non-zero
+ * exit (403/network) keeps the loud fail-open NOTICE.
+ */
+function postAndVerify(
+  pr: number,
+  target: string,
+  matchLogin: string,
+  gh: GhRunner,
+): { posted: boolean; queued: boolean; copilotRequestable?: boolean } {
+  const post = retriggerCopilotReview(pr, target, gh);
   if (!post.ok) {
+    if (isNotRequestableCollaborator422(post.stderr)) {
+      process.stderr.write(
+        "info: Copilot is not a requestable reviewer on this repo; skipping the bot wait\n",
+      );
+      return { posted: false, queued: false, copilotRequestable: false };
+    }
     // Fail-open: a POST error must not silently suppress the review.
     process.stderr.write(`NOTICE: Copilot request POST failed: ${post.stderr.slice(0, 200)}\n`);
     return { posted: false, queued: false };
   }
-  const queued = fetchRequestedReviewers(pr, gh).includes(login.toLowerCase());
+  const want = copilotAuthorMatch(matchLogin);
+  const queued = fetchRequestedReviewers(pr, gh).some((l) => copilotAuthorMatch(l) === want);
   if (!queued) {
     process.stderr.write(
-      `NOTICE: Copilot request POST returned ok but ${login} is not in requested_reviewers — silent rejection, not queued.\n`,
+      `NOTICE: Copilot request POST returned ok but ${matchLogin} is not in requested_reviewers — silent rejection, not queued.\n`,
     );
   }
   return { posted: true, queued };
@@ -156,9 +184,26 @@ export async function run(
     reason: `override=${parsed.override ?? "auto"} globClass=${globClass} decision=${parsed.decision ?? "none"}`,
   };
   if (requestCopilot) {
-    const { posted, queued } = postAndVerify(parsed.pr, cfg.login, deps.gh ?? defaultGh);
-    verdict.posted = posted;
-    verdict.queued = queued;
+    const gh = deps.gh ?? defaultGh;
+    // Story 3: detect repos where automatic Copilot review is already on —
+    // the in-flight PR has no explicit reviewRequest yet recent merged PRs
+    // carry a Copilot review. Firing a redundant requested_reviewers POST
+    // there is noise, so skip it and let the bot review post on its own.
+    const alreadyRequested = fetchRequestedReviewers(parsed.pr, gh).length > 0;
+    if (!alreadyRequested && fetchHistoricalBotReview(cfg.login, gh)) {
+      verdict.posted = false;
+      verdict.requestSkipReason = "auto-review-already-enabled";
+    } else {
+      const { posted, queued, copilotRequestable } = postAndVerify(
+        parsed.pr,
+        copilotRequestTarget(cfg.login),
+        cfg.login,
+        gh,
+      );
+      verdict.posted = posted;
+      verdict.queued = queued;
+      if (copilotRequestable === false) verdict.copilotRequestable = false;
+    }
   }
   process.stdout.write(`${JSON.stringify(verdict)}\n`);
   return 0;

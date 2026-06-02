@@ -1132,13 +1132,18 @@ relative to the first ci-terminal poll — lives in
 elapsed XmYYs of 20m, cadence Zs`) is written to stderr so the JSON
 on stdout is cleanly capturable.
 
-When the request decision above was to **decline** (`$REQUESTED` is
-`false`), append `--copilot-not-requested` to the `flow-ci-wait` call.
+Append `--copilot-not-requested` to the `flow-ci-wait` call whenever
+Copilot won't be — or wasn't — requested. Three signals trigger it: the
+request decision was to **decline** (`$REQUESTED` is `false`); the verdict
+reports `copilotRequestable:false` (the POST 422'd because Copilot is not a
+requestable collaborator on this repo); or the verdict carries a
+`requestSkipReason` (auto-review was already enabled, so the helper skipped
+the POST). Read the two new verdict fields via `jq` alongside `$REQUESTED`.
 This flag — **not** a no-op — is what frees the decline path: it
 hard-forces `copilotConfigured=false`, bypassing BOTH the in-flight
 `reviewRequests` check AND the historical-PR fallback. Without it,
 `readHistoricalBotReview` keeps `copilotConfigured` true in any repo with
-recent Copilot history, so the declined PR would still wait up to the
+recent Copilot history, so the PR would still wait up to the
 10-min Copilot timeout (saving the credit but not the latency).
 
 Launch the call (run the Bash tool with `run_in_background: true`):
@@ -1146,8 +1151,12 @@ Launch the call (run the Bash tool with `run_in_background: true`):
 ```bash
 VERDICT_FILE="$WORKTREE/.flow-tmp/ci-wait-result.json"
 rm -f "$VERDICT_FILE"   # clear any stale verdict from a prior CI cycle
+REQUESTABLE=$(printf '%s' "$VERDICT" | jq -r '.copilotRequestable // empty')
+SKIP_REASON=$(printf '%s' "$VERDICT" | jq -r '.requestSkipReason // empty')
 NOT_REQUESTED_FLAG=""
-[ "$REQUESTED" = "false" ] && NOT_REQUESTED_FLAG="--copilot-not-requested"
+if [ "$REQUESTED" = "false" ] || [ "$REQUESTABLE" = "false" ] || [ -n "$SKIP_REASON" ]; then
+  NOT_REQUESTED_FLAG="--copilot-not-requested"
+fi
 # Background-by-default: the 10–20-min poll loop outlives the harness's
 # foreground budget. --out persists the final verdict JSON to $VERDICT_FILE
 # on every terminal-decision exit path; that file — NOT a stdout capture —

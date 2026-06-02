@@ -17,6 +17,27 @@ import { FLOW_CONFIG } from "./paths";
 
 export const DEFAULT_COPILOT_LOGIN = "copilot-pull-request-reviewer";
 
+/**
+ * Suffix-tolerant author-match form: lowercase the base login and strip a
+ * trailing `[bot]` so review author-login equality comparisons match
+ * whether GitHub reports `copilot-pull-request-reviewer` or
+ * `copilot-pull-request-reviewer[bot]`. Idempotent.
+ */
+export function copilotAuthorMatch(base: string): string {
+  return base.toLowerCase().replace(/\[bot\]$/, "");
+}
+
+/**
+ * Requestable Bot-actor form for the `requested_reviewers` POST: append a
+ * `[bot]` suffix when absent. The REST `requested_reviewers` endpoint expects
+ * the `<login>[bot]` author-login form first; if that REST POST itself 422s on
+ * the `[bot]` form, the documented fallback is the GraphQL `requestReviews`
+ * mutation with the Bot actor node id. Idempotent.
+ */
+export function copilotRequestTarget(base: string): string {
+  return base.endsWith("[bot]") ? base : `${base}[bot]`;
+}
+
 /** Surfaces that always warrant a review on their own (security/migration/CI/infra). */
 export const DEFAULT_ALWAYS_REVIEW_GLOBS = [
   "**/auth/**",

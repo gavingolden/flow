@@ -194,6 +194,18 @@ for `copilotConfigured === false`**, not an environment variable any
 helper reads; `--copilot-not-requested` is simply the explicit CLI signal
 that forces that condition on the decline path.
 
+Two further degrades feed the same `--copilot-not-requested` →
+`copilotConfigured=false` collapse, not just the trivial-decline case.
+When `flow-request-copilot`'s `requested_reviewers` POST 422s with "may
+only be requested from collaborators" — Copilot is not a requestable
+collaborator on this repo — the verdict carries `copilotRequestable:false`.
+And when automatic Copilot review is already enabled (recent merged PRs
+carry a Copilot review with empty `reviewRequests`), the helper skips the
+POST and sets `requestSkipReason`. Step 7 appends `--copilot-not-requested`
+on either signal as well as on the trivial decline, so a repo where Copilot
+cannot be or need not be requested collapses the bot wait instead of paying
+the capped 10-min timeout.
+
 #### Retrigger on stale review (one-shot)
 
 The historical-PR fallback above answers "is Copilot expected on this

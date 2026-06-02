@@ -368,6 +368,19 @@ describe(deriveCopilotPosted, () => {
     expect(deriveCopilotPosted(reviews, LOGIN)).toBe(true);
   });
 
+  it("matches a [bot]-suffixed review author against the bare configured login", () => {
+    // GitHub reports Copilot's review author as `<login>[bot]`; the
+    // suffix-tolerant author-match must recognise it as the configured login.
+    const reviews: Review[] = [
+      {
+        author: { login: "copilot-pull-request-reviewer[bot]" },
+        state: "APPROVED",
+        commitOid: null,
+      },
+    ];
+    expect(deriveCopilotPosted(reviews, LOGIN)).toBe(true);
+  });
+
   it("ignores reviews in PENDING state (still drafting)", () => {
     const reviews: Review[] = [
       { author: { login: LOGIN }, state: "PENDING", commitOid: null },
@@ -642,7 +655,7 @@ describe(deriveCopilotSkipReason, () => {
 describe(retriggerCopilotReview, () => {
   const LOGIN = "copilot-pull-request-reviewer";
 
-  it("builds the documented gh api POST argv and returns ok:true on success", () => {
+  it("builds the documented gh api POST argv (request-target [bot] form) and returns ok:true on success", () => {
     const calls: string[][] = [];
     const gh: GhRunner = (argv) => {
       calls.push(argv);
@@ -657,8 +670,19 @@ describe(retriggerCopilotReview, () => {
       "POST",
       "repos/{owner}/{repo}/pulls/161/requested_reviewers",
       "-f",
-      `reviewers[]=${LOGIN}`,
+      // POST target is the requestable Bot-actor [bot] form, not the bare login.
+      `reviewers[]=${LOGIN}[bot]`,
     ]);
+  });
+
+  it("targets the [bot] request form even when given the bare configured login", () => {
+    const calls: string[][] = [];
+    const gh: GhRunner = (argv) => {
+      calls.push(argv);
+      return { stdout: "", stderr: "", exitCode: 0 };
+    };
+    retriggerCopilotReview(42, "copilot-pull-request-reviewer", gh);
+    expect(calls[0]).toContain("reviewers[]=copilot-pull-request-reviewer[bot]");
   });
 
   it("returns ok:false with stderr propagated on non-zero exit", () => {

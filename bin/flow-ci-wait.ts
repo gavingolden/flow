@@ -41,6 +41,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  copilotAuthorMatch,
+  copilotRequestTarget,
   readCopilotClaimDeadlineSec,
   readCopilotLogin as readCopilotLoginFromConfig,
 } from "./lib/copilot-config";
@@ -217,10 +219,10 @@ export function deriveBlockedState(
  * real Copilot login is `copilot-pull-request-reviewer`, not `Copilot`.
  */
 export function deriveCopilotPosted(reviews: Review[], configuredLogin: string): boolean {
-  const target = configuredLogin.toLowerCase();
+  const target = copilotAuthorMatch(configuredLogin);
   return reviews.some(
     (r) =>
-      r.author.login.toLowerCase() === target && REVIEW_POSTED_STATES.has(r.state),
+      copilotAuthorMatch(r.author.login) === target && REVIEW_POSTED_STATES.has(r.state),
   );
 }
 
@@ -251,14 +253,14 @@ export function extractLatestCopilotReviewCommit(
   reviews: Review[],
   configuredLogin: string,
 ): string | null {
-  const target = configuredLogin.toLowerCase();
+  const target = copilotAuthorMatch(configuredLogin);
   let latest: string | null = null;
   // last-write-wins semantics on commitOid: when the latest matching review
   // has no commit.oid in the gh projection, we treat the whole signal as null
   // rather than falling back to an earlier review — preferring a safer
   // single-source-of-truth read over a stitched-together approximation.
   for (const r of reviews) {
-    if (r.author.login.toLowerCase() !== target) continue;
+    if (copilotAuthorMatch(r.author.login) !== target) continue;
     if (!REVIEW_POSTED_STATES.has(r.state)) continue;
     latest = r.commitOid;
   }
@@ -448,7 +450,7 @@ export function retriggerCopilotReview(
     "POST",
     `repos/{owner}/{repo}/pulls/${prNumber}/requested_reviewers`,
     "-f",
-    `reviewers[]=${login}`,
+    `reviewers[]=${copilotRequestTarget(login)}`,
   ]);
   if (r.exitCode === 0) return { ok: true, stderr: "" };
   return { ok: false, stderr: r.stderr };
@@ -502,10 +504,10 @@ export function deriveCopilotSkipReason(args: {
 }): "unclaimed-after-deadline" | "self-dismissed" | null {
   if (args.waitForCopilot) return null;
   if (args.headRefOid === "") return null;
-  const target = args.copilotLogin.toLowerCase();
+  const target = copilotAuthorMatch(args.copilotLogin);
   const copilotReviewsOnCurrentSha = args.reviews.filter(
     (r) =>
-      r.author.login.toLowerCase() === target &&
+      copilotAuthorMatch(r.author.login) === target &&
       r.commitOid === args.headRefOid,
   );
   const hasDismissedOnCurrentSha = copilotReviewsOnCurrentSha.some(
@@ -527,7 +529,9 @@ export function deriveCopilotSkipReason(args: {
     // `hasAnyReviewOnCurrentSha` is false then no review of any state
     // (including PENDING) by `target` exists on the current SHA.
     const hasAnyReviewOnCurrentSha = copilotReviewsOnCurrentSha.length > 0;
-    const isRequested = args.requestedReviewers.includes(target);
+    const isRequested = args.requestedReviewers.some(
+      (l) => copilotAuthorMatch(l) === target,
+    );
     if (!hasAnyReviewOnCurrentSha && !isRequested) {
       return "unclaimed-after-deadline";
     }
@@ -784,7 +788,7 @@ export function fetchHistoricalBotReview(
   gh: GhRunner,
   n = 5,
 ): boolean {
-  const target = login.toLowerCase();
+  const target = copilotAuthorMatch(login);
   const list = gh(["pr", "list", "--state", "merged", "--limit", String(n), "--json", "number"]);
   if (list.exitCode !== 0) return false;
   let prs: Array<{ number: number }>;
@@ -803,7 +807,7 @@ export function fetchHistoricalBotReview(
         reviews?: Array<{ author?: { login?: string } }>;
       };
       const matched = (parsed.reviews ?? []).some(
-        (rv) => typeof rv.author?.login === "string" && rv.author.login.toLowerCase() === target,
+        (rv) => typeof rv.author?.login === "string" && copilotAuthorMatch(rv.author.login) === target,
       );
       if (matched) return true;
     } catch {
@@ -1357,8 +1361,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
             // return exit 0 while silently declining to add Copilot to
             // requested_reviewers; re-read and confirm membership rather than
             // trusting the POST blindly.
-            const queued = fetchRequestedReviewers(parsed.pr, gh).includes(
-              copilotLogin.toLowerCase(),
+            const queued = fetchRequestedReviewers(parsed.pr, gh).some(
+              (l) => copilotAuthorMatch(l) === copilotAuthorMatch(copilotLogin),
             );
             if (queued) {
               // Confirmed queued: today's behavior. Reset the Copilot timeout

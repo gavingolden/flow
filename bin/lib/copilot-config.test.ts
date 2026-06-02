@@ -3,6 +3,8 @@ import {
   DEFAULT_ALWAYS_REVIEW_GLOBS,
   DEFAULT_COPILOT_LOGIN,
   DEFAULT_NEVER_ALONE_GLOBS,
+  copilotAuthorMatch,
+  copilotRequestTarget,
   readCopilotClaimDeadlineSec,
   readCopilotConfig,
   readCopilotLogin,
@@ -133,5 +135,39 @@ describe("readCopilotConfig", () => {
       reader({ bots: { copilot: { globs: { alwaysReview: [1, 2] } } } }),
     );
     expect(cfg.globs.alwaysReview).toEqual(DEFAULT_ALWAYS_REVIEW_GLOBS);
+  });
+});
+
+describe("copilotAuthorMatch", () => {
+  it("strips a trailing [bot] suffix", () => {
+    expect(copilotAuthorMatch("copilot-pull-request-reviewer[bot]")).toBe(
+      "copilot-pull-request-reviewer",
+    );
+  });
+
+  it("lowercases a mixed-case login", () => {
+    expect(copilotAuthorMatch("Copilot-Pull-Request-Reviewer")).toBe(
+      "copilot-pull-request-reviewer",
+    );
+  });
+
+  it("leaves an already-bare lowercase login unchanged (idempotent)", () => {
+    expect(copilotAuthorMatch("copilot-pull-request-reviewer")).toBe(
+      "copilot-pull-request-reviewer",
+    );
+  });
+});
+
+describe("copilotRequestTarget", () => {
+  it("appends [bot] to a bare login", () => {
+    expect(copilotRequestTarget("copilot-pull-request-reviewer")).toBe(
+      "copilot-pull-request-reviewer[bot]",
+    );
+  });
+
+  it("leaves an already-suffixed login unchanged (idempotent)", () => {
+    expect(copilotRequestTarget("copilot-pull-request-reviewer[bot]")).toBe(
+      "copilot-pull-request-reviewer[bot]",
+    );
   });
 });

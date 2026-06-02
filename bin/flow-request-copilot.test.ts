@@ -175,15 +175,44 @@ describe("--classify CLI", () => {
 
 const isPost = (argv: string[]) => argv[0] === "api" && argv.includes("POST");
 const isReviewRequests = (argv: string[]) => argv[0] === "pr" && argv[1] === "view";
+const isPrList = (argv: string[]) => argv[0] === "pr" && argv[1] === "list";
 
-function ghStub(responses: { post: number; queuedLogins: string[] }): GhRunner & { calls: string[][] } {
+/**
+ * `post` is the POST exit code; `postStderr` the body returned on a non-zero
+ * POST exit (default ""). `queuedLogins` answers the queued re-read. When
+ * `historicalReviews` is supplied, the stub answers `gh pr list --state
+ * merged` (one merged PR) + `gh pr view --json reviews,reviewRequests` so the
+ * Story-3 auto-review-already-on path resolves; absent it, history is empty.
+ */
+function ghStub(responses: {
+  post: number;
+  queuedLogins: string[];
+  postStderr?: string;
+  historicalReviews?: string[];
+}): GhRunner & { calls: string[][] } {
   const calls: string[][] = [];
   const fn = ((argv: string[]) => {
     calls.push(argv);
-    if (isPost(argv)) return { stdout: "", stderr: "", exitCode: responses.post };
-    if (isReviewRequests(argv)) {
+    if (isPost(argv)) {
+      return { stdout: "", stderr: responses.postStderr ?? "", exitCode: responses.post };
+    }
+    if (isPrList(argv)) {
+      // fetchHistoricalBotReview: list of recent merged PRs.
       return {
-        stdout: JSON.stringify({ reviewRequests: responses.queuedLogins.map((login) => ({ login })) }),
+        stdout: JSON.stringify(responses.historicalReviews ? [{ number: 7 }] : []),
+        stderr: "",
+        exitCode: 0,
+      };
+    }
+    if (isReviewRequests(argv)) {
+      const wantsReviews = argv.includes("reviews");
+      return {
+        stdout: JSON.stringify({
+          reviews: wantsReviews
+            ? (responses.historicalReviews ?? []).map((login) => ({ author: { login } }))
+            : undefined,
+          reviewRequests: responses.queuedLogins.map((login) => ({ login })),
+        }),
         stderr: "",
         exitCode: 0,
       };
@@ -263,6 +292,60 @@ describe("request mode", () => {
     expect(verdict.posted).toBe(false);
     expect(verdict.queued).toBe(false);
     expect(errCap.err.join("")).toMatch(/POST failed/);
+  });
+
+  it("422 not-a-requestable-collaborator → copilotRequestable:false, posted:false, exit 0, no NOTICE", async () => {
+    const gh = ghStub({
+      post: 1,
+      queuedLogins: ["copilot-pull-request-reviewer"], // alreadyRequested → POST branch
+      postStderr: "HTTP 422: Reviews may only be requested from collaborators that have access",
+    });
+    const cap = captureStdout();
+    const errCap = captureStderr();
+    const code = await run(["--pr", "42", "--override", "always"], {
+      gh,
+      readConfig,
+      stdinPaths: async () => ["package-lock.json"],
+    });
+    cap.restore();
+    errCap.restore();
+    expect(code).toBe(0);
+    const verdict = JSON.parse(cap.out.join(""));
+    expect(verdict.copilotRequestable).toBe(false);
+    expect(verdict.posted).toBe(false);
+    expect(errCap.err.join("")).not.toMatch(/NOTICE:/);
+  });
+
+  it("auto-review-already-on → no POST, requestSkipReason set; control with no history still POSTs", async () => {
+    // Auto-review on: empty reviewRequests + recent merged PR carries a Copilot review.
+    const ghAuto = ghStub({
+      post: 0,
+      queuedLogins: [],
+      historicalReviews: ["copilot-pull-request-reviewer[bot]"],
+    });
+    const capAuto = captureStdout();
+    const codeAuto = await run(["--pr", "42", "--override", "always"], {
+      gh: ghAuto,
+      readConfig,
+      stdinPaths: async () => ["package-lock.json"],
+    });
+    capAuto.restore();
+    expect(codeAuto).toBe(0);
+    const verdictAuto = JSON.parse(capAuto.out.join(""));
+    expect(ghAuto.calls.some(isPost)).toBe(false);
+    expect(verdictAuto.requestSkipReason).toBe("auto-review-already-enabled");
+
+    // Control: empty reviewRequests + no history → POST still fires.
+    const ghControl = ghStub({ post: 0, queuedLogins: [] });
+    const capControl = captureStdout();
+    const codeControl = await run(["--pr", "42", "--override", "always"], {
+      gh: ghControl,
+      readConfig,
+      stdinPaths: async () => ["package-lock.json"],
+    });
+    capControl.restore();
+    expect(codeControl).toBe(0);
+    expect(ghControl.calls.some(isPost)).toBe(true);
   });
 
   it("auto + ambiguous + no decision fails open to requesting", async () => {
