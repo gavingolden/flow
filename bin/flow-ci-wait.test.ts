@@ -3515,4 +3515,39 @@ describe("run() integration — verdict persistence", () => {
     expect(fileResult).toEqual(stdoutResult);
     expect(fileResult.decision).toBe("merged-externally");
   });
+
+  it("a persist-write failure does not suppress stdout or change the exit code", async () => {
+    // Point --out at a path whose parent is a regular FILE, so fs.mkdirSync
+    // throws ENOTDIR. The write-failure try/catch in emitResult must swallow
+    // it: stdout JSON and exit 0 stay intact, a stderr line is emitted, and
+    // no verdict file is created.
+    const blocker = path.join(globalCwd, "blocker");
+    fs.writeFileSync(blocker, "not a directory");
+    const outPath = path.join(blocker, "result.json");
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("MERGED") },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100", "--out", outPath], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => false,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    // (a) exit code unchanged.
+    expect(exit).toBe(0);
+    // (b) verdict JSON still emitted to stdout.
+    const stdoutResult = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(stdoutResult.decision).toBe("merged-externally");
+    // (c) a stderr line reports the persist failure.
+    expect(cap.stderr.join("")).toMatch(/failed to persist verdict/);
+    // (d) no verdict file was created.
+    expect(fs.existsSync(outPath)).toBe(false);
+  });
 });
