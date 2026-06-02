@@ -382,11 +382,13 @@ in-process for skills; shell out for scripts; never delegate.
 > 1 (state writes `phase: triage-pending-clarification`) and step 4
 > (state writes `phase: approval-pending-clarification`); (4) the
 > no-change branch of step 1 (state writes `phase:
-> triaged-no-change`); (5) step 7's CI-wait yield, where the harness
-> force-backgrounds the long-running `flow-ci-wait` call and the
-> supervisor writes `phase: ci-wait-pending` and ends the turn
-> cleanly rather than hand-rolling a discouraged manual poll loop
-> (see step 7 for the yield-and-resume contract). Every other step
+> triaged-no-change`); (5) step 7's CI-wait yield, where the
+> supervisor runs the long-running `flow-ci-wait` call backgrounded
+> (it persists its verdict to `$VERDICT_FILE`); if turn-end arrives
+> before the verdict file lands, the supervisor writes `phase:
+> ci-wait-pending` and ends the turn cleanly rather than hand-rolling
+> a discouraged manual poll loop (see step 7 for the yield-and-resume
+> contract). Every other step
 > transition stays in the same turn. Harness-level enforcement:
 > `flow-stop-guard`
 > (registered as a Claude Code Stop hook by `flow setup`) reads
@@ -1139,33 +1141,58 @@ hard-forces `copilotConfigured=false`, bypassing BOTH the in-flight
 recent Copilot history, so the declined PR would still wait up to the
 10-min Copilot timeout (saving the credit but not the latency).
 
+Launch the call (run the Bash tool with `run_in_background: true`):
+
 ```bash
+VERDICT_FILE="$WORKTREE/.flow-tmp/ci-wait-result.json"
+rm -f "$VERDICT_FILE"   # clear any stale verdict from a prior CI cycle
 NOT_REQUESTED_FLAG=""
 [ "$REQUESTED" = "false" ] && NOT_REQUESTED_FLAG="--copilot-not-requested"
-RESULT=$(flow-ci-wait "$PR" $NOT_REQUESTED_FLAG)
+# Background-by-default: the 10–20-min poll loop outlives the harness's
+# foreground budget. --out persists the final verdict JSON to $VERDICT_FILE
+# on every terminal-decision exit path; that file — NOT a stdout capture —
+# is the durable handoff the supervisor reads on completion or resume.
+flow-ci-wait "$PR" $NOT_REQUESTED_FLAG --out "$VERDICT_FILE"
+```
+
+When the backgrounded call exits (or on resume), read the persisted
+verdict from the file and branch on `.decision`:
+
+```bash
+RESULT=$(cat "$VERDICT_FILE")
 DECISION=$(printf '%s' "$RESULT" | jq -r '.decision')
 PR_URL=$(printf '%s' "$RESULT" | jq -r '.prUrl // empty')
 CI_FAILED_CHECKS=$(printf '%s' "$RESULT" | jq -r '.ciFailedChecks // empty')
 ```
 
-**Foreground path (the common case).** `flow-ci-wait` completes
-within the harness's foreground budget, `RESULT` is captured inline,
-and the supervisor branches on `.decision` immediately — no turn-end.
-This path is unchanged.
+**Why background-by-default + file-read, not a foreground capture.** A
+foreground `RESULT=$(flow-ci-wait …)` command substitution loses the
+verdict whenever the harness force-backgrounds the long-running call to
+reclaim its budget — `RESULT` comes back empty and there is nothing
+durable to recover (observed live: two foreground calls returned empty
+stdout, only an explicit background+redirect invocation recovered the
+verdict). Running detached with `--out` makes recovery the *normal*
+path: `flow-ci-wait` writes the same JSON it prints to stdout to
+`$VERDICT_FILE` on every `emitResult` exit, so the supervisor reads a
+file that is always there rather than racing the budget.
 
-**Yield-and-resume fallback (`ci-wait-pending`).** The poll loop runs
-10–20 min — past the Claude Code harness's foreground budget — so the
-harness may force-background the long-running `flow-ci-wait` call. When
-that happens, the supervisor does **not** hand-roll a discouraged
-manual poll loop to wait it out: it writes `flow-state-update --phase
+**On completion.** When the backgrounded `flow-ci-wait` exits, the
+harness re-invokes the supervisor; it runs the read block above and
+branches on `.decision` immediately.
+
+**Yield-and-resume (`ci-wait-pending`).** If the supervisor reaches
+turn-end while the backgrounded call is still running — `$VERDICT_FILE`
+does not yet exist or does not parse — it does **not** hand-roll a
+discouraged manual poll loop: it writes `flow-state-update --phase
 ci-wait-pending` and ends the turn cleanly. `ci-wait-pending` is a
 pending phase — `flow-stop-guard` recognises it as a legitimate
 turn-end (see "Harness-level enforcement" above) and the exit does not
 consume the loop-break budget. On the next re-invocation the supervisor
-re-enters step 7, re-reads the now-complete `flow-ci-wait` JSON verdict,
-and branches on `.decision` exactly as the foreground path does below.
-`ci-wait-pending` is taken **only** when the call is backgrounded; the
-foreground path above stays the default.
+re-enters step 7: if `$VERDICT_FILE` now exists and parses, it reads the
+persisted verdict and branches on `.decision` without re-running the
+loop; otherwise it re-launches the backgrounded `flow-ci-wait` (which
+resumes the poll loop — CI state is observed fresh from GitHub, not
+re-derived from memory).
 
 Branch on `.decision`:
 
@@ -1906,7 +1933,7 @@ Branch on `.resumeAt`:
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/new-feature`. |
 | `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow setup --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
 | `step-6` | Re-enter step 6 (verify). Re-invoke `/verify`. |
-| `step-7` | Re-enter step 7 (ci-wait). Re-enter the poll loop via `flow-ci-wait`. A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-backgrounded pending phase) both resolve here — the supervisor crashed or yielded mid-CI-wait and the poll loop is simply restarted. |
+| `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-backgrounded pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, the backgrounded `flow-ci-wait` already reached a terminal decision — read the persisted verdict and branch on `.decision` without re-running the loop. Only when the file is absent or unparseable does the supervisor re-launch the backgrounded `flow-ci-wait` (the poll loop restarts, observing CI state fresh from GitHub). |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/pr-review <PR>`. |
 | `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — `flow-followups run` then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition) and run `flow-remove-worktree --delete-branch`, write `phase: merged`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
 | `terminal` | Already in a terminal state. Render the corresponding block via `flow-gate-summary --status <merged\|gated\|cancelled> ...` (the same helper every gate-emission site uses) and end without re-running anything. |
