@@ -216,6 +216,41 @@ Make only changes that are directly requested or clearly necessary. Keep solutio
 - Don't add error handling or validation for scenarios that can't happen.
 - Don't create abstractions for one-time operations or hypothetical future needs.
 
+Minimal scope targets *unrequested feature creep* — new features, speculative
+refactors, hypothetical-future abstractions — **not** trivial robustness fixes.
+"Review only changed files" likewise does **not** forbid a minimal edit to an
+adjacent production file when that edit is what makes the PR's own change robust.
+Anti-Overengineering is a guard against doing *more* than the task; it is never a
+license to knowingly ship a *worse* artifact. See the fix-now bar below.
+
+### Fix-now bar — when ALL three hold, fix it in-PR (don't defer, don't rationalize)
+
+A finding MUST be fixed in this PR — not deferred to a tracker issue, and not
+filed away as an "accepted trade-off" in a review artifact — when all three are
+true:
+
+1. **Small** — roughly a handful of lines.
+2. **Low-risk / mechanical** — no meaningful design decision and no research; the
+   change is obvious once seen.
+3. **In-scope** — directly related to code this PR already touches, OR to a
+   brittleness / regression this PR itself introduced.
+
+This holds *even when the clean fix needs a minimal touch to an adjacent
+production file the diff didn't originally include*. Example: when a test would
+otherwise have to assert against a brittle implementation detail (a literal CSS
+utility class, a generated id), add a stable hook to the adjacent component (a
+`data-` attribute) and assert on that — rather than coupling the test to the
+brittle detail and recording the brittleness as a trade-off. That one-line
+adjacent edit is in scope, not scope creep.
+
+The fix-now bar is the mirror of the deferral bar: the same three properties
+that send a finding to fix-now, when inverted, are what let a *genuinely
+standalone or complex* finding be deferred instead. When a finding clears the
+fix-now bar, "I don't want to expand the PR" and "that file wasn't in my diff"
+are not reasons to defer or rationalize. Deferral-to-issue stays reserved for
+work that *fails* the fix-now bar — a fix needing meaningful design or research,
+or a cross-cutting change touching several files.
+
 ## Code Quality
 
 - Review all code as a senior developer: scrutinize design, naming, edge cases, error handling.

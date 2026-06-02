@@ -151,6 +151,20 @@ token-savings impact, highest first.
   manufacture one where none exists. The structural lint for this rule
   lives at `bin/skill-md-lint.test.ts` and anchors on the exact phrase
   **Consider the middle ground when a request is framed as a binary choice.** — renames must update the lint in the same commit.
+- **Fix cheap, in-scope robustness issues now rather than deferring them.**
+  When a fix is small (a handful of lines), low-risk/mechanical, AND
+  directly related to code the PR touches or to a brittleness the PR
+  itself introduced, fix it in-PR — don't defer it to an issue or park
+  it in `anti_patterns_found` as an "accepted trade-off" — even when the
+  clean fix needs a minimal touch to an adjacent production file.
+  "Don't add features beyond the task's stated scope" targets
+  unrequested feature creep, not a trivial edit that makes the PR's own
+  change robust; deferral stays reserved for genuinely standalone or
+  complex work. The full bar and its motivating incident live in
+  `templates/AGENTS.md.template` and `/pr-review`'s
+  `references/fix-applier-instructions.md`; the lint anchors on the
+  exact phrase **Fix cheap, in-scope robustness issues now rather than
+  deferring them.** in `bin/skill-md-lint.test.ts`.
 - **Don't echo file contents or full diffs into chat.** Read with tools
   and reference findings as `path:line`. The user can open the file;
   pasting it back wastes tokens and clutters scrollback.

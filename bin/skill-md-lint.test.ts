@@ -1105,6 +1105,28 @@ describe("AGENTS.md Output style anchors", () => {
         "Found " + (matches?.length ?? 0) + " match(es).",
     ).toBe(1);
   });
+
+  it("AGENTS.md contains the fix-now-vs-defer rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Fix cheap, in-scope robustness issues now
+    // rather than deferring them.** is the stable lint hook for the rule
+    // documented at AGENTS.md `## Output style`. The full fix-now-vs-defer
+    // bar it summarises lives at the two enforcement sites
+    // (templates/AGENTS.md.template `## Anti-Overengineering` and
+    // skills/pipeline/pr-review/references/fix-applier-instructions.md);
+    // this rule is the flow-repo-side decision-discipline pointer. Renaming
+    // the rule's anchor phrase requires updating this assertion in the same
+    // commit.
+    const matches = agentsContent.match(
+      /^- \*\*Fix cheap, in-scope robustness issues now rather than deferring them\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Fix cheap, in-scope robustness issues now rather than deferring them.**' " +
+        "exactly once at the start of a list item in `## Output style`. " +
+        "Found " + (matches?.length ?? 0) + " match(es).",
+    ).toBe(1);
+  });
 });
 
 describe("Prompt-interpretation contract anchors", () => {

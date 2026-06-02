@@ -144,6 +144,37 @@ When deferring, the `deferred[]` entry must include:
 - `tracker_entry_url` — section anchor if you edited an in-repo tracker;
   empty string otherwise. The wrapper renders this in the Step 12 report.
 
+**Bar for fix-now (mirror of the deferral bar) — when ALL three hold, you MUST
+fix in-PR:**
+
+1. **Small** — roughly a handful of lines.
+2. **Low-risk / mechanical** — no meaningful design decision, no research.
+3. **In-scope** — directly related to code this PR already touches, OR to a
+   brittleness / regression this PR itself introduced.
+
+A finding clearing this bar may NOT be deferred and may NOT be parked in
+`anti_patterns_found` as an "accepted trade-off." For this narrow class the
+adjacent-production-file allowance overrides "review only changed files": if the
+clean fix needs a minimal touch to a production file the diff didn't originally
+include — e.g. adding a stable `data-` attribute to the adjacent component so a
+test need not couple to a literal `.flex-1` Tailwind class — make that edit
+rather than asserting against the brittle detail and recording the brittleness
+as a trade-off. Recording a knowingly-brittle artifact you just created in
+`anti_patterns_found` when the clean fix clears this bar is the exact
+anti-pattern the bar forecloses (the canonical incident: a `.flex-1`-coupled
+test shipped as a trade-off and later filed as a standalone issue, when the
+durable fix was a one-line `data-` attribute on the adjacent component).
+`anti_patterns_found` is for *pre-existing* patterns in surrounding code you did
+not introduce and cannot fix in scope — not a release valve for brittleness this
+PR itself adds.
+
+Fix-now and deferral are two outcomes of one classification: a finding clearing
+the fix-now bar's three conditions is fixed now; a finding clearing the deferral
+bar's three conditions is deferred; the residue is your judgment. The single
+source of truth for the fix-now conditions is the consumer repo's `AGENTS.md`
+`## Anti-Overengineering` / fix-now bar (seeded from
+`templates/AGENTS.md.template`).
+
 **Push back on inline comments** that are incorrect or would degrade code
 quality. Blindly accepting every suggestion is worse than thoughtfully
 declining some. Record the push-back in the artifact's `commits[]` with a
