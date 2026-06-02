@@ -955,6 +955,16 @@ export type Args = {
    * Direct-invocation-only override.
    */
   claimDeadlineSec?: number;
+  /**
+   * Durable path the final verdict JSON is persisted to, in addition to
+   * stdout. Resolved relative to `cwd` when relative. Default:
+   * `<cwd>/.flow-tmp/ci-wait-result.json`. The supervisor backgrounds the
+   * call (the 10-20-min loop outlives the harness foreground budget), so
+   * the foreground `RESULT=$(flow-ci-wait …)` capture comes back empty;
+   * the persisted file is what the resumed turn reads instead of re-running
+   * the loop.
+   */
+  out?: string;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
@@ -994,6 +1004,12 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         continue;
       case "--copilot-not-requested":
         out.copilotNotRequested = true;
+        continue;
+      case "--out":
+        if (!value || value.startsWith("--"))
+          return { error: "--out requires a value" };
+        out.out = value;
+        i++;
         continue;
       case "--claim-deadline-sec": {
         if (!value) return { error: "--claim-deadline-sec requires a value" };
@@ -1074,11 +1090,11 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     if (parsed.error === "help") {
-      console.log("usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>]");
+      console.log("usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>]");
       return 0;
     }
     console.error(`flow-ci-wait: ${parsed.error}`);
-    console.error("usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>]");
+    console.error("usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>]");
     return 2;
   }
 
@@ -1088,6 +1104,11 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const waitForCopilot = parsed.waitForCopilot ?? false;
   const claimDeadlineSec =
     parsed.claimDeadlineSec ?? readClaimDeadline() ?? DEFAULT_CLAIM_DEADLINE_SEC;
+  // Persist the final verdict here in addition to stdout, so a backgrounded
+  // call whose foreground capture is cut by the harness budget is still
+  // recoverable on resume (the verdict file, not a 20-min loop re-run).
+  const outPath = path.resolve(cwd, parsed.out ?? path.join(".flow-tmp", "ci-wait-result.json"));
+  const emit = (result: RunResult): void => emitResult(result, outPath);
   const readMergeState =
     deps.readMergeState ?? (() => observeMergeState(parsed.pr, gh));
 
@@ -1137,7 +1158,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       // hiccup; the poll loop is the supervisor's tolerance for the gh
       // surface.
       if (elapsedSec >= maxElapsed) {
-        emitResult({
+        emit({
           decision: "ci-hang",
           polls: pollNum,
           elapsedSec,
@@ -1186,7 +1207,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         process.stderr.write(
           `Branch conflict detected (mergeStateStatus=${mergeState.mergeStateStatus}) — exiting pr-conflicted at poll ${pollNum}\n`,
         );
-        emitResult({
+        emit({
           decision: "pr-conflicted",
           polls: pollNum,
           elapsedSec,
@@ -1256,7 +1277,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         process.stderr.write(
           `Copilot auto-detect: ${skipReason} — exiting proceed-to-review-no-bot at poll ${pollNum}\n`,
         );
-        emitResult({
+        emit({
           decision: "proceed-to-review-no-bot",
           polls: pollNum,
           elapsedSec,
@@ -1356,7 +1377,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
               process.stderr.write(
                 `NOTICE: Copilot retrigger POST returned ok but ${copilotLogin} is not in requested_reviewers — silent rejection, not queued. Proceeding to review without bot.\n`,
               );
-              emitResult({
+              emit({
                 decision: "proceed-to-review-no-bot",
                 polls: pollNum,
                 elapsedSec,
@@ -1435,7 +1456,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         process.stderr.write(
           `Branch protection blocked (mergeStateStatus=${mergeState.mergeStateStatus}) — exiting pr-blocked at poll ${pollNum}\n`,
         );
-        emitResult({
+        emit({
           decision: "pr-blocked",
           polls: pollNum,
           elapsedSec,
@@ -1465,7 +1486,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         copilotSkipReason: null,
       };
       if (verdict.ciFailedChecks) result.ciFailedChecks = verdict.ciFailedChecks;
-      emitResult(result);
+      emit(result);
       return 0;
     }
 
@@ -1473,8 +1494,20 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   }
 }
 
-function emitResult(result: RunResult): void {
-  process.stdout.write(JSON.stringify(result) + "\n");
+function emitResult(result: RunResult, outPath: string): void {
+  const serialized = JSON.stringify(result) + "\n";
+  process.stdout.write(serialized);
+  // Persist the verdict durably so a backgrounded/resumed call can recover
+  // it. A write failure here must never suppress the stdout write above or
+  // change the exit code — the foreground path stays correct regardless.
+  try {
+    fs.mkdirSync(path.dirname(outPath), { recursive: true });
+    fs.writeFileSync(outPath, serialized);
+  } catch (err) {
+    process.stderr.write(
+      `flow-ci-wait: failed to persist verdict to ${outPath}: ${(err as Error).message}\n`,
+    );
+  }
 }
 
 if (import.meta.main) {

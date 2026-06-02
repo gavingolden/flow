@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -28,12 +28,27 @@ import {
   type RunResult,
 } from "./flow-ci-wait";
 
+// `run()` now persists its verdict to `<cwd>/.flow-tmp/ci-wait-result.json`
+// by default. Redirect cwd to a throwaway temp dir for every test so the
+// incidental write from a cwd-less `run()` call never lands in the repo
+// tree. Tests that pass an explicit `cwd` dep (the workflow-trigger block)
+// or an explicit `--out` path are unaffected — those win over this default.
+let globalCwd = "";
+beforeEach(() => {
+  globalCwd = fs.mkdtempSync(path.join(os.tmpdir(), "flow-ci-wait-cwd-"));
+  vi.spyOn(process, "cwd").mockReturnValue(globalCwd);
+});
+
 // Restore any spies (e.g. captureStreams' process.stdout/stderr.write mocks)
 // between tests so a test that throws before its local cap.restore() cannot
 // leak a spy into a later test. Without this, an unrestored stream spy
 // corrupts a subsequent test's fs/stream calls.
 afterEach(() => {
   vi.restoreAllMocks();
+  if (globalCwd) {
+    fs.rmSync(globalCwd, { recursive: true, force: true });
+    globalCwd = "";
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -1006,6 +1021,24 @@ describe(parseArgs, () => {
   it("errors when --claim-deadline-sec is zero", () => {
     expect(parseArgs(["100", "--claim-deadline-sec", "0"])).toEqual({
       error: "--claim-deadline-sec must be a positive integer, got '0'",
+    });
+  });
+
+  // --- --out (verdict-persistence path) ---
+  it("accepts --out with a path value", () => {
+    expect(parseArgs(["100", "--out", "/tmp/verdict.json"])).toEqual({
+      pr: 100,
+      out: "/tmp/verdict.json",
+    });
+  });
+  it("errors when --out is missing its value", () => {
+    expect(parseArgs(["100", "--out"])).toEqual({
+      error: "--out requires a value",
+    });
+  });
+  it("errors when --out is followed by another flag instead of a value", () => {
+    expect(parseArgs(["100", "--out", "--wait-for-copilot"])).toEqual({
+      error: "--out requires a value",
     });
   });
 });
@@ -3387,5 +3420,99 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
     expect(result.decision).toBe("proceed-to-review");
     expect(result.ciConfigured).toBe(false);
     expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "checks")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 6c. run() integration — verdict persistence
+//
+// The verdict JSON is written to a durable file in addition to stdout, so a
+// backgrounded call whose foreground capture is cut by the harness budget is
+// still recoverable on resume. Persistence must fire on every emitResult exit
+// path; these tests cover the standard verdict-driven exit plus one early-emit
+// path (pr-conflicted), assert the file parses to the same object emitted on
+// stdout, and assert the default `<cwd>/.flow-tmp/ci-wait-result.json` path is
+// used when --out is omitted.
+// ---------------------------------------------------------------------------
+
+describe("run() integration — verdict persistence", () => {
+  it("writes the verdict to the --out path matching stdout on the standard exit", async () => {
+    const outPath = path.join(globalCwd, "out", "ci-wait-result.json");
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      perPollReviewRequests(),
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100", "--out", outPath], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const stdoutResult = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(stdoutResult.decision).toBe("proceed-to-review");
+    // The file exists, parses, and is byte-identical to the stdout JSON.
+    expect(fs.existsSync(outPath)).toBe(true);
+    const fileResult = JSON.parse(fs.readFileSync(outPath, "utf8")) as RunResult;
+    expect(fileResult).toEqual(stdoutResult);
+  });
+
+  it("writes the verdict on the pr-conflicted early-emit path", async () => {
+    const outPath = path.join(globalCwd, "out", "ci-wait-result.json");
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("OPEN", []) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100", "--out", outPath], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => false,
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+      readMergeState: () => ({ mergeable: "CONFLICTING", mergeStateStatus: "CONFLICTING" }),
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    expect(fs.existsSync(outPath)).toBe(true);
+    const fileResult = JSON.parse(fs.readFileSync(outPath, "utf8")) as RunResult;
+    expect(fileResult.decision).toBe("pr-conflicted");
+  });
+
+  it("defaults to <cwd>/.flow-tmp/ci-wait-result.json when --out is omitted", async () => {
+    const defaultPath = path.join(globalCwd, ".flow-tmp", "ci-wait-result.json");
+    expect(fs.existsSync(defaultPath)).toBe(false);
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
+      { matches: isPrView, response: prViewResponse("MERGED") },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => false,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const stdoutResult = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(fs.existsSync(defaultPath)).toBe(true);
+    const fileResult = JSON.parse(fs.readFileSync(defaultPath, "utf8")) as RunResult;
+    expect(fileResult).toEqual(stdoutResult);
+    expect(fileResult.decision).toBe("merged-externally");
   });
 });
