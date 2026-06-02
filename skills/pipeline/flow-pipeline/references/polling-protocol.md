@@ -194,7 +194,7 @@ for `copilotConfigured === false`**, not an environment variable any
 helper reads; `--copilot-not-requested` is simply the explicit CLI signal
 that forces that condition on the decline path.
 
-Two further degrades feed the same `--copilot-not-requested` →
+Two further degrade paths feed the same `--copilot-not-requested` →
 `copilotConfigured=false` collapse, not just the trivial-decline case.
 When `flow-request-copilot`'s `requested_reviewers` POST 422s with "may
 only be requested from collaborators" — Copilot is not a requestable
