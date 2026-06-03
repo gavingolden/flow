@@ -544,8 +544,11 @@ export function getChangedFilesForPush(refs: PrePushRef[], git: GitOps = default
     if (ref.remoteSha === ZERO_SHA) {
       // New branch — compare against merge-base with the remote's default
       // branch. Detect it dynamically rather than hardcoding "main" (some
-      // repos still use "master" or other conventions).
-      const base = git.mergeBase(git.defaultBranch(), ref.localSha);
+      // repos still use "master" or other conventions). Use the remote-tracking
+      // ref (origin/<default>): in shared-.git worktree setups the local
+      // <default> ref is frequently graph-stale, so a local merge-base injects
+      // already-merged phantom files into the diff.
+      const base = git.mergeBase(`origin/${git.defaultBranch()}`, ref.localSha);
       if (!base) continue;
       range = `${base}..${ref.localSha}`;
     } else {
@@ -578,7 +581,11 @@ export function resolveDefaultScopeFiles(
   git: GitOps = defaultGitOps,
 ): string[] {
   if (workingTreeDiff.length > 0) return workingTreeDiff;
-  const base = git.mergeBase(git.defaultBranch(), "HEAD");
+  // Use the remote-tracking ref (origin/<default>): in shared-.git worktree
+  // setups the local <default> ref is frequently graph-stale, so a local
+  // merge-base lands on the wrong commit and injects already-merged phantom
+  // files into the diff — the false-positive this fallback path caused.
+  const base = git.mergeBase(`origin/${git.defaultBranch()}`, "HEAD");
   if (!base) return [];
   return git.diffFiles(`${base}..HEAD`);
 }
