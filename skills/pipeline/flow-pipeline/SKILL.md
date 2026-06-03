@@ -1132,22 +1132,41 @@ relative to the first ci-terminal poll — lives in
 elapsed XmYYs of 20m, cadence Zs`) is written to stderr so the JSON
 on stdout is cleanly capturable.
 
-When the request decision above was to **decline** (`$REQUESTED` is
-`false`), append `--copilot-not-requested` to the `flow-ci-wait` call.
-This flag — **not** a no-op — is what frees the decline path: it
-hard-forces `copilotConfigured=false`, bypassing BOTH the in-flight
-`reviewRequests` check AND the historical-PR fallback. Without it,
-`readHistoricalBotReview` keeps `copilotConfigured` true in any repo with
-recent Copilot history, so the declined PR would still wait up to the
-10-min Copilot timeout (saving the credit but not the latency).
+Append `--copilot-not-requested` to the `flow-ci-wait` call only when no
+Copilot review is coming. **Two** signals trigger it: the request decision
+was to **decline** (`$REQUESTED` is `false` — a trivial PR, or the global
+`bots.copilotSkipWait` budget short-circuit, which forces
+`requestCopilot=false` so the wait collapses when your Copilot budget is
+spent); or the verdict reports `copilotRequestable:false` (the request
+failed because Copilot genuinely isn't available on this repo). Read
+`$REQUESTABLE` via `jq` alongside `$REQUESTED`.
+
+A `requestSkipReason` (auto-review already enabled, so the helper skipped
+the redundant request) **deliberately does NOT** append the flag — the
+auto-review will still post, so the supervisor keeps waiting and picks it
+up via the historical/author-match path. Coupling the skip to the flag
+(the pre-decoupling behaviour) made non-trivial PRs race past their own
+auto-review; only a genuine decline or unavailability should collapse the
+wait. The flag — **not** a no-op — hard-forces `copilotConfigured=false`,
+bypassing BOTH the in-flight `reviewRequests` check AND the historical-PR
+fallback; `$SKIP_REASON` may still be read for logging but must not drive
+it.
 
 Launch the call (run the Bash tool with `run_in_background: true`):
 
 ```bash
 VERDICT_FILE="$WORKTREE/.flow-tmp/ci-wait-result.json"
 rm -f "$VERDICT_FILE"   # clear any stale verdict from a prior CI cycle
+REQUESTABLE=$(printf '%s' "$VERDICT" | jq -r '.copilotRequestable // empty')
+SKIP_REASON=$(printf '%s' "$VERDICT" | jq -r '.requestSkipReason // empty')  # logged only; does NOT drive the flag
 NOT_REQUESTED_FLAG=""
-[ "$REQUESTED" = "false" ] && NOT_REQUESTED_FLAG="--copilot-not-requested"
+# Only a genuine decline ($REQUESTED=false: trivial PR or bots.copilotSkipWait
+# budget) or genuine unavailability ($REQUESTABLE=false) collapses the wait.
+# An auto-review skip ($SKIP_REASON set) keeps the wait so the auto-posted
+# Copilot review is still picked up.
+if [ "$REQUESTED" = "false" ] || [ "$REQUESTABLE" = "false" ]; then
+  NOT_REQUESTED_FLAG="--copilot-not-requested"
+fi
 # Background-by-default: the 10–20-min poll loop outlives the harness's
 # foreground budget. --out persists the final verdict JSON to $VERDICT_FILE
 # on every terminal-decision exit path; that file — NOT a stdout capture —

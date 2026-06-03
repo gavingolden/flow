@@ -41,6 +41,9 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import {
+  COPILOT_REQUEST_SLUG,
+  copilotAuthorMatch,
+  matchesCopilot,
   readCopilotClaimDeadlineSec,
   readCopilotLogin as readCopilotLoginFromConfig,
 } from "./lib/copilot-config";
@@ -217,10 +220,10 @@ export function deriveBlockedState(
  * real Copilot login is `copilot-pull-request-reviewer`, not `Copilot`.
  */
 export function deriveCopilotPosted(reviews: Review[], configuredLogin: string): boolean {
-  const target = configuredLogin.toLowerCase();
+  const target = copilotAuthorMatch(configuredLogin);
   return reviews.some(
     (r) =>
-      r.author.login.toLowerCase() === target && REVIEW_POSTED_STATES.has(r.state),
+      copilotAuthorMatch(r.author.login) === target && REVIEW_POSTED_STATES.has(r.state),
   );
 }
 
@@ -251,14 +254,14 @@ export function extractLatestCopilotReviewCommit(
   reviews: Review[],
   configuredLogin: string,
 ): string | null {
-  const target = configuredLogin.toLowerCase();
+  const target = copilotAuthorMatch(configuredLogin);
   let latest: string | null = null;
   // last-write-wins semantics on commitOid: when the latest matching review
   // has no commit.oid in the gh projection, we treat the whole signal as null
   // rather than falling back to an earlier review — preferring a safer
   // single-source-of-truth read over a stitched-together approximation.
   for (const r of reviews) {
-    if (r.author.login.toLowerCase() !== target) continue;
+    if (copilotAuthorMatch(r.author.login) !== target) continue;
     if (!REVIEW_POSTED_STATES.has(r.state)) continue;
     latest = r.commitOid;
   }
@@ -425,12 +428,12 @@ export function isSmallFollowup(
 }
 
 /**
- * Re-requests the configured Copilot login on the PR via the GitHub
- * `requested_reviewers` endpoint — the same endpoint the GitHub UI's
- * "Re-request review" button uses, and the only documented way to force
- * Copilot to re-review after its initial review removed it from
- * `requested_reviewers`. The `{owner}/{repo}` template is `gh api`'s
- * documented substitution, so no manual repo resolution is needed.
+ * Re-requests Copilot on the PR via gh's native Copilot-reviewer support
+ * (`gh pr edit <pr> --add-reviewer @copilot`) — the verified request mechanism
+ * (gh 2.88.x). The older `gh api … requested_reviewers` POST with the
+ * `<login>[bot]` form 422'd because the request slug is `@copilot`, not the
+ * review-author login. The same call backs both the stale-review retrigger
+ * here and `flow-request-copilot`'s initial request.
  *
  * Returns `{ ok: true, stderr: "" }` on `exitCode === 0`, `{ ok: false,
  * stderr: r.stderr }` otherwise. No retry logic; the caller (the run
@@ -439,17 +442,9 @@ export function isSmallFollowup(
  */
 export function retriggerCopilotReview(
   prNumber: number,
-  login: string,
   gh: GhRunner,
 ): { ok: boolean; stderr: string } {
-  const r = gh([
-    "api",
-    "-X",
-    "POST",
-    `repos/{owner}/{repo}/pulls/${prNumber}/requested_reviewers`,
-    "-f",
-    `reviewers[]=${login}`,
-  ]);
+  const r = gh(["pr", "edit", String(prNumber), "--add-reviewer", COPILOT_REQUEST_SLUG]);
   if (r.exitCode === 0) return { ok: true, stderr: "" };
   return { ok: false, stderr: r.stderr };
 }
@@ -502,10 +497,10 @@ export function deriveCopilotSkipReason(args: {
 }): "unclaimed-after-deadline" | "self-dismissed" | null {
   if (args.waitForCopilot) return null;
   if (args.headRefOid === "") return null;
-  const target = args.copilotLogin.toLowerCase();
+  const target = copilotAuthorMatch(args.copilotLogin);
   const copilotReviewsOnCurrentSha = args.reviews.filter(
     (r) =>
-      r.author.login.toLowerCase() === target &&
+      copilotAuthorMatch(r.author.login) === target &&
       r.commitOid === args.headRefOid,
   );
   const hasDismissedOnCurrentSha = copilotReviewsOnCurrentSha.some(
@@ -527,7 +522,9 @@ export function deriveCopilotSkipReason(args: {
     // `hasAnyReviewOnCurrentSha` is false then no review of any state
     // (including PENDING) by `target` exists on the current SHA.
     const hasAnyReviewOnCurrentSha = copilotReviewsOnCurrentSha.length > 0;
-    const isRequested = args.requestedReviewers.includes(target);
+    const isRequested = args.requestedReviewers.some((l) =>
+      matchesCopilot(l, args.copilotLogin),
+    );
     if (!hasAnyReviewOnCurrentSha && !isRequested) {
       return "unclaimed-after-deadline";
     }
@@ -784,7 +781,7 @@ export function fetchHistoricalBotReview(
   gh: GhRunner,
   n = 5,
 ): boolean {
-  const target = login.toLowerCase();
+  const target = copilotAuthorMatch(login);
   const list = gh(["pr", "list", "--state", "merged", "--limit", String(n), "--json", "number"]);
   if (list.exitCode !== 0) return false;
   let prs: Array<{ number: number }>;
@@ -803,7 +800,7 @@ export function fetchHistoricalBotReview(
         reviews?: Array<{ author?: { login?: string } }>;
       };
       const matched = (parsed.reviews ?? []).some(
-        (rv) => typeof rv.author?.login === "string" && rv.author.login.toLowerCase() === target,
+        (rv) => typeof rv.author?.login === "string" && copilotAuthorMatch(rv.author.login) === target,
       );
       if (matched) return true;
     } catch {
@@ -1129,7 +1126,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   // Copilot history would still incur the capped 10-min timeout.
   const copilotConfigured =
     !parsed.copilotNotRequested &&
-    (requestedReviewers.includes(copilotLogin.toLowerCase()) ||
+    (requestedReviewers.some((l) => matchesCopilot(l, copilotLogin)) ||
       readHistoricalBotReview(copilotLogin));
 
   const startMs = now();
@@ -1228,7 +1225,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     // changes across polls. Only meaningful when Copilot is configured; skip
     // the gh call otherwise.
     const copilotRequestedThisPoll = copilotConfigured
-      ? fetchRequestedReviewers(parsed.pr, gh).includes(copilotLogin.toLowerCase())
+      ? fetchRequestedReviewers(parsed.pr, gh).some(
+          (l) => matchesCopilot(l, copilotLogin),
+        )
       : false;
 
     // Observe CI checks only when CI is configured (presence override).
@@ -1336,7 +1335,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
             `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — intervening commits are a small follow-up, skipping retrigger\n`,
           );
         } else {
-          const retrigger = retriggerCopilotReview(parsed.pr, copilotLogin, gh);
+          const retrigger = retriggerCopilotReview(parsed.pr, gh);
           const oldShort = (latestCopilotCommit as string).slice(0, 8);
           const newShort = prInfo.headRefOid.slice(0, 8);
           if (!retrigger.ok) {
@@ -1357,8 +1356,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
             // return exit 0 while silently declining to add Copilot to
             // requested_reviewers; re-read and confirm membership rather than
             // trusting the POST blindly.
-            const queued = fetchRequestedReviewers(parsed.pr, gh).includes(
-              copilotLogin.toLowerCase(),
+            const queued = fetchRequestedReviewers(parsed.pr, gh).some(
+              (l) => matchesCopilot(l, copilotLogin),
             );
             if (queued) {
               // Confirmed queued: today's behavior. Reset the Copilot timeout

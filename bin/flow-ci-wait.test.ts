@@ -368,6 +368,19 @@ describe(deriveCopilotPosted, () => {
     expect(deriveCopilotPosted(reviews, LOGIN)).toBe(true);
   });
 
+  it("matches a [bot]-suffixed review author against the bare configured login", () => {
+    // GitHub reports Copilot's review author as `<login>[bot]`; the
+    // suffix-tolerant author-match must recognise it as the configured login.
+    const reviews: Review[] = [
+      {
+        author: { login: "copilot-pull-request-reviewer[bot]" },
+        state: "APPROVED",
+        commitOid: null,
+      },
+    ];
+    expect(deriveCopilotPosted(reviews, LOGIN)).toBe(true);
+  });
+
   it("ignores reviews in PENDING state (still drafting)", () => {
     const reviews: Review[] = [
       { author: { login: LOGIN }, state: "PENDING", commitOid: null },
@@ -437,6 +450,17 @@ describe(extractLatestCopilotReviewCommit, () => {
       },
     ];
     expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBe("sha-x");
+  });
+
+  it("matches a [bot]-suffixed review author against the bare configured login", () => {
+    const reviews: Review[] = [
+      {
+        author: { login: "copilot-pull-request-reviewer[bot]" },
+        state: "COMMENTED",
+        commitOid: "sha-bot",
+      },
+    ];
+    expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBe("sha-bot");
   });
 
   it("excludes PENDING Copilot reviews", () => {
@@ -616,6 +640,17 @@ describe(deriveCopilotSkipReason, () => {
     expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe("self-dismissed");
   });
 
+  it("matches a [bot]-suffixed review author against the bare configured login", () => {
+    const reviews: Review[] = [
+      {
+        author: { login: "copilot-pull-request-reviewer[bot]" },
+        state: "DISMISSED",
+        commitOid: HEAD,
+      },
+    ];
+    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe("self-dismissed");
+  });
+
   it("precedence: self-dismissed wins over unclaimed-after-deadline when both signals apply", () => {
     // DISMISSED on current SHA + ciTerminalAt + deadline elapsed + no
     // non-dismissed review on current SHA — both signals fire; self-dismissed
@@ -640,30 +675,21 @@ describe(deriveCopilotSkipReason, () => {
 // ---------------------------------------------------------------------------
 
 describe(retriggerCopilotReview, () => {
-  const LOGIN = "copilot-pull-request-reviewer";
-
-  it("builds the documented gh api POST argv and returns ok:true on success", () => {
+  it("requests Copilot via the gh-CLI native `--add-reviewer @copilot` argv and returns ok:true on success", () => {
     const calls: string[][] = [];
     const gh: GhRunner = (argv) => {
       calls.push(argv);
       return { stdout: "", stderr: "", exitCode: 0 };
     };
-    const out = retriggerCopilotReview(161, LOGIN, gh);
+    const out = retriggerCopilotReview(161, gh);
     expect(out).toEqual({ ok: true, stderr: "" });
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual([
-      "api",
-      "-X",
-      "POST",
-      "repos/{owner}/{repo}/pulls/161/requested_reviewers",
-      "-f",
-      `reviewers[]=${LOGIN}`,
-    ]);
+    expect(calls[0]).toEqual(["pr", "edit", "161", "--add-reviewer", "@copilot"]);
   });
 
   it("returns ok:false with stderr propagated on non-zero exit", () => {
     const gh: GhRunner = () => ({ stdout: "", stderr: "HTTP 422: Unprocessable", exitCode: 1 });
-    const out = retriggerCopilotReview(161, LOGIN, gh);
+    const out = retriggerCopilotReview(161, gh);
     expect(out).toEqual({ ok: false, stderr: "HTTP 422: Unprocessable" });
   });
 });
@@ -727,6 +753,19 @@ describe(fetchHistoricalBotReview, () => {
       {
         stdout: JSON.stringify({
           reviews: [{ author: { login: "Copilot-Pull-Request-Reviewer" } }],
+        }),
+        exitCode: 0,
+      },
+    ]);
+    expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(true);
+  });
+
+  it("matches a [bot]-suffixed review author against the bare configured login", () => {
+    const gh = ghFromQueue([
+      { stdout: JSON.stringify([{ number: 1 }]), exitCode: 0 },
+      {
+        stdout: JSON.stringify({
+          reviews: [{ author: { login: "copilot-pull-request-reviewer[bot]" } }],
         }),
         exitCode: 0,
       },
@@ -1125,11 +1164,12 @@ const isPrView = (argv: string[]) =>
 
 const isPrChecks = (argv: string[]) => argv[0] === "pr" && argv[1] === "checks";
 
+// The retrigger now requests Copilot via the gh-CLI native command
+// `gh pr edit <pr> --add-reviewer @copilot` (not the old requested_reviewers
+// POST, which 422'd on the wrong Org login). The matcher name is retained
+// for continuity with the tests that count "how many requests went out".
 const isRequestedReviewersPost = (argv: string[]) =>
-  argv[0] === "api" &&
-  argv.includes("-X") &&
-  argv[argv.indexOf("-X") + 1] === "POST" &&
-  argv.some((a) => /\/pulls\/\d+\/requested_reviewers$/.test(a));
+  argv[0] === "pr" && argv[1] === "edit" && argv.includes("--add-reviewer");
 
 const PR_URL = "https://x/y/pull/100";
 const STABLE_HEAD_SHA = "sha-current";
@@ -1291,6 +1331,36 @@ describe("run() integration", () => {
     const result = JSON.parse(cap.stdout.join("")) as RunResult;
     expect(result.decision).toBe("proceed-to-review");
     expect(result.ciConfigured).toBe(true);
+    expect(result.copilotConfigured).toBe(true);
+  });
+
+  it("derives copilotConfigured=true from a [bot]-suffixed reviewRequests entry (historical fallback off)", async () => {
+    // GitHub may render the requested reviewer as `<login>[bot]` now that the
+    // POST targets the [bot] request form. With readHistoricalBotReview forced
+    // false, the only way copilotConfigured can be true is the suffix-tolerant
+    // reviewRequests membership check at loop entry — and copilotRequestedThisPoll
+    // re-reading the same [bot] form per poll. The exact-match form would miss both.
+    const clock = makeFakeClock();
+    const gh = makeGhSequence([
+      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer[bot]"]) },
+      { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
+      perPollReviewRequests(["copilot-pull-request-reviewer[bot]"]),
+      { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
+    ]);
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => "copilot-pull-request-reviewer",
+      readHistoricalBotReview: () => false,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.decision).toBe("proceed-to-review");
     expect(result.copilotConfigured).toBe(true);
   });
 

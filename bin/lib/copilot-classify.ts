@@ -53,3 +53,16 @@ export function resolveRequestDecision(args: {
       return true; // 'non-trivial' OR undefined/unknown → fail-open to request
   }
 }
+
+/**
+ * Discriminates the BENIGN 422 (Copilot is not a requestable collaborator on
+ * this repo — e.g. the bot isn't installed / org policy disallows it) from a
+ * genuine `requested_reviewers` POST failure (403, network, malformed) which
+ * must stay loud and fail-open. GitHub's 422 body for the benign case carries
+ * the substring "may only be requested from collaborators"; match it
+ * case-insensitively and narrowly. Pure (no fs, no gh) so it stays
+ * unit-testable.
+ */
+export function isNotRequestableCollaborator422(stderr: string): boolean {
+  return stderr.toLowerCase().includes("may only be requested from collaborators");
+}
