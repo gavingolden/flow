@@ -28,14 +28,37 @@ export function copilotAuthorMatch(base: string): string {
 }
 
 /**
- * Requestable Bot-actor form for the `requested_reviewers` POST: append a
- * `[bot]` suffix when absent. The REST `requested_reviewers` endpoint expects
- * the `<login>[bot]` author-login form first; if that REST POST itself 422s on
- * the `[bot]` form, the documented fallback is the GraphQL `requestReviews`
- * mutation with the Bot actor node id. Idempotent.
+ * The request slug gh's native Copilot-reviewer support expects:
+ * `gh pr edit <pr> --add-reviewer @copilot`. Verified against gh 2.88.x on a
+ * private personal-account repo — the add-reviewer call succeeds and Copilot
+ * lands in `requested_reviewers` as `{login: "Copilot", type: "Bot"}`. This is
+ * the REQUEST identity; Copilot's review-AUTHOR identity is the distinct
+ * `copilot-pull-request-reviewer` login (see `matchesCopilot`).
  */
-export function copilotRequestTarget(base: string): string {
-  return base.endsWith("[bot]") ? base : `${base}[bot]`;
+export const COPILOT_REQUEST_SLUG = "@copilot";
+
+/** Copilot's two interchangeable bare logins: the `@copilot` slug strips to
+ * `copilot`, and `requested_reviewers` / review-author surfaces use
+ * `copilot-pull-request-reviewer`. Aliases expand only when the configured
+ * base is itself a Copilot login, so a custom bot login never matches them. */
+const COPILOT_ALIASES = new Set(["copilot", "copilot-pull-request-reviewer"]);
+
+/**
+ * Unified Copilot-identity predicate. Returns true when `login` denotes the
+ * same reviewer as `configuredBase`, across all four surfaces Copilot renders
+ * under: the `@copilot` request slug (`copilot`), the `requested_reviewers`
+ * GET entry (`Copilot`, type Bot), the GraphQL review author
+ * (`copilot-pull-request-reviewer`), and the REST review author
+ * (`copilot-pull-request-reviewer[bot]`). Both sides are lowercased and have a
+ * trailing `[bot]` stripped; if they match directly, true. Otherwise the
+ * Copilot aliases expand ONLY when the configured base is itself a Copilot
+ * login, so `matchesCopilot("Copilot", "my-bot")` stays false.
+ */
+export function matchesCopilot(login: string, configuredBase: string): boolean {
+  const strippedLogin = copilotAuthorMatch(login);
+  const strippedBase = copilotAuthorMatch(configuredBase);
+  if (strippedLogin === strippedBase) return true;
+  return COPILOT_ALIASES.has(strippedBase) && COPILOT_ALIASES.has(strippedLogin);
 }
 
 /** Surfaces that always warrant a review on their own (security/migration/CI/infra). */
@@ -93,6 +116,13 @@ function extractBotsCopilotClaimDeadlineSec(raw: unknown): number | undefined {
   return typeof n === "number" && Number.isInteger(n) && n > 0 ? n : undefined;
 }
 
+function extractBotsCopilotSkipWait(raw: unknown): boolean {
+  if (typeof raw !== "object" || raw === null) return false;
+  const bots = (raw as Record<string, unknown>).bots;
+  if (typeof bots !== "object" || bots === null) return false;
+  return (bots as Record<string, unknown>).copilotSkipWait === true;
+}
+
 function stringArray(x: unknown): string[] | undefined {
   if (!Array.isArray(x)) return undefined;
   const out = x.filter((e): e is string => typeof e === "string");
@@ -116,6 +146,14 @@ export function readCopilotClaimDeadlineSec(
   read: ReadConfigFile = defaultReadConfigFile,
 ): number | undefined {
   return extractBotsCopilotClaimDeadlineSec(read());
+}
+
+/** Global budget toggle: `bots.copilotSkipWait: true` makes the request path
+ * decline (no Copilot request) and collapses the bot wait. A top-level boolean
+ * sibling of `bots.copilotClaimDeadlineSec`; true only when strictly boolean
+ * true — false/absent/malformed all read false. */
+export function readCopilotSkipWait(read: ReadConfigFile = defaultReadConfigFile): boolean {
+  return extractBotsCopilotSkipWait(read());
 }
 
 /** Login-only accessor — the shape `flow-ci-wait`'s `readCopilotLogin` seam wants. */

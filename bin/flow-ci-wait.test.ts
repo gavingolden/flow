@@ -675,41 +675,21 @@ describe(deriveCopilotSkipReason, () => {
 // ---------------------------------------------------------------------------
 
 describe(retriggerCopilotReview, () => {
-  const LOGIN = "copilot-pull-request-reviewer";
-
-  it("builds the documented gh api POST argv (request-target [bot] form) and returns ok:true on success", () => {
+  it("requests Copilot via the gh-CLI native `--add-reviewer @copilot` argv and returns ok:true on success", () => {
     const calls: string[][] = [];
     const gh: GhRunner = (argv) => {
       calls.push(argv);
       return { stdout: "", stderr: "", exitCode: 0 };
     };
-    const out = retriggerCopilotReview(161, LOGIN, gh);
+    const out = retriggerCopilotReview(161, gh);
     expect(out).toEqual({ ok: true, stderr: "" });
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual([
-      "api",
-      "-X",
-      "POST",
-      "repos/{owner}/{repo}/pulls/161/requested_reviewers",
-      "-f",
-      // POST target is the requestable Bot-actor [bot] form, not the bare login.
-      `reviewers[]=${LOGIN}[bot]`,
-    ]);
-  });
-
-  it("targets the [bot] request form even when given the bare configured login", () => {
-    const calls: string[][] = [];
-    const gh: GhRunner = (argv) => {
-      calls.push(argv);
-      return { stdout: "", stderr: "", exitCode: 0 };
-    };
-    retriggerCopilotReview(42, "copilot-pull-request-reviewer", gh);
-    expect(calls[0]).toContain("reviewers[]=copilot-pull-request-reviewer[bot]");
+    expect(calls[0]).toEqual(["pr", "edit", "161", "--add-reviewer", "@copilot"]);
   });
 
   it("returns ok:false with stderr propagated on non-zero exit", () => {
     const gh: GhRunner = () => ({ stdout: "", stderr: "HTTP 422: Unprocessable", exitCode: 1 });
-    const out = retriggerCopilotReview(161, LOGIN, gh);
+    const out = retriggerCopilotReview(161, gh);
     expect(out).toEqual({ ok: false, stderr: "HTTP 422: Unprocessable" });
   });
 });
@@ -1184,11 +1164,12 @@ const isPrView = (argv: string[]) =>
 
 const isPrChecks = (argv: string[]) => argv[0] === "pr" && argv[1] === "checks";
 
+// The retrigger now requests Copilot via the gh-CLI native command
+// `gh pr edit <pr> --add-reviewer @copilot` (not the old requested_reviewers
+// POST, which 422'd on the wrong Org login). The matcher name is retained
+// for continuity with the tests that count "how many requests went out".
 const isRequestedReviewersPost = (argv: string[]) =>
-  argv[0] === "api" &&
-  argv.includes("-X") &&
-  argv[argv.indexOf("-X") + 1] === "POST" &&
-  argv.some((a) => /\/pulls\/\d+\/requested_reviewers$/.test(a));
+  argv[0] === "pr" && argv[1] === "edit" && argv.includes("--add-reviewer");
 
 const PR_URL = "https://x/y/pull/100";
 const STABLE_HEAD_SHA = "sha-current";

@@ -173,16 +173,21 @@ describe("--classify CLI", () => {
 // CLI: request mode — POST fires / suppresses / silent rejection / fail-open
 // ---------------------------------------------------------------------------
 
-const isPost = (argv: string[]) => argv[0] === "api" && argv.includes("POST");
+// The request now fires via `gh pr edit <pr> --add-reviewer @copilot` (the
+// gh-CLI native Copilot reviewer command), not the old requested_reviewers
+// `gh api POST`. `isPost` is retained as the "did a request go out?" predicate.
+const isPost = (argv: string[]) =>
+  argv[0] === "pr" && argv[1] === "edit" && argv.includes("--add-reviewer");
 const isReviewRequests = (argv: string[]) => argv[0] === "pr" && argv[1] === "view";
 const isPrList = (argv: string[]) => argv[0] === "pr" && argv[1] === "list";
 
 /**
- * `post` is the POST exit code; `postStderr` the body returned on a non-zero
- * POST exit (default ""). `queuedLogins` answers the queued re-read. When
- * `historicalReviews` is supplied, the stub answers `gh pr list --state
- * merged` (one merged PR) + `gh pr view --json reviews,reviewRequests` so the
- * Story-3 auto-review-already-on path resolves; absent it, history is empty.
+ * `post` is the request exit code; `postStderr` the body returned on a
+ * non-zero request exit (default ""). `queuedLogins` answers the queued
+ * re-read. When `historicalReviews` is supplied, the stub answers `gh pr
+ * list --state merged` (one merged PR) + `gh pr view --json
+ * reviews,reviewRequests` so the Story-3 auto-review-already-on path
+ * resolves; absent it, history is empty.
  */
 function ghStub(responses: {
   post: number;
@@ -291,7 +296,7 @@ describe("request mode", () => {
     expect(verdict.requestCopilot).toBe(true);
     expect(verdict.posted).toBe(false);
     expect(verdict.queued).toBe(false);
-    expect(errCap.err.join("")).toMatch(/POST failed/);
+    expect(errCap.err.join("")).toMatch(/NOTICE: Copilot request failed/);
   });
 
   it("422 not-a-requestable-collaborator → copilotRequestable:false, posted:false, exit 0, no NOTICE", async () => {
@@ -346,6 +351,45 @@ describe("request mode", () => {
     capControl.restore();
     expect(codeControl).toBe(0);
     expect(ghControl.calls.some(isPost)).toBe(true);
+  });
+
+  it("request succeeds + queued re-read shows the `Copilot` entry → queued recognized via matchesCopilot", async () => {
+    // GitHub renders the queued Copilot reviewer as login `Copilot` (a Bot),
+    // NOT the `copilot-pull-request-reviewer` author form. The queued check
+    // must recognise it.
+    const gh = ghStub({ post: 0, queuedLogins: ["Copilot"] });
+    const cap = captureStdout();
+    const errCap = captureStderr();
+    const code = await run(["--pr", "42", "--override", "always"], {
+      gh,
+      readConfig,
+      stdinPaths: async () => ["package-lock.json"],
+    });
+    cap.restore();
+    errCap.restore();
+    expect(code).toBe(0);
+    expect(gh.calls.some(isPost)).toBe(true);
+    const verdict = JSON.parse(cap.out.join(""));
+    expect(verdict.posted).toBe(true);
+    expect(verdict.queued).toBe(true);
+    expect(errCap.err.join("")).not.toMatch(/silent rejection/);
+  });
+
+  it("budget short-circuit: bots.copilotSkipWait=true → requestCopilot:false, no request issued", async () => {
+    const gh = ghStub({ post: 0, queuedLogins: [] });
+    const cap = captureStdout();
+    // override=always would normally force a request; the budget toggle wins.
+    const code = await run(["--pr", "42", "--override", "always"], {
+      gh,
+      readConfig: () => ({ bots: { copilotSkipWait: true } }),
+      stdinPaths: async () => ["src/index.ts"],
+    });
+    cap.restore();
+    expect(code).toBe(0);
+    const verdict = JSON.parse(cap.out.join(""));
+    expect(verdict.requestCopilot).toBe(false);
+    expect(verdict.reason).toMatch(/budget/);
+    expect(gh.calls.some(isPost)).toBe(false);
   });
 
   it("auto + ambiguous + no decision fails open to requesting", async () => {

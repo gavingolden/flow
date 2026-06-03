@@ -194,17 +194,31 @@ for `copilotConfigured === false`**, not an environment variable any
 helper reads; `--copilot-not-requested` is simply the explicit CLI signal
 that forces that condition on the decline path.
 
-Two further degrade paths feed the same `--copilot-not-requested` →
-`copilotConfigured=false` collapse, not just the trivial-decline case.
-When `flow-request-copilot`'s `requested_reviewers` POST 422s with "may
-only be requested from collaborators" — Copilot is not a requestable
-collaborator on this repo — the verdict carries `copilotRequestable:false`.
-And when automatic Copilot review is already enabled (recent merged PRs
-carry a Copilot review with empty `reviewRequests`), the helper skips the
-POST and sets `requestSkipReason`. Step 7 appends `--copilot-not-requested`
-on either signal as well as on the trivial decline, so a repo where Copilot
-cannot be or need not be requested collapses the bot wait instead of paying
-the capped 10-min timeout.
+Two more cases feed the same `--copilot-not-requested` →
+`copilotConfigured=false` collapse alongside the trivial decline. The
+global `bots.copilotSkipWait` budget toggle (set in `~/.flow/config.json`
+when your Copilot budget is spent) makes `flow-request-copilot` decline
+outright (`requestCopilot=false`), so the wait collapses for every PR until
+you clear it. And when `flow-request-copilot`'s request genuinely fails
+because Copilot isn't available on the repo, the verdict carries
+`copilotRequestable:false` and the wait collapses (no review is coming).
+
+A `requestSkipReason` (automatic Copilot review already enabled — recent
+merged PRs carry a Copilot review with empty `reviewRequests`, so the
+helper skips the *redundant* request) **does NOT** collapse the wait: the
+auto-review still posts, and the supervisor keeps waiting to pick it up via
+the historical/author-match path. This decoupling is deliberate — coupling
+the skip to `--copilot-not-requested` made non-trivial PRs race past their
+own auto-review.
+
+The verified request mechanism is `gh pr edit <pr> --add-reviewer @copilot`
+(slug `copilot`); the old `requested_reviewers` POST of the login
+`copilot-pull-request-reviewer` 422'd only because that login resolves to
+an Org account, not a requestable reviewer. Note that Copilot renders under
+several identities by API surface — `Copilot` in `requested_reviewers`,
+`copilot-pull-request-reviewer` as the GraphQL review author (+`[bot]` over
+REST) — so flow matches requested-reviewer membership with `matchesCopilot`
+rather than exact login equality.
 
 #### Retrigger on stale review (one-shot)
 

@@ -18,9 +18,9 @@
  */
 
 import {
-  copilotAuthorMatch,
-  copilotRequestTarget,
+  matchesCopilot,
   readCopilotConfig,
+  readCopilotSkipWait,
   type ReadConfigFile,
 } from "./lib/copilot-config";
 import {
@@ -115,19 +115,21 @@ async function readStdinPaths(): Promise<string[]> {
 }
 
 /**
- * Fires the POST + verifies Copilot queued. `target` is the requestable
- * `<login>[bot]` form; `matchLogin` is the bare login for the re-read log.
- * A 422 "may only be requested from collaborators" body degrades quietly
- * (copilotRequestable:false, info stderr, no NOTICE); every OTHER non-zero
- * exit (403/network) keeps the loud fail-open NOTICE.
+ * Fires the request (`gh pr edit --add-reviewer @copilot`) + verifies Copilot
+ * queued. `matchLogin` is the configured login used to recognise the queued
+ * reviewer — GitHub renders the queued Copilot as `Copilot` in
+ * `requested_reviewers`, so `matchesCopilot` (not exact equality) is the
+ * right test. A request failure whose body matches "may only be requested
+ * from collaborators" degrades quietly (copilotRequestable:false, info
+ * stderr, no NOTICE) as a defensive fallback; every OTHER non-zero exit
+ * (403/network) keeps the loud fail-open NOTICE.
  */
 function postAndVerify(
   pr: number,
-  target: string,
   matchLogin: string,
   gh: GhRunner,
 ): { posted: boolean; queued: boolean; copilotRequestable?: boolean } {
-  const post = retriggerCopilotReview(pr, target, gh);
+  const post = retriggerCopilotReview(pr, gh);
   if (!post.ok) {
     if (isNotRequestableCollaborator422(post.stderr)) {
       process.stderr.write(
@@ -135,15 +137,14 @@ function postAndVerify(
       );
       return { posted: false, queued: false, copilotRequestable: false };
     }
-    // Fail-open: a POST error must not silently suppress the review.
-    process.stderr.write(`NOTICE: Copilot request POST failed: ${post.stderr.slice(0, 200)}\n`);
+    // Fail-open: a request error must not silently suppress the review.
+    process.stderr.write(`NOTICE: Copilot request failed: ${post.stderr.slice(0, 200)}\n`);
     return { posted: false, queued: false };
   }
-  const want = copilotAuthorMatch(matchLogin);
-  const queued = fetchRequestedReviewers(pr, gh).some((l) => copilotAuthorMatch(l) === want);
+  const queued = fetchRequestedReviewers(pr, gh).some((l) => matchesCopilot(l, matchLogin));
   if (!queued) {
     process.stderr.write(
-      `NOTICE: Copilot request POST returned ok but ${matchLogin} is not in requested_reviewers — silent rejection, not queued.\n`,
+      `NOTICE: Copilot request returned ok but Copilot is not in requested_reviewers — silent rejection, not queued.\n`,
     );
   }
   return { posted: true, queued };
@@ -173,15 +174,25 @@ export async function run(
   // Request mode: recompute the glob class from the same diff (paths on
   // stdin) so the helper owns the decision end-to-end.
   const globClass = classifyByGlobs(await stdinPaths(), cfg.globs);
-  const requestCopilot = resolveRequestDecision({
-    override: parsed.override,
-    globClass,
-    agentDecision: parsed.decision,
-  });
+  // Budget short-circuit (highest precedence — overrides override=always):
+  // when `bots.copilotSkipWait` is set, the user's Copilot budget is spent,
+  // so decline the request entirely. requestCopilot=false rides the existing
+  // decline channel (supervisor appends --copilot-not-requested), collapsing
+  // the bot wait so the pipeline doesn't block on a review that won't come.
+  const skipWaitBudget = readCopilotSkipWait(deps.readConfig);
+  const requestCopilot = skipWaitBudget
+    ? false
+    : resolveRequestDecision({
+        override: parsed.override,
+        globClass,
+        agentDecision: parsed.decision,
+      });
   const verdict: Verdict = {
     requestCopilot,
     globClass,
-    reason: `override=${parsed.override ?? "auto"} globClass=${globClass} decision=${parsed.decision ?? "none"}`,
+    reason: skipWaitBudget
+      ? `copilot-skip-wait (budget) globClass=${globClass}`
+      : `override=${parsed.override ?? "auto"} globClass=${globClass} decision=${parsed.decision ?? "none"}`,
   };
   if (requestCopilot) {
     const gh = deps.gh ?? defaultGh;
@@ -194,12 +205,7 @@ export async function run(
       verdict.posted = false;
       verdict.requestSkipReason = "auto-review-already-enabled";
     } else {
-      const { posted, queued, copilotRequestable } = postAndVerify(
-        parsed.pr,
-        copilotRequestTarget(cfg.login),
-        cfg.login,
-        gh,
-      );
+      const { posted, queued, copilotRequestable } = postAndVerify(parsed.pr, cfg.login, gh);
       verdict.posted = posted;
       verdict.queued = queued;
       if (copilotRequestable === false) verdict.copilotRequestable = false;

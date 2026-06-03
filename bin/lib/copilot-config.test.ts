@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  COPILOT_REQUEST_SLUG,
   DEFAULT_ALWAYS_REVIEW_GLOBS,
   DEFAULT_COPILOT_LOGIN,
   DEFAULT_NEVER_ALONE_GLOBS,
   copilotAuthorMatch,
-  copilotRequestTarget,
+  matchesCopilot,
   readCopilotClaimDeadlineSec,
   readCopilotConfig,
   readCopilotLogin,
+  readCopilotSkipWait,
   type ReadConfigFile,
 } from "./copilot-config";
 
@@ -158,16 +160,51 @@ describe("copilotAuthorMatch", () => {
   });
 });
 
-describe("copilotRequestTarget", () => {
-  it("appends [bot] to a bare login", () => {
-    expect(copilotRequestTarget("copilot-pull-request-reviewer")).toBe(
-      "copilot-pull-request-reviewer[bot]",
-    );
+describe("COPILOT_REQUEST_SLUG", () => {
+  it("is the gh-CLI native Copilot reviewer slug", () => {
+    expect(COPILOT_REQUEST_SLUG).toBe("@copilot");
+  });
+});
+
+describe("matchesCopilot", () => {
+  const BASE = "copilot-pull-request-reviewer";
+
+  it("matches the requested_reviewers entry `Copilot` against the base login", () => {
+    expect(matchesCopilot("Copilot", BASE)).toBe(true);
   });
 
-  it("leaves an already-suffixed login unchanged (idempotent)", () => {
-    expect(copilotRequestTarget("copilot-pull-request-reviewer[bot]")).toBe(
-      "copilot-pull-request-reviewer[bot]",
-    );
+  it("matches the REST review author `…[bot]` form", () => {
+    expect(matchesCopilot("copilot-pull-request-reviewer[bot]", BASE)).toBe(true);
+  });
+
+  it("matches the GraphQL review author (bare) form", () => {
+    expect(matchesCopilot("copilot-pull-request-reviewer", BASE)).toBe(true);
+  });
+
+  it("matches the request slug `copilot` against the base login", () => {
+    expect(matchesCopilot("copilot", BASE)).toBe(true);
+  });
+
+  it("matches a custom bot against itself", () => {
+    expect(matchesCopilot("my-bot", "my-bot")).toBe(true);
+  });
+
+  it("does NOT spuriously alias-match a Copilot login against a custom base", () => {
+    expect(matchesCopilot("Copilot", "my-bot")).toBe(false);
+  });
+});
+
+describe("readCopilotSkipWait", () => {
+  it("is true only for a strict boolean true", () => {
+    expect(readCopilotSkipWait(reader({ bots: { copilotSkipWait: true } }))).toBe(true);
+  });
+
+  it("is false when absent", () => {
+    expect(readCopilotSkipWait(reader({ bots: {} }))).toBe(false);
+    expect(readCopilotSkipWait(reader(undefined))).toBe(false);
+  });
+
+  it("is false for a non-boolean value", () => {
+    expect(readCopilotSkipWait(reader({ bots: { copilotSkipWait: "yes" } }))).toBe(false);
   });
 });
