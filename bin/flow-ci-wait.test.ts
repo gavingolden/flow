@@ -1914,7 +1914,7 @@ describe("run() integration — Copilot retrigger", () => {
     const stale = staleCopilotReview(STALE_SHA);
     const steps: GhStep[] = [
       { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
-      // Poll 1: stale review → retrigger POST fires but FAILS.
+      // Poll 1: stale review → retrigger fires but FAILS.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
@@ -1952,9 +1952,9 @@ describe("run() integration — Copilot retrigger", () => {
     expect(result.copilotRetriggered).toBe(true);
     // No second POST attempt even though the first failed.
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
-    // POST stderr is surfaced (polling-protocol.md "POST non-zero is logged"
-    // contract — see fix in bin/flow-ci-wait.ts run() retrigger site).
-    expect(cap.stderr.join("")).toMatch(/Copilot retrigger POST failed/);
+    // Retrigger stderr is surfaced (polling-protocol.md "request failure is
+    // logged" contract — see bin/flow-ci-wait.ts run() retrigger site).
+    expect(cap.stderr.join("")).toMatch(/Copilot retrigger failed/);
   });
 
   it("(6) skips retrigger when every intervening commit is a merge", async () => {
@@ -2314,7 +2314,7 @@ describe("run() integration — post-POST verification (item 2)", () => {
     expect(result.copilotRetriggered).toBe(true);
     expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
-    expect(cap.stderr.join("")).toContain("Copilot retrigger POST failed");
+    expect(cap.stderr.join("")).toContain("Copilot retrigger failed");
     expect(cap.stderr.join("")).not.toContain("NOTICE");
   });
 });
@@ -2481,7 +2481,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     expect(result.polls).toBe(3);
   });
 
-  it("'self-dismissed' fires when DISMISSED on current headRefOid + retrigger POST does NOT fire", async () => {
+  it("'self-dismissed' fires when DISMISSED on current headRefOid + retrigger does NOT fire", async () => {
     const clock = makeFakeClock();
     const dismissed: Review[] = [
       { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
@@ -2511,7 +2511,7 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     expect(result.decision).toBe("proceed-to-review-no-bot");
     expect(result.copilotSkipReason).toBe("self-dismissed");
     expect(result.polls).toBe(1);
-    // CRITICAL ORDERING assertion: the stale-review retrigger POST does NOT
+    // CRITICAL ORDERING assertion: the stale-review retrigger does NOT
     // fire when self-dismissed short-circuits — the auto-detect runs BEFORE
     // the retrigger gate. Belt-and-suspenders via the captured gh call log.
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(0);

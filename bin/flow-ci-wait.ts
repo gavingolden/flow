@@ -1043,8 +1043,8 @@ export type RunResult = {
   copilotConfigured: boolean;
   ciConfigured: boolean;
   /**
-   * True iff the stale-review retrigger POST was attempted in this
-   * invocation. Recorded on POST failure too — the budget is consumed
+   * True iff the stale-review retrigger was attempted in this
+   * invocation. Recorded on failure too — the budget is consumed
    * either way; the supervisor's ci-fix-loop re-invocation is the
    * recovery path.
    */
@@ -1346,16 +1346,16 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
             copilotRetriggered = true;
             ciTerminalAt = elapsedSec;
             process.stderr.write(
-              `Copilot retrigger POST failed: ${retrigger.stderr.slice(0, 200)}\n`,
+              `Copilot retrigger failed: ${retrigger.stderr.slice(0, 200)}\n`,
             );
             process.stderr.write(
               `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — re-requested at poll ${pollNum}\n`,
             );
           } else {
-            // POST ok — verify Copilot is actually queued (item 2). GitHub can
-            // return exit 0 while silently declining to add Copilot to
+            // Retrigger ok — verify Copilot is actually queued (item 2). GitHub
+            // can return exit 0 while silently declining to add Copilot to
             // requested_reviewers; re-read and confirm membership rather than
-            // trusting the POST blindly.
+            // trusting the request blindly.
             const queued = fetchRequestedReviewers(parsed.pr, gh).some(
               (l) => matchesCopilot(l, copilotLogin),
             );
@@ -1368,13 +1368,13 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
                 `Copilot review stale (commit ${oldShort}… < headRefOid ${newShort}…) — re-requested at poll ${pollNum}\n`,
               );
             } else {
-              // Silent rejection: POST accepted but Copilot was not queued.
-              // Do NOT set copilotRetriggered or reset ciTerminalAt — that
-              // would burn the full 10-min Copilot timeout on a review that
-              // will never post. Short-circuit immediately, mirroring the
+              // Silent rejection: the request was accepted but Copilot was not
+              // queued. Do NOT set copilotRetriggered or reset ciTerminalAt —
+              // that would burn the full 10-min Copilot timeout on a review
+              // that will never post. Short-circuit immediately, mirroring the
               // transient-gh early-emit above. copilotRetriggered stays false.
               process.stderr.write(
-                `NOTICE: Copilot retrigger POST returned ok but ${copilotLogin} is not in requested_reviewers — silent rejection, not queued. Proceeding to review without bot.\n`,
+                `NOTICE: Copilot retrigger returned ok but Copilot is not in requested_reviewers — silent rejection, not queued. Proceeding to review without bot.\n`,
               );
               emit({
                 decision: "proceed-to-review-no-bot",
