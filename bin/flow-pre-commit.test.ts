@@ -666,7 +666,7 @@ describe(getChangedFilesForPush, () => {
     });
 
     expect(getChangedFilesForPush(refs, git)).toEqual(["src/new-file.ts"]);
-    expect(mergeBase).toHaveBeenCalledWith("main", "new222");
+    expect(mergeBase).toHaveBeenCalledWith("origin/main", "new222");
   });
 
   it("should honor a non-main default branch when computing new-branch diffs", () => {
@@ -681,7 +681,26 @@ describe(getChangedFilesForPush, () => {
 
     expect(getChangedFilesForPush(refs, git)).toEqual(["src/new-file.ts"]);
     expect(defaultBranch).toHaveBeenCalled();
-    expect(mergeBase).toHaveBeenCalledWith("master", "new222");
+    expect(mergeBase).toHaveBeenCalledWith("origin/master", "new222");
+  });
+
+  it("should base the new-branch diff on origin/<default> so a stale local ref cannot inject phantom files", () => {
+    // Same stale-local-ref exposure as the auto-detect path: in a shared-.git
+    // worktree the local `main` ref is graph-stale, so a local merge-base
+    // sweeps already-merged files into the new-branch diff. Keying the mock off
+    // the ref proves the helper queries origin/main, not local main.
+    const refs = [createRef({ remoteSha: ZERO_SHA, localSha: "new222" })];
+    const mergeBase = vi.fn((ref: string) => (ref === "origin/main" ? "remotebase" : "stalebase"));
+    const git = createMockGit({
+      mergeBase,
+      files: {
+        "remotebase..new222": ["src/new-file.ts"],
+        "stalebase..new222": ["src/new-file.ts", "apps/web/search.ts"],
+      },
+    });
+
+    expect(getChangedFilesForPush(refs, git)).toEqual(["src/new-file.ts"]);
+    expect(mergeBase).toHaveBeenCalledWith("origin/main", "new222");
   });
 
   it("should skip delete refs where local sha is all zeros", () => {
@@ -744,7 +763,7 @@ describe(resolveDefaultScopeFiles, () => {
 
     expect(resolveDefaultScopeFiles([], git)).toEqual(["bin/flow-pre-commit.ts"]);
     expect(defaultBranch).toHaveBeenCalled();
-    expect(mergeBase).toHaveBeenCalledWith("main", "HEAD");
+    expect(mergeBase).toHaveBeenCalledWith("origin/main", "HEAD");
   });
 
   it("should honor a non-main default branch in the clean-tree fallback", () => {
@@ -757,7 +776,29 @@ describe(resolveDefaultScopeFiles, () => {
     });
 
     expect(resolveDefaultScopeFiles([], git)).toEqual(["src/x.ts"]);
-    expect(mergeBase).toHaveBeenCalledWith("master", "HEAD");
+    expect(mergeBase).toHaveBeenCalledWith("origin/master", "HEAD");
+  });
+
+  it("should exclude already-merged phantom files by basing the diff on origin/<default>, not the stale local ref", () => {
+    // PR #179 repro: in a shared-.git worktree the local `main` ref is
+    // graph-stale, so a local merge-base lands on the wrong commit and the
+    // `<base>..HEAD` diff sweeps in already-merged, unrelated files. Keying the
+    // mock off the ref proves the helper queries the remote-tracking namespace:
+    // origin/main → the true base (build.yml only); local main → a stale base
+    // whose diff also includes phantom apps/web files.
+    const mergeBase = vi.fn((ref: string) => (ref === "origin/main" ? "remotebase" : "stalebase"));
+    const defaultBranch = vi.fn().mockReturnValue("main");
+    const git = createMockGit({
+      mergeBase,
+      defaultBranch,
+      files: {
+        "remotebase..HEAD": ["build.yml"],
+        "stalebase..HEAD": ["build.yml", "apps/web/search.ts"],
+      },
+    });
+
+    expect(resolveDefaultScopeFiles([], git)).toEqual(["build.yml"]);
+    expect(mergeBase).toHaveBeenCalledWith("origin/main", "HEAD");
   });
 
   it("should return empty when the tree is clean and HEAD is not ahead of the default branch", () => {
