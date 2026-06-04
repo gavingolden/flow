@@ -1456,6 +1456,132 @@ describe("integration: a .md-only diff detects the docs scope and runs npm run t
   );
 });
 
+describe("integration: auto-detect positive path runs apps/web's declared checks through main()", () => {
+  // The negative auto-detect branch (no owner → root-fallback) is covered by
+  // the block at line ~1326, but the PR's flagship scenario — a real
+  // apps/web/package.json on disk producing a dynamic scope whose checks
+  // actually execute via the run loop — had zero integration coverage: every
+  // Story 1/2/5/6 unit test injects the readPkgJson seam (ownerSeam), so the
+  // readPackageJsonAt → detectWorkspaceScopes → dynamicByName → run-loop wiring
+  // was never exercised on the real filesystem. A regression in any of those
+  // unexported functions would pass every unit test. Same cross-runtime
+  // node:child_process spawn as the blocks above. The root package.json
+  // declares `workspaces` so `npm run test -w apps/web` resolves the workspace;
+  // `test: "true"` keeps the spawned gate fast and deterministic.
+  let tmpDir: string;
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+
+  beforeAll(() => {
+    if (!bunOnPath) return;
+    tmpDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-autodetect-"));
+    mkdirSync(join(tmpDir, "apps", "web", "src"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify(
+        { name: "fixture", version: "0.0.1", private: true, workspaces: ["apps/*"] },
+        null,
+        2,
+      ),
+    );
+    writeFileSync(
+      join(tmpDir, "apps", "web", "package.json"),
+      JSON.stringify({ name: "web", version: "0.0.1", scripts: { test: "true" } }, null, 2),
+    );
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
+    spawnSync(
+      "git",
+      ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "init"],
+      { cwd: tmpDir },
+    );
+    writeFileSync(join(tmpDir, "apps", "web", "src", "a.ts"), "export const a = 1;\n");
+    spawnSync("git", ["add", "apps/web/src/a.ts"], { cwd: tmpDir });
+  });
+
+  afterAll(() => {
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it.skipIf(!bunOnPath)(
+    "detects apps/web, runs npm run test -w apps/web, and passes with no unmatched files",
+    () => {
+      const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const scriptPath = resolve(here, "flow-pre-commit.ts");
+      const result = spawnSync("bun", [scriptPath, "--json"], { cwd: tmpDir, encoding: "utf8" });
+      const report = JSON.parse(result.stdout) as JsonReport;
+      expect(report.scopes).toContain("apps/web");
+      expect(report.results.map((r) => r.name)).toContain("npm run test -w apps/web");
+      expect(report.allPassed).toBe(true);
+      expect(report).not.toHaveProperty("unmatchedFiles");
+    },
+  );
+});
+
+describe("integration: --scope apps/web selects the dynamic scope through main()", () => {
+  // parseScopes('apps/web', dyn) is unit-tested with an INJECTED Set (Story 8),
+  // but main() builds that Set from the live diff (getChangedFiles →
+  // loadDynamicScopes → new Set(d.name) at flow-pre-commit.ts:957-959). That
+  // wiring — the only thing that makes `--scope apps/web` selectable for a user
+  // — was never exercised end-to-end, so a break in how the dynamic registry
+  // is assembled for the --scope path would not be caught. Also pins the
+  // negative `--scope apps/nope` → non-zero exit + 'Unknown scope' contract.
+  let tmpDir: string;
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+
+  beforeAll(() => {
+    if (!bunOnPath) return;
+    tmpDir = mkdtempSync(join(tmpdir(), "flow-pre-commit-scope-"));
+    mkdirSync(join(tmpDir, "apps", "web", "src"), { recursive: true });
+    writeFileSync(
+      join(tmpDir, "package.json"),
+      JSON.stringify(
+        { name: "fixture", version: "0.0.1", private: true, workspaces: ["apps/*"] },
+        null,
+        2,
+      ),
+    );
+    writeFileSync(
+      join(tmpDir, "apps", "web", "package.json"),
+      JSON.stringify({ name: "web", version: "0.0.1", scripts: { test: "true" } }, null, 2),
+    );
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
+    spawnSync(
+      "git",
+      ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "init"],
+      { cwd: tmpDir },
+    );
+    writeFileSync(join(tmpDir, "apps", "web", "src", "a.ts"), "export const a = 1;\n");
+    spawnSync("git", ["add", "apps/web/src/a.ts"], { cwd: tmpDir });
+  });
+
+  afterAll(() => {
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it.skipIf(!bunOnPath)("--scope apps/web runs the dynamic scope's checks", () => {
+    const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+    const scriptPath = resolve(here, "flow-pre-commit.ts");
+    const result = spawnSync("bun", [scriptPath, "--scope", "apps/web", "--json"], {
+      cwd: tmpDir,
+      encoding: "utf8",
+    });
+    const report = JSON.parse(result.stdout) as JsonReport;
+    expect(report.scopes).toEqual(["apps/web"]);
+    expect(report.results.map((r) => r.name)).toContain("npm run test -w apps/web");
+    expect(report.allPassed).toBe(true);
+  });
+
+  it.skipIf(!bunOnPath)("--scope apps/nope exits non-zero with 'Unknown scope'", () => {
+    const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+    const scriptPath = resolve(here, "flow-pre-commit.ts");
+    const result = spawnSync("bun", [scriptPath, "--scope", "apps/nope", "--json"], {
+      cwd: tmpDir,
+      encoding: "utf8",
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Unknown scope "apps/nope"');
+  });
+});
+
 // --- Stories 1–9: monorepo auto-detect + stack-aware resolution + config ---
 
 // Owner seam: every listed package.json path resolves to its object; anything

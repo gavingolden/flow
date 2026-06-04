@@ -143,6 +143,18 @@ describe("mergeScopeSources — precedence config > auto-detect", () => {
     const merged = mergeScopeSources(auto, configured);
     expect(merged).toHaveLength(3);
   });
+
+  // The two cases above pass non-empty configured arrays, but loadDynamicScopes
+  // passes mergeScopeSources(auto, []) on virtually every real invocation (no
+  // .flow/pre-commit.json present) and mergeScopeSources([], []) on a clean
+  // monorepo with nothing detected — the empty-config fast path was uncovered.
+  it("with no configured scopes returns the auto-detected scopes unchanged", () => {
+    expect(mergeScopeSources(auto, [])).toEqual(auto);
+  });
+
+  it("with both sources empty returns an empty array", () => {
+    expect(mergeScopeSources([], [])).toEqual([]);
+  });
 });
 
 describe("draftConfigEntryForOrphans — pure Layer-3 helper", () => {

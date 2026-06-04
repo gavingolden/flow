@@ -396,9 +396,9 @@ define; a zero-check non-empty diff signals `allPassed: false` with
 Before that failure fires, a SEPARATE pass over the unclaimed files
 recognizes `apps/<pkg>/` and `packages/<pkg>/` dirs that **own a
 `package.json`**, mapping each to an auto-detected scope named by its path
-(`apps/web`, selectable via `--scope apps/web`; nothing written) — so above
-`apps/web/src/b.ts` is claimed when its owner exists, only a no-owner file
-stays an orphan. Every scope's commands (built-in OR auto-detected) resolve
+(`apps/web`, selectable via `--scope apps/web`; nothing written) — so
+`apps/web/src/b.ts` is claimed when its owner exists; a no-owner file stays
+an orphan. Every scope's commands (built-in OR auto-detected) resolve
 through one shared table in `bin/lib/stack-table.ts`: (1) the package's own
 declared verify scripts, probed `typecheck`/`check` (first wins) → `lint`
 → `test` → `format:check`, scoped `npm run <script> -w <pkg-path>`; a
@@ -409,9 +409,10 @@ NAMES not bodies, so a legit `test` chaining to `test:watch` still runs;
 which flow's built-ins are lifted unchanged;
 (3) a flow-drafted `.flow/pre-commit.json` entry committed into the PR diff
 (see `/flow-pipeline` Step 6) when 1–2 resolve nothing. That file
-(distinct from `~/.flow/config.json`) is the manual **escape-hatch** too —
+(distinct from `~/.flow/config.json`) is also the **escape-hatch** —
 a top-level array of `{ name, prefixes, checks }` scopes, merged config >
-auto-detect > built-in, read tolerantly.
+auto-detect > built-in. These `checks` run as argv (no shell/injection),
+widening the fixed allowlist to arbitrary commands the operator trusts.
 
 ## Don'ts
 
