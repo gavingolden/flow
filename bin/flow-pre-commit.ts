@@ -15,10 +15,26 @@
  */
 
 import { readFileSync } from "node:fs";
+import { resolveChecks, npmRunCheck, type CheckDef } from "./lib/stack-table";
+import {
+  detectWorkspaceScopes,
+  readMonorepoConfig,
+  mergeScopeSources,
+  type DynamicScope,
+} from "./lib/monorepo-scopes";
 
 // --- Types ---
 
 export type Scope = "src" | "scripts" | "docs" | "actions" | "backend" | "root-fallback";
+
+/**
+ * Runtime scope identity. Built-in scopes keep the closed `Scope` union (the
+ * byte-for-byte test pins it); auto-detected/configured scopes carry their
+ * runtime package-path/config name as a string. Kept as a widened alias
+ * — used only for `CheckResult.scope` / `JsonResult.scope` so the dynamic
+ * names flow through the report — WITHOUT loosening `Scope` itself.
+ */
+export type ScopeName = Scope | string;
 
 export type ScopeMatcher = {
   prefixes?: string[];
@@ -33,7 +49,7 @@ export type ScopeMatcher = {
 
 export type CheckResult = {
   name: string;
-  scope: Scope;
+  scope: ScopeName;
   passed: boolean;
   durationMs: number;
   output: string;
@@ -47,7 +63,7 @@ export type CheckResult = {
 };
 
 export type CheckReport = {
-  scopes: Scope[];
+  scopes: ScopeName[];
   results: CheckResult[];
   allPassed: boolean;
   /**
@@ -94,7 +110,7 @@ export type FailureExcerpt = {
 
 export type JsonResult = {
   name: string;
-  scope: Scope;
+  scope: ScopeName;
   passed: boolean;
   durationMs: number;
   failure?: FailureExcerpt;
@@ -102,7 +118,7 @@ export type JsonResult = {
 };
 
 export type JsonReport = {
-  scopes: Scope[];
+  scopes: ScopeName[];
   results: JsonResult[];
   allPassed: boolean;
   changedFiles?: string[];
@@ -127,10 +143,8 @@ export type GitOps = {
   defaultBranch: () => string;
 };
 
-type CheckDef = {
-  name: string;
-  argv: string[];
-};
+// CheckDef is imported from ./lib/stack-table — the stack table now owns
+// command shape, and both new lib modules consume it.
 
 // --- Constants ---
 
@@ -152,7 +166,11 @@ const ZERO_SHA = "0000000000000000000000000000000000000000";
 // most of them. This extension match intentionally covers `.claude/**/*.md` too —
 // skill references and agent docs under a consumer's `.claude/` tree — which is
 // why no `.claude/` prefix is needed in the matcher: the `.md` extension already
-// catches them everywhere they live.
+// catches them everywhere they live. `.template` rides the same scope: flow's
+// `*.template` files (AGENTS.md.template, SKILL.md.template, migration.sql.template)
+// are version-controlled source whose meaningful gate is `npm run test` — without
+// this they match no scope and orphan the gate the moment a PR edits one
+// (`flow-md-validate` only globs `.md`, so it harmlessly skips them).
 //
 // `actions` is an AND-matcher: a file must live under `.github/workflows/`
 // AND end in `.yml`/`.yaml` to trip it (a markdown note under the workflows
@@ -170,7 +188,7 @@ const SCOPE_MATCHERS: Record<Exclude<Scope, "root-fallback">, ScopeMatcher> = {
   scripts: {
     prefixes: ["scripts/", "templates/scripts/", "bin/", ".github/workflows/"],
   },
-  docs: { extensions: [".md"] },
+  docs: { extensions: [".md", ".template"] },
   actions: {
     prefixes: [".github/workflows/"],
     extensions: [".yml", ".yaml"],
@@ -211,7 +229,10 @@ function gh(args: string[]): string {
  * Mutual exclusion: when at least one specific scope fires, root-fallback
  * never does.
  */
-export function detectScopesFromFiles(files: string[]): Scope[] {
+export function detectScopesFromFiles(
+  files: string[],
+  dynamicScopes: DynamicScope[] = [],
+): ScopeName[] {
   if (files.length === 0) return [];
 
   const detected = new Set<Scope>();
@@ -223,8 +244,16 @@ export function detectScopesFromFiles(files: string[]): Scope[] {
     }
   }
 
-  if (detected.size === 0) return ["root-fallback"];
-  return SPECIFIC_SCOPES.filter((s) => detected.has(s));
+  // A dynamic scope fires when any changed file matches one of its prefixes.
+  // The default empty-array call keeps the pure no-filesystem signature the
+  // existing unit specs rely on (apps/web/src/ → root-fallback with no owner).
+  const dynamicMatched = dynamicScopes.filter((d) =>
+    files.some((f) => d.prefixes.some((p) => f.startsWith(p))),
+  );
+
+  const builtin = SPECIFIC_SCOPES.filter((s) => detected.has(s));
+  if (detected.size === 0 && dynamicMatched.length === 0) return ["root-fallback"];
+  return [...builtin, ...dynamicMatched.map((d) => d.name)];
 }
 
 /**
@@ -236,6 +265,21 @@ export function detectScopesFromFiles(files: string[]): Scope[] {
 export function computeUnmatchedFiles(files: string[]): string[] {
   return files.filter(
     (f) => !SPECIFIC_SCOPES.some((s) => matchesScope(f, SCOPE_MATCHERS[s])),
+  );
+}
+
+/**
+ * Returns the files claimed by neither a built-in SPECIFIC scope NOR any
+ * dynamic (auto-detected/configured) scope's prefixes. A file under an
+ * auto-detected `apps/web/` prefix is no longer an orphan; a genuinely-
+ * uncovered `vendor/legacy/z.js` (no owner, no config) still surfaces here.
+ */
+export function computeUnmatchedAfterDynamic(
+  files: string[],
+  dynamicScopes: DynamicScope[],
+): string[] {
+  return computeUnmatchedFiles(files).filter(
+    (f) => !dynamicScopes.some((d) => d.prefixes.some((p) => f.startsWith(p))),
   );
 }
 
@@ -253,7 +297,7 @@ export function computeUnmatchedFiles(files: string[]): string[] {
 export function computeAllPassedAndReason(
   results: CheckResult[],
   changedFiles: string[] | undefined,
-  scopes: Scope[],
+  scopes: ScopeName[],
   unmatchedFiles: string[] | undefined,
 ): { allPassed: boolean; reason?: "no-checks-defined" | "unmatched-files" } {
   if (results.length === 0 && (changedFiles?.length ?? 0) > 0) {
@@ -286,39 +330,50 @@ function describeMatcher(matcher: ScopeMatcher): string {
  * Parses a comma-separated scope string (e.g. "src,scripts"). Rejects the
  * `root-fallback` sentinel — it is auto-detect-only, not user-facing, and
  * `--scope src,root-fallback` would silently double-run `npm run typecheck`.
+ *
+ * `dynamicNames` carries the auto-detected/configured scope names discovered
+ * at runtime (e.g. `apps/web`), so `--scope apps/web` is selectable. A token
+ * matching neither a built-in nor a known dynamic name still throws "Unknown
+ * scope". Built-ins keep their canonical SPECIFIC_SCOPES order; dynamic names
+ * are appended in the order they were requested.
  */
-export function parseScopes(input: string): Scope[] {
+export function parseScopes(input: string, dynamicNames: Set<string> = new Set()): ScopeName[] {
   const tokens = input
     .split(",")
     .map((t) => t.trim())
     .filter(Boolean);
-  const result = new Set<Scope>();
+  const builtin = new Set<Scope>();
+  const dynamic: string[] = [];
 
   for (const token of tokens) {
-    if (!SPECIFIC_SCOPES.includes(token as Exclude<Scope, "root-fallback">)) {
-      throw new Error(`Unknown scope "${token}". Valid scopes: ${SPECIFIC_SCOPES.join(", ")}`);
+    if (SPECIFIC_SCOPES.includes(token as Exclude<Scope, "root-fallback">)) {
+      builtin.add(token as Scope);
+    } else if (dynamicNames.has(token)) {
+      if (!dynamic.includes(token)) dynamic.push(token);
+    } else {
+      const valid = [...SPECIFIC_SCOPES, ...dynamicNames].join(", ");
+      throw new Error(`Unknown scope "${token}". Valid scopes: ${valid}`);
     }
-    result.add(token as Scope);
   }
 
-  return SPECIFIC_SCOPES.filter((s) => result.has(s));
+  return [...SPECIFIC_SCOPES.filter((s) => builtin.has(s)), ...dynamic];
 }
 
-/** Returns the check commands for a given scope. */
+/**
+ * Returns the check commands for a built-in scope. Re-expressed to resolve
+ * through the shared stack table (`npmRunCheck` builds the node command form;
+ * the go marker's default + a `-C backend` cwd option backs `backend`) so
+ * built-in and auto-detected scopes share one command-shape mechanism. The
+ * argv arrays are byte-for-byte identical to the previous static switch — the
+ * `describe(checksForScope)` block is the guard against drift. Signature is
+ * unchanged: zero extra args, `Scope` in, `CheckDef[]` out.
+ */
 export function checksForScope(scope: Scope): CheckDef[] {
   switch (scope) {
     case "src":
-      return [
-        { name: "npm run typecheck", argv: ["npm", "run", "typecheck"] },
-        { name: "npm run test", argv: ["npm", "run", "test"] },
-        { name: "npm run lint", argv: ["npm", "run", "lint"] },
-      ];
+      return [npmRunCheck("typecheck"), npmRunCheck("test"), npmRunCheck("lint")];
     case "scripts":
-      return [
-        { name: "npm run typecheck:scripts", argv: ["npm", "run", "typecheck:scripts"] },
-        { name: "npm run test", argv: ["npm", "run", "test"] },
-        { name: "npm run lint", argv: ["npm", "run", "lint"] },
-      ];
+      return [npmRunCheck("typecheck:scripts"), npmRunCheck("test"), npmRunCheck("lint")];
     case "docs":
       // `npm run test` runs after flow-md-validate so .md-only diffs still
       // exercise the *full* vitest suite — which is the only place
@@ -326,7 +381,7 @@ export function checksForScope(scope: Scope): CheckDef[] {
       // .md-only diffs never fall through to root-fallback.
       return [
         { name: "flow-md-validate .", argv: ["flow-md-validate", "."] },
-        { name: "npm run test", argv: ["npm", "run", "test"] },
+        npmRunCheck("test"),
       ];
     case "actions":
       return [
@@ -336,19 +391,22 @@ export function checksForScope(scope: Scope): CheckDef[] {
         },
       ];
     case "backend":
-      return [
-        { name: "go vet -C backend ./...", argv: ["go", "vet", "-C", "backend", "./..."] },
-        { name: "go test -C backend ./...", argv: ["go", "test", "-C", "backend", "./..."] },
-      ];
+      // The go stack's default vet+test, run in the `backend` subdir via `-C`.
+      return resolveChecks({ marker: "go.mod" }).map((c) => goInBackend(c));
     case "root-fallback":
       // Mirror src's check set: a consumer repo whose source layout doesn't
       // match flow's prefixes still expects typecheck + test + lint at the root.
-      return [
-        { name: "npm run typecheck", argv: ["npm", "run", "typecheck"] },
-        { name: "npm run test", argv: ["npm", "run", "test"] },
-        { name: "npm run lint", argv: ["npm", "run", "lint"] },
-      ];
+      return [npmRunCheck("typecheck"), npmRunCheck("test"), npmRunCheck("lint")];
   }
+}
+
+/**
+ * Adapts a root-form go CheckDef (`go vet ./...`) into the `backend` scope's
+ * `-C backend` form, preserving the exact argv the built-in test pins.
+ */
+function goInBackend(check: CheckDef): CheckDef {
+  const argv = [check.argv[0], check.argv[1], "-C", "backend", ...check.argv.slice(2)];
+  return { name: argv.join(" "), argv };
 }
 
 /**
@@ -376,7 +434,7 @@ const COMMAND_NOT_FOUND_REGEX = /command not found|ENOENT|: not found/i;
 export function runCheck(
   name: string,
   argv: string[],
-  scope: Scope,
+  scope: ScopeName,
   runner: Runner = run,
 ): CheckResult {
   const start = performance.now();
@@ -467,6 +525,40 @@ function loadDefinedNpmScripts(): Set<string> {
 function getChangedFilesForPr(prNumber: number): string[] {
   const output = gh(["pr", "diff", String(prNumber), "--name-only"]);
   return output.split("\n").filter(Boolean);
+}
+
+/** Tolerant cwd-relative reader of a package.json owner. Returns the parsed
+ * object, or `undefined` when absent/unreadable/non-JSON. The injectable seam
+ * detectWorkspaceScopes / draftConfigEntryForOrphans consume. */
+function readPackageJsonAt(pkgPath: string): unknown {
+  try {
+    return JSON.parse(readFileSync(pkgPath, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+/** Tolerant cwd-relative reader of the repo-relative `.flow/pre-commit.json`
+ * (NOT the per-machine `~/.flow/config.json`). Returns the parsed JSON or
+ * `undefined` on any read/parse failure. */
+function readMonorepoConfigFile(): unknown {
+  try {
+    return JSON.parse(readFileSync(".flow/pre-commit.json", "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Resolves the dynamic (auto-detected + configured) scopes for the
+ * unmatched-file remainder, applying config-over-auto-detect precedence. A
+ * SEPARATE layered pass over what no built-in SPECIFIC scope claimed —
+ * `detectScopesFromFiles` stays pure and filesystem-free.
+ */
+function loadDynamicScopes(unmatchedFiles: string[]): DynamicScope[] {
+  const autoDetected = detectWorkspaceScopes(unmatchedFiles, readPackageJsonAt);
+  const configured = readMonorepoConfig(readMonorepoConfigFile) ?? [];
+  return mergeScopeSources(autoDetected, configured);
 }
 
 // --- Pre-Push ---
@@ -595,7 +687,7 @@ export function resolveDefaultScopeFiles(
 /** Formats a CheckReport as human-readable output. */
 export function formatReport(report: CheckReport): string {
   const lines: string[] = [];
-  const matched = new Set<Scope>(report.scopes);
+  const matched = new Set<ScopeName>(report.scopes);
 
   // Loud preamble: enumerate every considered scope with a per-scope status.
   // Without this, "No relevant scopes detected" is indistinguishable from a
@@ -619,6 +711,14 @@ export function formatReport(report: CheckReport): string {
   }
   if (matched.has("root-fallback")) {
     lines.push("  root-fallback → matched (no specific scope claimed these files)");
+  }
+  // Auto-detected/configured scopes surface on their own lines (they have no
+  // SCOPE_MATCHERS entry, so the SPECIFIC_SCOPES loop above skips them).
+  const builtinNames = new Set<ScopeName>([...SPECIFIC_SCOPES, "root-fallback"]);
+  for (const scope of report.scopes) {
+    if (!builtinNames.has(scope)) {
+      lines.push(`  ${scope} → matched (auto-detected/configured scope)`);
+    }
   }
   lines.push("");
 
@@ -826,8 +926,11 @@ async function main(): Promise<void> {
 
   const json = args.includes("--json");
   const prePush = args.includes("--pre-push");
-  let scopes: Scope[];
+  let scopes: ScopeName[];
   let changedFiles: string[] | undefined;
+  // Dynamic scopes claimed via auto-detect/config, keyed by name for the
+  // run loop. Empty on the --scope path (no diff to detect against).
+  let dynamicScopes: DynamicScope[] = [];
   const scopeIdx = args.indexOf("--scope");
   const prIdx = args.indexOf("--pr");
 
@@ -846,14 +949,21 @@ async function main(): Promise<void> {
       process.exit(0);
     }
     changedFiles = getChangedFilesForPush(refs);
-    scopes = detectScopesFromFiles(changedFiles);
+    dynamicScopes = loadDynamicScopes(computeUnmatchedFiles(changedFiles));
+    scopes = detectScopesFromFiles(changedFiles, dynamicScopes);
   } else if (scopeIdx !== -1) {
     const value = args[scopeIdx + 1];
     if (!value) {
       console.error("Error: --scope requires a value (e.g. --scope src,scripts)");
       process.exit(1);
     }
-    scopes = parseScopes(value);
+    // Auto-detected/configured scope names (e.g. `apps/web`) must be
+    // selectable via --scope, so resolve the dynamic registry from the
+    // current diff before parsing. The diff is informational here (we don't
+    // gate on unmatched files on the explicit-scope path).
+    const diff = getChangedFiles();
+    dynamicScopes = loadDynamicScopes(computeUnmatchedFiles(diff));
+    scopes = parseScopes(value, new Set(dynamicScopes.map((d) => d.name)));
     // Explicit-scope path: no changed-files diff to print.
   } else if (prIdx !== -1) {
     const value = args[prIdx + 1];
@@ -867,16 +977,25 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     changedFiles = getChangedFilesForPr(prNumber);
-    scopes = detectScopesFromFiles(changedFiles);
+    dynamicScopes = loadDynamicScopes(computeUnmatchedFiles(changedFiles));
+    scopes = detectScopesFromFiles(changedFiles, dynamicScopes);
   } else {
     changedFiles = getChangedFiles();
-    scopes = detectScopesFromFiles(changedFiles);
+    dynamicScopes = loadDynamicScopes(computeUnmatchedFiles(changedFiles));
+    scopes = detectScopesFromFiles(changedFiles, dynamicScopes);
   }
 
   const definedScripts = loadDefinedNpmScripts();
+  const dynamicByName = new Map(dynamicScopes.map((d) => [d.name, d]));
   const results: CheckResult[] = [];
   for (const scope of scopes) {
-    const checks = filterDefinedChecks(checksForScope(scope), definedScripts);
+    const dynamic = dynamicByName.get(scope);
+    // Built-in scopes still gate on the root package.json's declared scripts
+    // via filterDefinedChecks; dynamic scopes already resolved their checks
+    // from the OWNING package's declared scripts (Layer 1), so they run as-is.
+    const checks = dynamic
+      ? dynamic.checks
+      : filterDefinedChecks(checksForScope(scope as Scope), definedScripts);
     if (checks.length === 0) {
       // In --json mode this diagnostic would corrupt stdout (which must be
       // a single parseable JSON object), so route it to stderr instead.
@@ -892,7 +1011,9 @@ async function main(): Promise<void> {
   }
 
   const unmatchedFiles =
-    changedFiles !== undefined ? computeUnmatchedFiles(changedFiles) : undefined;
+    changedFiles !== undefined
+      ? computeUnmatchedAfterDynamic(changedFiles, dynamicScopes)
+      : undefined;
 
   const { allPassed, reason } = computeAllPassedAndReason(
     results,

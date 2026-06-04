@@ -9,6 +9,10 @@
 
 flow has finished its move to the tmux-driven supervisor design. The Node-based orchestrator and the legacy per-repo `flow install` are gone; `flow setup` is the only install entry point.
 
+## Consumer repos
+
+`flow-pre-commit` is the verify gate flow runs before every push. **Single-package repos need no setup** — it auto-detects scope from the diff and runs your declared `npm run` scripts (and `go vet`/`go test` for a `backend/`). **Monorepos work with zero config too:** flow auto-detects `apps/<pkg>/` and `packages/<pkg>/` directories that own a `package.json` and runs that package's own declared verify scripts (`typecheck`/`check`, `lint`, `test`, `format:check`), scoped with `npm run <script> -w <pkg-path>`. For a non-conventional layout or non-default commands, drop in an optional repo-relative `.flow/pre-commit.json` — a top-level array of `{ name, prefixes, checks }` scope entries — as an escape hatch. A changed file that matches no scope, no package owner, and no config still fails the gate loudly rather than passing silently.
+
 ## Install
 
 ```sh
