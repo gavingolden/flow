@@ -63,6 +63,22 @@ committing.
 - **<scope-1>** (`<path>`): `<commands>`
 - **<scope-2>** (`<path>`): `<commands>`
 
+**Monorepo auto-detect + config escape hatch.** Single-package repos need
+no setup. For a monorepo, `flow-pre-commit` auto-detects conventional
+layouts — `apps/<pkg>/` and `packages/<pkg>/` directories that own their
+own `package.json` — with **zero config**, and runs that package's own
+declared verify scripts (probe order `typecheck`/`check` → `lint` →
+`test` → `format:check`, scoped via `npm run <script> -w <pkg-path>`; a
+name-based safety denylist never runs `format`/`dev`/`build`/`preview`/
+`*:watch`/`*:e2e`/`smoketest`). When nothing is declared it falls back to
+a stack-default table (node via `package.json`, go via `go.mod` →
+`go vet`/`go test`). For a layout auto-detect can't recognize or a non-
+default command set, add a repo-relative `.flow/pre-commit.json` — a
+top-level array of `{ name, prefixes, checks }` scope entries (read
+tolerantly; malformation degrades to defaults with no error). A
+genuinely-uncovered file (no `package.json` owner, no stack marker, no
+config) still fails the gate loudly with `reason: "unmatched-files"`.
+
 ### Command Execution
 
 Prefer absolute paths over `cd <path> &&` to maintain a consistent working directory.

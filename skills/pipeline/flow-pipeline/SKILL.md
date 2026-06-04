@@ -1066,6 +1066,39 @@ primitive), document the syntax here and gate it on attempt count.
 Do not silently re-invent the override claim — if the doc still says
 "prompt-side only" but the harness has changed, fix the doc.
 
+**Proactive config-authoring branch (Layer 3, before counting an outer
+attempt).** When `flow-pre-commit --json` returns
+`reason: "unmatched-files"`, the orphaned files may belong to a
+recognizable-but-uncovered layout (a non-conventional check-command
+package, or a workspace dir auto-detect did not already claim). Before
+treating this as a `/verify` failure, the supervisor calls the pure
+`draftConfigEntryForOrphans` helper (exported from
+`bin/lib/monorepo-scopes.ts`) over the report's `unmatchedFiles`:
+
+- **If it returns an entry** (a recognizable layout whose owning
+  `package.json` declares verify-class scripts), write/merge it into the
+  repo-relative `.flow/pre-commit.json` (top-level array of
+  `{ name, prefixes, checks }` entries — append, do not clobber existing
+  entries), commit it to the feature branch via the existing
+  skill-commits-on-feature-branch path so it lands in the reviewable PR
+  diff, and **re-run verify** — this does NOT consume an outer attempt.
+- **If it returns `null`** (a genuine orphan: no `package.json` owner, no
+  stack marker, no config), fall through to the loud
+  `unmatched-files` failure / verify-exhausted escalation below.
+
+The helper is LLM-free and pure (no `claude -p` / Task sub-call) — it
+drafts the entry's `checks` from the stack table + Layer-1 declared-script
+probe. This is the **third** of `flow-pre-commit`'s three command-
+resolution layers: (1) the package's own declared verify scripts, (2) a
+stack-default table keyed on a marker file (`package.json` → node,
+`go.mod` → go), (3) this flow-drafted committed entry. **Silent-write
+boundary:** zero-config auto-detect (layers 1–2) runs silently and writes
+nothing; only Layer-3 config authoring writes a file, and it is always
+committed-into-the-PR (visible, reviewable), never silently to disk
+outside the diff. Proactive authoring fires only here, inside
+`/flow-pipeline` on a feature branch — a human running `flow-pre-commit`
+at a terminal gets the loud `unmatched-files` failure, not a silent write.
+
 After three failed outer attempts, escalate `NEEDS HUMAN:
 verify-exhausted`. Surface the final failure log on the PR body's
 `## Test Steps` section as a `> [!CAUTION]` block (idempotent —

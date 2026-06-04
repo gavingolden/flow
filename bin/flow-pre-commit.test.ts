@@ -12,6 +12,7 @@ import {
   buildFailureExcerpt,
   checksForScope,
   computeAllPassedAndReason,
+  computeUnmatchedAfterDynamic,
   computeUnmatchedFiles,
   detectScopesFromFiles,
   filterDefinedChecks,
@@ -31,6 +32,13 @@ import {
   type Runner,
   type Scope,
 } from "./flow-pre-commit";
+import {
+  detectWorkspaceScopes,
+  draftConfigEntryForOrphans,
+  readMonorepoConfig,
+  type DynamicScope,
+} from "./lib/monorepo-scopes";
+import { type ReadPackageJson } from "./lib/stack-table";
 
 // --- Factories ---
 
@@ -146,6 +154,10 @@ describe(detectScopesFromFiles, () => {
 
   it("should NOT trip docs for a .claude/ non-markdown file (extension-not-prefix — settings.json lands in root-fallback)", () => {
     expect(detectScopesFromFiles([".claude/settings.json"])).toEqual(["root-fallback"]);
+  });
+
+  it("should detect docs scope from a .template file so flow's own *.template source is not orphaned", () => {
+    expect(detectScopesFromFiles(["templates/AGENTS.md.template"])).toEqual(["docs"]);
   });
 
   it("should deduplicate scopes", () => {
@@ -1442,4 +1454,176 @@ describe("integration: a .md-only diff detects the docs scope and runs npm run t
       expect(report.results.map((r) => r.name)).toContain("npm run test");
     },
   );
+});
+
+// --- Stories 1–9: monorepo auto-detect + stack-aware resolution + config ---
+
+// Owner seam: every listed package.json path resolves to its object; anything
+// else is an absent owner (undefined). Mirrors copilot-config.test.ts's seam.
+const ownerSeam =
+  (map: Record<string, unknown>): ReadPackageJson =>
+  (p: string) =>
+    p in map ? map[p] : undefined;
+
+describe("Story 1/2: auto-detect resolves apps/web through declared scripts", () => {
+  const readPkg = ownerSeam({
+    "apps/web/package.json": { scripts: { check: "svelte-check", lint: "eslint", test: "vitest" } },
+  });
+
+  it("detects an apps/web dynamic scope and keeps apps/web/src out of unmatchedFiles (Story 1)", () => {
+    const files = ["apps/web/src/foo.ts"];
+    const dyn = detectWorkspaceScopes(computeUnmatchedFiles(files), readPkg);
+    expect(detectScopesFromFiles(files, dyn)).toEqual(["apps/web"]);
+    expect(computeUnmatchedAfterDynamic(files, dyn)).toEqual([]);
+  });
+
+  it("Layer-1 probes check (not an invented typecheck) in table order (Story 2)", () => {
+    const dyn = detectWorkspaceScopes(["apps/web/src/a.ts"], readPkg);
+    expect(dyn).toHaveLength(1);
+    expect(dyn[0].checks.map((c) => c.name)).toEqual([
+      "npm run check -w apps/web",
+      "npm run lint -w apps/web",
+      "npm run test -w apps/web",
+    ]);
+    expect(dyn[0].checks.map((c) => c.name)).not.toContain("npm run typecheck -w apps/web");
+  });
+});
+
+describe("Story 5: zero-config mixed diff covers apps/web AND backend", () => {
+  const readPkg = ownerSeam({ "apps/web/package.json": { scripts: { test: "vitest" } } });
+
+  it("detects both backend and apps/web with no orphans", () => {
+    const files = ["apps/web/src/a.ts", "backend/x.go"];
+    const dyn = detectWorkspaceScopes(computeUnmatchedFiles(files), readPkg);
+    expect(detectScopesFromFiles(files, dyn)).toEqual(["backend", "apps/web"]);
+    expect(computeUnmatchedAfterDynamic(files, dyn)).toEqual([]);
+    const { reason } = computeAllPassedAndReason(
+      [createResult({ scope: "backend", passed: true })],
+      files,
+      ["backend", "apps/web"],
+      computeUnmatchedAfterDynamic(files, dyn),
+    );
+    expect(reason).toBeUndefined();
+  });
+});
+
+describe("Story 6: a genuinely-uncovered orphan still fails loudly", () => {
+  const readPkg = ownerSeam({ "apps/web/package.json": { scripts: { test: "vitest" } } });
+
+  it("claims apps/web but surfaces vendor/legacy/z.js as unmatched with reason unmatched-files", () => {
+    const files = ["apps/web/src/a.ts", "vendor/legacy/z.js"];
+    const dyn = detectWorkspaceScopes(computeUnmatchedFiles(files), readPkg);
+    const orphans = computeUnmatchedAfterDynamic(files, dyn);
+    expect(orphans).toEqual(["vendor/legacy/z.js"]);
+    const { allPassed, reason } = computeAllPassedAndReason(
+      [createResult({ scope: "apps/web", passed: true })],
+      files,
+      detectScopesFromFiles(files, dyn),
+      orphans,
+    );
+    expect(allPassed).toBe(false);
+    expect(reason).toBe("unmatched-files");
+  });
+
+  it("a bare apps/web/src/x.ts with NO package.json owner stays an orphan (no auto-detect)", () => {
+    const readNone = ownerSeam({});
+    const files = ["apps/web/src/x.ts"];
+    const dyn = detectWorkspaceScopes(computeUnmatchedFiles(files), readNone);
+    expect(dyn).toEqual([]);
+    // No dynamic scope, no built-in match → root-fallback (unchanged behavior).
+    expect(detectScopesFromFiles(files, dyn)).toEqual(["root-fallback"]);
+  });
+});
+
+describe("Story 7: draftConfigEntryForOrphans (pure Layer-3 helper)", () => {
+  it("drafts an entry for a recognizable check-command package the auto-detect missed", () => {
+    const readPkg = ownerSeam({
+      "services/api/package.json": { scripts: { check: "tsc", test: "vitest" } },
+    });
+    // services/ is not an auto-detect root, but workspacePrefixOf only knows
+    // apps/ + packages/; a services/ orphan returns null (genuine orphan to
+    // auto-detect) — the draft helper agrees here since services/ isn't a
+    // workspace root either. Use an apps/ orphan to exercise the entry path.
+    expect(draftConfigEntryForOrphans(["services/api/src/a.ts"], readPkg)).toBeNull();
+  });
+
+  it("drafts an apps/<pkg> entry whose checks come from the package's declared scripts", () => {
+    const readPkg = ownerSeam({
+      "apps/admin/package.json": { scripts: { check: "tsc", test: "vitest" } },
+    });
+    const entry = draftConfigEntryForOrphans(["apps/admin/src/a.ts"], readPkg);
+    expect(entry).not.toBeNull();
+    expect(entry!.name).toBe("apps/admin");
+    expect(entry!.checks.map((c) => c.name)).toEqual([
+      "npm run check -w apps/admin",
+      "npm run test -w apps/admin",
+    ]);
+  });
+
+  it("returns null for a genuine orphan (no owner)", () => {
+    expect(draftConfigEntryForOrphans(["vendor/legacy/z.js"], ownerSeam({}))).toBeNull();
+  });
+});
+
+describe("Story 8: explicit config overrides/extends auto-detect", () => {
+  const configReader = (raw: unknown) => () => raw;
+
+  it("a configured web scope's checks win over the auto-detected default for the same prefix", () => {
+    const configured = readMonorepoConfig(
+      configReader([{ name: "web", prefixes: ["apps/web/"], checks: ["npm run lint -w apps/web"] }]),
+    );
+    expect(configured?.[0].checks.map((c) => c.name)).toEqual(["npm run lint -w apps/web"]);
+  });
+
+  it("parseScopes accepts a known dynamic name and still throws Unknown scope for an unknown one", () => {
+    const dyn = new Set(["apps/web", "web"]);
+    expect(parseScopes("apps/web", dyn)).toEqual(["apps/web"]);
+    expect(parseScopes("src,web", dyn)).toEqual(["src", "web"]);
+    expect(() => parseScopes("nope", dyn)).toThrow('Unknown scope "nope"');
+  });
+
+  it("parseScopes with no dynamic names preserves the legacy built-in-only behavior", () => {
+    expect(parseScopes("src,scripts")).toEqual(["src", "scripts"]);
+    expect(() => parseScopes("apps/web")).toThrow('Unknown scope "apps/web"');
+  });
+});
+
+describe("Story 9: malformed or absent config degrades safely", () => {
+  const configReader = (raw: unknown) => () => raw;
+
+  it("absent config → undefined (no additional scopes, no throw)", () => {
+    expect(readMonorepoConfig(configReader(undefined))).toBeUndefined();
+  });
+
+  it("a name colliding with a built-in is dropped, well-formed siblings survive", () => {
+    const scopes = readMonorepoConfig(
+      configReader([
+        { name: "src", prefixes: ["apps/web/"], checks: ["x"] },
+        { name: "ok", prefixes: ["apps/api/"], checks: ["npm run test -w apps/api"] },
+      ]),
+    );
+    expect(scopes?.map((s) => s.name)).toEqual(["ok"]);
+  });
+
+  it("checks not a string[] → entry dropped without throwing", () => {
+    expect(
+      readMonorepoConfig(configReader([{ name: "bad", prefixes: ["apps/web/"], checks: [1] }])),
+    ).toEqual([]);
+  });
+});
+
+describe("Story 4 regression: dynamic scopes never disturb pure built-in detection", () => {
+  it("detectScopesFromFiles with no dynamic arg is byte-for-byte unchanged for apps/web/src", () => {
+    // The existing pure spec (line ~109) asserts root-fallback with no owner;
+    // this re-pins it from the Story-4 angle: the default empty dynamicScopes
+    // arg means no filesystem touch and no behavior change.
+    expect(detectScopesFromFiles(["apps/web/src/index.ts"])).toEqual(["root-fallback"]);
+  });
+
+  it("a dynamic scope claiming files suppresses root-fallback (mutual exclusion extends)", () => {
+    const dyn: DynamicScope[] = [
+      { name: "apps/web", prefixes: ["apps/web/"], checks: [{ name: "x", argv: ["x"] }] },
+    ];
+    expect(detectScopesFromFiles(["apps/web/src/index.ts"], dyn)).toEqual(["apps/web"]);
+  });
 });

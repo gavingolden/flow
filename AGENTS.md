@@ -360,52 +360,58 @@ a repo-admin setting, not something the workflow file can enforce.
 
 ## Consumer-repo notes
 
-`flow-pre-commit` is the verify gate that `/flow-pipeline`, `/verify`,
-and `/coder` rely on, so consumer repos that wire it in as their sole
-gate need to know its surface area. Scope detection is prefix- and
-extension-based against the diff: `src/` trips `src`; `scripts/`,
-`templates/scripts/`, and `bin/` all trip `scripts`; any file with the
-`.md` extension trips `docs`, which runs both `flow-md-validate .`
-(internal-link + frontmatter validation) and `npm run test` (so
-structural-anchor lints over SKILL.md / AGENTS.md — e.g.
-`bin/skill-md-lint.test.ts` — catch markdown-only breakage before
-merge, since `.md`-only diffs do not fall through to `root-fallback`);
-any changed file with the `backend/`
-prefix trips `backend`, which runs `go vet -C backend ./...` and
-`go test -C backend ./...` (prefix-only — `backend/go.mod` and
-`backend/go.sum` edits also re-run the gate, since `go vet`/`go test`
-walk Go packages on their own). Workflow YAML edits under
-`.github/workflows/` with a `.yml` or `.yaml` extension ADDITIONALLY
-trip the `actions` scope, which runs `actionlint .github/workflows/`
-— and they still trip `scripts` via the existing `.github/workflows/`
-prefix, so the same edit runs both `bin/`'s workflow-shape regression
-tests AND `actionlint` (different defect classes). Both `actionlint`
-and `go` are OPTIONAL tools: when not on `PATH`, the affected checks
-emit a per-result `skipReason: 'actionlint-not-installed'` or
-`'go-not-installed'` and count as `passed: true` rather than failing
-the gate (parallel to how `filterDefinedChecks` handles missing npm
-scripts). When **no** specific
+`flow-pre-commit` is the verify gate `/flow-pipeline`, `/verify`, and
+`/coder` rely on, so consumer repos wiring it in as their sole gate need
+its surface area. Scope detection is prefix- and extension-based against
+the diff: `src/` trips `src`; `scripts/`, `templates/scripts/`, and
+`bin/` all trip `scripts`; any `.md` or `.template` file trips
+`docs`, which runs `flow-md-validate .` (link + frontmatter validation;
+it globs `.md` only, so it harmlessly skips `.template` source) and
+`npm run test` (so structural-anchor lints — e.g.
+`bin/skill-md-lint.test.ts` — catch markdown-only breakage, since
+`.md`/`.template`-only diffs don't fall through to `root-fallback`); the `backend/`
+prefix trips `backend`, which runs `go vet -C backend ./...`
+and `go test -C backend ./...` (prefix-only — `backend/go.mod`/`go.sum`
+edits re-run the gate too). Workflow YAML under `.github/workflows/`
+(`.yml`/`.yaml`) ADDITIONALLY trips `actions` (`actionlint
+.github/workflows/`) on top of `scripts`, so the same edit runs both
+`bin/`'s workflow-shape regression tests AND `actionlint`. `actionlint`
+and `go` are OPTIONAL: when not on `PATH` the
+affected check emits a per-result `skipReason:
+'actionlint-not-installed'`/`'go-not-installed'` and counts `passed: true`
+(parallel to `filterDefinedChecks`'s missing-script handling). When **no**
+specific
 scope matched anything in a non-empty diff, the entire diff lands in
-the `root-fallback` pseudo-scope, which runs `npm run typecheck` and
-`npm run test` from the consumer's repo root — so a monorepo with
-sources under `apps/<pkg>/src/` or `packages/<pkg>/src/` still gets a
-real verify pass without flow having to learn every layout. The
-fallback is **mutually exclusive** with every specific scope
-(including `backend`): a mixed diff like `src/a.ts` + `apps/web/src/b.ts`
-matches `src` and runs `src`'s checks only — `root-fallback` does not
-also fire. The orphan `apps/web/src/b.ts` still surfaces in
-`unmatchedFiles` — and on such a mixed diff (a specific scope matched
-but some changed files matched no scope) it now FAILS the gate with
-`reason: "unmatched-files"` and a non-zero exit, rather than silently
-passing; the operator re-runs with an explicit `--scope` to cover the
-orphan surface (or extends the scope matchers).
+the `root-fallback` pseudo-scope (`npm run typecheck` + `npm run test` at
+the repo root). The fallback is **mutually exclusive** with every specific
+scope — a diff matching `src` runs only `src`'s checks. Any file a specific
+scope left unclaimed surfaces in `unmatchedFiles`, and an orphan no scope
+(built-in, auto-detected, or configured) covers FAILS the gate with
+`reason: "unmatched-files"` and a non-zero exit. (`filterDefinedChecks`
+drops any check whose npm script the relevant `package.json` doesn't
+define; a zero-check non-empty diff signals `allPassed: false` with
+`reason: "no-checks-defined"`.)
 
-For the fallback to do anything, the consumer's root `package.json`
-must define `typecheck` and `test` scripts; `filterDefinedChecks` in
-`bin/flow-pre-commit.ts` drops any check whose npm script is absent.
-When a non-empty diff produces zero checks (no matching npm scripts
-defined), the helper signals `allPassed: false` and emits
-`reason: "no-checks-defined"` rather than silently exiting `0`.
+**Zero-config monorepo auto-detect + three-layer command resolution.**
+Before that failure fires, a SEPARATE pass over the unclaimed files
+recognizes `apps/<pkg>/` and `packages/<pkg>/` dirs that **own a
+`package.json`**, mapping each to an auto-detected scope named by its path
+(`apps/web`, selectable via `--scope apps/web`; nothing written) — so above
+`apps/web/src/b.ts` is claimed when its owner exists, only a no-owner file
+stays an orphan. Every scope's commands (built-in OR auto-detected) resolve
+through one shared table in `bin/lib/stack-table.ts`: (1) the package's own
+declared verify scripts, probed `typecheck`/`check` (first wins) → `lint`
+→ `test` → `format:check`, scoped `npm run <script> -w <pkg-path>`; a
+**name-based** denylist never runs mutating/interactive scripts
+(`format`/`dev`/`build`/`preview`/`smoketest`/`*:watch`/`*:e2e`) — matching
+NAMES not bodies, so a legit `test` chaining to `test:watch` still runs;
+(2) a stack-default table keyed on a marker file (v1: node + go), into
+which flow's built-ins are lifted unchanged;
+(3) a flow-drafted `.flow/pre-commit.json` entry committed into the PR diff
+(see `/flow-pipeline` Step 6) when 1–2 resolve nothing. That file
+(distinct from `~/.flow/config.json`) is the manual **escape-hatch** too —
+a top-level array of `{ name, prefixes, checks }` scopes, merged config >
+auto-detect > built-in, read tolerantly.
 
 ## Don'ts
 
