@@ -374,9 +374,9 @@ via `root-fallback`), and `npm run lint` (the repo-wide `prettier
 prefix trips `backend`, which runs `go vet -C backend ./...`
 and `go test -C backend ./...` (prefix-only — `backend/go.mod`/`go.sum`
 edits re-run the gate too). Workflow YAML under `.github/workflows/`
-(`.yml`/`.yaml`) ADDITIONALLY trips `actions` (`actionlint
-.github/workflows/`) on top of `scripts`, so the same edit runs both
-`bin/`'s workflow-shape regression tests AND `actionlint`. `actionlint`
+(`.yml`/`.yaml`) ALSO trips `actions` (`actionlint
+.github/workflows/` + `npm run lint`) on top of `scripts`, so the same
+edit runs both `bin/`'s workflow-shape regression tests AND `actionlint`. `actionlint`
 and `go` are OPTIONAL: off `PATH`, the affected check emits `skipReason:
 'actionlint-not-installed'`/`'go-not-installed'` and counts `passed: true`
 (parallel to `filterDefinedChecks`'s missing-script handling). When **no**

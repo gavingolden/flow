@@ -387,10 +387,11 @@ describe(checksForScope, () => {
     ]);
   });
 
-  it("should return actionlint .github/workflows/ for actions", () => {
+  it("should return actionlint .github/workflows/ and lint for actions", () => {
     const checks = checksForScope("actions");
     expect(checks).toEqual([
       { name: "actionlint .github/workflows/", argv: ["actionlint", ".github/workflows/"] },
+      { name: "npm run lint", argv: ["npm", "run", "lint"] },
     ]);
   });
 
@@ -407,8 +408,11 @@ describe(checksForScope, () => {
     expect(checksForScope("docs").map((c) => c.name)).toContain("npm run lint");
   });
 
-  it("does NOT add the lint check to actions or backend", () => {
-    expect(checksForScope("actions").map((c) => c.name)).not.toContain("npm run lint");
+  it("adds the lint check to actions (parity with CI's root prettier --check)", () => {
+    expect(checksForScope("actions").map((c) => c.name)).toContain("npm run lint");
+  });
+
+  it("does NOT add the lint check to backend", () => {
     expect(checksForScope("backend").map((c) => c.name)).not.toContain("npm run lint");
   });
 
