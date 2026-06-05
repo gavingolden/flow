@@ -390,11 +390,19 @@ export function checksForScope(scope: Scope): CheckDef[] {
         npmRunCheck("lint"),
       ];
     case "actions":
+      // `npm run lint` last mirrors docs/src/scripts/root-fallback: it is the
+      // repo-wide `prettier --check .`, so a formatting violation in workflow
+      // YAML fails the gate locally instead of first surfacing in CI's root
+      // lint job — directly reachable via `--scope actions` (the standalone
+      // path; an auto-detected workflow-YAML diff also co-trips `scripts`,
+      // which already runs lint). Stays inert via filterDefinedChecks in
+      // repos with no `lint` script.
       return [
         {
           name: "actionlint .github/workflows/",
           argv: ["actionlint", ".github/workflows/"],
         },
+        npmRunCheck("lint"),
       ];
     case "backend":
       // The go stack's default vet+test, run in the `backend` subdir via `-C`.
@@ -910,7 +918,7 @@ Check mapping:
   src:            npm run typecheck, npm run test, npm run lint
   scripts:        npm run typecheck:scripts, npm run test, npm run lint
   docs:           flow-md-validate ., npm run test, npm run lint
-  actions:        actionlint .github/workflows/
+  actions:        actionlint .github/workflows/, npm run lint
   backend:        go vet -C backend ./..., go test -C backend ./...
   root-fallback:  npm run typecheck, npm run test, npm run lint
                   (fires when no other scope matched)
