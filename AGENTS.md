@@ -381,9 +381,9 @@ and `go` are OPTIONAL: off `PATH`, the affected check emits `skipReason:
 'actionlint-not-installed'`/`'go-not-installed'` and counts `passed: true`
 (parallel to `filterDefinedChecks`'s missing-script handling). When **no**
 specific scope matched anything in a non-empty diff, the entire diff lands in
-the `root-fallback` pseudo-scope (`npm run typecheck` + `npm run test` at
-the repo root). The fallback is **mutually exclusive** with every specific
-scope — a diff matching `src` runs only `src`'s checks. Any file no scope
+the `root-fallback` pseudo-scope (`npm run typecheck` + `npm run test` +
+`npm run lint` at the repo root). The fallback is **mutually exclusive**
+with every specific scope — `src` runs only `src`'s checks. Any file no scope
 (built-in, auto-detected, or configured) claims surfaces in
 `unmatchedFiles` and FAILS the gate with `reason: "unmatched-files"` and a
 non-zero exit. (`filterDefinedChecks`
