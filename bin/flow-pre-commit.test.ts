@@ -378,11 +378,12 @@ describe(checksForScope, () => {
     ]);
   });
 
-  it("should return flow-md-validate and npm run test for docs", () => {
+  it("should return flow-md-validate, npm run test, and npm run lint for docs", () => {
     const checks = checksForScope("docs");
     expect(checks).toEqual([
       { name: "flow-md-validate .", argv: ["flow-md-validate", "."] },
       { name: "npm run test", argv: ["npm", "run", "test"] },
+      { name: "npm run lint", argv: ["npm", "run", "lint"] },
     ]);
   });
 
@@ -402,8 +403,11 @@ describe(checksForScope, () => {
     ]);
   });
 
-  it("does NOT add the lint check to docs, actions, or backend", () => {
-    expect(checksForScope("docs").map((c) => c.name)).not.toContain("npm run lint");
+  it("adds the lint check to docs (parity with CI's root prettier --check)", () => {
+    expect(checksForScope("docs").map((c) => c.name)).toContain("npm run lint");
+  });
+
+  it("does NOT add the lint check to actions or backend", () => {
     expect(checksForScope("actions").map((c) => c.name)).not.toContain("npm run lint");
     expect(checksForScope("backend").map((c) => c.name)).not.toContain("npm run lint");
   });
@@ -454,6 +458,15 @@ describe(filterDefinedChecks, () => {
     const checks = checksForScope("src");
     const filtered = filterDefinedChecks(checks, new Set(["typecheck", "test", "lint"]));
     expect(filtered.map((c) => c.name)).toContain("npm run lint");
+  });
+
+  it("drops the docs lint check in a repo with no 'lint' script (flow's own repo)", () => {
+    // A docs-only diff trips the `docs` scope; flow's own package.json has a
+    // `test` script but no `lint`, so the appended lint check must be dropped
+    // and the docs gate must behave exactly as before this change.
+    const checks = checksForScope("docs");
+    const filtered = filterDefinedChecks(checks, new Set(["test"]));
+    expect(filtered.map((c) => c.name)).toEqual(["flow-md-validate .", "npm run test"]);
   });
 });
 
