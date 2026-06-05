@@ -3,9 +3,10 @@
  * Runs verification checks with automatic scope detection.
  *
  * Detects which project areas have changes (src, scripts, docs) and runs
- * the appropriate checks for each. The `src`, `scripts`, and `root-fallback`
- * scopes additionally run `npm run lint` (a repo-wide `prettier --check .`);
- * filterDefinedChecks keeps it inert in repos with no `lint` script.
+ * the appropriate checks for each. The `src`, `scripts`, `docs`, and
+ * `root-fallback` scopes additionally run `npm run lint` (a repo-wide
+ * `prettier --check .`); filterDefinedChecks keeps it inert in repos with
+ * no `lint` script.
  *
  * Usage:
  *   flow-pre-commit                    # auto-detect from git diff
@@ -378,10 +379,15 @@ export function checksForScope(scope: Scope): CheckDef[] {
       // `npm run test` runs after flow-md-validate so .md-only diffs still
       // exercise the *full* vitest suite — which is the only place
       // structural-anchor lints (e.g. bin/skill-md-lint.test.ts) run, since
-      // .md-only diffs never fall through to root-fallback.
+      // .md-only diffs never fall through to root-fallback. `npm run lint`
+      // last mirrors src/scripts/root-fallback: it is the repo-wide
+      // `prettier --check .`, so a markdown formatting violation fails the
+      // gate locally instead of first surfacing in CI's root lint job. Stays
+      // inert via filterDefinedChecks in repos with no `lint` script.
       return [
         { name: "flow-md-validate .", argv: ["flow-md-validate", "."] },
         npmRunCheck("test"),
+        npmRunCheck("lint"),
       ];
     case "actions":
       return [
@@ -903,7 +909,7 @@ When no flags are given, scopes are auto-detected from \`git diff HEAD\`.
 Check mapping:
   src:            npm run typecheck, npm run test, npm run lint
   scripts:        npm run typecheck:scripts, npm run test, npm run lint
-  docs:           flow-md-validate ., npm run test
+  docs:           flow-md-validate ., npm run test, npm run lint
   actions:        actionlint .github/workflows/
   backend:        go vet -C backend ./..., go test -C backend ./...
   root-fallback:  npm run typecheck, npm run test, npm run lint

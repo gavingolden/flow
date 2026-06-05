@@ -365,31 +365,30 @@ a repo-admin setting, not something the workflow file can enforce.
 its surface area. Scope detection is prefix- and extension-based against
 the diff: `src/` trips `src`; `scripts/`, `templates/scripts/`, and
 `bin/` all trip `scripts`; any `.md` or `.template` file trips
-`docs`, which runs `flow-md-validate .` (link + frontmatter validation;
-it globs `.md` only, so it harmlessly skips `.template` source) and
-`npm run test` (so structural-anchor lints — e.g.
-`bin/skill-md-lint.test.ts` — catch markdown-only breakage, since
-`.md`/`.template`-only diffs don't fall through to `root-fallback`); the `backend/`
+`docs`, which runs `flow-md-validate .` (link + frontmatter checks;
+`.md`-only, so skips `.template` source), `npm run test` (so
+structural-anchor lints — e.g. `bin/skill-md-lint.test.ts` — catch
+markdown-only breakage that `.md`/`.template`-only diffs wouldn't reach
+via `root-fallback`), and `npm run lint` (the repo-wide `prettier
+--check .`, as in `src`/`scripts`/`root-fallback`); the `backend/`
 prefix trips `backend`, which runs `go vet -C backend ./...`
 and `go test -C backend ./...` (prefix-only — `backend/go.mod`/`go.sum`
 edits re-run the gate too). Workflow YAML under `.github/workflows/`
 (`.yml`/`.yaml`) ADDITIONALLY trips `actions` (`actionlint
 .github/workflows/`) on top of `scripts`, so the same edit runs both
 `bin/`'s workflow-shape regression tests AND `actionlint`. `actionlint`
-and `go` are OPTIONAL: when not on `PATH` the
-affected check emits a per-result `skipReason:
+and `go` are OPTIONAL: off `PATH`, the affected check emits `skipReason:
 'actionlint-not-installed'`/`'go-not-installed'` and counts `passed: true`
 (parallel to `filterDefinedChecks`'s missing-script handling). When **no**
-specific
-scope matched anything in a non-empty diff, the entire diff lands in
+specific scope matched anything in a non-empty diff, the entire diff lands in
 the `root-fallback` pseudo-scope (`npm run typecheck` + `npm run test` at
 the repo root). The fallback is **mutually exclusive** with every specific
-scope — a diff matching `src` runs only `src`'s checks. Any file a specific
-scope left unclaimed surfaces in `unmatchedFiles`, and an orphan no scope
-(built-in, auto-detected, or configured) covers FAILS the gate with
-`reason: "unmatched-files"` and a non-zero exit. (`filterDefinedChecks`
-drops any check whose npm script the relevant `package.json` doesn't
-define; a zero-check non-empty diff signals `allPassed: false` with
+scope — a diff matching `src` runs only `src`'s checks. Any file no scope
+(built-in, auto-detected, or configured) claims surfaces in
+`unmatchedFiles` and FAILS the gate with `reason: "unmatched-files"` and a
+non-zero exit. (`filterDefinedChecks`
+drops any check whose npm script `package.json` doesn't define; a
+zero-check non-empty diff signals `allPassed: false` with
 `reason: "no-checks-defined"`.)
 
 **Zero-config monorepo auto-detect + three-layer command resolution.**
