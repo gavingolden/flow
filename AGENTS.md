@@ -476,9 +476,8 @@ widening the fixed allowlist to arbitrary commands the operator trusts.
     `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md` "A
     `gated` verdict is terminal, not advisory". **Anti-patterns this
     exemption explicitly forecloses:** (a) reclassifying an unchecked
-    functional Test Steps item (a popover opens, a button works, a page
-    renders) as "subjective UX" so the gate verdict comes out as
-    `auto-merge`; (b) merging a `gated` PR on the strength of a stale or
+    functional Test Steps item as "subjective UX" so the gate verdict
+    comes out as `auto-merge`; (b) merging a `gated` PR on the strength of a stale or
     inferred "merge" / "ship it" instruction given before the gate
     verdict was surfaced. Invoking `/flow-pipeline` is itself the user's
     authorisation; opt out per-pipeline with `flow new --no-auto-merge`
@@ -523,7 +522,8 @@ widening the fixed allowlist to arbitrary commands the operator trusts.
   - **Task-tool exemption: `/flow-pipeline` → `/coder` Independent
     Edit-Applier Subagent.** The one edit-applier agent `/coder` spawns
     when `/new-feature` step 5, `/verify` step 3, or `/refactoring`
-    step 3 takes its wider-scope path, writing
+    step 3 takes its wider-scope path — or the `/flow-pipeline`
+    supervisor's interactive code-change redirect path fires — writing
     `.flow-tmp/coder-result.json`; full contract in
     `skills/pipeline/coder/SKILL.md`. These are the **only eight**
     authorised Task-tool fan-out sites from `/flow-pipeline`; no other
@@ -540,8 +540,8 @@ widening the fixed allowlist to arbitrary commands the operator trusts.
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias
     `Agent`); if neither alias is surfaced top-level, an unguarded
-    invocation silently falls through to in-line execution (the
-    inaugural regression was PR #124) — so on missing schema, escalate
+    invocation silently falls through to in-line execution — so on
+    missing schema, escalate
     `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` rather than
     falling back inline. `bin/skill-md-lint.test.ts` enforces the
     "Load the Task tool before spawning" paragraph at all eight sites.

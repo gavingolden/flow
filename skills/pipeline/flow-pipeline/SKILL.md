@@ -193,7 +193,11 @@ in-process for skills; shell out for scripts; never delegate.
 > When `/flow-pipeline` step 5 loads `/new-feature` (or step 6 loads
 > `/verify`, or any pipeline step loads `/refactoring`) and the
 > wider-scope path of any of these skills' hybrid thresholds
-> fires, the wrapper invokes `/coder` in-process; `/coder` itself spawns
+> fires — or when the `/flow-pipeline` supervisor's
+> interactive code-change redirect path fires (a non-trivial code-change redirect at a
+> worktree-existing phase; see the "Mid-flight code-change redirects"
+> section and `references/redirect-handling.md`) — the wrapper invokes
+> `/coder` in-process; `/coder` itself spawns
 > one edit-applier agent via the Task tool to apply the caller's edit-set,
 > run `flow-pre-commit --json` against the post-edit worktree, and write
 > a structured artifact at `<worktree>/.flow-tmp/coder-result.json` (typed
@@ -2187,6 +2191,28 @@ mid-phase. Apply `references/redirect-handling.md`:
   "user cancelled mid-flight at $(jq -r .phase ~/.flow/state/$SLUG.json)"`,
   end.
 - Ambiguous → one clarifying question; if still unclear, escalate.
+
+## Mid-flight code-change redirects
+
+An imperative redirect splits into two kinds. A **scope/plan redirect**
+("redo the plan with different scope") re-runs `/product-planning` or
+re-prompts the in-flight sub-skill — the existing behaviour above. A
+**code-change redirect** ("rename foo to bar", "change this line") is
+different: when it arrives at a phase where the worktree already exists
+(`plan-pending-review`, `implementing`, `verifying`, `ci-wait`,
+`reviewing`) and is NON-trivial, the supervisor routes it through
+`/coder` rather than editing inline. This is the
+**interactive code-change redirect** path: the supervisor composes a structured
+edit-set `{file, intent, expected_outcome}` from the verbatim redirect,
+invokes `/coder` in-process, and reads `.flow-tmp/coder-result.json`
+(`verify_status` + `summary`) exactly once — it never sees the per-edit
+diff.
+
+A trivial edit may stay inline: ≤1 file AND ≤30 LOC AND every file named
+in the redirect (the same bar `/new-feature` step 5 uses). This routing
+is distinct from a scope/plan redirect, which re-runs
+`/product-planning` or re-prompts the sub-skill — do not collapse the two
+paths. See `references/redirect-handling.md` for the per-phase matrix.
 
 # Quick reference: phase values
 

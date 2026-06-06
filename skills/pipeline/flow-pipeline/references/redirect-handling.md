@@ -16,12 +16,34 @@ Every chat-turn input falls into one of:
   directive: `actually, also handle TSV`; `redo the plan with
   different scope`; `stop and rebuild against the new schema`;
   `ignore the failing flake test on src/util/race.test.ts`.
+  Imperative redirects split into two kinds: (i) **scope/plan
+  redirects**, which re-run `/product-planning` or re-prompt the
+  in-flight sub-skill (the existing behaviour), and (ii)
+  **code-change redirects** (`rename foo to bar`, `change this line`),
+  which route through `/coder` — see "Code-change redirects route
+  through /coder" below.
 - **Cancel.** `cancel`, `abort`, `kill this`, `stop the pipeline`,
   `shut it down`. Means "tear down and exit."
 
 Inputs that don't clearly fall into one of these are **ambiguous** —
 ask one clarifying question; if still unclear, escalate `NEEDS HUMAN:
 input-ambiguous`.
+
+## Code-change redirects route through /coder
+
+A code-change-shaped imperative redirect is routed through `/coder`,
+distinct from a scope/plan redirect that re-runs `/product-planning`.
+At the five worktree-existing phases — `plan-pending-review`,
+`implementing`, `verifying`, `ci-wait`, `reviewing` — a NON-trivial
+code-change redirect is the **interactive code-change redirect** path:
+the supervisor composes the edit-set `{file, intent, expected_outcome}`
+from the verbatim redirect text, invokes `/coder` in-process, and reads
+`.flow-tmp/coder-result.json` once (never the per-edit diff). A trivial
+edit (≤1 file AND ≤30 LOC AND every file named in the redirect) stays
+inline. This does NOT replace the scope/plan re-run path — that path
+still re-runs `/product-planning` or re-prompts the sub-skill for
+scope/plan redirects. `skills/pipeline/flow-pipeline/SKILL.md` (its
+"Mid-flight code-change redirects" section) is the source of truth.
 
 ## Phase × input action matrix
 
@@ -35,12 +57,12 @@ write (or just wrote) to `~/.flow/state/<slug>.json` via
 | `triaging` | Continue triage. | Restart triage with the redirect appended to the prompt. | Render the CANCELLED block via `flow-gate-summary --status cancelled --why "<context>"`, end. (No worktree to clean up — triage hasn't created one yet.) |
 | `worktree-create` | (n/a — no checkpoint here) | (n/a) | (n/a) |
 | `planning` | (n/a — no checkpoint until plan ends) | Append the redirect to the in-flight `/product-planning` invocation if possible; otherwise wait for it to end and re-run with the redirect. | Wait for `/product-planning` to end, run `flow-remove-worktree`, render the CANCELLED block via `flow-gate-summary --status cancelled --why "<context>"`, end. |
-| `plan-pending-review` | Proceed to step 5 (implement). | Re-run `/product-planning` with the redirect appended (`<original prompt>\n\n<user redirect>`). Re-enter `plan-pending-review` after. | Run `flow-remove-worktree`, render the CANCELLED block via `flow-gate-summary --status cancelled --why "<context>"`, end. |
-| `implementing` | Acknowledge ("noted, continuing"), keep going. | Append the redirect to the `/new-feature` invocation if possible; otherwise wait for the current attempt to end and re-prompt with the redirect appended. | Wait for the in-flight commit/push to finish (don't kill mid-write), then close the PR (`gh pr close <pr>`), run `flow-remove-worktree`, render the CANCELLED block via `flow-gate-summary --status cancelled --why "<context>"`, end. |
+| `plan-pending-review` | Proceed to step 5 (implement). | A scope/plan redirect re-runs `/product-planning` with the redirect appended (`<original prompt>\n\n<user redirect>`); re-enter `plan-pending-review` after. A non-trivial code-change redirect routes through `/coder` instead (see "Code-change redirects route through /coder"). | Run `flow-remove-worktree`, render the CANCELLED block via `flow-gate-summary --status cancelled --why "<context>"`, end. |
+| `implementing` | Acknowledge ("noted, continuing"), keep going. | A scope/plan redirect appends to the `/new-feature` invocation if possible, else waits for the current attempt to end and re-prompts with the redirect appended. A non-trivial code-change redirect routes through `/coder` instead (see "Code-change redirects route through /coder"). | Wait for the in-flight commit/push to finish (don't kill mid-write), then close the PR (`gh pr close <pr>`), run `flow-remove-worktree`, render the CANCELLED block via `flow-gate-summary --status cancelled --why "<context>"`, end. |
 | `installing-skills` | Acknowledge, keep going. The phase is short-lived (one `flow setup --upgrade` invocation). | Hold the redirect until after step 5.5 returns; classify against the next phase's row (`verifying`). | Same as `implementing`: finish the in-flight `flow setup` call (don't kill mid-symlink), close PR, cleanup, end. |
-| `verifying` | Acknowledge, keep going. | Append the redirect to the next `/verify` attempt's prompt (e.g. "ignore the flake test on X"). | Same as `implementing`: finish the in-flight attempt, close PR, cleanup, end. |
-| `ci-wait` | Acknowledge, keep polling. | Two flavours: (a) "stop waiting, proceed to review" → break out of the poll loop and go to step 8 (review). (b) "this CI failure isn't real, ignore it" → break out and go to step 5 in fix mode with the redirect as guidance. | Same as `implementing`: close PR, cleanup, end. |
-| `reviewing` | Acknowledge, let `/pr-review` finish. | Two flavours: (a) "skip the review, ship it" → break out and go to step 9 (gate). (b) "address this specific finding too" → append to the next `/pr-review` cycle. | Same as `implementing`: close PR, cleanup, end. |
+| `verifying` | Acknowledge, keep going. | A scope/plan redirect appends to the next `/verify` attempt's prompt (e.g. "ignore the flake test on X"). A non-trivial code-change redirect routes through `/coder` instead (see "Code-change redirects route through /coder"). | Same as `implementing`: finish the in-flight attempt, close PR, cleanup, end. |
+| `ci-wait` | Acknowledge, keep polling. | Two flavours: (a) "stop waiting, proceed to review" → break out of the poll loop and go to step 8 (review). (b) "this CI failure isn't real, ignore it" → break out and go to step 5 in fix mode with the redirect as guidance. A non-trivial code-change redirect routes through `/coder` instead (see "Code-change redirects route through /coder"). | Same as `implementing`: close PR, cleanup, end. |
+| `reviewing` | Acknowledge, let `/pr-review` finish. | Two flavours: (a) "skip the review, ship it" → break out and go to step 9 (gate). (b) "address this specific finding too" → append to the next `/pr-review` cycle. A non-trivial code-change redirect routes through `/coder` instead (see "Code-change redirects route through /coder"). | Same as `implementing`: close PR, cleanup, end. |
 | `gating` | (n/a — gate is one decision) | (n/a — the gate is one decision; a gate *override* happens only *after* the verdict, post-`gated` — see "Gate override" below) | (n/a — gate completes in milliseconds) |
 | `merging` | (n/a) | (n/a) | (n/a — too late to cancel, the merge has fired) |
 | `merged` / `gated` / `needs-human` / `cancelled` | "Anything else?" — these are end states; treat further input as a new request and ask the user whether they want to start a new pipeline. | Same — **except** a post-`gated` instruction to merge the gated PR anyway, which is a gate override: classify it per "Gate override" below, not as a new pipeline. | Same. |

@@ -3,9 +3,10 @@ name: coder
 description: >-
   Apply a structured edit-set to files in an isolated subagent context, running
   pre-commit verification before returning. Invoked by `/new-feature` step 5,
-  `/verify` step 3, and `/refactoring` step 3 to keep per-edit Edit/Write tool
-  calls and their diff-bearing tool_results out of the supervisor's transcript.
-  Not for direct user invocation.
+  `/verify` step 3, and `/refactoring` step 3 — and by the `/flow-pipeline`
+  supervisor's interactive code-change redirect path — to keep per-edit
+  Edit/Write tool calls and their diff-bearing tool_results out of the
+  supervisor's transcript. Not for direct user invocation.
 ---
 
 # Goal
@@ -29,6 +30,13 @@ the wrapper's brief return summary and reads the artifact once.
 - `/refactoring` step 3 (Apply Transformations) on the wider-scope path of
   its hybrid threshold — the caller composes an edit-set from the Step 2
   refactor plan and the affected modules.
+- The `/flow-pipeline` supervisor's interactive code-change redirect path —
+  when a user types a non-trivial code-change redirect (e.g. "rename foo to
+  bar") at a worktree-existing phase, the supervisor composes a structured
+  edit-set `{file, intent, expected_outcome}` from the verbatim redirect and
+  invokes `/coder` rather than editing inline. See
+  `skills/pipeline/flow-pipeline/references/redirect-handling.md` and the
+  "Mid-flight code-change redirects" section of flow-pipeline/SKILL.md.
 
 # When NOT to Use
 
@@ -45,7 +53,11 @@ the wrapper's brief return summary and reads the artifact once.
   for those cases.
 - Direct user invocation. `/coder` is invoked by other skills, not by
   humans — the spawn prompt expects a structured edit-set the user is not
-  going to compose by hand.
+  going to compose by hand. A human typing `/coder` by hand is still
+  forbidden; but the `/flow-pipeline` supervisor routing a user's free-form
+  redirect through `/coder` is NOT direct user invocation — the supervisor
+  composes the edit-set, not the human, so it is a skill-initiated
+  invocation like the other three callers.
 - Multi-turn refinement. Each `/coder` invocation is one-shot — applies the
   requested edits, runs verify, returns the artifact, exits. Iterative
   refinement is the caller's job (compose a new edit-set, re-invoke).
