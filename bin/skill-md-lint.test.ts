@@ -1966,14 +1966,28 @@ describe("/coder interactive-redirect caller anchor", () => {
     ["coder/SKILL.md", coderContent],
     ["references/exemption-contracts.md", exemptionContractsContent],
   ])("%s carries the 'interactive code-change redirect' anchor phrase", (label, docContent) => {
+    const anchorIdx = docContent.indexOf(ANCHOR);
+    // Co-location check: a /coder mention must appear within a bounded
+    // window around the anchor, so the "next to a /coder mention"
+    // invariant the failure message promises is actually enforced — a
+    // relocated phrase severed from its /coder context fails here.
+    const WINDOW = 400;
+    const near =
+      anchorIdx !== -1 &&
+      docContent
+        .slice(
+          Math.max(0, anchorIdx - WINDOW),
+          anchorIdx + ANCHOR.length + WINDOW,
+        )
+        .includes("/coder");
     expect(
-      docContent.includes(ANCHOR),
+      near,
       `${label} must contain the literal '${ANCHOR}' phrase next to a /coder ` +
-        `mention. This is the fourth /coder caller (the /flow-pipeline ` +
-        `supervisor routing a user's free-form code-change redirect through ` +
-        `/coder) and is documented across all five docs in lockstep — a ` +
-        `missing phrase here means a one-sided edit drifted ${label} out of ` +
-        `sync with the others.`,
+        `mention (within ${WINDOW} chars). This is the fourth /coder caller ` +
+        `(the /flow-pipeline supervisor routing a user's free-form ` +
+        `code-change redirect through /coder) and is documented across all ` +
+        `five docs in lockstep — a missing or relocated phrase here means a ` +
+        `one-sided edit drifted ${label} out of sync with the others.`,
     ).toBe(true);
   });
 });

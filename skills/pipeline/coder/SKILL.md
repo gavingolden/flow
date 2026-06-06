@@ -42,11 +42,14 @@ the wrapper's brief return summary and reads the artifact once.
 
 - Trivially scoped edits where the caller's own hybrid threshold says
   inline is cheaper. `/coder` itself does not apply a threshold — its
-  callers decide whether to invoke it. The three known callers use
+  callers decide whether to invoke it. The four known callers use
   different bars: `/new-feature` step 5 stays inline at ≤1 file AND ≤30
   LOC AND every file named in the prompt; `/verify` step 3 stays inline
   on single-line type/lint errors in one file; `/refactoring` step 3
-  uses the same bar as `/new-feature` step 5. See each caller's
+  uses the same bar as `/new-feature` step 5; and the `/flow-pipeline`
+  supervisor's interactive code-change redirect path reuses
+  `/new-feature` step 5's `≤1 file AND ≤30 LOC AND every file named`
+  bar to keep trivial redirects inline. See each caller's
   "Spawn procedure (wider-scope path only)" section for the canonical
   threshold. The Task-tool round trip costs more than the bytes saved
   on a one-line fix; the threshold exists to preserve the inline path
