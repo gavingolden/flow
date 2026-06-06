@@ -1942,3 +1942,52 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 });
+
+describe("/coder interactive-redirect caller anchor", () => {
+  // The supervisor routing a user's free-form code-change redirect through
+  // /coder is the fourth /coder caller, distinct from the three step-N
+  // callers the extractCallers symmetry lint counts. That caller has no
+  // `<skill> step N` token (the routing happens in the /flow-pipeline
+  // supervisor, filtered by extractCallers), so the lockstep count lint
+  // can't see it. This block anchors on the shared literal phrase
+  // 'interactive code-change redirect' so a one-sided edit — adding the
+  // routing to one doc but not the rest — fails fast naming the divergent
+  // file. The five docs that must all carry the phrase (co-located with a
+  // /coder mention) are: flow-pipeline/SKILL.md (Mid-flight section +
+  // exemption #6), its redirect-handling.md reference, AGENTS.md's /coder
+  // exemption bullet, coder/SKILL.md, and the repo-root
+  // references/exemption-contracts.md /coder section.
+  const ANCHOR = "interactive code-change redirect";
+
+  it.each([
+    ["flow-pipeline/SKILL.md", content],
+    ["flow-pipeline/references/redirect-handling.md", redirectHandlingContent],
+    ["AGENTS.md", agentsContent],
+    ["coder/SKILL.md", coderContent],
+    ["references/exemption-contracts.md", exemptionContractsContent],
+  ])("%s carries the 'interactive code-change redirect' anchor phrase", (label, docContent) => {
+    const anchorIdx = docContent.indexOf(ANCHOR);
+    // Co-location check: a /coder mention must appear within a bounded
+    // window around the anchor, so the "next to a /coder mention"
+    // invariant the failure message promises is actually enforced — a
+    // relocated phrase severed from its /coder context fails here.
+    const WINDOW = 400;
+    const near =
+      anchorIdx !== -1 &&
+      docContent
+        .slice(
+          Math.max(0, anchorIdx - WINDOW),
+          anchorIdx + ANCHOR.length + WINDOW,
+        )
+        .includes("/coder");
+    expect(
+      near,
+      `${label} must contain the literal '${ANCHOR}' phrase next to a /coder ` +
+        `mention (within ${WINDOW} chars). This is the fourth /coder caller ` +
+        `(the /flow-pipeline supervisor routing a user's free-form ` +
+        `code-change redirect through /coder) and is documented across all ` +
+        `five docs in lockstep — a missing or relocated phrase here means a ` +
+        `one-sided edit drifted ${label} out of sync with the others.`,
+    ).toBe(true);
+  });
+});

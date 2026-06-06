@@ -78,9 +78,11 @@ per-pipeline branch only — never `main`, `master`, or the base branch.
 ## `/coder` Independent Edit-Applier Subagent
 
 When a pipeline skill reaches its hybrid-threshold wider-scope path —
-`/new-feature` step 5, `/verify` step 3, or `/refactoring` step 3 — the
-wrapper invokes `/coder` in-process, and `/coder` spawns one edit-applier
-agent via the Task tool to apply the edit-set and run
+`/new-feature` step 5, `/verify` step 3, or `/refactoring` step 3 — or
+when the `/flow-pipeline` supervisor's interactive code-change redirect
+path fires (a non-trivial code-change redirect at a worktree-existing
+phase), the wrapper invokes `/coder` in-process, and `/coder` spawns one
+edit-applier agent via the Task tool to apply the edit-set and run
 `flow-pre-commit --json` against the post-edit worktree. Artifact:
 `<worktree>/.flow-tmp/coder-result.json` (typed fields `edits`,
 `verify_status`, `rejected_alternatives`, `anti_patterns_found`,
