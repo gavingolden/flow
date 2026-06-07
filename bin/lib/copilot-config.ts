@@ -123,6 +123,21 @@ function extractBotsCopilotSkipWait(raw: unknown): boolean {
   return (bots as Record<string, unknown>).copilotSkipWait === true;
 }
 
+/**
+ * Tri-state, unlike `extractBotsCopilotSkipWait`: the resolver short-circuits
+ * BOTH the authoritative ruleset read and the 5-PR heuristic only on a defined
+ * value, so absent/missing-bots/wrong-typed MUST collapse to `undefined` (let
+ * auto-detect run) — never to `false` (which would force "not configured" on
+ * every unconfigured repo).
+ */
+function extractBotsCopilotAutoReview(raw: unknown): boolean | undefined {
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const bots = (raw as Record<string, unknown>).bots;
+  if (typeof bots !== "object" || bots === null) return undefined;
+  const v = (bots as Record<string, unknown>).copilotAutoReview;
+  return typeof v === "boolean" ? v : undefined;
+}
+
 function stringArray(x: unknown): string[] | undefined {
   if (!Array.isArray(x)) return undefined;
   const out = x.filter((e): e is string => typeof e === "string");
@@ -154,6 +169,15 @@ export function readCopilotClaimDeadlineSec(
  * true — false/absent/malformed all read false. */
 export function readCopilotSkipWait(read: ReadConfigFile = defaultReadConfigFile): boolean {
   return extractBotsCopilotSkipWait(read());
+}
+
+/** Tri-state override for "is Copilot review configured": `true`/`false` force the
+ * resolver's verdict (short-circuiting the ruleset read and the 5-PR heuristic);
+ * `undefined` (absent/missing-bots/wrong-typed) defers to auto-detect. */
+export function readCopilotAutoReview(
+  read: ReadConfigFile = defaultReadConfigFile,
+): boolean | undefined {
+  return extractBotsCopilotAutoReview(read());
 }
 
 /** Login-only accessor — the shape `flow-ci-wait`'s `readCopilotLogin` seam wants. */

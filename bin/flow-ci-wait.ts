@@ -44,6 +44,7 @@ import {
   COPILOT_REQUEST_SLUG,
   copilotAuthorMatch,
   matchesCopilot,
+  readCopilotAutoReview,
   readCopilotClaimDeadlineSec,
   readCopilotLogin as readCopilotLoginFromConfig,
 } from "./lib/copilot-config";
@@ -973,6 +974,21 @@ export function observeCopilotRuleset(gh: GhRunner): boolean | "unknown" {
   }
 }
 
+/**
+ * Three-tier "is Copilot review configured" resolver. Precedence: a defined
+ * `bots.copilotAutoReview` config override wins outright (short-circuiting BOTH
+ * the authoritative ruleset read AND the 5-PR heuristic — zero gh calls); then
+ * the authoritative ruleset read; then, only when the ruleset is "unknown"
+ * (unreadable — e.g. a 403 on a private free-tier repo), the historical 5-PR
+ * heuristic floor.
+ */
+export function resolveCopilotConfigured(login: string, gh: GhRunner): boolean {
+  const override = readCopilotAutoReview();
+  if (override !== undefined) return override;
+  const ruleset = observeCopilotRuleset(gh);
+  return ruleset === "unknown" ? fetchHistoricalBotReview(login, gh) : ruleset;
+}
+
 export function observeChecks(prNumber: number, gh: GhRunner): Check[] {
   const r = gh(["pr", "checks", String(prNumber), "--json", "name,state"]);
   if (r.exitCode !== 0) return [];
@@ -1144,11 +1160,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const readCopilotLogin = deps.readCopilotLogin ?? defaultReadCopilotLogin;
   const readClaimDeadline = deps.readClaimDeadline ?? defaultReadClaimDeadline;
   const readHistoricalBotReview =
-    deps.readHistoricalBotReview ??
-    ((login: string) => {
-      const ruleset = observeCopilotRuleset(gh);
-      return ruleset === "unknown" ? fetchHistoricalBotReview(login, gh) : ruleset;
-    });
+    deps.readHistoricalBotReview ?? ((login: string) => resolveCopilotConfigured(login, gh));
   const readCommitsAreAllMerges =
     deps.readCommitsAreAllMerges ??
     ((fromSha: string, toSha: string) => allMergeCommitsBetween(fromSha, toSha, gh));
