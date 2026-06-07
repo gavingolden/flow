@@ -765,6 +765,51 @@ describe("normalizeFinding — file/line recovery from prose prefix", () => {
     expect(out.file).toBeUndefined();
   });
 
+  it("recovers start line only from a '<path>:<start>-<end>' range prefix (end_line not parsed)", () => {
+    const out = normalizeFinding({
+      label: "praise",
+      confidence: 95,
+      subject: "src/foo.ts:42-45 — range tail is intentionally ignored",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.file).toBe("src/foo.ts");
+    expect(out.line).toBe(42);
+    expect(out.end_line).toBeUndefined();
+  });
+
+  it("does not recover when digits run into letters (the \\b boundary rejects ':42abc')", () => {
+    const out = normalizeFinding({
+      label: "praise",
+      confidence: 95,
+      subject: "src/foo.ts:42abc — malformed line token",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.file).toBeUndefined();
+  });
+
+  it("recovers from a present-but-empty file (file: '' triggers recovery like an absent key)", () => {
+    const out = normalizeFinding({
+      file: "",
+      label: "praise",
+      confidence: 95,
+      subject: "src/foo.ts:42 — empty file string is not 'present'",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.file).toBe("src/foo.ts");
+    expect(out.line).toBe(42);
+  });
+
+  it("recovers file and start line from a '<path>:<line>:<col>' triple prefix (col dropped)", () => {
+    const out = normalizeFinding({
+      label: "praise",
+      confidence: 95,
+      subject: "src/foo.ts:42:10 — trailing :col is one token too many",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.file).toBe("src/foo.ts");
+    expect(out.line).toBe(42);
+  });
+
   it("is idempotent — recovering twice equals recovering once", () => {
     const input = {
       label: "praise",
