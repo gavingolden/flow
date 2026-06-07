@@ -1303,6 +1303,303 @@ describe(run, () => {
     expect(calls.some((c) => c[0].endsWith("svelte-check") || c[0].endsWith("svelte-kit"))).toBe(false);
   });
 
+  it("runs svelte-check WITHOUT svelte-kit sync on a plain-svelte (non-Kit) repo", async () => {
+    // detectSvelte returns "svelte" (not "sveltekit") when a plain `svelte`
+    // dep is present with NO svelte.config.* and NO @sveltejs/kit. That path
+    // must run svelte-check but must NOT spawn `svelte-kit sync` first.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("svelte.config.js")) return false;
+      if (p.endsWith("svelte.config.ts")) return false;
+      if (p.endsWith("svelte.config.mjs")) return false;
+      if (p.endsWith("tsconfig.json")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-check")) return true;
+      return false;
+    });
+    const which = vi.fn().mockReturnValue(null);
+    const readFile = vi.fn().mockImplementation((p: string) =>
+      p.endsWith("package.json")
+        ? JSON.stringify({ devDependencies: { svelte: "^5.0.0" } })
+        : null,
+    );
+    const svelteCheckOut = makeSvelteCheckOutput([
+      { file: "src/App.svelte", line: 7, col: 3, severity: "ERROR", message: "Cannot find name 'window'." },
+    ]);
+    const spawn = vi.fn().mockImplementation((cmd: string) => {
+      if (cmd.endsWith("svelte-check")) {
+        return Promise.resolve({ stdout: svelteCheckOut, stderr: "", exitCode: 1, timedOut: false });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 5, lines: ["+a", "+b", "+c", "+d"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(true);
+    const calls = spawn.mock.calls as Array<[string, string[]]>;
+    expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(true);
+    expect(calls.some((c) => c[0].endsWith("svelte-kit") && c[1][0] === "sync")).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(result.types).toHaveLength(1);
+    expect(result.types[0]).toMatchObject({ line: 7, source: "svelte-check", severity: "error" });
+  });
+
+  it("softens to timeout when svelte-check times out and never spawns tsc", async () => {
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("svelte.config.js")) return true;
+      if (p.endsWith("tsconfig.json")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-check")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-kit")) return true;
+      return false;
+    });
+    const which = vi.fn().mockReturnValue(null);
+    const readFile = vi.fn().mockImplementation((p: string) =>
+      p.endsWith("package.json")
+        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+        : null,
+    );
+    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
+      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      }
+      if (cmd.endsWith("svelte-check")) {
+        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: true });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(false);
+    expect(result.meta.types.skipped_reason).toBe("timeout");
+    const calls = spawn.mock.calls as Array<[string, string[]]>;
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+  });
+
+  it("softens to svelte-check-exit-<n> when svelte-check fails catastrophically and never spawns tsc", async () => {
+    // svelte-check exit 0 = no errors, 1 = errors found (both "ran"). Anything
+    // else (here 2) is a tooling failure that must skip with an explicit
+    // reason rather than a silent zero-finding pass.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("svelte.config.js")) return true;
+      if (p.endsWith("tsconfig.json")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-check")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-kit")) return true;
+      return false;
+    });
+    const which = vi.fn().mockReturnValue(null);
+    const readFile = vi.fn().mockImplementation((p: string) =>
+      p.endsWith("package.json")
+        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+        : null,
+    );
+    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
+      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      }
+      if (cmd.endsWith("svelte-check")) {
+        return Promise.resolve({ stdout: "", stderr: "internal error", exitCode: 2, timedOut: false });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(false);
+    expect(result.meta.types.skipped_reason).toBe("svelte-check-exit-2");
+    const calls = spawn.mock.calls as Array<[string, string[]]>;
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+  });
+
+  it("softens to svelte-kit-sync-failed when svelte-kit sync times out and never spawns svelte-check or tsc", async () => {
+    // The svelte-kit-sync-failed guard fires on EITHER a non-zero exit (tested
+    // above) OR sync.timedOut — this exercises the timeout half.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("svelte.config.js")) return true;
+      if (p.endsWith("tsconfig.json")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-check")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-kit")) return true;
+      return false;
+    });
+    const which = vi.fn().mockReturnValue(null);
+    const readFile = vi.fn().mockImplementation((p: string) =>
+      p.endsWith("package.json")
+        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+        : null,
+    );
+    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
+      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: true });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(false);
+    expect(result.meta.types.skipped_reason).toBe("svelte-kit-sync-failed");
+    const calls = spawn.mock.calls as Array<[string, string[]]>;
+    expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+  });
+
+  it("appends --tsconfig to svelte-check when a non-default tsconfig is resolved", async () => {
+    // When resolveTsconfig falls back to a project-specific tsconfig (e.g.
+    // tsconfig.app.json), the svelte-check invocation must thread it through
+    // as `--tsconfig <path>`; the plain-tsconfig.json happy path omits it.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("svelte.config.js")) return true;
+      if (p.endsWith("tsconfig.json")) return false;
+      if (p.endsWith("tsconfig.app.json")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-check")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-kit")) return true;
+      return false;
+    });
+    const which = vi.fn().mockReturnValue(null);
+    const readFile = vi.fn().mockImplementation((p: string) =>
+      p.endsWith("package.json")
+        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+        : null,
+    );
+    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
+      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      }
+      if (cmd.endsWith("svelte-check")) {
+        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(true);
+    const calls = spawn.mock.calls as Array<[string, string[]]>;
+    const checkCall = calls.find((c) => c[0].endsWith("svelte-check"));
+    expect(checkCall).toBeDefined();
+    expect(checkCall![1]).toEqual([
+      "--output",
+      "machine",
+      "--threshold",
+      "error",
+      "--tsconfig",
+      "tsconfig.app.json",
+    ]);
+  });
+
+  it("detectSvelte swallows a malformed package.json and falls back to svelte.config.* detection", async () => {
+    // An unparseable package.json must not throw — detection falls through to
+    // config-file presence (svelte.config.js → "sveltekit") rather than
+    // crashing the run.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("svelte.config.js")) return true;
+      if (p.endsWith("tsconfig.json")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-check")) return true;
+      if (p.endsWith("node_modules/.bin/svelte-kit")) return true;
+      return false;
+    });
+    const which = vi.fn().mockReturnValue(null);
+    const readFile = vi.fn().mockImplementation((p: string) =>
+      p.endsWith("package.json") ? "{not json" : null,
+    );
+    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
+      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      }
+      if (cmd.endsWith("svelte-check")) {
+        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    const code = await run(["7"], deps);
+    expect(code).toBe(0);
+    const result = JSON.parse(outs.join(""));
+    // Resolves to "sveltekit" via svelte.config.js despite the bad JSON: the
+    // SvelteKit path runs svelte-kit sync then svelte-check, never tsc.
+    expect(result.meta.types.ran).toBe(true);
+    const calls = spawn.mock.calls as Array<[string, string[]]>;
+    expect(calls.some((c) => c[0].endsWith("svelte-kit") && c[1][0] === "sync")).toBe(true);
+    expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(true);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+  });
+
   it("should issue all lens spawns before any resolves", async () => {
     // Regression guardrail: if Promise.all is converted to sequential await,
     // the second lens cannot enter the registry until the first one has
