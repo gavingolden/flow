@@ -5,13 +5,24 @@ import {
   run,
   type GlobClass,
 } from "./flow-request-copilot";
+import {
+  DEFAULT_ALWAYS_REVIEW_GLOBS,
+  DEFAULT_NEVER_ALONE_GLOBS,
+  type CopilotGlobs,
+  type ReadConfigFile,
+} from "./lib/copilot-config";
+import type { GhRunner } from "./flow-ci-wait";
 
 // `resolveCopilotConfigured` (reached from `run()`'s request path) consults
 // `bots.copilotAutoReview` via the default file-backed ReadConfigFile, which is
 // NOT the injectable `deps.readConfig` seam the rest of `run()` uses. Mock only
 // that one export so the config tier is deterministic; everything else stays
-// real. `setAutoReview` drives the override per test.
-const autoReviewHolder = vi.hoisted(() => ({ value: undefined as boolean | undefined }));
+// real. `setAutoReview` drives the override per test. vitest hoists
+// `vi.hoisted`/`vi.mock` above the imports regardless of source placement, so
+// keeping them below the import block is behaviour-preserving.
+const autoReviewHolder = vi.hoisted(() => ({
+  value: undefined as boolean | undefined,
+}));
 vi.mock("./lib/copilot-config", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/copilot-config")>();
   return { ...actual, readCopilotAutoReview: () => autoReviewHolder.value };
@@ -20,13 +31,6 @@ function setAutoReview(value: boolean | undefined): void {
   autoReviewHolder.value = value;
 }
 afterEach(() => setAutoReview(undefined));
-import {
-  DEFAULT_ALWAYS_REVIEW_GLOBS,
-  DEFAULT_NEVER_ALONE_GLOBS,
-  type CopilotGlobs,
-  type ReadConfigFile,
-} from "./lib/copilot-config";
-import type { GhRunner } from "./flow-ci-wait";
 
 const GLOBS: CopilotGlobs = {
   alwaysReview: DEFAULT_ALWAYS_REVIEW_GLOBS,
@@ -40,15 +44,21 @@ const GLOBS: CopilotGlobs = {
 describe("classifyByGlobs", () => {
   it("always-review beats never-alone when both match", () => {
     // One auth path (always-review) + one snapshot (never-alone) → always wins.
-    expect(classifyByGlobs(["src/lib/auth/x.ts", "a.snap"], GLOBS)).toBe("always-review");
+    expect(classifyByGlobs(["src/lib/auth/x.ts", "a.snap"], GLOBS)).toBe(
+      "always-review",
+    );
   });
 
   it("all paths matching neverAlone → never-alone", () => {
-    expect(classifyByGlobs(["package-lock.json", "docs/guide/intro.md"], GLOBS)).toBe("never-alone");
+    expect(
+      classifyByGlobs(["package-lock.json", "docs/guide/intro.md"], GLOBS),
+    ).toBe("never-alone");
   });
 
   it("one path outside all sets → ambiguous", () => {
-    expect(classifyByGlobs(["package-lock.json", "src/feature.ts"], GLOBS)).toBe("ambiguous");
+    expect(
+      classifyByGlobs(["package-lock.json", "src/feature.ts"], GLOBS),
+    ).toBe("ambiguous");
   });
 
   it("empty paths → never-alone (locked default)", () => {
@@ -56,11 +66,15 @@ describe("classifyByGlobs", () => {
   });
 
   it("**/auth/** matches a nested auth path", () => {
-    expect(classifyByGlobs(["src/lib/auth/session.ts"], GLOBS)).toBe("always-review");
+    expect(classifyByGlobs(["src/lib/auth/session.ts"], GLOBS)).toBe(
+      "always-review",
+    );
   });
 
   it("**/*.snap matches a snapshot path", () => {
-    expect(classifyByGlobs(["components/Button.snap"], GLOBS)).toBe("never-alone");
+    expect(classifyByGlobs(["components/Button.snap"], GLOBS)).toBe(
+      "never-alone",
+    );
   });
 
   it("docs/**/*.md matches a nested docs markdown file", () => {
@@ -68,7 +82,9 @@ describe("classifyByGlobs", () => {
   });
 
   it(".github/workflows/** stays in alwaysReview", () => {
-    expect(classifyByGlobs([".github/workflows/ci.yml"], GLOBS)).toBe("always-review");
+    expect(classifyByGlobs([".github/workflows/ci.yml"], GLOBS)).toBe(
+      "always-review",
+    );
   });
 
   it("brace patterns behave (picomatch semantics)", () => {
@@ -105,38 +121,56 @@ describe("resolveRequestDecision", () => {
 
   it("override=always → true regardless of class", () => {
     for (const globClass of classes) {
-      expect(resolveRequestDecision({ override: "always", globClass })).toBe(true);
+      expect(resolveRequestDecision({ override: "always", globClass })).toBe(
+        true,
+      );
     }
   });
 
   it("override=never → false regardless of class", () => {
     for (const globClass of classes) {
-      expect(resolveRequestDecision({ override: "never", globClass })).toBe(false);
+      expect(resolveRequestDecision({ override: "never", globClass })).toBe(
+        false,
+      );
     }
   });
 
   it("auto + always-review → true", () => {
-    expect(resolveRequestDecision({ override: "auto", globClass: "always-review" })).toBe(true);
+    expect(
+      resolveRequestDecision({ override: "auto", globClass: "always-review" }),
+    ).toBe(true);
   });
 
   it("auto + never-alone → false", () => {
-    expect(resolveRequestDecision({ override: "auto", globClass: "never-alone" })).toBe(false);
+    expect(
+      resolveRequestDecision({ override: "auto", globClass: "never-alone" }),
+    ).toBe(false);
   });
 
   it("auto + ambiguous + non-trivial → true", () => {
     expect(
-      resolveRequestDecision({ override: "auto", globClass: "ambiguous", agentDecision: "non-trivial" }),
+      resolveRequestDecision({
+        override: "auto",
+        globClass: "ambiguous",
+        agentDecision: "non-trivial",
+      }),
     ).toBe(true);
   });
 
   it("auto + ambiguous + trivial → false", () => {
     expect(
-      resolveRequestDecision({ override: "auto", globClass: "ambiguous", agentDecision: "trivial" }),
+      resolveRequestDecision({
+        override: "auto",
+        globClass: "ambiguous",
+        agentDecision: "trivial",
+      }),
     ).toBe(false);
   });
 
   it("auto + ambiguous + no decision → true (fail-open)", () => {
-    expect(resolveRequestDecision({ override: "auto", globClass: "ambiguous" })).toBe(true);
+    expect(
+      resolveRequestDecision({ override: "auto", globClass: "ambiguous" }),
+    ).toBe(true);
   });
 
   it("undefined override behaves like auto", () => {
@@ -170,7 +204,6 @@ function captureStderr() {
   return { err, restore: () => spy.mockRestore() };
 }
 
-
 describe("--classify CLI", () => {
   it.each([
     [["src/lib/auth/x.ts"], "always-review"],
@@ -178,7 +211,10 @@ describe("--classify CLI", () => {
     [["package-lock.json", "src/feature.ts"], "ambiguous"],
   ] as const)("prints %s → %s", async (paths, expected) => {
     const cap = captureStdout();
-    const code = await run(["--classify"], { readConfig, stdinPaths: async () => [...paths] });
+    const code = await run(["--classify"], {
+      readConfig,
+      stdinPaths: async () => [...paths],
+    });
     cap.restore();
     expect(code).toBe(0);
     expect(cap.out.join("").trim()).toBe(expected);
@@ -194,7 +230,8 @@ describe("--classify CLI", () => {
 // `gh api POST`. `isPost` is retained as the "did a request go out?" predicate.
 const isPost = (argv: string[]) =>
   argv[0] === "pr" && argv[1] === "edit" && argv.includes("--add-reviewer");
-const isReviewRequests = (argv: string[]) => argv[0] === "pr" && argv[1] === "view";
+const isReviewRequests = (argv: string[]) =>
+  argv[0] === "pr" && argv[1] === "view";
 const isPrList = (argv: string[]) => argv[0] === "pr" && argv[1] === "list";
 
 /**
@@ -208,7 +245,9 @@ const isPrList = (argv: string[]) => argv[0] === "pr" && argv[1] === "list";
 const isRepoView = (argv: string[]) =>
   argv[0] === "repo" && argv[1] === "view" && argv.includes("defaultBranchRef");
 const isRulesApi = (argv: string[]) =>
-  argv[0] === "api" && typeof argv[1] === "string" && argv[1].includes("/rules/branches/");
+  argv[0] === "api" &&
+  typeof argv[1] === "string" &&
+  argv[1].includes("/rules/branches/");
 
 function ghStub(responses: {
   post: number;
@@ -226,16 +265,25 @@ function ghStub(responses: {
   const fn = ((argv: string[]) => {
     calls.push(argv);
     if (isPost(argv)) {
-      return { stdout: "", stderr: responses.postStderr ?? "", exitCode: responses.post };
+      return {
+        stdout: "",
+        stderr: responses.postStderr ?? "",
+        exitCode: responses.post,
+      };
     }
     if (isRepoView(argv)) {
       return { stdout: "main", stderr: "", exitCode: 0 };
     }
     if (isRulesApi(argv)) {
       const ruleset = responses.ruleset ?? "unknown";
-      if (ruleset === "unknown") return { stdout: "", stderr: "forbidden", exitCode: 1 };
+      if (ruleset === "unknown")
+        return { stdout: "", stderr: "forbidden", exitCode: 1 };
       return {
-        stdout: JSON.stringify(ruleset ? [{ type: "copilot_code_review" }] : [{ type: "pull_request" }]),
+        stdout: JSON.stringify(
+          ruleset
+            ? [{ type: "copilot_code_review" }]
+            : [{ type: "pull_request" }],
+        ),
         stderr: "",
         exitCode: 0,
       };
@@ -243,7 +291,9 @@ function ghStub(responses: {
     if (isPrList(argv)) {
       // fetchHistoricalBotReview: list of recent merged PRs.
       return {
-        stdout: JSON.stringify(responses.historicalReviews ? [{ number: 7 }] : []),
+        stdout: JSON.stringify(
+          responses.historicalReviews ? [{ number: 7 }] : [],
+        ),
         stderr: "",
         exitCode: 0,
       };
@@ -253,7 +303,9 @@ function ghStub(responses: {
       return {
         stdout: JSON.stringify({
           reviews: wantsReviews
-            ? (responses.historicalReviews ?? []).map((login) => ({ author: { login } }))
+            ? (responses.historicalReviews ?? []).map((login) => ({
+                author: { login },
+              }))
             : undefined,
           reviewRequests: responses.queuedLogins.map((login) => ({ login })),
         }),
@@ -269,7 +321,10 @@ function ghStub(responses: {
 
 describe("request mode", () => {
   it("request branch fires the POST and reports queued when verified", async () => {
-    const gh = ghStub({ post: 0, queuedLogins: ["copilot-pull-request-reviewer"] });
+    const gh = ghStub({
+      post: 0,
+      queuedLogins: ["copilot-pull-request-reviewer"],
+    });
     const cap = captureStdout();
     const code = await run(["--pr", "42", "--override", "always"], {
       gh,
@@ -342,7 +397,8 @@ describe("request mode", () => {
     const gh = ghStub({
       post: 1,
       queuedLogins: ["copilot-pull-request-reviewer"], // alreadyRequested → POST branch
-      postStderr: "HTTP 422: Reviews may only be requested from collaborators that have access",
+      postStderr:
+        "HTTP 422: Reviews may only be requested from collaborators that have access",
     });
     const cap = captureStdout();
     const errCap = captureStderr();
@@ -565,7 +621,10 @@ describe("request mode", () => {
   });
 
   it("auto + ambiguous + no decision fails open to requesting", async () => {
-    const gh = ghStub({ post: 0, queuedLogins: ["copilot-pull-request-reviewer"] });
+    const gh = ghStub({
+      post: 0,
+      queuedLogins: ["copilot-pull-request-reviewer"],
+    });
     const cap = captureStdout();
     const code = await run(["--pr", "42"], {
       gh,
