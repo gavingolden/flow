@@ -379,25 +379,25 @@ edits re-run the gate too). Workflow YAML under `.github/workflows/`
 edit runs both `bin/`'s workflow-shape regression tests AND `actionlint`. `actionlint`
 and `go` are OPTIONAL: off `PATH`, the affected check emits `skipReason:
 'actionlint-not-installed'`/`'go-not-installed'` and counts `passed: true`
-(parallel to `filterDefinedChecks`'s missing-script handling). When **no**
-specific scope matched anything in a non-empty diff, the entire diff lands in
-the `root-fallback` pseudo-scope (`npm run typecheck` + `npm run test` +
-`npm run lint` at the repo root). The fallback is **mutually exclusive**
-with every specific scope — `src` runs only `src`'s checks. Any file no scope
-(built-in, auto-detected, or configured) claims surfaces in
-`unmatchedFiles` and FAILS the gate with `reason: "unmatched-files"` and a
-non-zero exit. (`filterDefinedChecks`
-drops any check whose npm script `package.json` doesn't define; a
-zero-check non-empty diff signals `allPassed: false` with
+(parallel to `filterDefinedChecks`'s missing-script handling). The
+`root-fallback` pseudo-scope (`npm run typecheck` + `npm run test` +
+`npm run lint` at the repo root) fires **additively** — appended alongside
+matched scopes for any file no other scope claimed (a fully-claimed diff
+does not append it). So a root file (`package.json`) is covered identically
+alone or bundled. The catch-all reaches every unclaimed
+path, so `reason: "unmatched-files"` effectively no longer fires (its code
+stays as a defensive guard).
+(`filterDefinedChecks` drops any check whose npm script `package.json`
+doesn't define; a zero-check non-empty diff signals `allPassed: false` with
 `reason: "no-checks-defined"`.)
 
 **Zero-config monorepo auto-detect + three-layer command resolution.**
-Before that failure fires, a SEPARATE pass over the unclaimed files
-recognizes `apps/<pkg>/` and `packages/<pkg>/` dirs that **own a
+Before root-fallback claims orphans, a SEPARATE pass over the unclaimed
+files recognizes `apps/<pkg>/` and `packages/<pkg>/` dirs that **own a
 `package.json`**, mapping each to an auto-detected scope named by its path
 (`apps/web`, selectable via `--scope apps/web`; nothing written) — so
-`apps/web/src/b.ts` is claimed when its owner exists; a no-owner file stays
-an orphan. Every scope's commands (built-in OR auto-detected) resolve
+`apps/web/src/b.ts` is claimed when its owner exists; a no-owner file falls
+to root-fallback. Every scope's commands (built-in OR auto-detected) resolve
 through one shared table in `bin/lib/stack-table.ts`: (1) the package's own
 declared verify scripts, probed `typecheck`/`check` (first wins) → `lint`
 → `test` → `format:check`, scoped `npm run <script> -w <pkg-path>`; a

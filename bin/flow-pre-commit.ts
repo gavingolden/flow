@@ -150,7 +150,7 @@ export type GitOps = {
 // --- Constants ---
 
 // Path-based scopes only — root-fallback is a sentinel scope (not a matcher)
-// that fires when a non-empty diff produced no specific-scope matches.
+// that fires additively for any file no specific or dynamic scope claimed.
 const SPECIFIC_SCOPES: Exclude<Scope, "root-fallback">[] = ["src", "scripts", "docs", "actions", "backend"];
 const ZERO_SHA = "0000000000000000000000000000000000000000";
 
@@ -224,11 +224,18 @@ function gh(args: string[]): string {
  *
  * Returns `[]` for an empty file list (regression-safe — pre-existing
  * no-op behaviour). For a non-empty file list, returns the specific scopes
- * (src/scripts/docs) that any file matched; if no specific scope matched,
- * returns `["root-fallback"]` so consumer-repo diffs that miss the
- * flow-shaped path prefixes still trip a verify pass at the repo root.
- * Mutual exclusion: when at least one specific scope fires, root-fallback
- * never does.
+ * (src/scripts/docs) and dynamic scopes (apps/web, ...) that any file
+ * matched.
+ *
+ * `root-fallback` fires **additively**: it is appended whenever the
+ * changeset contains files that no specific and no dynamic scope claimed,
+ * regardless of whether other scopes also matched. This means a root-level
+ * file (`package.json`, `tsconfig.base.json`, ...) is covered by
+ * root-fallback's repo-wide checks whether it is committed alone OR bundled
+ * with a scoped change — it is no longer orphaned as `unmatched-files` the
+ * moment a `scripts/*.ts` or doc file rides along. An all-orphan diff still
+ * yields exactly `["root-fallback"]`; a diff where every file is claimed
+ * does NOT append root-fallback (no wasteful extra repo-wide pass).
  */
 export function detectScopesFromFiles(
   files: string[],
@@ -253,8 +260,16 @@ export function detectScopesFromFiles(
   );
 
   const builtin = SPECIFIC_SCOPES.filter((s) => detected.has(s));
-  if (detected.size === 0 && dynamicMatched.length === 0) return ["root-fallback"];
-  return [...builtin, ...dynamicMatched.map((d) => d.name)];
+  const scopes: ScopeName[] = [...builtin, ...dynamicMatched.map((d) => d.name)];
+
+  // Append root-fallback (last, for deterministic ordering) whenever any file
+  // is unclaimed by a specific or dynamic scope. This subsumes the old
+  // "nothing matched ⇒ ['root-fallback']" case: an all-orphan diff has an
+  // empty `scopes` here and a non-empty orphan set, so it returns
+  // `["root-fallback"]` exactly as before.
+  const orphans = computeUnmatchedAfterDynamic(files, dynamicScopes);
+  if (orphans.length > 0) scopes.push("root-fallback");
+  return scopes;
 }
 
 /**
@@ -304,7 +319,15 @@ export function computeAllPassedAndReason(
   if (results.length === 0 && (changedFiles?.length ?? 0) > 0) {
     return { allPassed: false, reason: "no-checks-defined" };
   }
-  // Mixed-diff orphan gap (#192): a specific scope ran but left files uncovered. root-fallback intentionally claims no files (every changed file is "unmatched"), so fire ONLY when a specific scope matched — never when root-fallback is the detected scope, and never on the --scope path (unmatchedFiles undefined).
+  // Genuine-orphan guard: a scope ran but left files matching NO scope at all.
+  // Since `detectScopesFromFiles` now appends root-fallback additively
+  // whenever orphans remain, the presence of orphaned `unmatchedFiles` implies
+  // root-fallback is in `scopes` — so this branch is effectively unreachable on
+  // the detect path and `unmatched-files` no longer fails the gate for
+  // root-level files bundled with scoped changes. The reason code is retained
+  // (cheap, defensive, pinned by the type test) for any caller that constructs
+  // a scopes/unmatchedFiles pair where root-fallback is absent. Never fires on
+  // the --scope path (unmatchedFiles undefined).
   if (scopes.length > 0 && !scopes.includes("root-fallback") && (unmatchedFiles?.length ?? 0) > 0) {
     return { allPassed: false, reason: "unmatched-files" };
   }
@@ -724,7 +747,7 @@ export function formatReport(report: CheckReport): string {
     }
   }
   if (matched.has("root-fallback")) {
-    lines.push("  root-fallback → matched (no specific scope claimed these files)");
+    lines.push("  root-fallback → matched (covers files no other scope claimed)");
   }
   // Auto-detected/configured scopes surface on their own lines (they have no
   // SCOPE_MATCHERS entry, so the SPECIFIC_SCOPES loop above skips them).
@@ -921,7 +944,7 @@ Check mapping:
   actions:        actionlint .github/workflows/, npm run lint
   backend:        go vet -C backend ./..., go test -C backend ./...
   root-fallback:  npm run typecheck, npm run test, npm run lint
-                  (fires when no other scope matched)
+                  (fires for files no other scope claimed)
 
 The lint check is skipped when no 'lint' npm script is defined.
 
