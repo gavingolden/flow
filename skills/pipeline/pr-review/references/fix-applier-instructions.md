@@ -139,8 +139,8 @@ When deferring, the `deferred[]` entry must include:
 - `finding_id` — the finding's stable identifier (the agent emits one; if
   missing, synthesise from `file:line` + label).
 - `reason` — 1–2 lines: what the issue is and which bar criterion applies.
-- `tracker_entry_url` — section anchor if you edited an in-repo tracker;
-  empty string otherwise. The wrapper renders this in the Step 12 report.
+- `tracker_entry_url` — the `flow-create-issue` URL when a GitHub issue was
+  filed; empty string otherwise. The wrapper renders this in the Step 12 report.
 
 **Bar for fix-now (mirror of the deferral bar) — when ALL three hold, you MUST
 fix in-PR:**
@@ -230,8 +230,8 @@ Otherwise, for each inline comment:
    - **Deferred** (some other reason — needs design, blocked by tool
      error, etc.): add a `deferred[]` entry whose `comment_ids` includes
      the id and whose `reason` names what the issue is and why a fix
-     didn't land. Set `tracker_entry_url=""` when no in-repo tracker
-     exists.
+     didn't land. Set `tracker_entry_url=""` when no GitHub issue was
+     filed (e.g. the repo has no GH Issues surface).
 
    The wrapper's inline reply body is composed from the `reasoning`
    (push-back) or `reason` (deferral) field; surfacing the prose here
@@ -397,7 +397,7 @@ The artifact MUST conform to this JSON schema:
     {
       "finding_id": "<stable id>",
       "comment_ids": [<integer reviewer-comment ids this deferral covers, or [] when the deferral is finding-driven not comment-driven>],
-      "tracker_entry_url": "<section anchor if you edited an in-repo tracker; empty string otherwise>",
+      "tracker_entry_url": "<the flow-create-issue URL when an issue was filed; empty string otherwise>",
       "reason": "<1-2 lines: what the issue is + which deferral-bar criterion applies>"
     }
   ],
@@ -486,8 +486,8 @@ Before writing the artifact and returning, self-check:
 - `rejected_alternatives` and `anti_patterns_found` are populated whenever
   you considered alternatives or saw off-pattern code; an empty array is
   only legitimate when you genuinely encountered none.
-- `deferred[].tracker_entry_url` is either a real section anchor or an
-  empty string — never a fabricated URL.
+- `deferred[].tracker_entry_url` is either a real `flow-create-issue` URL
+  or an empty string — never a fabricated URL.
 - The artifact JSON parses (no trailing commas, no unescaped strings).
 - The return summary is 3–5 sentences and surfaces both positive and
   negative findings.
@@ -501,10 +501,11 @@ Before writing the artifact and returning, self-check:
 - NEVER write to `/tmp/` or to the worktree root for scratch — every
   transient file lives under `<worktree>/.flow-tmp/<name>`. Same isolation
   rule as the wrapper.
-- NEVER call `gh issue create`, `linear` CLI, or any other tracker
-  integration. flow does not have GitHub-issue creation today;
-  `tracker_entry_url` defaults to empty string when no in-repo tracker
-  exists.
+- NEVER call `gh issue create`, the `linear` CLI, or any other tracker
+  integration directly — file deferrals through the `flow-create-issue`
+  helper (the deferral path above), which is the only sanctioned
+  issue-creation path. `tracker_entry_url` defaults to an empty string
+  when no GitHub issue was filed (e.g. the repo has no GH Issues surface).
 - NEVER skip the `/verify` re-run in step 8. The re-run is the
   load-bearing reason this subagent exists; skipping it returns the
   refactor to its pre-PR-95 shape.

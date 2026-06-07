@@ -319,6 +319,16 @@ describe("pr-review deferral-tracker lint", () => {
         "rather than written to a file that may not exist.",
     ).toBe(false);
   });
+
+  it("the report template names no ROADMAP.md deferral-tracker fallback", () => {
+    expect(
+      reportTemplateContent.includes("ROADMAP.md"),
+      "report-template.md must NOT name a 'ROADMAP.md' anchor as a deferral " +
+        "tracker — the deferred-finding annotation cites the flow-create-issue " +
+        "URL, or surfaces the deferral loudly with no tracker URL when the repo " +
+        "has no GH Issues surface.",
+    ).toBe(false);
+  });
 });
 
 describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", () => {
