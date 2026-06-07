@@ -108,7 +108,7 @@ async function runTypesForDir(
       "--output",
       "machine",
       "--threshold",
-      "error",
+      "warning",
       ...(tsconfig !== "tsconfig.json" ? ["--tsconfig", tsconfig] : []),
     ];
     deps.writeErr(`[types] running ${svelteCheckBin} ${checkArgs.join(" ")}\n`);

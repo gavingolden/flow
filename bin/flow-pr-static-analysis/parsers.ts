@@ -26,6 +26,9 @@ export const ESLINT_CONFIDENCE: Record<number, number> = {
 export const TSC_CONFIDENCE = 100; // deterministic compiler output
 
 export const SVELTE_CHECK_CONFIDENCE = 100; // svelte-check is deterministic compiler-equivalent output
+// Warnings rank below errors — a softer signal — and 80 matches the default
+// --min-confidence gate so they surface rather than being emitted-then-dropped.
+export const SVELTE_CHECK_WARNING_CONFIDENCE = 80;
 
 export const COVERAGE_UNCOVERED_CONFIDENCE = 85;
 
@@ -295,7 +298,7 @@ export function parseSvelteCheckOutput(stdout: string, worktree: string): Findin
       line: parseInt(lineNum, 10),
       rule_id: "svelte-check",
       message,
-      confidence: SVELTE_CHECK_CONFIDENCE,
+      confidence: severityStr === "ERROR" ? SVELTE_CHECK_CONFIDENCE : SVELTE_CHECK_WARNING_CONFIDENCE,
       severity: severityStr === "ERROR" ? "error" : "warning",
       source: "svelte-check",
     });

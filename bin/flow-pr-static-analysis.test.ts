@@ -13,6 +13,8 @@ import {
   parseTscOutput,
   run,
   spawnAsync,
+  SVELTE_CHECK_CONFIDENCE,
+  SVELTE_CHECK_WARNING_CONFIDENCE,
   type CmdResult,
   type Deps,
   type Finding,
@@ -375,12 +377,19 @@ describe(parseSvelteCheckOutput, () => {
       file: "src/App.svelte",
       line: 12,
       rule_id: "svelte-check",
-      confidence: 100,
+      confidence: SVELTE_CHECK_CONFIDENCE,
       severity: "error",
       source: "svelte-check",
     });
+    expect(findings[0].confidence).toBe(100);
     expect(findings[0].message).toContain("document");
-    expect(findings[1]).toMatchObject({ line: 3, severity: "warning", source: "svelte-check" });
+    expect(findings[1]).toMatchObject({
+      line: 3,
+      confidence: SVELTE_CHECK_WARNING_CONFIDENCE,
+      severity: "warning",
+      source: "svelte-check",
+    });
+    expect(findings[1].confidence).toBe(80);
   });
 
   it("relativises absolute file paths against the worktree", () => {
@@ -1186,7 +1195,7 @@ describe(run, () => {
     expect(syncCall).toBeDefined();
     const checkCall = calls.find((c) => c[0].endsWith("svelte-check"));
     expect(checkCall).toBeDefined();
-    expect(checkCall![1]).toEqual(["--output", "machine", "--threshold", "error"]);
+    expect(checkCall![1]).toEqual(["--output", "machine", "--threshold", "warning"]);
     expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
     expect(result.types).toHaveLength(1);
     expect(result.types[0]).toMatchObject({ line: 12, source: "svelte-check", severity: "error" });
@@ -1544,7 +1553,7 @@ describe(run, () => {
       "--output",
       "machine",
       "--threshold",
-      "error",
+      "warning",
       "--tsconfig",
       "tsconfig.app.json",
     ]);
