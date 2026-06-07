@@ -73,6 +73,14 @@ write `"blocking"`, never `"(blocking)"`. The lens/agent name (e.g.
 `consistency`, `testing`) is NEVER a valid label — if you intend a
 suggestion, use `"suggestion"`.
 
+The location MUST go in the structured `file` and `line` fields (praise
+included) — write `"file": "src/foo.ts", "line": 42`. NEVER put the location
+only in the `subject` or `body` prose (e.g. a subject that leads with
+`src/foo.ts:42 — ...` while `file` is left null). A finding whose `file` is
+missing is recovered from a leading `<path>:<line>` prefix where possible, but
+that fallback is best-effort: populate the structured fields directly so the
+finding is never at risk of being dropped.
+
 `praise` findings omit the `decoration` field (or set it to `null`) — per
 conventional-comments.md Rule 2, every finding except `praise` MUST have a
 decoration, and praise never blocks merge. All other labels require a

@@ -696,6 +696,132 @@ describe("normalizeFinding — label/decoration coercion", () => {
   });
 });
 
+describe("normalizeFinding — file/line recovery from prose prefix", () => {
+  it("recovers file and line from a leading '<path>:<line>' prefix in subject", () => {
+    const out = normalizeFinding({
+      label: "praise",
+      confidence: 95,
+      subject: "src/foo.ts:42 — pure helper is easy to test",
+      body: "nice",
+    }) as Record<string, unknown>;
+    expect(out.file).toBe("src/foo.ts");
+    expect(out.line).toBe(42);
+  });
+
+  it("falls back to the body prefix when the subject has no recoverable prefix", () => {
+    const out = normalizeFinding({
+      label: "praise",
+      confidence: 95,
+      subject: "Pure helper is easy to test",
+      body: "bin/lib/x.ts:10 — no side effects",
+    }) as Record<string, unknown>;
+    expect(out.file).toBe("bin/lib/x.ts");
+    expect(out.line).toBe(10);
+  });
+
+  it("prefers the subject prefix over a body prefix", () => {
+    const out = normalizeFinding({
+      label: "praise",
+      confidence: 95,
+      subject: "src/a.ts:1 — from subject",
+      body: "src/b.ts:2 — from body",
+    }) as Record<string, unknown>;
+    expect(out.file).toBe("src/a.ts");
+    expect(out.line).toBe(1);
+  });
+
+  it("does not clobber a present non-empty file", () => {
+    const out = normalizeFinding({
+      file: "src/real.ts",
+      line: 7,
+      label: "praise",
+      confidence: 95,
+      subject: "src/foo.ts:42 — text",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.file).toBe("src/real.ts");
+    expect(out.line).toBe(7);
+  });
+
+  it("recovers file but does not clobber a present numeric line", () => {
+    const out = normalizeFinding({
+      line: 99,
+      label: "praise",
+      confidence: 95,
+      subject: "src/foo.ts:42 — text",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.file).toBe("src/foo.ts");
+    expect(out.line).toBe(99);
+  });
+
+  it("does not recover from a prose lead that is not a path (no '/' or '.')", () => {
+    const out = normalizeFinding({
+      label: "praise",
+      confidence: 95,
+      subject: "TODO:42 fix this later",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.file).toBeUndefined();
+  });
+
+  it("is idempotent — recovering twice equals recovering once", () => {
+    const input = {
+      label: "praise",
+      confidence: 95,
+      subject: "src/foo.ts:42 — text",
+      body: "y",
+    };
+    const once = normalizeFinding(input);
+    const twice = normalizeFinding(once);
+    expect(twice).toEqual(once);
+  });
+
+  it("does not mutate the input object", () => {
+    const input = {
+      label: "praise",
+      confidence: 95,
+      subject: "src/foo.ts:42 — text",
+      body: "y",
+    };
+    const snapshot = structuredClone(input);
+    normalizeFinding(input);
+    expect(input).toEqual(snapshot);
+  });
+
+  it("makes a prose-located praise finding pass validation after the normalize walker", () => {
+    const out = normalizeParsedFindings({
+      findings: [
+        {
+          label: "praise",
+          confidence: 95,
+          subject: "src/foo.ts:42 — pure helper is easy to test",
+          body: "nice",
+        },
+      ],
+    });
+    const result = validateAgentFindings(out);
+    expect(result.ok).toBe(true);
+  });
+
+  it("still rejects a finding with no recoverable location anywhere (after normalize)", () => {
+    const out = normalizeParsedFindings({
+      findings: [
+        {
+          label: "issue",
+          decoration: "blocking",
+          confidence: 92,
+          subject: "something is wrong",
+          body: "no location here",
+        },
+      ],
+    });
+    const result = validateAgentFindings(out);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("file");
+  });
+});
+
 describe("normalizeParsedFindings — shape-aware walker", () => {
   it("normalizes each entry of a per-agent findings[] array", () => {
     const out = normalizeParsedFindings({
@@ -841,6 +967,26 @@ describe("agent-finding-schema CLI — `--validate <path>`", () => {
           confidence: 95,
           subject: "Pure helper is easy to test",
           body: "The new helper at util.ts:10 has no side effects.",
+        },
+      ],
+    };
+    withTmpFile(JSON.stringify(artifact), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+      expect(result.stderr).toBe("");
+    });
+  });
+
+  it("exits 0 for a per-agent file whose praise finding has its location only in subject prose", () => {
+    const artifact = {
+      findings: [
+        {
+          label: "praise",
+          confidence: 95,
+          subject: "src/lib/util.ts:10 — pure helper is easy to test",
+          body: "The new helper has no side effects.",
         },
       ],
     };
