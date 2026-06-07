@@ -282,7 +282,7 @@ describe("flow-pipeline SKILL.md structural lint", () => {
 });
 
 describe("pr-review deferral-tracker lint", () => {
-  it("the wrapper SKILL.md still references the helper + fallback by name", () => {
+  it("the wrapper SKILL.md names flow-create-issue and no ROADMAP.md fallback", () => {
     expect(
       prReviewContent.includes("flow-create-issue"),
       "pr-review SKILL.md must reference 'flow-create-issue' (even when the " +
@@ -291,9 +291,11 @@ describe("pr-review deferral-tracker lint", () => {
     ).toBe(true);
     expect(
       prReviewContent.includes("ROADMAP.md"),
-      "pr-review SKILL.md must mention the 'ROADMAP.md' fallback so projects " +
-        "without GH Issues know how the deferral path degrades.",
-    ).toBe(true);
+      "pr-review SKILL.md must NOT name a 'ROADMAP.md' fallback tracker — " +
+        "GitHub Issues via flow-create-issue is the single canonical durable " +
+        "tracker; the no-GH-Issues path surfaces the deferral loudly instead " +
+        "of silently appending to a file that may not exist.",
+    ).toBe(false);
   });
 
   it("the Fix-Applier Subagent's instructions wire the flow-create-issue invocation", () => {
@@ -311,10 +313,21 @@ describe("pr-review deferral-tracker lint", () => {
     ).toBe(true);
     expect(
       fixApplierContent.includes("ROADMAP.md"),
-      "fix-applier-instructions.md must document the ROADMAP.md fallback for " +
-        "projects without GH Issues — removing it would strand non-GH-Issues " +
-        "projects when the helper exits non-zero.",
-    ).toBe(true);
+      "fix-applier-instructions.md must NOT name a 'ROADMAP.md' fallback " +
+        "tracker — when the helper exits non-zero or no GH Issues surface " +
+        "exists, the deferral is surfaced loudly with an empty tracker_entry_url " +
+        "rather than written to a file that may not exist.",
+    ).toBe(false);
+  });
+
+  it("the report template names no ROADMAP.md deferral-tracker fallback", () => {
+    expect(
+      reportTemplateContent.includes("ROADMAP.md"),
+      "report-template.md must NOT name a 'ROADMAP.md' anchor as a deferral " +
+        "tracker — the deferred-finding annotation cites the flow-create-issue " +
+        "URL, or surfaces the deferral loudly with no tracker URL when the repo " +
+        "has no GH Issues surface.",
+    ).toBe(false);
   });
 });
 

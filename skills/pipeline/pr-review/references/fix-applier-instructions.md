@@ -109,16 +109,14 @@ For each finding, classify it into one of:
   manually.
 
   **Fallback path.** If `flow-create-issue` exits non-zero (e.g. `gh`
-  unavailable, no GH Issues surface for this repo), fall back to editing an
-  in-repo tracker file (`ROADMAP.md`, `docs/roadmap.md`, etc.) in the same
-  commit and set `tracker_entry_url` to the section anchor. The fallback is
-  for projects without GH Issues, not a preferred path — try the helper
-  first.
-
-  **If neither is available** (no GH Issues *and* no in-repo tracker),
-  leave `tracker_entry_url` as an empty string — do not invent tracker
-  integration. The wrapper surfaces the deferral's `reason` field in the
-  Step 12 report regardless.
+  unavailable, no GH Issues surface for this repo), do NOT append to an
+  in-repo tracker file — most repos have none, and a flat file with no status
+  lifecycle is not a durable tracker. Instead, leave `tracker_entry_url` as an
+  empty string, put the full deferral context in `reason`, and let the wrapper
+  surface the deferral loudly in the Step 12 report so it is not lost. A GitHub
+  issue via `flow-create-issue` is the single canonical durable tracker — try
+  the helper first; loud surfacing is the degraded fallback when no Issues
+  surface exists, not a silent write to a file.
 
 **Bar for deferral — ALL must be true (otherwise fix it now):**
 
@@ -141,8 +139,8 @@ When deferring, the `deferred[]` entry must include:
 - `finding_id` — the finding's stable identifier (the agent emits one; if
   missing, synthesise from `file:line` + label).
 - `reason` — 1–2 lines: what the issue is and which bar criterion applies.
-- `tracker_entry_url` — section anchor if you edited an in-repo tracker;
-  empty string otherwise. The wrapper renders this in the Step 12 report.
+- `tracker_entry_url` — the `flow-create-issue` URL when a GitHub issue was
+  filed; empty string otherwise. The wrapper renders this in the Step 12 report.
 
 **Bar for fix-now (mirror of the deferral bar) — when ALL three hold, you MUST
 fix in-PR:**
@@ -232,8 +230,8 @@ Otherwise, for each inline comment:
    - **Deferred** (some other reason — needs design, blocked by tool
      error, etc.): add a `deferred[]` entry whose `comment_ids` includes
      the id and whose `reason` names what the issue is and why a fix
-     didn't land. Set `tracker_entry_url=""` when no in-repo tracker
-     exists.
+     didn't land. Set `tracker_entry_url=""` when no GitHub issue was
+     filed (e.g. the repo has no GH Issues surface).
 
    The wrapper's inline reply body is composed from the `reasoning`
    (push-back) or `reason` (deferral) field; surfacing the prose here
@@ -399,7 +397,7 @@ The artifact MUST conform to this JSON schema:
     {
       "finding_id": "<stable id>",
       "comment_ids": [<integer reviewer-comment ids this deferral covers, or [] when the deferral is finding-driven not comment-driven>],
-      "tracker_entry_url": "<section anchor if you edited an in-repo tracker; empty string otherwise>",
+      "tracker_entry_url": "<the flow-create-issue URL when an issue was filed; empty string otherwise>",
       "reason": "<1-2 lines: what the issue is + which deferral-bar criterion applies>"
     }
   ],
@@ -464,7 +462,7 @@ fan-out.
 | Roadmap row already shipped | A row already shows `✅ shipped (#$PR_NUMBER)` | The edit is idempotent — your `Edit` call produces no diff and that's fine. Don't error. |
 | Multiple table rows match `(#$PR_NUMBER)` | A PR legitimately spans items | Flip all matching rows. The diff is visible to the human reviewer / auto-merge gate before merge. |
 | Inline comment conflicts with a finding | Same `file:line` covered by both | Address once; record `finding_id` for both in the same `commits[]` entry's `reasoning` (e.g. `"agent finding f-7 + reviewer comment c-42 merged into one fix"`). |
-| Deferral has no in-repo tracker | The repo has no `ROADMAP.md` or equivalent | Set `tracker_entry_url: ""` and put the full context in `reason`. The wrapper surfaces both fields in the Step 12 report. Do not invent a tracker integration. |
+| Repo has no GitHub Issues surface | `flow-create-issue` exits non-zero / Issues disabled | Set `tracker_entry_url: ""` and put the full context in `reason`. The wrapper surfaces both fields loudly in the Step 12 report. Do not append to an in-repo file or invent a tracker integration. |
 
 # Verification
 
@@ -488,8 +486,8 @@ Before writing the artifact and returning, self-check:
 - `rejected_alternatives` and `anti_patterns_found` are populated whenever
   you considered alternatives or saw off-pattern code; an empty array is
   only legitimate when you genuinely encountered none.
-- `deferred[].tracker_entry_url` is either a real section anchor or an
-  empty string — never a fabricated URL.
+- `deferred[].tracker_entry_url` is either a real `flow-create-issue` URL
+  or an empty string — never a fabricated URL.
 - The artifact JSON parses (no trailing commas, no unescaped strings).
 - The return summary is 3–5 sentences and surfaces both positive and
   negative findings.
@@ -503,10 +501,11 @@ Before writing the artifact and returning, self-check:
 - NEVER write to `/tmp/` or to the worktree root for scratch — every
   transient file lives under `<worktree>/.flow-tmp/<name>`. Same isolation
   rule as the wrapper.
-- NEVER call `gh issue create`, `linear` CLI, or any other tracker
-  integration. flow does not have GitHub-issue creation today;
-  `tracker_entry_url` defaults to empty string when no in-repo tracker
-  exists.
+- NEVER call `gh issue create`, the `linear` CLI, or any other tracker
+  integration directly — file deferrals through the `flow-create-issue`
+  helper (the deferral path above), which is the only sanctioned
+  issue-creation path. `tracker_entry_url` defaults to an empty string
+  when no GitHub issue was filed (e.g. the repo has no GH Issues surface).
 - NEVER skip the `/verify` re-run in step 8. The re-run is the
   load-bearing reason this subagent exists; skipping it returns the
   refactor to its pre-PR-95 shape.
