@@ -139,6 +139,14 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "discovery-instructions.md",
 );
+const NEW_FEATURE_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "new-feature",
+  "SKILL.md",
+);
 const AGENT_PROMPTS_PATH = path.resolve(
   HERE,
   "..",
@@ -163,6 +171,7 @@ const redirectHandlingContent = fs.readFileSync(REDIRECT_HANDLING_PATH, "utf8");
 const gatekeeperSpawnPromptContent = fs.readFileSync(GATEKEEPER_SPAWN_PROMPT_PATH, "utf8");
 const fixApplierSpawnPromptContent = fs.readFileSync(FIX_APPLIER_SPAWN_PROMPT_PATH, "utf8");
 const discoveryInstructionsContent = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+const newFeatureContent = fs.readFileSync(NEW_FEATURE_SKILL_MD_PATH, "utf8");
 const agentPromptsContent = fs.readFileSync(AGENT_PROMPTS_PATH, "utf8");
 
 /**
@@ -1877,6 +1886,29 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "product-planning discovery-instructions.md Step 7) defer to this " +
         "phrase by reference; renaming it must update this lint in the same " +
         "commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("both authoring sites defer to the rubric's 'Coverage breadth' section", () => {
+    expect(
+      newFeatureContent.includes("Coverage breadth"),
+      "new-feature/SKILL.md Step 4b must reference the rubric's 'Coverage " +
+        "breadth' section — the cross-file-deference contract: the breadth " +
+        "requirement is anchored once in manual-test-rubric.md (the single " +
+        "source of truth), and each authoring site defers to it by name. " +
+        "Dropping the reference here silently orphans the requirement. " +
+        "Renaming the section name must update both sites and this lint in the " +
+        "same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("Coverage breadth"),
+      "product-planning discovery-instructions.md Step 7 must reference the " +
+        "rubric's 'Coverage breadth' section — same cross-file-deference " +
+        "contract as new-feature/SKILL.md: the breadth requirement is anchored " +
+        "once in manual-test-rubric.md and deferred to by name here. Dropping " +
+        "the reference silently orphans the requirement. Renaming the section " +
+        "name must update both sites and this lint in the same commit " +
+        "(AGENTS.md anchored-phrase rule).",
     ).toBe(true);
   });
 
