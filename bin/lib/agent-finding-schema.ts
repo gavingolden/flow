@@ -29,7 +29,9 @@
  * — with one deliberate exception now enforced: per conventional-
  * comments.md Rule 2, praise findings may omit `decoration` (an absent
  * key or `null`), while every other label still requires a valid enum
- * decoration.
+ * decoration. Like the label/decoration coerce-then-validate pre-pass,
+ * `normalizeFinding` also recovers an absent `file`/`line` from a leading
+ * `<path>:<line>` prefix in `subject` (then `body`).
  *
  * CLI mode: `bun bin/lib/agent-finding-schema.ts --validate <path>` —
  * reads the file, parses JSON, and decides which validator to use based
@@ -117,6 +119,19 @@ function stripOneParenPair(s: string): string {
   return t;
 }
 
+// Recover a location from a leading '<path>:<line>' token in a prose string
+// (a finding's subject/body) when the structured `file` field is absent. The
+// path must look like a path (contain '/' or '.') so a bare 'TODO:42' prose
+// lead is not mistaken for a location. One leading token only; `end_line`
+// (a '<path>:<start>-<end>' tail) is intentionally not parsed.
+function extractLeadingFileLine(s: string): { file: string; line: number } | null {
+  const m = /^([^\s:]+):(\d+)\b/.exec(s.trim());
+  if (!m) return null;
+  const file = m[1];
+  if (!file.includes("/") && !file.includes(".")) return null;
+  return { file, line: Number(m[2]) };
+}
+
 /**
  * Coerce trivially-fixable label/decoration drift on a single finding-shaped
  * object BEFORE validation. Returns a shallow copy — never mutates the input,
@@ -129,6 +144,19 @@ function stripOneParenPair(s: string): string {
 export function normalizeFinding(f: unknown): unknown {
   if (!isPlainObject(f)) return f;
   const out: Record<string, unknown> = { ...f };
+  // why: a praise/issue finding that puts its location only in prose (e.g.
+  // subject 'src/foo.ts:42 — ...') leaves `file` absent and would hard-fail
+  // validation, sinking the whole consolidator review. Recover file/line from
+  // a leading prefix in subject (then body); never clobber a present field.
+  if (!isNonEmptyString(out.file)) {
+    const recovered =
+      (isString(out.subject) ? extractLeadingFileLine(out.subject) : null) ??
+      (isString(out.body) ? extractLeadingFileLine(out.body) : null);
+    if (recovered) {
+      out.file = recovered.file;
+      if (!isNumber(out.line)) out.line = recovered.line;
+    }
+  }
   if (
     isString(out.label) &&
     !VALID_LABELS.has(out.label) &&
