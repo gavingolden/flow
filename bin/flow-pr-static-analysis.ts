@@ -76,6 +76,8 @@ export {
   parseSemgrepJson,
   parseSvelteCheckOutput,
   parseTscOutput,
+  SVELTE_CHECK_CONFIDENCE,
+  SVELTE_CHECK_WARNING_CONFIDENCE,
 } from "./flow-pr-static-analysis/parsers";
 export { parseArgs } from "./flow-pr-static-analysis/cli";
 export type {

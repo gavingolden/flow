@@ -92,7 +92,7 @@ export const runTypesLens: LensRun = async (args, deps) => {
       "--output",
       "machine",
       "--threshold",
-      "error",
+      "warning",
       ...(tsconfig !== "tsconfig.json" ? ["--tsconfig", tsconfig] : []),
     ];
     deps.writeErr(`[types] running ${svelteCheckBin} ${checkArgs.join(" ")}\n`);
