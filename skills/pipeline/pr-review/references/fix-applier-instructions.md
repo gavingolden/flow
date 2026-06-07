@@ -109,16 +109,14 @@ For each finding, classify it into one of:
   manually.
 
   **Fallback path.** If `flow-create-issue` exits non-zero (e.g. `gh`
-  unavailable, no GH Issues surface for this repo), fall back to editing an
-  in-repo tracker file (`ROADMAP.md`, `docs/roadmap.md`, etc.) in the same
-  commit and set `tracker_entry_url` to the section anchor. The fallback is
-  for projects without GH Issues, not a preferred path — try the helper
-  first.
-
-  **If neither is available** (no GH Issues *and* no in-repo tracker),
-  leave `tracker_entry_url` as an empty string — do not invent tracker
-  integration. The wrapper surfaces the deferral's `reason` field in the
-  Step 12 report regardless.
+  unavailable, no GH Issues surface for this repo), do NOT append to an
+  in-repo tracker file — most repos have none, and a flat file with no status
+  lifecycle is not a durable tracker. Instead, leave `tracker_entry_url` as an
+  empty string, put the full deferral context in `reason`, and let the wrapper
+  surface the deferral loudly in the Step 12 report so it is not lost. A GitHub
+  issue via `flow-create-issue` is the single canonical durable tracker — try
+  the helper first; loud surfacing is the degraded fallback when no Issues
+  surface exists, not a silent write to a file.
 
 **Bar for deferral — ALL must be true (otherwise fix it now):**
 
@@ -464,7 +462,7 @@ fan-out.
 | Roadmap row already shipped | A row already shows `✅ shipped (#$PR_NUMBER)` | The edit is idempotent — your `Edit` call produces no diff and that's fine. Don't error. |
 | Multiple table rows match `(#$PR_NUMBER)` | A PR legitimately spans items | Flip all matching rows. The diff is visible to the human reviewer / auto-merge gate before merge. |
 | Inline comment conflicts with a finding | Same `file:line` covered by both | Address once; record `finding_id` for both in the same `commits[]` entry's `reasoning` (e.g. `"agent finding f-7 + reviewer comment c-42 merged into one fix"`). |
-| Deferral has no in-repo tracker | The repo has no `ROADMAP.md` or equivalent | Set `tracker_entry_url: ""` and put the full context in `reason`. The wrapper surfaces both fields in the Step 12 report. Do not invent a tracker integration. |
+| Repo has no GitHub Issues surface | `flow-create-issue` exits non-zero / Issues disabled | Set `tracker_entry_url: ""` and put the full context in `reason`. The wrapper surfaces both fields loudly in the Step 12 report. Do not append to an in-repo file or invent a tracker integration. |
 
 # Verification
 

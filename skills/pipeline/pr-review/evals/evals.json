@@ -49,7 +49,7 @@
         },
         {
           "name": "deferred_findings_have_tracker",
-          "check": "For each Deferred finding in report.md, a tracker entry (ROADMAP.md anchor, GH issue, or Linear URL) is referenced and was committed in this run — or 'No findings deferred' / 'All findings addressed in this run' is stated"
+          "check": "For each Deferred finding in report.md, a tracker entry (a GitHub issue via flow-create-issue, or an external tracker URL) is referenced and was committed in this run — or, when the repo has no GitHub Issues surface, the deferral is surfaced loudly in the report with an empty tracker_entry_url — or 'No findings deferred' / 'All findings addressed in this run' is stated"
         },
         {
           "name": "no_silent_skips",
@@ -103,7 +103,7 @@
         },
         {
           "name": "deferred_findings_have_tracker",
-          "check": "For each Deferred finding in report.md, a tracker entry (ROADMAP.md anchor, GH issue, or Linear URL) is referenced and was committed in this run — or 'No findings deferred' / 'All findings addressed in this run' is stated"
+          "check": "For each Deferred finding in report.md, a tracker entry (a GitHub issue via flow-create-issue, or an external tracker URL) is referenced and was committed in this run — or, when the repo has no GitHub Issues surface, the deferral is surfaced loudly in the report with an empty tracker_entry_url — or 'No findings deferred' / 'All findings addressed in this run' is stated"
         },
         {
           "name": "no_silent_skips",

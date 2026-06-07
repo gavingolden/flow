@@ -868,9 +868,11 @@ subagent runs at Step 8.
 
 This step is documentation-only at the wrapper level — it names the
 work the subagent owns. The wrapper does no per-finding fix work itself.
-The deferral path's tracker-entry filing (default: a GitHub issue via
-`flow-create-issue`, with `ROADMAP.md` as the no-GH-Issues fallback) is
-documented inside the subagent's instructions at
+The deferral path's tracker-entry filing (a GitHub issue via
+`flow-create-issue` — the single canonical durable tracker; when a repo
+has no GitHub Issues surface the deferral is surfaced loudly in the
+report with an empty `tracker_entry_url` rather than written to a file)
+is documented inside the subagent's instructions at
 `references/fix-applier-instructions.md`.
 
 ## 7. Address Each Review Comment
@@ -1678,10 +1680,12 @@ site) so this paired-contract regression can't recur silently.
 - Conventional comment format (label + decoration) used for all findings
 - **Every surfaced finding ends in either a code change (addressed) or a deferral with a
   concrete reason (no silent skips)**
-- **Every deferred finding has a corresponding entry in a durable tracker — by default a
-  GitHub issue filed via `flow-create-issue` (idempotent on title), falling back to a
-  `ROADMAP.md` "Followups" entry only when the helper exits non-zero or the project has no
-  GH Issues surface. The review report is not a tracker.**
+- **Every deferred finding is recorded in a durable tracker — a GitHub issue filed via
+  `flow-create-issue` (idempotent on title), the single canonical durable tracker. When the
+  helper exits non-zero or the project has no GH Issues surface, the deferral is surfaced
+  loudly in the review report (with an empty `tracker_entry_url`) so it is not lost — rather
+  than silently appended to a flat file that may not exist. The review report alone is not a
+  durable tracker.**
 - When inline review comments existed: every comment is addressed or explicitly skipped with reason, replies are posted, and the retrospective + checklist update appear in the report (or the report records "No reviewer comments to retrospect against" when none existed)
 - Findings posted as individual inline review comments via `gh api` on every invocation, including PRs that already have reviewer comments
 - Roadmap self-mark + sweep performed (Step 7.5): when `docs/roadmap.md` exists, the current PR's row is flipped to `✅ shipped (#$PR)` if a row exists, and any `🚧 in review (#N)` rows whose PR is already MERGED are flipped in the same diff
@@ -1733,9 +1737,11 @@ site) so this paired-contract regression can't recur silently.
   confirmation.
 - NEVER end a run by "just reporting" findings — every surfaced finding must either be fixed
   in this run or explicitly deferred with a reason. The report must make that split visible.
-- NEVER defer a finding without writing a corresponding tracker entry in the same run.
-  Default tracker is a GitHub issue filed via `flow-create-issue` (idempotent on title);
-  fall back to `ROADMAP.md` only when the helper fails or the project has no GH Issues
-  surface. Default to fix-now; deferral is reserved for work that legitimately warrants
-  a separate standalone agent session per the bar in Step 6. A deferral that lives only
-  in the review report will be lost when the PR merges.
+- NEVER defer a finding without recording it in a corresponding tracker entry in the same run.
+  The canonical tracker is a GitHub issue filed via `flow-create-issue` (idempotent on title);
+  when the helper fails or the project has no GH Issues surface, surface the deferral loudly in
+  the review report (with an empty `tracker_entry_url`) rather than silently appending to a flat
+  file that may not exist. Default to fix-now; deferral is reserved for work that legitimately
+  warrants a separate standalone agent session per the bar in Step 6. A deferral that lives only
+  in the review report will be lost when the PR merges, so a GitHub issue is strongly preferred
+  whenever an Issues surface exists.
