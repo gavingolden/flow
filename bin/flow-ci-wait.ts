@@ -285,6 +285,27 @@ export function isCopilotReviewStale(
 }
 
 /**
+ * Pure parser for the effective-rules view of
+ * `GET /repos/{owner}/{repo}/rules/branches/{branch}`. The body is an
+ * ARRAY of rule objects each shaped `{ type: string, ... }`; a rule whose
+ * `type === "copilot_code_review"` is the authoritative signal that repo
+ * auto-review is configured.
+ *
+ * Tri-state: a non-array input (null/undefined/object/string) returns
+ * "unknown" — the shape couldn't be interpreted, so the caller falls back
+ * to the heuristic rather than mistaking an unreadable response for "off".
+ */
+export function deriveCopilotRulesetEnabled(json: unknown): boolean | "unknown" {
+  if (!Array.isArray(json)) return "unknown";
+  return json.some(
+    (rule) =>
+      typeof rule === "object" &&
+      rule !== null &&
+      (rule as { type?: unknown }).type === "copilot_code_review",
+  );
+}
+
+/**
  * Returns true iff every commit between `fromSha` (exclusive) and
  * `toSha` (inclusive) is a merge commit (has >= 2 parents).
  *
@@ -609,6 +630,13 @@ export type Deps = {
    * Returns true iff the configured Copilot login has reviewed any recent merged
    * PR on the current repo. Default uses fetchHistoricalBotReview against the
    * injected `gh`. Tests inject a fake to avoid sequencing list+view calls.
+   *
+   * why: the default prefers the authoritative `copilot_code_review`
+   * repository-ruleset read (`observeCopilotRuleset`) when reachable and
+   * falls back to the 5-PR `fetchHistoricalBotReview` heuristic floor when
+   * that read is "unknown" (e.g. the ruleset endpoint 403s on a free
+   * personal/private repo). The seam stays `(login) => boolean` so
+   * `copilotConfigured` never sees the tri-state.
    */
   readHistoricalBotReview?: (login: string) => boolean;
   /**
@@ -775,6 +803,21 @@ export function fetchRequestedReviewers(prNumber: number, gh: GhRunner): string[
  * not expose `reviews`, so a single-call solution is unavailable; the
  * list+view pattern is repo-agnostic and reuses the injected `gh`
  * runner. Errors and malformed JSON collapse to `false`.
+ *
+ * why this is a LAGGING proxy, not ground truth: it infers "auto-review
+ * is configured" from "Copilot reviewed recent merged PRs". After a user
+ * DISABLES repo auto-review, the last `n` (~5) merged PRs still carry
+ * their pre-change Copilot reviews, so this keeps returning true for ~5
+ * more merged PRs until the window rolls past them. The documented escape
+ * for that stale-positive is `flow-request-copilot --override always`
+ * (PR #265), which hard-forces past this heuristic. The authoritative
+ * signal is the `copilot_code_review` repository-ruleset rule, readable
+ * via `GET /repos/{owner}/{repo}/rules/branches/{branch}` and parsed by
+ * `deriveCopilotRulesetEnabled` / `observeCopilotRuleset`; but that
+ * endpoint returns HTTP 403 ("Upgrade to GitHub Pro or make this
+ * repository public") for private repos on a free personal account
+ * (flow's own repo), so this 5-PR heuristic remains the floor whenever
+ * the ruleset read is unreachable.
  */
 export function fetchHistoricalBotReview(
   login: string,
@@ -902,6 +945,31 @@ export function observeMergeState(
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Reads the authoritative `copilot_code_review` ruleset signal via the
+ * effective-rules API. Tri-state by design (NOT the `observeMergeState`
+ * null convention): "unknown" is the explicit fall-through token the
+ * `readHistoricalBotReview` default branches on to reach the heuristic
+ * floor. Returns "unknown" on every unreadable path — default-branch
+ * resolution failure, a non-zero `gh api` exit (covers the 403 a free
+ * personal/private repo returns, plus 404/network), or malformed JSON —
+ * so "couldn't read" never collapses to a definitive "off".
+ */
+export function observeCopilotRuleset(gh: GhRunner): boolean | "unknown" {
+  const branchResult = gh(["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]);
+  if (branchResult.exitCode !== 0) return "unknown";
+  const branch = branchResult.stdout.trim();
+  if (branch === "") return "unknown";
+  // gh auto-expands {owner}/{repo} from repo context.
+  const rules = gh(["api", `repos/{owner}/{repo}/rules/branches/${branch}`]);
+  if (rules.exitCode !== 0) return "unknown";
+  try {
+    return deriveCopilotRulesetEnabled(JSON.parse(rules.stdout));
+  } catch {
+    return "unknown";
   }
 }
 
@@ -1076,7 +1144,11 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const readCopilotLogin = deps.readCopilotLogin ?? defaultReadCopilotLogin;
   const readClaimDeadline = deps.readClaimDeadline ?? defaultReadClaimDeadline;
   const readHistoricalBotReview =
-    deps.readHistoricalBotReview ?? ((login: string) => fetchHistoricalBotReview(login, gh));
+    deps.readHistoricalBotReview ??
+    ((login: string) => {
+      const ruleset = observeCopilotRuleset(gh);
+      return ruleset === "unknown" ? fetchHistoricalBotReview(login, gh) : ruleset;
+    });
   const readCommitsAreAllMerges =
     deps.readCommitsAreAllMerges ??
     ((fromSha: string, toSha: string) => allMergeCommitsBetween(fromSha, toSha, gh));

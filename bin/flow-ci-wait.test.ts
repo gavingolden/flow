@@ -11,12 +11,14 @@ import {
   deriveCheckState,
   deriveConflictState,
   deriveCopilotPosted,
+  deriveCopilotRulesetEnabled,
   deriveCopilotSkipReason,
   extractLatestCopilotReviewCommit,
   fetchHistoricalBotReview,
   hasQualifyingWorkflowTrigger,
   isCopilotReviewStale,
   isSmallFollowup,
+  observeCopilotRuleset,
   observeMergeState,
   parseArgs,
   retriggerCopilotReview,
@@ -716,13 +718,17 @@ describe(fetchHistoricalBotReview, () => {
     return fn;
   }
 
-  it("returns false when 'gh pr list' exits non-zero", () => {
+  // REGRESSION GUARD: never fail-open to `true` on a gh error. A wrong
+  // "auto-review is configured" suppresses a needed review (expensive); the
+  // safe failure direction is `false`. A future refactor must not silently
+  // flip either branch below to fail-open-positive.
+  it("never fail-open to true: returns false when 'gh pr list' exits non-zero", () => {
     const gh = ghFromQueue([{ stdout: "", exitCode: 1 }]);
     expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(false);
     expect(gh.calls).toHaveLength(1); // never reaches per-PR view
   });
 
-  it("returns false when 'gh pr list' returns malformed JSON", () => {
+  it("never fail-open to true: returns false when 'gh pr list' returns malformed JSON", () => {
     const gh = ghFromQueue([{ stdout: "not-json{", exitCode: 0 }]);
     expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(false);
   });
@@ -826,6 +832,167 @@ describe(fetchHistoricalBotReview, () => {
       "--json",
       "number",
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3c. deriveCopilotRulesetEnabled — pure ruleset parser (tri-state)
+// ---------------------------------------------------------------------------
+
+describe(deriveCopilotRulesetEnabled, () => {
+  it("returns true when a copilot_code_review rule is present", () => {
+    expect(deriveCopilotRulesetEnabled([{ type: "copilot_code_review" }])).toBe(true);
+  });
+
+  it("returns true when copilot_code_review appears alongside other rules", () => {
+    expect(
+      deriveCopilotRulesetEnabled([{ type: "pull_request" }, { type: "copilot_code_review" }]),
+    ).toBe(true);
+  });
+
+  it("returns false for a valid array without the copilot_code_review rule", () => {
+    expect(deriveCopilotRulesetEnabled([{ type: "pull_request" }])).toBe(false);
+  });
+
+  it("returns false for an empty array", () => {
+    expect(deriveCopilotRulesetEnabled([])).toBe(false);
+  });
+
+  it("returns 'unknown' for null", () => {
+    expect(deriveCopilotRulesetEnabled(null)).toBe("unknown");
+  });
+
+  it("returns 'unknown' for a non-array object", () => {
+    expect(deriveCopilotRulesetEnabled({})).toBe("unknown");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3d. observeCopilotRuleset — authoritative ruleset reader (tri-state)
+// ---------------------------------------------------------------------------
+
+describe(observeCopilotRuleset, () => {
+  function ghFromQueue(queue: Array<{ stdout: string; exitCode: number }>): GhRunner & {
+    calls: string[][];
+  } {
+    const calls: string[][] = [];
+    let cursor = 0;
+    const fn = ((argv: string[]) => {
+      calls.push(argv);
+      const next = queue[cursor++];
+      if (!next) return { stdout: "", stderr: "", exitCode: 1 };
+      return { stdout: next.stdout, stderr: "", exitCode: next.exitCode };
+    }) as GhRunner & { calls: string[][] };
+    fn.calls = calls;
+    return fn;
+  }
+
+  it("returns true when the rules API includes copilot_code_review", () => {
+    const gh = ghFromQueue([
+      { stdout: "main\n", exitCode: 0 },
+      { stdout: JSON.stringify([{ type: "copilot_code_review" }]), exitCode: 0 },
+    ]);
+    expect(observeCopilotRuleset(gh)).toBe(true);
+    expect(gh.calls[1]).toEqual(["api", "repos/{owner}/{repo}/rules/branches/main"]);
+  });
+
+  it("returns false when the rules API omits copilot_code_review", () => {
+    const gh = ghFromQueue([
+      { stdout: "main", exitCode: 0 },
+      { stdout: JSON.stringify([{ type: "pull_request" }]), exitCode: 0 },
+    ]);
+    expect(observeCopilotRuleset(gh)).toBe(false);
+  });
+
+  it("returns 'unknown' on a 403 (rules API non-zero exit)", () => {
+    const gh = ghFromQueue([
+      { stdout: "main", exitCode: 0 },
+      { stdout: "", exitCode: 1 },
+    ]);
+    expect(observeCopilotRuleset(gh)).toBe("unknown");
+  });
+
+  it("returns 'unknown' on a 404 (rules API non-zero exit)", () => {
+    const gh = ghFromQueue([
+      { stdout: "main", exitCode: 0 },
+      { stdout: "Not Found", exitCode: 1 },
+    ]);
+    expect(observeCopilotRuleset(gh)).toBe("unknown");
+  });
+
+  it("returns 'unknown' on malformed JSON from the rules API", () => {
+    const gh = ghFromQueue([
+      { stdout: "main", exitCode: 0 },
+      { stdout: "not-json{", exitCode: 0 },
+    ]);
+    expect(observeCopilotRuleset(gh)).toBe("unknown");
+  });
+
+  it("returns 'unknown' on default-branch-resolution failure (non-zero exit)", () => {
+    const gh = ghFromQueue([{ stdout: "", exitCode: 1 }]);
+    expect(observeCopilotRuleset(gh)).toBe("unknown");
+    expect(gh.calls).toHaveLength(1); // never reaches the rules API
+  });
+
+  it("returns 'unknown' when the resolved default branch is empty", () => {
+    const gh = ghFromQueue([{ stdout: "  \n", exitCode: 0 }]);
+    expect(observeCopilotRuleset(gh)).toBe("unknown");
+    expect(gh.calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3e. readHistoricalBotReview default — authoritative-read-then-heuristic
+// ---------------------------------------------------------------------------
+
+describe("readHistoricalBotReview default wiring", () => {
+  it("falls through to the 5-PR heuristic when the ruleset read is 'unknown' (403)", async () => {
+    // Drives the un-injected default factory through run(): with empty
+    // reviewRequests, the factory calls observeCopilotRuleset (repo view +
+    // rules api). The api 403s → "unknown" → the factory falls through to
+    // fetchHistoricalBotReview (pr list + per-PR view), which here HITS a
+    // historical Copilot review, so copilotConfigured resolves true.
+    const LOGIN = "copilot-pull-request-reviewer";
+    const clock = makeFakeClock();
+    const calls: string[][] = [];
+    const gh: GhRunner = (argv) => {
+      calls.push(argv);
+      // observeCopilotRuleset: default-branch resolution succeeds, rules api 403s.
+      if (argv[0] === "repo") return { stdout: "main", stderr: "", exitCode: 0 };
+      if (argv[0] === "api") return { stdout: "", stderr: "forbidden", exitCode: 1 };
+      // heuristic floor: list the merged PRs, then per-PR reviews (Copilot hit).
+      if (argv[0] === "pr" && argv[1] === "list") {
+        return { stdout: JSON.stringify([{ number: 1 }]), stderr: "", exitCode: 0 };
+      }
+      if (isPrView(argv)) return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isReviewRequests(argv)) return reviewRequestsResponse([]);
+      if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
+      // The heuristic per-PR `gh pr view <n> --json reviews` call.
+      if (argv[0] === "pr" && argv[1] === "view") {
+        return {
+          stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      return { stdout: "", stderr: "", exitCode: 1 };
+    };
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => LOGIN,
+      // readHistoricalBotReview intentionally NOT injected — exercise the default.
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    // The 403 routed through to the heuristic, which found a historical review.
+    expect(calls.some((c) => c[0] === "pr" && c[1] === "list")).toBe(true);
+    expect(result.copilotConfigured).toBe(true);
   });
 });
 
@@ -1690,7 +1857,17 @@ describe("run() integration", () => {
     // proceed without waiting the 10-min timeout.
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([]) },
-      // Default fallback fires here: 'gh pr list ...' fails.
+      // Default factory first tries the authoritative ruleset read; the
+      // rules api 403s → "unknown" → it falls through to the heuristic.
+      {
+        matches: (argv) => argv[0] === "repo" && argv.includes("defaultBranchRef"),
+        response: { stdout: "main", stderr: "", exitCode: 0 },
+      },
+      {
+        matches: (argv) => argv[0] === "api",
+        response: { stdout: "", stderr: "forbidden", exitCode: 1 },
+      },
+      // Heuristic floor fires here: 'gh pr list ...' fails.
       {
         matches: (argv) => argv[0] === "pr" && argv[1] === "list",
         response: { stdout: "", stderr: "boom", exitCode: 1 },
