@@ -5,6 +5,7 @@ import {
   parseEslintJson,
   parseNpmAuditJson,
   parseSemgrepJson,
+  parseSvelteCheckOutput,
   parseTscOutput,
   relativise,
 } from "./parsers";
@@ -54,12 +55,58 @@ export const runSecurityLens: LensRun = async (args, deps) => {
 
 export const runTypesLens: LensRun = async (args, deps) => {
   const start = deps.now();
+  const timeoutMs = args.maxToolTimeoutSec * 1000;
   // Prefer plain tsconfig.json when present; otherwise pick the first
   // project-specific tsconfig (e.g. tsconfig.scripts.json, tsconfig.app.json).
   // flow's own repo only has tsconfig.scripts.json — without this fallback the
   // types lens silently skipped on the very repo it ships in.
   const tsconfig = resolveTsconfig(deps.cwd, deps.fileExists);
   if (!tsconfig) return timedSkip(start, "no-tsconfig");
+  // Svelte/SvelteKit repos: bare tsc cannot type `.svelte`/`.svelte.ts` files
+  // and lacks the DOM lib + ambient types that `svelte-kit sync` generates, so
+  // it emits phantom errors on green PRs. Run `svelte-check` instead and never
+  // fall back to bare tsc for a detected-Svelte repo. The two soften reasons
+  // below are stable kebab-case skipped_reason values consumers match on:
+  //   svelte-check-unavailable — svelte-check binary not resolvable
+  //   svelte-kit-sync-failed   — `svelte-kit sync` exited non-zero or timed out
+  const svelteKind = detectSvelte(deps.cwd, deps.fileExists, deps.readFile);
+  if (svelteKind) {
+    const localSvelteCheck = path.join(deps.cwd, "node_modules", ".bin", "svelte-check");
+    const svelteCheckBin = deps.fileExists(localSvelteCheck)
+      ? localSvelteCheck
+      : deps.which("svelte-check");
+    if (!svelteCheckBin) return timedSkip(start, "svelte-check-unavailable");
+    if (svelteKind === "sveltekit") {
+      const localSvelteKit = path.join(deps.cwd, "node_modules", ".bin", "svelte-kit");
+      const svelteKitBin = deps.fileExists(localSvelteKit)
+        ? localSvelteKit
+        : deps.which("svelte-kit");
+      if (!svelteKitBin) return timedSkip(start, "svelte-kit-sync-failed");
+      deps.writeErr(`[types] running ${svelteKitBin} sync\n`);
+      const sync = await deps.spawn(svelteKitBin, ["sync"], { cwd: deps.cwd, timeoutMs });
+      if (sync.timedOut || sync.exitCode !== 0) {
+        return timedSkip(start, "svelte-kit-sync-failed");
+      }
+    }
+    const checkArgs = [
+      "--output",
+      "machine",
+      "--threshold",
+      "error",
+      ...(tsconfig !== "tsconfig.json" ? ["--tsconfig", tsconfig] : []),
+    ];
+    deps.writeErr(`[types] running ${svelteCheckBin} ${checkArgs.join(" ")}\n`);
+    const r = await deps.spawn(svelteCheckBin, checkArgs, { cwd: deps.cwd, timeoutMs });
+    if (r.timedOut) return timedSkip(start, "timeout");
+    // svelte-check exit semantics: 0 = no errors, 1 = errors found (both
+    // "ran" — parse stdout). Anything else is a tooling failure; skip with an
+    // explicit reason rather than a silent zero-finding pass.
+    if (r.exitCode !== 0 && r.exitCode !== 1) {
+      return timedSkip(start, `svelte-check-exit-${r.exitCode}`);
+    }
+    const findings = parseSvelteCheckOutput(r.stdout, deps.cwd);
+    return { findings, meta: { ran: true, duration_ms: deps.now() - start } };
+  }
   // Prefer locally-installed tsc to avoid surprise version drift; fall back
   // to PATH if neither exists.
   const localTsc = path.join(deps.cwd, "node_modules", ".bin", "tsc");
@@ -101,6 +148,41 @@ function resolveTsconfig(
   for (const c of candidates) {
     if (fileExists(path.join(cwd, c))) return c;
   }
+  return null;
+}
+
+// Pure Svelte/SvelteKit detection mirroring detectEslintConfig: returns
+// "sveltekit" (run `svelte-kit sync` before svelte-check) when @sveltejs/kit is
+// a dependency or any svelte.config.* file exists; "svelte" when only a plain
+// `svelte` dependency is present; null otherwise. The SvelteKit-vs-plain split
+// drives whether the lens runs `svelte-kit sync` first.
+function detectSvelte(
+  cwd: string,
+  fileExists: (p: string) => boolean,
+  readFile: (p: string) => string | null,
+): "sveltekit" | "svelte" | null {
+  const hasSvelteConfig =
+    fileExists(path.join(cwd, "svelte.config.js")) ||
+    fileExists(path.join(cwd, "svelte.config.ts")) ||
+    fileExists(path.join(cwd, "svelte.config.mjs"));
+  let hasKitDep = false;
+  let hasSvelteDep = false;
+  const pkgRaw = readFile(path.join(cwd, "package.json"));
+  if (pkgRaw) {
+    try {
+      const pkg = JSON.parse(pkgRaw) as {
+        dependencies?: Record<string, unknown>;
+        devDependencies?: Record<string, unknown>;
+      };
+      const deps = { ...pkg.dependencies, ...pkg.devDependencies };
+      hasKitDep = "@sveltejs/kit" in deps;
+      hasSvelteDep = "svelte" in deps;
+    } catch {
+      /* swallow */
+    }
+  }
+  if (hasKitDep || hasSvelteConfig) return "sveltekit";
+  if (hasSvelteDep) return "svelte";
   return null;
 }
 

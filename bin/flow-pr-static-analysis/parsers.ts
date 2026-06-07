@@ -25,6 +25,8 @@ export const ESLINT_CONFIDENCE: Record<number, number> = {
 
 export const TSC_CONFIDENCE = 100; // deterministic compiler output
 
+export const SVELTE_CHECK_CONFIDENCE = 100; // svelte-check is deterministic compiler-equivalent output
+
 export const COVERAGE_UNCOVERED_CONFIDENCE = 85;
 
 export const NPM_AUDIT_CONFIDENCE: Record<string, number> = {
@@ -266,6 +268,36 @@ export function parseTscOutput(stdout: string, worktree: string): Finding[] {
       confidence: TSC_CONFIDENCE,
       severity: severityStr === "error" ? "error" : "warning",
       source: "tsc",
+    });
+  }
+  return out;
+}
+
+/**
+ * Parse `svelte-check --output machine` stdout. Each diagnostic is a single
+ * line of the shape `ROW COLUMN SEVERITY "FILE" MESSAGE`, e.g.
+ * `12 5 ERROR "src/foo.svelte" Cannot find name 'document'.`. Framing lines
+ * (`START`, `COMPLETED ...`) and blank lines have no quoted file and are
+ * skipped. Machine lines carry no per-line TS code, so `rule_id` is the stable
+ * label `"svelte-check"`.
+ */
+export function parseSvelteCheckOutput(stdout: string, worktree: string): Finding[] {
+  if (!stdout.trim()) return [];
+  const out: Finding[] = [];
+  const re = /^(\d+) (\d+) (ERROR|WARNING) "([^"]+)" (.+)$/;
+  for (const raw of stdout.split("\n")) {
+    const line = raw.trimEnd();
+    const m = line.match(re);
+    if (!m) continue;
+    const [, lineNum, , severityStr, file, message] = m;
+    out.push({
+      file: relativise(file, worktree),
+      line: parseInt(lineNum, 10),
+      rule_id: "svelte-check",
+      message,
+      confidence: SVELTE_CHECK_CONFIDENCE,
+      severity: severityStr === "ERROR" ? "error" : "warning",
+      source: "svelte-check",
     });
   }
   return out;
