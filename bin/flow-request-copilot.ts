@@ -60,6 +60,8 @@ type Verdict = {
   copilotRequestable?: boolean;
   /** Set when the POST was skipped (auto-review already on) — distinct from the 422. */
   requestSkipReason?: string;
+  /** When requestCopilot is false, names WHY the request was declined so callers can distinguish the two decline kinds structurally instead of string-sniffing `reason`. "skip-wait" = the bots.copilotSkipWait budget toggle; "skip-request" = an explicit per-PR decline (--override never) or a glob class that doesn't warrant a request. Both collapse the bot wait via the supervisor's --copilot-not-requested path. */
+  declineKind?: "skip-wait" | "skip-request";
 };
 
 function parseArgs(argv: string[]):
@@ -194,16 +196,28 @@ export async function run(
       ? `copilot-skip-wait (budget) globClass=${globClass}`
       : `override=${parsed.override ?? "auto"} globClass=${globClass} decision=${parsed.decision ?? "none"}`,
   };
+  if (!requestCopilot) {
+    verdict.declineKind = skipWaitBudget ? "skip-wait" : "skip-request";
+  }
   if (requestCopilot) {
     const gh = deps.gh ?? defaultGh;
+    const forced = parsed.override === "always";
     // Story 3: detect repos where automatic Copilot review is already on —
     // the in-flight PR has no explicit reviewRequest yet recent merged PRs
     // carry a Copilot review. Firing a redundant requested_reviewers POST
     // there is noise, so skip it and let the bot review post on its own.
-    const alreadyRequested = fetchRequestedReviewers(parsed.pr, gh).length > 0;
-    if (!alreadyRequested && fetchHistoricalBotReview(cfg.login, gh)) {
+    // A forced request (`--override always`, `forced`) bypasses this
+    // short-circuit entirely (#260): the user explicitly asked for the POST,
+    // so it always fires.
+    const alreadyRequested = !forced && fetchRequestedReviewers(parsed.pr, gh).length > 0;
+    if (!forced && !alreadyRequested && fetchHistoricalBotReview(cfg.login, gh)) {
       verdict.posted = false;
       verdict.requestSkipReason = "auto-review-already-enabled";
+      // #260 Story 3: the suppression was previously invisible (only in the
+      // JSON verdict). Surface it so a silent skip is auditable in the log.
+      process.stderr.write(
+        "NOTICE: skipping Copilot request — auto-review already enabled (recent merged PRs carry Copilot reviews); pass --override always to force the request.\n",
+      );
     } else {
       const { posted, queued, copilotRequestable } = postAndVerify(parsed.pr, cfg.login, gh);
       verdict.posted = posted;
