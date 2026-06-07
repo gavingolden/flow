@@ -250,9 +250,13 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   }
   const changedLines = computeChangedLines(diffResult.stdout);
 
+  // Only the types lens consumes the PR-touched paths (to fan out per owning
+  // workspace package); the other four receive the base lensDeps and ignore it.
+  const typesLensDeps = { ...lensDeps, changedPaths: [...changedLines.keys()] };
+
   const [security, types, coverage, lint, dependencies] = await Promise.all([
     runSecurityLens(parsed, lensDeps),
-    runTypesLens(parsed, lensDeps),
+    runTypesLens(parsed, typesLensDeps),
     runCoverageLens(parsed, lensDeps),
     runLintLens(parsed, lensDeps),
     runDependenciesLens(parsed, lensDeps),

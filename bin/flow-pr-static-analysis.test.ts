@@ -1706,6 +1706,354 @@ describe(run, () => {
     const result = JSON.parse(outs.join(""));
     expect(result.meta.types.ran).toBe(true);
   });
+
+  // --- per-package types-lens fan-out (issue #269) -------------------------
+
+  it("Story 1: Svelte sub-package under a non-Svelte root spawns svelte-check scoped to the package, never tsc", async () => {
+    // Root has no Svelte dep and no tsconfig; apps/web declares @sveltejs/kit
+    // and owns its own tsconfig + svelte-check binary.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("apps/web/tsconfig.json")) return true;
+      if (p.endsWith("apps/web/node_modules/.bin/svelte-check")) return true;
+      if (p.endsWith("apps/web/node_modules/.bin/svelte-kit")) return true;
+      return false;
+    });
+    const which = vi.fn().mockReturnValue(null);
+    const readFile = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("apps/web/package.json")) {
+        return JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } });
+      }
+      return null;
+    });
+    const svelteCheckOut = makeSvelteCheckOutput([
+      { file: "src/App.svelte", line: 12, col: 5, severity: "ERROR", message: "Cannot find name 'document'." },
+    ]);
+    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
+      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      }
+      if (cmd.endsWith("svelte-check")) {
+        return Promise.resolve({ stdout: svelteCheckOut, stderr: "", exitCode: 1, timedOut: false });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "apps/web/src/App.svelte", hunks: [{ oldStart: 1, newStart: 10, lines: ["+a", "+b", "+c"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(true);
+    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    const checkCall = calls.find((c) => c[0].endsWith("svelte-check"));
+    expect(checkCall).toBeDefined();
+    expect(checkCall![2]?.cwd).toBe("/cwd/apps/web/");
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(result.types).toHaveLength(1);
+    // Relativising-base lock: package-relative src/App.svelte must surface as
+    // repo-relative apps/web/src/App.svelte so applyDiffScope retains it.
+    expect(result.types[0].file).toBe("apps/web/src/App.svelte");
+    expect(result.types[0]).toMatchObject({ line: 12, source: "svelte-check" });
+  });
+
+  it("Story 2: plain-TS sub-package under a Svelte-looking root runs tsc against the package, never svelte-check", async () => {
+    // Root looks Svelte (svelte.config + tsconfig) but the PR only touches
+    // packages/core, which has no Svelte dep — it must get tsc, not svelte-check.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("packages/core/tsconfig.json")) return true;
+      if (p.endsWith("packages/core/node_modules/.bin/tsc")) return false;
+      // Root svelte markers exist but the root path must not run (no unowned files).
+      if (p.endsWith("/cwd/svelte.config.js")) return true;
+      if (p.endsWith("/cwd/tsconfig.json")) return true;
+      return false;
+    });
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const readFile = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("packages/core/package.json")) {
+        return JSON.stringify({ devDependencies: { typescript: "^5.0.0" } });
+      }
+      return null;
+    });
+    const tscOut = "src/x.ts(3,1): error TS2322: Type error.\n";
+    const spawn = vi.fn().mockResolvedValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "packages/core/src/x.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+a", "+b", "+c"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(true);
+    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    const tscCall = calls.find((c) => c[0] === "/usr/bin/tsc");
+    expect(tscCall).toBeDefined();
+    expect(tscCall![2]?.cwd).toBe("/cwd/packages/core/");
+    expect(calls.some((c) => c[0].endsWith("svelte-check") || c[0].endsWith("svelte-kit"))).toBe(false);
+    expect(result.types).toHaveLength(1);
+    expect(result.types[0].file).toBe("packages/core/src/x.ts");
+    expect(result.types[0]).toMatchObject({ rule_id: "TS2322", source: "tsc" });
+  });
+
+  it("Story 3: mixed PR spawns both svelte-check (apps/web) and tsc (packages/core); types is the union with ran=true", async () => {
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("apps/web/tsconfig.json")) return true;
+      if (p.endsWith("apps/web/node_modules/.bin/svelte-check")) return true;
+      if (p.endsWith("apps/web/node_modules/.bin/svelte-kit")) return true;
+      if (p.endsWith("packages/core/tsconfig.json")) return true;
+      return false;
+    });
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const readFile = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("apps/web/package.json")) {
+        return JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } });
+      }
+      if (p.endsWith("packages/core/package.json")) {
+        return JSON.stringify({ devDependencies: { typescript: "^5.0.0" } });
+      }
+      return null;
+    });
+    const svelteCheckOut = makeSvelteCheckOutput([
+      { file: "src/App.svelte", line: 9, col: 1, severity: "ERROR", message: "Svelte error." },
+    ]);
+    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
+      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      }
+      if (cmd.endsWith("svelte-check")) {
+        return Promise.resolve({ stdout: svelteCheckOut, stderr: "", exitCode: 1, timedOut: false });
+      }
+      if (cmd === "/usr/bin/tsc") {
+        return Promise.resolve({
+          stdout: "src/x.ts(2,1): error TS2304: Cannot find name 'foo'.\n",
+          stderr: "",
+          exitCode: 2,
+          timedOut: false,
+        });
+      }
+      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "apps/web/src/App.svelte", hunks: [{ oldStart: 1, newStart: 5, lines: ["+a", "+b", "+c", "+d", "+e", "+f", "+g", "+h", "+i", "+j"] }] },
+          { path: "packages/core/src/x.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+a", "+b"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(true);
+    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    expect(calls.some((c) => c[0].endsWith("svelte-check") && c[2]?.cwd === "/cwd/apps/web/")).toBe(true);
+    expect(calls.some((c) => c[0] === "/usr/bin/tsc" && c[2]?.cwd === "/cwd/packages/core/")).toBe(true);
+    const files = (result.types as Array<{ file: string }>).map((f) => f.file).sort();
+    expect(files).toEqual(["apps/web/src/App.svelte", "packages/core/src/x.ts"]);
+  });
+
+  it("Story 4: single-package repo (root src/*.ts) is byte-identical to the pre-fan-out behaviour", async () => {
+    // No apps/packages files: workspacePrefixOf returns undefined for every
+    // touched path, so the lens takes the single repo-root path unchanged.
+    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const tscOut = makeTscOutput([
+      { file: "src/a.ts", line: 1, code: "TS2322", message: "Type error." },
+    ]);
+    const spawn = vi.fn().mockResolvedValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "src/a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(true);
+    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    const tscCall = calls.find((c) => c[0] === "/usr/bin/tsc");
+    // Single repo-root run at deps.cwd; no per-package prefix prepend.
+    expect(tscCall![2]?.cwd).toBe("/cwd");
+    expect(result.types).toHaveLength(1);
+    expect(result.types[0].file).toBe("src/a.ts");
+    expect(result.types[0]).toMatchObject({ rule_id: "TS2322", source: "tsc" });
+  });
+
+  it("Story 5: a workspace-shaped path with no package.json owner falls back to the repo-root path", async () => {
+    // apps/web/package.json does NOT exist -> not a real workspace package.
+    // The touched file must fall to the repo-root run, NOT spin up apps/web.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("/cwd/tsconfig.json")) return true;
+      // No apps/web/tsconfig, no apps/web/package.json.
+      return false;
+    });
+    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const readFile = vi.fn().mockReturnValue(null); // apps/web/package.json absent
+    const tscOut = makeTscOutput([
+      { file: "apps/web/src/x.ts", line: 1, code: "TS2304", message: "Cannot find name." },
+    ]);
+    const spawn = vi.fn().mockResolvedValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "apps/web/src/x.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(true);
+    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    const tscCall = calls.find((c) => c[0] === "/usr/bin/tsc");
+    // Repo-root run only; the package dir was never spawned against. The
+    // fan-out spawns with cwd = path.join(repoRoot, prefix) where prefix ends
+    // in "/", so a real apps/web run would surface "/cwd/apps/web/" — match the
+    // package dir with or without the trailing slash so this guard can actually
+    // fail if the unowned-package fallback regressed.
+    expect(tscCall![2]?.cwd).toBe("/cwd");
+    expect(
+      calls.some((c) => {
+        const cwd = c[2]?.cwd;
+        return cwd === "/cwd/apps/web" || cwd === "/cwd/apps/web/";
+      }),
+    ).toBe(false);
+    // Root-path findings are already repo-relative; the prefix-prepend must NOT
+    // fire here (would yield apps/web/apps/web/src/x.ts).
+    expect(result.types).toHaveLength(1);
+    expect(result.types[0].file).toBe("apps/web/src/x.ts");
+  });
+
+  it("Story 6: a sub-package svelte-check binary that is unresolvable still surfaces a skip reason", async () => {
+    // apps/web is a real Svelte package but neither a local nor PATH
+    // svelte-check resolves -> the per-package run must surface
+    // svelte-check-unavailable, not a silent zero-finding pass.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("apps/web/tsconfig.json")) return true;
+      // No apps/web/node_modules/.bin/svelte-check.
+      return false;
+    });
+    const which = vi.fn().mockReturnValue(null); // no PATH svelte-check either
+    const readFile = vi.fn().mockImplementation((p: string) =>
+      p.endsWith("apps/web/package.json")
+        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+        : null,
+    );
+    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "apps/web/src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which,
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.types.ran).toBe(false);
+    expect(result.meta.types.skipped_reason).toBe("svelte-check-unavailable");
+    expect(result.types).toEqual([]);
+    const calls = spawn.mock.calls as Array<[string, string[]]>;
+    expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+  });
+
+  it("Story 7: a passing package and a skipping sibling fold to ran=true with the sibling's skip reason surfaced", async () => {
+    // apps/web runs tsc clean (ran=true); packages/core is a real workspace
+    // package but neither a local nor PATH tsc resolves -> tsc-not-found skip.
+    // The fold must NOT mask the sibling skip behind the passing run: meta.ran
+    // is true AND the skipped_reason survives. A regression dropping firstSkip
+    // whenever any sibling ran would make this spec fail. apps/web gets a LOCAL
+    // tsc; packages/core has neither a local tsc nor (PATH which=null) a
+    // resolvable one, so only apps/web spawns.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("apps/web/tsconfig.json")) return true;
+      if (p.endsWith("apps/web/node_modules/.bin/tsc")) return true;
+      if (p.endsWith("packages/core/tsconfig.json")) return true;
+      if (p.endsWith("packages/core/node_modules/.bin/tsc")) return false;
+      return false;
+    });
+    const readFile = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("apps/web/package.json")) {
+        return JSON.stringify({ devDependencies: { typescript: "^5.0.0" } });
+      }
+      if (p.endsWith("packages/core/package.json")) {
+        return JSON.stringify({ devDependencies: { typescript: "^5.0.0" } });
+      }
+      return null;
+    });
+    // apps/web's local tsc runs clean (exit 0, no findings); packages/core never
+    // spawns (no tsc resolvable) so it skips with tsc-not-found.
+    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "apps/web/src/a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          { path: "packages/core/src/b.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+y"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which: vi.fn().mockReturnValue(null), // no PATH tsc
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    // Passing sibling (apps/web) -> ran=true; skipping sibling -> reason surfaced.
+    expect(result.meta.types.ran).toBe(true);
+    expect(result.meta.types.skipped_reason).toBe("tsc-not-found");
+    // Only apps/web's local tsc spawned; packages/core never did.
+    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    const tscCalls = calls.filter((c) => c[0].endsWith("/tsc") || c[0] === "tsc");
+    expect(tscCalls).toHaveLength(1);
+    expect(tscCalls[0][2]?.cwd).toBe("/cwd/apps/web/");
+  });
 });
 
 describe(spawnAsync, () => {
