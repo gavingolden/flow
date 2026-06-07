@@ -209,7 +209,7 @@ export async function run(
     // A forced request (`--override always`, `forced`) bypasses this
     // short-circuit entirely (#260): the user explicitly asked for the POST,
     // so it always fires.
-    const alreadyRequested = fetchRequestedReviewers(parsed.pr, gh).length > 0;
+    const alreadyRequested = !forced && fetchRequestedReviewers(parsed.pr, gh).length > 0;
     if (!forced && !alreadyRequested && fetchHistoricalBotReview(cfg.login, gh)) {
       verdict.posted = false;
       verdict.requestSkipReason = "auto-review-already-enabled";
