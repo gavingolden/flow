@@ -14,13 +14,13 @@
     "verify": "npm run typecheck:scripts && npm run test"
   },
   "dependencies": {
-    "execa": "^9.5.1",
     "picomatch": "^4.0.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/picomatch": "^3.0.1",
     "bun-types": "^1.1.38",
+    "execa": "^9.5.1",
     "typescript": "^5.7.2",
     "vitest": "^2.1.5"
   },
