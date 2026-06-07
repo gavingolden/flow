@@ -1865,6 +1865,21 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("manual-test-rubric.md requires one functional check per distinct user-facing change", () => {
+    expect(
+      manualTestRubricContent.includes(
+        "one functional check per distinct user-facing change",
+      ),
+      "manual-test-rubric.md must contain the phrase 'one functional check " +
+        "per distinct user-facing change' — the coverage-breadth rule that a " +
+        "multi-facet feature needs one check per facet, not a single conflated " +
+        "step. The two authoring sites (new-feature/SKILL.md Step 4b, " +
+        "product-planning discovery-instructions.md Step 7) defer to this " +
+        "phrase by reference; renaming it must update this lint in the same " +
+        "commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
   it("redirect-handling.md requires a gate override to be fresh, unambiguous, and in-context", () => {
     expect(
       redirectHandlingContent.includes("## Gate override"),

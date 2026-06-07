@@ -204,6 +204,31 @@ changes is noise:
 data output) OR touching error handling OR gated by config. Pure internal refactors
 that pass the existing test suite unchanged do not need a manual plan.
 
+## Coverage breadth: one check per distinct functional change
+
+The scaffold and materiality table above decide *depth* for a single change — how many of happy / unhappy / edge a given behavior needs. Breadth is the orthogonal axis: when one PR adds or alters **multiple distinct user-facing behaviors** — several search facets, several commands, several states, several flags — the Test Steps section must include **one functional check per distinct user-facing change**, not a single representative step that conflates them. A reviewer reading the checklist should be able to reconstruct the full scope of new behavior from the checklist alone; a facet that no item asserts is a facet that can break silently and still merge, because nothing ever claimed it worked.
+
+This is breadth of *coverage*, not a mandate to add manual prose. Each facet routes through **Automate first** exactly like any other check — automate the facet where the automation test passes, and leave it manual only where the rubric flags it genuinely manual. A feature with four automatable facets gets four runnable items, not four manual lines. The breadth requirement makes the scope visible; "Automate first" keeps the automatable facets off the human's plate.
+
+### Worked example: a multi-facet search DSL (modeled on `gavingolden/pokemon#216`)
+
+A search-DSL PR added four distinct user-facing behaviors at once: name anchoring (`^pika` matches only names starting with `pika`), name wildcard positions (`pika*`, `*chu`, `*ika*`), set-prefix resolution (`set:base` resolves to the base set's card pool), and palette parity (results render in the legacy color palette). It shipped with a single conflated manual step:
+
+**Anti-pattern — one step, four facets conflated:**
+
+- [ ] Run a few `/search` queries and confirm the results look right.
+
+That one line under-states the scope. A reviewer can't tell four behaviors changed, and three of them could be broken while the single query the author happened to try still passes. Expanded to one check per facet, each routed through the automation test first:
+
+**Comprehensive — one check per facet, automated where automatable:**
+
+- [ ] Run `npm run test -- search-dsl.test.ts -t "name anchoring"` — `^pika` matches only names starting with `pika`, not names merely containing it.
+- [ ] Run `npm run test -- search-dsl.test.ts -t "wildcard positions"` — `pika*`, `*chu`, and `*ika*` each resolve to their expected match sets (prefix, suffix, infix).
+- [ ] Run `npm run test -- search-dsl.test.ts -t "set prefix"` — `set:base` resolves the set prefix to the base set's card pool.
+- [ ] Open `/search`, run `^pika set:base`, and confirm results render in the legacy palette (subjective UX, manual).
+
+Three of the four facets are deterministic data transforms (Safely automatable, above) and become runnable items; only palette parity is a genuine visual-judgment check and stays manual. Without the breadth rule the PR shipped one conflated line; with it, the four behaviors are each visible and three are verified by exit code rather than by hope.
+
 ## PR-type scenario menus
 
 Use these as a baseline. Not every entry applies to every PR — pick the ones that match
@@ -253,6 +278,9 @@ If any of these appear, the test plan probably needs tightening:
 - Implementation language ("the `useFoo` hook returns `bar`") instead of user-observable
   language
 - One-liner on a large PR with new external integrations or error-handling changes
+- One step bundling several distinct facet behaviors (e.g. a single `/search` line covering
+  name anchoring, wildcards, and set-prefix resolution) — split it into one check per facet
+  per "Coverage breadth" above
 
 ## Proportionality
 

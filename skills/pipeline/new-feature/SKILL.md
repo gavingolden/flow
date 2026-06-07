@@ -392,6 +392,16 @@ Always emit the heading. Decide the body based on the change:
   `GATED:` end state where every unticked item could have been an exit-code check
   the agent ran itself.
 
+  When the feature adds or alters **multiple distinct user-facing behaviors** (several
+  facets, commands, or states), emit at least one end-user functional check per distinct
+  change — not a single representative step that conflates them — so the checklist shows
+  the full scope of new behavior and no facet can break silently because nothing asserted
+  it. This is the breadth axis, orthogonal to the happy/unhappy/edge depth categories; each
+  facet still routes through the automation test above (automate where automatable, manual
+  only where genuinely manual — it is not a mandate to add manual prose). See
+  `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Coverage breadth") for the
+  requirement and a worked multi-facet example.
+
 Open the `## Test Steps` section with this HTML comment, copied verbatim, between
 the heading and the first `- [ ]` item. The auto-merge gate strips HTML comments
 before counting so the marker is invisible to the count, and any later editor (an
