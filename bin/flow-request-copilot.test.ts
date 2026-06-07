@@ -1,10 +1,25 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   classifyByGlobs,
   resolveRequestDecision,
   run,
   type GlobClass,
 } from "./flow-request-copilot";
+
+// `resolveCopilotConfigured` (reached from `run()`'s request path) consults
+// `bots.copilotAutoReview` via the default file-backed ReadConfigFile, which is
+// NOT the injectable `deps.readConfig` seam the rest of `run()` uses. Mock only
+// that one export so the config tier is deterministic; everything else stays
+// real. `setAutoReview` drives the override per test.
+const autoReviewHolder = vi.hoisted(() => ({ value: undefined as boolean | undefined }));
+vi.mock("./lib/copilot-config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/copilot-config")>();
+  return { ...actual, readCopilotAutoReview: () => autoReviewHolder.value };
+});
+function setAutoReview(value: boolean | undefined): void {
+  autoReviewHolder.value = value;
+}
+afterEach(() => setAutoReview(undefined));
 import {
   DEFAULT_ALWAYS_REVIEW_GLOBS,
   DEFAULT_NEVER_ALONE_GLOBS,
@@ -155,6 +170,7 @@ function captureStderr() {
   return { err, restore: () => spy.mockRestore() };
 }
 
+
 describe("--classify CLI", () => {
   it.each([
     [["src/lib/auth/x.ts"], "always-review"],
@@ -189,17 +205,40 @@ const isPrList = (argv: string[]) => argv[0] === "pr" && argv[1] === "list";
  * reviews,reviewRequests` so the Story-3 auto-review-already-on path
  * resolves; absent it, history is empty.
  */
+const isRepoView = (argv: string[]) =>
+  argv[0] === "repo" && argv[1] === "view" && argv.includes("defaultBranchRef");
+const isRulesApi = (argv: string[]) =>
+  argv[0] === "api" && typeof argv[1] === "string" && argv[1].includes("/rules/branches/");
+
 function ghStub(responses: {
   post: number;
   queuedLogins: string[];
   postStderr?: string;
   historicalReviews?: string[];
+  // `observeCopilotRuleset` (now reached via resolveCopilotConfigured) issues a
+  // `repo view` + `api .../rules/branches/...` pair before the pr-list heuristic.
+  // Default ("unknown"): the rules api 403s so resolution falls to the heuristic
+  // floor (the pre-resolver behaviour the existing cases assume). "true"/"false"
+  // make the authoritative read definitive and short-circuit the heuristic.
+  ruleset?: boolean | "unknown";
 }): GhRunner & { calls: string[][] } {
   const calls: string[][] = [];
   const fn = ((argv: string[]) => {
     calls.push(argv);
     if (isPost(argv)) {
       return { stdout: "", stderr: responses.postStderr ?? "", exitCode: responses.post };
+    }
+    if (isRepoView(argv)) {
+      return { stdout: "main", stderr: "", exitCode: 0 };
+    }
+    if (isRulesApi(argv)) {
+      const ruleset = responses.ruleset ?? "unknown";
+      if (ruleset === "unknown") return { stdout: "", stderr: "forbidden", exitCode: 1 };
+      return {
+        stdout: JSON.stringify(ruleset ? [{ type: "copilot_code_review" }] : [{ type: "pull_request" }]),
+        stderr: "",
+        exitCode: 0,
+      };
     }
     if (isPrList(argv)) {
       // fetchHistoricalBotReview: list of recent merged PRs.
@@ -374,6 +413,79 @@ describe("request mode", () => {
     expect(verdict.posted).toBe(true);
     expect(verdict.requestSkipReason).toBeUndefined();
     expect(gh.calls.some(isPost)).toBe(true);
+  });
+
+  it("bots.copilotAutoReview:true → request skipped, ZERO ruleset/heuristic gh calls, NOTICE names the field", async () => {
+    setAutoReview(true);
+    // Ruleset/historical fixtures present but must never be consulted.
+    const gh = ghStub({
+      post: 0,
+      queuedLogins: [],
+      ruleset: true,
+      historicalReviews: ["copilot-pull-request-reviewer[bot]"],
+    });
+    const cap = captureStdout();
+    const errCap = captureStderr();
+    const code = await run(["--pr", "42", "--override", "auto"], {
+      gh,
+      readConfig,
+      stdinPaths: async () => ["src/lib/auth/x.ts"],
+    });
+    cap.restore();
+    errCap.restore();
+    expect(code).toBe(0);
+    const verdict = JSON.parse(cap.out.join(""));
+    expect(verdict.requestSkipReason).toBe("auto-review-already-enabled");
+    expect(gh.calls.some(isPost)).toBe(false);
+    // The defined override short-circuits BOTH the ruleset read and the heuristic.
+    expect(gh.calls.some(isRepoView)).toBe(false);
+    expect(gh.calls.some(isRulesApi)).toBe(false);
+    expect(gh.calls.some(isPrList)).toBe(false);
+    expect(errCap.err.join("")).toMatch(/bots\.copilotAutoReview/);
+  });
+
+  it("--override always still fires the POST regardless of config/ruleset state", async () => {
+    setAutoReview(true);
+    const gh = ghStub({
+      post: 0,
+      queuedLogins: ["copilot-pull-request-reviewer"],
+      ruleset: true,
+      historicalReviews: ["copilot-pull-request-reviewer[bot]"],
+    });
+    const cap = captureStdout();
+    const code = await run(["--pr", "42", "--override", "always"], {
+      gh,
+      readConfig,
+      stdinPaths: async () => ["package-lock.json"],
+    });
+    cap.restore();
+    expect(code).toBe(0);
+    const verdict = JSON.parse(cap.out.join(""));
+    expect(verdict.posted).toBe(true);
+    expect(verdict.requestSkipReason).toBeUndefined();
+    expect(gh.calls.some(isPost)).toBe(true);
+  });
+
+  it("override unset + unreachable ruleset → falls to the heuristic floor", async () => {
+    setAutoReview(undefined); // no bots.copilotAutoReview
+    const gh = ghStub({
+      post: 0,
+      queuedLogins: [],
+      ruleset: "unknown",
+      historicalReviews: ["copilot-pull-request-reviewer[bot]"],
+    });
+    const cap = captureStdout();
+    const code = await run(["--pr", "42", "--override", "auto"], {
+      gh,
+      readConfig,
+      stdinPaths: async () => ["src/lib/auth/x.ts"],
+    });
+    cap.restore();
+    expect(code).toBe(0);
+    const verdict = JSON.parse(cap.out.join(""));
+    expect(verdict.requestSkipReason).toBe("auto-review-already-enabled");
+    expect(gh.calls.some(isPrList)).toBe(true); // heuristic reached
+    expect(gh.calls.some(isPost)).toBe(false);
   });
 
   it("auto path short-circuit emits a NOTICE to stderr", async () => {

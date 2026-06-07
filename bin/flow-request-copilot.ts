@@ -34,7 +34,7 @@ import {
 import {
   retriggerCopilotReview,
   fetchRequestedReviewers,
-  fetchHistoricalBotReview,
+  resolveCopilotConfigured,
   type GhRunner,
 } from "./flow-ci-wait";
 
@@ -210,13 +210,13 @@ export async function run(
     // short-circuit entirely (#260): the user explicitly asked for the POST,
     // so it always fires.
     const alreadyRequested = !forced && fetchRequestedReviewers(parsed.pr, gh).length > 0;
-    if (!forced && !alreadyRequested && fetchHistoricalBotReview(cfg.login, gh)) {
+    if (!forced && !alreadyRequested && resolveCopilotConfigured(cfg.login, gh)) {
       verdict.posted = false;
       verdict.requestSkipReason = "auto-review-already-enabled";
       // #260 Story 3: the suppression was previously invisible (only in the
       // JSON verdict). Surface it so a silent skip is auditable in the log.
       process.stderr.write(
-        "NOTICE: skipping Copilot request — auto-review already enabled (recent merged PRs carry Copilot reviews); pass --override always to force the request.\n",
+        "NOTICE: skipping Copilot request — auto-review already enabled (recent merged PRs carry Copilot reviews); pass --override always to force the request, or set bots.copilotAutoReview in ~/.flow/config.json as the durable, declarative alternative.\n",
       );
     } else {
       const { posted, queued, copilotRequestable } = postAndVerify(parsed.pr, cfg.login, gh);

@@ -21,6 +21,7 @@ import {
   observeCopilotRuleset,
   observeMergeState,
   parseArgs,
+  resolveCopilotConfigured,
   retriggerCopilotReview,
   run,
   type Check,
@@ -29,6 +30,20 @@ import {
   type Review,
   type RunResult,
 } from "./flow-ci-wait";
+
+// `resolveCopilotConfigured` consults `bots.copilotAutoReview` via the default
+// (file-backed) ReadConfigFile, which has no injectable seam at the call site.
+// Mock only that one export so the config tier is deterministic; everything
+// else in copilot-config stays real. `setAutoReview` drives the override per test.
+const autoReviewHolder = vi.hoisted(() => ({ value: undefined as boolean | undefined }));
+vi.mock("./lib/copilot-config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./lib/copilot-config")>();
+  return { ...actual, readCopilotAutoReview: () => autoReviewHolder.value };
+});
+function setAutoReview(value: boolean | undefined): void {
+  autoReviewHolder.value = value;
+}
+afterEach(() => setAutoReview(undefined));
 
 // `run()` now persists its verdict to `<cwd>/.flow-tmp/ci-wait-result.json`
 // by default. Redirect cwd to a throwaway temp dir for every test so the
@@ -938,6 +953,68 @@ describe(observeCopilotRuleset, () => {
     const gh = ghFromQueue([{ stdout: "  \n", exitCode: 0 }]);
     expect(observeCopilotRuleset(gh)).toBe("unknown");
     expect(gh.calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3d-bis. resolveCopilotConfigured — three-tier precedence
+// ---------------------------------------------------------------------------
+
+describe(resolveCopilotConfigured, () => {
+  const LOGIN = "copilot-pull-request-reviewer";
+
+  function ghFromQueue(queue: Array<{ stdout: string; exitCode: number }>): GhRunner & {
+    calls: string[][];
+  } {
+    const calls: string[][] = [];
+    let cursor = 0;
+    const fn = ((argv: string[]) => {
+      calls.push(argv);
+      const next = queue[cursor++];
+      if (!next) return { stdout: "", stderr: "", exitCode: 1 };
+      return { stdout: next.stdout, stderr: "", exitCode: next.exitCode };
+    }) as GhRunner & { calls: string[][] };
+    fn.calls = calls;
+    return fn;
+  }
+
+  it("returns the override verbatim (true) and issues ZERO gh calls", () => {
+    setAutoReview(true);
+    const gh = ghFromQueue([]);
+    expect(resolveCopilotConfigured(LOGIN, gh)).toBe(true);
+    expect(gh.calls).toHaveLength(0);
+  });
+
+  it("returns the override verbatim (false) and issues ZERO gh calls", () => {
+    setAutoReview(false);
+    const gh = ghFromQueue([]);
+    expect(resolveCopilotConfigured(LOGIN, gh)).toBe(false);
+    expect(gh.calls).toHaveLength(0);
+  });
+
+  it("override unset + ruleset 'unknown' → reaches the fetchHistoricalBotReview heuristic", () => {
+    setAutoReview(undefined);
+    const gh = ghFromQueue([
+      // observeCopilotRuleset: default branch resolves, rules api 403s → "unknown".
+      { stdout: "main", exitCode: 0 },
+      { stdout: "", exitCode: 1 },
+      // heuristic floor: list merged PRs, then per-PR reviews (Copilot hit).
+      { stdout: JSON.stringify([{ number: 1 }]), exitCode: 0 },
+      { stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }), exitCode: 0 },
+    ]);
+    expect(resolveCopilotConfigured(LOGIN, gh)).toBe(true);
+    // The heuristic pr-list call must have been issued.
+    expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "list")).toBe(true);
+  });
+
+  it("override unset + authoritative-true ruleset → true WITHOUT the pr-list heuristic", () => {
+    setAutoReview(undefined);
+    const gh = ghFromQueue([
+      { stdout: "main", exitCode: 0 },
+      { stdout: JSON.stringify([{ type: "copilot_code_review" }]), exitCode: 0 },
+    ]);
+    expect(resolveCopilotConfigured(LOGIN, gh)).toBe(true);
+    expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "list")).toBe(false);
   });
 });
 

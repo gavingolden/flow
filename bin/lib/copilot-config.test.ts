@@ -7,6 +7,7 @@ import {
   copilotAuthorMatch,
   matchesCopilot,
   readCopilotClaimDeadlineSec,
+  readCopilotAutoReview,
   readCopilotConfig,
   readCopilotLogin,
   readCopilotSkipWait,
@@ -206,5 +207,25 @@ describe("readCopilotSkipWait", () => {
 
   it("is false for a non-boolean value", () => {
     expect(readCopilotSkipWait(reader({ bots: { copilotSkipWait: "yes" } }))).toBe(false);
+  });
+});
+
+describe("readCopilotAutoReview", () => {
+  it("is true for a strict boolean true", () => {
+    expect(readCopilotAutoReview(reader({ bots: { copilotAutoReview: true } }))).toBe(true);
+  });
+
+  it("is false for a strict boolean false", () => {
+    expect(readCopilotAutoReview(reader({ bots: { copilotAutoReview: false } }))).toBe(false);
+  });
+
+  it("is undefined when absent", () => {
+    expect(readCopilotAutoReview(reader({}))).toBeUndefined();
+    expect(readCopilotAutoReview(reader({ bots: {} }))).toBeUndefined();
+    expect(readCopilotAutoReview(reader(undefined))).toBeUndefined();
+  });
+
+  it("is undefined for a non-boolean value (string)", () => {
+    expect(readCopilotAutoReview(reader({ bots: { copilotAutoReview: "yes" } }))).toBeUndefined();
   });
 });

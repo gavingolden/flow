@@ -61,6 +61,8 @@ The supervisor pauses for plan approval on `feature`-intent tasks (type `approve
 
 **Manual prerequisite:** to actually realize the opt-in, the repo admin must **disable GitHub's repo-level automatic Copilot review** in the GitHub UI (Settings → Copilot → code review). There is no stable API to toggle this programmatically, so flow can't do it for you — and if it stays on, GitHub auto-requests Copilot on every PR and defeats the opt-in. Per-repo glob overrides live under `bots.copilot.globs` in `~/.flow/config.json`.
 
+**`bots.copilotAutoReview: true | false`** (in `~/.flow/config.json`) overrides flow's "is Copilot review already configured?" auto-detection. It is consulted **first** — a defined value beats both the authoritative `copilot_code_review` ruleset read AND the 5-PR historical heuristic, and short-circuits them (zero `gh` calls). `true` declares that Copilot already reviews every PR (so flow skips its own request); `false` declares it does not; **unset** keeps today's auto-detect behavior. It is the durable, declarative alternative to the per-invocation `--override always` flag, and is the right escape hatch when the ruleset API is unreachable — e.g. a private repo on a free personal account where the rules endpoint 403s and auto-detect would otherwise fall back to the noisier heuristic.
+
 ## Shell completions
 
 `flow setup` installs bash and zsh tab completion automatically. The completion scripts ship under `completions/` in this repo and are symlinked into `~/.flow/completions/flow.<shell>`. To wire them into your shell, `flow setup` writes a small managed block into each of these rc files **if they already exist** (it never creates an rc file you don't already have):

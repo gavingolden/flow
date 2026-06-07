@@ -211,6 +211,19 @@ the historical/author-match path. This decoupling is deliberate — coupling
 the skip to `--copilot-not-requested` made non-trivial PRs race past their
 own auto-review.
 
+The "is automatic Copilot review already enabled?" decision is itself
+overridable via the global `bots.copilotAutoReview: true | false` toggle in
+`~/.flow/config.json` (a top-level boolean sibling of `bots.copilotSkipWait`
+and `bots.copilotClaimDeadlineSec`). A defined value is consulted **first**
+— it beats both the authoritative `copilot_code_review` ruleset read AND the
+5-PR historical heuristic, short-circuiting them with zero `gh` calls.
+`true` declares Copilot already reviews every PR (so the redundant request is
+skipped, same `requestSkipReason` path as above); `false` declares it does
+not; **unset** keeps the auto-detect behavior. It is the durable, declarative
+alternative to the per-invocation `--override always` flag, and the right
+escape hatch when the ruleset API is unreachable (e.g. a private repo on a
+free personal account where the rules endpoint 403s).
+
 The verified request mechanism is `gh pr edit <pr> --add-reviewer @copilot`
 (slug `copilot`); the old `requested_reviewers` POST of the login
 `copilot-pull-request-reviewer` 422'd only because that login resolves to
