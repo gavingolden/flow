@@ -69,6 +69,13 @@ export type Deps = {
   now?: () => number;
   writeOut?: (s: string) => void;
   writeErr?: (s: string) => void;
+  /**
+   * PR-touched repo-relative paths. OPTIONAL and read ONLY by the types lens
+   * (to fan framework detection out per owning workspace package); deliberately
+   * NOT added to the LensRun Pick so the other four lens runners aren't forced
+   * to surface a field they ignore.
+   */
+  changedPaths?: string[];
 };
 
 // --- CLI types -------------------------------------------------------------
