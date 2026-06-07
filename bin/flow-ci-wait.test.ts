@@ -994,6 +994,93 @@ describe("readHistoricalBotReview default wiring", () => {
     expect(calls.some((c) => c[0] === "pr" && c[1] === "list")).toBe(true);
     expect(result.copilotConfigured).toBe(true);
   });
+
+  it("short-circuits on an authoritative-true ruleset without consulting the heuristic", async () => {
+    // Drives the un-injected default factory through run(): with empty
+    // reviewRequests, the factory calls observeCopilotRuleset (repo view +
+    // rules api). The api returns an authoritative copilot_code_review rule →
+    // true, so the factory MUST short-circuit and never reach
+    // fetchHistoricalBotReview. Asserts (a) copilotConfigured true AND (b) no
+    // `gh pr list` heuristic call — the negative assertion that locks the
+    // short-circuit (a regression running the heuristic unconditionally would
+    // otherwise pass).
+    const LOGIN = "copilot-pull-request-reviewer";
+    const clock = makeFakeClock();
+    const calls: string[][] = [];
+    const gh: GhRunner = (argv) => {
+      calls.push(argv);
+      // observeCopilotRuleset: default-branch resolution + authoritative rules api.
+      if (argv[0] === "repo") return { stdout: "main", stderr: "", exitCode: 0 };
+      if (argv[0] === "api") {
+        return {
+          stdout: JSON.stringify([{ type: "copilot_code_review" }]),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (isReviewRequests(argv)) return reviewRequestsResponse([]);
+      if (isPrView(argv)) return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
+      return { stdout: "", stderr: "", exitCode: 1 };
+    };
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => LOGIN,
+      // readHistoricalBotReview intentionally NOT injected — exercise the default.
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.copilotConfigured).toBe(true);
+    // The authoritative read short-circuited: the heuristic `gh pr list` floor
+    // was never consulted.
+    expect(calls.some((c) => c[0] === "pr" && c[1] === "list")).toBe(false);
+  });
+
+  it("short-circuits on an authoritative-false ruleset without consulting the heuristic", async () => {
+    // Symmetric to the authoritative-true case: the rules api resolves an
+    // authoritative array WITHOUT a copilot_code_review rule → false. The
+    // factory short-circuits to false and never reaches the heuristic, so
+    // copilotConfigured is false and no `gh pr list` call is made.
+    const LOGIN = "copilot-pull-request-reviewer";
+    const clock = makeFakeClock();
+    const calls: string[][] = [];
+    const gh: GhRunner = (argv) => {
+      calls.push(argv);
+      if (argv[0] === "repo") return { stdout: "main", stderr: "", exitCode: 0 };
+      if (argv[0] === "api") {
+        return {
+          stdout: JSON.stringify([{ type: "pull_request" }]),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      if (isReviewRequests(argv)) return reviewRequestsResponse([]);
+      if (isPrView(argv)) return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
+      return { stdout: "", stderr: "", exitCode: 1 };
+    };
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readCopilotLogin: () => LOGIN,
+      // readHistoricalBotReview intentionally NOT injected — exercise the default.
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    expect(result.copilotConfigured).toBe(false);
+    expect(calls.some((c) => c[0] === "pr" && c[1] === "list")).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
