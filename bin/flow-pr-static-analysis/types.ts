@@ -9,6 +9,7 @@ export type Source =
   | "biome"
   | "eslint"
   | "tsc"
+  | "svelte-check"
   | "coverage"
   | "npm-audit";
 

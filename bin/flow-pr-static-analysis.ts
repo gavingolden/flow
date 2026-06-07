@@ -74,6 +74,7 @@ export {
   parseEslintJson,
   parseNpmAuditJson,
   parseSemgrepJson,
+  parseSvelteCheckOutput,
   parseTscOutput,
 } from "./flow-pr-static-analysis/parsers";
 export { parseArgs } from "./flow-pr-static-analysis/cli";
