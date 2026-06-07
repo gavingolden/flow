@@ -1176,7 +1176,7 @@ was to **decline** (`$REQUESTED` is `false` — a trivial PR, or the global
 `requestCopilot=false` so the wait collapses when your Copilot budget is
 spent); or the verdict reports `copilotRequestable:false` (the request
 failed because Copilot genuinely isn't available on this repo). Read
-`$REQUESTABLE` via `jq` alongside `$REQUESTED`.
+`$REQUESTABLE` via `jq` alongside `$REQUESTED`. When `$REQUESTED` is `false`, the verdict's `declineKind` field names which decline it is — `skip-wait` (the `bots.copilotSkipWait` budget toggle) vs `skip-request` (an explicit per-PR `--override never` or a glob class that doesn't warrant a request); both collapse the wait, but the field makes the distinction machine-checkable instead of string-sniffing `reason`.
 
 A `requestSkipReason` (auto-review already enabled, so the helper skipped
 the redundant request) **deliberately does NOT** append the flag — the
@@ -1187,7 +1187,7 @@ auto-review; only a genuine decline or unavailability should collapse the
 wait. The flag — **not** a no-op — hard-forces `copilotConfigured=false`,
 bypassing BOTH the in-flight `reviewRequests` check AND the historical-PR
 fallback; `$SKIP_REASON` may still be read for logging but must not drive
-it.
+it. A forced request (`--override always`) hard-bypasses this historical short-circuit entirely (the #260 fix), so a forced request never yields a `requestSkipReason` — the POST always fires.
 
 Launch the call (run the Bash tool with `run_in_background: true`):
 

@@ -321,7 +321,10 @@ describe("request mode", () => {
     expect(errCap.err.join("")).not.toMatch(/NOTICE:/);
   });
 
-  it("auto-review-already-on → no POST, requestSkipReason set; control with no history still POSTs", async () => {
+  it("auto path: auto-review-already-on → no POST, requestSkipReason set; control with no history still POSTs", async () => {
+    // Auto path + always-review glob: auto decides to request, so the
+    // historical short-circuit is genuinely exercised (--override always now
+    // hard-forces past it, so this test uses --override auto).
     // Auto-review on: empty reviewRequests + recent merged PR carries a Copilot review.
     const ghAuto = ghStub({
       post: 0,
@@ -329,10 +332,10 @@ describe("request mode", () => {
       historicalReviews: ["copilot-pull-request-reviewer[bot]"],
     });
     const capAuto = captureStdout();
-    const codeAuto = await run(["--pr", "42", "--override", "always"], {
+    const codeAuto = await run(["--pr", "42", "--override", "auto"], {
       gh: ghAuto,
       readConfig,
-      stdinPaths: async () => ["package-lock.json"],
+      stdinPaths: async () => ["src/lib/auth/x.ts"],
     });
     capAuto.restore();
     expect(codeAuto).toBe(0);
@@ -343,14 +346,70 @@ describe("request mode", () => {
     // Control: empty reviewRequests + no history → POST still fires.
     const ghControl = ghStub({ post: 0, queuedLogins: [] });
     const capControl = captureStdout();
-    const codeControl = await run(["--pr", "42", "--override", "always"], {
+    const codeControl = await run(["--pr", "42", "--override", "auto"], {
       gh: ghControl,
       readConfig,
-      stdinPaths: async () => ["package-lock.json"],
+      stdinPaths: async () => ["src/lib/auth/x.ts"],
     });
     capControl.restore();
     expect(codeControl).toBe(0);
     expect(ghControl.calls.some(isPost)).toBe(true);
+  });
+
+  it("--override always hard-forces past the historical short-circuit → POST fires", async () => {
+    const gh = ghStub({
+      post: 0,
+      queuedLogins: ["copilot-pull-request-reviewer"],
+      historicalReviews: ["copilot-pull-request-reviewer[bot]"],
+    });
+    const cap = captureStdout();
+    const code = await run(["--pr", "42", "--override", "always"], {
+      gh,
+      readConfig,
+      stdinPaths: async () => ["package-lock.json"],
+    });
+    cap.restore();
+    expect(code).toBe(0);
+    const verdict = JSON.parse(cap.out.join(""));
+    expect(verdict.posted).toBe(true);
+    expect(verdict.requestSkipReason).toBeUndefined();
+    expect(gh.calls.some(isPost)).toBe(true);
+  });
+
+  it("auto path short-circuit emits a NOTICE to stderr", async () => {
+    const gh = ghStub({
+      post: 0,
+      queuedLogins: [],
+      historicalReviews: ["copilot-pull-request-reviewer[bot]"],
+    });
+    const cap = captureStdout();
+    const errCap = captureStderr();
+    const code = await run(["--pr", "42", "--override", "auto"], {
+      gh,
+      readConfig,
+      stdinPaths: async () => ["src/lib/auth/x.ts"],
+    });
+    cap.restore();
+    errCap.restore();
+    expect(code).toBe(0);
+    expect(errCap.err.join("")).toMatch(/NOTICE: skipping Copilot request/);
+    expect(gh.calls.some(isPost)).toBe(false);
+  });
+
+  it("skip-request decline: --override never sets declineKind:skip-request, no POST", async () => {
+    const gh = ghStub({ post: 0, queuedLogins: [] });
+    const cap = captureStdout();
+    const code = await run(["--pr", "42", "--override", "never"], {
+      gh,
+      readConfig,
+      stdinPaths: async () => ["src/feature.ts"],
+    });
+    cap.restore();
+    expect(code).toBe(0);
+    const verdict = JSON.parse(cap.out.join(""));
+    expect(verdict.requestCopilot).toBe(false);
+    expect(verdict.declineKind).toBe("skip-request");
+    expect(gh.calls.length).toBe(0);
   });
 
   it("request succeeds + queued re-read shows the `Copilot` entry → queued recognized via matchesCopilot", async () => {
@@ -389,6 +448,7 @@ describe("request mode", () => {
     const verdict = JSON.parse(cap.out.join(""));
     expect(verdict.requestCopilot).toBe(false);
     expect(verdict.reason).toMatch(/budget/);
+    expect(verdict.declineKind).toBe("skip-wait");
     expect(gh.calls.some(isPost)).toBe(false);
   });
 
