@@ -122,8 +122,25 @@ describe(detectScopesFromFiles, () => {
     expect(detectScopesFromFiles(["packages/ui/src/Button.svelte"])).toEqual(["root-fallback"]);
   });
 
-  it("should NOT fall back when at least one specific scope matched in a mixed diff", () => {
-    expect(detectScopesFromFiles(["src/a.ts", "apps/web/src/b.ts"])).toEqual(["src"]);
+  it("should append root-fallback additively for an orphan bundled with a matched specific scope", () => {
+    // apps/web/src/b.ts has no dynamic owner here (pure call, no dynamicScopes),
+    // so it is an orphan. Under the additive model root-fallback claims it
+    // alongside src — it is no longer silently dropped (the bundled-orphan bug).
+    expect(detectScopesFromFiles(["src/a.ts", "apps/web/src/b.ts"])).toEqual([
+      "src",
+      "root-fallback",
+    ]);
+  });
+
+  it("should NOT append root-fallback when every file is claimed by a specific scope", () => {
+    expect(detectScopesFromFiles(["src/a.ts", "AGENTS.md"])).toEqual(["src", "docs"]);
+  });
+
+  it("should append root-fallback for a root-level file bundled with a scoped file (the package.json repro)", () => {
+    expect(detectScopesFromFiles(["scripts/foo.ts", "package.json"])).toEqual([
+      "scripts",
+      "root-fallback",
+    ]);
   });
 
   it("should detect docs scope from a root-level .md file", () => {
@@ -193,7 +210,7 @@ describe(detectScopesFromFiles, () => {
     ]);
   });
 
-  it("should NOT fall back to root-fallback when backend is the only scope matched (single-scope mutual-exclusivity)", () => {
+  it("should NOT append root-fallback when backend claims every file (no orphan remains)", () => {
     expect(detectScopesFromFiles(["backend/handler.go"])).toEqual(["backend"]);
   });
 
@@ -216,7 +233,7 @@ describe(computeUnmatchedFiles, () => {
     expect(computeUnmatchedFiles(files)).toEqual(files);
   });
 
-  it("returns only orphans in a mixed diff (specific match suppresses fallback but orphans still surface)", () => {
+  it("returns only orphans in a mixed diff (claimed files excluded, orphans surface)", () => {
     expect(computeUnmatchedFiles(["src/a.ts", "apps/web/src/b.ts"])).toEqual([
       "apps/web/src/b.ts",
     ]);
@@ -258,7 +275,13 @@ describe(computeAllPassedAndReason, () => {
     });
   });
 
-  it("flags reason='unmatched-files' + allPassed=false on a mixed diff with orphans", () => {
+  it("still flags reason='unmatched-files' for a genuinely-unmatched file (root-fallback absent from scopes)", () => {
+    // Function-contract safety net: when a caller hands computeAllPassedAndReason
+    // a scope list WITHOUT root-fallback plus a non-empty orphan set, the guard
+    // still fires. After this PR, detectScopesFromFiles always appends
+    // root-fallback when orphans remain, so this exact (scopes, orphans) pair is
+    // no longer produced on the integration path — but the guard is retained and
+    // tested so the reason code cannot be silently nuked.
     const passing = createResult({ passed: true });
     expect(
       computeAllPassedAndReason(
@@ -1691,22 +1714,29 @@ describe("Story 5: zero-config mixed diff covers apps/web AND backend", () => {
   });
 });
 
-describe("Story 6: a genuinely-uncovered orphan still fails loudly", () => {
+describe("Story 6: an orphan bundled with a matched scope is covered by root-fallback", () => {
   const readPkg = ownerSeam({ "apps/web/package.json": { scripts: { test: "vitest" } } });
 
-  it("claims apps/web but surfaces vendor/legacy/z.js as unmatched with reason unmatched-files", () => {
+  it("claims apps/web AND appends root-fallback for vendor/legacy/z.js (no unmatched-files)", () => {
+    // Pre-additive (#192) this asserted reason='unmatched-files' + allPassed=false.
+    // That encoded the bundled-orphan bug: vendor/legacy/z.js passes when committed
+    // alone (→ root-fallback) but failed when bundled with the matched apps/web
+    // scope — structurally identical to the package.json repro this PR fixes. Under
+    // the additive model the orphan is claimed by root-fallback's repo-wide checks
+    // whether bundled or alone, so unmatched-files no longer fires.
     const files = ["apps/web/src/a.ts", "vendor/legacy/z.js"];
     const dyn = detectWorkspaceScopes(computeUnmatchedFiles(files), readPkg);
     const orphans = computeUnmatchedAfterDynamic(files, dyn);
     expect(orphans).toEqual(["vendor/legacy/z.js"]);
+    expect(detectScopesFromFiles(files, dyn)).toEqual(["apps/web", "root-fallback"]);
     const { allPassed, reason } = computeAllPassedAndReason(
       [createResult({ scope: "apps/web", passed: true })],
       files,
       detectScopesFromFiles(files, dyn),
       orphans,
     );
-    expect(allPassed).toBe(false);
-    expect(reason).toBe("unmatched-files");
+    expect(allPassed).toBe(true);
+    expect(reason).toBeUndefined();
   });
 
   it("a bare apps/web/src/x.ts with NO package.json owner stays an orphan (no auto-detect)", () => {
@@ -1716,6 +1746,24 @@ describe("Story 6: a genuinely-uncovered orphan still fails loudly", () => {
     expect(dyn).toEqual([]);
     // No dynamic scope, no built-in match → root-fallback (unchanged behavior).
     expect(detectScopesFromFiles(files, dyn)).toEqual(["root-fallback"]);
+  });
+
+  it("claims apps/web dynamically AND appends root-fallback for a bundled root package.json", () => {
+    // Dynamic scope claims its file; the root file lands in root-fallback. Both
+    // fire; no unmatched-files (Story 5 of the plan: dynamic + root coexist).
+    const files = ["apps/web/src/a.ts", "package.json"];
+    const dyn = detectWorkspaceScopes(computeUnmatchedFiles(files), readPkg);
+    const orphans = computeUnmatchedAfterDynamic(files, dyn);
+    expect(orphans).toEqual(["package.json"]);
+    expect(detectScopesFromFiles(files, dyn)).toEqual(["apps/web", "root-fallback"]);
+    const { allPassed, reason } = computeAllPassedAndReason(
+      [createResult({ scope: "apps/web", passed: true })],
+      files,
+      detectScopesFromFiles(files, dyn),
+      orphans,
+    );
+    expect(allPassed).toBe(true);
+    expect(reason).toBeUndefined();
   });
 });
 
@@ -1804,7 +1852,7 @@ describe("Story 4 regression: dynamic scopes never disturb pure built-in detecti
     expect(detectScopesFromFiles(["apps/web/src/index.ts"])).toEqual(["root-fallback"]);
   });
 
-  it("a dynamic scope claiming files suppresses root-fallback (mutual exclusion extends)", () => {
+  it("a dynamic scope claiming every file leaves no orphan, so root-fallback is not appended", () => {
     const dyn: DynamicScope[] = [
       { name: "apps/web", prefixes: ["apps/web/"], checks: [{ name: "x", argv: ["x"] }] },
     ];
