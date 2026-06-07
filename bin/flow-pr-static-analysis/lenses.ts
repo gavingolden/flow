@@ -55,8 +55,11 @@ export const runSecurityLens: LensRun = async (args, deps) => {
 };
 
 // Types-lens deps: the shared LensRun deps plus an OPTIONAL list of the
-// PR-touched repo-relative paths. Only the types lens reads it (to fan out per
-// owning workspace package); the other four lenses keep the base LensRun deps.
+// PR-touched repo-relative paths. Only the types lens reads it (to fan
+// framework detection out per owning workspace package); the field lives ONLY
+// on this local intersection — deliberately not on the shared `Deps` type or
+// the LensRun Pick — so the containment is expressed in exactly one place and
+// the other four lens runners aren't forced to surface a field they ignore.
 type TypesLensDeps = Parameters<LensRun>[1] & { changedPaths?: string[] };
 
 // The single-cwd detect + svelte-check/tsc decision, parameterised on `dir`
@@ -182,39 +185,54 @@ export const runTypesLens: LensRun = async (args, deps) => {
     return runTypesForDir(repoRoot, args, deps);
   }
 
+  // Each per-package run spawns an independent tsc/svelte-check subprocess with
+  // no shared state, and the types lens already sits on the critical path (the
+  // top-level Promise.all of the five lenses). Running the per-dir runs
+  // SEQUENTIALLY compounded the per-call timeout budget (N packages -> up to
+  // N x timeout worst-case), so fan them out concurrently. The optional
+  // repo-root run is folded into the same batch. We collect results into a
+  // fixed-length array indexed by iteration order (root last) and read them
+  // back in that order, so Promise.all race-ordering never reorders findings —
+  // the existing Story 3/5 finding-order assertions stay deterministic.
+  const dirs: Array<{ prefix: string | null; dir: string }> = ownedPrefixes.map(
+    (prefix) => ({ prefix, dir: path.join(repoRoot, prefix) }),
+  );
+  if (hasUnowned) {
+    // Repo-root run for touched files with no workspace owner; null prefix
+    // marks it so the prefix-prepend below skips it (root findings are already
+    // repo-relative). Skipped entirely when every touched file is owned.
+    dirs.push({ prefix: null, dir: repoRoot });
+  }
+  const results = await Promise.all(
+    dirs.map(({ dir }) => runTypesForDir(dir, args, deps)),
+  );
+
   const allFindings: Finding[] = [];
   const metas: LensMeta[] = [];
-
-  for (const prefix of ownedPrefixes) {
-    const { findings, meta } = await runTypesForDir(
-      path.join(repoRoot, prefix),
-      args,
-      deps,
-    );
+  for (let i = 0; i < dirs.length; i++) {
+    const { prefix } = dirs[i];
+    const { findings, meta } = results[i];
     // tsc/svelte-check spawned in the package cwd emit PACKAGE-relative paths;
     // relativise() is a no-op on already-relative paths, so prepend the package
     // prefix to keep Finding.file repo-relative (apps/web/src/App.svelte) and
-    // survive applyDiffScope (keyed on repo-relative changedLines). Never do
-    // this on the repo-root path below — those findings are already repo-relative.
-    for (const f of findings) {
-      allFindings.push({ ...f, file: `${prefix}${f.file}` });
+    // survive applyDiffScope (keyed on repo-relative changedLines). The repo-root
+    // entry (prefix === null) is skipped — those findings are already repo-relative.
+    if (prefix === null) {
+      allFindings.push(...findings);
+    } else {
+      for (const f of findings) {
+        allFindings.push({ ...f, file: `${prefix}${f.file}` });
+      }
     }
     metas.push(meta);
   }
 
-  // Only run the repo root for touched files with no workspace owner; skip the
-  // redundant root run when every touched file is workspace-owned.
-  if (hasUnowned) {
-    const { findings, meta } = await runTypesForDir(repoRoot, args, deps);
-    allFindings.push(...findings);
-    metas.push(meta);
-  }
-
-  // Fold N per-dir metas into one: ran if ANY ran; duration is the sum; the
+  // Fold N per-dir metas into one: ran if ANY ran; duration is the MAX (the
+  // runs overlap under Promise.all, so summing would overstate wall-clock); the
   // first real skip reason stays visible so a failing package isn't masked by a
   // passing sibling (Story 6).
   const ran = metas.some((m) => m.ran);
-  const duration_ms = metas.reduce((sum, m) => sum + m.duration_ms, 0);
+  const duration_ms = metas.reduce((max, m) => Math.max(max, m.duration_ms), 0);
   const firstSkip = metas.find((m) => !m.ran && m.skipped_reason)?.skipped_reason;
   const meta: LensMeta = { ran, duration_ms };
   if (firstSkip) meta.skipped_reason = firstSkip;

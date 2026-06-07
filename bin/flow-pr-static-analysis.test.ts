@@ -1943,9 +1943,18 @@ describe(run, () => {
     expect(result.meta.types.ran).toBe(true);
     const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
     const tscCall = calls.find((c) => c[0] === "/usr/bin/tsc");
-    // Repo-root run only; the package dir was never spawned against.
+    // Repo-root run only; the package dir was never spawned against. The
+    // fan-out spawns with cwd = path.join(repoRoot, prefix) where prefix ends
+    // in "/", so a real apps/web run would surface "/cwd/apps/web/" — match the
+    // package dir with or without the trailing slash so this guard can actually
+    // fail if the unowned-package fallback regressed.
     expect(tscCall![2]?.cwd).toBe("/cwd");
-    expect(calls.some((c) => c[2]?.cwd === "/cwd/apps/web")).toBe(false);
+    expect(
+      calls.some((c) => {
+        const cwd = c[2]?.cwd;
+        return cwd === "/cwd/apps/web" || cwd === "/cwd/apps/web/";
+      }),
+    ).toBe(false);
     // Root-path findings are already repo-relative; the prefix-prepend must NOT
     // fire here (would yield apps/web/apps/web/src/x.ts).
     expect(result.types).toHaveLength(1);
@@ -1990,6 +1999,60 @@ describe(run, () => {
     const calls = spawn.mock.calls as Array<[string, string[]]>;
     expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(false);
     expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+  });
+
+  it("Story 7: a passing package and a skipping sibling fold to ran=true with the sibling's skip reason surfaced", async () => {
+    // apps/web runs tsc clean (ran=true); packages/core is a real workspace
+    // package but neither a local nor PATH tsc resolves -> tsc-not-found skip.
+    // The fold must NOT mask the sibling skip behind the passing run: meta.ran
+    // is true AND the skipped_reason survives. A regression dropping firstSkip
+    // whenever any sibling ran would make this spec fail. apps/web gets a LOCAL
+    // tsc; packages/core has neither a local tsc nor (PATH which=null) a
+    // resolvable one, so only apps/web spawns.
+    const fileExists = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("apps/web/tsconfig.json")) return true;
+      if (p.endsWith("apps/web/node_modules/.bin/tsc")) return true;
+      if (p.endsWith("packages/core/tsconfig.json")) return true;
+      if (p.endsWith("packages/core/node_modules/.bin/tsc")) return false;
+      return false;
+    });
+    const readFile = vi.fn().mockImplementation((p: string) => {
+      if (p.endsWith("apps/web/package.json")) {
+        return JSON.stringify({ devDependencies: { typescript: "^5.0.0" } });
+      }
+      if (p.endsWith("packages/core/package.json")) {
+        return JSON.stringify({ devDependencies: { typescript: "^5.0.0" } });
+      }
+      return null;
+    });
+    // apps/web's local tsc runs clean (exit 0, no findings); packages/core never
+    // spawns (no tsc resolvable) so it skips with tsc-not-found.
+    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    const { deps, outs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          { path: "apps/web/src/a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          { path: "packages/core/src/b.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+y"] }] },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+      which: vi.fn().mockReturnValue(null), // no PATH tsc
+      spawn,
+      fileExists,
+      readFile,
+    });
+    await run(["7"], deps);
+    const result = JSON.parse(outs.join(""));
+    // Passing sibling (apps/web) -> ran=true; skipping sibling -> reason surfaced.
+    expect(result.meta.types.ran).toBe(true);
+    expect(result.meta.types.skipped_reason).toBe("tsc-not-found");
+    // Only apps/web's local tsc spawned; packages/core never did.
+    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    const tscCalls = calls.filter((c) => c[0].endsWith("/tsc") || c[0] === "tsc");
+    expect(tscCalls).toHaveLength(1);
+    expect(tscCalls[0][2]?.cwd).toBe("/cwd/apps/web/");
   });
 });
 
