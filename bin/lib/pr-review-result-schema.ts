@@ -148,8 +148,11 @@ async function cliMain(argv: string[]): Promise<number> {
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
     process.stderr.write(
-      JSON.stringify({ ok: false, reason: `JSON parse failed: ${reason}`, path }) +
-        "\n",
+      JSON.stringify({
+        ok: false,
+        reason: `JSON parse failed: ${reason}`,
+        path,
+      }) + "\n",
     );
     return 1;
   }

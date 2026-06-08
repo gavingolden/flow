@@ -58,7 +58,9 @@ export function matchesCopilot(login: string, configuredBase: string): boolean {
   const strippedLogin = copilotAuthorMatch(login);
   const strippedBase = copilotAuthorMatch(configuredBase);
   if (strippedLogin === strippedBase) return true;
-  return COPILOT_ALIASES.has(strippedBase) && COPILOT_ALIASES.has(strippedLogin);
+  return (
+    COPILOT_ALIASES.has(strippedBase) && COPILOT_ALIASES.has(strippedLogin)
+  );
 }
 
 /** Surfaces that always warrant a review on their own (security/migration/CI/infra). */
@@ -96,13 +98,19 @@ const defaultReadConfigFile: ReadConfigFile = () => {
   }
 };
 
-function extractBotsCopilot(raw: unknown): string | Record<string, unknown> | undefined {
+function extractBotsCopilot(
+  raw: unknown,
+): string | Record<string, unknown> | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
   const bots = (raw as Record<string, unknown>).bots;
   if (typeof bots !== "object" || bots === null) return undefined;
   const copilot = (bots as Record<string, unknown>).copilot;
   if (typeof copilot === "string") return copilot;
-  if (typeof copilot === "object" && copilot !== null && !Array.isArray(copilot)) {
+  if (
+    typeof copilot === "object" &&
+    copilot !== null &&
+    !Array.isArray(copilot)
+  ) {
     return copilot as Record<string, unknown>;
   }
   return undefined;
@@ -149,7 +157,10 @@ function stringArray(x: unknown): string[] | undefined {
  * per-repo override ADDS to (does not replace) the defaults. Order:
  * defaults first, then configured extras not already present.
  */
-function mergeGlobs(defaults: string[], configured: string[] | undefined): string[] {
+function mergeGlobs(
+  defaults: string[],
+  configured: string[] | undefined,
+): string[] {
   if (!configured || configured.length === 0) return [...defaults];
   const out = [...defaults];
   for (const g of configured) if (!out.includes(g)) out.push(g);
@@ -167,7 +178,9 @@ export function readCopilotClaimDeadlineSec(
  * decline (no Copilot request) and collapses the bot wait. A top-level boolean
  * sibling of `bots.copilotClaimDeadlineSec`; true only when strictly boolean
  * true — false/absent/malformed all read false. */
-export function readCopilotSkipWait(read: ReadConfigFile = defaultReadConfigFile): boolean {
+export function readCopilotSkipWait(
+  read: ReadConfigFile = defaultReadConfigFile,
+): boolean {
   return extractBotsCopilotSkipWait(read());
 }
 
@@ -181,12 +194,16 @@ export function readCopilotAutoReview(
 }
 
 /** Login-only accessor — the shape `flow-ci-wait`'s `readCopilotLogin` seam wants. */
-export function readCopilotLogin(read: ReadConfigFile = defaultReadConfigFile): string {
+export function readCopilotLogin(
+  read: ReadConfigFile = defaultReadConfigFile,
+): string {
   return readCopilotConfig(read).login;
 }
 
 /** Full reader: login + glob sets (configured arrays merged over the defaults). */
-export function readCopilotConfig(read: ReadConfigFile = defaultReadConfigFile): CopilotConfig {
+export function readCopilotConfig(
+  read: ReadConfigFile = defaultReadConfigFile,
+): CopilotConfig {
   const defaults: CopilotConfig = {
     login: DEFAULT_COPILOT_LOGIN,
     globs: {
@@ -199,7 +216,8 @@ export function readCopilotConfig(read: ReadConfigFile = defaultReadConfigFile):
   if (typeof copilot === "string") {
     return { login: copilot, globs: defaults.globs };
   }
-  const login = typeof copilot.login === "string" ? copilot.login : DEFAULT_COPILOT_LOGIN;
+  const login =
+    typeof copilot.login === "string" ? copilot.login : DEFAULT_COPILOT_LOGIN;
   const globsObj =
     typeof copilot.globs === "object" && copilot.globs !== null
       ? (copilot.globs as Record<string, unknown>)
@@ -207,8 +225,14 @@ export function readCopilotConfig(read: ReadConfigFile = defaultReadConfigFile):
   return {
     login,
     globs: {
-      alwaysReview: mergeGlobs(DEFAULT_ALWAYS_REVIEW_GLOBS, stringArray(globsObj.alwaysReview)),
-      neverAlone: mergeGlobs(DEFAULT_NEVER_ALONE_GLOBS, stringArray(globsObj.neverAlone)),
+      alwaysReview: mergeGlobs(
+        DEFAULT_ALWAYS_REVIEW_GLOBS,
+        stringArray(globsObj.alwaysReview),
+      ),
+      neverAlone: mergeGlobs(
+        DEFAULT_NEVER_ALONE_GLOBS,
+        stringArray(globsObj.neverAlone),
+      ),
     },
   };
 }

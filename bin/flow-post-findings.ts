@@ -89,7 +89,11 @@ export function parseFindings(input: string): Finding[] {
     if (typeof filePath !== "string" || filePath.length === 0) {
       throw new Error(`Entry ${i}: "file" must be a non-empty string`);
     }
-    if (typeof obj.line !== "number" || !Number.isInteger(obj.line) || obj.line <= 0) {
+    if (
+      typeof obj.line !== "number" ||
+      !Number.isInteger(obj.line) ||
+      obj.line <= 0
+    ) {
       throw new Error(`Entry ${i}: "line" must be a positive integer`);
     }
     if (typeof obj.body !== "string" || obj.body.length === 0) {
@@ -97,7 +101,11 @@ export function parseFindings(input: string): Finding[] {
     }
     const f: Finding = { file: filePath, line: obj.line, body: obj.body };
     if (obj.end_line !== undefined) {
-      if (typeof obj.end_line !== "number" || !Number.isInteger(obj.end_line) || obj.end_line <= 0) {
+      if (
+        typeof obj.end_line !== "number" ||
+        !Number.isInteger(obj.end_line) ||
+        obj.end_line <= 0
+      ) {
         throw new Error(`Entry ${i}: "end_line" must be a positive integer`);
       }
       if (obj.end_line < obj.line) {
@@ -118,7 +126,15 @@ export function parseFindings(input: string): Finding[] {
 }
 
 export function fetchHeadSha(prNumber: number, gh: GhRunner): string {
-  const r = gh(["pr", "view", String(prNumber), "--json", "headRefOid", "-q", ".headRefOid"]);
+  const r = gh([
+    "pr",
+    "view",
+    String(prNumber),
+    "--json",
+    "headRefOid",
+    "-q",
+    ".headRefOid",
+  ]);
   if (r.exitCode !== 0) {
     throw new Error(r.stderr.trim() || `gh pr view failed (${r.exitCode})`);
   }
@@ -138,7 +154,11 @@ export function fetchHeadSha(prNumber: number, gh: GhRunner): string {
  * the range), so when `f.end_line` is present we emit `line=end_line`
  * and `start_line=line`.
  */
-export function buildPostArgv(prNumber: number, headSha: string, f: Finding): string[] {
+export function buildPostArgv(
+  prNumber: number,
+  headSha: string,
+  f: Finding,
+): string[] {
   const side = f.side ?? "RIGHT";
   const lineEnd = f.end_line ?? f.line;
   const argv = [
@@ -160,7 +180,12 @@ export function buildPostArgv(prNumber: number, headSha: string, f: Finding): st
   return argv;
 }
 
-function postOne(prNumber: number, headSha: string, f: Finding, gh: GhRunner): PostResult {
+function postOne(
+  prNumber: number,
+  headSha: string,
+  f: Finding,
+  gh: GhRunner,
+): PostResult {
   const argv = buildPostArgv(prNumber, headSha, f);
   const r = gh(argv);
   if (r.exitCode === 0) {
@@ -180,7 +205,9 @@ export function postAll(
   findings: Finding[],
   gh: GhRunner,
 ): PostSummary {
-  const results: PostResult[] = findings.map((f) => postOne(prNumber, headSha, f, gh));
+  const results: PostResult[] = findings.map((f) =>
+    postOne(prNumber, headSha, f, gh),
+  );
   const succeeded = results.filter((r) => r.success).length;
   return {
     total: results.length,
@@ -192,7 +219,9 @@ export function postAll(
 
 export function formatSummary(summary: PostSummary): string {
   const lines: string[] = [];
-  lines.push(`Findings: ${summary.succeeded}/${summary.total} posted successfully`);
+  lines.push(
+    `Findings: ${summary.succeeded}/${summary.total} posted successfully`,
+  );
   lines.push("");
   for (const r of summary.results) {
     const where = `${r.file}:${r.line}`;
@@ -249,7 +278,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
     const a = argv[i];
     if (a === "--file") {
       const v = argv[i + 1];
-      if (!v || v.startsWith("--")) return { kind: "error", message: "--file requires a value" };
+      if (!v || v.startsWith("--"))
+        return { kind: "error", message: "--file requires a value" };
       file = v;
       i++;
       continue;
@@ -262,8 +292,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
       i++;
       continue;
     }
-    if (a.startsWith("--")) return { kind: "error", message: `unknown flag: ${a}` };
-    if (prArg) return { kind: "error", message: `unexpected positional argument: ${a}` };
+    if (a.startsWith("--"))
+      return { kind: "error", message: `unknown flag: ${a}` };
+    if (prArg)
+      return { kind: "error", message: `unexpected positional argument: ${a}` };
     prArg = a;
   }
   if (!prArg) return { kind: "error", message: "PR number or URL is required" };
@@ -300,7 +332,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   } else {
     input = await readStdin();
     if (!input.trim()) {
-      console.error("flow-post-findings: no input on stdin (pipe JSON or use --file)");
+      console.error(
+        "flow-post-findings: no input on stdin (pipe JSON or use --file)",
+      );
       return 2;
     }
   }
@@ -326,7 +360,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     return 1;
   }
 
-  console.log(`Posting ${findings.length} findings to PR #${prNumber} @ ${headSha.slice(0, 7)}...`);
+  console.log(
+    `Posting ${findings.length} findings to PR #${prNumber} @ ${headSha.slice(0, 7)}...`,
+  );
   const summary = postAll(prNumber, headSha, findings, gh);
   console.log(formatSummary(summary));
   return summary.failed > 0 ? 1 : 0;

@@ -49,11 +49,15 @@ describe(slugifyHeading, () => {
   });
 
   it("preserves underscores (GitHub keeps them)", () => {
-    expect(slugifyHeading("`state_unsafe_mutation` Error")).toBe("state_unsafe_mutation-error");
+    expect(slugifyHeading("`state_unsafe_mutation` Error")).toBe(
+      "state_unsafe_mutation-error",
+    );
   });
 
   it("does not collapse repeated hyphens (GitHub does not)", () => {
-    expect(slugifyHeading("Svelte 4 -> 5 Migration")).toBe("svelte-4---5-migration");
+    expect(slugifyHeading("Svelte 4 -> 5 Migration")).toBe(
+      "svelte-4---5-migration",
+    );
   });
 
   it("drops emoji and stand-alone punctuation, keeping surrounding hyphens", () => {
@@ -120,7 +124,9 @@ describe(extractHeadings, () => {
   });
 
   it("handles trailing closing hashes", () => {
-    expect(extractHeadings("## Title ##\n")).toEqual([{ line: 1, slug: "title" }]);
+    expect(extractHeadings("## Title ##\n")).toEqual([
+      { line: 1, slug: "title" },
+    ]);
   });
 });
 
@@ -164,7 +170,9 @@ describe(extractLinks, () => {
 
 describe(parseFrontmatter, () => {
   it("returns the inner block for a well-formed frontmatter", () => {
-    const fm = parseFrontmatter("---\nname: foo\ndescription: bar\n---\n\n# body\n");
+    const fm = parseFrontmatter(
+      "---\nname: foo\ndescription: bar\n---\n\n# body\n",
+    );
     expect(fm).toContain("name: foo");
     expect(fm).toContain("description: bar");
   });
@@ -201,7 +209,9 @@ describe(walkMarkdownFiles, () => {
     write(".git/skip.md", "# skip");
     write(".flow-tmp/plan.md", "# plan");
     write("README.md", "# readme");
-    const found = walkMarkdownFiles(tmp).map((p) => path.relative(tmp, p)).sort();
+    const found = walkMarkdownFiles(tmp)
+      .map((p) => path.relative(tmp, p))
+      .sort();
     expect(found).toEqual(["README.md", "docs/sub/y.md", "docs/x.md"]);
   });
 });
@@ -247,7 +257,10 @@ describe(validateFile, () => {
   });
 
   it("ignores external links", () => {
-    const a = write("a.md", "[home](https://example.com)\n[mail](mailto:x@y.z)\n");
+    const a = write(
+      "a.md",
+      "[home](https://example.com)\n[mail](mailto:x@y.z)\n",
+    );
     expect(validateFile(a)).toEqual([]);
   });
 
@@ -266,16 +279,23 @@ describe(validateFile, () => {
 
   it("detects SKILL.md missing frontmatter", () => {
     const a = write("skills/x/SKILL.md", "# X\n\nbody\n");
-    expect(validateFile(a)).toMatchObject([{ line: 1, kind: "missing-frontmatter" }]);
+    expect(validateFile(a)).toMatchObject([
+      { line: 1, kind: "missing-frontmatter" },
+    ]);
   });
 
   it("detects SKILL.md missing name field", () => {
     const a = write("skills/x/SKILL.md", "---\ndescription: foo\n---\n\n# X\n");
-    expect(validateFile(a)).toMatchObject([{ line: 1, kind: "missing-frontmatter-name" }]);
+    expect(validateFile(a)).toMatchObject([
+      { line: 1, kind: "missing-frontmatter-name" },
+    ]);
   });
 
   it("accepts SKILL.md with name", () => {
-    const a = write("skills/x/SKILL.md", "---\nname: x\ndescription: foo\n---\n\n# X\n");
+    const a = write(
+      "skills/x/SKILL.md",
+      "---\nname: x\ndescription: foo\n---\n\n# X\n",
+    );
     expect(validateFile(a)).toEqual([]);
   });
 
@@ -307,7 +327,9 @@ describe(runValidation, () => {
     write("z.md", "[bad](./missing-z.md)\n");
     write("a.md", "[bad1](./missing.md)\n[bad2](./missing.md)\n");
     const report = runValidation(tmp);
-    const order = report.violations.map((v) => `${path.basename(v.file)}:${v.line}`);
+    const order = report.violations.map(
+      (v) => `${path.basename(v.file)}:${v.line}`,
+    );
     expect(order).toEqual(["a.md:1", "a.md:2", "z.md:1"]);
   });
 });

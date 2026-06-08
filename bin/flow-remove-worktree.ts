@@ -19,7 +19,10 @@ import * as fs from "fs";
 import * as path from "path";
 import { resolveSlugFromPane } from "./lib/tmux";
 import { detectDefaultBranch, SYMLINK_FILES } from "./lib/worktree-fs";
-import { BRANCH_MARKER_FILENAME, FLOW_TMP_DIRNAME } from "./lib/worktree-marker";
+import {
+  BRANCH_MARKER_FILENAME,
+  FLOW_TMP_DIRNAME,
+} from "./lib/worktree-marker";
 
 // --- Logging ---
 
@@ -42,7 +45,9 @@ function git(args: string[], cwd?: string): string {
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString().trim();
-    throw new Error(stderr || `git ${args[0]} failed with exit code ${result.exitCode}`);
+    throw new Error(
+      stderr || `git ${args[0]} failed with exit code ${result.exitCode}`,
+    );
   }
 
   return result.stdout.toString().trim();
@@ -55,7 +60,11 @@ function git(args: string[], cwd?: string): string {
  * the caller's auto-delete path requires positive evidence, so silence is treated
  * as "not merged" (safe default).
  */
-function isBranchMerged(branchName: string, baseBranch: string, primaryDir: string): boolean {
+function isBranchMerged(
+  branchName: string,
+  baseBranch: string,
+  primaryDir: string,
+): boolean {
   const remoteRef = `refs/remotes/origin/${baseBranch}`;
   try {
     const out = git(["branch", "--merged", remoteRef], primaryDir);
@@ -235,9 +244,7 @@ function main(): void {
   // `@flow-slug` option. Don't print help here — fall through to resolveInput().
   const input = resolveInput(positional[0], () => resolveSlugFromPane());
   if (!input) {
-    log.error(
-      "Missing required argument: worktree path or branch name.",
-    );
+    log.error("Missing required argument: worktree path or branch name.");
     log.info(
       "  No slug given and could not resolve from $TMUX_PANE's @flow-slug option.",
     );
@@ -260,7 +267,11 @@ function main(): void {
     const primaryFile = path.join(info.primaryDir, relPath);
     if (fs.existsSync(worktreeFile)) {
       const stat = fs.lstatSync(worktreeFile);
-      if (!stat.isSymbolicLink() && stat.isFile() && fs.existsSync(primaryFile)) {
+      if (
+        !stat.isSymbolicLink() &&
+        stat.isFile() &&
+        fs.existsSync(primaryFile)
+      ) {
         const primaryStat = fs.lstatSync(primaryFile);
         if (!primaryStat.isFile()) continue;
         // Compare contents — warn if they differ
@@ -283,7 +294,10 @@ function main(): void {
   // fallback for older worktrees whose common dir wasn't yet registered. Scope
   // is strictly these two paths — do not pass `--force` to `git worktree remove`
   // and do not sweep arbitrary untracked files.
-  const flowTmpDir = path.join(info.worktreeDir, FLOW_TMP_DIRNAME.replace(/\/$/, ""));
+  const flowTmpDir = path.join(
+    info.worktreeDir,
+    FLOW_TMP_DIRNAME.replace(/\/$/, ""),
+  );
   if (fs.existsSync(flowTmpDir)) {
     log.info(`Cleaning scratch dir: ${flowTmpDir}`);
     fs.rmSync(flowTmpDir, { recursive: true, force: true });
@@ -335,11 +349,15 @@ function main(): void {
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         log.warn(`Could not delete branch: ${msg}`);
-        log.info(`You may need to force-delete with: git branch -D ${info.branchName}`);
+        log.info(
+          `You may need to force-delete with: git branch -D ${info.branchName}`,
+        );
       }
     }
   } else if (info.branchName) {
-    log.info(`Branch '${info.branchName}' was kept. Delete it manually when ready:`);
+    log.info(
+      `Branch '${info.branchName}' was kept. Delete it manually when ready:`,
+    );
     log.info(`  git branch -d ${info.branchName}`);
   }
 

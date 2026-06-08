@@ -138,8 +138,10 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (typeof o.updatedAt !== "string") return false;
   if (o.pr !== undefined && typeof o.pr !== "number") return false;
   if (o.worktree !== undefined && typeof o.worktree !== "string") return false;
-  if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean") return false;
-  if (o.waitForCopilot !== undefined && typeof o.waitForCopilot !== "boolean") return false;
+  if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean")
+    return false;
+  if (o.waitForCopilot !== undefined && typeof o.waitForCopilot !== "boolean")
+    return false;
   if (
     o.copilotReview !== undefined &&
     o.copilotReview !== "auto" &&
@@ -147,12 +149,17 @@ function isPipelineState(x: unknown): x is PipelineState {
     o.copilotReview !== "never"
   )
     return false;
-  if (o.sessionId !== undefined && typeof o.sessionId !== "string") return false;
-  if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride)) return false;
+  if (o.sessionId !== undefined && typeof o.sessionId !== "string")
+    return false;
+  if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride))
+    return false;
   return true;
 }
 
-export function readState(slug: string, dir = FLOW_STATE_DIR): PipelineState | null {
+export function readState(
+  slug: string,
+  dir = FLOW_STATE_DIR,
+): PipelineState | null {
   const file = statePath(slug, dir);
   try {
     const raw = fs.readFileSync(file, "utf8");
@@ -165,7 +172,10 @@ export function readState(slug: string, dir = FLOW_STATE_DIR): PipelineState | n
 
 export function writeState(state: PipelineState, dir = FLOW_STATE_DIR): void {
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(statePath(state.slug, dir), JSON.stringify(state, null, 2) + "\n");
+  fs.writeFileSync(
+    statePath(state.slug, dir),
+    JSON.stringify(state, null, 2) + "\n",
+  );
 }
 
 export function deleteState(slug: string, dir = FLOW_STATE_DIR): boolean {

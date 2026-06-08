@@ -193,15 +193,15 @@ describe("matchesBranchFilter", () => {
   });
 
   it("['feat/*', '!feat/wip-*'] matches 'feat/foo'", () => {
-    expect(
-      matchesBranchFilter("feat/foo", ["feat/*", "!feat/wip-*"]),
-    ).toBe(true);
+    expect(matchesBranchFilter("feat/foo", ["feat/*", "!feat/wip-*"])).toBe(
+      true,
+    );
   });
 
   it("['feat/*', '!feat/wip-*'] does not match 'feat/wip-x'", () => {
-    expect(
-      matchesBranchFilter("feat/wip-x", ["feat/*", "!feat/wip-*"]),
-    ).toBe(false);
+    expect(matchesBranchFilter("feat/wip-x", ["feat/*", "!feat/wip-*"])).toBe(
+      false,
+    );
   });
 });
 
@@ -325,12 +325,8 @@ describe("main() integration via mocked fetch", () => {
     originalAcct = process.env.CLOUDFLARE_ACCOUNT_ID;
     process.env.CLOUDFLARE_API_TOKEN = "test-token";
     process.env.CLOUDFLARE_ACCOUNT_ID = "test-acct";
-    stdout = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(() => true);
-    stderr = vi
-      .spyOn(process.stderr, "write")
-      .mockImplementation(() => true);
+    stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   });
 
   afterEach(() => {
@@ -416,12 +412,7 @@ describe("main() integration via mocked fetch", () => {
       },
     ];
     mockFetch(deployments);
-    const code = await main([
-      "--project",
-      PROJECT,
-      "--older-than",
-      "30d",
-    ]);
+    const code = await main(["--project", PROJECT, "--older-than", "30d"]);
     expect(code).toBe(0);
     const out = stdoutText();
     expect(out).toContain("old-1");
@@ -538,14 +529,7 @@ describe("main() integration via mocked fetch", () => {
       aliases: null,
     }));
     mockFetch(deployments);
-    await main([
-      "--project",
-      PROJECT,
-      "--older-than",
-      "30d",
-      "--max",
-      "10",
-    ]);
+    await main(["--project", PROJECT, "--older-than", "30d", "--max", "10"]);
     const out = stdoutText();
     expect(out).toContain("Found 10 deployments to delete");
   });
@@ -562,8 +546,7 @@ describe("main() integration via mocked fetch", () => {
     const fetchSpy = mockFetch(deployments);
     await main(["--project", PROJECT, "--older-than", "30d"]);
     const deleteCalls = fetchSpy.mock.calls.filter(
-      (c) =>
-        (c[1] as RequestInit | undefined)?.method === "DELETE",
+      (c) => (c[1] as RequestInit | undefined)?.method === "DELETE",
     );
     expect(deleteCalls.length).toBe(0);
     expect(stdoutText()).toContain("Dry run");
@@ -571,12 +554,7 @@ describe("main() integration via mocked fetch", () => {
 
   it("errors with exit code 2 when CLOUDFLARE_API_TOKEN is missing", async () => {
     delete process.env.CLOUDFLARE_API_TOKEN;
-    const code = await main([
-      "--project",
-      PROJECT,
-      "--older-than",
-      "30d",
-    ]);
+    const code = await main(["--project", PROJECT, "--older-than", "30d"]);
     expect(code).toBe(2);
     expect(stderrText()).toContain("CLOUDFLARE_API_TOKEN");
   });
@@ -662,12 +640,7 @@ describe("main() integration via mocked fetch", () => {
         { status: 401, statusText: "Unauthorized" },
       );
     });
-    const code = await main([
-      "--project",
-      PROJECT,
-      "--older-than",
-      "30d",
-    ]);
+    const code = await main(["--project", PROJECT, "--older-than", "30d"]);
     expect(code).toBe(1);
     const err = stderrText();
     expect(err).toContain("401");

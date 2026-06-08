@@ -250,7 +250,6 @@ exclusively on: **could an attacker exploit this code?**
    shape the lens guards against with
    `skipped_reason: "npm-audit-no-vulnerabilities-key"`), interpret the error
    code rather than treating the missing key as "clean":
-
    - **`ENOLOCK`** (no `package-lock.json` on disk) — surface a `question`
      (non-blocking) noting the consumer lacks a lockfile, so CVE coverage is
      uncertain for this review. Confidence 80–85. The author may have
@@ -276,6 +275,7 @@ exclusively on: **could an attacker exploit this code?**
    If you can't run the audit locally either, surface a `question` flagging that
    the dependency lens didn't run and the consumer should confirm via their own
    audit recipe before merging dep changes.
+
 3. Read each changed file in full. Identify trust boundaries — where does user-controlled
    data enter the system? (HTTP request bodies, URL parameters, form fields, file uploads,
    external API responses)
@@ -365,8 +365,8 @@ Your concern is: **does this code fit naturally into the existing codebase?**
    - When the implementation reached the target, or when the gap IS acknowledged in
      the PR body / commit bodies (the author named it, proposed a follow-up, or
      explicitly relaxed the target with rationale), skip the finding.
-   When the spawn-prompt variable is `false` or missing, skip this step entirely —
-   existing reviewer behaviour is unchanged for PRs without the tension flag.
+     When the spawn-prompt variable is `false` or missing, skip this step entirely —
+     existing reviewer behaviour is unchanged for PRs without the tension flag.
 9. Output your findings as JSON.
 
 ### False Positive Avoidance
@@ -451,9 +451,9 @@ breaking semver bumps on existing dependencies, license drift, and removed top-l
 `package.json` fields that break documented install or invocation pathways.
 
 You are explicitly distinct from the **Security Agent**: Security owns OWASP top
-10, input validation, auth, secrets, and injection vectors in the *application
-code*; Supply-Chain owns the *dependency graph*, *license inventory*, and the
-*install pathway* surface (`bin`, `main`, `exports`, `engines`, `files`,
+10, input validation, auth, secrets, and injection vectors in the _application
+code_; Supply-Chain owns the _dependency graph_, _license inventory_, and the
+_install pathway_ surface (`bin`, `main`, `exports`, `engines`, `files`,
 `scripts.prepare`, `scripts.postinstall`, etc.).
 
 You are NOT looking for general bugs, performance issues, style/consistency drift,
@@ -482,7 +482,7 @@ user-facing flow?**
    instructs: list every top-level field removed; for each, identify what
    install/invocation pathway it enabled (`bin` → `npm i -g`, `main` → bare
    imports, `prepare` → fresh-clone build); `grep -rn 'npm link\|npm i -g\|npm
-   install -g\|node_modules/.bin'` across `README.md`, `docs/`, and onboarding
+install -g\|node_modules/.bin'` across `README.md`, `docs/`, and onboarding
    scripts; confirm any remaining references are explicitly historical text, not
    "do this to install".
 4. For new dependencies: check whether the package is well-maintained (last

@@ -17,7 +17,9 @@ describe(slugify, () => {
   });
 
   it("caps the token count and drops trailing hyphens", () => {
-    const long = slugify("a-very-long-feature-description-that-exceeds-forty-characters-easily");
+    const long = slugify(
+      "a-very-long-feature-description-that-exceeds-forty-characters-easily",
+    );
     expect(long.length).toBeLessThanOrEqual(40);
     expect(long.endsWith("-")).toBe(false);
   });
@@ -28,7 +30,9 @@ describe(slugify, () => {
 
   it("drops English stop-words", () => {
     expect(
-      slugify("Proceed with Item 7 in the roadmap if the prerequisites are complete"),
+      slugify(
+        "Proceed with Item 7 in the roadmap if the prerequisites are complete",
+      ),
     ).toBe("proceed-item-7-roadmap-prerequisites");
   });
 

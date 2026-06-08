@@ -23,9 +23,9 @@
      table for CLI / flag / output / file-location deltas. Write `none` for
      pure-internal changes (refactor, infra) — never omit the heading. -->
 
-| Before | After |
-|---|---|
-| `flow install` | `flow setup` |
+| Before              | After               |
+| ------------------- | ------------------- |
+| `flow install`      | `flow setup`        |
 | `flow add "<desc>"` | `flow new "<desc>"` |
 
 ## User Stories / Acceptance Criteria
@@ -46,19 +46,21 @@
 <!-- Name the existing pattern, or justify a new one. Load
      references/architecture-patterns.md to verify. -->
 
-| Aspect | Decision |
-|---|---|
-| Layers touched | [DB / proxy / domain / store / UI] |
-| Domain modules | [existing involved + any new] |
-| Data flow | [CRUD entity / external via proxy / computed] |
-| Pattern | [existing pattern name, or justification for new] |
+| Aspect         | Decision                                          |
+| -------------- | ------------------------------------------------- |
+| Layers touched | [DB / proxy / domain / store / UI]                |
+| Domain modules | [existing involved + any new]                     |
+| Data flow      | [CRUD entity / external via proxy / computed]     |
+| Pattern        | [existing pattern name, or justification for new] |
 
 <!-- Add a Mermaid `flowchart` when data movement spans 3+ layers or branches
      non-obviously. Otherwise the table is enough.
      ```mermaid
      flowchart LR
        UI -->|action| Store --> Proxy --> ExternalAPI
+
      ```
+
 -->
 
 ## Technical Constraints

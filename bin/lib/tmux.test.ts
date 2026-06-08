@@ -50,7 +50,9 @@ describe(buildNewWindowArgs, () => {
   // #{window_id}` suffix lets createWindow capture the new window's id so
   // it can immediately set the @flow-slug option on it.
   it("targets the session with a trailing colon and prints the new window id", () => {
-    expect(buildNewWindowArgs("flow", "my-win", "/tmp", ["echo", "hi"])).toEqual([
+    expect(
+      buildNewWindowArgs("flow", "my-win", "/tmp", ["echo", "hi"]),
+    ).toEqual([
       "new-window",
       "-t",
       "flow:",
@@ -70,7 +72,9 @@ describe(buildNewWindowArgs, () => {
 
 describe(buildNewSessionArgs, () => {
   it("creates a detached session and prints the new window id", () => {
-    expect(buildNewSessionArgs("flow", "first", "/tmp", ["echo", "hi"])).toEqual([
+    expect(
+      buildNewSessionArgs("flow", "first", "/tmp", ["echo", "hi"]),
+    ).toEqual([
       "new-session",
       "-d",
       "-s",
@@ -116,8 +120,18 @@ describe(parseWindowList, () => {
       "@2\tprototype\tcsv-export-v2\t1700001234",
     ].join("\n");
     expect(parseWindowList(stdout)).toEqual([
-      { id: "@1", name: "csv-export", slug: "csv-export", activity: 1700000000 },
-      { id: "@2", name: "prototype", slug: "csv-export-v2", activity: 1700001234 },
+      {
+        id: "@1",
+        name: "csv-export",
+        slug: "csv-export",
+        activity: 1700000000,
+      },
+      {
+        id: "@2",
+        name: "prototype",
+        slug: "csv-export-v2",
+        activity: 1700001234,
+      },
     ]);
   });
 
@@ -191,7 +205,10 @@ describe(findWindowBySlug, () => {
 });
 
 describe(resolveSlugFromPane, () => {
-  function fakeSpawn(result: SpawnResult): { calls: string[][]; spawnTmux: (args: string[]) => SpawnResult } {
+  function fakeSpawn(result: SpawnResult): {
+    calls: string[][];
+    spawnTmux: (args: string[]) => SpawnResult;
+  } {
     const calls: string[][] = [];
     return {
       calls,
@@ -203,20 +220,36 @@ describe(resolveSlugFromPane, () => {
   }
 
   it("returns null when $TMUX_PANE is unset (helper invoked outside tmux)", () => {
-    const { calls, spawnTmux } = fakeSpawn({ stdout: "", stderr: "", exitCode: 0 });
+    const { calls, spawnTmux } = fakeSpawn({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+    });
     expect(resolveSlugFromPane({ env: {}, spawnTmux })).toBeNull();
     // Don't even shell out — short-circuit on the env miss.
     expect(calls).toEqual([]);
   });
 
   it("returns null when tmux exits non-zero (option unset on the window)", () => {
-    const { spawnTmux } = fakeSpawn({ stdout: "", stderr: "no such option", exitCode: 1 });
-    expect(resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux })).toBeNull();
+    const { spawnTmux } = fakeSpawn({
+      stdout: "",
+      stderr: "no such option",
+      exitCode: 1,
+    });
+    expect(
+      resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux }),
+    ).toBeNull();
   });
 
   it("returns null when the option resolves to an empty / whitespace string", () => {
-    const { spawnTmux } = fakeSpawn({ stdout: "  \n", stderr: "", exitCode: 0 });
-    expect(resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux })).toBeNull();
+    const { spawnTmux } = fakeSpawn({
+      stdout: "  \n",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(
+      resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux }),
+    ).toBeNull();
   });
 
   it("returns the trimmed slug when the option is set on the window", () => {
@@ -225,9 +258,13 @@ describe(resolveSlugFromPane, () => {
       stderr: "",
       exitCode: 0,
     });
-    expect(resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux })).toBe("csv-export");
+    expect(resolveSlugFromPane({ env: { TMUX_PANE: "%42" }, spawnTmux })).toBe(
+      "csv-export",
+    );
     // Targets the pane (not the session) and reads the window-scoped
     // user option with -v so we get just the value.
-    expect(calls).toEqual([["show-options", "-t", "%42", "-v", "-w", "@flow-slug"]]);
+    expect(calls).toEqual([
+      ["show-options", "-t", "%42", "-v", "-w", "@flow-slug"],
+    ]);
   });
 });

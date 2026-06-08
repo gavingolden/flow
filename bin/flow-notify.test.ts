@@ -17,15 +17,21 @@ describe("parseArgs", () => {
 
   it("rejects an invalid status", () => {
     const result = parseArgs(["--status", "bogus"]);
-    expect(result).toMatchObject({ error: expect.stringContaining("--status must be one of") });
+    expect(result).toMatchObject({
+      error: expect.stringContaining("--status must be one of"),
+    });
   });
 
   it("rejects unknown flags", () => {
-    expect(parseArgs(["--bogus", "x"])).toEqual({ error: "unknown flag: --bogus" });
+    expect(parseArgs(["--bogus", "x"])).toEqual({
+      error: "unknown flag: --bogus",
+    });
   });
 
   it("rejects a flag with no value", () => {
-    expect(parseArgs(["--status"])).toEqual({ error: "--status requires a value" });
+    expect(parseArgs(["--status"])).toEqual({
+      error: "--status requires a value",
+    });
   });
 
   it("rejects a flag whose value is the next flag", () => {
@@ -80,9 +86,10 @@ describe("buildPayload", () => {
   });
 
   it("preserves a short single-line reason verbatim", () => {
-    expect(buildPayload({ status: "gated", reason: "validate the smoke test" }).message).toBe(
-      "validate the smoke test",
-    );
+    expect(
+      buildPayload({ status: "gated", reason: "validate the smoke test" })
+        .message,
+    ).toBe("validate the smoke test");
   });
 });
 
@@ -153,7 +160,9 @@ describe("buildTerminalNotifierArgs", () => {
   });
 });
 
-function makeDeps(overrides: Partial<Deps> = {}): Deps & { calls: Array<{ cmd: string; args: readonly string[] }> } {
+function makeDeps(
+  overrides: Partial<Deps> = {},
+): Deps & { calls: Array<{ cmd: string; args: readonly string[] }> } {
   const calls: Array<{ cmd: string; args: readonly string[] }> = [];
   return {
     platform: "darwin",
@@ -193,10 +202,17 @@ describe("dispatch", () => {
   it("uses terminal-notifier when available", () => {
     const deps = makeDeps({ hasTerminalNotifier: () => true });
     const result = dispatch(
-      { status: "merged", slug: "csv-export", url: "https://github.com/o/r/pull/1" },
+      {
+        status: "merged",
+        slug: "csv-export",
+        url: "https://github.com/o/r/pull/1",
+      },
       deps,
     );
-    expect(result).toMatchObject({ dispatched: true, backend: "terminal-notifier" });
+    expect(result).toMatchObject({
+      dispatched: true,
+      backend: "terminal-notifier",
+    });
     expect(deps.calls).toEqual([
       {
         cmd: "terminal-notifier",
@@ -216,7 +232,10 @@ describe("dispatch", () => {
 
   it("falls back to osascript when terminal-notifier is missing", () => {
     const deps = makeDeps({ hasTerminalNotifier: () => false });
-    const result = dispatch({ status: "needs-human", reason: "verify-exhausted" }, deps);
+    const result = dispatch(
+      { status: "needs-human", reason: "verify-exhausted" },
+      deps,
+    );
     expect(result).toMatchObject({ dispatched: true, backend: "osascript" });
     expect(deps.calls).toHaveLength(1);
     expect(deps.calls[0]?.cmd).toBe("osascript");
@@ -251,7 +270,10 @@ describe("dispatch", () => {
       hasTerminalNotifier: () => true,
       resolveSlug: () => null,
     });
-    const result = dispatch({ status: "needs-human", reason: "verify-exhausted" }, deps);
+    const result = dispatch(
+      { status: "needs-human", reason: "verify-exhausted" },
+      deps,
+    );
     expect(result).toMatchObject({ dispatched: true });
     // No -subtitle flag at all — buildTerminalNotifierArgs omits it for empty subtitle.
     expect(deps.calls[0]?.args).not.toContain("-subtitle");

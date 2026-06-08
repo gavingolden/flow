@@ -31,7 +31,10 @@ function seedState(slug: string, extra: Partial<PipelineState> = {}): void {
     updatedAt: "2026-05-22T11:00:00Z",
     ...extra,
   };
-  fs.writeFileSync(path.join(stateDir, `${slug}.json`), JSON.stringify(state) + "\n");
+  fs.writeFileSync(
+    path.join(stateDir, `${slug}.json`),
+    JSON.stringify(state) + "\n",
+  );
 }
 
 function freshOverride(pr: number, ageMs = 0): PipelineState["gateOverride"] {
@@ -79,7 +82,9 @@ describe(evaluateMergeGuard, () => {
       repo: "/r",
       updatedAt: "2026-05-22T11:00:00Z",
     };
-    expect(evaluateMergeGuard(HAS_UNCHECKED, state, 7, NOW).decision).toBe("blocked");
+    expect(evaluateMergeGuard(HAS_UNCHECKED, state, 7, NOW).decision).toBe(
+      "blocked",
+    );
   });
 
   it("clears unchecked items when a fresh matching override token is present", () => {
@@ -105,7 +110,9 @@ describe(evaluateMergeGuard, () => {
       updatedAt: "2026-05-22T11:00:00Z",
       gateOverride: freshOverride(99),
     };
-    expect(evaluateMergeGuard(HAS_UNCHECKED, state, 42, NOW).decision).toBe("blocked");
+    expect(evaluateMergeGuard(HAS_UNCHECKED, state, 42, NOW).decision).toBe(
+      "blocked",
+    );
   });
 
   it("blocks when the override token is stale (outside the freshness window)", () => {
@@ -116,7 +123,9 @@ describe(evaluateMergeGuard, () => {
       updatedAt: "2026-05-22T11:00:00Z",
       gateOverride: freshOverride(42, OVERRIDE_FRESHNESS_MS + 60_000),
     };
-    expect(evaluateMergeGuard(HAS_UNCHECKED, state, 42, NOW).decision).toBe("blocked");
+    expect(evaluateMergeGuard(HAS_UNCHECKED, state, 42, NOW).decision).toBe(
+      "blocked",
+    );
   });
 
   it("blocks when the override token has an unparseable confirmedAt", () => {
@@ -130,7 +139,9 @@ describe(evaluateMergeGuard, () => {
       updatedAt: "2026-05-22T11:00:00Z",
       gateOverride: { pr: 42, confirmedAt: "not-a-date" },
     };
-    expect(evaluateMergeGuard(HAS_UNCHECKED, state, 42, NOW).decision).toBe("blocked");
+    expect(evaluateMergeGuard(HAS_UNCHECKED, state, 42, NOW).decision).toBe(
+      "blocked",
+    );
   });
 
   it("blocks a missing heading even when a fresh override token is present", () => {
@@ -164,7 +175,11 @@ describe(parseArgs, () => {
   });
 
   it("parses a PR-only invocation (check mode, slug auto-resolved)", () => {
-    expect(parseArgs(["100"])).toEqual({ pr: 100, slug: undefined, recordOverride: false });
+    expect(parseArgs(["100"])).toEqual({
+      pr: 100,
+      slug: undefined,
+      recordOverride: false,
+    });
   });
 
   it("parses --record-override", () => {
@@ -184,7 +199,9 @@ describe(parseArgs, () => {
   });
 
   it("rejects unknown flags", () => {
-    expect(parseArgs(["100", "--bogus"])).toEqual({ error: "unknown flag: --bogus" });
+    expect(parseArgs(["100", "--bogus"])).toEqual({
+      error: "unknown flag: --bogus",
+    });
   });
 });
 
@@ -209,7 +226,9 @@ describe("run() check mode", () => {
     });
     cap.restore();
     expect(exit).toBe(0);
-    expect((JSON.parse(cap.writes.join("")) as GuardResult).decision).toBe("clear");
+    expect((JSON.parse(cap.writes.join("")) as GuardResult).decision).toBe(
+      "clear",
+    );
   });
 
   it("exits 1 with decision blocked when unchecked items remain and no token", () => {
@@ -222,7 +241,9 @@ describe("run() check mode", () => {
     });
     cap.restore();
     expect(exit).toBe(1);
-    expect((JSON.parse(cap.writes.join("")) as GuardResult).decision).toBe("blocked");
+    expect((JSON.parse(cap.writes.join("")) as GuardResult).decision).toBe(
+      "blocked",
+    );
   });
 
   it("exits 0 when unchecked items remain but a fresh override token clears them", () => {
@@ -244,10 +265,17 @@ describe("run() check mode", () => {
     seedState("delta");
     const gh = vi.fn(() => ({ stdout: "", stderr: "no such PR", exitCode: 1 }));
     const cap = captureStdout();
-    const exit = run(["5", "--slug", "delta"], { gh, stateDir, now: () => NOW });
+    const exit = run(["5", "--slug", "delta"], {
+      gh,
+      stateDir,
+      now: () => NOW,
+    });
     cap.restore();
     expect(exit).toBe(2);
-    const result = JSON.parse(cap.writes.join("")) as { decision: string; reason: string };
+    const result = JSON.parse(cap.writes.join("")) as {
+      decision: string;
+      reason: string;
+    };
     expect(result.decision).toBe("error");
     expect(result.reason).toContain("no such PR");
   });
@@ -262,7 +290,9 @@ describe("run() check mode", () => {
     });
     cap.restore();
     expect(exit).toBe(0);
-    expect((JSON.parse(cap.writes.join("")) as GuardResult).decision).toBe("clear");
+    expect((JSON.parse(cap.writes.join("")) as GuardResult).decision).toBe(
+      "clear",
+    );
   });
 
   it("exits 2 on bad args", () => {
@@ -321,11 +351,18 @@ describe("run() record mode", () => {
     // and clears the merge for that PR.
     seedState("eta");
     const recCap = captureStdout();
-    run(["9", "--slug", "eta", "--record-override"], { stateDir, now: () => NOW });
+    run(["9", "--slug", "eta", "--record-override"], {
+      stateDir,
+      now: () => NOW,
+    });
     recCap.restore();
 
     const gh = vi.fn(() => ({
-      stdout: JSON.stringify({ body: HAS_UNCHECKED, state: "OPEN", url: "https://x/y/pull/9" }),
+      stdout: JSON.stringify({
+        body: HAS_UNCHECKED,
+        state: "OPEN",
+        url: "https://x/y/pull/9",
+      }),
       stderr: "",
       exitCode: 0,
     }));

@@ -102,7 +102,7 @@ Re-running `flow run <id>` on a `pr-open` task hands off to verify.
 
 ## Implementation
 
-| File | Role |
-|---|---|
+| File                               | Role                                                           |
+| ---------------------------------- | -------------------------------------------------------------- |
 | `src/pipeline/phases/implement.ts` | Phase entry, wrapping prompt, PR detection, status transitions |
-| `src/pipeline/headless.ts` | Generic `claude -p` wrapper |
+| `src/pipeline/headless.ts`         | Generic `claude -p` wrapper                                    |

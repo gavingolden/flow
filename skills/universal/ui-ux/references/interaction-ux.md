@@ -1,6 +1,6 @@
 # Interaction and UX
 
-Portable interaction judgment, structured on Jakob Nielsen's 10 usability heuristics (NNG), applied as stack-neutral principles. Each heuristic is named inline so its grounding is traceable; canonical URLs live in `sources.md`. The framework that renders a state (a spinner, a toast, a disabled control) is the stack skill's job — what follows is *which* states must exist and *why*.
+Portable interaction judgment, structured on Jakob Nielsen's 10 usability heuristics (NNG), applied as stack-neutral principles. Each heuristic is named inline so its grounding is traceable; canonical URLs live in `sources.md`. The framework that renders a state (a spinner, a toast, a disabled control) is the stack skill's job — what follows is _which_ states must exist and _why_.
 
 ## The ten heuristics, applied
 

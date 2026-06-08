@@ -315,7 +315,8 @@ function renderNeedsHuman(inputs: GateSummaryInputs): string {
   // line, once on the sentinel) which matches the historical inline
   // `echo "NEEDS HUMAN: <reason>"` shape callers had to maintain by
   // hand.
-  const why = oneLine(inputs.why) || (inputs.reason ? oneLine(inputs.reason) : "");
+  const why =
+    oneLine(inputs.why) || (inputs.reason ? oneLine(inputs.reason) : "");
   if (why) lines.push(`WHY: ${why}`);
   lines.push(`NEXT ACTION: ${nextActionForReason(inputs.reason)}`);
   appendFollowups(lines, inputs.deferredBlock);
@@ -347,7 +348,10 @@ function renderCancelled(inputs: GateSummaryInputs): string {
   return lines.join("\n");
 }
 
-function appendFollowups(lines: string[], deferredBlock: string | undefined): void {
+function appendFollowups(
+  lines: string[],
+  deferredBlock: string | undefined,
+): void {
   if (suppressed(deferredBlock)) return;
   // Embed the flow-followups block under a FOLLOW-UPS header.
   // The deferred file content is captured stdout from

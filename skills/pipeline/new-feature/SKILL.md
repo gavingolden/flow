@@ -104,7 +104,7 @@ Decide whether to spawn the scout subagent based on the **hybrid threshold**:
 - **Tiebreaker for soft-edge phrasing.** If the description names
   one file but contains fan-out language ("and all callers", "every
   caller of X", "and downstream consumers", "and update its tests")
-  or introduces a *new* sibling module / component / migration, route
+  or introduces a _new_ sibling module / component / migration, route
   SPAWN regardless of the leading single-file phrasing. The
   `## affected_modules` and `## public_api_surface` sections of the
   scout report exist precisely to enumerate fan-out the description
@@ -267,7 +267,7 @@ scout report back; the artifact on disk is the record.
     specifications.** — discovery flags the tension upstream, this step
     surfaces it before implementation kicks in so the user sees the gap
     alongside the recommendation. When plan.md has no `## Prompt
-    interpretation` section, or the section's Recommended path is
+interpretation` section, or the section's Recommended path is
     `methods plausibly reach target`, omit the row entirely (the original
     five-row table is unchanged for no-tension prompts).
 
@@ -286,14 +286,18 @@ scout report back; the artifact on disk is the record.
 
     // Display
     it.todo("should display the user's current username and email");
-    it.todo("should show a loading skeleton while profile data is being fetched");
+    it.todo(
+      "should show a loading skeleton while profile data is being fetched",
+    );
 
     // Editing
     it.todo("should enter edit mode when the username field is clicked");
     it.todo("should save the updated username when the save button is clicked");
 
     // Error states
-    it.todo("should display an error message when the username is already taken");
+    it.todo(
+      "should display an error message when the username is already taken",
+    );
     it.todo("should disable the save button when the username field is empty");
   });
   ```
@@ -319,7 +323,7 @@ the user. Skip to Step 5.
 
 **If no draft exists**, synthesize one from the critical analysis and test specs:
 
-```markdown
+````markdown
 ## Why
 
 <From the Critical Analysis: combine the Customer Value assessment with the user's original
@@ -375,7 +379,7 @@ Always emit the heading. Decide the body based on the change:
   ⇒ auto-merge.
 - Otherwise — derive `- [ ]` items from the it.todo() specs, applying the **automation
   test** from `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Automate
-  first" section) to each candidate item *before* you write it. The test:
+  first" section) to each candidate item _before_ you write it. The test:
 
   > Can I name (a) a fixture / setup, (b) one or more deterministic assertions, and
   > (c) an exit condition — all without subjective human judgment? If yes, this is
@@ -383,7 +387,7 @@ Always emit the heading. Decide the body based on the change:
 
   When the answer is yes, write the item as the deterministic shell command itself
   (`npm run test -- <file>`, `bun bin/<helper>.test.ts`, `gh pr view <n> --json …
-  --jq …`, `test -f <path>`, `grep -q <pattern> <file>`,
+--jq …`, `test -f <path>`, `grep -q <pattern> <file>`,
   `[ "$(cat <path>)" = "<expected>" ]`) so `/pr-review` Step 8c can run it and tick
   the box. Manual prose survives only when the rubric flags the scenario as genuinely
   manual (subjective UX, production-only integrations, cross-browser rendering,
@@ -414,6 +418,7 @@ automation test from manual-test-rubric.md is: (a) named fixture/setup,
 without subjective human judgment, it must be a runnable item. Source of truth:
 skills/pipeline/pr-review/references/manual-test-rubric.md. -->
 ```
+````
 
 Use as many items as the change warrants — a one-line fix may need one or two; a
 new integration may need a dozen. Don't pad and don't truncate. The pr-review
@@ -436,6 +441,7 @@ skills/pipeline/pr-review/references/manual-test-rubric.md. -->
 - [ ] Run `npm run test -- <test-file>` — all specs pass.
 - [ ] Run `[ -f <path> ] && grep -q "<expected>" <path>` — config is wired.
 - [ ] Open /foo in dark mode — animation feels balanced (subjective UX, manual).
+
 ```
 
 Save to `.flow-tmp/pr-description-draft.md` in the working directory. Create the
@@ -505,30 +511,32 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
 2. Invoke `/coder` in-process via the Skill tool, passing the edit-set
    plus the worktree path:
 
-   ```
-   /coder
-   EDIT_SET: [{...}, {...}]
-   WORKTREE: <absolute path>
-   ```
+```
 
-   `/coder` is itself a thin wrapper that spawns one **Independent
-   Edit-Applier Subagent** via the Task tool (the sixth named Task-tool
-   exemption — see `skills/pipeline/flow-pipeline/SKILL.md` "Hard
-   rules"). The subagent applies every edit in its own isolated context,
-   runs `flow-pre-commit --json` against the post-edit worktree, and
-   writes the structured artifact at
-   `<worktree>/.flow-tmp/coder-result.json`.
+/coder
+EDIT_SET: [{...}, {...}]
+WORKTREE: <absolute path>
+
+````
+
+`/coder` is itself a thin wrapper that spawns one **Independent
+Edit-Applier Subagent** via the Task tool (the sixth named Task-tool
+exemption — see `skills/pipeline/flow-pipeline/SKILL.md` "Hard
+rules"). The subagent applies every edit in its own isolated context,
+runs `flow-pre-commit --json` against the post-edit worktree, and
+writes the structured artifact at
+`<worktree>/.flow-tmp/coder-result.json`.
 
 3. After `/coder` returns, do a cheap existence check on the artifact:
 
-   ```bash
-   test -s "$WORKTREE/.flow-tmp/coder-result.json" \
-     || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
-   ```
+```bash
+test -s "$WORKTREE/.flow-tmp/coder-result.json" \
+  || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
+````
 
-   On missing or empty artifact, surface the failure to the caller —
-   the supervisor escalates `NEEDS HUMAN: coder-failed` rather than
-   retrying past the 1-retry cap.
+On missing or empty artifact, surface the failure to the caller —
+the supervisor escalates `NEEDS HUMAN: coder-failed` rather than
+retrying past the 1-retry cap.
 
 4. Read the artifact body once and parse into a typed object. Reuse
    the parsed object across Step 6 (test implementation, when it needs
@@ -546,7 +554,7 @@ This step runs only after `/coder` returns successfully (Step 5's wider-scope pa
 
 Run `flow-annotate-pr <PR>` against the merged-to-base diff. The helper parses `git diff -U0 <merge-base>...HEAD`, evaluates three trigger rules per hunk — (a) hunk has ≥10 changed lines, (b) hunk is a mixed-add-delete restructure (≥4 `+` AND ≥4 `-` lines), (c) file's total changed LOC is ≥30 with per-file dedup (only the first non-trivial hunk in a ≥30-LOC file gets annotated via rule c) — ranks the matches by priority, caps at 8 candidates per PR, and emits a JSON envelope on stdout: `{candidates: [...], overflowBullet?: string}`. Each candidate carries `{file, line, end_line?, side: "RIGHT"|"LEFT", hunk_excerpt}` but NO `body` field — that is the agent's job.
 
-For each candidate in the envelope, generate a 1-2-sentence rationale in casual tone (incomplete sentences permitted) explaining the non-obvious *why* of the change at that location. Prefix the rationale with the literal `**why:** ` (Markdown bold + colon + space) and suffix it with `\n\n<!-- flow-intent-v1 -->` (newline-newline before the HTML-comment integrity suffix so the suffix is invisible in rendered Markdown). Construct the Finding[] JSON (each entry: `{file, line, end_line?, side, body}`) and pipe it to `flow-post-findings <PR>` (or write to `.flow-tmp/intent-findings.json` and pass via `--file`). `flow-post-findings` posts each annotation as an individual inline review comment via the `/comments` endpoint — same shape that `/pr-review` uses for its findings, but with the `**why:** ` prefix marking these as author intent (not a Conventional Comments review finding).
+For each candidate in the envelope, generate a 1-2-sentence rationale in casual tone (incomplete sentences permitted) explaining the non-obvious _why_ of the change at that location. Prefix the rationale with the literal `**why:** ` (Markdown bold + colon + space) and suffix it with `\n\n<!-- flow-intent-v1 -->` (newline-newline before the HTML-comment integrity suffix so the suffix is invisible in rendered Markdown). Construct the Finding[] JSON (each entry: `{file, line, end_line?, side, body}`) and pipe it to `flow-post-findings <PR>` (or write to `.flow-tmp/intent-findings.json` and pass via `--file`). `flow-post-findings` posts each annotation as an individual inline review comment via the `/comments` endpoint — same shape that `/pr-review` uses for its findings, but with the `**why:** ` prefix marking these as author intent (not a Conventional Comments review finding).
 
 When `overflowBullet` is present (more than 8 hunks matched the trigger rules), append it to the PR body's `## Why` section. Read the current body with `gh pr view <PR> --json body --jq .body > .flow-tmp/pr-body.md`, append the overflow bullet under the existing `## Why` heading, then update with `gh pr edit <PR> --body-file .flow-tmp/pr-body.md`. This preserves the surplus rationale in durable form (the PR body survives the review-time-scoped trade-off named in `AGENTS.md` § Git workflow) when the inline annotation cap is hit.
 

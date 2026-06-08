@@ -9,7 +9,10 @@ import {
 
 // Inject the package.json read seam so no real file is touched — mirrors
 // copilot-config.test.ts's `reader = (raw) => () => raw` idiom.
-const pkg = (raw: unknown): ReadPackageJson => () => raw;
+const pkg =
+  (raw: unknown): ReadPackageJson =>
+  () =>
+    raw;
 
 describe("resolveChecks — node Layer 1 (declared scripts)", () => {
   it("emits declared check, lint, test in the table's order (pokemon apps/web shape)", () => {
@@ -144,7 +147,9 @@ describe("resolveChecks — ReadPackageJson seam + tolerant reads", () => {
   it("drives Layer 1 through the injected readPackageJson seam", () => {
     const checks = resolveChecks({
       marker: "package.json",
-      readPackageJson: pkg({ scripts: { check: "svelte-check", test: "vitest" } }),
+      readPackageJson: pkg({
+        scripts: { check: "svelte-check", test: "vitest" },
+      }),
       pkgPath: "apps/web/package.json",
       workspacePath: "apps/web",
     });
@@ -174,7 +179,9 @@ describe("resolveChecks — ReadPackageJson seam + tolerant reads", () => {
 
 describe("declaredScriptsOf", () => {
   it("extracts script names from a well-formed package.json", () => {
-    expect(declaredScriptsOf({ scripts: { a: "x", b: "y" } })).toEqual(new Set(["a", "b"]));
+    expect(declaredScriptsOf({ scripts: { a: "x", b: "y" } })).toEqual(
+      new Set(["a", "b"]),
+    );
   });
 
   it("collapses malformed/absent shapes to an empty set without throwing", () => {
@@ -188,7 +195,10 @@ describe("declaredScriptsOf", () => {
 
 describe("npmRunCheck", () => {
   it("builds the bare root form", () => {
-    expect(npmRunCheck("test")).toEqual({ name: "npm run test", argv: ["npm", "run", "test"] });
+    expect(npmRunCheck("test")).toEqual({
+      name: "npm run test",
+      argv: ["npm", "run", "test"],
+    });
   });
 
   it("builds the workspace-scoped -w form", () => {

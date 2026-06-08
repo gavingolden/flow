@@ -109,9 +109,7 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
   const ddIdx = args.indexOf("--");
   const descriptionArgs =
-    ddIdx >= 0
-      ? [...args.slice(0, ddIdx), ...args.slice(ddIdx + 1)]
-      : args;
+    ddIdx >= 0 ? [...args.slice(0, ddIdx), ...args.slice(ddIdx + 1)] : args;
   let skipNext = false;
   const description = descriptionArgs
     .filter((a) => {
@@ -127,13 +125,20 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
       return a !== "--no-auto-merge" && a !== "--wait-for-copilot";
     })
     .join(" ");
-  return runNew(description, { ...options, noAutoMerge, waitForCopilot, copilotReview });
+  return runNew(description, {
+    ...options,
+    noAutoMerge,
+    waitForCopilot,
+    copilotReview,
+  });
 }
 
 function runFresh(description: string, options: NewOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow new: description is required.");
-    console.error("usage: flow new [--no-auto-merge] [--wait-for-copilot] [--copilot-review <auto|always|never>] <description>");
+    console.error(
+      "usage: flow new [--no-auto-merge] [--wait-for-copilot] [--copilot-review <auto|always|never>] <description>",
+    );
     return 1;
   }
 
@@ -219,7 +224,9 @@ function runResume(name: string, options: NewOptions): number {
     console.error(`flow new --resume: pipeline '${slug}' was launched against`);
     console.error(`  ${state.repo || "(no repo recorded)"}`);
     console.error(`  but that path no longer exists. Move the repo back, or`);
-    console.error(`  run \`flow done ${slug}\` and start fresh with \`flow new\`.`);
+    console.error(
+      `  run \`flow done ${slug}\` and start fresh with \`flow new\`.`,
+    );
     return 1;
   }
 
@@ -235,7 +242,9 @@ function runResume(name: string, options: NewOptions): number {
     ? respawnWindow(slug, state.repo, command)
     : createWindow(slug, state.repo, command);
   if (!result.ok) {
-    console.error(`flow new --resume: tmux failed to ${exists ? "respawn" : "create"} the window.`);
+    console.error(
+      `flow new --resume: tmux failed to ${exists ? "respawn" : "create"} the window.`,
+    );
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 1;
   }

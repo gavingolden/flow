@@ -7,8 +7,14 @@ import { validatePrReviewResult } from "./pr-review-result-schema";
 
 const SCHEMA_SCRIPT = path.resolve(__dirname, "pr-review-result-schema.ts");
 
-function runCli(args: string[]): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync("bun", [SCHEMA_SCRIPT, ...args], { encoding: "utf8" });
+function runCli(args: string[]): {
+  status: number;
+  stdout: string;
+  stderr: string;
+} {
+  const result = spawnSync("bun", [SCHEMA_SCRIPT, ...args], {
+    encoding: "utf8",
+  });
   return {
     status: result.status ?? -1,
     stdout: result.stdout ?? "",
@@ -41,7 +47,23 @@ function withTmpFile(contents: string, fn: (filePath: string) => void): void {
 
 const VALID_CLEAN: unknown = {
   status: "clean",
-  completed_steps: ["1", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+  completed_steps: [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "7.5",
+    "8",
+    "8c",
+    "9",
+    "10",
+    "11",
+    "12",
+    "13",
+  ],
   missed_steps: [],
   escalation_tag: null,
   summary:
@@ -60,7 +82,21 @@ const VALID_PARTIAL: unknown = {
 const VALID_ESCALATED: unknown = {
   status: "escalated",
   completed_steps: ["1", "2"],
-  missed_steps: ["3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
+  missed_steps: [
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "7.5",
+    "8",
+    "8c",
+    "9",
+    "10",
+    "11",
+    "12",
+    "13",
+  ],
   escalation_tag: "task-tool-unavailable: pr-review-fix-applier",
   summary:
     "Bailed at the Fix-Applier spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available.",
@@ -146,31 +182,31 @@ describe("validatePrReviewResult — wrong-type rejections", () => {
     }
   });
 
-  it.each([
-    "completed_steps",
-    "missed_steps",
-  ])("rejects an artifact where '%s' is not an array", (key) => {
-    const fixture = structuredClone(VALID_CLEAN) as Record<string, unknown>;
-    fixture[key] = "not an array";
-    const result = validatePrReviewResult(fixture);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toContain(key);
-    }
-  });
+  it.each(["completed_steps", "missed_steps"])(
+    "rejects an artifact where '%s' is not an array",
+    (key) => {
+      const fixture = structuredClone(VALID_CLEAN) as Record<string, unknown>;
+      fixture[key] = "not an array";
+      const result = validatePrReviewResult(fixture);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toContain(key);
+      }
+    },
+  );
 
-  it.each([
-    "completed_steps",
-    "missed_steps",
-  ])("rejects an artifact where '%s' contains non-string entries", (key) => {
-    const fixture = structuredClone(VALID_CLEAN) as Record<string, unknown>;
-    fixture[key] = [1, 2, 3];
-    const result = validatePrReviewResult(fixture);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.reason).toContain(key);
-    }
-  });
+  it.each(["completed_steps", "missed_steps"])(
+    "rejects an artifact where '%s' contains non-string entries",
+    (key) => {
+      const fixture = structuredClone(VALID_CLEAN) as Record<string, unknown>;
+      fixture[key] = [1, 2, 3];
+      const result = validatePrReviewResult(fixture);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toContain(key);
+      }
+    },
+  );
 
   it("rejects an artifact where escalation_tag is a non-string non-null value", () => {
     const fixture = structuredClone(VALID_CLEAN) as Record<string, unknown>;
@@ -222,7 +258,10 @@ describe("pr-review-result-schema CLI — `--validate <path>`", () => {
   });
 
   it("exits 1 with read failure on stderr when the target path does not exist", () => {
-    const missingPath = path.join(tmpdir(), "definitely-does-not-exist-" + Date.now() + ".json");
+    const missingPath = path.join(
+      tmpdir(),
+      "definitely-does-not-exist-" + Date.now() + ".json",
+    );
     const result = runCli(["--validate", missingPath]);
     expect(result.status).toBe(1);
     const parsed = JSON.parse(result.stderr.trim());

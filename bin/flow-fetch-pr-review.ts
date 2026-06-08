@@ -56,7 +56,9 @@ function gh(args: string[]): string {
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString().trim();
-    throw new Error(stderr || `gh ${args.join(" ")} failed with exit code ${result.exitCode}`);
+    throw new Error(
+      stderr || `gh ${args.join(" ")} failed with exit code ${result.exitCode}`,
+    );
   }
 
   return result.stdout.toString().trim();
@@ -158,7 +160,9 @@ export function groupByFile(comments: ReviewComment[]): GroupedComments {
 }
 
 /** Indexes replies by parent comment ID for O(1) lookups. */
-export function buildReplyIndex(comments: ReviewComment[]): Map<number, ReviewComment[]> {
+export function buildReplyIndex(
+  comments: ReviewComment[],
+): Map<number, ReviewComment[]> {
   const index = new Map<number, ReviewComment[]>();
   for (const c of comments) {
     if (!c.in_reply_to_id) continue;
@@ -200,7 +204,9 @@ export function formatComment(
     lines.push("");
     const replyLines = reply.body.split("\n");
     const quoted = replyLines
-      .map((line, i) => (i === 0 ? `> **@${reply.user.login}:** ${line}` : `> ${line}`))
+      .map((line, i) =>
+        i === 0 ? `> **@${reply.user.login}:** ${line}` : `> ${line}`,
+      )
       .join("\n");
     lines.push(quoted);
   }
@@ -221,7 +227,9 @@ function formatOutput(
   lines.push(`**URL:** ${pr.html_url}`);
   lines.push(`**Branch:** \`${pr.head.ref}\``);
   lines.push(`**State:** ${pr.state}`);
-  lines.push(`**Stats:** +${pr.additions} −${pr.deletions} across ${pr.changed_files} files`);
+  lines.push(
+    `**Stats:** +${pr.additions} −${pr.deletions} across ${pr.changed_files} files`,
+  );
 
   // PR description
   if (pr.body.trim()) {
@@ -259,7 +267,9 @@ function formatOutput(
   if (grouped.size > 0) {
     const replyIndex = buildReplyIndex(comments);
     lines.push("");
-    lines.push(`## Inline Comments (${comments.filter((c) => !c.in_reply_to_id).length})`);
+    lines.push(
+      `## Inline Comments (${comments.filter((c) => !c.in_reply_to_id).length})`,
+    );
 
     for (const [filePath, fileComments] of grouped) {
       lines.push("");

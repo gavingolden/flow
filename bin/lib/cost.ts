@@ -65,7 +65,10 @@ export function encodeProjectSegment(absPath: string): string {
   return absPath.replace(/\//g, "-");
 }
 
-async function findSessionJsonls(projectDir: string, slug: string): Promise<string[]> {
+async function findSessionJsonls(
+  projectDir: string,
+  slug: string,
+): Promise<string[]> {
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(projectDir, { withFileTypes: true });
@@ -76,7 +79,9 @@ async function findSessionJsonls(projectDir: string, slug: string): Promise<stri
     .filter((e) => e.isFile() && e.name.endsWith(".jsonl"))
     .map((e) => path.join(projectDir, e.name));
   const matches = await Promise.all(
-    candidates.map(async (file) => ((await jsonlMatchesSlug(file, slug)) ? file : null)),
+    candidates.map(async (file) =>
+      (await jsonlMatchesSlug(file, slug)) ? file : null,
+    ),
   );
   return matches.filter((f): f is string => f !== null);
 }

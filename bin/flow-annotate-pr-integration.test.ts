@@ -50,7 +50,9 @@ describe("integration: full annotator flow", () => {
     for (let i = 0; i < 12; i++) {
       const name = `f${String(i).padStart(2, "0")}.ts`;
       parts.push(
-        multiHunkDiff(name, [{ oldStart: 1, newStart: 1, minuses: 0, pluses: 12 }]),
+        multiHunkDiff(name, [
+          { oldStart: 1, newStart: 1, minuses: 0, pluses: 12 },
+        ]),
       );
     }
     const files = parseDiff(parts.join("\n"));
@@ -115,7 +117,9 @@ describe("integration: full annotator flow", () => {
     // Each hunk is a pure addition with the named LOC (matches rule (a) for
     // loc ≥ 10, which all of these do).
     const parts = hunkSpecs.map((s) =>
-      multiHunkDiff(s.file, [{ oldStart: 1, newStart: 1, minuses: 0, pluses: s.loc }]),
+      multiHunkDiff(s.file, [
+        { oldStart: 1, newStart: 1, minuses: 0, pluses: s.loc },
+      ]),
     );
     const files = parseDiff(parts.join("\n"));
     expect(hunkSpecs.every((s) => s.loc >= HUNK_LOC_THRESHOLD)).toBe(true);

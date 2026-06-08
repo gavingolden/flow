@@ -13,12 +13,16 @@ describe(isNotRequestableCollaborator422, () => {
 
   it("returns true case-insensitively (mixed-case body)", () => {
     expect(
-      isNotRequestableCollaborator422("May Only Be Requested From Collaborators"),
+      isNotRequestableCollaborator422(
+        "May Only Be Requested From Collaborators",
+      ),
     ).toBe(true);
   });
 
   it("returns false for a 403 / other failure body", () => {
-    expect(isNotRequestableCollaborator422("HTTP 403: Resource not accessible")).toBe(false);
+    expect(
+      isNotRequestableCollaborator422("HTTP 403: Resource not accessible"),
+    ).toBe(false);
   });
 
   it("returns false for an empty stderr", () => {

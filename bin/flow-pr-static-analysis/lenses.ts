@@ -14,10 +14,17 @@ import type { Args, Finding, LensMeta, LensRun } from "./types";
 
 // --- Lens runners (each returns the lens's findings + meta) ----------------
 
-function timedSkip(start: number, reason: string): { findings: Finding[]; meta: LensMeta } {
+function timedSkip(
+  start: number,
+  reason: string,
+): { findings: Finding[]; meta: LensMeta } {
   return {
     findings: [],
-    meta: { ran: false, skipped_reason: reason, duration_ms: Date.now() - start },
+    meta: {
+      ran: false,
+      skipped_reason: reason,
+      duration_ms: Date.now() - start,
+    },
   };
 }
 
@@ -87,19 +94,32 @@ async function runTypesForDir(
   //   svelte-kit-sync-failed   — `svelte-kit sync` exited non-zero or timed out
   const svelteKind = detectSvelte(dir, deps.fileExists, deps.readFile);
   if (svelteKind) {
-    const localSvelteCheck = path.join(dir, "node_modules", ".bin", "svelte-check");
+    const localSvelteCheck = path.join(
+      dir,
+      "node_modules",
+      ".bin",
+      "svelte-check",
+    );
     const svelteCheckBin = deps.fileExists(localSvelteCheck)
       ? localSvelteCheck
       : deps.which("svelte-check");
     if (!svelteCheckBin) return timedSkip(start, "svelte-check-unavailable");
     if (svelteKind === "sveltekit") {
-      const localSvelteKit = path.join(dir, "node_modules", ".bin", "svelte-kit");
+      const localSvelteKit = path.join(
+        dir,
+        "node_modules",
+        ".bin",
+        "svelte-kit",
+      );
       const svelteKitBin = deps.fileExists(localSvelteKit)
         ? localSvelteKit
         : deps.which("svelte-kit");
       if (!svelteKitBin) return timedSkip(start, "svelte-kit-sync-failed");
       deps.writeErr(`[types] running ${svelteKitBin} sync\n`);
-      const sync = await deps.spawn(svelteKitBin, ["sync"], { cwd: dir, timeoutMs });
+      const sync = await deps.spawn(svelteKitBin, ["sync"], {
+        cwd: dir,
+        timeoutMs,
+      });
       if (sync.timedOut || sync.exitCode !== 0) {
         return timedSkip(start, "svelte-kit-sync-failed");
       }
@@ -112,7 +132,10 @@ async function runTypesForDir(
       ...(tsconfig !== "tsconfig.json" ? ["--tsconfig", tsconfig] : []),
     ];
     deps.writeErr(`[types] running ${svelteCheckBin} ${checkArgs.join(" ")}\n`);
-    const r = await deps.spawn(svelteCheckBin, checkArgs, { cwd: dir, timeoutMs });
+    const r = await deps.spawn(svelteCheckBin, checkArgs, {
+      cwd: dir,
+      timeoutMs,
+    });
     if (r.timedOut) return timedSkip(start, "timeout");
     // svelte-check exit semantics: 0 = no errors, 1 = errors found (both
     // "ran" — parse stdout). Anything else is a tooling failure; skip with an
@@ -129,11 +152,17 @@ async function runTypesForDir(
   let bin = deps.fileExists(localTsc) ? localTsc : deps.which("tsc");
   if (!bin) return timedSkip(start, "tsc-not-found");
   const projectArgs = tsconfig === "tsconfig.json" ? [] : ["-p", tsconfig];
-  deps.writeErr(`[types] running ${bin} --noEmit --pretty false${projectArgs.length ? ` -p ${tsconfig}` : ""}\n`);
-  const r = await deps.spawn(bin, [...projectArgs, "--noEmit", "--pretty", "false"], {
-    cwd: dir,
-    timeoutMs: args.maxToolTimeoutSec * 1000,
-  });
+  deps.writeErr(
+    `[types] running ${bin} --noEmit --pretty false${projectArgs.length ? ` -p ${tsconfig}` : ""}\n`,
+  );
+  const r = await deps.spawn(
+    bin,
+    [...projectArgs, "--noEmit", "--pretty", "false"],
+    {
+      cwd: dir,
+      timeoutMs: args.maxToolTimeoutSec * 1000,
+    },
+  );
   if (r.timedOut) return timedSkip(start, "timeout");
   // tsc exit semantics (TypeScript wiki, "Exit codes"): 0 = clean,
   // 1 = command-line / configuration error, 2 = type errors emitted on stdout,
@@ -233,7 +262,9 @@ export const runTypesLens: LensRun = async (args, deps) => {
   // passing sibling (Story 6).
   const ran = metas.some((m) => m.ran);
   const duration_ms = metas.reduce((max, m) => Math.max(max, m.duration_ms), 0);
-  const firstSkip = metas.find((m) => !m.ran && m.skipped_reason)?.skipped_reason;
+  const firstSkip = metas.find(
+    (m) => !m.ran && m.skipped_reason,
+  )?.skipped_reason;
   const meta: LensMeta = { ran, duration_ms };
   if (firstSkip) meta.skipped_reason = firstSkip;
   return { findings: allFindings, meta };
@@ -321,10 +352,16 @@ export const runLintLens: LensRun = async (args, deps) => {
   }
   // Eslint fallback. Detection: eslint.config.{js,ts,mjs,cjs} or .eslintrc.*
   // or package.json#eslintConfig.
-  const hasEslintConfig = detectEslintConfig(deps.cwd, deps.fileExists, deps.readFile);
+  const hasEslintConfig = detectEslintConfig(
+    deps.cwd,
+    deps.fileExists,
+    deps.readFile,
+  );
   if (hasEslintConfig) {
     const localEslint = path.join(deps.cwd, "node_modules", ".bin", "eslint");
-    const bin = deps.fileExists(localEslint) ? localEslint : deps.which("eslint");
+    const bin = deps.fileExists(localEslint)
+      ? localEslint
+      : deps.which("eslint");
     if (bin) {
       deps.writeErr(`[lint] running ${bin} --format json .\n`);
       const r = await deps.spawn(bin, ["--format", "json", "."], {
@@ -345,7 +382,10 @@ export const runLintLens: LensRun = async (args, deps) => {
       };
     }
   }
-  return timedSkip(start, hasBiomeConfig || hasEslintConfig ? "linter-not-on-path" : "no-lint-config");
+  return timedSkip(
+    start,
+    hasBiomeConfig || hasEslintConfig ? "linter-not-on-path" : "no-lint-config",
+  );
 };
 
 function detectEslintConfig(

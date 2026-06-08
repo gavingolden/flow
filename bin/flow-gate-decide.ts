@@ -202,7 +202,12 @@ const defaultGh: GhRunner = (argv) => {
 };
 
 type FetchResult =
-  | { kind: "ok"; body: string; state: "OPEN" | "MERGED" | "CLOSED"; url: string }
+  | {
+      kind: "ok";
+      body: string;
+      state: "OPEN" | "MERGED" | "CLOSED";
+      url: string;
+    }
   | { kind: "error"; message: string };
 
 export function fetchPrInputs(prNumber: number, gh: GhRunner): FetchResult {
@@ -217,16 +222,29 @@ export function fetchPrInputs(prNumber: number, gh: GhRunner): FetchResult {
   try {
     parsed = JSON.parse(r.stdout);
   } catch (e) {
-    return { kind: "error", message: `gh pr view returned non-JSON: ${(e as Error).message}` };
+    return {
+      kind: "error",
+      message: `gh pr view returned non-JSON: ${(e as Error).message}`,
+    };
   }
   if (
     typeof parsed.body !== "string" ||
     typeof parsed.url !== "string" ||
-    (parsed.state !== "OPEN" && parsed.state !== "MERGED" && parsed.state !== "CLOSED")
+    (parsed.state !== "OPEN" &&
+      parsed.state !== "MERGED" &&
+      parsed.state !== "CLOSED")
   ) {
-    return { kind: "error", message: `gh pr view returned unexpected JSON: ${r.stdout}` };
+    return {
+      kind: "error",
+      message: `gh pr view returned unexpected JSON: ${r.stdout}`,
+    };
   }
-  return { kind: "ok", body: parsed.body, state: parsed.state, url: parsed.url };
+  return {
+    kind: "ok",
+    body: parsed.body,
+    state: parsed.state,
+    url: parsed.url,
+  };
 }
 
 // --- CLI -------------------------------------------------------------------
@@ -236,7 +254,8 @@ type Args = { pr: number; slug?: string };
 export function parseArgs(argv: string[]): Args | { error: string } {
   if (argv.length === 0) return { error: "PR number is required" };
   const [first, ...rest] = argv;
-  if (first.startsWith("--")) return { error: "PR number must be the first positional argument" };
+  if (first.startsWith("--"))
+    return { error: "PR number must be the first positional argument" };
   const pr = Number.parseInt(first, 10);
   if (!Number.isFinite(pr) || pr <= 0 || String(pr) !== first) {
     return { error: `PR must be a positive integer, got '${first}'` };

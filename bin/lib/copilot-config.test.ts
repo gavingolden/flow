@@ -15,15 +15,22 @@ import {
 } from "./copilot-config";
 
 // Inject the config-read seam so the real ~/.flow/config.json is never touched.
-const reader = (raw: unknown): ReadConfigFile => () => raw;
+const reader =
+  (raw: unknown): ReadConfigFile =>
+  () =>
+    raw;
 
 describe("readCopilotLogin", () => {
   it("returns the bare-string login (legacy form)", () => {
-    expect(readCopilotLogin(reader({ bots: { copilot: "my-bot" } }))).toBe("my-bot");
+    expect(readCopilotLogin(reader({ bots: { copilot: "my-bot" } }))).toBe(
+      "my-bot",
+    );
   });
 
   it("returns object.login when present", () => {
-    expect(readCopilotLogin(reader({ bots: { copilot: { login: "obj-bot" } } }))).toBe("obj-bot");
+    expect(
+      readCopilotLogin(reader({ bots: { copilot: { login: "obj-bot" } } })),
+    ).toBe("obj-bot");
   });
 
   it("returns the default login when bots.copilot is absent", () => {
@@ -37,9 +44,11 @@ describe("readCopilotLogin", () => {
 
 describe("readCopilotClaimDeadlineSec", () => {
   it("returns the configured positive integer", () => {
-    expect(readCopilotClaimDeadlineSec(reader({ bots: { copilotClaimDeadlineSec: 180 } }))).toBe(
-      180,
-    );
+    expect(
+      readCopilotClaimDeadlineSec(
+        reader({ bots: { copilotClaimDeadlineSec: 180 } }),
+      ),
+    ).toBe(180);
   });
 
   it("returns undefined when bots is absent", () => {
@@ -52,25 +61,33 @@ describe("readCopilotClaimDeadlineSec", () => {
 
   it("returns undefined for a string value", () => {
     expect(
-      readCopilotClaimDeadlineSec(reader({ bots: { copilotClaimDeadlineSec: "soon" } })),
+      readCopilotClaimDeadlineSec(
+        reader({ bots: { copilotClaimDeadlineSec: "soon" } }),
+      ),
     ).toBeUndefined();
   });
 
   it("returns undefined for 0", () => {
     expect(
-      readCopilotClaimDeadlineSec(reader({ bots: { copilotClaimDeadlineSec: 0 } })),
+      readCopilotClaimDeadlineSec(
+        reader({ bots: { copilotClaimDeadlineSec: 0 } }),
+      ),
     ).toBeUndefined();
   });
 
   it("returns undefined for a negative value", () => {
     expect(
-      readCopilotClaimDeadlineSec(reader({ bots: { copilotClaimDeadlineSec: -5 } })),
+      readCopilotClaimDeadlineSec(
+        reader({ bots: { copilotClaimDeadlineSec: -5 } }),
+      ),
     ).toBeUndefined();
   });
 
   it("returns undefined for a float", () => {
     expect(
-      readCopilotClaimDeadlineSec(reader({ bots: { copilotClaimDeadlineSec: 1.5 } })),
+      readCopilotClaimDeadlineSec(
+        reader({ bots: { copilotClaimDeadlineSec: 1.5 } }),
+      ),
     ).toBeUndefined();
   });
 
@@ -100,12 +117,20 @@ describe("readCopilotConfig", () => {
     );
     expect(cfg.login).toBe("obj-bot");
     // Defaults preserved AND the configured extras appended (not replaced).
-    expect(cfg.globs.alwaysReview).toEqual([...DEFAULT_ALWAYS_REVIEW_GLOBS, "custom/**"]);
-    expect(cfg.globs.neverAlone).toEqual([...DEFAULT_NEVER_ALONE_GLOBS, "**/*.lock"]);
+    expect(cfg.globs.alwaysReview).toEqual([
+      ...DEFAULT_ALWAYS_REVIEW_GLOBS,
+      "custom/**",
+    ]);
+    expect(cfg.globs.neverAlone).toEqual([
+      ...DEFAULT_NEVER_ALONE_GLOBS,
+      "**/*.lock",
+    ]);
   });
 
   it("object form without globs → defaults", () => {
-    const cfg = readCopilotConfig(reader({ bots: { copilot: { login: "obj-bot" } } }));
+    const cfg = readCopilotConfig(
+      reader({ bots: { copilot: { login: "obj-bot" } } }),
+    );
     expect(cfg.globs.alwaysReview).toEqual(DEFAULT_ALWAYS_REVIEW_GLOBS);
     expect(cfg.globs.neverAlone).toEqual(DEFAULT_NEVER_ALONE_GLOBS);
   });
@@ -175,7 +200,9 @@ describe("matchesCopilot", () => {
   });
 
   it("matches the REST review author `…[bot]` form", () => {
-    expect(matchesCopilot("copilot-pull-request-reviewer[bot]", BASE)).toBe(true);
+    expect(matchesCopilot("copilot-pull-request-reviewer[bot]", BASE)).toBe(
+      true,
+    );
   });
 
   it("matches the GraphQL review author (bare) form", () => {
@@ -197,7 +224,9 @@ describe("matchesCopilot", () => {
 
 describe("readCopilotSkipWait", () => {
   it("is true only for a strict boolean true", () => {
-    expect(readCopilotSkipWait(reader({ bots: { copilotSkipWait: true } }))).toBe(true);
+    expect(
+      readCopilotSkipWait(reader({ bots: { copilotSkipWait: true } })),
+    ).toBe(true);
   });
 
   it("is false when absent", () => {
@@ -206,17 +235,23 @@ describe("readCopilotSkipWait", () => {
   });
 
   it("is false for a non-boolean value", () => {
-    expect(readCopilotSkipWait(reader({ bots: { copilotSkipWait: "yes" } }))).toBe(false);
+    expect(
+      readCopilotSkipWait(reader({ bots: { copilotSkipWait: "yes" } })),
+    ).toBe(false);
   });
 });
 
 describe("readCopilotAutoReview", () => {
   it("is true for a strict boolean true", () => {
-    expect(readCopilotAutoReview(reader({ bots: { copilotAutoReview: true } }))).toBe(true);
+    expect(
+      readCopilotAutoReview(reader({ bots: { copilotAutoReview: true } })),
+    ).toBe(true);
   });
 
   it("is false for a strict boolean false", () => {
-    expect(readCopilotAutoReview(reader({ bots: { copilotAutoReview: false } }))).toBe(false);
+    expect(
+      readCopilotAutoReview(reader({ bots: { copilotAutoReview: false } })),
+    ).toBe(false);
   });
 
   it("is undefined when absent", () => {
@@ -226,6 +261,8 @@ describe("readCopilotAutoReview", () => {
   });
 
   it("is undefined for a non-boolean value (string)", () => {
-    expect(readCopilotAutoReview(reader({ bots: { copilotAutoReview: "yes" } }))).toBeUndefined();
+    expect(
+      readCopilotAutoReview(reader({ bots: { copilotAutoReview: "yes" } })),
+    ).toBeUndefined();
   });
 });

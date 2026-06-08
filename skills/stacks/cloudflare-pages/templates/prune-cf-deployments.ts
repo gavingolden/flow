@@ -131,7 +131,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         if (flag === "--max") {
           const n = Number(value);
           if (!Number.isInteger(n) || n <= 0) {
-            return { error: `--max requires a positive integer; got '${value}'` };
+            return {
+              error: `--max requires a positive integer; got '${value}'`,
+            };
           }
           out.max = n;
         }
@@ -165,10 +167,7 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${re}$`);
 }
 
-export function matchesBranchFilter(
-  branch: string,
-  globs: string[],
-): boolean {
+export function matchesBranchFilter(branch: string, globs: string[]): boolean {
   if (globs.length === 0) return true;
   const positives: string[] = [];
   const negatives: string[] = [];
@@ -176,9 +175,7 @@ export function matchesBranchFilter(
     if (g.startsWith("!")) negatives.push(g.slice(1));
     else positives.push(g);
   }
-  const hitsNegative = negatives.some((n) =>
-    globToRegExp(n).test(branch),
-  );
+  const hitsNegative = negatives.some((n) => globToRegExp(n).test(branch));
   if (hitsNegative) return false;
   if (positives.length === 0) return true;
   return positives.some((p) => globToRegExp(p).test(branch));
@@ -196,11 +193,7 @@ export function shouldDelete(
   ) {
     return { delete: false, reason: "production-latest" };
   }
-  if (
-    args.keepAliased &&
-    deployment.aliases &&
-    deployment.aliases.length > 0
-  ) {
+  if (args.keepAliased && deployment.aliases && deployment.aliases.length > 0) {
     return { delete: false, reason: "aliased" };
   }
   const created = new Date(deployment.created_on);
@@ -283,10 +276,9 @@ export async function main(
   const eligible: Deployment[] = [];
   let page = 1;
   while (true) {
-    const res = await fetch(
-      `${base}/deployments?page=${page}&per_page=25`,
-      { headers },
-    );
+    const res = await fetch(`${base}/deployments?page=${page}&per_page=25`, {
+      headers,
+    });
     if (!res.ok) {
       const detail = await readErrorBody(res);
       process.stderr.write(
@@ -298,11 +290,7 @@ export async function main(
     const deployments: Deployment[] = body?.result ?? [];
     if (deployments.length === 0) break;
     for (const d of deployments) {
-      const verdict = shouldDelete(
-        d,
-        args,
-        productionDeploymentId,
-      );
+      const verdict = shouldDelete(d, args, productionDeploymentId);
       if (verdict.delete) eligible.push(d);
       if (eligible.length >= args.max) break;
     }
@@ -315,9 +303,7 @@ export async function main(
   );
   for (const d of eligible) {
     const branch = d.deployment_trigger?.metadata?.branch ?? "?";
-    process.stdout.write(
-      `  ${d.id}  ${d.created_on}  branch=${branch}\n`,
-    );
+    process.stdout.write(`  ${d.id}  ${d.created_on}  branch=${branch}\n`);
   }
 
   if (!args.apply) {

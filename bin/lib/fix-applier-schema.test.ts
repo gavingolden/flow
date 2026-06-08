@@ -30,14 +30,16 @@ const VALID_FULL: unknown = {
     {
       finding_id: "f-9",
       tracker_entry_url: "",
-      reason: "Pattern-Consistency: cross-cutting refactor; >3 files; bar criterion 2",
+      reason:
+        "Pattern-Consistency: cross-cutting refactor; >3 files; bar criterion 2",
     },
   ],
   rejected_alternatives: [
     {
       finding_id: "f-7",
       considered_approach: "throw on empty input",
-      why_rejected: "callers expect undefined, throwing would break two consumers",
+      why_rejected:
+        "callers expect undefined, throwing would break two consumers",
     },
   ],
   anti_patterns_found: [
@@ -81,7 +83,8 @@ describe("validateFixApplierResult — happy paths", () => {
 
   it("accepts deferred[].tracker_entry_url as empty string when no in-repo tracker exists", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
-    (fixture.deferred as Array<Record<string, unknown>>)[0].tracker_entry_url = "";
+    (fixture.deferred as Array<Record<string, unknown>>)[0].tracker_entry_url =
+      "";
     const result = validateFixApplierResult(fixture);
     expect(result.ok).toBe(true);
   });
@@ -184,7 +187,8 @@ describe("validateFixApplierResult — wrong-type rejections", () => {
 
   it("rejects a deferred[] entry where tracker_entry_url is null", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
-    (fixture.deferred as Array<Record<string, unknown>>)[0].tracker_entry_url = null;
+    (fixture.deferred as Array<Record<string, unknown>>)[0].tracker_entry_url =
+      null;
     const result = validateFixApplierResult(fixture);
     expect(result.ok).toBe(false);
     if (!result.ok) {

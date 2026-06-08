@@ -12,7 +12,10 @@ export function toDirSuffix(branchName: string): string {
 /** Returns true when the named branch ref exists locally. */
 export function branchExists(branchName: string, repoDir: string): boolean {
   try {
-    git(["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`], repoDir);
+    git(
+      ["show-ref", "--verify", "--quiet", `refs/heads/${branchName}`],
+      repoDir,
+    );
     return true;
   } catch {
     return false;

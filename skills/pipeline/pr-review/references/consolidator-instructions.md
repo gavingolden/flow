@@ -20,7 +20,7 @@ The Consolidator-Validator's job:
   them into a single findings array.
 - Apply the confidence threshold (>=80 for non-praise; praise findings
   pass through unfiltered) and dedup by `(file, line ± 2 lines window,
-  issue-class)`.
+issue-class)`.
 - Apply praise specificity (drop content-free praise).
 - Run a **second-opinion** validation pass on every >=80-confidence
   non-praise finding that survives dedup, moving false positives to
@@ -57,7 +57,7 @@ The wrapper passes you these inputs in its spawn prompt:
 - The PR diff path (`DIFF_PATH`, typically
   `$WORKTREE/.flow-tmp/diff.txt` — `flow-pr-diff <number>` output)
   and the PR metadata (`PR_METADATA`, the `gh pr view --json
-  number,title,headRefName,baseRefName` JSON the wrapper saved to
+number,title,headRefName,baseRefName` JSON the wrapper saved to
   scratch, or the same fields inlined). Both feed the second-opinion
   validation pass's in-scope-of-diff check below.
 - The absolute artifact path to write
@@ -118,12 +118,12 @@ one agent's output). Concatenate into a single in-memory array.
 Apply, in order:
 
 - **Confidence threshold**: drop non-praise findings with `confidence <
-  80`. Praise findings pass through (the threshold is non-praise-only
+80`. Praise findings pass through (the threshold is non-praise-only
   per Step 4's existing rules in pr-review/SKILL.md).
 - **Deduplication**: cluster findings by `(file, line ± 2 lines
-  window, issue-class)`. Keep the highest-confidence entry per cluster;
+window, issue-class)`. Keep the highest-confidence entry per cluster;
   drop the rest into `dropped_by_validation[]` with `reason:
-  "duplicate of <higher-confidence finding_id>"`. Two findings at the
+"duplicate of <higher-confidence finding_id>"`. Two findings at the
   same location about different issue classes (e.g. null deref vs.
   injection risk) are NOT duplicates and survive.
 - **Praise specificity**: drop praise findings that fail the
@@ -218,13 +218,13 @@ A summary that names only positive findings fails the contract.
 
 The five top-level keys, with their types and one-line descriptions:
 
-| Key | Type | Description |
-|---|---|---|
-| `consolidated_findings` | `Array<Finding>` | Per-agent findings that cleared the confidence threshold, dedup, praise specificity, and the second-opinion validation pass. Each carries `finding_id`, `agent_source`, and the standard per-agent finding fields (`file`, `line`, `end_line?`, `label`, `decoration`, `confidence`, `subject`, `body`). |
-| `dropped_by_validation` | `Array<{finding_id: string, original_finding: object, reason: string}>` | Findings the consolidator removed — duplicates, low-specificity praise, second-opinion false positives. The `reason` string names the rule that rejected each entry. |
-| `rejected_alternatives` | `Array<string>` | Consolidation strategies considered and rolled back (e.g. "dropped dedup window from ±5 to ±2 lines because long functions clustered unrelated findings"). |
-| `anti_patterns_found` | `Array<string>` | Off-pattern observations the next session should know about (e.g. "Pattern-Consistency and Performance agents both flagged the same `await`-in-loop; the lens-sharing rule worked but logged a clustering note"). |
-| `summary` | `string` | One-paragraph both-sides summary (≥1 positive, ≥1 negative). |
+| Key                     | Type                                                                    | Description                                                                                                                                                                                                                                                                                              |
+| ----------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `consolidated_findings` | `Array<Finding>`                                                        | Per-agent findings that cleared the confidence threshold, dedup, praise specificity, and the second-opinion validation pass. Each carries `finding_id`, `agent_source`, and the standard per-agent finding fields (`file`, `line`, `end_line?`, `label`, `decoration`, `confidence`, `subject`, `body`). |
+| `dropped_by_validation` | `Array<{finding_id: string, original_finding: object, reason: string}>` | Findings the consolidator removed — duplicates, low-specificity praise, second-opinion false positives. The `reason` string names the rule that rejected each entry.                                                                                                                                     |
+| `rejected_alternatives` | `Array<string>`                                                         | Consolidation strategies considered and rolled back (e.g. "dropped dedup window from ±5 to ±2 lines because long functions clustered unrelated findings").                                                                                                                                               |
+| `anti_patterns_found`   | `Array<string>`                                                         | Off-pattern observations the next session should know about (e.g. "Pattern-Consistency and Performance agents both flagged the same `await`-in-loop; the lens-sharing rule worked but logged a clustering note").                                                                                        |
+| `summary`               | `string`                                                                | One-paragraph both-sides summary (≥1 positive, ≥1 negative).                                                                                                                                                                                                                                             |
 
 The validator at `bin/lib/agent-finding-schema.ts` is the runtime
 schema reference: `validateConsolidatorResult(parsed)` enforces the
@@ -244,7 +244,7 @@ Two escalation paths are documented in
   malformed JSON in its candidate `.tmp` file).
 - **`consolidator-missing-artifact`** — fires when the wrapper's
   post-spawn existence check `test -s
-  $WORKTREE/.flow-tmp/consolidator-result.json` fails (the
+$WORKTREE/.flow-tmp/consolidator-result.json` fails (the
   Consolidator subagent crashed before writing its artifact).
 
 Both heredocs use the atomic write-`.tmp` → validate-`.tmp` → `mv`

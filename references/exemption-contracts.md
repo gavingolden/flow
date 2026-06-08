@@ -56,7 +56,7 @@ Task tool to handle the per-finding address loop plus pre-commit /
 commit / push. Artifact: `.flow-tmp/fix-applier-result.json` (typed
 fields `commits`, `deferred`, `rejected_alternatives`,
 `anti_patterns_found`, `summary`). The subagent invokes `/verify`
-against the post-fix worktree *before returning*, so a fix's CI breakage
+against the post-fix worktree _before returning_, so a fix's CI breakage
 surfaces in-context while the fix rationale is still live.
 
 ## Merge-Conflict Resolver Subagent
@@ -86,7 +86,7 @@ edit-applier agent via the Task tool to apply the edit-set and run
 `flow-pre-commit --json` against the post-edit worktree. Artifact:
 `<worktree>/.flow-tmp/coder-result.json` (typed fields `edits`,
 `verify_status`, `rejected_alternatives`, `anti_patterns_found`,
-`summary`). The subagent runs the verify re-run *before returning* so an
+`summary`). The subagent runs the verify re-run _before returning_ so an
 edit's type/lint/test breakage surfaces in-context. Trivially scoped
 edits skip the subagent via each caller's own hybrid threshold (see each
 caller's "Spawn procedure (wider-scope path only)" for the canonical

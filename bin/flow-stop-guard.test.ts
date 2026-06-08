@@ -12,10 +12,7 @@ import {
   TERMINAL_PHASES,
   type PipelineState,
 } from "./lib/state";
-import {
-  TURN_BLOCK_LIMIT,
-  type TurnTracking,
-} from "./lib/stop-turn-tracking";
+import { TURN_BLOCK_LIMIT, type TurnTracking } from "./lib/stop-turn-tracking";
 
 const FROZEN_NOW = "2026-05-17T00:00:00.000Z";
 
@@ -84,7 +81,10 @@ describe("flow-stop-guard short-circuits", () => {
       pane: "%1",
       slug: "demo",
       state: fakeState("verifying"),
-      turnTracking: fakeTracking({ blockCount: TURN_BLOCK_LIMIT, lastPhase: "implementing" }),
+      turnTracking: fakeTracking({
+        blockCount: TURN_BLOCK_LIMIT,
+        lastPhase: "implementing",
+      }),
     });
     expect(await run(deps)).toBe(0);
     expect(errLines.join("")).toContain("loop-break consumed");
@@ -166,16 +166,19 @@ describe("flow-stop-guard short-circuits", () => {
 });
 
 describe("flow-stop-guard allows legitimate end phases", () => {
-  it.each([...TERMINAL_PHASES])("exits 0 at terminal phase %s", async (phase) => {
-    const { deps, errLines } = makeDeps({
-      stdin: "{}",
-      pane: "%1",
-      slug: "demo",
-      state: fakeState(phase),
-    });
-    expect(await run(deps)).toBe(0);
-    expect(errLines).toEqual([]);
-  });
+  it.each([...TERMINAL_PHASES])(
+    "exits 0 at terminal phase %s",
+    async (phase) => {
+      const { deps, errLines } = makeDeps({
+        stdin: "{}",
+        pane: "%1",
+        slug: "demo",
+        state: fakeState(phase),
+      });
+      expect(await run(deps)).toBe(0);
+      expect(errLines).toEqual([]);
+    },
+  );
 
   it.each([...PENDING_PHASES])("exits 0 at pending phase %s", async (phase) => {
     const { deps, errLines } = makeDeps({
@@ -227,7 +230,10 @@ describe("flow-stop-guard blocks mid-pipeline", () => {
       ["ci-wait", "step 8 (review)"],
       ["reviewing", "step 9 (gate)"],
       ["gating", "step 10 (merge)"],
-      ["merging", "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED)"],
+      [
+        "merging",
+        "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED)",
+      ],
     ];
     for (const [phase, label] of expected) {
       const { deps, errLines } = makeDeps({
@@ -311,7 +317,10 @@ describe("per-turn tracking", () => {
     });
     expect(await run(deps)).toBe(0);
     expect(writeTurn).toHaveBeenCalledWith(
-      expect.objectContaining({ blockCount: 0, lastPhase: "plan-pending-review" }),
+      expect.objectContaining({
+        blockCount: 0,
+        lastPhase: "plan-pending-review",
+      }),
     );
   });
 
@@ -326,7 +335,10 @@ describe("per-turn tracking", () => {
       pane: "%1",
       slug: "demo",
       state: fakeState("plan-pending-review"),
-      turnTracking: fakeTracking({ blockCount: TURN_BLOCK_LIMIT, lastPhase: "verifying" }),
+      turnTracking: fakeTracking({
+        blockCount: TURN_BLOCK_LIMIT,
+        lastPhase: "verifying",
+      }),
     });
     expect(await run(deps)).toBe(0);
     expect(errLines).toEqual([]);

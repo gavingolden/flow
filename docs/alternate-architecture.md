@@ -2,8 +2,8 @@
 
 This document captures three radically different architectures that were
 sketched as alternatives to flow's current orchestrator-driven design. Each
-makes a different choice about *where state lives* and *where the user-facing
-interface lives*, which is the most consequential axis for how the system
+makes a different choice about _where state lives_ and _where the user-facing
+interface lives_, which is the most consequential axis for how the system
 feels day-to-day.
 
 This document captures the pre-decision landscape. **Design B (tmux as the
@@ -20,7 +20,7 @@ but imposes real costs on a single-user setup:
 - A new vocabulary to internalise: phases, gates, `task.md`,
   `.orchestrator/`, `flow-status`, `flow-watch`, `flow-approve`,
   `flow-revise`, `flow-add`.
-- Logs live in places the user has to *remember to look* rather than where
+- Logs live in places the user has to _remember to look_ rather than where
   they naturally land. Stalls require knowing which CLI verb surfaces them.
 - The "no LLM in the orchestrator" rule (load-bearing for sub-agent depth
   and context-window safety) requires a parallel Node-side state machine
@@ -41,7 +41,7 @@ The designs are evaluated against this seven-item baseline:
 1. From a chat or issue, kick off planning for a feature; pause for
    approval.
 2. After approval: worktree + implement + PR — unattended.
-3. Wait for Copilot to finish reviewing the PR, *then* run `/pr-review`.
+3. Wait for Copilot to finish reviewing the PR, _then_ run `/pr-review`.
 4. After `/pr-review`: auto-merge if low-risk, otherwise stop and surface.
 5. Run N pipelines in parallel without N attended terminals.
 6. At-a-glance status for all in-flight pipelines.
@@ -59,9 +59,10 @@ Reuse the existing `/product-planning` and `/pr-review` skills as-is.
 **Mental model.** Every pipeline is a GitHub Issue. State is encoded in
 labels. A small worker (local cron / launchd, or a GitHub Action) advances
 issues based on labels and posts status as comments. The GitHub Projects
-board *is* the status board.
+board _is_ the status board.
 
 **Lifecycle.**
+
 1. User opens a GitHub Issue with a feature description, labels it
    `flow:plan`.
 2. Worker sees `flow:plan` → spawns `claude -p '/product-planning ...'`,
@@ -79,15 +80,15 @@ board *is* the status board.
 
 **State machine** (labels are source of truth):
 
-| Label | Tick action |
-|---|---|
-| `flow:plan` | Run `/product-planning`, post plan, swap to `flow:awaiting-approval`. |
-| `flow:awaiting-approval` | Wait for ✅ reaction or `/approve` comment, swap to `flow:implement`. |
-| `flow:implement` | Worktree + implementation subprocess + open PR, swap PR to `flow:awaiting-copilot`. |
-| `flow:awaiting-copilot` | Poll PR review state; when Copilot is done, swap to `flow:review`. |
-| `flow:review` | Run `/pr-review`. If high-confidence + clean → `flow:auto-merge`, else → `flow:human-review`. |
-| `flow:auto-merge` | `gh pr merge --auto --squash`. Done. |
-| `flow:human-review` | Notify; terminal action. |
+| Label                    | Tick action                                                                                   |
+| ------------------------ | --------------------------------------------------------------------------------------------- |
+| `flow:plan`              | Run `/product-planning`, post plan, swap to `flow:awaiting-approval`.                         |
+| `flow:awaiting-approval` | Wait for ✅ reaction or `/approve` comment, swap to `flow:implement`.                         |
+| `flow:implement`         | Worktree + implementation subprocess + open PR, swap PR to `flow:awaiting-copilot`.           |
+| `flow:awaiting-copilot`  | Poll PR review state; when Copilot is done, swap to `flow:review`.                            |
+| `flow:review`            | Run `/pr-review`. If high-confidence + clean → `flow:auto-merge`, else → `flow:human-review`. |
+| `flow:auto-merge`        | `gh pr merge --auto --squash`. Done.                                                          |
+| `flow:human-review`      | Notify; terminal action.                                                                      |
 
 **Implementation shape.** A single Bun script `flow-tick.ts` on a 60s
 launchd timer. Per-issue lock files at `.flow/locks/<issue>.lock` prevent
@@ -107,12 +108,12 @@ number,title,labels`.
 
 **Parallelism.** Effectively unlimited. Each issue is independent.
 
-| Pros | Cons |
-|---|---|
-| Zero new UI to learn | Requires a long-running worker (launchd or Action) |
-| Logs travel with the artifact (the PR) | GH Actions runtime costs $ if used as the host |
-| State is durable + multi-device (approve from phone) | Tweaking a plan is a comment thread, not a chat |
-| Trivially parallel; status scales past 10 in-flight | Webhook setup if event-driven instead of polling |
+| Pros                                                 | Cons                                               |
+| ---------------------------------------------------- | -------------------------------------------------- |
+| Zero new UI to learn                                 | Requires a long-running worker (launchd or Action) |
+| Logs travel with the artifact (the PR)               | GH Actions runtime costs $ if used as the host     |
+| State is durable + multi-device (approve from phone) | Tweaking a plan is a comment thread, not a chat    |
+| Trivially parallel; status scales past 10 in-flight  | Webhook setup if event-driven instead of polling   |
 
 ---
 
@@ -128,19 +129,20 @@ a small shell function (`flow new`, `flow ls`, `flow a`) that spawns
 windows and finds them.
 
 **Lifecycle.**
+
 1. `flow new "add CSV export"` → creates worktree, opens tmux window
    named `csv-export`, starts Claude Code in it, sends initial prompt:
-   *"Run the planning + implementation + review pipeline for this
-   feature: …"*.
+   _"Run the planning + implementation + review pipeline for this
+   feature: …"_.
 2. Inside the window, the agent invokes `/product-planning`, prints the
-   plan, *waits for the user to type 'approved' or to redirect*.
+   plan, _waits for the user to type 'approved' or to redirect_.
 3. User attaches (`tmux a -t flow:csv-export`), reads, approves, detaches.
 4. Agent implements, opens PR, polls Copilot in a loop, runs `/pr-review`
    when Copilot is done, decides merge vs. stop.
 5. Window persists with full scrollback either way.
 
 **Implementation shape.** ~50 lines of shell. No state files: the tmux
-window *is* the state. Window name encodes phase
+window _is_ the state. Window name encodes phase
 (`csv-export:planning`, `csv-export:awaiting-copilot`).
 
 **Where state lives.** tmux server + git worktrees.
@@ -154,12 +156,12 @@ window *is* the state. Window name encodes phase
 
 **Parallelism.** Unlimited tmux windows.
 
-| Pros | Cons |
-|---|---|
-| Closest to the original "terminal per PR" workflow | Approving N tasks = attaching to N windows |
-| Logs ARE the chat — no separate viewer to learn | No durability if the laptop dies (unless tmux runs on a persistent host) |
-| Almost nothing new to learn | Status is a flat list — fine to ~5 tasks, harder past 10 |
-| Easy to redirect mid-flight ("actually, also do X") | Single-machine by default; phone-driven approval not feasible |
+| Pros                                                | Cons                                                                     |
+| --------------------------------------------------- | ------------------------------------------------------------------------ |
+| Closest to the original "terminal per PR" workflow  | Approving N tasks = attaching to N windows                               |
+| Logs ARE the chat — no separate viewer to learn     | No durability if the laptop dies (unless tmux runs on a persistent host) |
+| Almost nothing new to learn                         | Status is a flat list — fine to ~5 tasks, harder past 10                 |
+| Easy to redirect mid-flight ("actually, also do X") | Single-machine by default; phone-driven approval not feasible            |
 
 ---
 
@@ -175,18 +177,19 @@ drills into any task with `TaskOutput`. Approvals happen by chatting back
 to the supervisor, which forwards them via `SendMessage`.
 
 **Lifecycle.**
-1. Supervisor chat: *"Kick off a pipeline for: add CSV export."*
-2. Supervisor calls `TaskCreate` with a canonical prompt: *"Run the full
-   plan→implement→review pipeline; pause and ask before implementing."*
+
+1. Supervisor chat: _"Kick off a pipeline for: add CSV export."_
+2. Supervisor calls `TaskCreate` with a canonical prompt: _"Run the full
+   plan→implement→review pipeline; pause and ask before implementing."_
    The subagent creates the worktree itself.
 3. Subagent runs `/product-planning`, surfaces the plan, awaits a
    message.
-4. User: *"approve csv-export"* — supervisor calls `SendMessage` to the
+4. User: _"approve csv-export"_ — supervisor calls `SendMessage` to the
    relevant task.
 5. Subagent implements, opens PR, polls Copilot in a loop, runs
    `/pr-review`, either merges (if high-confidence + clean) or sends a
    `TaskUpdate` saying "human review needed."
-6. Supervisor surfaces status on demand: *"status of all flow tasks"* →
+6. Supervisor surfaces status on demand: _"status of all flow tasks"_ →
    `TaskList` rendering.
 
 **Implementation shape.** Almost nothing. A project-level `CLAUDE.md`
@@ -207,35 +210,35 @@ invocation.
 **Critical constraint.** Sub-agents can't spawn sub-agents (one-level
 cap — the same constraint that drove the orchestrator's
 "no-LLM-in-orchestrator" design). The subagent must invoke `/pr-review`
-as a *skill* (in-process instructions), not as a sub-subagent. Skills
+as a _skill_ (in-process instructions), not as a sub-subagent. Skills
 work in-process so this is feasible, but worth verifying before
 committing.
 
-| Pros | Cons |
-|---|---|
-| Almost zero new infrastructure; reuses Claude Code primitives | Long-running supervisor session — context bloat over days/weeks is real |
-| One chat surface for everything (kickoff, approve, status, drilldown) | Sub-agent depth cap requires `/pr-review` to run as in-process skill |
-| Trivial to extend (new pipeline = new prompt) | Hour-long pipelines bet on Claude Code's background-task durability |
-| Polling Copilot = the subagent's own sleep+poll loop | Supervisor crash mid-day loses in-memory task state (PRs survive on disk) |
+| Pros                                                                  | Cons                                                                      |
+| --------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Almost zero new infrastructure; reuses Claude Code primitives         | Long-running supervisor session — context bloat over days/weeks is real   |
+| One chat surface for everything (kickoff, approve, status, drilldown) | Sub-agent depth cap requires `/pr-review` to run as in-process skill      |
+| Trivial to extend (new pipeline = new prompt)                         | Hour-long pipelines bet on Claude Code's background-task durability       |
+| Polling Copilot = the subagent's own sleep+poll loop                  | Supervisor crash mid-day loses in-memory task state (PRs survive on disk) |
 
 ---
 
 ## Comparison
 
-| Axis | A: GitHub-native | B: tmux | C: Claude supervisor |
-|---|---|---|---|
-| Where state lives | GitHub labels + comments | tmux server + git | Claude Code task store + git |
-| Where logs live | PR/issue comments + `.flow/logs/` | tmux scrollback | `TaskOutput` |
-| Where approvals happen | GitHub comment / reaction | tmux window chat | Supervisor chat |
-| Lines of code to build | ~300–500 (worker) | ~50 (shell) | ~0–50 (mostly prompts) |
-| Durability if laptop dies | ✅ (state in GitHub) | ❌ (unless remote tmux host) | ⚠️ (depends on Claude Code task durability) |
-| At-a-glance status | ✅✅ (Projects board) | ✅ (`tmux ls`) | ✅ (`TaskList`) |
-| Drill into one task | Open the issue/PR | `tmux a -t name` | Ask the supervisor |
-| Cost to learn | ~0 (already use GH) | ~0 (already use tmux/CLI) | ~0 if comfortable with `Task`s |
-| Cost to maintain | Low — GH does heavy lifting | Lowest — barely any code | Lowest — barely any code |
-| Multi-machine ready | ✅ | ❌ | ❌ |
-| Scales to 10+ in-flight | ✅✅ | Degrades past ~5 | Linear log; fine but not visual |
-| Mid-flight redirect ergonomics | Comment thread | Inline chat | Inline chat |
+| Axis                           | A: GitHub-native                  | B: tmux                      | C: Claude supervisor                        |
+| ------------------------------ | --------------------------------- | ---------------------------- | ------------------------------------------- |
+| Where state lives              | GitHub labels + comments          | tmux server + git            | Claude Code task store + git                |
+| Where logs live                | PR/issue comments + `.flow/logs/` | tmux scrollback              | `TaskOutput`                                |
+| Where approvals happen         | GitHub comment / reaction         | tmux window chat             | Supervisor chat                             |
+| Lines of code to build         | ~300–500 (worker)                 | ~50 (shell)                  | ~0–50 (mostly prompts)                      |
+| Durability if laptop dies      | ✅ (state in GitHub)              | ❌ (unless remote tmux host) | ⚠️ (depends on Claude Code task durability) |
+| At-a-glance status             | ✅✅ (Projects board)             | ✅ (`tmux ls`)               | ✅ (`TaskList`)                             |
+| Drill into one task            | Open the issue/PR                 | `tmux a -t name`             | Ask the supervisor                          |
+| Cost to learn                  | ~0 (already use GH)               | ~0 (already use tmux/CLI)    | ~0 if comfortable with `Task`s              |
+| Cost to maintain               | Low — GH does heavy lifting       | Lowest — barely any code     | Lowest — barely any code                    |
+| Multi-machine ready            | ✅                                | ❌                           | ❌                                          |
+| Scales to 10+ in-flight        | ✅✅                              | Degrades past ~5             | Linear log; fine but not visual             |
+| Mid-flight redirect ergonomics | Comment thread                    | Inline chat                  | Inline chat                                 |
 
 ## How to choose between them
 
@@ -243,7 +246,7 @@ The discriminating questions:
 
 - **Is the bottleneck status visibility, or is it button-presses?** If
   visibility (i.e. "I'd run more tasks if I could track them"), Design A
-  is the only one that *qualitatively* improves visibility past ~5
+  is the only one that _qualitatively_ improves visibility past ~5
   in-flight. If button-presses, Design B is the closest path.
 - **Does durability across laptop sleep / device switch matter?** Only
   Design A is durable by default.

@@ -92,11 +92,21 @@ describe("flow setup", () => {
     expect(summary.blocked).toBe(0);
 
     const t = targets();
-    expect(fs.lstatSync(path.join(t.skillsDir, "alpha")).isSymbolicLink()).toBe(true);
-    expect(fs.lstatSync(path.join(t.skillsDir, "beta")).isSymbolicLink()).toBe(true);
-    expect(fs.lstatSync(path.join(t.agentsDir, "reviewer.md")).isSymbolicLink()).toBe(true);
-    expect(fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink()).toBe(true);
-    expect(fs.lstatSync(path.join(t.binDir, "flow")).isSymbolicLink()).toBe(true);
+    expect(fs.lstatSync(path.join(t.skillsDir, "alpha")).isSymbolicLink()).toBe(
+      true,
+    );
+    expect(fs.lstatSync(path.join(t.skillsDir, "beta")).isSymbolicLink()).toBe(
+      true,
+    );
+    expect(
+      fs.lstatSync(path.join(t.agentsDir, "reviewer.md")).isSymbolicLink(),
+    ).toBe(true);
+    expect(
+      fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink(),
+    ).toBe(true);
+    expect(fs.lstatSync(path.join(t.binDir, "flow")).isSymbolicLink()).toBe(
+      true,
+    );
   });
 
   it("strips the .ts extension when symlinking helpers", () => {
@@ -136,7 +146,10 @@ describe("flow setup", () => {
     const validators = discoverValidators(repoRoot);
     expect(validators).toHaveLength(2);
     const names = validators.map((v) => path.basename(v.target)).sort();
-    expect(names).toEqual(["flow-agent-finding-schema", "flow-pr-review-result-schema"]);
+    expect(names).toEqual([
+      "flow-agent-finding-schema",
+      "flow-pr-review-result-schema",
+    ]);
     for (const entry of validators) {
       expect(entry.kind).toBe("bin");
       expect(entry.source.includes(path.join("bin", "lib"))).toBe(true);
@@ -154,7 +167,9 @@ describe("flow setup", () => {
     fs.rmSync(path.join(flowSource, "bin", "lib", "agent-finding-schema.ts"));
     const validators = discoverValidators(flowSource, targets());
     expect(validators).toHaveLength(1);
-    expect(path.basename(validators[0].target)).toBe("flow-pr-review-result-schema");
+    expect(path.basename(validators[0].target)).toBe(
+      "flow-pr-review-result-schema",
+    );
   });
 
   it("discoverValidators returns [] when bin/lib is absent", () => {
@@ -198,7 +213,9 @@ describe("flow setup", () => {
     const summary = setup();
     expect(summary.blocked).toBeGreaterThan(0);
     // Real file untouched.
-    expect(fs.readFileSync(path.join(t.skillsDir, "alpha"), "utf8")).toBe("user content");
+    expect(fs.readFileSync(path.join(t.skillsDir, "alpha"), "utf8")).toBe(
+      "user content",
+    );
   });
 
   it("--force replaces a non-symlink file at the target", () => {
@@ -207,7 +224,9 @@ describe("flow setup", () => {
     fs.writeFileSync(path.join(t.binDir, "flow-helper"), "old content");
     const summary = setup({ force: true });
     expect(summary.blocked).toBe(0);
-    expect(fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink()).toBe(true);
+    expect(
+      fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink(),
+    ).toBe(true);
   });
 
   it("--upgrade reaps orphan symlinks recorded in a previous manifest", () => {
@@ -216,7 +235,9 @@ describe("flow setup", () => {
     const t = targets();
 
     // Drop alpha from the source tree.
-    fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), { recursive: true });
+    fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), {
+      recursive: true,
+    });
 
     // Re-run with --upgrade.
     const summary = setup({ upgrade: true });
@@ -258,18 +279,23 @@ describe("flow setup", () => {
     it("symlinks completion scripts into ~/.flow/completions/", () => {
       setup();
       const completionsDir = targets().completionsDir;
-      expect(fs.lstatSync(path.join(completionsDir, "flow.bash")).isSymbolicLink()).toBe(true);
-      expect(fs.lstatSync(path.join(completionsDir, "flow.zsh")).isSymbolicLink()).toBe(true);
+      expect(
+        fs.lstatSync(path.join(completionsDir, "flow.bash")).isSymbolicLink(),
+      ).toBe(true);
+      expect(
+        fs.lstatSync(path.join(completionsDir, "flow.zsh")).isSymbolicLink(),
+      ).toBe(true);
     });
 
     it("records completion symlinks in the manifest with kind 'completion'", () => {
       setup();
       const manifest = readManifest(manifestPath);
-      const completionEntries = manifest.symlinks.filter((s) => s.kind === "completion");
-      expect(completionEntries.map((s) => path.basename(s.target)).sort()).toEqual([
-        "flow.bash",
-        "flow.zsh",
-      ]);
+      const completionEntries = manifest.symlinks.filter(
+        (s) => s.kind === "completion",
+      );
+      expect(
+        completionEntries.map((s) => path.basename(s.target)).sort(),
+      ).toEqual(["flow.bash", "flow.zsh"]);
     });
 
     it("inserts the managed block into ~/.zshrc when it exists", () => {
@@ -359,7 +385,9 @@ describe("flow setup", () => {
     fs.symlinkSync(userTarget, path.join(t.skillsDir, "alpha"));
 
     // Drop alpha from the source so it would otherwise be an orphan.
-    fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), { recursive: true });
+    fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), {
+      recursive: true,
+    });
 
     const summary = setup({ upgrade: true });
     expect(summary.removed).toBe(0); // refused — replacement still resolves
@@ -384,7 +412,9 @@ describe("flow setup", () => {
     fs.symlinkSync(userTarget, path.join(t.skillsDir, "alpha"));
 
     // Drop alpha from the source so it qualifies as an orphan in the manifest.
-    fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), { recursive: true });
+    fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), {
+      recursive: true,
+    });
     // And remove the user's replacement target so the symlink is dangling.
     fs.rmSync(userTarget, { recursive: true, force: true });
 
@@ -423,7 +453,13 @@ describe("flow setup", () => {
         JSON.stringify({
           theme: "dark",
           hooks: {
-            Stop: [{ hooks: [{ type: "command", command: "/usr/local/bin/user-tool.sh" }] }],
+            Stop: [
+              {
+                hooks: [
+                  { type: "command", command: "/usr/local/bin/user-tool.sh" },
+                ],
+              },
+            ],
           },
         }),
       );
@@ -434,7 +470,9 @@ describe("flow setup", () => {
       };
       expect(got.theme).toBe("dark");
       expect(got.hooks.Stop).toHaveLength(2);
-      expect(got.hooks.Stop[0].hooks[0].command).toBe("/usr/local/bin/user-tool.sh");
+      expect(got.hooks.Stop[0].hooks[0].command).toBe(
+        "/usr/local/bin/user-tool.sh",
+      );
       expect(got.hooks.Stop[1].hooks[0].command).toBe("flow-stop-guard");
     });
 
@@ -495,7 +533,9 @@ describe("flow setup", () => {
         fs.mkdirSync(path.dirname(settingsP), { recursive: true });
         fs.writeFileSync(settingsP, '{"theme":"dar');
 
-        const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+        const logSpy = vi
+          .spyOn(console, "log")
+          .mockImplementation(() => undefined);
         try {
           runSetup({
             repairSettings: true,
@@ -535,7 +575,9 @@ describe("flow setup", () => {
           fs.mkdirSync(path.dirname(settingsP), { recursive: true });
           fs.symlinkSync(target, settingsP);
 
-          const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+          const logSpy = vi
+            .spyOn(console, "log")
+            .mockImplementation(() => undefined);
           try {
             const summary = runSetup({
               repairSettings: true,
@@ -555,7 +597,9 @@ describe("flow setup", () => {
             const parsed = JSON.parse(fs.readFileSync(target, "utf8"));
             expect(parsed).toBeDefined();
             expect(countStopHook(settingsP, "flow-stop-guard")).toBe(1);
-            const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+            const allLogs = logSpy.mock.calls
+              .map((c) => String(c[0]))
+              .join("\n");
             expect(allLogs).toMatch(/followed symlink to/);
           } finally {
             logSpy.mockRestore();
@@ -636,19 +680,20 @@ describe("flow setup", () => {
     // installed.json (under .flow), and both must parse cleanly.
     setup();
 
-    const roots = [
-      path.join(homeDir, ".claude"),
-      path.join(homeDir, ".flow"),
-    ];
+    const roots = [path.join(homeDir, ".claude"), path.join(homeDir, ".flow")];
     for (const root of roots) {
       if (!fs.existsSync(root)) continue;
-      const entries = fs.readdirSync(root, { withFileTypes: true, recursive: true });
+      const entries = fs.readdirSync(root, {
+        withFileTypes: true,
+        recursive: true,
+      });
       for (const entry of entries) {
         if (!entry.isFile()) continue;
         if (!entry.name.endsWith(".json")) continue;
-        const parentPath = (entry as { parentPath?: string; path?: string }).parentPath
-          ?? (entry as { path?: string }).path
-          ?? root;
+        const parentPath =
+          (entry as { parentPath?: string; path?: string }).parentPath ??
+          (entry as { path?: string }).path ??
+          root;
         const fullPath = path.join(parentPath, entry.name);
         const content = fs.readFileSync(fullPath, "utf8");
         expect(
@@ -665,7 +710,9 @@ describe("flow setup", () => {
       // extra skill that only exists in the worktree.
       const worktree = path.join(scratch, "worktree");
       buildFakeFlowSource(worktree);
-      fs.mkdirSync(path.join(worktree, "skills", "pipeline", "epsilon"), { recursive: true });
+      fs.mkdirSync(path.join(worktree, "skills", "pipeline", "epsilon"), {
+        recursive: true,
+      });
       fs.writeFileSync(
         path.join(worktree, "skills", "pipeline", "epsilon", "SKILL.md"),
         "# epsilon\n",
@@ -682,8 +729,12 @@ describe("flow setup", () => {
         expect(record.source.startsWith(worktree)).toBe(false);
       }
       // Spot-check that epsilon got recorded under install-root.
-      const epsilon = manifest.symlinks.find((s) => path.basename(s.target) === "epsilon");
-      expect(epsilon?.source).toBe(path.join(flowSource, "skills", "pipeline", "epsilon"));
+      const epsilon = manifest.symlinks.find(
+        (s) => path.basename(s.target) === "epsilon",
+      );
+      expect(epsilon?.source).toBe(
+        path.join(flowSource, "skills", "pipeline", "epsilon"),
+      );
     });
 
     it("symlinks still point at the worktree's content during the in-flight session", () => {
@@ -691,7 +742,9 @@ describe("flow setup", () => {
       // worktree files have to be reachable through the install target.
       const worktree = path.join(scratch, "worktree");
       buildFakeFlowSource(worktree);
-      fs.mkdirSync(path.join(worktree, "skills", "pipeline", "epsilon"), { recursive: true });
+      fs.mkdirSync(path.join(worktree, "skills", "pipeline", "epsilon"), {
+        recursive: true,
+      });
       fs.writeFileSync(
         path.join(worktree, "skills", "pipeline", "epsilon", "SKILL.md"),
         "# epsilon\n",
@@ -725,7 +778,9 @@ describe("flow setup", () => {
       // worktree.
       const worktree = path.join(scratch, "worktree");
       buildFakeFlowSource(worktree);
-      fs.mkdirSync(path.join(worktree, "skills", "pipeline", "epsilon"), { recursive: true });
+      fs.mkdirSync(path.join(worktree, "skills", "pipeline", "epsilon"), {
+        recursive: true,
+      });
       fs.writeFileSync(
         path.join(worktree, "skills", "pipeline", "epsilon", "SKILL.md"),
         "# epsilon\n",
@@ -799,7 +854,9 @@ describe("flow setup", () => {
       const recordBefore = manifestBefore.symlinks.find(
         (s) => path.basename(s.target) === "flow-pipeline-only",
       );
-      expect(recordBefore?.source).toBe(path.join(flowSource, "bin", "flow-pipeline-only.ts"));
+      expect(recordBefore?.source).toBe(
+        path.join(flowSource, "bin", "flow-pipeline-only.ts"),
+      );
 
       // (c) Simulate `flow-remove-worktree` — the worktree directory is gone.
       fs.rmSync(worktree, { recursive: true, force: true });
@@ -816,7 +873,9 @@ describe("flow setup", () => {
       expect(fs.existsSync(link)).toBe(false);
       const manifestAfter = readManifest(manifestPath);
       expect(
-        manifestAfter.symlinks.some((s) => path.basename(s.target) === "flow-pipeline-only"),
+        manifestAfter.symlinks.some(
+          (s) => path.basename(s.target) === "flow-pipeline-only",
+        ),
       ).toBe(false);
     });
   });
@@ -827,7 +886,10 @@ describe("flow setup", () => {
       // pointing at a skill, but the working tree's copy of that skill has
       // been removed by the user before the next reap pass. The backstop
       // must defer the dangling-reap because origin/<default> still has it.
-      buildFakeFlowSourceWithGit(flowSource, /* skillsInTree */ ["alpha", "beta"]);
+      buildFakeFlowSourceWithGit(
+        flowSource,
+        /* skillsInTree */ ["alpha", "beta"],
+      );
 
       // Stand up the symlink + manifest entry as if a prior run had installed
       // both alpha and beta.
@@ -836,12 +898,18 @@ describe("flow setup", () => {
 
       // Now: the user (or the supervisor's race) deletes alpha from the
       // working tree, but it still lives in origin/main's tree.
-      fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), { recursive: true });
+      fs.rmSync(path.join(flowSource, "skills", "pipeline", "alpha"), {
+        recursive: true,
+      });
 
       const linkBefore = path.join(t.skillsDir, "alpha");
-      expect(fs.existsSync(linkBefore) || fs.lstatSync(linkBefore).isSymbolicLink()).toBe(true);
+      expect(
+        fs.existsSync(linkBefore) || fs.lstatSync(linkBefore).isSymbolicLink(),
+      ).toBe(true);
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
       try {
         // Re-run with --upgrade. The reap pass would normally fire on the
         // dangling pointer; the backstop should defer because origin/main
@@ -859,7 +927,10 @@ describe("flow setup", () => {
       // Symmetric to PR #79: the recorded source is genuinely orphaned
       // (origin/main has no record of it), so the backstop must NOT fire
       // and the legacy dangling-reap must reap it.
-      buildFakeFlowSourceWithGit(flowSource, /* skillsInTree */ ["alpha", "beta"]);
+      buildFakeFlowSourceWithGit(
+        flowSource,
+        /* skillsInTree */ ["alpha", "beta"],
+      );
 
       // Install once.
       setup({ upgrade: true });
@@ -909,18 +980,28 @@ describe("flow setup", () => {
       // Mirrors the PR #115 race: the supervisor's `flow setup --upgrade`
       // (post-merge sweep) advances canonical, then reap runs against the
       // post-merge tree and does NOT consider the new skill orphaned.
-      buildFakeFlowSourceWithGit(flowSource, /* skillsInTree */ ["alpha", "beta"]);
+      buildFakeFlowSourceWithGit(
+        flowSource,
+        /* skillsInTree */ ["alpha", "beta"],
+      );
 
       // Simulate the new skill landing on origin/main but not yet merged
       // into the working tree — that's the race window.
       addSkillToOriginMain(flowSource, "epsilon");
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
       try {
         const summary = setup({ upgrade: true });
         // The fast-forward should have advanced canonical, pulling epsilon
         // into the working tree.
-        const epsilonDir = path.join(flowSource, "skills", "pipeline", "epsilon");
+        const epsilonDir = path.join(
+          flowSource,
+          "skills",
+          "pipeline",
+          "epsilon",
+        );
         expect(fs.existsSync(epsilonDir)).toBe(true);
         // The reap pass must not have fired on the freshly-merged skill.
         expect(summary.removed).toBe(0);
@@ -933,9 +1014,14 @@ describe("flow setup", () => {
       // Direct opt-out check: when the caller passes pullCanonicalFirst:
       // false, the FF call must not run — no fetch, no merge, the canonical
       // line is silent.
-      buildFakeFlowSourceWithGit(flowSource, /* skillsInTree */ ["alpha", "beta"]);
+      buildFakeFlowSourceWithGit(
+        flowSource,
+        /* skillsInTree */ ["alpha", "beta"],
+      );
 
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
       try {
         runSetup({
           upgrade: true,
@@ -965,7 +1051,9 @@ describe("flow setup", () => {
         recursive: true,
         force: true,
       });
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
       try {
         const summary = runSetup({
           flowSource,
@@ -988,7 +1076,9 @@ describe("flow setup", () => {
     });
 
     it("leaves summary.missingRuntimeDeps empty and emits no dep error when all deps resolve", () => {
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
       try {
         const summary = setup();
         expect(summary.missingRuntimeDeps).toEqual([]);
@@ -1023,7 +1113,10 @@ describe("flow setup", () => {
         // Simulate a successful install by materializing the missing module.
         const dir = path.join(root, "node_modules", "picomatch");
         fs.mkdirSync(dir, { recursive: true });
-        fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "picomatch" }));
+        fs.writeFileSync(
+          path.join(dir, "package.json"),
+          JSON.stringify({ name: "picomatch" }),
+        );
         return { ok: true };
       };
       const summary = setup({ installDeps: true, installRunner });
@@ -1040,7 +1133,9 @@ describe("flow setup", () => {
         recursive: true,
         force: true,
       });
-      const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
       try {
         const installRunner = (): { ok: boolean; stderr: string } => ({
           ok: false,
@@ -1109,9 +1204,15 @@ function buildFakeFlowSource(root: string): void {
   // bin/flow-helper.ts + bin/flow-helper.test.ts + bin/flow
   const binDir = path.join(root, "bin");
   fs.mkdirSync(binDir, { recursive: true });
-  fs.writeFileSync(path.join(binDir, "flow-helper.ts"), "#!/usr/bin/env bun\n// helper\n");
+  fs.writeFileSync(
+    path.join(binDir, "flow-helper.ts"),
+    "#!/usr/bin/env bun\n// helper\n",
+  );
   fs.writeFileSync(path.join(binDir, "flow-helper.test.ts"), "// test\n");
-  fs.writeFileSync(path.join(binDir, "flow"), "#!/usr/bin/env bun\n// wrapper\n");
+  fs.writeFileSync(
+    path.join(binDir, "flow"),
+    "#!/usr/bin/env bun\n// wrapper\n",
+  );
 
   // bin/lib/ — the two allowlisted schema validators plus a non-allowlisted
   // schema module. discoverValidators must ship exactly the two on the
@@ -1126,13 +1227,22 @@ function buildFakeFlowSource(root: string): void {
     path.join(libDir, "agent-finding-schema.ts"),
     "#!/usr/bin/env bun\n// validator\n",
   );
-  fs.writeFileSync(path.join(libDir, "foo-schema.ts"), "// library-only, not allowlisted\n");
+  fs.writeFileSync(
+    path.join(libDir, "foo-schema.ts"),
+    "// library-only, not allowlisted\n",
+  );
 
   // completions/flow.bash + completions/flow.zsh
   const completionsDir = path.join(root, "completions");
   fs.mkdirSync(completionsDir, { recursive: true });
-  fs.writeFileSync(path.join(completionsDir, "flow.bash"), "# fake bash completion\n");
-  fs.writeFileSync(path.join(completionsDir, "flow.zsh"), "#compdef flow\n# fake\n");
+  fs.writeFileSync(
+    path.join(completionsDir, "flow.bash"),
+    "# fake bash completion\n",
+  );
+  fs.writeFileSync(
+    path.join(completionsDir, "flow.zsh"),
+    "#compdef flow\n# fake\n",
+  );
 
   // package.json declaring two runtime deps, plus a node_modules tree that
   // resolves both — so the dep-resolution check passes for the default
@@ -1143,7 +1253,10 @@ function buildFakeFlowSource(root: string): void {
 }
 
 /** Write a package.json with the given runtime `dependencies` map. */
-function writeFakePackageJson(root: string, deps: Record<string, string>): void {
+function writeFakePackageJson(
+  root: string,
+  deps: Record<string, string>,
+): void {
   fs.writeFileSync(
     path.join(root, "package.json"),
     JSON.stringify({ name: "fake-flow", dependencies: deps }),
@@ -1165,7 +1278,10 @@ function stubNodeModule(root: string, name: string): void {
  * walk it. Network-free — there's no actual `origin` remote, just the local
  * remote-tracking ref.
  */
-function buildFakeFlowSourceWithGit(root: string, skillsInTree: string[]): void {
+function buildFakeFlowSourceWithGit(
+  root: string,
+  skillsInTree: string[],
+): void {
   buildFakeFlowSource(root);
   const env = {
     ...process.env,
@@ -1182,7 +1298,10 @@ function buildFakeFlowSourceWithGit(root: string, skillsInTree: string[]): void 
     return r.stdout;
   };
   // Bare origin sibling; the canonical checkout pushes to it.
-  const originDir = path.join(path.dirname(root), `${path.basename(root)}.origin.git`);
+  const originDir = path.join(
+    path.dirname(root),
+    `${path.basename(root)}.origin.git`,
+  );
   fs.mkdirSync(originDir, { recursive: true });
   spawnSync("git", ["init", "--bare", "-b", "main", originDir], { env });
 
@@ -1199,7 +1318,11 @@ function buildFakeFlowSourceWithGit(root: string, skillsInTree: string[]): void 
   run(root, ["fetch", "origin"]);
   // Set up origin/HEAD so resolveDefaultBranch's symbolic-ref probe works
   // (mirrors a freshly-cloned repo).
-  run(root, ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"]);
+  run(root, [
+    "symbolic-ref",
+    "refs/remotes/origin/HEAD",
+    "refs/remotes/origin/main",
+  ]);
   void skillsInTree;
 }
 
@@ -1230,9 +1353,15 @@ function addSkillToOriginMain(root: string, name: string): void {
   // Build the new commit on a sibling clone so the canonical checkout's HEAD
   // and working tree don't move. Pushing back to the bare origin then leaves
   // origin/main ahead of canonical/main — the FF path has work to do.
-  const stagingDir = path.join(path.dirname(root), `${path.basename(root)}.staging`);
+  const stagingDir = path.join(
+    path.dirname(root),
+    `${path.basename(root)}.staging`,
+  );
   fs.rmSync(stagingDir, { recursive: true, force: true });
-  const originDir = path.join(path.dirname(root), `${path.basename(root)}.origin.git`);
+  const originDir = path.join(
+    path.dirname(root),
+    `${path.basename(root)}.origin.git`,
+  );
   spawnSync("git", ["clone", "-b", "main", originDir, stagingDir], { env });
   run(stagingDir, ["config", "user.email", "test@example.com"]);
   run(stagingDir, ["config", "user.name", "test"]);

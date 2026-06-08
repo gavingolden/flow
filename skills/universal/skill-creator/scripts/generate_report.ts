@@ -59,16 +59,24 @@ export function generateHtml(
   if (history.length > 0) {
     const first = history[0];
     for (const r of first.train_results || first.results || []) {
-      trainQueries.push({ query: r.query, should_trigger: r.should_trigger ?? true });
+      trainQueries.push({
+        query: r.query,
+        should_trigger: r.should_trigger ?? true,
+      });
     }
     if (first.test_results) {
       for (const r of first.test_results) {
-        testQueries.push({ query: r.query, should_trigger: r.should_trigger ?? true });
+        testQueries.push({
+          query: r.query,
+          should_trigger: r.should_trigger ?? true,
+        });
       }
     }
   }
 
-  const refreshTag = autoRefresh ? '    <meta http-equiv="refresh" content="5">\n' : "";
+  const refreshTag = autoRefresh
+    ? '    <meta http-equiv="refresh" content="5">\n'
+    : "";
 
   const parts: string[] = [];
 
@@ -157,11 +165,15 @@ ${refreshTag}    <title>${titlePrefix}Skill Description Optimization</title>
 
   for (const q of trainQueries) {
     const pol = q.should_trigger ? "positive-col" : "negative-col";
-    parts.push(`                <th class="${pol}">${escapeHtml(q.query)}</th>\n`);
+    parts.push(
+      `                <th class="${pol}">${escapeHtml(q.query)}</th>\n`,
+    );
   }
   for (const q of testQueries) {
     const pol = q.should_trigger ? "positive-col" : "negative-col";
-    parts.push(`                <th class="test-col ${pol}">${escapeHtml(q.query)}</th>\n`);
+    parts.push(
+      `                <th class="test-col ${pol}">${escapeHtml(q.query)}</th>\n`,
+    );
   }
 
   parts.push(`            </tr>
@@ -200,7 +212,10 @@ ${refreshTag}    <title>${titlePrefix}Skill Description Optimization</title>
       ).iteration;
     } else {
       bestIter = history.reduce((best, h) =>
-        (h.train_passed ?? h.passed ?? 0) > (best.train_passed ?? best.passed ?? 0) ? h : best,
+        (h.train_passed ?? h.passed ?? 0) >
+        (best.train_passed ?? best.passed ?? 0)
+          ? h
+          : best,
       ).iteration;
     }
   }

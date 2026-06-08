@@ -36,7 +36,8 @@ function comment(overrides: Partial<ReviewComment> = {}): ReviewComment {
   };
 }
 
-const intentBody = (rationale: string) => `${WHY_PREFIX}${rationale}\n\n${INTEGRITY_SUFFIX}`;
+const intentBody = (rationale: string) =>
+  `${WHY_PREFIX}${rationale}\n\n${INTEGRITY_SUFFIX}`;
 
 // --- isIntentComment ---
 
@@ -107,14 +108,31 @@ describe(formatIntentComments, () => {
       comment({ id: 1, user: { login: REVIEWER }, body: intentBody("rev1") }),
       comment({ id: 2, user: { login: REVIEWER }, body: intentBody("rev2") }),
     ];
-    expect(formatIntentComments(reviewerComments, AUTHOR)).toBe(NO_MATCHES_MESSAGE);
+    expect(formatIntentComments(reviewerComments, AUTHOR)).toBe(
+      NO_MATCHES_MESSAGE,
+    );
   });
 
   it("(e) formats matching comments as `- <file>:L<line> → <stripped>` in path-alphabetical order", () => {
     const comments: ReviewComment[] = [
-      comment({ id: 1, path: "b.ts", line: 20, body: intentBody("second-file rationale") }),
-      comment({ id: 2, path: "a.ts", line: 10, body: intentBody("first-file rationale") }),
-      comment({ id: 3, path: "a.ts", line: 5, body: intentBody("first-file earlier") }),
+      comment({
+        id: 1,
+        path: "b.ts",
+        line: 20,
+        body: intentBody("second-file rationale"),
+      }),
+      comment({
+        id: 2,
+        path: "a.ts",
+        line: 10,
+        body: intentBody("first-file rationale"),
+      }),
+      comment({
+        id: 3,
+        path: "a.ts",
+        line: 5,
+        body: intentBody("first-file earlier"),
+      }),
     ];
     const out = formatIntentComments(comments, AUTHOR);
     const lines = out.split("\n");
@@ -127,7 +145,12 @@ describe(formatIntentComments, () => {
 
   it("filters out non-author comments mixed with valid intent annotations", () => {
     const comments: ReviewComment[] = [
-      comment({ id: 1, path: "a.ts", line: 1, body: intentBody("author rationale") }),
+      comment({
+        id: 1,
+        path: "a.ts",
+        line: 1,
+        body: intentBody("author rationale"),
+      }),
       // Reviewer pretending to be an intent annotation: should be dropped.
       comment({
         id: 2,

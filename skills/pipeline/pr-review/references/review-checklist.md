@@ -451,7 +451,9 @@ the actual rendered output.
 const visibleSeriesNames = graph.expressions
   .filter((e) => e.isVisible && e.isValid)
   .map((e) => e.name);
-const missingSeriesNames = visibleSeriesNames.filter((name) => !presentSeriesNames.has(name));
+const missingSeriesNames = visibleSeriesNames.filter(
+  (name) => !presentSeriesNames.has(name),
+);
 
 // GOOD: Read from the same producer the chart uses, so granularities match.
 const visibleSeriesNames = graph.chartDataKeys;
@@ -505,7 +507,7 @@ if (existingPr) return resumeFromCrash(existingPr, ctx);
 await retryOnce(() => runImplementPhase(ctx));
 ```
 
-**General rule:** Retry wrappers are for failures that happen *before* side effects, not
+**General rule:** Retry wrappers are for failures that happen _before_ side effects, not
 after. Anything that crosses a non-idempotent boundary needs a pre-check or an opt-out.
 
 ---
@@ -540,17 +542,28 @@ built around the return value crashes instead of recovering).
 // BAD: if `npm` is missing on PATH, or the command hits the timeout, execa
 // throws — and the orchestrator's retry/surface logic, built around a
 // returned value, crashes the whole phase.
-const result = await execa("npm", ["run", "verify"], { cwd, reject: false, timeout: 600_000 });
+const result = await execa("npm", ["run", "verify"], {
+  cwd,
+  reject: false,
+  timeout: 600_000,
+});
 return { ok: result.exitCode === 0, output: result.all ?? "" };
 
 // GOOD: try/catch converts spawn/timeout throws into the same shape and
 // preserves any partial output captured before the throw.
 try {
-  const result = await execa("npm", ["run", "verify"], { cwd, reject: false, timeout: 600_000 });
+  const result = await execa("npm", ["run", "verify"], {
+    cwd,
+    reject: false,
+    timeout: 600_000,
+  });
   return { ok: result.exitCode === 0, output: result.all ?? "" };
 } catch (err) {
   const e = err as { all?: string; shortMessage?: string; message?: string };
-  return { ok: false, output: e.all ?? e.shortMessage ?? e.message ?? String(err) };
+  return {
+    ok: false,
+    output: e.all ?? e.shortMessage ?? e.message ?? String(err),
+  };
 }
 ```
 
@@ -580,7 +593,7 @@ repo.
 
 1. Grep cross-context diagnostics for producer-repo paths, internal script names, and
    producer-specific jargon.
-2. Rewrite each in target-repo terms — describe the *missing capability*, not the producer's
+2. Rewrite each in target-repo terms — describe the _missing capability_, not the producer's
    implementation. "repository's `verify` npm script" beats "flow's pre-commit-checks.ts".
 3. Where remediation truly requires producer-repo action, prefix with the producer's name
    (e.g. `flow:`) so the user knows which tool is asking, instead of dumping a bare path.
@@ -591,7 +604,11 @@ repo.
 // BAD: shipped to consumer repos, but the message points the user at a file
 // that only exists inside flow.
 if (!scripts.verify) {
-  return { ok: false, output: "package.json has no 'verify' script; run flow's pre-commit-checks.ts" };
+  return {
+    ok: false,
+    output:
+      "package.json has no 'verify' script; run flow's pre-commit-checks.ts",
+  };
 }
 
 // GOOD: describes the missing capability in target-repo terms.
@@ -692,7 +709,7 @@ one error message ships.
 2. Audit `spawnSync` callers: the catch block is dead for ENOENT (and a few others). The
    real signal is `r.error?.code` — check that, not `try/catch`.
 3. Replace the boolean `null` with a discriminated union (`{ kind: "ok" | "tool-missing"
-   | "wrong-cwd" }`) and let the call site branch on the cause. Keep a string-or-null
+| "wrong-cwd" }`) and let the call site branch on the cause. Keep a string-or-null
    adapter for tests that don't need the granularity.
 
 ### Example — `findCanonicalRoot` collapsing git-missing into "not a repo" (PR #29)
@@ -703,7 +720,10 @@ one error message ships.
 // inside a git repository" and tries to cd into one — which won't help.
 export function findCanonicalRoot(cwd: string): string | null {
   try {
-    const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" });
+    const r = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+      cwd,
+      encoding: "utf8",
+    });
     if (r.status === 0 && r.stdout) return r.stdout.trim();
   } catch {
     // git not on PATH — but spawnSync doesn't throw on ENOENT, so this never fires.
@@ -724,7 +744,10 @@ type RootResult =
   | { kind: "not-a-repo" };
 
 export function findCanonicalRootResult(cwd: string): RootResult {
-  const r = spawnSync("git", ["rev-parse", "--show-toplevel"], { cwd, encoding: "utf8" });
+  const r = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+    cwd,
+    encoding: "utf8",
+  });
   if ((r.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
     return { kind: "git-missing" };
   }
@@ -752,7 +775,7 @@ of them. Use a discriminated union and let the cause survive to the message. Aud
 
 ## Replacement-String Metacharacter Expansion in `String.prototype.replace`
 
-When user-supplied (or otherwise externally-sourced) text becomes the *replacement* argument to a
+When user-supplied (or otherwise externally-sourced) text becomes the _replacement_ argument to a
 JavaScript `String.prototype.replace(...)` call with a **string** replacement, the engine
 interprets `$&`, `$1`–`$99`, `$$`, `$\``, `$'`, and `$<name>` as substitution patterns. Any
 literal occurrence of those sequences in the user input is silently rewritten, corrupting
@@ -760,7 +783,7 @@ the output. The bug is invisible until a user happens to type one of the expansi
 at which point the result depends on the surrounding match — typically replacing a small
 literal with a large slice of the matched region.
 
-This is distinct from regex injection: the *search* argument is fine; only the replacement
+This is distinct from regex injection: the _search_ argument is fine; only the replacement
 string is interpreted. The fix is always the same — pass a function replacer
 (`replace(re, () => replacement)`) so the replacement string is never re-parsed.
 
@@ -922,7 +945,7 @@ is later **reused from a non-CLI caller** — a phase, a long-running orchestrat
 test harness — those exits bypass the caller's try/catch and terminate the entire
 host process. This is distinct from the "Subprocess Wrapper Non-Throwing Contracts"
 pattern: that one is about throws bypassing a Result variant, this one is about
-*process termination* bypassing it. A try/catch can't catch `process.exit`.
+_process termination_ bypassing it. A try/catch can't catch `process.exit`.
 
 The bug is invisible while the unreachable-from-here analysis happens to hold (the
 specific arguments a phase passes never trip the validation). It surfaces the moment
@@ -1007,7 +1030,7 @@ calls into both `runPlanPhase` and `runGatePhase`) can surface only post-merge.
 
 - The PR's base SHA differs materially from current `origin/main` (multiple commits
   behind, especially feat/fix commits that touch modules the PR integrates with)
-- The PR adds a new phase, hook, middleware, or pipeline step that *composes* with
+- The PR adds a new phase, hook, middleware, or pipeline step that _composes_ with
   existing modules — even if the PR's diff doesn't touch those modules' files
 - Mocks in tests stub out the very modules that have changed on `main` (so the test
   cannot detect a contract drift)
@@ -1055,7 +1078,7 @@ and READMEs.
 - Prose paragraphs in skill docs / READMEs that cite a long shell command,
   variable, or file path inside backticks
 - Blockquoted hard rules (the supervisor SKILL.md style: `> **rule.**
-  body…`) where the rule text wraps mid-code-span
+body…`) where the rule text wraps mid-code-span
 
 ### How to check
 
@@ -1074,17 +1097,19 @@ and READMEs.
 ```markdown
 <!-- BAD: code span split across newline; renderers may treat the
      closing backtick + angle-bracket text as literal. -->
+
 > **You never run `git branch -m` or `git switch
-> <other-pipeline-branch>`.** Branch renames and ...
+<other-pipeline-branch>`.** Branch renames and ...
 
 <!-- GOOD: keep the code span on one line, wrap the surrounding
      prose around it. -->
+
 > **You never run `git branch -m` or `git switch <other-pipeline-branch>`.**
 > Branch renames and ...
 ```
 
 **General rule:** When hard-wrapping markdown prose, line breaks must
-fall *outside* every backtick pair. If a single code span is too long
+fall _outside_ every backtick pair. If a single code span is too long
 to keep on one line, split it into two adjacent spans — never wrap
 mid-span.
 
@@ -1096,7 +1121,7 @@ When a PR drops a top-level field from `package.json` (`bin`, `main`,
 `exports`, `types`, `engines`, `files`, `scripts.prepare`,
 `scripts.postinstall`, etc.), check that no documented user-facing
 install or invocation path silently breaks. The deletion is often the
-*intent* — but the docs and any external onboarding flows must be
+_intent_ — but the docs and any external onboarding flows must be
 consistent with the new world. A reader still typing `npm i -g <pkg>`
 or `npm link` will get a successful install with no executable shim.
 
@@ -1156,8 +1181,8 @@ sections before approving.
 ## Agent Prompt Cites A Confidence Range That Diverges From The Helper's Filter Default
 
 Agent role prompts that describe a pre-digest lens's payload sometimes
-restate the lens's *internal* confidence-score range (e.g., "biome
-diagnostics 75–90") rather than the *filtered* range the agent actually
+restate the lens's _internal_ confidence-score range (e.g., "biome
+diagnostics 75–90") rather than the _filtered_ range the agent actually
 receives. The helper applies `confidence >= min_confidence` (default 80)
 before emitting findings, so any range whose lower bound is below the
 default is a lie about what shows up in the agent's
@@ -1190,13 +1215,15 @@ to see confidence-77 findings; they never will.
 
 ```markdown
 BAD: claims findings the agent will never see, because the helper
-     filters to confidence >= 80 before emitting.
+filters to confidence >= 80 before emitting.
+
 1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`lint`** lens —
    biome or eslint diagnostics (confidence 75–90, source `biome` or
    `eslint`) on PR-touched lines.
 
 GOOD: references the filter default by name; the prose stays true even
-      if the default moves.
+if the default moves.
+
 1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`lint`** lens —
    biome or eslint diagnostics (source `biome` or `eslint`) on
    PR-touched lines, already filtered to `confidence >= min_confidence`
@@ -1243,10 +1270,12 @@ number that sums components as a derivation reviewers must re-do.
 
 ```markdown
 BAD: 200 + 1 + 100 = 301, not 300; flow-pr-diff.test.ts:90 asserts 301.
+
 - `flow-pr-diff` per-file caps each block at 300 lines (head 200 +
   truncation marker + tail 100).
 
 GOOD: budget and wire size separated so the marker is accounted for.
+
 - `flow-pr-diff` per-file caps each block at 300 source lines
   (head 200 + tail 100); truncated files emit one extra marker line,
   for at most 301 lines on the wire.

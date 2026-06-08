@@ -95,7 +95,8 @@ export function parseSkillMd(skillPath: string): {
         i++;
         while (
           i < frontmatterLines.length &&
-          (frontmatterLines[i].startsWith("  ") || frontmatterLines[i].startsWith("\t"))
+          (frontmatterLines[i].startsWith("  ") ||
+            frontmatterLines[i].startsWith("\t"))
         ) {
           continuationLines.push(frontmatterLines[i].trim());
           i++;

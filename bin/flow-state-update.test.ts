@@ -11,7 +11,12 @@ import {
   phaseError,
   runUpdate,
 } from "./flow-state-update";
-import { PIPELINE_PHASES, readState, writeState, type PipelineState } from "./lib/state";
+import {
+  PIPELINE_PHASES,
+  readState,
+  writeState,
+  type PipelineState,
+} from "./lib/state";
 
 let dir!: string;
 
@@ -61,15 +66,21 @@ describe("parseArgs", () => {
   });
 
   it("rejects unknown flags", () => {
-    expect(parseArgs(["foo", "--bogus", "x"])).toEqual({ error: "unknown flag: --bogus" });
+    expect(parseArgs(["foo", "--bogus", "x"])).toEqual({
+      error: "unknown flag: --bogus",
+    });
   });
 
   it("rejects a flag with no value", () => {
-    expect(parseArgs(["foo", "--phase"])).toEqual({ error: "--phase requires a value" });
+    expect(parseArgs(["foo", "--phase"])).toEqual({
+      error: "--phase requires a value",
+    });
   });
 
   it("rejects a flag whose value is the next flag", () => {
-    expect(parseArgs(["foo", "--phase", "--pr"])).toEqual({ error: "--phase requires a value" });
+    expect(parseArgs(["foo", "--phase", "--pr"])).toEqual({
+      error: "--phase requires a value",
+    });
   });
 
   it("rejects a non-integer --pr", () => {
@@ -86,7 +97,15 @@ describe("parseArgs", () => {
 
   it("parses all three flags together", () => {
     expect(
-      parseArgs(["csv-export", "--phase", "implementing", "--pr", "142", "--worktree", "/tmp/w"]),
+      parseArgs([
+        "csv-export",
+        "--phase",
+        "implementing",
+        "--pr",
+        "142",
+        "--worktree",
+        "/tmp/w",
+      ]),
     ).toEqual({
       slug: "csv-export",
       phase: "implementing",
@@ -96,7 +115,9 @@ describe("parseArgs", () => {
   });
 
   it("parses --session-id into Args", () => {
-    expect(parseArgs(["foo", "--session-id", "b034430c-03bd-4fa0-8393"])).toEqual({
+    expect(
+      parseArgs(["foo", "--session-id", "b034430c-03bd-4fa0-8393"]),
+    ).toEqual({
       slug: "foo",
       sessionId: "b034430c-03bd-4fa0-8393",
     });
@@ -139,7 +160,8 @@ describe("parseArgs", () => {
 
   it("rejects an unknown --phase value with a near-match suggestion", () => {
     expect(parseArgs(["foo", "--phase", "implmenting"])).toEqual({
-      error: "--phase 'implmenting' is not a valid pipeline phase; did you mean 'implementing'?",
+      error:
+        "--phase 'implmenting' is not a valid pipeline phase; did you mean 'implementing'?",
     });
   });
 
@@ -181,7 +203,10 @@ describe("applyUpdate", () => {
       worktree: "/tmp/w",
       updatedAt: "2026-04-30T12:00:00Z",
     };
-    const updated = applyUpdate(existing, { slug: "csv-export", phase: "implementing" });
+    const updated = applyUpdate(existing, {
+      slug: "csv-export",
+      phase: "implementing",
+    });
     expect(updated.phase).toBe("implementing");
     expect(updated.worktree).toBe("/tmp/w"); // preserved
     expect(updated.repo).toBe("/tmp/repo"); // preserved
@@ -205,7 +230,9 @@ describe("runUpdate", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const code = runUpdate(["missing", "--phase", "implementing"], dir);
     expect(code).toBe(1);
-    expect(errSpy.mock.calls.flat().join("\n")).toContain("no state file for slug 'missing'");
+    expect(errSpy.mock.calls.flat().join("\n")).toContain(
+      "no state file for slug 'missing'",
+    );
     errSpy.mockRestore();
   });
 
@@ -213,13 +240,18 @@ describe("runUpdate", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const code = runUpdate(["foo"], dir); // missing update flag
     expect(code).toBe(2);
-    expect(errSpy.mock.calls.flat().join("\n")).toContain("at least one of --phase");
+    expect(errSpy.mock.calls.flat().join("\n")).toContain(
+      "at least one of --phase",
+    );
     errSpy.mockRestore();
   });
 
   it("merges fields and refreshes updatedAt", () => {
     seed("csv-export", { worktree: "/tmp/wt" });
-    const code = runUpdate(["csv-export", "--phase", "implementing", "--pr", "142"], dir);
+    const code = runUpdate(
+      ["csv-export", "--phase", "implementing", "--pr", "142"],
+      dir,
+    );
     expect(code).toBe(0);
     const got = readState("csv-export", dir);
     expect(got?.phase).toBe("implementing");
@@ -246,7 +278,9 @@ describe("runUpdate", () => {
 
   it("persists sessionId via --session-id without clobbering pr/worktree/autoMerge", () => {
     seed("csv-export", { pr: 142, worktree: "/tmp/wt", autoMerge: false });
-    expect(runUpdate(["csv-export", "--session-id", "b034430c-03bd-4fa0"], dir)).toBe(0);
+    expect(
+      runUpdate(["csv-export", "--session-id", "b034430c-03bd-4fa0"], dir),
+    ).toBe(0);
     const got = readState("csv-export", dir);
     expect(got?.sessionId).toBe("b034430c-03bd-4fa0");
     expect(got?.pr).toBe(142);
@@ -342,15 +376,25 @@ type WorktreeFixture = { worktreeDir: string; cleanup: () => void };
  * and a `.flow-branch` marker claiming the branch is `expectedBranch`. When
  * the two differ, the guard should report mismatch.
  */
-function makeWorktreeFixture(expectedBranch: string, actualBranch: string): WorktreeFixture {
+function makeWorktreeFixture(
+  expectedBranch: string,
+  actualBranch: string,
+): WorktreeFixture {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "flow-guard-"));
   const worktreeDir = path.join(root, "wt");
   fs.mkdirSync(worktreeDir);
   spawnSync("git", ["init", "-b", actualBranch], { cwd: worktreeDir });
-  spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: worktreeDir });
+  spawnSync("git", ["config", "user.email", "test@example.com"], {
+    cwd: worktreeDir,
+  });
   spawnSync("git", ["config", "user.name", "Test"], { cwd: worktreeDir });
-  spawnSync("git", ["commit", "--allow-empty", "-m", "initial"], { cwd: worktreeDir });
-  fs.writeFileSync(path.join(worktreeDir, ".flow-branch"), expectedBranch + "\n");
+  spawnSync("git", ["commit", "--allow-empty", "-m", "initial"], {
+    cwd: worktreeDir,
+  });
+  fs.writeFileSync(
+    path.join(worktreeDir, ".flow-branch"),
+    expectedBranch + "\n",
+  );
   return {
     worktreeDir,
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
@@ -364,7 +408,9 @@ describe(checkWorktreeBranch, () => {
 
   it("returns ok with a warning when the worktree directory is missing", () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const result = checkWorktreeBranch("/tmp/does-not-exist-flow-guard-test-xyz");
+    const result = checkWorktreeBranch(
+      "/tmp/does-not-exist-flow-guard-test-xyz",
+    );
     expect(result).toEqual({ kind: "ok" });
     expect(errSpy.mock.calls.flat().join("\n")).toContain("does not exist");
     errSpy.mockRestore();
@@ -376,7 +422,9 @@ describe(checkWorktreeBranch, () => {
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const result = checkWorktreeBranch(tmp);
     expect(result).toEqual({ kind: "ok" });
-    expect(errSpy.mock.calls.flat().join("\n")).toContain(".flow-branch missing");
+    expect(errSpy.mock.calls.flat().join("\n")).toContain(
+      ".flow-branch missing",
+    );
     errSpy.mockRestore();
     fs.rmSync(tmp, { recursive: true, force: true });
   });

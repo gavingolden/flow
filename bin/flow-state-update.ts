@@ -56,7 +56,9 @@ type Args = {
  *   - "mismatch" — worktree on a different branch than the marker says. State.json is
  *                  NOT updated; supervisor escalates `NEEDS HUMAN: branch-mismatch`.
  */
-type GuardResult = { kind: "ok" } | { kind: "mismatch"; expected: string; actual: string };
+type GuardResult =
+  | { kind: "ok" }
+  | { kind: "mismatch"; expected: string; actual: string };
 
 /**
  * Asserts that the worktree's current branch matches the marker file written by
@@ -64,7 +66,9 @@ type GuardResult = { kind: "ok" } | { kind: "mismatch"; expected: string; actual
  * marker file is missing (e.g. created by an older flow-new-worktree), logs a
  * one-line warning and returns ok. Only an *active* mismatch returns mismatch.
  */
-export function checkWorktreeBranch(worktreePath: string | undefined): GuardResult {
+export function checkWorktreeBranch(
+  worktreePath: string | undefined,
+): GuardResult {
   if (!worktreePath) return { kind: "ok" };
   if (!fs.existsSync(worktreePath)) {
     console.error(
@@ -81,9 +85,13 @@ export function checkWorktreeBranch(worktreePath: string | undefined): GuardResu
     return { kind: "ok" };
   }
   const expected = fs.readFileSync(markerPath, "utf8").trim();
-  const result = spawnSync("git", ["-C", worktreePath, "branch", "--show-current"], {
-    encoding: "utf8",
-  });
+  const result = spawnSync(
+    "git",
+    ["-C", worktreePath, "branch", "--show-current"],
+    {
+      encoding: "utf8",
+    },
+  );
   if (result.status !== 0) {
     console.error(
       `flow-state-update: 'git branch --show-current' failed in '${worktreePath}'; skipping branch guard`,
@@ -159,7 +167,10 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   return out;
 }
 
-export function applyUpdate(existing: PipelineState, args: Args): PipelineState {
+export function applyUpdate(
+  existing: PipelineState,
+  args: Args,
+): PipelineState {
   return {
     ...existing,
     phase: args.phase ?? existing.phase,

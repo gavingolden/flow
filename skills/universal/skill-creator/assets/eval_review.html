@@ -170,14 +170,19 @@
     </style>
   </head>
   <body>
-    <h1>Eval Set Review: <span id="skill-name">__SKILL_NAME_PLACEHOLDER__</span></h1>
+    <h1>
+      Eval Set Review: <span id="skill-name">__SKILL_NAME_PLACEHOLDER__</span>
+    </h1>
     <p class="description">
-      Current description: <span id="skill-desc">__SKILL_DESCRIPTION_PLACEHOLDER__</span>
+      Current description:
+      <span id="skill-desc">__SKILL_DESCRIPTION_PLACEHOLDER__</span>
     </p>
 
     <div class="controls">
       <button class="btn btn-add" onclick="addRow()">+ Add Query</button>
-      <button class="btn btn-export" onclick="exportEvalSet()">Export Eval Set</button>
+      <button class="btn btn-export" onclick="exportEvalSet()">
+        Export Eval Set
+      </button>
     </div>
 
     <table>
@@ -205,7 +210,9 @@
         // Sort: should-trigger first, then should-not-trigger
         const sorted = evalItems
           .map((item, origIdx) => ({ ...item, origIdx }))
-          .sort((a, b) => (b.should_trigger ? 1 : 0) - (a.should_trigger ? 1 : 0));
+          .sort(
+            (a, b) => (b.should_trigger ? 1 : 0) - (a.should_trigger ? 1 : 0),
+          );
 
         let lastGroup = null;
         sorted.forEach((item) => {
@@ -275,7 +282,9 @@
           query: i.query.trim(),
           should_trigger: i.should_trigger,
         }));
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+        const blob = new Blob([JSON.stringify(data, null, 2)], {
+          type: "application/json",
+        });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;

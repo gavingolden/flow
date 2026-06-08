@@ -22,10 +22,10 @@ The supervisor's sleep between polls follows a three-tier ramp,
 capped by the 20-min wall-clock budget below:
 
 | Poll number | Sleep before next poll |
-|---|---|
-| 1–5 | 30s |
-| 6–10 | 60s |
-| 11+ | 90s |
+| ----------- | ---------------------- |
+| 1–5         | 30s                    |
+| 6–10        | 60s                    |
+| 11+         | 90s                    |
 
 `gh pr checks` JSON is small and GitHub rate limits are generous
 even at the 30s baseline; the ramp's purpose is to bound supervisor-
@@ -37,8 +37,8 @@ iteration regardless of `POLLS`.
 **Unconditional on the first iteration** — empty `gh` results never
 short-circuit the wait when presence is affirmed; only the presence
 checks below can legitimately skip. This is orthogonal to the ramp:
-the ramp governs *how long* to wait, the presence checks govern
-*whether* to wait at all.
+the ramp governs _how long_ to wait, the presence checks govern
+_whether_ to wait at all.
 
 ## Hard cap
 
@@ -174,7 +174,7 @@ The fallback prefers the cheaper failure mode.
 #### Opt-in request path and the decline collapse
 
 With opt-in Copilot review (`flow new --copilot-review <auto|always|never>`,
-default `auto`), `/flow-pipeline` step 7 decides *before* the wait whether
+default `auto`), `/flow-pipeline` step 7 decides _before_ the wait whether
 to request Copilot for this PR — see SKILL.md step 7's "Copilot request
 decision". On the **request** path nothing here changes: the two signals
 above (in-flight `reviewRequests` + the historical-PR fallback) still
@@ -183,7 +183,7 @@ self-dismissal logic all apply unchanged.
 
 On the **decline** path the supervisor passes `flow-ci-wait
 --copilot-not-requested`, which hard-forces `copilotConfigured=false`
-*before* the two-signal `||` is evaluated — so neither `reviewRequests`
+_before_ the two-signal `||` is evaluated — so neither `reviewRequests`
 nor the historical-PR fallback can keep the bot wait alive. This is what
 makes a declined trivial PR genuinely collapse the wait
 (`COPILOT_REQUESTED == 0` in the matrix terms below) rather than merely
@@ -205,7 +205,7 @@ because Copilot isn't available on the repo, the verdict carries
 
 A `requestSkipReason` (automatic Copilot review already enabled — recent
 merged PRs carry a Copilot review with empty `reviewRequests`, so the
-helper skips the *redundant* request) **does NOT** collapse the wait: the
+helper skips the _redundant_ request) **does NOT** collapse the wait: the
 auto-review still posts, and the supervisor keeps waiting to pick it up via
 the historical/author-match path. This decoupling is deliberate — coupling
 the skip to `--copilot-not-requested` made non-trivial PRs race past their
@@ -306,8 +306,8 @@ still observes the stale review.
   is a `/pr-review` fix-applier review-fix commit, detected by the
   `(pr-review #N)` subject marker (`FIX_APPLIER_COMMIT_MARKER`); OR
   (b) total changed LOC (additions + deletions) is `<=
-  SMALL_FOLLOWUP_MAX_LOC` (15) AND distinct files touched is `<=
-  SMALL_FOLLOWUP_MAX_FILES` (3). Detected via
+SMALL_FOLLOWUP_MAX_LOC` (15) AND distinct files touched is `<=
+SMALL_FOLLOWUP_MAX_FILES` (3). Detected via
   `gh api repos/{owner}/{repo}/compare/<old>...<new>` projecting
   `commits[].commit.message` and `files[]` additions/deletions/filename;
   see the `isSmallFollowup` helper in `bin/flow-ci-wait.ts`. It is a
@@ -480,7 +480,7 @@ check does) would bail before CI even runs, defeating the entire wait. So
 the blocked check fires **only after CI has reached a terminal state**: it
 intercepts the poll where `decideOnPoll` would otherwise return
 `proceed-to-review` / `proceed-to-review-no-bot` (CI terminal-and-passed
-and the bot-review wait resolved or vacuous) and the PR is *still*
+and the bot-review wait resolved or vacuous) and the PR is _still_
 `BLOCKED`. At that point no pending check remains to clear the block, so
 waiting longer cannot help. It reuses the same poll-scoped mergeability
 read the conflict check already performs (one `gh pr view` per OPEN poll)
@@ -531,7 +531,7 @@ and 'Self-dismissal short-circuit' above) are suppressed by two flags:
 - `--wait-for-copilot` (boolean) suppresses **both** auto-detect rows
   and restores the full 10-min copilot timeout as the only Copilot
   exit branch. Per-pipeline via `flow new --wait-for-copilot
-  "<desc>"` (the supervisor reads `waitForCopilot` from state.json
+"<desc>"` (the supervisor reads `waitForCopilot` from state.json
   and appends the flag), or per-invocation directly on `flow-ci-wait`.
 - `--claim-deadline-sec <n>` (positive integer) overrides the
   post-CI-terminal claim deadline with CLI flag → `~/.flow/config.json`
@@ -597,21 +597,21 @@ Re-evaluate after each poll. The `ci_passed` / `ci_failed` /
 "Presence checks" above for how `CI_CONFIGURED=0` and
 `COPILOT_REQUESTED=0` short-circuit the corresponding waits.
 
-| `ci_passed` | `ci_failed` | `copilot_posted` | Elapsed | Decision |
-|---|---|---|---|---|
-| true | — | true | — | **proceed to step 8 (review)**. |
-| — | — | — | DISMISSED Copilot review on current `headRefOid` (no fresher non-dismissed review) | **proceed to step 8 without bot review** with `copilotSkipReason: 'self-dismissed'`. Runs BEFORE the retrigger gate so no doomed re-request POST fires. Suppressed by `--wait-for-copilot`. See "Self-dismissal short-circuit" above. |
-| true | — | false | `claim-deadline-sec` (default 60s) after `ci_terminal` AND no Copilot review of any state on current `headRefOid` AND Copilot not in `requested_reviewers` | **proceed to step 8 without bot review** with `copilotSkipReason: 'unclaimed-after-deadline'`. Suppressed by `--wait-for-copilot`. See "Claim-deadline auto-detect" above. |
-| true | — | false | stale-review + budget unused, post-`ci_terminal` | **fire retrigger POST**, reset Copilot timeout, keep polling. See "Retrigger on stale review" above. |
-| true | — | false | < 10 min after `ci_terminal` | **keep polling** (waiting on Copilot). |
-| true | — | false | ≥ 10 min after `ci_terminal` | **proceed to step 8 without bot review** (Copilot timed out; `copilotSkipReason: null`). |
-| — | — | — | `mergeStateStatus` ∈ {CONFLICTING, DIRTY} on an OPEN PR | **emit `pr-conflicted`** — branch conflicts with base so CI can never start; route to the step-10 merge path. `mergeStateStatus === UNKNOWN` (still computing) never fires it; BEHIND/BLOCKED/UNSTABLE/CLEAN/HAS_HOOKS do not fire it (BLOCKED routes to `pr-blocked` below, not here). Fails open on a transient gh error. See "Conflict short-circuit" above. |
-| true | — | true / timed-out | `mergeStateStatus == BLOCKED` on an OPEN PR at a would-proceed-to-review poll | **emit `pr-blocked`** — a protection rule outside `gh pr checks` (failing required check, missing required review, CODEOWNERS, linear-history) still blocks the merge after CI reached terminal; escalate `NEEDS HUMAN: pr-blocked`. Fires ONLY post-CI-terminal (not at poll entry like `pr-conflicted`) because BLOCKED is a legitimate transient state while required checks pend. `mergeable === UNKNOWN` never fires it; fails open on a transient gh error. See "Blocked short-circuit" above. |
-| — | true | — | — | **loop back to step 5 in fix mode** (cap: 3 fix-loops total before escalation). Pass the failing-check log into the implement-fix prompt. |
-| false | false | — | < 20 min from first poll | **keep polling** (CI still in progress). |
-| false | false | — | ≥ 20 min from first poll | **escalate `NEEDS HUMAN: ci-hang`**. End. |
-| — | — | — | `pr_state == CLOSED` mid-poll | **escalate `NEEDS HUMAN: pr-closed-mid-flight`**. End. |
-| — | — | — | `pr_state == MERGED` mid-poll | the user merged manually; **skip review and gate, render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), run `flow-remove-worktree --delete-branch`, end**. |
+| `ci_passed` | `ci_failed` | `copilot_posted` | Elapsed                                                                                                                                                    | Decision                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------- | ----------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| true        | —           | true             | —                                                                                                                                                          | **proceed to step 8 (review)**.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| —           | —           | —                | DISMISSED Copilot review on current `headRefOid` (no fresher non-dismissed review)                                                                         | **proceed to step 8 without bot review** with `copilotSkipReason: 'self-dismissed'`. Runs BEFORE the retrigger gate so no doomed re-request POST fires. Suppressed by `--wait-for-copilot`. See "Self-dismissal short-circuit" above.                                                                                                                                                                                                                                                                |
+| true        | —           | false            | `claim-deadline-sec` (default 60s) after `ci_terminal` AND no Copilot review of any state on current `headRefOid` AND Copilot not in `requested_reviewers` | **proceed to step 8 without bot review** with `copilotSkipReason: 'unclaimed-after-deadline'`. Suppressed by `--wait-for-copilot`. See "Claim-deadline auto-detect" above.                                                                                                                                                                                                                                                                                                                           |
+| true        | —           | false            | stale-review + budget unused, post-`ci_terminal`                                                                                                           | **fire retrigger POST**, reset Copilot timeout, keep polling. See "Retrigger on stale review" above.                                                                                                                                                                                                                                                                                                                                                                                                 |
+| true        | —           | false            | < 10 min after `ci_terminal`                                                                                                                               | **keep polling** (waiting on Copilot).                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| true        | —           | false            | ≥ 10 min after `ci_terminal`                                                                                                                               | **proceed to step 8 without bot review** (Copilot timed out; `copilotSkipReason: null`).                                                                                                                                                                                                                                                                                                                                                                                                             |
+| —           | —           | —                | `mergeStateStatus` ∈ {CONFLICTING, DIRTY} on an OPEN PR                                                                                                    | **emit `pr-conflicted`** — branch conflicts with base so CI can never start; route to the step-10 merge path. `mergeStateStatus === UNKNOWN` (still computing) never fires it; BEHIND/BLOCKED/UNSTABLE/CLEAN/HAS_HOOKS do not fire it (BLOCKED routes to `pr-blocked` below, not here). Fails open on a transient gh error. See "Conflict short-circuit" above.                                                                                                                                      |
+| true        | —           | true / timed-out | `mergeStateStatus == BLOCKED` on an OPEN PR at a would-proceed-to-review poll                                                                              | **emit `pr-blocked`** — a protection rule outside `gh pr checks` (failing required check, missing required review, CODEOWNERS, linear-history) still blocks the merge after CI reached terminal; escalate `NEEDS HUMAN: pr-blocked`. Fires ONLY post-CI-terminal (not at poll entry like `pr-conflicted`) because BLOCKED is a legitimate transient state while required checks pend. `mergeable === UNKNOWN` never fires it; fails open on a transient gh error. See "Blocked short-circuit" above. |
+| —           | true        | —                | —                                                                                                                                                          | **loop back to step 5 in fix mode** (cap: 3 fix-loops total before escalation). Pass the failing-check log into the implement-fix prompt.                                                                                                                                                                                                                                                                                                                                                            |
+| false       | false       | —                | < 20 min from first poll                                                                                                                                   | **keep polling** (CI still in progress).                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| false       | false       | —                | ≥ 20 min from first poll                                                                                                                                   | **escalate `NEEDS HUMAN: ci-hang`**. End.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| —           | —           | —                | `pr_state == CLOSED` mid-poll                                                                                                                              | **escalate `NEEDS HUMAN: pr-closed-mid-flight`**. End.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| —           | —           | —                | `pr_state == MERGED` mid-poll                                                                                                                              | the user merged manually; **skip review and gate, render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), run `flow-remove-worktree --delete-branch`, end**.                                                                                                                                                                                                                                                                                     |
 
 ## The fix-loop cap
 
@@ -643,7 +643,7 @@ its `DEFAULT_CONFIG.bots` and the rationale comment above it.
 ## What "in one conversation turn" means for this loop
 
 The supervisor's polling loop is a Bash tool call followed by a
-`sleep`, looped inside the supervisor's *own* turn — there is no
+`sleep`, looped inside the supervisor's _own_ turn — there is no
 separate "agent invocation" per poll. Every poll's tool result
 appends to the conversation, but the payloads are small (CI JSON +
 reviews JSON ≈ 1-2 KB each). Under the active ramp (30s × 5, 60s ×

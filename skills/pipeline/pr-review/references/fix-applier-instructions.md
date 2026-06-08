@@ -162,7 +162,7 @@ as a trade-off. Recording a knowingly-brittle artifact you just created in
 anti-pattern the bar forecloses (the canonical incident: a `.flex-1`-coupled
 test shipped as a trade-off and later filed as a standalone issue, when the
 durable fix was a one-line `data-` attribute on the adjacent component).
-`anti_patterns_found` is for *pre-existing* patterns in surrounding code you did
+`anti_patterns_found` is for _pre-existing_ patterns in surrounding code you did
 not introduce and cannot fix in scope — not a release valve for brittleness this
 PR itself adds.
 
@@ -176,7 +176,7 @@ source of truth for the fix-now conditions is the consumer repo's `AGENTS.md`
 **Push back on inline comments** that are incorrect or would degrade code
 quality. Blindly accepting every suggestion is worse than thoughtfully
 declining some. Record the push-back in the artifact's `commits[]` with a
-`reasoning` field that names what was rejected and why, *or* surface it in
+`reasoning` field that names what was rejected and why, _or_ surface it in
 `rejected_alternatives` if you considered the suggestion's path and
 ultimately rolled it back.
 
@@ -221,7 +221,7 @@ Otherwise, for each inline comment:
    - **Pushed back / declined** (no code change, here is why): add a
      `commits[]` entry whose `comment_ids: []` includes the comment id
      and whose `reasoning` field begins with `rejected suggestion:`
-     followed by the rationale. Even though no *new* commit is created
+     followed by the rationale. Even though no _new_ commit is created
      for a pure push-back, you still emit a `commits[]` entry — set
      `sha` to the head SHA at fetch time, `files: []`, and the reasoning
      prose carries the explanation. (Yes, this is the one place a
@@ -258,7 +258,7 @@ PR (and any drifted prior PRs) lands in this PR's own diff:
 Find every line containing `(#$PR_NUMBER)`. For each match:
 
 - **Table row** (line starts with `|`): replace the cell containing
-  `(#$PR_NUMBER)` with ` ✅ shipped (#$PR_NUMBER) ` (single leading and
+  `(#$PR_NUMBER)` with `✅ shipped (#$PR_NUMBER)` (single leading and
   trailing space inside the cell pipes).
 - **`Status:` line** (line matches `^Status:`): replace the entire line
   with `Status: ✅ shipped (#$PR_NUMBER).`
@@ -290,15 +290,15 @@ produces:
 
 - If you made code fixes in steps 3–4 and the roadmap edit is the only
   additional change, bundle it into the same fix commit.
-- If the roadmap edit is the *only* change this run produced (clean PR
+- If the roadmap edit is the _only_ change this run produced (clean PR
   with no findings, no comments to address), use commit message
   `chore(roadmap): mark Item N shipped (pr-review #$PR_NUMBER)` where
   `Item N` is parsed from the matched row's `**Item N` token. If no item
   number can be parsed, use `chore(roadmap): mark row shipped (pr-review
-  #$PR_NUMBER)`.
+#$PR_NUMBER)`.
 - If the sweep flipped additional rows beyond the self-mark, mention the
   count in the commit body: `Also swept N drifted row(s) for PRs already
-  merged on main: #X, #Y`.
+merged on main: #X, #Y`.
 
 ## 6. Pre-commit checks
 
@@ -329,7 +329,7 @@ Don't ask for confirmation; the exemption removes the ambiguity.
   fine — match what's clearest for the diff.
 - Commit message: conventional-commits prefix (`fix:`, `chore:`,
   `refactor:`) + `(pr-review #$PR_NUMBER)` suffix in the subject. The body
-  explains the *why* (what the finding was) and references the agent's
+  explains the _why_ (what the finding was) and references the agent's
   category (e.g. "Bug-Detection", "Pattern-Consistency", "Performance", "Supply-Chain").
 - If the PR is **still open**: commit on the PR's branch and `git push`.
 - If the PR is **already merged**: switch to `main`, pull, commit there,
@@ -453,16 +453,16 @@ fan-out.
 
 # Troubleshooting
 
-| Problem | Symptom | Fix |
-|---|---|---|
-| `Edit` tool refuses | "string not unique" or read-required error | Read the file first; expand `old_string` with surrounding context until unique. Don't paraphrase the refusal as "the hook denied edits" — that's a fabrication. |
-| `flow-pre-commit` fails on pre-existing breakage | A check fails on files you didn't touch | Record the failure in `anti_patterns_found` with the verbatim excerpt; mark affected commit's `verify_status` as the excerpt. Do not silently abandon the fix. (`verify_status` is the right field here — pre-commit and `/verify` cover the same check semantic; both go in `verify_status`. `tool_error` is reserved for Edit/Write tool failures only.) |
-| `/verify` cap exhausts mid-run | The skill exits without clean | Stop attempting fixes. Record the cap-exhausted failure in `commits[].verify_status` and surface in the return summary so the wrapper can escalate. |
-| Push fails (branch protection, CI required) | `git push` exits non-zero | Capture the verbatim error, write it into the artifact's `summary`, and exit. Do not retry the push — let the wrapper decide whether to escalate. |
-| Roadmap row already shipped | A row already shows `✅ shipped (#$PR_NUMBER)` | The edit is idempotent — your `Edit` call produces no diff and that's fine. Don't error. |
-| Multiple table rows match `(#$PR_NUMBER)` | A PR legitimately spans items | Flip all matching rows. The diff is visible to the human reviewer / auto-merge gate before merge. |
-| Inline comment conflicts with a finding | Same `file:line` covered by both | Address once; record `finding_id` for both in the same `commits[]` entry's `reasoning` (e.g. `"agent finding f-7 + reviewer comment c-42 merged into one fix"`). |
-| Repo has no GitHub Issues surface | `flow-create-issue` exits non-zero / Issues disabled | Set `tracker_entry_url: ""` and put the full context in `reason`. The wrapper surfaces both fields loudly in the Step 12 report. Do not append to an in-repo file or invent a tracker integration. |
+| Problem                                          | Symptom                                              | Fix                                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Edit` tool refuses                              | "string not unique" or read-required error           | Read the file first; expand `old_string` with surrounding context until unique. Don't paraphrase the refusal as "the hook denied edits" — that's a fabrication.                                                                                                                                                                                            |
+| `flow-pre-commit` fails on pre-existing breakage | A check fails on files you didn't touch              | Record the failure in `anti_patterns_found` with the verbatim excerpt; mark affected commit's `verify_status` as the excerpt. Do not silently abandon the fix. (`verify_status` is the right field here — pre-commit and `/verify` cover the same check semantic; both go in `verify_status`. `tool_error` is reserved for Edit/Write tool failures only.) |
+| `/verify` cap exhausts mid-run                   | The skill exits without clean                        | Stop attempting fixes. Record the cap-exhausted failure in `commits[].verify_status` and surface in the return summary so the wrapper can escalate.                                                                                                                                                                                                        |
+| Push fails (branch protection, CI required)      | `git push` exits non-zero                            | Capture the verbatim error, write it into the artifact's `summary`, and exit. Do not retry the push — let the wrapper decide whether to escalate.                                                                                                                                                                                                          |
+| Roadmap row already shipped                      | A row already shows `✅ shipped (#$PR_NUMBER)`       | The edit is idempotent — your `Edit` call produces no diff and that's fine. Don't error.                                                                                                                                                                                                                                                                   |
+| Multiple table rows match `(#$PR_NUMBER)`        | A PR legitimately spans items                        | Flip all matching rows. The diff is visible to the human reviewer / auto-merge gate before merge.                                                                                                                                                                                                                                                          |
+| Inline comment conflicts with a finding          | Same `file:line` covered by both                     | Address once; record `finding_id` for both in the same `commits[]` entry's `reasoning` (e.g. `"agent finding f-7 + reviewer comment c-42 merged into one fix"`).                                                                                                                                                                                           |
+| Repo has no GitHub Issues surface                | `flow-create-issue` exits non-zero / Issues disabled | Set `tracker_entry_url: ""` and put the full context in `reason`. The wrapper surfaces both fields loudly in the Step 12 report. Do not append to an in-repo file or invent a tracker integration.                                                                                                                                                         |
 
 # Verification
 

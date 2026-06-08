@@ -23,7 +23,7 @@ deepest "what is flow for?" framing, see
 
 **Spawn a fresh Claude Code subprocess per phase.** The orchestrator is a
 plain Node script that calls `claude -p "<phase prompt>"` and waits for
-exit, then moves on. The orchestrator script accumulates *no* LLM
+exit, then moves on. The orchestrator script accumulates _no_ LLM
 context. Each phase gets a clean window. Multiple tasks run as multiple
 worktrees with their own pipelines, in parallel.
 
@@ -106,11 +106,11 @@ Every phase — interactive or headless — exposes the same interface.
 ```ts
 type PhaseResult =
   | { status: "ok" }
-  | { status: "retry"; reason: string }       // bounded re-invocation
+  | { status: "retry"; reason: string } // bounded re-invocation
   | { status: "needs-human"; reason: string } // pause, exit
-  | { status: "failed"; reason: string };     // abort
+  | { status: "failed"; reason: string }; // abort
 
-function runPhase(taskPath: string): Promise<PhaseResult>
+function runPhase(taskPath: string): Promise<PhaseResult>;
 ```
 
 Phases are pure with respect to in-memory state: they read `task.md`,
@@ -127,7 +127,7 @@ problem against the existing branch, re-runs local verify, pushes
 without opening a new PR.
 
 This is the "anchored summarization" pattern from research: agents
-don't pass conversation between each other, they pass *artifacts*
+don't pass conversation between each other, they pass _artifacts_
 (files), and each agent's input is a structured summary it knows how
 to read.
 
@@ -149,17 +149,17 @@ CLI emits the dollar amount pre-computed.
 
 ## The pipeline (full set)
 
-| # | Phase | Type | Skill / action | On failure |
-|---|---|---|---|---|
-| 0 | triage | Claude Code skill (`/flow add` or legacy `flow start`) | triage system prompt | n/a — owned by user |
-| 1 | worktree | script (no LLM) | `scripts/new-agent-worktree.ts` (target repo) + symlink `.orchestrator/` from main repo | abort |
-| 2 | plan | headless (in worktree) | `/product-planning` | retry once with error appended |
-| 3 | implement | headless (in worktree) | `/new-feature` (mode: `create` \| `fix`) | retry once |
-| 4 | verify | headless (in worktree) | `/verify` | retry up to 3x; then `needs-human` |
-| 5 | ci-wait | script | poll `gh pr checks` until terminal; collect bot reviews from a configurable list (default `["Copilot"]`, configurable per repo) | on red, loop back to implement(fix) with the failure log; cap 3 |
-| 6 | review | headless | `/pr-review` in fresh `claude -p` context, with bot reviews from phase 5 passed in as second-opinion artefacts | on critical findings, loop back to implement(fix); cap 2 |
-| 7 | gate | script | parse PR body's "Test Steps" section | n/a — outcome is the decision |
-| 8 | merge | script | `gh pr merge --squash --delete-branch` + remove worktree + archive task file | abort with clear status |
+| #   | Phase     | Type                                                   | Skill / action                                                                                                                  | On failure                                                      |
+| --- | --------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| 0   | triage    | Claude Code skill (`/flow add` or legacy `flow start`) | triage system prompt                                                                                                            | n/a — owned by user                                             |
+| 1   | worktree  | script (no LLM)                                        | `scripts/new-agent-worktree.ts` (target repo) + symlink `.orchestrator/` from main repo                                         | abort                                                           |
+| 2   | plan      | headless (in worktree)                                 | `/product-planning`                                                                                                             | retry once with error appended                                  |
+| 3   | implement | headless (in worktree)                                 | `/new-feature` (mode: `create` \| `fix`)                                                                                        | retry once                                                      |
+| 4   | verify    | headless (in worktree)                                 | `/verify`                                                                                                                       | retry up to 3x; then `needs-human`                              |
+| 5   | ci-wait   | script                                                 | poll `gh pr checks` until terminal; collect bot reviews from a configurable list (default `["Copilot"]`, configurable per repo) | on red, loop back to implement(fix) with the failure log; cap 3 |
+| 6   | review    | headless                                               | `/pr-review` in fresh `claude -p` context, with bot reviews from phase 5 passed in as second-opinion artefacts                  | on critical findings, loop back to implement(fix); cap 2        |
+| 7   | gate      | script                                                 | parse PR body's "Test Steps" section                                                                                            | n/a — outcome is the decision                                   |
+| 8   | merge     | script                                                 | `gh pr merge --squash --delete-branch` + remove worktree + archive task file                                                    | abort with clear status                                         |
 
 Phases 2, 3, 4, 6 are headless Claude Code subprocess invocations of
 skills that already exist in the target project (econ-data has them
@@ -184,7 +184,7 @@ The review phase **never** continues from implement. The point of a
 self-review is a second look; an implementer-continued reviewer
 rationalises its own code. `/pr-review` reads the PR diff via `gh pr
 diff` — that's the artifact it needs. Bot reviews collected by ci-wait
-are *also* second opinions and get passed in as additional context.
+are _also_ second opinions and get passed in as additional context.
 
 ## State store: markdown plan files
 
@@ -208,7 +208,7 @@ interface.
 
 Defined once on the PR description, read by the gate phase.
 
-The PR template (used by phase 3, *implement*) includes a `## Manual
+The PR template (used by phase 3, _implement_) includes a `## Manual
 validation` section. The implement phase fills it with steps when
 heuristics flag the change as risky (DB migration, external API
 integration, UI change, behaviour change to a critical path), and
@@ -221,7 +221,7 @@ comments from the section, and decides:
   merges manually after performing the documented validation. flow's
   next run detects the merge commit and finalises the task.
 - Section empty ⇒ proceed to merge. The merge phase runs `gh pr merge
-  --squash --delete-branch`, removes the worktree, and archives the
+--squash --delete-branch`, removes the worktree, and archives the
   task file under `.orchestrator/tasks/archive/`.
 
 This pushes the human-in-loop decision into the PR description itself
@@ -248,19 +248,19 @@ If we ever want phases that don't map to existing skills (e.g. a custom
 
 ## Technology choices
 
-| Concern | Choice | Why |
-|---|---|---|
-| Runtime (CLI) | Node 20+ | ESM, top-level await, `fs/promises`, AbortController. Universal. |
-| Runtime (scripts) | Bun | Fast startup, TS-native, symlink-aware `import.meta.main`. |
-| Language | TypeScript strict | Catches phase-output schema errors before subprocess errors do. |
-| CLI | `commander` | Mature, small, no surprises. |
-| Subprocess | `execa` | Cleaner stdio handling than child_process. |
-| Frontmatter | `gray-matter` | Battle-tested YAML+markdown parser. |
-| Color | `picocolors` | Lighter than chalk, same API. |
-| Package manager | npm | User preference. |
-| Build | `tsc` + `tsx` (dev) | No bundler — bin runs from `dist/`. |
+| Concern           | Choice              | Why                                                              |
+| ----------------- | ------------------- | ---------------------------------------------------------------- |
+| Runtime (CLI)     | Node 20+            | ESM, top-level await, `fs/promises`, AbortController. Universal. |
+| Runtime (scripts) | Bun                 | Fast startup, TS-native, symlink-aware `import.meta.main`.       |
+| Language          | TypeScript strict   | Catches phase-output schema errors before subprocess errors do.  |
+| CLI               | `commander`         | Mature, small, no surprises.                                     |
+| Subprocess        | `execa`             | Cleaner stdio handling than child_process.                       |
+| Frontmatter       | `gray-matter`       | Battle-tested YAML+markdown parser.                              |
+| Color             | `picocolors`        | Lighter than chalk, same API.                                    |
+| Package manager   | npm                 | User preference.                                                 |
+| Build             | `tsc` + `tsx` (dev) | No bundler — bin runs from `dist/`.                              |
 
-## What the new repo *adds* and what the target repo *already has*
+## What the new repo _adds_ and what the target repo _already has_
 
 `flow` is a generic CLI. It assumes the target repo provides:
 

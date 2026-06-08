@@ -80,14 +80,19 @@ function err(reason: string, path?: string): ValidationErr {
   return { ok: false, reason, path };
 }
 
-function validateCommitEntry(entry: unknown, path: string): ValidationErr | null {
+function validateCommitEntry(
+  entry: unknown,
+  path: string,
+): ValidationErr | null {
   if (typeof entry !== "object" || entry === null) {
     return err(`expected object`, path);
   }
   const o = entry as Record<string, unknown>;
-  if (!isNonEmptyString(o.sha)) return err(`'sha' must be a non-empty string`, path);
+  if (!isNonEmptyString(o.sha))
+    return err(`'sha' must be a non-empty string`, path);
   if (!Array.isArray(o.files)) return err(`'files' must be an array`, path);
-  if (!o.files.every(isString)) return err(`'files' must contain only strings`, path);
+  if (!o.files.every(isString))
+    return err(`'files' must contain only strings`, path);
   if (!isNonEmptyString(o.finding_id)) {
     return err(`'finding_id' must be a non-empty string`, path);
   }
@@ -102,7 +107,10 @@ function validateCommitEntry(entry: unknown, path: string): ValidationErr | null
   }
   if (o.comment_ids !== undefined) {
     if (!Array.isArray(o.comment_ids) || !o.comment_ids.every(isString)) {
-      return err(`'comment_ids' must be an array of strings when present`, path);
+      return err(
+        `'comment_ids' must be an array of strings when present`,
+        path,
+      );
     }
   }
   if (o.tool_error !== undefined && !isString(o.tool_error)) {
@@ -111,7 +119,10 @@ function validateCommitEntry(entry: unknown, path: string): ValidationErr | null
   return null;
 }
 
-function validateDeferredEntry(entry: unknown, path: string): ValidationErr | null {
+function validateDeferredEntry(
+  entry: unknown,
+  path: string,
+): ValidationErr | null {
   if (typeof entry !== "object" || entry === null) {
     return err(`expected object`, path);
   }
@@ -151,7 +162,10 @@ function validateRejectedAlternativeEntry(
   return null;
 }
 
-function validateAntiPatternEntry(entry: unknown, path: string): ValidationErr | null {
+function validateAntiPatternEntry(
+  entry: unknown,
+  path: string,
+): ValidationErr | null {
   if (typeof entry !== "object" || entry === null) {
     return err(`expected object`, path);
   }
@@ -211,13 +225,19 @@ export function validateFixApplierResult(parsed: unknown): ValidationResult {
 
   const rejected = o.rejected_alternatives as unknown[];
   for (let i = 0; i < rejected.length; i++) {
-    const e = validateRejectedAlternativeEntry(rejected[i], `rejected_alternatives[${i}]`);
+    const e = validateRejectedAlternativeEntry(
+      rejected[i],
+      `rejected_alternatives[${i}]`,
+    );
     if (e) return e;
   }
 
   const antiPatterns = o.anti_patterns_found as unknown[];
   for (let i = 0; i < antiPatterns.length; i++) {
-    const e = validateAntiPatternEntry(antiPatterns[i], `anti_patterns_found[${i}]`);
+    const e = validateAntiPatternEntry(
+      antiPatterns[i],
+      `anti_patterns_found[${i}]`,
+    );
     if (e) return e;
   }
 

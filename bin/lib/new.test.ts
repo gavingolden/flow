@@ -9,8 +9,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const tmuxMock = vi.hoisted(() => ({
   windowExists: vi.fn<(name: string) => boolean>(() => false),
   isPaneAlive: vi.fn<(name: string) => boolean>(() => false),
-  createWindow: vi.fn<(name: string, cwd: string, command: string[]) => { ok: boolean; stderr: string }>(() => ({ ok: true, stderr: "" })),
-  respawnWindow: vi.fn<(name: string, cwd: string, command: string[]) => { ok: boolean; stderr: string }>(() => ({ ok: true, stderr: "" })),
+  createWindow: vi.fn<
+    (
+      name: string,
+      cwd: string,
+      command: string[],
+    ) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
+  respawnWindow: vi.fn<
+    (
+      name: string,
+      cwd: string,
+      command: string[],
+    ) => { ok: boolean; stderr: string }
+  >(() => ({ ok: true, stderr: "" })),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);
@@ -144,7 +156,10 @@ describe("runNew --resume", () => {
   it("does not rewrite state.json on entry (the supervisor's first transition does)", () => {
     seedState("preserve");
     tmuxMock.windowExists.mockReturnValue(true);
-    const before = fs.readFileSync(path.join(stateDir, "preserve.json"), "utf8");
+    const before = fs.readFileSync(
+      path.join(stateDir, "preserve.json"),
+      "utf8",
+    );
     runNew("preserve", { resume: true, stateDir });
     const after = fs.readFileSync(path.join(stateDir, "preserve.json"), "utf8");
     expect(after).toBe(before);
@@ -182,14 +197,23 @@ describe("runNew (fresh)", () => {
     expect(code).toBe(0);
     const files = fs.readdirSync(stateDir);
     const matched = files.find((f) => /^task-[0-9a-f]{8}\.json$/.test(f));
-    expect(matched, `expected a task-<hash8>.json in ${files.join(",")}`).toBeDefined();
+    expect(
+      matched,
+      `expected a task-<hash8>.json in ${files.join(",")}`,
+    ).toBeDefined();
   });
 
   it("does not persist autoMerge by default (absent ≡ true)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNew("CSV export", { stateDir, cwd: repoDir, command: ["true"] });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
     expect(code).toBe(0);
-    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"),
+    );
     expect(raw).not.toHaveProperty("autoMerge");
   });
 
@@ -202,15 +226,23 @@ describe("runNew (fresh)", () => {
       noAutoMerge: true,
     });
     expect(code).toBe(0);
-    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"),
+    );
     expect(raw.autoMerge).toBe(false);
   });
 
   it("does not persist waitForCopilot by default (absent ≡ false / auto-detect ON)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNew("CSV export", { stateDir, cwd: repoDir, command: ["true"] });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
     expect(code).toBe(0);
-    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"),
+    );
     expect(raw).not.toHaveProperty("waitForCopilot");
   });
 
@@ -223,7 +255,9 @@ describe("runNew (fresh)", () => {
       waitForCopilot: true,
     });
     expect(code).toBe(0);
-    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"));
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"),
+    );
     expect(raw.waitForCopilot).toBe(true);
   });
 });
@@ -272,14 +306,17 @@ describe("runNewCli (--help / -h short-circuit)", () => {
 
   it("runNewCli --wait-for-copilot writes waitForCopilot: true and excludes the flag from the slug", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(
-      ["--wait-for-copilot", "do", "thing"],
-      { stateDir, cwd: repoDir, command: ["true"] },
-    );
+    const code = runNewCli(["--wait-for-copilot", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
     expect(code).toBe(0);
     // Slug must not include "wait-for-copilot" tokens; description was "do thing".
     expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
-    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"));
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
     expect(raw.waitForCopilot).toBe(true);
   });
 
@@ -287,24 +324,28 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     "runNewCli --copilot-review %s persists copilotReview and excludes the flag+value from the slug",
     (value) => {
       spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-      const code = runNewCli(
-        ["--copilot-review", value, "do", "thing"],
-        { stateDir, cwd: repoDir, command: ["true"] },
-      );
+      const code = runNewCli(["--copilot-review", value, "do", "thing"], {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+      });
       expect(code).toBe(0);
       // Slug must not include the flag or its value token; description was "do thing".
       expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
-      const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"));
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+      );
       expect(raw.copilotReview).toBe(value);
     },
   );
 
   it("runNewCli --copilot-review with an invalid value returns non-zero and writes no state", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(
-      ["--copilot-review", "sometimes", "do", "thing"],
-      { stateDir, cwd: repoDir, command: ["true"] },
-    );
+    const code = runNewCli(["--copilot-review", "sometimes", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
     expect(code).toBe(1);
     expect(fs.readdirSync(stateDir)).toEqual([]);
     expect(errors.join("\n")).toMatch(/auto, always, never/);
@@ -312,16 +353,26 @@ describe("runNewCli (--help / -h short-circuit)", () => {
 
   it("runNewCli --copilot-review with a missing value returns non-zero and writes no state", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(["--copilot-review"], { stateDir, cwd: repoDir, command: ["true"] });
+    const code = runNewCli(["--copilot-review"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
     expect(code).toBe(1);
     expect(fs.readdirSync(stateDir)).toEqual([]);
   });
 
   it("runNewCli without --copilot-review leaves the field undefined (absent ≡ auto)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(["do", "thing"], { stateDir, cwd: repoDir, command: ["true"] });
+    const code = runNewCli(["do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
     expect(code).toBe(0);
-    const raw = JSON.parse(fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"));
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
     expect(raw).not.toHaveProperty("copilotReview");
   });
 
@@ -331,10 +382,11 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     // must not be intercepted as `flow new --help`. Pipeline runs, slug
     // derives from the words after `--`.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(
-      ["--", "fix", "the", "-h", "crash"],
-      { stateDir, cwd: repoDir, command: ["true"] },
-    );
+    const code = runNewCli(["--", "fix", "the", "-h", "crash"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
     expect(code).toBe(0);
     // Slug derives from the description after `--`; exact form depends on
     // slugify's stop-word rules, but a state file must exist (the regression

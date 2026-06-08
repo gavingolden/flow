@@ -41,7 +41,7 @@ on:
           (default) omits --branch entirely so the script matches all branches.
         type: string
         required: false
-        default: ''
+        default: ""
       dry_run:
         description: >-
           When false (default), invokes the script with --apply and performs

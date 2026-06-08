@@ -151,9 +151,15 @@ export function parseArgs(
   const branchName = pick.branchName;
   const repoDir = git(["rev-parse", "--show-toplevel"]);
   const repoName = path.basename(repoDir);
-  const worktreeDir = path.join(path.dirname(repoDir), `${repoName}-${toDirSuffix(branchName)}`);
+  const worktreeDir = path.join(
+    path.dirname(repoDir),
+    `${repoName}-${toDirSuffix(branchName)}`,
+  );
   const baseBranch = positional[1] ?? detectDefaultBranch(repoDir);
-  return { kind: "ok", config: { branchName, baseBranch, repoDir, worktreeDir, reuse } };
+  return {
+    kind: "ok",
+    config: { branchName, baseBranch, repoDir, worktreeDir, reuse },
+  };
 }
 
 function preflight(config: WorktreeConfig): void {
@@ -179,12 +185,15 @@ export function createWorktreeWithRetry(
   initialDir: string,
   baseBranch: string,
   repoDir: string,
-  gitWorktreeAdd: (worktreeDir: string, branchName: string, startPoint: string) => void = (
-    worktreeDir,
-    branchName,
-    startPoint,
-  ) => {
-    git(["worktree", "add", worktreeDir, "-b", branchName, startPoint], repoDir);
+  gitWorktreeAdd: (
+    worktreeDir: string,
+    branchName: string,
+    startPoint: string,
+  ) => void = (worktreeDir, branchName, startPoint) => {
+    git(
+      ["worktree", "add", worktreeDir, "-b", branchName, startPoint],
+      repoDir,
+    );
   },
 ): { branchName: string; worktreeDir: string } {
   const startPoint = `origin/${baseBranch}`;
@@ -205,7 +214,9 @@ export function createWorktreeWithRetry(
   }
   throw lastErr instanceof Error
     ? lastErr
-    : new Error(`flow-new-worktree: failed to create a worktree after ${MAX_RACE_RETRIES} attempts`);
+    : new Error(
+        `flow-new-worktree: failed to create a worktree after ${MAX_RACE_RETRIES} attempts`,
+      );
 }
 
 function main(): void {
@@ -250,7 +261,9 @@ function main(): void {
   try {
     installCommitHook(chosen.worktreeDir);
   } catch (e: unknown) {
-    log.warn(`could not install prepare-commit-msg hook: ${e instanceof Error ? e.message : String(e)}`);
+    log.warn(
+      `could not install prepare-commit-msg hook: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
 
   console.log(`

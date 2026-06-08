@@ -38,7 +38,10 @@ export type DashboardState = {
   error: DashboardError | null;
 };
 
-export type RepositoryFactory = () => Result<DashboardRepository, DashboardError>;
+export type RepositoryFactory = () => Result<
+  DashboardRepository,
+  DashboardError
+>;
 
 export class DashboardStore {
   private state: DashboardState = $state({
@@ -109,7 +112,11 @@ export class DashboardRepository {
   constructor(private readonly client: SupabaseClient) {}
 
   async getById(id: string): Promise<Result<Dashboard, DashboardError>> {
-    const { data, error } = await this.client.from("dashboards").select("*").eq("id", id).single();
+    const { data, error } = await this.client
+      .from("dashboards")
+      .select("*")
+      .eq("id", id)
+      .single();
 
     if (error) {
       return { ok: false, error: { code: "DB_ERROR", message: error.message } };
@@ -120,9 +127,15 @@ export class DashboardRepository {
 }
 
 // Factory function — returns Result because client initialization can fail
-export function createDashboardRepository(): Result<DashboardRepository, DashboardError> {
+export function createDashboardRepository(): Result<
+  DashboardRepository,
+  DashboardError
+> {
   if (!supabase) {
-    return { ok: false, error: { code: "NOT_CONFIGURED", message: "Supabase not available" } };
+    return {
+      ok: false,
+      error: { code: "NOT_CONFIGURED", message: "Supabase not available" },
+    };
   }
   return { ok: true, data: new DashboardRepository(supabase) };
 }

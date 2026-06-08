@@ -74,7 +74,7 @@ name: prune-cf-pages
 
 on:
   schedule:
-    - cron: '0 7 * * *'   # 07:00 UTC daily
+    - cron: "0 7 * * *" # 07:00 UTC daily
   workflow_dispatch:
 
 jobs:
@@ -85,12 +85,12 @@ jobs:
     with:
       project: my-project
       older_than_days: 30
-      branch: '!main'      # optional; omit to match all branches
-      dry_run: false       # default; permanently deletes deployments — set true for a dry-run validation pass
+      branch: "!main" # optional; omit to match all branches
+      dry_run: false # default; permanently deletes deployments — set true for a dry-run validation pass
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      WORKFLOW_REPO_TOKEN: ${{ secrets.WORKFLOW_REPO_TOKEN }}  # optional; see below
+      WORKFLOW_REPO_TOKEN: ${{ secrets.WORKFLOW_REPO_TOKEN }} # optional; see below
 ```
 
 The SHA in `uses:` pins both the workflow contract AND the prune script —
@@ -103,15 +103,15 @@ the `@<sha>` pin on `uses:` up to date. To upgrade, bump the SHA;
 consumers never re-vendor.
 
 `WORKFLOW_REPO_TOKEN` is only required in the **private→private cross-repo
-case**: when your calling repo is private *and* `gavingolden/flow` is
+case**: when your calling repo is private _and_ `gavingolden/flow` is
 private to your account/org, the default `GITHUB_TOKEN` is scoped to the
 caller's repo and cannot fetch a sibling private repo's source, so the
 `actions/checkout` step that pulls `gavingolden/flow` will 404. Pass a
 fine-grained PAT (or GitHub App installation token) with `Contents:Read`
 on `gavingolden/flow` to resolve. Omit (or leave unset) when the caller
 is a public repo, when `gavingolden/flow` is public, or when the caller
-*is* `gavingolden/flow` itself — in those cases the default token already
-has read access. (Note that the *revision* being checked out is still
+_is_ `gavingolden/flow` itself — in those cases the default token already
+has read access. (Note that the _revision_ being checked out is still
 resolved from `job.workflow_ref` regardless of which token does the
 fetch — the token decides whether the fetch is allowed, not which SHA is
 fetched.)
@@ -175,7 +175,7 @@ aliased/active deployments, see `references/deployment-pruning.md`.
 ### Failure mode: caller-side context resolution
 
 Inside a reusable workflow, `github.workflow_ref` and `github.workflow_sha`
-both resolve to the *caller's* run — not to the called (reusable) workflow.
+both resolve to the _caller's_ run — not to the called (reusable) workflow.
 PR #158 (merge SHA `b464d2c`) shipped a fix that read `github.workflow_ref`
 on the premise it would resolve called-side; empirical post-merge dispatch
 proved otherwise, and the self-checkout step rejected the caller's

@@ -18,12 +18,21 @@ describe("parseArgs", () => {
       error: "--output-file is required",
     });
     expect(
-      parseArgs(["--body-file", "b.md", "--item", "x", "--output-file", "o.txt"]),
+      parseArgs([
+        "--body-file",
+        "b.md",
+        "--item",
+        "x",
+        "--output-file",
+        "o.txt",
+      ]),
     ).toEqual({ error: "--exit-code must be an integer" });
   });
 
   it("rejects unknown flags", () => {
-    expect(parseArgs(["--bogus", "x"])).toEqual({ error: "unknown flag: --bogus" });
+    expect(parseArgs(["--bogus", "x"])).toEqual({
+      error: "unknown flag: --bogus",
+    });
   });
 
   it("accepts a complete arg set", () => {
@@ -56,7 +65,9 @@ describe("trimOutput", () => {
   });
 
   it("head/tail-trims long output with a count marker", () => {
-    const lines = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join("\n");
+    const lines = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join(
+      "\n",
+    );
     const trimmed = trimOutput(lines);
     expect(trimmed).toContain("line 1");
     expect(trimmed).toContain("line 100");
@@ -184,9 +195,7 @@ describe("rewriteBody", () => {
     expect(second.replaced).toBe(true);
     expect(second.body).toContain("second run");
     expect(second.body).not.toContain("first run");
-    expect(
-      (second.body.match(/<!-- flow:evidence -->/g) ?? []).length,
-    ).toBe(1);
+    expect((second.body.match(/<!-- flow:evidence -->/g) ?? []).length).toBe(1);
   });
 
   it("returns an error when no line matches the item regex", () => {
@@ -224,11 +233,7 @@ describe("rewriteBody", () => {
   });
 
   it("preserves indentation when ticking nested items", () => {
-    const nested = [
-      "## Test Steps",
-      "",
-      "  - [ ] indented item",
-    ].join("\n");
+    const nested = ["## Test Steps", "", "  - [ ] indented item"].join("\n");
     const result = rewriteBody(
       nested,
       {
@@ -271,9 +276,11 @@ describe("rewriteBody", () => {
     );
     if (!result.ok) throw new Error(result.error);
     const lines = result.body.split("\n");
-    const tickIdx = lines.findIndex((l) => l.includes('- [x] `grep -rn'));
+    const tickIdx = lines.findIndex((l) => l.includes("- [x] `grep -rn"));
     const refIdx = lines.findIndex((l) => l.includes("references."));
-    const detailsIdx = lines.findIndex((l) => l.includes("<!-- flow:evidence -->"));
+    const detailsIdx = lines.findIndex((l) =>
+      l.includes("<!-- flow:evidence -->"),
+    );
     const nextBulletIdx = lines.findIndex((l) => l === "- [ ] another bullet");
     expect(tickIdx).toBeGreaterThanOrEqual(0);
     expect(refIdx).toBeGreaterThan(tickIdx);
@@ -317,9 +324,7 @@ describe("rewriteBody", () => {
     expect(second.body).toContain("second run");
     expect(second.body).not.toContain("first run");
     expect(second.body).toContain("references.");
-    expect(
-      (second.body.match(/<!-- flow:evidence -->/g) ?? []).length,
-    ).toBe(1);
+    expect((second.body.match(/<!-- flow:evidence -->/g) ?? []).length).toBe(1);
   });
 
   it("emits a blank line after </details> so the next bullet renders as a list item", () => {

@@ -24,7 +24,7 @@ Abstract problems lead to abstract plans.
 ### Fork (Vague → Two Options)
 
 When the user gives a vague answer ("it should be flexible"), offer two concrete alternatives
-and ask them to pick. Two options is a *starting* framing for a fast conversation — not a verdict that the answer must be one of exactly two. Per the flow `AGENTS.md` `## Output style` rule **Consider the middle ground when a request is framed as a binary choice.**, once the user reacts to A vs B, still check for an intermediate option (a hybrid, a phased default) and offer it if one fits the conversation.
+and ask them to pick. Two options is a _starting_ framing for a fast conversation — not a verdict that the answer must be one of exactly two. Per the flow `AGENTS.md` `## Output style` rule **Consider the middle ground when a request is framed as a binary choice.**, once the user reacts to A vs B, still check for an intermediate option (a hybrid, a phased default) and offer it if one fits the conversation.
 
 - "Would you rather it works like A (simpler, covers 80% of cases) or B (more powerful,
   but takes longer to build)?"

@@ -12,8 +12,14 @@ import {
 
 const SCHEMA_SCRIPT = path.resolve(__dirname, "agent-finding-schema.ts");
 
-function runCli(args: string[]): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync("bun", [SCHEMA_SCRIPT, ...args], { encoding: "utf8" });
+function runCli(args: string[]): {
+  status: number;
+  stdout: string;
+  stderr: string;
+} {
+  const result = spawnSync("bun", [SCHEMA_SCRIPT, ...args], {
+    encoding: "utf8",
+  });
   return {
     status: result.status ?? -1,
     stdout: result.stdout ?? "",
@@ -318,7 +324,10 @@ describe("validateConsolidatorResult — happy paths", () => {
   });
 
   it("accepts a result with empty consolidated_findings (every per-agent file was empty)", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.consolidated_findings = [];
     fixture.dropped_by_validation = [];
     const result = validateConsolidatorResult(fixture);
@@ -326,7 +335,10 @@ describe("validateConsolidatorResult — happy paths", () => {
   });
 
   it("accepts a result with empty rejected_alternatives and anti_patterns_found", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.rejected_alternatives = [];
     fixture.anti_patterns_found = [];
     const result = validateConsolidatorResult(fixture);
@@ -334,7 +346,10 @@ describe("validateConsolidatorResult — happy paths", () => {
   });
 
   it("accepts a result whose consolidated_findings holds a praise finding with no decoration", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.consolidated_findings = [
       {
         file: "src/lib/util.ts",
@@ -358,7 +373,10 @@ describe("validateConsolidatorResult — required-key omissions", () => {
     "anti_patterns_found",
     "summary",
   ])("rejects a result missing the '%s' top-level key", (key) => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     delete fixture[key];
     const result = validateConsolidatorResult(fixture);
     expect(result.ok).toBe(false);
@@ -374,7 +392,10 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 
   it("rejects when consolidated_findings is not an array", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.consolidated_findings = { not: "array" };
     const result = validateConsolidatorResult(fixture);
     expect(result.ok).toBe(false);
@@ -382,7 +403,10 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 
   it("rejects when dropped_by_validation is not an array", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.dropped_by_validation = "not an array";
     const result = validateConsolidatorResult(fixture);
     expect(result.ok).toBe(false);
@@ -390,7 +414,10 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 
   it("rejects when a dropped_by_validation entry is missing finding_id", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.dropped_by_validation = [
       {
         original_finding: { foo: "bar" },
@@ -403,7 +430,10 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 
   it("rejects when a dropped_by_validation entry has a non-object original_finding", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.dropped_by_validation = [
       {
         finding_id: "security:src/x.ts:1:issue",
@@ -417,7 +447,10 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 
   it("rejects when a dropped_by_validation entry has an empty reason", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.dropped_by_validation = [
       {
         finding_id: "security:src/x.ts:1:issue",
@@ -431,7 +464,10 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 
   it("rejects when a consolidated_findings entry is not a plain object (null)", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.consolidated_findings = [null];
     const result = validateConsolidatorResult(fixture);
     expect(result.ok).toBe(false);
@@ -439,7 +475,10 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 
   it("rejects when rejected_alternatives contains a non-string entry", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.rejected_alternatives = [{ obj: true }];
     const result = validateConsolidatorResult(fixture);
     expect(result.ok).toBe(false);
@@ -447,7 +486,10 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 
   it("rejects when anti_patterns_found contains a non-string entry", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.anti_patterns_found = [42];
     const result = validateConsolidatorResult(fixture);
     expect(result.ok).toBe(false);
@@ -455,7 +497,10 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 
   it("rejects when summary is an empty string", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.summary = "";
     const result = validateConsolidatorResult(fixture);
     expect(result.ok).toBe(false);
@@ -463,7 +508,10 @@ describe("validateConsolidatorResult — wrong-type rejections", () => {
   });
 
   it("rejects when a consolidated finding has malformed shape", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.consolidated_findings = [
       {
         file: "src/x.ts",
@@ -1127,7 +1175,10 @@ describe("agent-finding-schema CLI — `--validate <path>`", () => {
   });
 
   it("exits 0 for a consolidator file whose consolidated_findings carry coercible drift", () => {
-    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<string, unknown>;
+    const fixture = structuredClone(VALID_CONSOLIDATOR_RESULT) as Record<
+      string,
+      unknown
+    >;
     fixture.consolidated_findings = [
       {
         file: "src/x.ts",
@@ -1153,18 +1204,15 @@ describe("agent-finding-schema CLI — `--validate <path>`", () => {
     // missing required keys must route to the consolidator validator and
     // surface a consolidator-shaped error rather than an agent-findings
     // error.
-    withTmpFile(
-      JSON.stringify({ consolidated_findings: [] }),
-      (filePath) => {
-        const result = runCli(["--validate", filePath]);
-        expect(result.status).toBe(1);
-        const parsed = JSON.parse(result.stderr.trim());
-        expect(parsed.ok).toBe(false);
-        // The consolidator validator reports the first missing key.
-        expect(parsed.reason).toMatch(
-          /dropped_by_validation|rejected_alternatives|anti_patterns_found|summary/,
-        );
-      },
-    );
+    withTmpFile(JSON.stringify({ consolidated_findings: [] }), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(1);
+      const parsed = JSON.parse(result.stderr.trim());
+      expect(parsed.ok).toBe(false);
+      // The consolidator validator reports the first missing key.
+      expect(parsed.reason).toMatch(
+        /dropped_by_validation|rejected_alternatives|anti_patterns_found|summary/,
+      );
+    });
   });
 });

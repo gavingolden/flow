@@ -89,7 +89,11 @@ export type Spawner = (
   options: { cwd?: string },
 ) => { stdout: string; stderr: string; exitCode: number };
 
-export type GhRunner = (argv: string[]) => { stdout: string; stderr: string; exitCode: number };
+export type GhRunner = (argv: string[]) => {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+};
 
 // --- Path resolution ---
 
@@ -109,7 +113,10 @@ export type ResolveJsonlDeps = {
  * treat null as "no log to operate on" (run/upsert short-circuit; add
  * surfaces an error).
  */
-export function resolveJsonlPath(override?: string, deps: ResolveJsonlDeps = {}): string | null {
+export function resolveJsonlPath(
+  override?: string,
+  deps: ResolveJsonlDeps = {},
+): string | null {
   if (override) return override;
   const resolveSlug = deps.resolveSlug ?? resolveSlugFromPane;
   const readSt = deps.readStateFn ?? readState;
@@ -125,7 +132,10 @@ export function resolveJsonlPath(override?: string, deps: ResolveJsonlDeps = {})
 }
 
 export function computeId(command: string, reason: string): string {
-  return createHash("sha256").update(`${command}\n${reason}`).digest("hex").slice(0, 12);
+  return createHash("sha256")
+    .update(`${command}\n${reason}`)
+    .digest("hex")
+    .slice(0, 12);
 }
 
 // --- JSONL I/O ---
@@ -164,8 +174,10 @@ export function readEntries(jsonlPath: string): Entry[] {
       command: obj.command,
       reason: obj.reason,
       auto: Boolean(obj.auto),
-      registeredAt: typeof obj.registeredAt === "string" ? obj.registeredAt : "",
-      registeredBy: typeof obj.registeredBy === "string" ? obj.registeredBy : undefined,
+      registeredAt:
+        typeof obj.registeredAt === "string" ? obj.registeredAt : "",
+      registeredBy:
+        typeof obj.registeredBy === "string" ? obj.registeredBy : undefined,
     });
   }
   return entries;
@@ -223,7 +235,10 @@ export type RunOptions = {
   homeDir?: string;
 };
 
-export function runEntries(entries: Entry[], options: RunOptions = {}): Verdict {
+export function runEntries(
+  entries: Entry[],
+  options: RunOptions = {},
+): Verdict {
   const noteOnly = options.noteOnly ?? false;
   const spawnFn = options.spawn ?? defaultSpawn;
   // Execute in $HOME, not the worktree: step 11 runs after merge but before
@@ -316,12 +331,17 @@ export function formatVerdict(verdict: Verdict, noteOnly: boolean): string {
     }
   }
   for (const entry of verdict.noted) {
-    const autoTag = entry.auto && entry.autoDeniedBecause !== "not-in-allowlist" ? " (auto)" : "";
+    const autoTag =
+      entry.auto && entry.autoDeniedBecause !== "not-in-allowlist"
+        ? " (auto)"
+        : "";
     const denied =
       entry.autoDeniedBecause === "not-in-allowlist"
         ? " (auto-run denied: not in allowlist)"
         : "";
-    lines.push(`  - [ ]   ${entry.command}  # ${entry.reason}${autoTag}${denied}`);
+    lines.push(
+      `  - [ ]   ${entry.command}  # ${entry.reason}${autoTag}${denied}`,
+    );
   }
   return lines.join("\n");
 }
@@ -460,7 +480,9 @@ type UpsertArgs = {
   jsonlOverride?: string;
 };
 
-export function parseUpsertArgs(argv: string[]): UpsertArgs | { error: string } {
+export function parseUpsertArgs(
+  argv: string[],
+): UpsertArgs | { error: string } {
   if (argv.length === 0) return { error: "PR number is required" };
   const first = argv[0];
   const pr = Number.parseInt(first, 10);
@@ -535,7 +557,9 @@ export function runRun(argv: string[], deps: RunCmdDeps = {}): number {
   const parsed = parseRunArgs(argv);
   if ("error" in parsed) {
     console.error(`flow-followups: ${parsed.error}`);
-    console.error("usage: flow-followups run [--note-only] [--json] [--jsonl <path>]");
+    console.error(
+      "usage: flow-followups run [--note-only] [--json] [--jsonl <path>]",
+    );
     return 2;
   }
   const resolve = deps.resolveJsonl ?? ((o?: string) => resolveJsonlPath(o));
@@ -596,7 +620,15 @@ export function runUpsert(argv: string[], deps: UpsertDeps = {}): number {
   if (entries.length === 0) return 0;
 
   const gh = deps.gh ?? defaultGh;
-  const view = gh(["pr", "view", String(parsed.pr), "--json", "body", "--jq", ".body"]);
+  const view = gh([
+    "pr",
+    "view",
+    String(parsed.pr),
+    "--json",
+    "body",
+    "--jq",
+    ".body",
+  ]);
   if (view.exitCode !== 0) {
     console.error(`flow-followups: gh pr view failed: ${view.stderr.trim()}`);
     return 1;
@@ -606,7 +638,9 @@ export function runUpsert(argv: string[], deps: UpsertDeps = {}): number {
   const newBody = upsertPrBodySection(currentBody, section);
   if (newBody === currentBody) return 0;
 
-  const tmpDirFactory = deps.tmpDirFactory ?? (() => fs.mkdtempSync(path.join(os.tmpdir(), "flow-followups-")));
+  const tmpDirFactory =
+    deps.tmpDirFactory ??
+    (() => fs.mkdtempSync(path.join(os.tmpdir(), "flow-followups-")));
   const tmpDir = tmpDirFactory();
   const tmpFile = path.join(tmpDir, "body.md");
   fs.writeFileSync(tmpFile, newBody);
@@ -630,7 +664,9 @@ export function runUpsert(argv: string[], deps: UpsertDeps = {}): number {
 
 export function run(argv: string[]): number {
   if (argv.length === 0) {
-    console.error("flow-followups: subcommand is required (add | run | pr-body-upsert)");
+    console.error(
+      "flow-followups: subcommand is required (add | run | pr-body-upsert)",
+    );
     return 2;
   }
   const [sub, ...rest] = argv;

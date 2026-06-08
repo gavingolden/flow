@@ -256,7 +256,9 @@ describe(extractRecommendedPath, () => {
 
     it("flows the drifted value through the decoration-stripping loop", () => {
       const plan = `## Prompt interpretation\n\n- **Recommended path.**\n\`methods plausibly reach target\`.\n`;
-      expect(extractRecommendedPath(plan)).toBe("methods plausibly reach target");
+      expect(extractRecommendedPath(plan)).toBe(
+        "methods plausibly reach target",
+      );
     });
 
     it("does NOT bleed past the section boundary when the drifted label has no in-section value", () => {
@@ -346,7 +348,9 @@ describe("Tension matrix — case-sensitivity and substring guards", () => {
 describe(parseArgs, () => {
   it("rejects missing --intent", () => {
     const r = parseArgs(["--plan-md-file", "/tmp/x"]);
-    expect("error" in r && r.error).toContain("missing required flag: --intent");
+    expect("error" in r && r.error).toContain(
+      "missing required flag: --intent",
+    );
   });
 
   it("rejects missing --plan-md-file", () => {
@@ -379,7 +383,13 @@ describe(parseArgs, () => {
   });
 
   it("rejects unknown flags", () => {
-    const r = parseArgs(["--intent", "bug", "--plan-md-file", "/tmp/x", "--bogus"]);
+    const r = parseArgs([
+      "--intent",
+      "bug",
+      "--plan-md-file",
+      "/tmp/x",
+      "--bogus",
+    ]);
     expect("error" in r && r.error).toBe("unknown flag: --bogus");
   });
 
@@ -403,11 +413,15 @@ describe(run, () => {
     const origStdoutWrite = process.stdout.write.bind(process.stdout);
     const origStderrWrite = process.stderr.write.bind(process.stderr);
     process.stdout.write = ((chunk: string | Uint8Array) => {
-      stdout.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+      stdout.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+      );
       return true;
     }) as typeof process.stdout.write;
     process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderr.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+      stderr.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+      );
       return true;
     }) as typeof process.stderr.write;
 
@@ -430,7 +444,9 @@ describe(run, () => {
     const stdout: string[] = [];
     const origStdoutWrite = process.stdout.write.bind(process.stdout);
     process.stdout.write = ((chunk: string | Uint8Array) => {
-      stdout.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+      stdout.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+      );
       return true;
     }) as typeof process.stdout.write;
 
@@ -447,14 +463,18 @@ describe(run, () => {
     const stderr: string[] = [];
     const origStderrWrite = process.stderr.write.bind(process.stderr);
     process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderr.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+      stderr.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+      );
       return true;
     }) as typeof process.stderr.write;
 
     try {
       const rc = run(["--intent", "bug"]);
       expect(rc).toBe(2);
-      expect(stderr.join("")).toContain("missing required flag: --plan-md-file");
+      expect(stderr.join("")).toContain(
+        "missing required flag: --plan-md-file",
+      );
       expect(stderr.join("")).toContain("usage:");
     } finally {
       process.stderr.write = origStderrWrite;
@@ -465,7 +485,9 @@ describe(run, () => {
     const stderr: string[] = [];
     const origStderrWrite = process.stderr.write.bind(process.stderr);
     process.stderr.write = ((chunk: string | Uint8Array) => {
-      stderr.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString());
+      stderr.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+      );
       return true;
     }) as typeof process.stderr.write;
 

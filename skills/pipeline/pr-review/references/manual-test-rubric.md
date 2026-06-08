@@ -78,14 +78,14 @@ are correctness checks.
 - "Submit the form with a missing field — an inline error appears"
 - **Production-only integrations** — a third-party API without a sandbox, a
   prod-scoped secret, a real billing flow actually returns the expected result.
-  The *outcome* is still binary; it just can't be exercised in a fixture.
+  The _outcome_ is still binary; it just can't be exercised in a fixture.
 - **Cross-browser / cross-device rendering** — the page renders correctly in
-  Safari, on a mobile viewport, with a screen reader. The *outcome* is binary
+  Safari, on a mobile viewport, with a screen reader. The _outcome_ is binary
   even though the project has no harness for it yet.
 
 **An unverified functional step blocks merge.** A functional manual step that
-is still an unchecked `- [ ]` item is a feature that has *not been shown to
-work*. The auto-merge gate counts it like any other unchecked item and the PR
+is still an unchecked `- [ ]` item is a feature that has _not been shown to
+work_. The auto-merge gate counts it like any other unchecked item and the PR
 stays `gated` — see
 `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md`, "A `gated`
 verdict is terminal, not advisory". Reclassifying a functional step as
@@ -104,7 +104,7 @@ checks.
   balances" — anything where the assertion is human taste
 - Animations, transitions, dark-mode aesthetics
 - **Performance feel** — "feels responsive under realistic load" when the
-  judgment is *feel*. A *measured* budget ("p95 < 200ms") is functional and
+  judgment is _feel_. A _measured_ budget ("p95 < 200ms") is functional and
   should be automated, not left as a subjective step.
 - **Cost-prohibitive infra** — when wiring up the test costs more than the
   regression risk it would catch (rare; default to "automate it" unless you
@@ -133,6 +133,7 @@ always slots in alongside as another `it(...)` — not a parallel manual checkli
 Automation precedence does not mean "automate at any cost." If the automated form would
 be flaky (real network, real LLM, timing-dependent without a determinism shim), or
 require a heavy harness disproportionate to the risk, prefer either:
+
 1. A focused unit test of the logic, with the integration check left as a one-time
    manual smoke documented in the PR; or
 2. A `RUN_INTEGRATION=1`-style gated test that doesn't run by default but is callable.
@@ -206,9 +207,9 @@ that pass the existing test suite unchanged do not need a manual plan.
 
 ## Coverage breadth: one check per distinct functional change
 
-The scaffold and materiality table above decide *depth* for a single change — how many of happy / unhappy / edge a given behavior needs. Breadth is the orthogonal axis: when one PR adds or alters **multiple distinct user-facing behaviors** — several search facets, several commands, several states, several flags — the Test Steps section must include **one functional check per distinct user-facing change**, not a single representative step that conflates them. A reviewer reading the checklist should be able to reconstruct the full scope of new behavior from the checklist alone; a facet that no item asserts is a facet that can break silently and still merge, because nothing ever claimed it worked.
+The scaffold and materiality table above decide _depth_ for a single change — how many of happy / unhappy / edge a given behavior needs. Breadth is the orthogonal axis: when one PR adds or alters **multiple distinct user-facing behaviors** — several search facets, several commands, several states, several flags — the Test Steps section must include **one functional check per distinct user-facing change**, not a single representative step that conflates them. A reviewer reading the checklist should be able to reconstruct the full scope of new behavior from the checklist alone; a facet that no item asserts is a facet that can break silently and still merge, because nothing ever claimed it worked.
 
-This is breadth of *coverage*, not a mandate to add manual prose. Each facet routes through **Automate first** exactly like any other check — automate the facet where the automation test passes, and leave it manual only where the rubric flags it genuinely manual. A feature with four automatable facets gets four runnable items, not four manual lines. The breadth requirement makes the scope visible; "Automate first" keeps the automatable facets off the human's plate.
+This is breadth of _coverage_, not a mandate to add manual prose. Each facet routes through **Automate first** exactly like any other check — automate the facet where the automation test passes, and leave it manual only where the rubric flags it genuinely manual. A feature with four automatable facets gets four runnable items, not four manual lines. The breadth requirement makes the scope visible; "Automate first" keeps the automatable facets off the human's plate.
 
 ### Worked example: a multi-facet search DSL (modeled on `gavingolden/pokemon#216`)
 

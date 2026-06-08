@@ -120,8 +120,16 @@ export function ensureStopHook(
     }
   }
 
-  if (settings === null || typeof settings !== "object" || Array.isArray(settings)) {
-    return { changed: false, reason: "malformed-json", error: "settings root is not an object" };
+  if (
+    settings === null ||
+    typeof settings !== "object" ||
+    Array.isArray(settings)
+  ) {
+    return {
+      changed: false,
+      reason: "malformed-json",
+      error: "settings root is not an object",
+    };
   }
 
   const before = JSON.stringify(settings);

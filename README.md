@@ -131,9 +131,8 @@ Inside a flow window, the Claude Code session is the single LLM container. Sub-s
 
 ## Design
 
-| You want | Read |
-|---|---|
-| The architectural rationale | [`docs/architecture.md`](docs/architecture.md) |
-| The supervisor skill itself | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
-| Project rules for agents working on flow | [`AGENTS.md`](AGENTS.md) |
-
+| You want                                 | Read                                                                               |
+| ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| The architectural rationale              | [`docs/architecture.md`](docs/architecture.md)                                     |
+| The supervisor skill itself              | [`skills/pipeline/flow-pipeline/SKILL.md`](skills/pipeline/flow-pipeline/SKILL.md) |
+| Project rules for agents working on flow | [`AGENTS.md`](AGENTS.md)                                                           |

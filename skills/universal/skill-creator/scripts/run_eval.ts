@@ -1,4 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import type { EvalItem, EvalResult } from "./utils.ts";
@@ -47,7 +53,9 @@ async function runSingleQuery(
     ];
     if (model) cmd.push("--model", model);
 
-    const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "CLAUDECODE"));
+    const env = Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => k !== "CLAUDECODE"),
+    );
 
     const proc = Bun.spawn(cmd, {
       stdout: "pipe",
@@ -111,7 +119,10 @@ async function runSingleQuery(
                   break outer;
                 }
               }
-            } else if (seType === "content_block_stop" || seType === "message_stop") {
+            } else if (
+              seType === "content_block_stop" ||
+              seType === "message_stop"
+            ) {
               if (pendingToolName) {
                 triggered = accumulatedJson.includes(cleanName);
                 break outer;
@@ -125,7 +136,10 @@ async function runSingleQuery(
             const message = event.message || {};
             for (const item of message.content || []) {
               if (item.type !== "tool_use") continue;
-              if (item.name === "Skill" && (item.input?.skill || "").includes(cleanName)) {
+              if (
+                item.name === "Skill" &&
+                (item.input?.skill || "").includes(cleanName)
+              ) {
                 triggered = true;
               } else if (
                 item.name === "Read" &&
@@ -184,7 +198,9 @@ async function runWithConcurrency<T>(
     }
   }
 
-  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()));
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()),
+  );
   return results;
 }
 
@@ -312,7 +328,9 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  const evalSet: EvalItem[] = JSON.parse(readFileSync(resolve(values["eval-set"]), "utf-8"));
+  const evalSet: EvalItem[] = JSON.parse(
+    readFileSync(resolve(values["eval-set"]), "utf-8"),
+  );
   const { name, description: origDesc } = parseSkillMd(skillPath);
   const description = values.description || origDesc;
   const projectRoot = findProjectRoot();

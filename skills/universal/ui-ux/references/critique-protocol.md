@@ -1,6 +1,6 @@
 # Pre-submit critique protocol
 
-A stack-neutral quality gate to run *before* declaring UI work done. It is a 30–60 second review, not a redesign — walk the dimensions, find the one to three highest-impact fixes, apply them, and move on. Each dimension is anchored to a named source; canonical URLs live in `sources.md`. A stack skill instantiates these checks with its own concrete examples (class names, tokens); this is the portable reasoning behind them.
+A stack-neutral quality gate to run _before_ declaring UI work done. It is a 30–60 second review, not a redesign — walk the dimensions, find the one to three highest-impact fixes, apply them, and move on. Each dimension is anchored to a named source; canonical URLs live in `sources.md`. A stack skill instantiates these checks with its own concrete examples (class names, tokens); this is the portable reasoning behind them.
 
 ## Dimensions
 

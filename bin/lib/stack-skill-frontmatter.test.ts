@@ -23,7 +23,8 @@ function readFrontmatterDescription(skill: string): string {
   if (!match) throw new Error(`${skill}: no YAML frontmatter block found`);
   const frontmatter = match[1]!;
   const descMatch = frontmatter.match(/description:\s*>-?\s*\n([\s\S]+)/);
-  if (!descMatch) throw new Error(`${skill}: no folded 'description:' block found`);
+  if (!descMatch)
+    throw new Error(`${skill}: no folded 'description:' block found`);
   // Mimic YAML folded-scalar (`>-`) whitespace handling: collapse runs of
   // whitespace (including the line continuations and leading indent) into
   // single spaces so the assertions read against the semantic content,

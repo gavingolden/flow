@@ -19,7 +19,7 @@ appear:
    `status: "escalated"` verdict — masking a real failure as a clean
    run. Worked failure mode: an earlier step writes
    `status: "escalated"` with `escalation_tag:
-   "consolidator-schema-failure"` and prints `NEEDS HUMAN: ...` to
+"consolidator-schema-failure"` and prints `NEEDS HUMAN: ...` to
    stderr; the wrapper's control flow continues past the escalation
    (a `return` missed, a `set -e` clause disabled by an upstream
    `&&`, a subshell scope leak) and falls through to Step 13's
@@ -41,7 +41,7 @@ The guard makes both regression classes shape-impossible: the first
 clean-exit OR wrapper-escalation — becomes a no-op once the
 escalation flag is on disk. The only escalations that legitimately
 overwrite a prior `status: "clean"` write are direct subagent writes
-*before* any clean write has landed, which is the expected ordering
+_before_ any clean write has landed, which is the expected ordering
 (escalation paths short-circuit further wrapper progress to Step 13).
 
 ## The contract
@@ -160,7 +160,7 @@ landing where a reader expects a well-formed JSON object.
   escalation that is already on disk. Concretely: the guard's
   `[ "$PRIOR_STATUS" = "escalated" ] && exit 0` returns early
   regardless of whether THIS write was going to land `status:
-  "clean"` or `status: "escalated"`.
+"clean"` or `status: "escalated"`.
 - **It does not validate the prior artifact's shape.** A malformed
   prior artifact (corrupted JSON, missing `.status`) reads as the
   empty string from `jq -r '.status' 2>/dev/null` and the guard

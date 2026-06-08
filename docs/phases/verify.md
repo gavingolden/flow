@@ -33,6 +33,7 @@ ground-truth post-check. Up to three attempts before escalating to
   replaced, not stacked).
 
 Status transitions:
+
 - `pr-open → verifying → ci` (success path).
 - `pr-open → verifying → needs-human` with reason
   `verify-exhausted` (after three failed attempts).
@@ -104,7 +105,7 @@ fix loops.
 
 - **`verify-script-missing` (preflight).** `<worktree>/.flow/verify`
   is missing, not a regular file, or not executable. The phase exits
-  to `needs-human` *before* invoking the LLM, converting a 30-90 min
+  to `needs-human` _before_ invoking the LLM, converting a 30-90 min
   exhaustion into a sub-second failure with a precise reason.
 - **`pr-missing` (preflight).** `task.frontmatter.pr` is null. This
   shouldn't happen on the happy path because implement opens the PR
@@ -129,9 +130,9 @@ fix loops.
 
 ## Implementation
 
-| File | Role |
-|---|---|
-| `src/pipeline/phases/verify.ts` | Phase entry, wrapping prompt, retry loop, status transitions |
+| File                                 | Role                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------- |
+| `src/pipeline/phases/verify.ts`      | Phase entry, wrapping prompt, retry loop, status transitions              |
 | `src/pipeline/phases/verify-gate.ts` | `runVerifyGate` (`.flow/verify` shell-out) and `surfaceVerifyFailureOnPr` |
-| `src/pipeline/retry.ts` | `retryN(fn, n)` — generic bounded-retry primitive |
-| `src/pipeline/headless.ts` | Generic `claude -p` wrapper |
+| `src/pipeline/retry.ts`              | `retryN(fn, n)` — generic bounded-retry primitive                         |
+| `src/pipeline/headless.ts`           | Generic `claude -p` wrapper                                               |

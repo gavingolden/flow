@@ -18,7 +18,10 @@ export type VersionOptions = {
  * CLI shim for `bin/flow`'s `version` / `--version` / `-v` verb. Intercepts
  * --help / -h before any fs read, then dispatches to `runVersion`.
  */
-export function runVersionCli(args: string[], opts: VersionOptions = {}): number {
+export function runVersionCli(
+  args: string[],
+  opts: VersionOptions = {},
+): number {
   if (argsContainHelp(args)) {
     printVerbHelp("version");
     return 0;

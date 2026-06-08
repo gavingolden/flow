@@ -87,7 +87,7 @@ and ends. On a `gated` verdict it must **not**:
   renders) as **subjective UX** to wave it through is a prohibited move
   (see `skills/pipeline/pr-review/references/manual-test-rubric.md`,
   "Genuinely manual" → functional vs subjective);
-- treat a "merge" / "ship it" instruction given *before* the gate
+- treat a "merge" / "ship it" instruction given _before_ the gate
   verdict was surfaced as authorisation to merge.
 
 The gate's whole purpose is to stop a non-functional feature from
@@ -104,8 +104,8 @@ There are exactly two routes from `gated` to merged:
 
 1. **A human merges the PR through GitHub.** Always correct — the human
    performed the validation the unchecked steps describe.
-2. **A fresh, post-verdict gate override.** The user, in a *new* turn
-   *after* the GATED block was surfaced, gives an unambiguous,
+2. **A fresh, post-verdict gate override.** The user, in a _new_ turn
+   _after_ the GATED block was surfaced, gives an unambiguous,
    in-context instruction to merge the gated PR anyway. The supervisor
    confirms once via `AskUserQuestion`, records the confirmation token
    (`flow-merge-guard --record-override`), and only then may step 10
@@ -186,12 +186,12 @@ auto-merge path.
 `gh pr view <pr> --json state` returns one of `OPEN`, `MERGED`,
 `CLOSED`. Combine with the unchecked-count result:
 
-| PR state | Unchecked count | Decision | Action |
-|---|---|---|---|
-| `OPEN` | `0` | **auto-merge** | `(cd "$PRIMARY" && gh pr merge --squash <pr>)` (where `$PRIMARY` is the primary worktree path, so gh's post-merge `git checkout <base>` is a no-op there), then step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), then `flow-remove-worktree --delete-branch`, then write `phase: merged`, end. |
-| `OPEN` | `> 0` | **gated** | Write `phase: gated`. Print the validation checklist, the PR URL, and the manual-merge verb (`gh pr merge --squash <pr>`). End. |
-| `MERGED` | (any) | **already-merged** | The user merged externally (gated → merged path). Run step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), then `flow-remove-worktree --delete-branch`, write `phase: merged`, end. |
-| `CLOSED` | (any) | **closed-without-merge** | Escalate: `NEEDS HUMAN: pr-closed-without-merge <url>`. Leave worktree intact (the user may want to reopen). End. |
+| PR state | Unchecked count | Decision                 | Action                                                                                                                                                                                                                                                                                                                                                                    |
+| -------- | --------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPEN`   | `0`             | **auto-merge**           | `(cd "$PRIMARY" && gh pr merge --squash <pr>)` (where `$PRIMARY` is the primary worktree path, so gh's post-merge `git checkout <base>` is a no-op there), then step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), then `flow-remove-worktree --delete-branch`, then write `phase: merged`, end. |
+| `OPEN`   | `> 0`           | **gated**                | Write `phase: gated`. Print the validation checklist, the PR URL, and the manual-merge verb (`gh pr merge --squash <pr>`). End.                                                                                                                                                                                                                                           |
+| `MERGED` | (any)           | **already-merged**       | The user merged externally (gated → merged path). Run step 10.5, then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition), then `flow-remove-worktree --delete-branch`, write `phase: merged`, end.                                                                                                                |
+| `CLOSED` | (any)           | **closed-without-merge** | Escalate: `NEEDS HUMAN: pr-closed-without-merge <url>`. Leave worktree intact (the user may want to reopen). End.                                                                                                                                                                                                                                                         |
 
 ## Defensive cases
 
@@ -208,7 +208,7 @@ than guess.
   heading as "no unchecked items" would silently ship hand-edited PRs
   that the user might have expected to be gated.
 - **`gh` non-zero exit or unparseable JSON.** Escalate `NEEDS HUMAN:
-  gh-error <stderr>`. Don't retry — gh failures here are typically
+gh-error <stderr>`. Don't retry — gh failures here are typically
   auth or repo-permission issues that need human attention.
 
 ## Worked examples

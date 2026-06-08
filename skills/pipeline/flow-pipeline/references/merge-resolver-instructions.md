@@ -170,7 +170,7 @@ schemas), do **not** invent a fix:
 
 - Do not `git add` the file.
 - Record it in `ambiguous_resolutions` with `judgment_call: "no
-  defensible default — escalation required"` and the strategies you
+defensible default — escalation required"` and the strategies you
   considered + why each was rejected in `alternatives_considered`.
 - Skip the rebase-continue in step 4. Set `force_push_status: skipped`
   in step 6. Write the artifact in step 7.
@@ -325,15 +325,15 @@ of the subagent fan-out.
 
 # Troubleshooting
 
-| Problem | Symptom | Fix |
-|---|---|---|
-| Rebase produces no conflicts | `git rebase origin/<base>` exits 0 with no conflicts; wrapper's classification was a false positive | Skip to Step 8. Record the divergence in `rejected_strategies` (one entry: `path: "(none)"`, `strategy: "(no-op)"`, `why_rejected: "wrapper saw <X> stderr but local rebase clean"`). Set `force_push_status: skipped`. |
-| Rebase aborts mid-flight | `git rebase --continue` errors out for non-conflict reason (e.g. invalid commit) | Run `git rebase --abort` to return to pre-rebase state. Record the failure in `summary`; set `force_push_status: skipped`. The supervisor's retry will fail and escalate. |
-| Conflict marker survives the Edit | `git diff --check` flags `<<<<<<<` after your edit | Re-open the file, expand the `Edit` `old_string` to include the full marker triple, retry. The Edit tool requires unique `old_string`; conflict markers within similar files can collide. |
-| Force-push refused (lease) | `git push --force-with-lease` exits non-zero with "stale info" | The remote advanced — another process pushed. Do not retry blindly. Record the verbatim error in `summary`; set `force_push_status: failed`. Let the wrapper decide. |
-| `modify/delete` conflict | One side deleted the file, the other modified it | Choose `delete` (accept the deletion) or `prefer-current` (keep the modified file, undo the deletion). Record the call in `ambiguous_resolutions` if the PR's intent doesn't clearly favour one. |
-| Both sides rename the same file | `rename/rename` conflict | Choose one of the two new names by reading both sides' usages. Record in `ambiguous_resolutions` with the alternative name in `alternatives_considered`. |
-| Lockfile conflict | `package-lock.json` / `bun.lock` / `yarn.lock` conflicts | Use `prefer-incoming` (take `main`'s lockfile), then re-run the dependency installer (`npm install` / `bun install`) and `git add` the regenerated lockfile. Record `strategy: prefer-incoming` and note "regenerated via package manager" in `semantic_decision`. |
+| Problem                           | Symptom                                                                                             | Fix                                                                                                                                                                                                                                                                |
+| --------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Rebase produces no conflicts      | `git rebase origin/<base>` exits 0 with no conflicts; wrapper's classification was a false positive | Skip to Step 8. Record the divergence in `rejected_strategies` (one entry: `path: "(none)"`, `strategy: "(no-op)"`, `why_rejected: "wrapper saw <X> stderr but local rebase clean"`). Set `force_push_status: skipped`.                                            |
+| Rebase aborts mid-flight          | `git rebase --continue` errors out for non-conflict reason (e.g. invalid commit)                    | Run `git rebase --abort` to return to pre-rebase state. Record the failure in `summary`; set `force_push_status: skipped`. The supervisor's retry will fail and escalate.                                                                                          |
+| Conflict marker survives the Edit | `git diff --check` flags `<<<<<<<` after your edit                                                  | Re-open the file, expand the `Edit` `old_string` to include the full marker triple, retry. The Edit tool requires unique `old_string`; conflict markers within similar files can collide.                                                                          |
+| Force-push refused (lease)        | `git push --force-with-lease` exits non-zero with "stale info"                                      | The remote advanced — another process pushed. Do not retry blindly. Record the verbatim error in `summary`; set `force_push_status: failed`. Let the wrapper decide.                                                                                               |
+| `modify/delete` conflict          | One side deleted the file, the other modified it                                                    | Choose `delete` (accept the deletion) or `prefer-current` (keep the modified file, undo the deletion). Record the call in `ambiguous_resolutions` if the PR's intent doesn't clearly favour one.                                                                   |
+| Both sides rename the same file   | `rename/rename` conflict                                                                            | Choose one of the two new names by reading both sides' usages. Record in `ambiguous_resolutions` with the alternative name in `alternatives_considered`.                                                                                                           |
+| Lockfile conflict                 | `package-lock.json` / `bun.lock` / `yarn.lock` conflicts                                            | Use `prefer-incoming` (take `main`'s lockfile), then re-run the dependency installer (`npm install` / `bun install`) and `git add` the regenerated lockfile. Record `strategy: prefer-incoming` and note "regenerated via package manager" in `semantic_decision`. |
 
 # Verification
 

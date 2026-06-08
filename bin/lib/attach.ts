@@ -28,14 +28,18 @@ export function runAttachCli(args: string[]): number {
 
 export function runAttach(name?: string): number {
   if (!sessionExists()) {
-    console.error(`flow attach: no '${FLOW_SESSION}' tmux session. Start one with 'flow new'.`);
+    console.error(
+      `flow attach: no '${FLOW_SESSION}' tmux session. Start one with 'flow new'.`,
+    );
     return 1;
   }
 
   const windows = listWindows();
   if (!name) {
     if (windows.length === 0) {
-      console.error(`flow attach: no windows in the '${FLOW_SESSION}' session.`);
+      console.error(
+        `flow attach: no windows in the '${FLOW_SESSION}' session.`,
+      );
       return 1;
     }
     // Bare attach lands the user in the session for browsing; with several
@@ -48,7 +52,9 @@ export function runAttach(name?: string): number {
   }
 
   if (!findWindowBySlug(windows, name)) {
-    console.error(`flow attach: pipeline '${name}' not found in '${FLOW_SESSION}' session.`);
+    console.error(
+      `flow attach: pipeline '${name}' not found in '${FLOW_SESSION}' session.`,
+    );
     return 1;
   }
 

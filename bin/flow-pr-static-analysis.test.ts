@@ -84,7 +84,13 @@ function makeNpmAuditJson(
 }
 
 function makeBiomeJsonOldShape(
-  diags: Array<{ file: string; line: number; severity: string; category: string; message: string }>,
+  diags: Array<{
+    file: string;
+    line: number;
+    severity: string;
+    category: string;
+    message: string;
+  }>,
 ): string {
   return JSON.stringify({
     diagnostics: diags.map((d) => ({
@@ -102,7 +108,13 @@ function makeBiomeJsonOldShape(
 function makeEslintJson(
   files: Array<{
     file: string;
-    messages: Array<{ line: number; ruleId: string; message: string; severity: 1 | 2; endLine?: number }>;
+    messages: Array<{
+      line: number;
+      ruleId: string;
+      message: string;
+      severity: 1 | 2;
+      endLine?: number;
+    }>;
   }>,
 ): string {
   return JSON.stringify(
@@ -111,20 +123,38 @@ function makeEslintJson(
 }
 
 function makeTscOutput(
-  errors: Array<{ file: string; line: number; col?: number; code: string; message: string }>,
+  errors: Array<{
+    file: string;
+    line: number;
+    col?: number;
+    code: string;
+    message: string;
+  }>,
 ): string {
-  return errors
-    .map((e) => `${e.file}(${e.line},${e.col ?? 1}): error ${e.code}: ${e.message}`)
-    .join("\n") + "\n";
+  return (
+    errors
+      .map(
+        (e) =>
+          `${e.file}(${e.line},${e.col ?? 1}): error ${e.code}: ${e.message}`,
+      )
+      .join("\n") + "\n"
+  );
 }
 
 function makeSvelteCheckOutput(
-  diags: Array<{ file: string; line: number; col?: number; severity?: "ERROR" | "WARNING"; message: string }>,
+  diags: Array<{
+    file: string;
+    line: number;
+    col?: number;
+    severity?: "ERROR" | "WARNING";
+    message: string;
+  }>,
 ): string {
   const lines = [
     "START",
     ...diags.map(
-      (d) => `${d.line} ${d.col ?? 1} ${d.severity ?? "ERROR"} "${d.file}" ${d.message}`,
+      (d) =>
+        `${d.line} ${d.col ?? 1} ${d.severity ?? "ERROR"} "${d.file}" ${d.message}`,
     ),
     `COMPLETED ${diags.length} ERRORS 0 WARNINGS`,
   ];
@@ -134,7 +164,12 @@ function makeSvelteCheckOutput(
 function makeCoverageJson(
   files: Array<{
     file: string;
-    statements: Array<{ id: string; line: number; endLine?: number; hits: number }>;
+    statements: Array<{
+      id: string;
+      line: number;
+      endLine?: number;
+      hits: number;
+    }>;
   }>,
 ): string {
   const obj: Record<string, unknown> = {};
@@ -191,7 +226,13 @@ describe(parseSemgrepJson, () => {
 
   it("maps ERROR severity to confidence 95", () => {
     const json = makeSemgrepJson([
-      { file: "src/a.ts", line: 10, rule: "rule.injection", severity: "ERROR", message: "SQL injection" },
+      {
+        file: "src/a.ts",
+        line: 10,
+        rule: "rule.injection",
+        severity: "ERROR",
+        message: "SQL injection",
+      },
     ]);
     const findings = parseSemgrepJson(json);
     expect(findings).toHaveLength(1);
@@ -245,8 +286,20 @@ describe(parseBiomeJson, () => {
 
   it("parses old shape (span.start.line) and maps severities", () => {
     const json = makeBiomeJsonOldShape([
-      { file: "/cwd/a.ts", line: 7, severity: "error", category: "lint/suspicious/noFoo", message: "bad foo" },
-      { file: "/cwd/a.ts", line: 8, severity: "warning", category: "lint/style/noBar", message: "bar" },
+      {
+        file: "/cwd/a.ts",
+        line: 7,
+        severity: "error",
+        category: "lint/suspicious/noFoo",
+        message: "bad foo",
+      },
+      {
+        file: "/cwd/a.ts",
+        line: 8,
+        severity: "warning",
+        category: "lint/style/noBar",
+        message: "bar",
+      },
     ]);
     const findings = parseBiomeJson(json, "/cwd");
     expect(findings.map((f) => f.confidence)).toEqual([90, 75]);
@@ -282,7 +335,12 @@ describe(parseBiomeJson, () => {
   it("skips diagnostics with no resolvable line", () => {
     const json = JSON.stringify({
       diagnostics: [
-        { location: { path: { file: "/cwd/a.ts" } }, severity: "error", category: "lint/foo", message: { content: "x" } },
+        {
+          location: { path: { file: "/cwd/a.ts" } },
+          severity: "error",
+          category: "lint/foo",
+          message: { content: "x" },
+        },
       ],
     });
     expect(parseBiomeJson(json, "/cwd")).toEqual([]);
@@ -303,8 +361,19 @@ describe(parseEslintJson, () => {
       {
         file: "/cwd/src/a.ts",
         messages: [
-          { line: 10, ruleId: "no-unused-vars", message: "unused", severity: 2 },
-          { line: 12, ruleId: "prefer-const", message: "const", severity: 1, endLine: 15 },
+          {
+            line: 10,
+            ruleId: "no-unused-vars",
+            message: "unused",
+            severity: 2,
+          },
+          {
+            line: 12,
+            ruleId: "prefer-const",
+            message: "const",
+            severity: 1,
+            endLine: 15,
+          },
         ],
       },
     ]);
@@ -318,7 +387,12 @@ describe(parseEslintJson, () => {
 
   it("uses 'eslint/unknown' rule_id when ruleId is null", () => {
     const json = JSON.stringify([
-      { filePath: "/cwd/a.ts", messages: [{ line: 1, ruleId: null, message: "parser error", severity: 2 }] },
+      {
+        filePath: "/cwd/a.ts",
+        messages: [
+          { line: 1, ruleId: null, message: "parser error", severity: 2 },
+        ],
+      },
     ]);
     const findings = parseEslintJson(json, "/cwd");
     expect(findings[0].rule_id).toBe("eslint/unknown");
@@ -335,8 +409,19 @@ describe(parseTscOutput, () => {
 
   it("parses path(line,col): error TSnnnn: msg lines and assigns confidence 100", () => {
     const stdout = makeTscOutput([
-      { file: "src/a.ts", line: 5, col: 3, code: "TS2322", message: "Type 'string' is not assignable to type 'number'." },
-      { file: "src/b.ts", line: 9, code: "TS2304", message: "Cannot find name 'foo'." },
+      {
+        file: "src/a.ts",
+        line: 5,
+        col: 3,
+        code: "TS2322",
+        message: "Type 'string' is not assignable to type 'number'.",
+      },
+      {
+        file: "src/b.ts",
+        line: 9,
+        code: "TS2304",
+        message: "Cannot find name 'foo'.",
+      },
     ]);
     const findings = parseTscOutput(stdout, "/cwd");
     expect(findings).toHaveLength(2);
@@ -363,13 +448,27 @@ describe(parseTscOutput, () => {
 describe(parseSvelteCheckOutput, () => {
   it("returns empty array for empty / framing-only input", () => {
     expect(parseSvelteCheckOutput("", "/cwd")).toEqual([]);
-    expect(parseSvelteCheckOutput("START\nCOMPLETED 0 ERRORS 0 WARNINGS\n", "/cwd")).toEqual([]);
+    expect(
+      parseSvelteCheckOutput("START\nCOMPLETED 0 ERRORS 0 WARNINGS\n", "/cwd"),
+    ).toEqual([]);
   });
 
-  it("parses ROW COL SEVERITY \"file\" message lines and skips framing lines", () => {
+  it('parses ROW COL SEVERITY "file" message lines and skips framing lines', () => {
     const stdout = makeSvelteCheckOutput([
-      { file: "src/App.svelte", line: 12, col: 5, severity: "ERROR", message: "Cannot find name 'document'." },
-      { file: "src/lib/x.svelte.ts", line: 3, col: 1, severity: "WARNING", message: "Unused export." },
+      {
+        file: "src/App.svelte",
+        line: 12,
+        col: 5,
+        severity: "ERROR",
+        message: "Cannot find name 'document'.",
+      },
+      {
+        file: "src/lib/x.svelte.ts",
+        line: 3,
+        col: 1,
+        severity: "WARNING",
+        message: "Unused export.",
+      },
     ]);
     const findings = parseSvelteCheckOutput(stdout, "/cwd");
     expect(findings).toHaveLength(2);
@@ -393,7 +492,8 @@ describe(parseSvelteCheckOutput, () => {
   });
 
   it("relativises absolute file paths against the worktree", () => {
-    const stdout = '12 5 ERROR "/cwd/src/App.svelte" Cannot find name \'document\'.\n';
+    const stdout =
+      "12 5 ERROR \"/cwd/src/App.svelte\" Cannot find name 'document'.\n";
     const findings = parseSvelteCheckOutput(stdout, "/cwd");
     expect(findings[0].file).toBe("src/App.svelte");
   });
@@ -435,11 +535,17 @@ describe(parseCoverageJson, () => {
 // --- parseNpmAuditJson -----------------------------------------------------
 
 describe(parseNpmAuditJson, () => {
-  const samplePackageJson = '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
+  const samplePackageJson =
+    '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
 
   it("parses one high-severity finding into a Finding with file=package.json and resolved line", () => {
     const json = makeNpmAuditJson([
-      { pkg: "lodash", severity: "high", ghsaId: "GHSA-jf85-cpcp-j695", title: "Prototype Pollution in lodash" },
+      {
+        pkg: "lodash",
+        severity: "high",
+        ghsaId: "GHSA-jf85-cpcp-j695",
+        title: "Prototype Pollution in lodash",
+      },
     ]);
     const findings = parseNpmAuditJson(json, samplePackageJson);
     expect(findings).toHaveLength(1);
@@ -455,7 +561,12 @@ describe(parseNpmAuditJson, () => {
   });
 
   it("returns [] on empty vulnerabilities object", () => {
-    expect(parseNpmAuditJson(JSON.stringify({ auditReportVersion: 2, vulnerabilities: {} }), samplePackageJson)).toEqual([]);
+    expect(
+      parseNpmAuditJson(
+        JSON.stringify({ auditReportVersion: 2, vulnerabilities: {} }),
+        samplePackageJson,
+      ),
+    ).toEqual([]);
   });
 
   it("returns [] on malformed JSON input", () => {
@@ -463,7 +574,12 @@ describe(parseNpmAuditJson, () => {
   });
 
   it("returns [] when top-level vulnerabilities key is missing", () => {
-    expect(parseNpmAuditJson(JSON.stringify({ auditReportVersion: 2 }), samplePackageJson)).toEqual([]);
+    expect(
+      parseNpmAuditJson(
+        JSON.stringify({ auditReportVersion: 2 }),
+        samplePackageJson,
+      ),
+    ).toEqual([]);
   });
 
   it("filters out transitive (isDirect=false) entries", () => {
@@ -474,13 +590,27 @@ describe(parseNpmAuditJson, () => {
           name: "lodash",
           severity: "high",
           isDirect: true,
-          via: [{ source: 1, title: "direct vuln", url: "https://github.com/advisories/GHSA-aaaa-aaaa-aaaa", severity: "high" }],
+          via: [
+            {
+              source: 1,
+              title: "direct vuln",
+              url: "https://github.com/advisories/GHSA-aaaa-aaaa-aaaa",
+              severity: "high",
+            },
+          ],
         },
         "some-transitive": {
           name: "some-transitive",
           severity: "critical",
           isDirect: false,
-          via: [{ source: 2, title: "transitive vuln", url: "https://github.com/advisories/GHSA-bbbb-bbbb-bbbb", severity: "critical" }],
+          via: [
+            {
+              source: 2,
+              title: "transitive vuln",
+              url: "https://github.com/advisories/GHSA-bbbb-bbbb-bbbb",
+              severity: "critical",
+            },
+          ],
         },
       },
     });
@@ -491,7 +621,12 @@ describe(parseNpmAuditJson, () => {
 
   it("skips string via entries to avoid double-counting sibling CVEs", () => {
     const json = makeNpmAuditJson([
-      { pkg: "lodash", severity: "high", ghsaId: "GHSA-xxxx-xxxx-xxxx", viaIncludesSiblingString: "lodash.merge" },
+      {
+        pkg: "lodash",
+        severity: "high",
+        ghsaId: "GHSA-xxxx-xxxx-xxxx",
+        viaIncludesSiblingString: "lodash.merge",
+      },
     ]);
     const findings = parseNpmAuditJson(json, samplePackageJson);
     // Even though via has [object, "lodash.merge"], only the object should produce a finding.
@@ -523,7 +658,8 @@ describe(parseNpmAuditJson, () => {
   });
 
   it("resolves the line number against packageJsonContent", () => {
-    const longPackageJson = '{\n  "name": "x",\n  "version": "1.0.0",\n  "dependencies": {\n    "axios": "0.21.0"\n  }\n}';
+    const longPackageJson =
+      '{\n  "name": "x",\n  "version": "1.0.0",\n  "dependencies": {\n    "axios": "0.21.0"\n  }\n}';
     const json = makeNpmAuditJson([
       { pkg: "axios", severity: "moderate", ghsaId: "GHSA-test-test-test" },
     ]);
@@ -532,9 +668,7 @@ describe(parseNpmAuditJson, () => {
   });
 
   it("falls back to line 1 when packageJsonContent is null", () => {
-    const json = makeNpmAuditJson([
-      { pkg: "lodash", severity: "high" },
-    ]);
+    const json = makeNpmAuditJson([{ pkg: "lodash", severity: "high" }]);
     expect(parseNpmAuditJson(json, null)[0].line).toBe(1);
   });
 
@@ -561,7 +695,14 @@ describe(computeChangedLines, () => {
           {
             oldStart: 10,
             newStart: 10,
-            lines: [" ctx1", "+added1", "+added2", " ctx2", "-removed", " ctx3"],
+            lines: [
+              " ctx1",
+              "+added1",
+              "+added2",
+              " ctx2",
+              "-removed",
+              " ctx3",
+            ],
           },
         ],
       },
@@ -587,7 +728,10 @@ describe(computeChangedLines, () => {
   it("handles multiple files in one diff", () => {
     const diff = makeUnifiedDiff([
       { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
-      { path: "b.ts", hunks: [{ oldStart: 5, newStart: 5, lines: ["+y", "+z"] }] },
+      {
+        path: "b.ts",
+        hunks: [{ oldStart: 5, newStart: 5, lines: ["+y", "+z"] }],
+      },
     ]);
     const map = computeChangedLines(diff);
     expect(map.get("a.ts")).toEqual(new Set([1]));
@@ -598,9 +742,7 @@ describe(computeChangedLines, () => {
     const diff = makeUnifiedDiff([
       {
         path: "src/a.ts",
-        hunks: [
-          { oldStart: 1, newStart: 1, lines: ["-only-removed"] },
-        ],
+        hunks: [{ oldStart: 1, newStart: 1, lines: ["-only-removed"] }],
       },
     ]);
     // After the rename: file with no + lines is dropped from the map.
@@ -665,9 +807,15 @@ describe(applyConfidenceThreshold, () => {
 
   it("filters at the boundary (>=)", () => {
     const findings = [at(60), at(80), at(90), at(100)];
-    expect(applyConfidenceThreshold(findings, 80).map((f) => f.confidence)).toEqual([80, 90, 100]);
-    expect(applyConfidenceThreshold(findings, 90).map((f) => f.confidence)).toEqual([90, 100]);
-    expect(applyConfidenceThreshold(findings, 100).map((f) => f.confidence)).toEqual([100]);
+    expect(
+      applyConfidenceThreshold(findings, 80).map((f) => f.confidence),
+    ).toEqual([80, 90, 100]);
+    expect(
+      applyConfidenceThreshold(findings, 90).map((f) => f.confidence),
+    ).toEqual([90, 100]);
+    expect(
+      applyConfidenceThreshold(findings, 100).map((f) => f.confidence),
+    ).toEqual([100]);
   });
 });
 
@@ -706,7 +854,9 @@ describe(parseArgs, () => {
       pr: 7,
       minConfidence: 90,
     });
-    expect(parseArgs(["7", "--min-confidence", "0"])).toMatchObject({ minConfidence: 0 });
+    expect(parseArgs(["7", "--min-confidence", "0"])).toMatchObject({
+      minConfidence: 0,
+    });
   });
 
   it("rejects --min-confidence values out of 0-100", () => {
@@ -716,8 +866,18 @@ describe(parseArgs, () => {
   });
 
   it("parses --max-tool-timeout and --coverage-file", () => {
-    const r = parseArgs(["7", "--max-tool-timeout", "30", "--coverage-file", "cov.json"]);
-    expect(r).toMatchObject({ pr: 7, maxToolTimeoutSec: 30, coverageFile: "cov.json" });
+    const r = parseArgs([
+      "7",
+      "--max-tool-timeout",
+      "30",
+      "--coverage-file",
+      "cov.json",
+    ]);
+    expect(r).toMatchObject({
+      pr: 7,
+      maxToolTimeoutSec: 30,
+      coverageFile: "cov.json",
+    });
   });
 
   it("rejects unknown flags", () => {
@@ -738,8 +898,18 @@ function makeMockDeps(overrides: Partial<Deps> = {}): {
   const deps: Deps = {
     cwd: "/cwd",
     now: () => 0,
-    spawn: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false }),
-    gh: vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false }),
+    spawn: vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+    }),
+    gh: vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+    }),
     which: vi.fn().mockReturnValue(null), // every tool missing by default
     readFile: vi.fn().mockReturnValue(null),
     fileExists: vi.fn().mockReturnValue(false),
@@ -776,7 +946,10 @@ describe(run, () => {
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -799,19 +972,32 @@ describe(run, () => {
     expect(result.dependencies).toEqual([]);
     // Default mockDeps has fileExists=false and which=null; the dependencies
     // lens skips at the first guard (no package.json).
-    expect(["no-package-json", "npm-not-on-path"]).toContain(result.meta.dependencies.skipped_reason);
+    expect(["no-package-json", "npm-not-on-path"]).toContain(
+      result.meta.dependencies.skipped_reason,
+    );
     expect(result.meta.pr).toBe(42);
     expect(result.meta.min_confidence).toBe(80);
   });
 
   it("emits gh-pr-diff-failed across all lenses when gh diff exits non-zero", async () => {
     const { deps, outs, errs } = makeMockDeps({
-      gh: vi.fn().mockResolvedValue({ stdout: "", stderr: "boom", exitCode: 1, timedOut: false }),
+      gh: vi.fn().mockResolvedValue({
+        stdout: "",
+        stderr: "boom",
+        exitCode: 1,
+        timedOut: false,
+      }),
     });
     const code = await run(["7"], deps);
     expect(code).toBe(0);
     const result = JSON.parse(outs.join(""));
-    for (const lens of ["security", "types", "coverage", "lint", "dependencies"] as const) {
+    for (const lens of [
+      "security",
+      "types",
+      "coverage",
+      "lint",
+      "dependencies",
+    ] as const) {
       expect(result.meta[lens].skipped_reason).toBe("gh-pr-diff-failed");
     }
     expect(errs.join("")).toMatch(/gh pr diff 7 failed/);
@@ -819,8 +1005,20 @@ describe(run, () => {
 
   it("runs semgrep when on PATH and surfaces ERROR findings on changed lines", async () => {
     const semgrepStdout = makeSemgrepJson([
-      { file: "a.ts", line: 5, rule: "rule.x", severity: "ERROR", message: "bad" },
-      { file: "a.ts", line: 99, rule: "rule.y", severity: "ERROR", message: "out of scope" },
+      {
+        file: "a.ts",
+        line: 5,
+        rule: "rule.x",
+        severity: "ERROR",
+        message: "bad",
+      },
+      {
+        file: "a.ts",
+        line: 99,
+        rule: "rule.y",
+        severity: "ERROR",
+        message: "out of scope",
+      },
     ]);
     const spawn = vi.fn().mockResolvedValue({
       stdout: semgrepStdout,
@@ -831,13 +1029,26 @@ describe(run, () => {
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+l1", "+l2", "+l3", "+l4", "+l5"] }] },
+          {
+            path: "a.ts",
+            hunks: [
+              {
+                oldStart: 1,
+                newStart: 1,
+                lines: ["+l1", "+l2", "+l3", "+l4", "+l5"],
+              },
+            ],
+          },
         ]),
         stderr: "",
         exitCode: 0,
         timedOut: false,
       }),
-      which: vi.fn().mockImplementation((cmd: string) => (cmd === "semgrep" ? "/usr/local/bin/semgrep" : null)),
+      which: vi
+        .fn()
+        .mockImplementation((cmd: string) =>
+          cmd === "semgrep" ? "/usr/local/bin/semgrep" : null,
+        ),
       spawn,
     });
     const code = await run(["7"], deps);
@@ -846,26 +1057,48 @@ describe(run, () => {
     expect(result.meta.security.ran).toBe(true);
     // Only the line-5 finding survives the diff scope (lines 1-5 changed).
     expect(result.security).toHaveLength(1);
-    expect(result.security[0]).toMatchObject({ file: "a.ts", line: 5, confidence: 95 });
+    expect(result.security[0]).toMatchObject({
+      file: "a.ts",
+      line: 5,
+      confidence: 95,
+    });
     expect(spawn).toHaveBeenCalledWith(
       "semgrep",
-      expect.arrayContaining(["--json", "--severity", "ERROR", "--config", "p/security-audit"]),
+      expect.arrayContaining([
+        "--json",
+        "--severity",
+        "ERROR",
+        "--config",
+        "p/security-audit",
+      ]),
       expect.any(Object),
     );
   });
 
   it("marks a lens timed-out when the spawn returns timedOut=true", async () => {
-    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: -1, timedOut: true });
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "",
+      exitCode: -1,
+      timedOut: true,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
         timedOut: false,
       }),
-      which: vi.fn().mockImplementation((cmd: string) => (cmd === "semgrep" ? "/bin/semgrep" : null)),
+      which: vi
+        .fn()
+        .mockImplementation((cmd: string) =>
+          cmd === "semgrep" ? "/bin/semgrep" : null,
+        ),
       spawn,
     });
     await run(["7"], deps);
@@ -889,13 +1122,20 @@ describe(run, () => {
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+a", "+b", "+c"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+a", "+b", "+c"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
         timedOut: false,
       }),
-      which: vi.fn().mockImplementation((cmd: string) => (cmd === "semgrep" ? "/bin/semgrep" : null)),
+      which: vi
+        .fn()
+        .mockImplementation((cmd: string) =>
+          cmd === "semgrep" ? "/bin/semgrep" : null,
+        ),
       spawn,
     });
     await run(["7", "--min-confidence", "90"], deps);
@@ -920,7 +1160,13 @@ describe(run, () => {
     });
     const spawn = vi.fn().mockResolvedValue({
       stdout: makeBiomeJsonOldShape([
-        { file: "/cwd/a.ts", line: 1, severity: "error", category: "lint/x", message: "bad" },
+        {
+          file: "/cwd/a.ts",
+          line: 1,
+          severity: "error",
+          category: "lint/x",
+          message: "bad",
+        },
       ]),
       stderr: "",
       exitCode: 1,
@@ -929,7 +1175,10 @@ describe(run, () => {
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -966,7 +1215,10 @@ describe(run, () => {
     });
     const spawn = vi.fn().mockResolvedValue({
       stdout: JSON.stringify([
-        { filePath: "/cwd/a.ts", messages: [{ line: 1, ruleId: "no-x", message: "bad", severity: 2 }] },
+        {
+          filePath: "/cwd/a.ts",
+          messages: [{ line: 1, ruleId: "no-x", message: "bad", severity: 2 }],
+        },
       ]),
       stderr: "",
       exitCode: 1,
@@ -975,7 +1227,10 @@ describe(run, () => {
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -998,12 +1253,24 @@ describe(run, () => {
       if (p.endsWith("eslint.config.js")) return true;
       return false;
     });
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "eslint" ? "/usr/bin/eslint" : null));
-    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "boom", exitCode: 2, timedOut: false });
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "eslint" ? "/usr/bin/eslint" : null,
+      );
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "boom",
+      exitCode: 2,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1024,13 +1291,27 @@ describe(run, () => {
     // normal "found findings" path). Anything else (1 = command-line error,
     // 3 = no files) is catastrophic — stdout is empty and parsing would
     // silently report ran=true with [] findings.
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
-    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "no input files", exitCode: 3, timedOut: false });
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("tsconfig.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "tsc" ? "/usr/bin/tsc" : null,
+      );
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "no input files",
+      exitCode: 3,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1052,16 +1333,35 @@ describe(run, () => {
     // skipped because the runner rejected anything other than exit 0/1. Per
     // the TypeScript wiki, exit 2 = type errors emitted on stdout, which is
     // exactly the path agents need to consume.
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("tsconfig.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "tsc" ? "/usr/bin/tsc" : null,
+      );
     const tscOut = makeTscOutput([
-      { file: "a.ts", line: 1, code: "TS2322", message: "Type 'string' is not assignable to 'number'." },
+      {
+        file: "a.ts",
+        line: 1,
+        code: "TS2322",
+        message: "Type 'string' is not assignable to 'number'.",
+      },
     ]);
-    const spawn = vi.fn().mockResolvedValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: tscOut,
+      stderr: "",
+      exitCode: 2,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1076,7 +1376,10 @@ describe(run, () => {
     expect(result.meta.types.ran).toBe(true);
     expect(result.meta.types.skipped_reason).toBeUndefined();
     expect(result.types).toHaveLength(1);
-    expect(result.types[0]).toMatchObject({ rule_id: "TS2322", confidence: 100 });
+    expect(result.types[0]).toMatchObject({
+      rule_id: "TS2322",
+      confidence: 100,
+    });
   });
 
   it("skips the types lens when tsc exits 1 (command-line / configuration error)", async () => {
@@ -1084,13 +1387,27 @@ describe(run, () => {
     // actually the bad-flag / bad-config path, where stdout is empty and a
     // ran=true zero-finding result would mask a real failure. Skip with
     // an explicit reason instead.
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
-    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "error TS5023: Unknown compiler option 'foo'.", exitCode: 1, timedOut: false });
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("tsconfig.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "tsc" ? "/usr/bin/tsc" : null,
+      );
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "error TS5023: Unknown compiler option 'foo'.",
+      exitCode: 1,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1116,7 +1433,11 @@ describe(run, () => {
       if (p.endsWith("node_modules/.bin/tsc")) return false;
       return false;
     });
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "tsc" ? "/usr/bin/tsc" : null,
+      );
     const spawn = vi.fn().mockResolvedValue({
       stdout: "src/a.ts(2,1): error TS2304: Cannot find name 'foo'.\n",
       stderr: "",
@@ -1126,7 +1447,10 @@ describe(run, () => {
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x", "+y"] }] },
+          {
+            path: "src/a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x", "+y"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1142,9 +1466,17 @@ describe(run, () => {
     expect(result.types).toHaveLength(1);
     expect(result.types[0].rule_id).toBe("TS2304");
     // Verify tsc was invoked with -p tsconfig.scripts.json.
-    const tscCall = spawn.mock.calls.find((c: unknown[]) => c[0] === "/usr/bin/tsc");
+    const tscCall = spawn.mock.calls.find(
+      (c: unknown[]) => c[0] === "/usr/bin/tsc",
+    );
     expect(tscCall).toBeDefined();
-    expect(tscCall![1]).toEqual(["-p", "tsconfig.scripts.json", "--noEmit", "--pretty", "false"]);
+    expect(tscCall![1]).toEqual([
+      "-p",
+      "tsconfig.scripts.json",
+      "--noEmit",
+      "--pretty",
+      "false",
+    ]);
   });
 
   it("runs svelte-check (and svelte-kit sync) on a SvelteKit repo and never spawns tsc", async () => {
@@ -1156,27 +1488,55 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockReturnValue(null);
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json")
-        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
-        : null,
-    );
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json")
+          ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+          : null,
+      );
     const svelteCheckOut = makeSvelteCheckOutput([
-      { file: "src/App.svelte", line: 12, col: 5, severity: "ERROR", message: "Cannot find name 'document'." },
+      {
+        file: "src/App.svelte",
+        line: 12,
+        col: 5,
+        severity: "ERROR",
+        message: "Cannot find name 'document'.",
+      },
     ]);
-    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
-      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-      }
-      if (cmd.endsWith("svelte-check")) {
-        return Promise.resolve({ stdout: svelteCheckOut, stderr: "", exitCode: 1, timedOut: false });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-    });
+    const spawn = vi
+      .fn()
+      .mockImplementation((cmd: string, cmdArgs: string[]) => {
+        if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+        if (cmd.endsWith("svelte-check")) {
+          return Promise.resolve({
+            stdout: svelteCheckOut,
+            stderr: "",
+            exitCode: 1,
+            timedOut: false,
+          });
+        }
+        return Promise.resolve({
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        });
+      });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 10, lines: ["+a", "+b", "+c"] }] },
+          {
+            path: "src/App.svelte",
+            hunks: [{ oldStart: 1, newStart: 10, lines: ["+a", "+b", "+c"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1191,14 +1551,27 @@ describe(run, () => {
     const result = JSON.parse(outs.join(""));
     expect(result.meta.types.ran).toBe(true);
     const calls = spawn.mock.calls as Array<[string, string[]]>;
-    const syncCall = calls.find((c) => c[0].endsWith("svelte-kit") && c[1][0] === "sync");
+    const syncCall = calls.find(
+      (c) => c[0].endsWith("svelte-kit") && c[1][0] === "sync",
+    );
     expect(syncCall).toBeDefined();
     const checkCall = calls.find((c) => c[0].endsWith("svelte-check"));
     expect(checkCall).toBeDefined();
-    expect(checkCall![1]).toEqual(["--output", "machine", "--threshold", "warning"]);
-    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(checkCall![1]).toEqual([
+      "--output",
+      "machine",
+      "--threshold",
+      "warning",
+    ]);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(
+      false,
+    );
     expect(result.types).toHaveLength(1);
-    expect(result.types[0]).toMatchObject({ line: 12, source: "svelte-check", severity: "error" });
+    expect(result.types[0]).toMatchObject({
+      line: 12,
+      source: "svelte-check",
+      severity: "error",
+    });
   });
 
   it("softens to svelte-check-unavailable when svelte-check is not resolvable and never spawns tsc", async () => {
@@ -1208,16 +1581,26 @@ describe(run, () => {
       return false; // no node_modules/.bin/svelte-check
     });
     const which = vi.fn().mockReturnValue(null);
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json")
-        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
-        : null,
-    );
-    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json")
+          ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+          : null,
+      );
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "src/App.svelte",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1235,7 +1618,9 @@ describe(run, () => {
     expect(result.meta.types.skipped_reason).toBe("svelte-check-unavailable");
     expect(result.types).toEqual([]);
     const calls = spawn.mock.calls as Array<[string, string[]]>;
-    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(
+      false,
+    );
     expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(false);
   });
 
@@ -1248,21 +1633,38 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockReturnValue(null);
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json")
-        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
-        : null,
-    );
-    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
-      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
-        return Promise.resolve({ stdout: "", stderr: "boom", exitCode: 1, timedOut: false });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-    });
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json")
+          ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+          : null,
+      );
+    const spawn = vi
+      .fn()
+      .mockImplementation((cmd: string, cmdArgs: string[]) => {
+        if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "boom",
+            exitCode: 1,
+            timedOut: false,
+          });
+        }
+        return Promise.resolve({
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        });
+      });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "src/App.svelte",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1280,20 +1682,36 @@ describe(run, () => {
     expect(result.meta.types.skipped_reason).toBe("svelte-kit-sync-failed");
     const calls = spawn.mock.calls as Array<[string, string[]]>;
     expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(false);
-    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(
+      false,
+    );
   });
 
   it("runs tsc (not svelte-check) on a non-Svelte repo", async () => {
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("tsconfig.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "tsc" ? "/usr/bin/tsc" : null,
+      );
     const tscOut = makeTscOutput([
       { file: "a.ts", line: 1, code: "TS2322", message: "Type error." },
     ]);
-    const spawn = vi.fn().mockResolvedValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: tscOut,
+      stderr: "",
+      exitCode: 2,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1309,7 +1727,11 @@ describe(run, () => {
     expect(result.types[0]).toMatchObject({ rule_id: "TS2322", source: "tsc" });
     const calls = spawn.mock.calls as Array<[string, string[]]>;
     expect(calls.some((c) => c[0] === "/usr/bin/tsc")).toBe(true);
-    expect(calls.some((c) => c[0].endsWith("svelte-check") || c[0].endsWith("svelte-kit"))).toBe(false);
+    expect(
+      calls.some(
+        (c) => c[0].endsWith("svelte-check") || c[0].endsWith("svelte-kit"),
+      ),
+    ).toBe(false);
   });
 
   it("runs svelte-check WITHOUT svelte-kit sync on a plain-svelte (non-Kit) repo", async () => {
@@ -1325,24 +1747,47 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockReturnValue(null);
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json")
-        ? JSON.stringify({ devDependencies: { svelte: "^5.0.0" } })
-        : null,
-    );
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json")
+          ? JSON.stringify({ devDependencies: { svelte: "^5.0.0" } })
+          : null,
+      );
     const svelteCheckOut = makeSvelteCheckOutput([
-      { file: "src/App.svelte", line: 7, col: 3, severity: "ERROR", message: "Cannot find name 'window'." },
+      {
+        file: "src/App.svelte",
+        line: 7,
+        col: 3,
+        severity: "ERROR",
+        message: "Cannot find name 'window'.",
+      },
     ]);
     const spawn = vi.fn().mockImplementation((cmd: string) => {
       if (cmd.endsWith("svelte-check")) {
-        return Promise.resolve({ stdout: svelteCheckOut, stderr: "", exitCode: 1, timedOut: false });
+        return Promise.resolve({
+          stdout: svelteCheckOut,
+          stderr: "",
+          exitCode: 1,
+          timedOut: false,
+        });
       }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      return Promise.resolve({
+        stdout: "",
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      });
     });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 5, lines: ["+a", "+b", "+c", "+d"] }] },
+          {
+            path: "src/App.svelte",
+            hunks: [
+              { oldStart: 1, newStart: 5, lines: ["+a", "+b", "+c", "+d"] },
+            ],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1358,10 +1803,18 @@ describe(run, () => {
     expect(result.meta.types.ran).toBe(true);
     const calls = spawn.mock.calls as Array<[string, string[]]>;
     expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(true);
-    expect(calls.some((c) => c[0].endsWith("svelte-kit") && c[1][0] === "sync")).toBe(false);
-    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(
+      calls.some((c) => c[0].endsWith("svelte-kit") && c[1][0] === "sync"),
+    ).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(
+      false,
+    );
     expect(result.types).toHaveLength(1);
-    expect(result.types[0]).toMatchObject({ line: 7, source: "svelte-check", severity: "error" });
+    expect(result.types[0]).toMatchObject({
+      line: 7,
+      source: "svelte-check",
+      severity: "error",
+    });
   });
 
   it("softens to timeout when svelte-check times out and never spawns tsc", async () => {
@@ -1373,24 +1826,46 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockReturnValue(null);
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json")
-        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
-        : null,
-    );
-    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
-      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-      }
-      if (cmd.endsWith("svelte-check")) {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: true });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-    });
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json")
+          ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+          : null,
+      );
+    const spawn = vi
+      .fn()
+      .mockImplementation((cmd: string, cmdArgs: string[]) => {
+        if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+        if (cmd.endsWith("svelte-check")) {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: true,
+          });
+        }
+        return Promise.resolve({
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        });
+      });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "src/App.svelte",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1406,7 +1881,9 @@ describe(run, () => {
     expect(result.meta.types.ran).toBe(false);
     expect(result.meta.types.skipped_reason).toBe("timeout");
     const calls = spawn.mock.calls as Array<[string, string[]]>;
-    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(
+      false,
+    );
   });
 
   it("softens to svelte-check-exit-<n> when svelte-check fails catastrophically and never spawns tsc", async () => {
@@ -1421,24 +1898,46 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockReturnValue(null);
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json")
-        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
-        : null,
-    );
-    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
-      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-      }
-      if (cmd.endsWith("svelte-check")) {
-        return Promise.resolve({ stdout: "", stderr: "internal error", exitCode: 2, timedOut: false });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-    });
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json")
+          ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+          : null,
+      );
+    const spawn = vi
+      .fn()
+      .mockImplementation((cmd: string, cmdArgs: string[]) => {
+        if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+        if (cmd.endsWith("svelte-check")) {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "internal error",
+            exitCode: 2,
+            timedOut: false,
+          });
+        }
+        return Promise.resolve({
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        });
+      });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "src/App.svelte",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1454,7 +1953,9 @@ describe(run, () => {
     expect(result.meta.types.ran).toBe(false);
     expect(result.meta.types.skipped_reason).toBe("svelte-check-exit-2");
     const calls = spawn.mock.calls as Array<[string, string[]]>;
-    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(
+      false,
+    );
   });
 
   it("softens to svelte-kit-sync-failed when svelte-kit sync times out and never spawns svelte-check or tsc", async () => {
@@ -1468,21 +1969,38 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockReturnValue(null);
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json")
-        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
-        : null,
-    );
-    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
-      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: true });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-    });
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json")
+          ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+          : null,
+      );
+    const spawn = vi
+      .fn()
+      .mockImplementation((cmd: string, cmdArgs: string[]) => {
+        if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: true,
+          });
+        }
+        return Promise.resolve({
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        });
+      });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "src/App.svelte",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1499,7 +2017,9 @@ describe(run, () => {
     expect(result.meta.types.skipped_reason).toBe("svelte-kit-sync-failed");
     const calls = spawn.mock.calls as Array<[string, string[]]>;
     expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(false);
-    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(
+      false,
+    );
   });
 
   it("appends --tsconfig to svelte-check when a non-default tsconfig is resolved", async () => {
@@ -1515,24 +2035,46 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockReturnValue(null);
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json")
-        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
-        : null,
-    );
-    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
-      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-      }
-      if (cmd.endsWith("svelte-check")) {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-    });
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json")
+          ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+          : null,
+      );
+    const spawn = vi
+      .fn()
+      .mockImplementation((cmd: string, cmdArgs: string[]) => {
+        if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+        if (cmd.endsWith("svelte-check")) {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+        return Promise.resolve({
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        });
+      });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "src/App.svelte",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1571,22 +2113,44 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockReturnValue(null);
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json") ? "{not json" : null,
-    );
-    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
-      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-      }
-      if (cmd.endsWith("svelte-check")) {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-    });
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json") ? "{not json" : null,
+      );
+    const spawn = vi
+      .fn()
+      .mockImplementation((cmd: string, cmdArgs: string[]) => {
+        if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+        if (cmd.endsWith("svelte-check")) {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+        return Promise.resolve({
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        });
+      });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "src/App.svelte",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1604,9 +2168,13 @@ describe(run, () => {
     // SvelteKit path runs svelte-kit sync then svelte-check, never tsc.
     expect(result.meta.types.ran).toBe(true);
     const calls = spawn.mock.calls as Array<[string, string[]]>;
-    expect(calls.some((c) => c[0].endsWith("svelte-kit") && c[1][0] === "sync")).toBe(true);
+    expect(
+      calls.some((c) => c[0].endsWith("svelte-kit") && c[1][0] === "sync"),
+    ).toBe(true);
     expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(true);
-    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(
+      false,
+    );
   });
 
   it("should issue all lens spawns before any resolves", async () => {
@@ -1627,7 +2195,13 @@ describe(run, () => {
             : cmd.endsWith("biome") || cmd === "biome"
               ? "biome"
               : null;
-      if (!key) return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+      if (!key)
+        return Promise.resolve({
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        });
       return new Promise<CmdResult>((resolve) => {
         const entry = {
           resolve: (r: CmdResult) => {
@@ -1705,10 +2279,20 @@ describe(run, () => {
     for (const key of expectedKeys) {
       resolverRegistry.get(key)!.resolve(
         key === "semgrep"
-          ? { stdout: '{"results":[]}', stderr: "", exitCode: 0, timedOut: false }
+          ? {
+              stdout: '{"results":[]}',
+              stderr: "",
+              exitCode: 0,
+              timedOut: false,
+            }
           : key === "tsc"
             ? { stdout: "", stderr: "", exitCode: 0, timedOut: false }
-            : { stdout: '{"diagnostics":[]}', stderr: "", exitCode: 0, timedOut: false },
+            : {
+                stdout: '{"diagnostics":[]}',
+                stderr: "",
+                exitCode: 0,
+                timedOut: false,
+              },
       );
     }
     await runPromise;
@@ -1730,26 +2314,54 @@ describe(run, () => {
     const which = vi.fn().mockReturnValue(null);
     const readFile = vi.fn().mockImplementation((p: string) => {
       if (p.endsWith("apps/web/package.json")) {
-        return JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } });
+        return JSON.stringify({
+          devDependencies: { "@sveltejs/kit": "^2.0.0" },
+        });
       }
       return null;
     });
     const svelteCheckOut = makeSvelteCheckOutput([
-      { file: "src/App.svelte", line: 12, col: 5, severity: "ERROR", message: "Cannot find name 'document'." },
+      {
+        file: "src/App.svelte",
+        line: 12,
+        col: 5,
+        severity: "ERROR",
+        message: "Cannot find name 'document'.",
+      },
     ]);
-    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
-      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-      }
-      if (cmd.endsWith("svelte-check")) {
-        return Promise.resolve({ stdout: svelteCheckOut, stderr: "", exitCode: 1, timedOut: false });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-    });
+    const spawn = vi
+      .fn()
+      .mockImplementation((cmd: string, cmdArgs: string[]) => {
+        if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+        if (cmd.endsWith("svelte-check")) {
+          return Promise.resolve({
+            stdout: svelteCheckOut,
+            stderr: "",
+            exitCode: 1,
+            timedOut: false,
+          });
+        }
+        return Promise.resolve({
+          stdout: "",
+          stderr: "",
+          exitCode: 0,
+          timedOut: false,
+        });
+      });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "apps/web/src/App.svelte", hunks: [{ oldStart: 1, newStart: 10, lines: ["+a", "+b", "+c"] }] },
+          {
+            path: "apps/web/src/App.svelte",
+            hunks: [{ oldStart: 1, newStart: 10, lines: ["+a", "+b", "+c"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1763,11 +2375,15 @@ describe(run, () => {
     await run(["7"], deps);
     const result = JSON.parse(outs.join(""));
     expect(result.meta.types.ran).toBe(true);
-    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    const calls = spawn.mock.calls as Array<
+      [string, string[], { cwd?: string }]
+    >;
     const checkCall = calls.find((c) => c[0].endsWith("svelte-check"));
     expect(checkCall).toBeDefined();
     expect(checkCall![2]?.cwd).toBe("/cwd/apps/web/");
-    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(
+      false,
+    );
     expect(result.types).toHaveLength(1);
     // Relativising-base lock: package-relative src/App.svelte must surface as
     // repo-relative apps/web/src/App.svelte so applyDiffScope retains it.
@@ -1786,7 +2402,11 @@ describe(run, () => {
       if (p.endsWith("/cwd/tsconfig.json")) return true;
       return false;
     });
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "tsc" ? "/usr/bin/tsc" : null,
+      );
     const readFile = vi.fn().mockImplementation((p: string) => {
       if (p.endsWith("packages/core/package.json")) {
         return JSON.stringify({ devDependencies: { typescript: "^5.0.0" } });
@@ -1794,11 +2414,19 @@ describe(run, () => {
       return null;
     });
     const tscOut = "src/x.ts(3,1): error TS2322: Type error.\n";
-    const spawn = vi.fn().mockResolvedValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: tscOut,
+      stderr: "",
+      exitCode: 2,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "packages/core/src/x.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+a", "+b", "+c"] }] },
+          {
+            path: "packages/core/src/x.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+a", "+b", "+c"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1812,11 +2440,17 @@ describe(run, () => {
     await run(["7"], deps);
     const result = JSON.parse(outs.join(""));
     expect(result.meta.types.ran).toBe(true);
-    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    const calls = spawn.mock.calls as Array<
+      [string, string[], { cwd?: string }]
+    >;
     const tscCall = calls.find((c) => c[0] === "/usr/bin/tsc");
     expect(tscCall).toBeDefined();
     expect(tscCall![2]?.cwd).toBe("/cwd/packages/core/");
-    expect(calls.some((c) => c[0].endsWith("svelte-check") || c[0].endsWith("svelte-kit"))).toBe(false);
+    expect(
+      calls.some(
+        (c) => c[0].endsWith("svelte-check") || c[0].endsWith("svelte-kit"),
+      ),
+    ).toBe(false);
     expect(result.types).toHaveLength(1);
     expect(result.types[0].file).toBe("packages/core/src/x.ts");
     expect(result.types[0]).toMatchObject({ rule_id: "TS2322", source: "tsc" });
@@ -1830,10 +2464,16 @@ describe(run, () => {
       if (p.endsWith("packages/core/tsconfig.json")) return true;
       return false;
     });
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "tsc" ? "/usr/bin/tsc" : null,
+      );
     const readFile = vi.fn().mockImplementation((p: string) => {
       if (p.endsWith("apps/web/package.json")) {
-        return JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } });
+        return JSON.stringify({
+          devDependencies: { "@sveltejs/kit": "^2.0.0" },
+        });
       }
       if (p.endsWith("packages/core/package.json")) {
         return JSON.stringify({ devDependencies: { typescript: "^5.0.0" } });
@@ -1841,30 +2481,76 @@ describe(run, () => {
       return null;
     });
     const svelteCheckOut = makeSvelteCheckOutput([
-      { file: "src/App.svelte", line: 9, col: 1, severity: "ERROR", message: "Svelte error." },
+      {
+        file: "src/App.svelte",
+        line: 9,
+        col: 1,
+        severity: "ERROR",
+        message: "Svelte error.",
+      },
     ]);
-    const spawn = vi.fn().mockImplementation((cmd: string, cmdArgs: string[]) => {
-      if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
-        return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-      }
-      if (cmd.endsWith("svelte-check")) {
-        return Promise.resolve({ stdout: svelteCheckOut, stderr: "", exitCode: 1, timedOut: false });
-      }
-      if (cmd === "/usr/bin/tsc") {
+    const spawn = vi
+      .fn()
+      .mockImplementation((cmd: string, cmdArgs: string[]) => {
+        if (cmd.endsWith("svelte-kit") && cmdArgs[0] === "sync") {
+          return Promise.resolve({
+            stdout: "",
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          });
+        }
+        if (cmd.endsWith("svelte-check")) {
+          return Promise.resolve({
+            stdout: svelteCheckOut,
+            stderr: "",
+            exitCode: 1,
+            timedOut: false,
+          });
+        }
+        if (cmd === "/usr/bin/tsc") {
+          return Promise.resolve({
+            stdout: "src/x.ts(2,1): error TS2304: Cannot find name 'foo'.\n",
+            stderr: "",
+            exitCode: 2,
+            timedOut: false,
+          });
+        }
         return Promise.resolve({
-          stdout: "src/x.ts(2,1): error TS2304: Cannot find name 'foo'.\n",
+          stdout: "",
           stderr: "",
-          exitCode: 2,
+          exitCode: 0,
           timedOut: false,
         });
-      }
-      return Promise.resolve({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
-    });
+      });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "apps/web/src/App.svelte", hunks: [{ oldStart: 1, newStart: 5, lines: ["+a", "+b", "+c", "+d", "+e", "+f", "+g", "+h", "+i", "+j"] }] },
-          { path: "packages/core/src/x.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+a", "+b"] }] },
+          {
+            path: "apps/web/src/App.svelte",
+            hunks: [
+              {
+                oldStart: 1,
+                newStart: 5,
+                lines: [
+                  "+a",
+                  "+b",
+                  "+c",
+                  "+d",
+                  "+e",
+                  "+f",
+                  "+g",
+                  "+h",
+                  "+i",
+                  "+j",
+                ],
+              },
+            ],
+          },
+          {
+            path: "packages/core/src/x.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+a", "+b"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1878,26 +2564,55 @@ describe(run, () => {
     await run(["7"], deps);
     const result = JSON.parse(outs.join(""));
     expect(result.meta.types.ran).toBe(true);
-    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
-    expect(calls.some((c) => c[0].endsWith("svelte-check") && c[2]?.cwd === "/cwd/apps/web/")).toBe(true);
-    expect(calls.some((c) => c[0] === "/usr/bin/tsc" && c[2]?.cwd === "/cwd/packages/core/")).toBe(true);
-    const files = (result.types as Array<{ file: string }>).map((f) => f.file).sort();
-    expect(files).toEqual(["apps/web/src/App.svelte", "packages/core/src/x.ts"]);
+    const calls = spawn.mock.calls as Array<
+      [string, string[], { cwd?: string }]
+    >;
+    expect(
+      calls.some(
+        (c) => c[0].endsWith("svelte-check") && c[2]?.cwd === "/cwd/apps/web/",
+      ),
+    ).toBe(true);
+    expect(
+      calls.some(
+        (c) => c[0] === "/usr/bin/tsc" && c[2]?.cwd === "/cwd/packages/core/",
+      ),
+    ).toBe(true);
+    const files = (result.types as Array<{ file: string }>)
+      .map((f) => f.file)
+      .sort();
+    expect(files).toEqual([
+      "apps/web/src/App.svelte",
+      "packages/core/src/x.ts",
+    ]);
   });
 
   it("Story 4: single-package repo (root src/*.ts) is byte-identical to the pre-fan-out behaviour", async () => {
     // No apps/packages files: workspacePrefixOf returns undefined for every
     // touched path, so the lens takes the single repo-root path unchanged.
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("tsconfig.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("tsconfig.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "tsc" ? "/usr/bin/tsc" : null,
+      );
     const tscOut = makeTscOutput([
       { file: "src/a.ts", line: 1, code: "TS2322", message: "Type error." },
     ]);
-    const spawn = vi.fn().mockResolvedValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: tscOut,
+      stderr: "",
+      exitCode: 2,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "src/a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "src/a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1910,7 +2625,9 @@ describe(run, () => {
     await run(["7"], deps);
     const result = JSON.parse(outs.join(""));
     expect(result.meta.types.ran).toBe(true);
-    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    const calls = spawn.mock.calls as Array<
+      [string, string[], { cwd?: string }]
+    >;
     const tscCall = calls.find((c) => c[0] === "/usr/bin/tsc");
     // Single repo-root run at deps.cwd; no per-package prefix prepend.
     expect(tscCall![2]?.cwd).toBe("/cwd");
@@ -1927,16 +2644,33 @@ describe(run, () => {
       // No apps/web/tsconfig, no apps/web/package.json.
       return false;
     });
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "tsc" ? "/usr/bin/tsc" : null));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "tsc" ? "/usr/bin/tsc" : null,
+      );
     const readFile = vi.fn().mockReturnValue(null); // apps/web/package.json absent
     const tscOut = makeTscOutput([
-      { file: "apps/web/src/x.ts", line: 1, code: "TS2304", message: "Cannot find name." },
+      {
+        file: "apps/web/src/x.ts",
+        line: 1,
+        code: "TS2304",
+        message: "Cannot find name.",
+      },
     ]);
-    const spawn = vi.fn().mockResolvedValue({ stdout: tscOut, stderr: "", exitCode: 2, timedOut: false });
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: tscOut,
+      stderr: "",
+      exitCode: 2,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "apps/web/src/x.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "apps/web/src/x.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -1950,7 +2684,9 @@ describe(run, () => {
     await run(["7"], deps);
     const result = JSON.parse(outs.join(""));
     expect(result.meta.types.ran).toBe(true);
-    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
+    const calls = spawn.mock.calls as Array<
+      [string, string[], { cwd?: string }]
+    >;
     const tscCall = calls.find((c) => c[0] === "/usr/bin/tsc");
     // Repo-root run only; the package dir was never spawned against. The
     // fan-out spawns with cwd = path.join(repoRoot, prefix) where prefix ends
@@ -1980,16 +2716,26 @@ describe(run, () => {
       return false;
     });
     const which = vi.fn().mockReturnValue(null); // no PATH svelte-check either
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("apps/web/package.json")
-        ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
-        : null,
-    );
-    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("apps/web/package.json")
+          ? JSON.stringify({ devDependencies: { "@sveltejs/kit": "^2.0.0" } })
+          : null,
+      );
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "apps/web/src/App.svelte", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "apps/web/src/App.svelte",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -2007,7 +2753,9 @@ describe(run, () => {
     expect(result.types).toEqual([]);
     const calls = spawn.mock.calls as Array<[string, string[]]>;
     expect(calls.some((c) => c[0].endsWith("svelte-check"))).toBe(false);
-    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(false);
+    expect(calls.some((c) => c[0] === "tsc" || c[0].endsWith("/tsc"))).toBe(
+      false,
+    );
   });
 
   it("Story 7: a passing package and a skipping sibling fold to ran=true with the sibling's skip reason surfaced", async () => {
@@ -2036,12 +2784,23 @@ describe(run, () => {
     });
     // apps/web's local tsc runs clean (exit 0, no findings); packages/core never
     // spawns (no tsc resolvable) so it skips with tsc-not-found.
-    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: 0, timedOut: false });
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "apps/web/src/a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
-          { path: "packages/core/src/b.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+y"] }] },
+          {
+            path: "apps/web/src/a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
+          {
+            path: "packages/core/src/b.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+y"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -2058,8 +2817,12 @@ describe(run, () => {
     expect(result.meta.types.ran).toBe(true);
     expect(result.meta.types.skipped_reason).toBe("tsc-not-found");
     // Only apps/web's local tsc spawned; packages/core never did.
-    const calls = spawn.mock.calls as Array<[string, string[], { cwd?: string }]>;
-    const tscCalls = calls.filter((c) => c[0].endsWith("/tsc") || c[0] === "tsc");
+    const calls = spawn.mock.calls as Array<
+      [string, string[], { cwd?: string }]
+    >;
+    const tscCalls = calls.filter(
+      (c) => c[0].endsWith("/tsc") || c[0] === "tsc",
+    );
     expect(tscCalls).toHaveLength(1);
     expect(tscCalls[0][2]?.cwd).toBe("/cwd/apps/web/");
   });
@@ -2067,7 +2830,11 @@ describe(run, () => {
 
 describe(spawnAsync, () => {
   it("resolves with exitCode from a real subprocess close", async () => {
-    const result = await spawnAsync(process.execPath, ["-e", "process.exit(7)"], {});
+    const result = await spawnAsync(
+      process.execPath,
+      ["-e", "process.exit(7)"],
+      {},
+    );
     expect(result.exitCode).toBe(7);
     expect(result.timedOut).toBe(false);
     expect(result.stdout).toBe("");
@@ -2078,24 +2845,30 @@ describe(spawnAsync, () => {
     const result = await spawnAsync("/nonexistent/binary", [], {});
     expect(result.exitCode).toBe(-1);
     expect(result.timedOut).toBe(false);
-    expect(result.stderr).toMatch(/ENOENT|no such file|spawn .* ENOENT|nonexistent\/binary/);
+    expect(result.stderr).toMatch(
+      /ENOENT|no such file|spawn .* ENOENT|nonexistent\/binary/,
+    );
   });
 
-  it("escalates SIGTERM to SIGKILL after the 2s grace window", { timeout: 5000 }, async () => {
-    const start = Date.now();
-    const result = await spawnAsync(
-      process.execPath,
-      ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"],
-      { timeoutMs: 200 },
-    );
-    const elapsed = Date.now() - start;
-    expect(result.timedOut).toBe(true);
-    // Lower bound proves SIGKILL did the killing (SIGTERM alone would have
-    // killed a non-trapping process within ms). Upper bound proves the grace
-    // window didn't get extended.
-    expect(elapsed).toBeGreaterThanOrEqual(1900);
-    expect(elapsed).toBeLessThanOrEqual(2800);
-  });
+  it(
+    "escalates SIGTERM to SIGKILL after the 2s grace window",
+    { timeout: 5000 },
+    async () => {
+      const start = Date.now();
+      const result = await spawnAsync(
+        process.execPath,
+        ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"],
+        { timeoutMs: 200 },
+      );
+      const elapsed = Date.now() - start;
+      expect(result.timedOut).toBe(true);
+      // Lower bound proves SIGKILL did the killing (SIGTERM alone would have
+      // killed a non-trapping process within ms). Upper bound proves the grace
+      // window didn't get extended.
+      expect(elapsed).toBeGreaterThanOrEqual(1900);
+      expect(elapsed).toBeLessThanOrEqual(2800);
+    },
+  );
 
   it(
     "caps captured stdout at MAX_STREAM_BYTES (32MB) when a subprocess floods the pipe",
@@ -2107,7 +2880,10 @@ describe(spawnAsync, () => {
       // clean exit (close, not error/kill).
       const result = await spawnAsync(
         process.execPath,
-        ["-e", `process.stdout.write("x".repeat(${MAX_STREAM_BYTES} + 1024 * 1024))`],
+        [
+          "-e",
+          `process.stdout.write("x".repeat(${MAX_STREAM_BYTES} + 1024 * 1024))`,
+        ],
         {},
       );
       expect(result.exitCode).toBe(0);
@@ -2139,15 +2915,29 @@ describe(spawnAsync, () => {
   );
 
   it("runs npm audit and surfaces dependency findings on changed package.json lines", async () => {
-    const packageJsonContent = '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
+    const packageJsonContent =
+      '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
     const auditStdout = makeNpmAuditJson([
-      { pkg: "lodash", severity: "high", ghsaId: "GHSA-jf85-cpcp-j695", title: "Prototype Pollution" },
+      {
+        pkg: "lodash",
+        severity: "high",
+        ghsaId: "GHSA-jf85-cpcp-j695",
+        title: "Prototype Pollution",
+      },
     ]);
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json") ? packageJsonContent : null,
-    );
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "npm" ? "/usr/bin/npm" : null,
+      );
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json") ? packageJsonContent : null,
+      );
     const spawn = vi.fn().mockResolvedValue({
       stdout: auditStdout,
       stderr: "",
@@ -2157,7 +2947,16 @@ describe(spawnAsync, () => {
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "package.json", hunks: [{ oldStart: 1, newStart: 1, lines: ["+l1", "+l2", "+l3", "+l4", "+l5"] }] },
+          {
+            path: "package.json",
+            hunks: [
+              {
+                oldStart: 1,
+                newStart: 1,
+                lines: ["+l1", "+l2", "+l3", "+l4", "+l5"],
+              },
+            ],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -2189,7 +2988,10 @@ describe(spawnAsync, () => {
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -2205,12 +3007,17 @@ describe(spawnAsync, () => {
   });
 
   it("skips the dependencies lens with npm-not-on-path when npm is missing", async () => {
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("package.json"));
     const which = vi.fn().mockReturnValue(null); // npm missing
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -2226,13 +3033,27 @@ describe(spawnAsync, () => {
   });
 
   it("skips the dependencies lens with timeout when npm audit times out", async () => {
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
-    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "", exitCode: -1, timedOut: true });
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "npm" ? "/usr/bin/npm" : null,
+      );
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "",
+      exitCode: -1,
+      timedOut: true,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -2249,13 +3070,27 @@ describe(spawnAsync, () => {
   });
 
   it("skips the dependencies lens with npm-exit-<n> when npm audit exits with a non-{0,1} code", async () => {
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
-    const spawn = vi.fn().mockResolvedValue({ stdout: "", stderr: "boom", exitCode: 2, timedOut: false });
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "npm" ? "/usr/bin/npm" : null,
+      );
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: "",
+      stderr: "boom",
+      exitCode: 2,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -2281,11 +3116,19 @@ describe(spawnAsync, () => {
     const auditStdout = makeNpmAuditJson([
       { pkg: "lodash", severity: "high", ghsaId: "GHSA-jf85-cpcp-j695" },
     ]);
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json") ? packageJsonContent : null,
-    );
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "npm" ? "/usr/bin/npm" : null,
+      );
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json") ? packageJsonContent : null,
+      );
     const spawn = vi.fn().mockResolvedValue({
       stdout: auditStdout,
       stderr: "",
@@ -2296,7 +3139,16 @@ describe(spawnAsync, () => {
       gh: vi.fn().mockResolvedValue({
         // Diff only touches lines 5-6 (the axios bump). lodash is on line 3.
         stdout: makeUnifiedDiff([
-          { path: "package.json", hunks: [{ oldStart: 5, newStart: 5, lines: ["+    \"axios\": \"1.0.0\"", "+    \"react\": \"18.0.0\""] }] },
+          {
+            path: "package.json",
+            hunks: [
+              {
+                oldStart: 5,
+                newStart: 5,
+                lines: ['+    "axios": "1.0.0"', '+    "react": "18.0.0"'],
+              },
+            ],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -2320,10 +3172,18 @@ describe(spawnAsync, () => {
     // run'. The error envelope shape is `{error: {code: 'ENOLOCK', ...}}`
     // with no vulnerabilities key — treating that as ran=true masks a real
     // failure. The lens must detect the missing key and skip.
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "npm" ? "/usr/bin/npm" : null,
+      );
     const spawn = vi.fn().mockResolvedValue({
-      stdout: JSON.stringify({ error: { code: "ENOLOCK", summary: "No package-lock.json" } }),
+      stdout: JSON.stringify({
+        error: { code: "ENOLOCK", summary: "No package-lock.json" },
+      }),
       stderr: "",
       exitCode: 1,
       timedOut: false,
@@ -2331,7 +3191,10 @@ describe(spawnAsync, () => {
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "package.json", hunks: [{ oldStart: 1, newStart: 1, lines: ["+l1"] }] },
+          {
+            path: "package.json",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+l1"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,
@@ -2344,25 +3207,44 @@ describe(spawnAsync, () => {
     await run(["7"], deps);
     const result = JSON.parse(outs.join(""));
     expect(result.meta.dependencies.ran).toBe(false);
-    expect(result.meta.dependencies.skipped_reason).toBe("npm-audit-no-vulnerabilities-key");
+    expect(result.meta.dependencies.skipped_reason).toBe(
+      "npm-audit-no-vulnerabilities-key",
+    );
     expect(result.dependencies).toEqual([]);
   });
 
   it("treats npm audit exit 1 as the 'found vulnerabilities' path, not a catastrophic skip", async () => {
-    const packageJsonContent = '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
+    const packageJsonContent =
+      '{\n  "dependencies": {\n    "lodash": "4.17.20"\n  }\n}';
     const auditStdout = makeNpmAuditJson([
       { pkg: "lodash", severity: "moderate", ghsaId: "GHSA-aaaa-aaaa-aaaa" },
     ]);
-    const fileExists = vi.fn().mockImplementation((p: string) => p.endsWith("package.json"));
-    const which = vi.fn().mockImplementation((cmd: string) => (cmd === "npm" ? "/usr/bin/npm" : null));
-    const readFile = vi.fn().mockImplementation((p: string) =>
-      p.endsWith("package.json") ? packageJsonContent : null,
-    );
-    const spawn = vi.fn().mockResolvedValue({ stdout: auditStdout, stderr: "", exitCode: 1, timedOut: false });
+    const fileExists = vi
+      .fn()
+      .mockImplementation((p: string) => p.endsWith("package.json"));
+    const which = vi
+      .fn()
+      .mockImplementation((cmd: string) =>
+        cmd === "npm" ? "/usr/bin/npm" : null,
+      );
+    const readFile = vi
+      .fn()
+      .mockImplementation((p: string) =>
+        p.endsWith("package.json") ? packageJsonContent : null,
+      );
+    const spawn = vi.fn().mockResolvedValue({
+      stdout: auditStdout,
+      stderr: "",
+      exitCode: 1,
+      timedOut: false,
+    });
     const { deps, outs } = makeMockDeps({
       gh: vi.fn().mockResolvedValue({
         stdout: makeUnifiedDiff([
-          { path: "package.json", hunks: [{ oldStart: 1, newStart: 1, lines: ["+l1", "+l2", "+l3"] }] },
+          {
+            path: "package.json",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+l1", "+l2", "+l3"] }],
+          },
         ]),
         stderr: "",
         exitCode: 0,

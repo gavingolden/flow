@@ -1,6 +1,11 @@
 // --- Types -----------------------------------------------------------------
 
-export type LensName = "security" | "types" | "coverage" | "lint" | "dependencies";
+export type LensName =
+  | "security"
+  | "types"
+  | "coverage"
+  | "lint"
+  | "dependencies";
 
 export type Severity = "error" | "warning" | "info";
 
@@ -54,8 +59,17 @@ export type AnalysisResult = {
 
 // --- I/O wiring types ------------------------------------------------------
 
-export type CmdResult = { stdout: string; stderr: string; exitCode: number; timedOut: boolean };
-export type SpawnRunner = (cmd: string, args: string[], opts: { cwd?: string; timeoutMs?: number }) => Promise<CmdResult>;
+export type CmdResult = {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  timedOut: boolean;
+};
+export type SpawnRunner = (
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; timeoutMs?: number },
+) => Promise<CmdResult>;
 export type GhRunner = (argv: string[]) => Promise<CmdResult>;
 export type WhichFn = (cmd: string) => string | null;
 
@@ -84,5 +98,10 @@ export type Args = {
 
 export type LensRun = (
   args: Args,
-  deps: Required<Pick<Deps, "spawn" | "which" | "readFile" | "fileExists" | "cwd" | "now" | "writeErr">>,
+  deps: Required<
+    Pick<
+      Deps,
+      "spawn" | "which" | "readFile" | "fileExists" | "cwd" | "now" | "writeErr"
+    >
+  >,
 ) => Promise<{ findings: Finding[]; meta: LensMeta }>;

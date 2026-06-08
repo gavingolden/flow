@@ -13,7 +13,11 @@
  *   # end flow <tag>
  */
 
-export function applyManagedBlock(input: string, tag: string, body: string[]): string {
+export function applyManagedBlock(
+  input: string,
+  tag: string,
+  body: string[],
+): string {
   const beginMarker = `# managed by flow ${tag}`;
   const endMarker = `# end flow ${tag}`;
   const lines = input.split("\n");

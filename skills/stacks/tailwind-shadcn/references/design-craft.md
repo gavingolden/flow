@@ -1,7 +1,7 @@
 # Design Craft Principles
 
 Portable design judgment — the anti-default philosophy, hierarchy, spacing rhythm, surface/depth,
-and typography *reasoning* — lives in `universal/ui-ux` (`references/visual-design.md`). This file
+and typography _reasoning_ — lives in `universal/ui-ux` (`references/visual-design.md`). This file
 is the Tailwind/shadcn mechanics layer: how that judgment maps to this repo's tokens. Each section
 below pairs a one-line up-pointer with the retained token specifics.
 

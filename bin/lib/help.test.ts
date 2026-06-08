@@ -109,7 +109,9 @@ describe("HELP_TEXT", () => {
 
 describe("HELP_TOP", () => {
   it("starts with the flow header line", () => {
-    expect(HELP_TOP.startsWith("flow — tmux-driven pipelines for Claude Code")).toBe(true);
+    expect(
+      HELP_TOP.startsWith("flow — tmux-driven pipelines for Claude Code"),
+    ).toBe(true);
   });
 
   it("documents 'flow help <verb>' as a top-level form", () => {
@@ -220,11 +222,14 @@ describe("runHelpVerb", () => {
     "setup",
     "completion",
     "version",
-  ])("'flow help %s' prints the same body as the verb's --help intercept", (verb) => {
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-    const code = runHelpVerb([verb]);
-    expect(code).toBe(0);
-    expect(log).toHaveBeenCalledWith(HELP_TEXT[verb]);
-    log.mockRestore();
-  });
+  ])(
+    "'flow help %s' prints the same body as the verb's --help intercept",
+    (verb) => {
+      const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+      const code = runHelpVerb([verb]);
+      expect(code).toBe(0);
+      expect(log).toHaveBeenCalledWith(HELP_TEXT[verb]);
+      log.mockRestore();
+    },
+  );
 });

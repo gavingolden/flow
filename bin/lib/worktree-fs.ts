@@ -32,7 +32,10 @@ export function detectDefaultBranch(repoDir: string): string {
   }
   for (const candidate of ["main", "master"]) {
     try {
-      git(["rev-parse", "--verify", `refs/remotes/origin/${candidate}`], repoDir);
+      git(
+        ["rev-parse", "--verify", `refs/remotes/origin/${candidate}`],
+        repoDir,
+      );
       return candidate;
     } catch {
       // try next
@@ -43,12 +46,17 @@ export function detectDefaultBranch(repoDir: string): string {
   );
 }
 
-export function validateReusable(worktreeDir: string, expectedBranch: string): void {
+export function validateReusable(
+  worktreeDir: string,
+  expectedBranch: string,
+): void {
   if (!fs.existsSync(worktreeDir)) {
     throw new Error(`--reuse: no worktree at ${worktreeDir} to reuse`);
   }
   if (!fs.existsSync(path.join(worktreeDir, ".git"))) {
-    throw new Error(`--reuse: ${worktreeDir} is not a git worktree (no .git entry)`);
+    throw new Error(
+      `--reuse: ${worktreeDir} is not a git worktree (no .git entry)`,
+    );
   }
   const current = git(["branch", "--show-current"], worktreeDir);
   if (current !== expectedBranch) {
@@ -58,7 +66,10 @@ export function validateReusable(worktreeDir: string, expectedBranch: string): v
   }
 }
 
-export function symlinkSharedFiles(worktreeDir: string, primaryDir: string): void {
+export function symlinkSharedFiles(
+  worktreeDir: string,
+  primaryDir: string,
+): void {
   for (const relPath of SYMLINK_FILES) {
     const source = path.join(primaryDir, relPath);
     const target = path.join(worktreeDir, relPath);
@@ -72,7 +83,9 @@ export function symlinkSharedFiles(worktreeDir: string, primaryDir: string): voi
       if (stat.isSymbolicLink() || stat.isFile()) {
         fs.unlinkSync(target);
       } else {
-        log.warn(`Skipping symlink for ${relPath}: target exists and is not a file or symlink`);
+        log.warn(
+          `Skipping symlink for ${relPath}: target exists and is not a file or symlink`,
+        );
         continue;
       }
     }

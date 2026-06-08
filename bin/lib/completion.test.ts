@@ -31,14 +31,20 @@ describe("flow completion", () => {
   it("prints the bash script byte-for-byte", () => {
     const code = runCompletion("bash", { out });
     expect(code).toBe(0);
-    const onDisk = fs.readFileSync(path.join(FLOW_SOURCE, "completions", "flow.bash"), "utf8");
+    const onDisk = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.bash"),
+      "utf8",
+    );
     expect(captured).toBe(onDisk);
   });
 
   it("prints the zsh script byte-for-byte", () => {
     const code = runCompletion("zsh", { out });
     expect(code).toBe(0);
-    const onDisk = fs.readFileSync(path.join(FLOW_SOURCE, "completions", "flow.zsh"), "utf8");
+    const onDisk = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.zsh"),
+      "utf8",
+    );
     expect(captured).toBe(onDisk);
   });
 
@@ -54,7 +60,9 @@ describe("flow completion", () => {
   it("exits 2 when no shell is provided", () => {
     const code = runCompletion(undefined, { out });
     expect(code).toBe(2);
-    expect(stderrCaptured[0]).toBe("flow completion: shell argument is required");
+    expect(stderrCaptured[0]).toBe(
+      "flow completion: shell argument is required",
+    );
     expect(stderrCaptured[1]).toBe("usage: flow completion <bash|zsh>");
   });
 
@@ -65,7 +73,9 @@ describe("flow completion", () => {
       expect(code).toBe(0);
       expect(captured).toBe("");
       expect(log).toHaveBeenCalled();
-      expect(log.mock.calls[0][0]).toMatch(/^flow completion — print a shell completion/);
+      expect(log.mock.calls[0][0]).toMatch(
+        /^flow completion — print a shell completion/,
+      );
       expect(stderrCaptured).toEqual([]);
       log.mockRestore();
     });
@@ -80,7 +90,9 @@ describe("flow completion", () => {
       expect(code).toBe(0);
       expect(captured).toBe("");
       expect(log).toHaveBeenCalled();
-      expect(log.mock.calls[0][0]).toMatch(/^flow completion — print a shell completion/);
+      expect(log.mock.calls[0][0]).toMatch(
+        /^flow completion — print a shell completion/,
+      );
       expect(stderrCaptured).toEqual([]);
       log.mockRestore();
     });
@@ -104,24 +116,36 @@ describe("completion scripts stay in sync with VERBS", () => {
   }
 
   it("bash script lists every verb", () => {
-    const script = fs.readFileSync(path.join(FLOW_SOURCE, "completions", "flow.bash"), "utf8");
+    const script = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.bash"),
+      "utf8",
+    );
     const missing = VERBS.filter((v) => !verbInScript(v, script));
     expect(missing).toEqual([]);
   });
 
   it("zsh script lists every verb", () => {
-    const script = fs.readFileSync(path.join(FLOW_SOURCE, "completions", "flow.zsh"), "utf8");
+    const script = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.zsh"),
+      "utf8",
+    );
     const missing = VERBS.filter((v) => !verbInScript(v, script));
     expect(missing).toEqual([]);
   });
 
   it("bash script contains the registration line", () => {
-    const script = fs.readFileSync(path.join(FLOW_SOURCE, "completions", "flow.bash"), "utf8");
+    const script = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.bash"),
+      "utf8",
+    );
     expect(script).toContain("complete -F _flow flow");
   });
 
   it("zsh script starts with the #compdef directive and ends with compdef registration", () => {
-    const script = fs.readFileSync(path.join(FLOW_SOURCE, "completions", "flow.zsh"), "utf8");
+    const script = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.zsh"),
+      "utf8",
+    );
     expect(script.startsWith("#compdef flow")).toBe(true);
     expect(script).toContain("compdef _flow flow");
   });

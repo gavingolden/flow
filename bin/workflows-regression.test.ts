@@ -58,7 +58,9 @@ describe("reusable-workflow self-checkout SHA resolution (regression: PR #158 + 
       const offending = body
         .split(/\r?\n/)
         .map((line, idx) => ({ line, idx: idx + 1 }))
-        .filter(({ line }) => /^\s*ref:\s*\$\{\{\s*github\.workflow_sha\s*\}\}/.test(line));
+        .filter(({ line }) =>
+          /^\s*ref:\s*\$\{\{\s*github\.workflow_sha\s*\}\}/.test(line),
+        );
 
       expect(offending).toEqual([]);
     });
@@ -72,7 +74,9 @@ describe("reusable-workflow self-checkout SHA resolution (regression: PR #158 + 
       const offending = body
         .split(/\r?\n/)
         .map((line, idx) => ({ line, idx: idx + 1 }))
-        .filter(({ line }) => /^\s*ref:\s*\$\{\{\s*github\.workflow_ref\s*\}\}/.test(line));
+        .filter(({ line }) =>
+          /^\s*ref:\s*\$\{\{\s*github\.workflow_ref\s*\}\}/.test(line),
+        );
 
       expect(offending).toEqual([]);
     });

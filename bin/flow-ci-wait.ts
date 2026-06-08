@@ -111,7 +111,11 @@ export type PollVerdict =
 // Single source of truth for the gh state taxonomy. polling-protocol.md
 // "Per-poll commands" calls these out explicitly.
 
-export const PENDING_CHECK_STATES = new Set(["PENDING", "QUEUED", "IN_PROGRESS"]);
+export const PENDING_CHECK_STATES = new Set([
+  "PENDING",
+  "QUEUED",
+  "IN_PROGRESS",
+]);
 export const PASSED_CHECK_STATES = new Set(["SUCCESS", "SKIPPED"]);
 export const FAILED_CHECK_STATES = new Set([
   "FAILURE",
@@ -120,7 +124,11 @@ export const FAILED_CHECK_STATES = new Set([
   "STARTUP_FAILURE",
   "STALE",
 ]);
-export const REVIEW_POSTED_STATES = new Set(["APPROVED", "CHANGES_REQUESTED", "COMMENTED"]);
+export const REVIEW_POSTED_STATES = new Set([
+  "APPROVED",
+  "CHANGES_REQUESTED",
+  "COMMENTED",
+]);
 // The two mergeStateStatus values where GitHub cannot build the pull_request
 // merge ref, so CI never starts. Single source of truth for the conflict taxonomy.
 export const CONFLICTING_MERGE_STATES = new Set(["CONFLICTING", "DIRTY"]);
@@ -160,7 +168,8 @@ export function cadenceFor(pollNum: number): number {
  */
 export function deriveCheckState(checks: Check[]): CheckState {
   if (checks.length === 0) return { kind: "no-checks-reported" };
-  if (checks.some((c) => PENDING_CHECK_STATES.has(c.state))) return { kind: "pending" };
+  if (checks.some((c) => PENDING_CHECK_STATES.has(c.state)))
+    return { kind: "pending" };
   const failed = checks.filter((c) => FAILED_CHECK_STATES.has(c.state));
   if (failed.length > 0) return { kind: "failed", failedChecks: failed };
   return { kind: "all-passed" };
@@ -220,11 +229,15 @@ export function deriveBlockedState(
  * polling-protocol.md "Bot reviewer name". A substring rule is wrong: the
  * real Copilot login is `copilot-pull-request-reviewer`, not `Copilot`.
  */
-export function deriveCopilotPosted(reviews: Review[], configuredLogin: string): boolean {
+export function deriveCopilotPosted(
+  reviews: Review[],
+  configuredLogin: string,
+): boolean {
   const target = copilotAuthorMatch(configuredLogin);
   return reviews.some(
     (r) =>
-      copilotAuthorMatch(r.author.login) === target && REVIEW_POSTED_STATES.has(r.state),
+      copilotAuthorMatch(r.author.login) === target &&
+      REVIEW_POSTED_STATES.has(r.state),
   );
 }
 
@@ -296,7 +309,9 @@ export function isCopilotReviewStale(
  * "unknown" — the shape couldn't be interpreted, so the caller falls back
  * to the heuristic rather than mistaking an unreadable response for "off".
  */
-export function deriveCopilotRulesetEnabled(json: unknown): boolean | "unknown" {
+export function deriveCopilotRulesetEnabled(
+  json: unknown,
+): boolean | "unknown" {
   if (!Array.isArray(json)) return "unknown";
   return json.some(
     (rule) =>
@@ -348,7 +363,7 @@ export function allMergeCommitsBetween(
         typeof c === "object" &&
         c !== null &&
         Array.isArray((c as { parents?: unknown }).parents) &&
-        ((c as { parents: unknown[] }).parents.length >= 2),
+        (c as { parents: unknown[] }).parents.length >= 2,
     );
   } catch {
     return false;
@@ -466,7 +481,13 @@ export function retriggerCopilotReview(
   prNumber: number,
   gh: GhRunner,
 ): { ok: boolean; stderr: string } {
-  const r = gh(["pr", "edit", String(prNumber), "--add-reviewer", COPILOT_REQUEST_SLUG]);
+  const r = gh([
+    "pr",
+    "edit",
+    String(prNumber),
+    "--add-reviewer",
+    COPILOT_REQUEST_SLUG,
+  ]);
   if (r.exitCode === 0) return { ok: true, stderr: "" };
   return { ok: false, stderr: r.stderr };
 }
@@ -564,18 +585,26 @@ export function deriveCopilotSkipReason(args: {
  */
 export function decideOnPoll(state: PollState): PollVerdict {
   // pr_state precedence — the user merged externally, or closed mid-flight.
-  if (state.prState === "MERGED") return { verdict: "exit", decision: "merged-externally" };
-  if (state.prState === "CLOSED") return { verdict: "exit", decision: "pr-closed" };
+  if (state.prState === "MERGED")
+    return { verdict: "exit", decision: "merged-externally" };
+  if (state.prState === "CLOSED")
+    return { verdict: "exit", decision: "pr-closed" };
 
   // Apply overrides so the rest of the matrix reads cleanly. 'failed' is
   // also CI-terminal but routes via the dedicated ci-failed branch below.
   const ciFailed = state.ciConfigured && state.ci.kind === "failed";
   const ciPassed = !state.ciConfigured || state.ci.kind === "all-passed";
-  const effectiveCopilotPosted = !state.copilotConfigured || state.copilotPosted;
+  const effectiveCopilotPosted =
+    !state.copilotConfigured || state.copilotPosted;
 
   if (ciFailed) {
-    const failedChecks = state.ci.kind === "failed" ? state.ci.failedChecks : [];
-    return { verdict: "exit", decision: "ci-failed", ciFailedChecks: failedChecks };
+    const failedChecks =
+      state.ci.kind === "failed" ? state.ci.failedChecks : [];
+    return {
+      verdict: "exit",
+      decision: "ci-failed",
+      ciFailedChecks: failedChecks,
+    };
   }
 
   if (ciPassed && effectiveCopilotPosted) {
@@ -612,7 +641,11 @@ export type GhRunner = (argv: string[]) => CmdResult;
 
 const defaultGh: GhRunner = (argv) => {
   const r = spawnSync("gh", argv, { encoding: "utf8" });
-  return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", exitCode: r.status ?? -1 };
+  return {
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? "",
+    exitCode: r.status ?? -1,
+  };
 };
 
 export type Deps = {
@@ -724,7 +757,10 @@ export function hasQualifyingWorkflowTrigger(yamlText: string): boolean {
     }
     if (after.startsWith("[")) {
       const inner = after.replace(/^\[|\]$/g, "");
-      return inner.split(",").map((t) => unquote(t.trim())).some((t) => QUALIFYING_PR_TRIGGERS.has(t));
+      return inner
+        .split(",")
+        .map((t) => unquote(t.trim()))
+        .some((t) => QUALIFYING_PR_TRIGGERS.has(t));
     }
     // Inline-flow map (`on: { ... }`) is out of scope — falls through here
     // to the unquote+membership-check, which fails on the `{...}` literal.
@@ -776,11 +812,16 @@ function defaultReadClaimDeadline(): number | undefined {
 }
 
 /** Fetches the PR's requested-reviewers list (used at loop entry, per-poll, and for post-POST verification). Returns lowercased logins. */
-export function fetchRequestedReviewers(prNumber: number, gh: GhRunner): string[] {
+export function fetchRequestedReviewers(
+  prNumber: number,
+  gh: GhRunner,
+): string[] {
   const r = gh(["pr", "view", String(prNumber), "--json", "reviewRequests"]);
   if (r.exitCode !== 0) return [];
   try {
-    const parsed = JSON.parse(r.stdout) as { reviewRequests?: Array<{ login?: string }> };
+    const parsed = JSON.parse(r.stdout) as {
+      reviewRequests?: Array<{ login?: string }>;
+    };
     return (parsed.reviewRequests ?? [])
       .map((rr) => rr.login)
       .filter((l): l is string => typeof l === "string")
@@ -826,13 +867,24 @@ export function fetchHistoricalBotReview(
   n = 5,
 ): boolean {
   const target = copilotAuthorMatch(login);
-  const list = gh(["pr", "list", "--state", "merged", "--limit", String(n), "--json", "number"]);
+  const list = gh([
+    "pr",
+    "list",
+    "--state",
+    "merged",
+    "--limit",
+    String(n),
+    "--json",
+    "number",
+  ]);
   if (list.exitCode !== 0) return false;
   let prs: Array<{ number: number }>;
   try {
     const parsed = JSON.parse(list.stdout) as Array<{ number?: number }>;
     if (!Array.isArray(parsed)) return false;
-    prs = parsed.filter((p): p is { number: number } => typeof p.number === "number");
+    prs = parsed.filter(
+      (p): p is { number: number } => typeof p.number === "number",
+    );
   } catch {
     return false;
   }
@@ -844,7 +896,9 @@ export function fetchHistoricalBotReview(
         reviews?: Array<{ author?: { login?: string } }>;
       };
       const matched = (parsed.reviews ?? []).some(
-        (rv) => typeof rv.author?.login === "string" && copilotAuthorMatch(rv.author.login) === target,
+        (rv) =>
+          typeof rv.author?.login === "string" &&
+          copilotAuthorMatch(rv.author.login) === target,
       );
       if (matched) return true;
     } catch {
@@ -869,7 +923,10 @@ type PrObservation = {
   requestedReviewers: string[];
 };
 
-export function observePr(prNumber: number, gh: GhRunner): PrObservation | null {
+export function observePr(
+  prNumber: number,
+  gh: GhRunner,
+): PrObservation | null {
   const r = gh([
     "pr",
     "view",
@@ -892,29 +949,46 @@ export function observePr(prNumber: number, gh: GhRunner): PrObservation | null 
     };
     if (
       typeof parsed.url !== "string" ||
-      (parsed.state !== "OPEN" && parsed.state !== "MERGED" && parsed.state !== "CLOSED")
+      (parsed.state !== "OPEN" &&
+        parsed.state !== "MERGED" &&
+        parsed.state !== "CLOSED")
     ) {
       return null;
     }
     const reviews: Review[] = (parsed.reviews ?? [])
       .filter(
-        (rv): rv is { author: { login: string }; state: string; commit?: { oid?: string } | null } =>
+        (
+          rv,
+        ): rv is {
+          author: { login: string };
+          state: string;
+          commit?: { oid?: string } | null;
+        } =>
           typeof rv.author?.login === "string" && typeof rv.state === "string",
       )
       .map((rv) => ({
         author: { login: rv.author.login },
         state: rv.state,
         commitOid:
-          rv.commit && typeof rv.commit.oid === "string" && rv.commit.oid.length > 0
+          rv.commit &&
+          typeof rv.commit.oid === "string" &&
+          rv.commit.oid.length > 0
             ? rv.commit.oid
             : null,
       }));
-    const headRefOid = typeof parsed.headRefOid === "string" ? parsed.headRefOid : "";
+    const headRefOid =
+      typeof parsed.headRefOid === "string" ? parsed.headRefOid : "";
     const requestedReviewers = (parsed.reviewRequests ?? [])
       .map((rr) => rr.login)
       .filter((l): l is string => typeof l === "string")
       .map((l) => l.toLowerCase());
-    return { state: parsed.state, url: parsed.url, reviews, headRefOid, requestedReviewers };
+    return {
+      state: parsed.state,
+      url: parsed.url,
+      reviews,
+      headRefOid,
+      requestedReviewers,
+    };
   } catch {
     return null;
   }
@@ -932,7 +1006,13 @@ export function observeMergeState(
   prNumber: number,
   gh: GhRunner,
 ): { mergeable: string; mergeStateStatus: string } | null {
-  const r = gh(["pr", "view", String(prNumber), "--json", "mergeable,mergeStateStatus"]);
+  const r = gh([
+    "pr",
+    "view",
+    String(prNumber),
+    "--json",
+    "mergeable,mergeStateStatus",
+  ]);
   if (r.exitCode !== 0) return null;
   try {
     const parsed = JSON.parse(r.stdout) as {
@@ -942,7 +1022,9 @@ export function observeMergeState(
     return {
       mergeable: typeof parsed.mergeable === "string" ? parsed.mergeable : "",
       mergeStateStatus:
-        typeof parsed.mergeStateStatus === "string" ? parsed.mergeStateStatus : "",
+        typeof parsed.mergeStateStatus === "string"
+          ? parsed.mergeStateStatus
+          : "",
     };
   } catch {
     return null;
@@ -960,7 +1042,14 @@ export function observeMergeState(
  * so "couldn't read" never collapses to a definitive "off".
  */
 export function observeCopilotRuleset(gh: GhRunner): boolean | "unknown" {
-  const branchResult = gh(["repo", "view", "--json", "defaultBranchRef", "--jq", ".defaultBranchRef.name"]);
+  const branchResult = gh([
+    "repo",
+    "view",
+    "--json",
+    "defaultBranchRef",
+    "--jq",
+    ".defaultBranchRef.name",
+  ]);
   if (branchResult.exitCode !== 0) return "unknown";
   const branch = branchResult.stdout.trim();
   if (branch === "") return "unknown";
@@ -996,7 +1085,8 @@ export function observeChecks(prNumber: number, gh: GhRunner): Check[] {
     const parsed = JSON.parse(r.stdout) as Check[];
     if (!Array.isArray(parsed)) return [];
     return parsed.filter(
-      (c): c is Check => typeof c.name === "string" && typeof c.state === "string",
+      (c): c is Check =>
+        typeof c.name === "string" && typeof c.state === "string",
     );
   } catch {
     return [];
@@ -1154,16 +1244,20 @@ export type RunResult = {
 export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const gh = deps.gh ?? defaultGh;
   const now = deps.now ?? (() => Date.now());
-  const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
+  const sleep =
+    deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   const cwd = deps.cwd ?? process.cwd();
-  const readWorkflowsDir = deps.readWorkflowsDir ?? (() => defaultReadWorkflowsDir(cwd));
+  const readWorkflowsDir =
+    deps.readWorkflowsDir ?? (() => defaultReadWorkflowsDir(cwd));
   const readCopilotLogin = deps.readCopilotLogin ?? defaultReadCopilotLogin;
   const readClaimDeadline = deps.readClaimDeadline ?? defaultReadClaimDeadline;
   const readHistoricalBotReview =
-    deps.readHistoricalBotReview ?? ((login: string) => resolveCopilotConfigured(login, gh));
+    deps.readHistoricalBotReview ??
+    ((login: string) => resolveCopilotConfigured(login, gh));
   const readCommitsAreAllMerges =
     deps.readCommitsAreAllMerges ??
-    ((fromSha: string, toSha: string) => allMergeCommitsBetween(fromSha, toSha, gh));
+    ((fromSha: string, toSha: string) =>
+      allMergeCommitsBetween(fromSha, toSha, gh));
   const readIsSmallFollowup =
     deps.readIsSmallFollowup ??
     ((fromSha: string, toSha: string) => isSmallFollowup(fromSha, toSha, gh));
@@ -1171,11 +1265,15 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     if (parsed.error === "help") {
-      console.log("usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>]");
+      console.log(
+        "usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>]",
+      );
       return 0;
     }
     console.error(`flow-ci-wait: ${parsed.error}`);
-    console.error("usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>]");
+    console.error(
+      "usage: flow-ci-wait <PR> [--copilot-login <login>] [--wait-for-copilot] [--copilot-not-requested] [--claim-deadline-sec <n>] [--out <path>]",
+    );
     return 2;
   }
 
@@ -1184,11 +1282,16 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const copilotTimeout = parsed.copilotTimeout ?? 600;
   const waitForCopilot = parsed.waitForCopilot ?? false;
   const claimDeadlineSec =
-    parsed.claimDeadlineSec ?? readClaimDeadline() ?? DEFAULT_CLAIM_DEADLINE_SEC;
+    parsed.claimDeadlineSec ??
+    readClaimDeadline() ??
+    DEFAULT_CLAIM_DEADLINE_SEC;
   // Persist the final verdict here in addition to stdout, so a backgrounded
   // call whose foreground capture is cut by the harness budget is still
   // recoverable on resume (the verdict file, not a 20-min loop re-run).
-  const outPath = path.resolve(cwd, parsed.out ?? path.join(".flow-tmp", "ci-wait-result.json"));
+  const outPath = path.resolve(
+    cwd,
+    parsed.out ?? path.join(".flow-tmp", "ci-wait-result.json"),
+  );
   const emit = (result: RunResult): void => emitResult(result, outPath);
   const readMergeState =
     deps.readMergeState ?? (() => observeMergeState(parsed.pr, gh));
@@ -1278,12 +1381,14 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     // observation, so each OPEN poll makes exactly one
     // `gh pr view --json mergeable,mergeStateStatus` call. Null on a transient
     // gh error (fail-open: never short-circuit on a null read).
-    let mergeState: { mergeable: string; mergeStateStatus: string } | null = null;
+    let mergeState: { mergeable: string; mergeStateStatus: string } | null =
+      null;
     if (prInfo.state === "OPEN") {
       mergeState = readMergeState();
       if (
         mergeState !== null &&
-        deriveConflictState(mergeState.mergeable, mergeState.mergeStateStatus).conflicting
+        deriveConflictState(mergeState.mergeable, mergeState.mergeStateStatus)
+          .conflicting
       ) {
         process.stderr.write(
           `Branch conflict detected (mergeStateStatus=${mergeState.mergeStateStatus}) — exiting pr-conflicted at poll ${pollNum}\n`,
@@ -1309,8 +1414,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     // changes across polls. Only meaningful when Copilot is configured; skip
     // the gh call otherwise.
     const copilotRequestedThisPoll = copilotConfigured
-      ? fetchRequestedReviewers(parsed.pr, gh).some(
-          (l) => matchesCopilot(l, copilotLogin),
+      ? fetchRequestedReviewers(parsed.pr, gh).some((l) =>
+          matchesCopilot(l, copilotLogin),
         )
       : false;
 
@@ -1398,7 +1503,12 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         // would burn the one-shot budget on a no-op review. latestCopilotCommit
         // is guaranteed non-null here because isCopilotReviewStale
         // returned true (which requires a non-null commit).
-        if (readCommitsAreAllMerges(latestCopilotCommit as string, prInfo.headRefOid)) {
+        if (
+          readCommitsAreAllMerges(
+            latestCopilotCommit as string,
+            prInfo.headRefOid,
+          )
+        ) {
           const oldShort = (latestCopilotCommit as string).slice(0, 8);
           const newShort = prInfo.headRefOid.slice(0, 8);
           process.stderr.write(
@@ -1440,8 +1550,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
             // can return exit 0 while silently declining to add Copilot to
             // requested_reviewers; re-read and confirm membership rather than
             // trusting the request blindly.
-            const queued = fetchRequestedReviewers(parsed.pr, gh).some(
-              (l) => matchesCopilot(l, copilotLogin),
+            const queued = fetchRequestedReviewers(parsed.pr, gh).some((l) =>
+              matchesCopilot(l, copilotLogin),
             );
             if (queued) {
               // Confirmed queued: today's behavior. Reset the Copilot timeout
@@ -1534,7 +1644,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         (verdict.decision === "proceed-to-review" ||
           verdict.decision === "proceed-to-review-no-bot") &&
         mergeState !== null &&
-        deriveBlockedState(mergeState.mergeable, mergeState.mergeStateStatus).blocked
+        deriveBlockedState(mergeState.mergeable, mergeState.mergeStateStatus)
+          .blocked
       ) {
         process.stderr.write(
           `Branch protection blocked (mergeStateStatus=${mergeState.mergeStateStatus}) — exiting pr-blocked at poll ${pollNum}\n`,
@@ -1568,7 +1679,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
         // null. See SKILL.md step 7 and polling-protocol.md decision matrix.
         copilotSkipReason: null,
       };
-      if (verdict.ciFailedChecks) result.ciFailedChecks = verdict.ciFailedChecks;
+      if (verdict.ciFailedChecks)
+        result.ciFailedChecks = verdict.ciFailedChecks;
       emit(result);
       return 0;
     }

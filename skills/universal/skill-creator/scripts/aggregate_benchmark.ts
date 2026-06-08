@@ -1,4 +1,10 @@
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import type { GradingData, GradingExpectation } from "./utils.ts";
@@ -65,7 +71,10 @@ function calculateStats(values: number[]): StatsRange {
   }
   const n = values.length;
   const mean = values.reduce((a, b) => a + b, 0) / n;
-  const stddev = n > 1 ? Math.sqrt(values.reduce((s, x) => s + (x - mean) ** 2, 0) / (n - 1)) : 0;
+  const stddev =
+    n > 1
+      ? Math.sqrt(values.reduce((s, x) => s + (x - mean) ** 2, 0) / (n - 1))
+      : 0;
   return {
     mean: Math.round(mean * 10000) / 10000,
     stddev: Math.round(stddev * 10000) / 10000,
@@ -96,7 +105,8 @@ function loadRunResults(benchmarkDir: string): Record<string, RunResult[]> {
     searchDir = runsDir;
   } else {
     const evalDirs = readdirSync(benchmarkDir).filter(
-      (d) => d.startsWith("eval-") && statSync(join(benchmarkDir, d)).isDirectory(),
+      (d) =>
+        d.startsWith("eval-") && statSync(join(benchmarkDir, d)).isDirectory(),
     );
     if (evalDirs.length > 0) {
       searchDir = benchmarkDir;
@@ -109,7 +119,10 @@ function loadRunResults(benchmarkDir: string): Record<string, RunResult[]> {
   const results: Record<string, RunResult[]> = {};
 
   const evalDirs = readdirSync(searchDir)
-    .filter((d) => d.startsWith("eval-") && statSync(join(searchDir, d)).isDirectory())
+    .filter(
+      (d) =>
+        d.startsWith("eval-") && statSync(join(searchDir, d)).isDirectory(),
+    )
     .sort();
 
   for (const [evalIdx, evalDirName] of evalDirs.entries()) {
@@ -119,7 +132,8 @@ function loadRunResults(benchmarkDir: string): Record<string, RunResult[]> {
     const metadataPath = join(evalDir, "eval_metadata.json");
     if (existsSync(metadataPath)) {
       try {
-        evalId = JSON.parse(readFileSync(metadataPath, "utf-8")).eval_id ?? evalIdx;
+        evalId =
+          JSON.parse(readFileSync(metadataPath, "utf-8")).eval_id ?? evalIdx;
       } catch {
         // fall through
       }
@@ -133,7 +147,8 @@ function loadRunResults(benchmarkDir: string): Record<string, RunResult[]> {
       if (!statSync(configDir).isDirectory()) continue;
 
       let runDirs = readdirSync(configDir).filter(
-        (d) => d.startsWith("run-") && statSync(join(configDir, d)).isDirectory(),
+        (d) =>
+          d.startsWith("run-") && statSync(join(configDir, d)).isDirectory(),
       );
       if (runDirs.length === 0 && existsSync(join(configDir, "grading.json"))) {
         runDirs = ["."];
@@ -143,8 +158,10 @@ function loadRunResults(benchmarkDir: string): Record<string, RunResult[]> {
       if (!results[configName]) results[configName] = [];
 
       for (const runDirName of runDirs.sort()) {
-        const runDir = runDirName === "." ? configDir : join(configDir, runDirName);
-        const runNumber = runDirName === "." ? 1 : parseInt(runDirName.split("-")[1]);
+        const runDir =
+          runDirName === "." ? configDir : join(configDir, runDirName);
+        const runNumber =
+          runDirName === "." ? 1 : parseInt(runDirName.split("-")[1]);
         const gradingFile = join(runDir, "grading.json");
 
         if (!existsSync(gradingFile)) {
@@ -180,12 +197,16 @@ function loadRunResults(benchmarkDir: string): Record<string, RunResult[]> {
         result.time_seconds = timing.total_duration_seconds ?? 0;
 
         const timingFile = join(runDir, "timing.json");
-        if ((result.time_seconds === 0 || result.tokens === 0) && existsSync(timingFile)) {
+        if (
+          (result.time_seconds === 0 || result.tokens === 0) &&
+          existsSync(timingFile)
+        ) {
           try {
             const timingData = JSON.parse(readFileSync(timingFile, "utf-8"));
             if (result.time_seconds === 0)
               result.time_seconds = timingData.total_duration_seconds ?? 0;
-            if (result.tokens === 0) result.tokens = timingData.total_tokens ?? 0;
+            if (result.tokens === 0)
+              result.tokens = timingData.total_tokens ?? 0;
           } catch {
             // ignore
           }
@@ -252,9 +273,12 @@ function aggregateResults(
   const primary = runSummary[configs[0]] || {};
   const baseline = configs.length >= 2 ? runSummary[configs[1]] || {} : {};
 
-  const deltaPR = (primary.pass_rate?.mean ?? 0) - (baseline.pass_rate?.mean ?? 0);
-  const deltaTime = (primary.time_seconds?.mean ?? 0) - (baseline.time_seconds?.mean ?? 0);
-  const deltaTokens = (primary.tokens?.mean ?? 0) - (baseline.tokens?.mean ?? 0);
+  const deltaPR =
+    (primary.pass_rate?.mean ?? 0) - (baseline.pass_rate?.mean ?? 0);
+  const deltaTime =
+    (primary.time_seconds?.mean ?? 0) - (baseline.time_seconds?.mean ?? 0);
+  const deltaTokens =
+    (primary.tokens?.mean ?? 0) - (baseline.tokens?.mean ?? 0);
 
   runSummary.delta = {
     pass_rate: `${deltaPR >= 0 ? "+" : ""}${deltaPR.toFixed(2)}`,
@@ -265,7 +289,11 @@ function aggregateResults(
   return runSummary;
 }
 
-function generateBenchmark(benchmarkDir: string, skillName = "", skillPath = ""): Benchmark {
+function generateBenchmark(
+  benchmarkDir: string,
+  skillName = "",
+  skillPath = "",
+): Benchmark {
   const results = loadRunResults(benchmarkDir);
   const runSummary = aggregateResults(results);
 
@@ -321,8 +349,12 @@ function generateMarkdown(benchmark: Benchmark): string {
   const configs = Object.keys(runSummary).filter((k) => k !== "delta");
   const configA = configs[0] || "config_a";
   const configB = configs[1] || "config_b";
-  const labelA = configA.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
-  const labelB = configB.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const labelA = configA
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c: string) => c.toUpperCase());
+  const labelB = configB
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c: string) => c.toUpperCase());
   const delta = (runSummary.delta ?? {}) as Partial<DeltaStats>;
   const a = (runSummary[configA] ?? {}) as Partial<ConfigStats>;
   const b = (runSummary[configB] ?? {}) as Partial<ConfigStats>;
@@ -364,7 +396,9 @@ if (import.meta.main) {
 
   const benchmarkDir = positionals[0];
   if (!benchmarkDir) {
-    console.log("Usage: bun run aggregate_benchmark.ts <benchmark_dir> [--skill-name name]");
+    console.log(
+      "Usage: bun run aggregate_benchmark.ts <benchmark_dir> [--skill-name name]",
+    );
     process.exit(1);
   }
 
@@ -379,7 +413,8 @@ if (import.meta.main) {
     values["skill-path"],
   );
 
-  const outputJson = values.output || join(resolve(benchmarkDir), "benchmark.json");
+  const outputJson =
+    values.output || join(resolve(benchmarkDir), "benchmark.json");
   const outputMd = outputJson.replace(/\.json$/, ".md");
 
   writeFileSync(outputJson, JSON.stringify(benchmark, null, 2));
@@ -393,7 +428,9 @@ if (import.meta.main) {
   console.log("\nSummary:");
   for (const config of configs) {
     const pr = (runSummary[config] as ConfigStats).pass_rate.mean;
-    const label = config.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+    const label = config
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (c: string) => c.toUpperCase());
     console.log(`  ${label}: ${(pr * 100).toFixed(1)}% pass rate`);
   }
   console.log(

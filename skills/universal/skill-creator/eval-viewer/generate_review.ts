@@ -1,9 +1,20 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import type { GradingData } from "../scripts/utils.ts";
 
-const METADATA_FILES = new Set(["transcript.md", "user_notes.md", "metrics.json"]);
+const METADATA_FILES = new Set([
+  "transcript.md",
+  "user_notes.md",
+  "metrics.json",
+]);
 
 const TEXT_EXTENSIONS = new Set([
   ".txt",
@@ -34,13 +45,22 @@ const TEXT_EXTENSIONS = new Set([
   ".toml",
 ]);
 
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"]);
+const IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".svg",
+  ".webp",
+]);
 
 const MIME_OVERRIDES: Record<string, string> = {
   ".svg": "image/svg+xml",
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  ".docx":
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".pptx":
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 };
 
 function getMimeType(filePath: string): string {
@@ -84,7 +104,12 @@ function embedFile(filePath: string): FileData {
     try {
       const raw = readFileSync(filePath);
       const b64 = raw.toString("base64");
-      return { name, type: "image", mime, data_uri: `data:${mime};base64,${b64}` };
+      return {
+        name,
+        type: "image",
+        mime,
+        data_uri: `data:${mime};base64,${b64}`,
+      };
     } catch {
       return { name, type: "error", content: "(Error reading file)" };
     }
@@ -113,13 +138,22 @@ function embedFile(filePath: string): FileData {
   try {
     const raw = readFileSync(filePath);
     const b64 = raw.toString("base64");
-    return { name, type: "binary", mime, data_uri: `data:${mime};base64,${b64}` };
+    return {
+      name,
+      type: "binary",
+      mime,
+      data_uri: `data:${mime};base64,${b64}`,
+    };
   } catch {
     return { name, type: "error", content: "(Error reading file)" };
   }
 }
 
-function findRunsRecursive(root: string, current: string, runs: RunData[]): void {
+function findRunsRecursive(
+  root: string,
+  current: string,
+  runs: RunData[],
+): void {
   if (!statSync(current).isDirectory()) return;
 
   const outputsDir = join(current, "outputs");
@@ -129,7 +163,13 @@ function findRunsRecursive(root: string, current: string, runs: RunData[]): void
     return;
   }
 
-  const skip = new Set(["node_modules", ".git", "__pycache__", "skill", "inputs"]);
+  const skip = new Set([
+    "node_modules",
+    ".git",
+    "__pycache__",
+    "skill",
+    "inputs",
+  ]);
   for (const child of readdirSync(current).sort()) {
     const childPath = join(current, child);
     if (statSync(childPath).isDirectory() && !skip.has(child)) {
@@ -208,7 +248,10 @@ function buildRun(root: string, runDir: string): RunData | null {
 
   // Load grading
   let grading: GradingData | null = null;
-  for (const candidate of [join(runDir, "grading.json"), join(dirname(runDir), "grading.json")]) {
+  for (const candidate of [
+    join(runDir, "grading.json"),
+    join(dirname(runDir), "grading.json"),
+  ]) {
     if (existsSync(candidate)) {
       try {
         grading = JSON.parse(readFileSync(candidate, "utf-8"));
@@ -265,7 +308,10 @@ function generateViewerHtml(
   previous?: Record<string, { feedback: string; outputs: FileData[] }>,
   benchmark?: Record<string, unknown> | null,
 ): string {
-  const templatePath = join(dirname(import.meta.path.replace("file://", "")), "viewer.html");
+  const templatePath = join(
+    dirname(import.meta.path.replace("file://", "")),
+    "viewer.html",
+  );
   const template = readFileSync(templatePath, "utf-8");
 
   const previousFeedback: Record<string, string> = {};
@@ -354,7 +400,8 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  const skillName = values["skill-name"] || basename(workspace).replace("-workspace", "");
+  const skillName =
+    values["skill-name"] || basename(workspace).replace("-workspace", "");
   const feedbackPath = join(workspace, "feedback.json");
 
   let previous: Record<string, { feedback: string; outputs: FileData[] }> = {};
@@ -396,7 +443,10 @@ if (import.meta.main) {
     fetch(req) {
       const url = new URL(req.url);
 
-      if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+      if (
+        req.method === "GET" &&
+        (url.pathname === "/" || url.pathname === "/index.html")
+      ) {
         // Regenerate on each request to pick up new outputs
         const latestRuns = findRuns(workspace);
         let latestBenchmark = benchmark;
@@ -407,14 +457,21 @@ if (import.meta.main) {
             // ignore
           }
         }
-        const html = generateViewerHtml(latestRuns, skillName, previous, latestBenchmark);
+        const html = generateViewerHtml(
+          latestRuns,
+          skillName,
+          previous,
+          latestBenchmark,
+        );
         return new Response(html, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
       }
 
       if (req.method === "GET" && url.pathname === "/api/feedback") {
-        const data = existsSync(feedbackPath) ? readFileSync(feedbackPath, "utf-8") : "{}";
+        const data = existsSync(feedbackPath)
+          ? readFileSync(feedbackPath, "utf-8")
+          : "{}";
         return new Response(data, {
           headers: { "Content-Type": "application/json" },
         });
@@ -423,10 +480,13 @@ if (import.meta.main) {
       if (req.method === "POST" && url.pathname === "/api/feedback") {
         return req.json().then((data: { reviews?: unknown[] }) => {
           if (!data?.reviews) {
-            return new Response(JSON.stringify({ error: "Expected JSON with 'reviews' key" }), {
-              status: 500,
-              headers: { "Content-Type": "application/json" },
-            });
+            return new Response(
+              JSON.stringify({ error: "Expected JSON with 'reviews' key" }),
+              {
+                status: 500,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
           }
           writeFileSync(feedbackPath, JSON.stringify(data, null, 2) + "\n");
           return new Response(JSON.stringify({ ok: true }), {

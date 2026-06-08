@@ -61,7 +61,10 @@ export function render(inputs: RenderInputs): string {
   return `Automation-precedence audit: ran ${ran}/${total} items (${prosePromoted} prose-promoted, ${left} left manual: ${humanReasons})`;
 }
 
-function parseCount(flag: string, raw: string | undefined): number | { error: string } {
+function parseCount(
+  flag: string,
+  raw: string | undefined,
+): number | { error: string } {
   if (raw === undefined) return { error: `${flag} requires a value` };
   if (!/^-?\d+$/.test(raw) || Number(raw) < 0) {
     return { error: `${flag} must be a non-negative integer, got '${raw}'` };
@@ -110,13 +113,16 @@ export function parseArgs(argv: string[]): RenderInputs | { error: string } {
 
   if (ran === undefined) return { error: "missing required flag: --ran" };
   if (total === undefined) return { error: "missing required flag: --total" };
-  if (prosePromoted === undefined) return { error: "missing required flag: --prose-promoted" };
+  if (prosePromoted === undefined)
+    return { error: "missing required flag: --prose-promoted" };
 
   if (ran > total) {
     return { error: `--ran (${ran}) cannot exceed --total (${total})` };
   }
   if (prosePromoted > ran) {
-    return { error: `--prose-promoted (${prosePromoted}) cannot exceed --ran (${ran})` };
+    return {
+      error: `--prose-promoted (${prosePromoted}) cannot exceed --ran (${ran})`,
+    };
   }
 
   return { ran, total, prosePromoted, reasons };

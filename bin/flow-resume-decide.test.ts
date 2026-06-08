@@ -43,7 +43,12 @@ function makeInputs(overrides: Partial<Inputs> = {}): Inputs {
     state: baseState(),
     worktree: PRESENT_WORKTREE,
     planExists: true,
-    pr: { kind: "found", state: "OPEN", number: 100, url: "https://x/y/pull/100" },
+    pr: {
+      kind: "found",
+      state: "OPEN",
+      number: 100,
+      url: "https://x/y/pull/100",
+    },
     hasSkillAdditions: false,
     ciState: { kind: "all-terminal" },
     headCommit: { subject: "review: applied findings", body: "" },
@@ -87,7 +92,12 @@ describe("decide() — pre-tree edge cases", () => {
   it("escalates with pr-closed-without-merge when PR state is CLOSED", () => {
     const r = decide(
       makeInputs({
-        pr: { kind: "found", state: "CLOSED", number: 100, url: "https://x/y/pull/100" },
+        pr: {
+          kind: "found",
+          state: "CLOSED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
       }),
     );
     expect(r.resumeAt).toBe("escalate");
@@ -125,7 +135,12 @@ describe("decide() — row 3 (plan)", () => {
   });
 
   it("resumes at step-3 when plan.md is missing", () => {
-    const r = decide(makeInputs({ planExists: false, state: baseState({ phase: "planning" }) }));
+    const r = decide(
+      makeInputs({
+        planExists: false,
+        state: baseState({ phase: "planning" }),
+      }),
+    );
     expect(r.resumeAt).toBe("step-3");
     expect(r.context.planExists).toBe(false);
   });
@@ -133,19 +148,28 @@ describe("decide() — row 3 (plan)", () => {
   it("resumes at step-3 when plan.md is empty (treated as missing)", () => {
     // probePlan() collapses empty + missing into the same `false` signal;
     // decide() sees only `planExists: false` either way.
-    const r = decide(makeInputs({ planExists: false, state: baseState({ phase: "planning" }) }));
+    const r = decide(
+      makeInputs({
+        planExists: false,
+        state: baseState({ phase: "planning" }),
+      }),
+    );
     expect(r.resumeAt).toBe("step-3");
   });
 });
 
 describe("decide() — row 4 (approval)", () => {
   it("advances past row 4 when phase is 'implementing' (post-approval)", () => {
-    const r = decide(makeInputs({ state: baseState({ phase: "implementing" }) }));
+    const r = decide(
+      makeInputs({ state: baseState({ phase: "implementing" }) }),
+    );
     expect(r.resumeAt).not.toBe("step-4");
   });
 
   it("resumes at step-4 when phase is 'plan-pending-review'", () => {
-    const r = decide(makeInputs({ state: baseState({ phase: "plan-pending-review" }) }));
+    const r = decide(
+      makeInputs({ state: baseState({ phase: "plan-pending-review" }) }),
+    );
     expect(r.resumeAt).toBe("step-4");
   });
 });
@@ -202,7 +226,9 @@ describe("decide() — row 6 (verify)", () => {
   });
 
   it("resumes at step-6 when phase is 'installing-skills'", () => {
-    const r = decide(makeInputs({ state: baseState({ phase: "installing-skills" }) }));
+    const r = decide(
+      makeInputs({ state: baseState({ phase: "installing-skills" }) }),
+    );
     expect(r.resumeAt).toBe("step-6");
   });
 });
@@ -251,7 +277,9 @@ describe("decide() — row 7 (ci-wait)", () => {
 describe("decide() — row 8 (pr-review on HEAD)", () => {
   it("advances past row 8 when subject starts with 'review:'", () => {
     const r = decide(
-      makeInputs({ headCommit: { subject: "review: applied findings", body: "" } }),
+      makeInputs({
+        headCommit: { subject: "review: applied findings", body: "" },
+      }),
     );
     expect(r.resumeAt).not.toBe("step-8");
   });
@@ -293,7 +321,12 @@ describe("decide() — row 9 (gate) — load-bearing precedence", () => {
     // branch and NOT re-run gh pr merge on an already-merged PR.
     const r = decide(
       makeInputs({
-        pr: { kind: "found", state: "MERGED", number: 100, url: "https://x/y/pull/100" },
+        pr: {
+          kind: "found",
+          state: "MERGED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
       }),
     );
     expect(r.resumeAt).toBe("step-9");
@@ -306,7 +339,12 @@ describe("decide() — row 10 (merge)", () => {
   it("returns terminal when PR is MERGED and worktree is absent", () => {
     const r = decide(
       makeInputs({
-        pr: { kind: "found", state: "MERGED", number: 100, url: "https://x/y/pull/100" },
+        pr: {
+          kind: "found",
+          state: "MERGED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
         worktree: { kind: "absent-from-state" },
         state: baseState({ worktree: undefined }),
       }),
@@ -338,7 +376,9 @@ describe(hasPrReviewCommit, () => {
   });
 
   it("returns false for unrelated commits", () => {
-    expect(hasPrReviewCommit({ subject: "feat: thing", body: "Why: thing" })).toBe(false);
+    expect(
+      hasPrReviewCommit({ subject: "feat: thing", body: "Why: thing" }),
+    ).toBe(false);
   });
 });
 
@@ -356,7 +396,9 @@ describe(parseArgs, () => {
   });
 
   it("rejects an unknown flag after the slug", () => {
-    expect(parseArgs(["foo", "--bogus"])).toEqual({ error: "unknown flag: --bogus" });
+    expect(parseArgs(["foo", "--bogus"])).toEqual({
+      error: "unknown flag: --bogus",
+    });
   });
 
   it("accepts a single slug positional", () => {
@@ -398,9 +440,13 @@ function seedState(slug: string, overrides: Partial<PipelineState> = {}): void {
 /** Initialises a real git repo at worktreeRoot with one initial commit so probeWorktree returns "present". */
 function initWorktree(): void {
   spawnSync("git", ["init", "-b", "main"], { cwd: worktreeRoot });
-  spawnSync("git", ["config", "user.email", "test@example.com"], { cwd: worktreeRoot });
+  spawnSync("git", ["config", "user.email", "test@example.com"], {
+    cwd: worktreeRoot,
+  });
   spawnSync("git", ["config", "user.name", "Test"], { cwd: worktreeRoot });
-  spawnSync("git", ["commit", "--allow-empty", "-m", "feat: initial"], { cwd: worktreeRoot });
+  spawnSync("git", ["commit", "--allow-empty", "-m", "feat: initial"], {
+    cwd: worktreeRoot,
+  });
 }
 
 function captureStdout(): { writes: string[]; restore: () => void } {
@@ -420,7 +466,11 @@ describe("run() integration", () => {
     // a non-zero exit would trip strict-shell callers before they
     // could read the abort JSON.
     const { writes, restore } = captureStdout();
-    const exit = run(["nonexistent-slug"], { stateDir, gh: vi.fn(), git: vi.fn() });
+    const exit = run(["nonexistent-slug"], {
+      stateDir,
+      gh: vi.fn(),
+      git: vi.fn(),
+    });
     restore();
     expect(exit).toBe(0);
     const result = JSON.parse(writes.join("")) as DecisionResult;
@@ -437,11 +487,15 @@ describe("run() integration", () => {
     // hitting the real binary, AND probeBranch/probeSkillAdditions/probeHeadCommit
     // don't trip on the lack of upstream config.
     const git: GitRunner = (argv) => {
-      if (argv[0] === "rev-parse") return { stdout: "true\n", stderr: "", exitCode: 0 };
-      if (argv[0] === "branch") return { stdout: "main\n", stderr: "", exitCode: 0 };
-      if (argv[0] === "symbolic-ref") return { stdout: "", stderr: "no upstream", exitCode: 1 };
+      if (argv[0] === "rev-parse")
+        return { stdout: "true\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "branch")
+        return { stdout: "main\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "symbolic-ref")
+        return { stdout: "", stderr: "no upstream", exitCode: 1 };
       if (argv[0] === "diff") return { stdout: "", stderr: "", exitCode: 0 };
-      if (argv[0] === "log") return { stdout: "feat: initial\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "log")
+        return { stdout: "feat: initial\n", stderr: "", exitCode: 0 };
       return { stdout: "", stderr: "", exitCode: 1 };
     };
     const gh: GhRunner = () => ({
@@ -460,14 +514,21 @@ describe("run() integration", () => {
   it("exits 0 with step-5 JSON when plan.md exists but no PR is found for the branch", () => {
     initWorktree();
     fs.mkdirSync(path.join(worktreeRoot, ".flow-tmp"));
-    fs.writeFileSync(path.join(worktreeRoot, ".flow-tmp", "plan.md"), "# PRD\n\nbecause.\n");
+    fs.writeFileSync(
+      path.join(worktreeRoot, ".flow-tmp", "plan.md"),
+      "# PRD\n\nbecause.\n",
+    );
     seedState("beta", { phase: "implementing" });
     const git: GitRunner = (argv) => {
-      if (argv[0] === "rev-parse") return { stdout: "true\n", stderr: "", exitCode: 0 };
-      if (argv[0] === "branch") return { stdout: "feature\n", stderr: "", exitCode: 0 };
-      if (argv[0] === "symbolic-ref") return { stdout: "", stderr: "", exitCode: 1 };
+      if (argv[0] === "rev-parse")
+        return { stdout: "true\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "branch")
+        return { stdout: "feature\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "symbolic-ref")
+        return { stdout: "", stderr: "", exitCode: 1 };
       if (argv[0] === "diff") return { stdout: "", stderr: "", exitCode: 0 };
-      if (argv[0] === "log") return { stdout: "feat: initial\n", stderr: "", exitCode: 0 };
+      if (argv[0] === "log")
+        return { stdout: "feat: initial\n", stderr: "", exitCode: 0 };
       return { stdout: "", stderr: "", exitCode: 1 };
     };
     const gh: GhRunner = () => ({

@@ -50,7 +50,9 @@ function state(overrides: Partial<PipelineState> = {}): PipelineState {
 
 describe(encodeProjectSegment, () => {
   it("replaces every / with - so the leading slash becomes a leading dash", () => {
-    expect(encodeProjectSegment("/Users/me/code/flow")).toBe("-Users-me-code-flow");
+    expect(encodeProjectSegment("/Users/me/code/flow")).toBe(
+      "-Users-me-code-flow",
+    );
   });
 
   it("handles paths without a leading slash", () => {
@@ -60,18 +62,26 @@ describe(encodeProjectSegment, () => {
 
 describe(seedMatchesSlug, () => {
   it("matches the slug derived from the description after the colon", () => {
-    expect(seedMatchesSlug("Use the /flow-pipeline skill for: add CSV export", "add-csv-export")).toBe(
-      true,
-    );
+    expect(
+      seedMatchesSlug(
+        "Use the /flow-pipeline skill for: add CSV export",
+        "add-csv-export",
+      ),
+    ).toBe(true);
   });
 
   it("rejects seeds without /flow-pipeline", () => {
-    expect(seedMatchesSlug("just a normal message", "add-csv-export")).toBe(false);
+    expect(seedMatchesSlug("just a normal message", "add-csv-export")).toBe(
+      false,
+    );
   });
 
   it("rejects when the slug doesn't match", () => {
     expect(
-      seedMatchesSlug("Use the /flow-pipeline skill for: something else", "add-csv-export"),
+      seedMatchesSlug(
+        "Use the /flow-pipeline skill for: something else",
+        "add-csv-export",
+      ),
     ).toBe(false);
   });
 
@@ -83,7 +93,9 @@ describe(seedMatchesSlug, () => {
     const desc =
       "Proceed with pr 6 in the roadmap if the prerequisites are complete. make sure the roadmap gets updated when done";
     const slug = "proceed-pr-6-roadmap-prerequisites";
-    expect(seedMatchesSlug(`Use the /flow-pipeline skill for: ${desc}`, slug)).toBe(true);
+    expect(
+      seedMatchesSlug(`Use the /flow-pipeline skill for: ${desc}`, slug),
+    ).toBe(true);
   });
 
   it("matches the resume-mode seed prompt format", () => {
@@ -105,7 +117,12 @@ describe(computeCost, () => {
       seedEvent("Use the /flow-pipeline skill for: a different feature"),
     ]);
     const cost = await computeCost(state(), tmpRoot);
-    expect(cost).toEqual({ total: 0, byModel: {}, unknownModels: [], hasData: false });
+    expect(cost).toEqual({
+      total: 0,
+      byModel: {},
+      unknownModels: [],
+      hasData: false,
+    });
   });
 
   it("returns hasData:false when the project dir does not exist", async () => {

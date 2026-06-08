@@ -12,10 +12,20 @@ import {
   SYNTHETIC_SUPPLY_CHAIN,
   type AgentName,
 } from "./flow-pr-agent-lens";
-import type { AnalysisResult, Finding, LensName } from "./flow-pr-static-analysis/types";
+import type {
+  AnalysisResult,
+  Finding,
+  LensName,
+} from "./flow-pr-static-analysis/types";
 
 // Runtime list of LensName values; source of truth: bin/flow-pr-static-analysis/types.ts.
-const ALL_LENS_NAMES: readonly LensName[] = ["security", "types", "coverage", "lint", "dependencies"];
+const ALL_LENS_NAMES: readonly LensName[] = [
+  "security",
+  "types",
+  "coverage",
+  "lint",
+  "dependencies",
+];
 
 const EXPECTED_AGENTS: readonly AgentName[] = [
   "bug-detection",
@@ -26,7 +36,11 @@ const EXPECTED_AGENTS: readonly AgentName[] = [
   "test-coverage",
 ];
 
-const f = (file: string, rule_id: string, source: Finding["source"]): Finding => ({
+const f = (
+  file: string,
+  rule_id: string,
+  source: Finding["source"],
+): Finding => ({
   file,
   line: 1,
   rule_id,
@@ -57,15 +71,21 @@ function makeEnvelope(): AnalysisResult {
 
 describe("AGENT_LENS_MAP", () => {
   it("Object.keys matches the six expected kebab-name set", () => {
-    expect(new Set(Object.keys(AGENT_LENS_MAP))).toEqual(new Set(EXPECTED_AGENTS));
+    expect(new Set(Object.keys(AGENT_LENS_MAP))).toEqual(
+      new Set(EXPECTED_AGENTS),
+    );
   });
 
   it("security maps to both 'security' and 'dependencies' (set membership)", () => {
-    expect(new Set(AGENT_LENS_MAP.security)).toEqual(new Set(["security", "dependencies"]));
+    expect(new Set(AGENT_LENS_MAP.security)).toEqual(
+      new Set(["security", "dependencies"]),
+    );
   });
 
   it("supply-chain is the synthetic sentinel marker only", () => {
-    expect([...AGENT_LENS_MAP["supply-chain"]]).toEqual([SYNTHETIC_SUPPLY_CHAIN]);
+    expect([...AGENT_LENS_MAP["supply-chain"]]).toEqual([
+      SYNTHETIC_SUPPLY_CHAIN,
+    ]);
   });
 
   it("each non-supply-chain agent has 1-2 valid LensName values", () => {
@@ -84,7 +104,10 @@ describe("AGENT_LENS_MAP", () => {
   });
 
   it("union of all lens values is a subset of LensName ∪ {synthetic sentinel}", () => {
-    const allowed = new Set<string>([...ALL_LENS_NAMES, SYNTHETIC_SUPPLY_CHAIN]);
+    const allowed = new Set<string>([
+      ...ALL_LENS_NAMES,
+      SYNTHETIC_SUPPLY_CHAIN,
+    ]);
     for (const lenses of Object.values(AGENT_LENS_MAP)) {
       for (const lens of lenses) expect(allowed.has(lens)).toBe(true);
     }
@@ -95,22 +118,34 @@ describe("route()", () => {
   const env = makeEnvelope();
 
   it("bug-detection emits flat single-lens shape from .types", () => {
-    expect(route(env, "bug-detection")).toEqual({ findings: env.types, meta: env.meta.types });
+    expect(route(env, "bug-detection")).toEqual({
+      findings: env.types,
+      meta: env.meta.types,
+    });
   });
 
   it("security concatenates findings and keys meta by lens", () => {
     expect(route(env, "security")).toEqual({
       findings: [...env.security, ...env.dependencies],
-      meta: { security: env.meta.security, dependencies: env.meta.dependencies },
+      meta: {
+        security: env.meta.security,
+        dependencies: env.meta.dependencies,
+      },
     });
   });
 
   it("pattern-consistency emits flat .lint shape", () => {
-    expect(route(env, "pattern-consistency")).toEqual({ findings: env.lint, meta: env.meta.lint });
+    expect(route(env, "pattern-consistency")).toEqual({
+      findings: env.lint,
+      meta: env.meta.lint,
+    });
   });
 
   it("performance emits flat .lint shape (shared with pattern-consistency)", () => {
-    expect(route(env, "performance")).toEqual({ findings: env.lint, meta: env.meta.lint });
+    expect(route(env, "performance")).toEqual({
+      findings: env.lint,
+      meta: env.meta.lint,
+    });
   });
 
   it("test-coverage emits flat .coverage shape", () => {
@@ -123,7 +158,11 @@ describe("route()", () => {
   it("supply-chain emits the synthetic envelope verbatim", () => {
     expect(route(env, "supply-chain")).toEqual({
       findings: [],
-      meta: { ran: false, skipped_reason: "no supply-chain pre-digest lens", duration_ms: 0 },
+      meta: {
+        ran: false,
+        skipped_reason: "no supply-chain pre-digest lens",
+        duration_ms: 0,
+      },
     });
   });
 });
@@ -157,7 +196,10 @@ describe("run() CLI behaviour", () => {
   let tmpPath: string;
 
   beforeEach(() => {
-    tmpPath = path.join(os.tmpdir(), `flow-pr-agent-lens-${Date.now()}-${Math.random()}.json`);
+    tmpPath = path.join(
+      os.tmpdir(),
+      `flow-pr-agent-lens-${Date.now()}-${Math.random()}.json`,
+    );
     fs.writeFileSync(tmpPath, JSON.stringify(makeEnvelope()));
   });
 
@@ -189,7 +231,10 @@ describe("run() CLI behaviour", () => {
     const env = makeEnvelope();
     expect(JSON.parse(writes.join(""))).toEqual({
       findings: [...env.security, ...env.dependencies],
-      meta: { security: env.meta.security, dependencies: env.meta.dependencies },
+      meta: {
+        security: env.meta.security,
+        dependencies: env.meta.dependencies,
+      },
     });
   });
 
@@ -208,7 +253,10 @@ describe("run() CLI behaviour", () => {
   });
 
   it("--agent security --in <missing> exits 2 and stderr names the missing file", async () => {
-    const missing = path.join(os.tmpdir(), `flow-pr-agent-lens-missing-${Date.now()}-${Math.random()}.json`);
+    const missing = path.join(
+      os.tmpdir(),
+      `flow-pr-agent-lens-missing-${Date.now()}-${Math.random()}.json`,
+    );
     const writes: string[] = [];
     const spy = vi.spyOn(process.stderr, "write").mockImplementation((s) => {
       writes.push(s.toString());
@@ -238,16 +286,23 @@ describe("CLI end-to-end smoke", () => {
   it("--agent security --in - reads the envelope from stdin and emits the concatenated shape", () => {
     const here = path.dirname(fileURLToPath(import.meta.url));
     const repoRoot = path.resolve(here, "..");
-    const r = spawnSync("bun", ["bin/flow-pr-agent-lens.ts", "--agent", "security", "--in", "-"], {
-      cwd: repoRoot,
-      encoding: "utf8",
-      input: JSON.stringify(makeEnvelope()),
-    });
+    const r = spawnSync(
+      "bun",
+      ["bin/flow-pr-agent-lens.ts", "--agent", "security", "--in", "-"],
+      {
+        cwd: repoRoot,
+        encoding: "utf8",
+        input: JSON.stringify(makeEnvelope()),
+      },
+    );
     expect(r.status).toBe(0);
     const env = makeEnvelope();
     expect(JSON.parse(r.stdout)).toEqual({
       findings: [...env.security, ...env.dependencies],
-      meta: { security: env.meta.security, dependencies: env.meta.dependencies },
+      meta: {
+        security: env.meta.security,
+        dependencies: env.meta.dependencies,
+      },
     });
   });
 });

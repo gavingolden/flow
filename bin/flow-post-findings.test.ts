@@ -15,32 +15,52 @@ const SHA = "0123456789abcdef0123456789abcdef01234567";
 
 describe(parseFindings, () => {
   it("parses a single-line finding", () => {
-    const input = JSON.stringify([{ file: "src/a.ts", line: 10, body: "issue" }]);
-    expect(parseFindings(input)).toEqual([{ file: "src/a.ts", line: 10, body: "issue" }]);
+    const input = JSON.stringify([
+      { file: "src/a.ts", line: 10, body: "issue" },
+    ]);
+    expect(parseFindings(input)).toEqual([
+      { file: "src/a.ts", line: 10, body: "issue" },
+    ]);
   });
 
   it("parses a multi-line range", () => {
-    const input = JSON.stringify([{ file: "a.ts", line: 5, end_line: 12, body: "x" }]);
-    expect(parseFindings(input)).toEqual([{ file: "a.ts", line: 5, end_line: 12, body: "x" }]);
+    const input = JSON.stringify([
+      { file: "a.ts", line: 5, end_line: 12, body: "x" },
+    ]);
+    expect(parseFindings(input)).toEqual([
+      { file: "a.ts", line: 5, end_line: 12, body: "x" },
+    ]);
   });
 
   it("collapses end_line == line into a single-line finding", () => {
-    const input = JSON.stringify([{ file: "a.ts", line: 5, end_line: 5, body: "x" }]);
-    expect(parseFindings(input)).toEqual([{ file: "a.ts", line: 5, body: "x" }]);
+    const input = JSON.stringify([
+      { file: "a.ts", line: 5, end_line: 5, body: "x" },
+    ]);
+    expect(parseFindings(input)).toEqual([
+      { file: "a.ts", line: 5, body: "x" },
+    ]);
   });
 
   it("accepts side=LEFT/RIGHT", () => {
-    const input = JSON.stringify([{ file: "a.ts", line: 1, side: "LEFT", body: "x" }]);
-    expect(parseFindings(input)).toEqual([{ file: "a.ts", line: 1, side: "LEFT", body: "x" }]);
+    const input = JSON.stringify([
+      { file: "a.ts", line: 1, side: "LEFT", body: "x" },
+    ]);
+    expect(parseFindings(input)).toEqual([
+      { file: "a.ts", line: 1, side: "LEFT", body: "x" },
+    ]);
   });
 
   it("accepts `path` as an alias for `file`", () => {
     const input = JSON.stringify([{ path: "src/a.ts", line: 1, body: "x" }]);
-    expect(parseFindings(input)).toEqual([{ file: "src/a.ts", line: 1, body: "x" }]);
+    expect(parseFindings(input)).toEqual([
+      { file: "src/a.ts", line: 1, body: "x" },
+    ]);
   });
 
   it("throws on non-array input", () => {
-    expect(() => parseFindings('{"file":"a.ts"}')).toThrow("must be a JSON array");
+    expect(() => parseFindings('{"file":"a.ts"}')).toThrow(
+      "must be a JSON array",
+    );
   });
 
   it("throws on invalid JSON", () => {
@@ -48,42 +68,50 @@ describe(parseFindings, () => {
   });
 
   it("throws when file is missing", () => {
-    expect(() => parseFindings(JSON.stringify([{ line: 1, body: "x" }]))).toThrow(
-      'Entry 0: "file" must be a non-empty string',
-    );
+    expect(() =>
+      parseFindings(JSON.stringify([{ line: 1, body: "x" }])),
+    ).toThrow('Entry 0: "file" must be a non-empty string');
   });
 
   it("throws when line is not a positive integer", () => {
-    expect(() => parseFindings(JSON.stringify([{ file: "a.ts", line: 0, body: "x" }]))).toThrow(
-      'Entry 0: "line" must be a positive integer',
-    );
-    expect(() => parseFindings(JSON.stringify([{ file: "a.ts", line: 1.5, body: "x" }]))).toThrow(
-      "positive integer",
-    );
+    expect(() =>
+      parseFindings(JSON.stringify([{ file: "a.ts", line: 0, body: "x" }])),
+    ).toThrow('Entry 0: "line" must be a positive integer');
+    expect(() =>
+      parseFindings(JSON.stringify([{ file: "a.ts", line: 1.5, body: "x" }])),
+    ).toThrow("positive integer");
   });
 
   it("throws when body is empty", () => {
-    expect(() => parseFindings(JSON.stringify([{ file: "a.ts", line: 1, body: "" }]))).toThrow(
-      'Entry 0: "body" must be a non-empty string',
-    );
+    expect(() =>
+      parseFindings(JSON.stringify([{ file: "a.ts", line: 1, body: "" }])),
+    ).toThrow('Entry 0: "body" must be a non-empty string');
   });
 
   it("throws when end_line < line", () => {
     expect(() =>
-      parseFindings(JSON.stringify([{ file: "a.ts", line: 10, end_line: 5, body: "x" }])),
+      parseFindings(
+        JSON.stringify([{ file: "a.ts", line: 10, end_line: 5, body: "x" }]),
+      ),
     ).toThrow('Entry 0: "end_line" must be >= "line"');
   });
 
   it("throws when side is invalid", () => {
     expect(() =>
-      parseFindings(JSON.stringify([{ file: "a.ts", line: 1, side: "MIDDLE", body: "x" }])),
+      parseFindings(
+        JSON.stringify([{ file: "a.ts", line: 1, side: "MIDDLE", body: "x" }]),
+      ),
     ).toThrow('"side" must be "LEFT" or "RIGHT"');
   });
 });
 
 describe(buildPostArgv, () => {
   it("builds a single-line argv with default RIGHT side", () => {
-    const argv = buildPostArgv(100, SHA, { file: "src/a.ts", line: 42, body: "issue" });
+    const argv = buildPostArgv(100, SHA, {
+      file: "src/a.ts",
+      line: 42,
+      body: "issue",
+    });
     expect(argv).toEqual([
       "api",
       "repos/{owner}/{repo}/pulls/100/comments",
@@ -112,7 +140,12 @@ describe(buildPostArgv, () => {
 
   it("emits start_line, start_side and shifts line for multi-line ranges", () => {
     // gh's API: line is the *bottom* of the range; start_line is the top.
-    const argv = buildPostArgv(100, SHA, { file: "a.ts", line: 5, end_line: 12, body: "x" });
+    const argv = buildPostArgv(100, SHA, {
+      file: "a.ts",
+      line: 5,
+      end_line: 12,
+      body: "x",
+    });
     expect(argv).toContain("line=12"); // bottom of range
     expect(argv).toContain("start_line=5"); // top
     expect(argv).toContain("start_side=RIGHT");
@@ -146,7 +179,11 @@ describe(fetchHeadSha, () => {
   });
 
   it("throws on gh failure with stderr", () => {
-    const gh = vi.fn(() => ({ stdout: "", stderr: "auth required", exitCode: 4 }));
+    const gh = vi.fn(() => ({
+      stdout: "",
+      stderr: "auth required",
+      exitCode: 4,
+    }));
     expect(() => fetchHeadSha(100, gh)).toThrow("auth required");
   });
 
@@ -180,7 +217,8 @@ describe(postAll, () => {
     let call = 0;
     const gh = vi.fn(() => {
       call++;
-      if (call === 2) return { stdout: "", stderr: "404: not found", exitCode: 1 };
+      if (call === 2)
+        return { stdout: "", stderr: "404: not found", exitCode: 1 };
       return { stdout: "", stderr: "", exitCode: 0 };
     });
     const findings: Finding[] = [
@@ -221,7 +259,10 @@ describe(formatSummary, () => {
 
 describe(parseArgs, () => {
   it("requires a PR argument", () => {
-    expect(parseArgs([])).toEqual({ kind: "error", message: "PR number or URL is required" });
+    expect(parseArgs([])).toEqual({
+      kind: "error",
+      message: "PR number or URL is required",
+    });
   });
 
   it("rejects an unknown flag", () => {
@@ -253,9 +294,14 @@ describe("run() integration", () => {
       }
       return { stdout: "", stderr: "", exitCode: 0 };
     });
-    const readFile = vi.fn(async () => JSON.stringify([{ file: "a.ts", line: 1, body: "x" }]));
+    const readFile = vi.fn(async () =>
+      JSON.stringify([{ file: "a.ts", line: 1, body: "x" }]),
+    );
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const exit = await run(["100", "--file", "findings.json"], { gh, readFile });
+    const exit = await run(["100", "--file", "findings.json"], {
+      gh,
+      readFile,
+    });
     logSpy.mockRestore();
     expect(exit).toBe(0);
     expect(readFile).toHaveBeenCalledWith("findings.json");
@@ -279,23 +325,33 @@ describe("run() integration", () => {
       ]),
     );
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const exit = await run(["100", "--file", "findings.json"], { gh, readFile });
+    const exit = await run(["100", "--file", "findings.json"], {
+      gh,
+      readFile,
+    });
     logSpy.mockRestore();
     expect(exit).toBe(1);
   });
 
   it("skips the head-sha lookup when --head-sha is provided", async () => {
     const gh = vi.fn(() => ({ stdout: "", stderr: "", exitCode: 0 }));
-    const readFile = vi.fn(async () => JSON.stringify([{ file: "a.ts", line: 1, body: "x" }]));
+    const readFile = vi.fn(async () =>
+      JSON.stringify([{ file: "a.ts", line: 1, body: "x" }]),
+    );
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
-    const exit = await run(["100", "--file", "f.json", "--head-sha", SHA], { gh, readFile });
+    const exit = await run(["100", "--file", "f.json", "--head-sha", SHA], {
+      gh,
+      readFile,
+    });
     logSpy.mockRestore();
     expect(exit).toBe(0);
     // No call should be `pr view` — only the comments-post.
     // vi.fn() infers () => Result without arg types, so cast through unknown
     // to recover the (argv: string[]) tuple shape for the assertion.
     const calls = gh.mock.calls as unknown as Array<[string[]]>;
-    expect(calls.find((c) => c[0][0] === "pr" && c[0][1] === "view")).toBeUndefined();
+    expect(
+      calls.find((c) => c[0][0] === "pr" && c[0][1] === "view"),
+    ).toBeUndefined();
   });
 
   it("returns 0 with 'No findings to post.' on an empty array", async () => {
@@ -311,7 +367,10 @@ describe("run() integration", () => {
   it("returns 2 on a JSON parse error", async () => {
     const readFile = vi.fn(async () => "not-json");
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const exit = await run(["100", "--file", "f.json"], { gh: vi.fn(), readFile });
+    const exit = await run(["100", "--file", "f.json"], {
+      gh: vi.fn(),
+      readFile,
+    });
     errSpy.mockRestore();
     expect(exit).toBe(2);
   });

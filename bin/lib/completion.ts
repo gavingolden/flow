@@ -59,7 +59,9 @@ export function runCompletion(
   try {
     contents = fs.readFileSync(scriptPath, "utf8");
   } catch (err) {
-    console.error(`flow completion: cannot read ${scriptPath}: ${(err as Error).message}`);
+    console.error(
+      `flow completion: cannot read ${scriptPath}: ${(err as Error).message}`,
+    );
     return 1;
   }
 

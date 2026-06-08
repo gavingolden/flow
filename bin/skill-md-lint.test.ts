@@ -159,18 +159,39 @@ const AGENT_PROMPTS_PATH = path.resolve(
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
-const exemptionContractsContent = fs.readFileSync(EXEMPTION_CONTRACTS_PATH, "utf8");
+const exemptionContractsContent = fs.readFileSync(
+  EXEMPTION_CONTRACTS_PATH,
+  "utf8",
+);
 const prReviewContent = fs.readFileSync(PR_REVIEW_SKILL_MD_PATH, "utf8");
-const fixApplierContent = fs.readFileSync(FIX_APPLIER_INSTRUCTIONS_PATH, "utf8");
+const fixApplierContent = fs.readFileSync(
+  FIX_APPLIER_INSTRUCTIONS_PATH,
+  "utf8",
+);
 const coderContent = fs.readFileSync(CODER_SKILL_MD_PATH, "utf8");
-const coderInstructionsContent = fs.readFileSync(CODER_INSTRUCTIONS_PATH, "utf8");
+const coderInstructionsContent = fs.readFileSync(
+  CODER_INSTRUCTIONS_PATH,
+  "utf8",
+);
 const reportTemplateContent = fs.readFileSync(REPORT_TEMPLATE_PATH, "utf8");
-const manualTestRubricContent = fs.readFileSync(MANUAL_TEST_RUBRIC_PATH, "utf8");
+const manualTestRubricContent = fs.readFileSync(
+  MANUAL_TEST_RUBRIC_PATH,
+  "utf8",
+);
 const autoMergeRubricContent = fs.readFileSync(AUTO_MERGE_RUBRIC_PATH, "utf8");
 const redirectHandlingContent = fs.readFileSync(REDIRECT_HANDLING_PATH, "utf8");
-const gatekeeperSpawnPromptContent = fs.readFileSync(GATEKEEPER_SPAWN_PROMPT_PATH, "utf8");
-const fixApplierSpawnPromptContent = fs.readFileSync(FIX_APPLIER_SPAWN_PROMPT_PATH, "utf8");
-const discoveryInstructionsContent = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+const gatekeeperSpawnPromptContent = fs.readFileSync(
+  GATEKEEPER_SPAWN_PROMPT_PATH,
+  "utf8",
+);
+const fixApplierSpawnPromptContent = fs.readFileSync(
+  FIX_APPLIER_SPAWN_PROMPT_PATH,
+  "utf8",
+);
+const discoveryInstructionsContent = fs.readFileSync(
+  DISCOVERY_INSTRUCTIONS_PATH,
+  "utf8",
+);
 const newFeatureContent = fs.readFileSync(NEW_FEATURE_SKILL_MD_PATH, "utf8");
 const agentPromptsContent = fs.readFileSync(AGENT_PROMPTS_PATH, "utf8");
 
@@ -280,7 +301,10 @@ describe("flow-pipeline SKILL.md structural lint", () => {
   it("post-merge sweep block precedes flow-remove-worktree in step 10", () => {
     const sweepIdx = content.indexOf("Post-merge follow-up sweep");
     const removeIdx = content.indexOf("flow-remove-worktree", sweepIdx);
-    expect(sweepIdx, "Post-merge follow-up sweep heading is missing").toBeGreaterThan(0);
+    expect(
+      sweepIdx,
+      "Post-merge follow-up sweep heading is missing",
+    ).toBeGreaterThan(0);
     expect(
       removeIdx,
       "flow-remove-worktree must appear AFTER the post-merge sweep block " +
@@ -364,7 +388,8 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
    * the SKILL.md side (which doesn't include the `/flow-pipeline →` prefix).
    */
   function extractAgentsExemptions(): string[] {
-    const re = /\*\*Task-tool exemption:\s*`\/flow-pipeline`\s*→\s*([^*]+?)\.\*\*/g;
+    const re =
+      /\*\*Task-tool exemption:\s*`\/flow-pipeline`\s*→\s*([^*]+?)\.\*\*/g;
     return [...agentsContent.matchAll(re)].map((m) => normaliseExemption(m[1]));
   }
 
@@ -395,7 +420,8 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
         "/flow-pipeline step 10's Merge-Conflict Resolver Subagent, /coder " +
         "Edit-Applier Subagent, /pr-review Step 1.5 Gatekeeper Subagent, and " +
         "/pr-review Step 3.5 Consolidator-Validator Subagent). " +
-        "Found: " + JSON.stringify(exemptions),
+        "Found: " +
+        JSON.stringify(exemptions),
     ).toBe(8);
   });
 
@@ -404,7 +430,8 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
     expect(
       exemptions.length,
       "AGENTS.md ## Don'ts must list exactly 8 Task-tool exemption bullets. " +
-        "Found: " + JSON.stringify(exemptions),
+        "Found: " +
+        JSON.stringify(exemptions),
     ).toBe(8);
   });
 
@@ -459,7 +486,9 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
 
   it("flow-pipeline/SKILL.md Hard rules preamble references eight exemptions", () => {
     expect(
-      skillStripped.match(/the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      skillStripped.match(
+        /the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+      ),
       "flow-pipeline/SKILL.md Hard rules preamble must say 'the **only eight** authorised " +
         "Task-tool fan-out sites'. If you added or removed an exemption, update the count " +
         "in the preamble too — the count is bidirectional with the block list below.",
@@ -468,7 +497,9 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
 
   it("flow-pipeline/SKILL.md Hard rules opening references eight Task-tool exceptions", () => {
     expect(
-      skillStripped.match(/the\s+eight\s+narrowly-named Task-tool exceptions that\s+follow/),
+      skillStripped.match(
+        /the\s+eight\s+narrowly-named Task-tool exceptions that\s+follow/,
+      ),
       "flow-pipeline/SKILL.md Hard rules opening must say 'the eight narrowly-named " +
         "Task-tool exceptions that follow'. Drift here means a future reader sees a count " +
         "that doesn't match the exemption blocks.",
@@ -487,7 +518,9 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
         "Drift here is the most likely landmine when adding a new exemption.",
     ).toBeTruthy();
     expect(
-      agentsContent.match(/the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/),
+      agentsContent.match(
+        /the\s+\*\*only eight\*\*\s+authorised\s+Task-tool\s+fan-out\s+sites/,
+      ),
       "AGENTS.md ## Don'ts closer must say 'the **only eight** authorised Task-tool fan-out sites'. " +
         "Same count, same wording as flow-pipeline/SKILL.md's closer.",
     ).toBeTruthy();
@@ -495,7 +528,9 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
 
   it("flow-pipeline/SKILL.md Verification (this skill) lists all eight exemptions by name", () => {
     const verificationSection =
-      content.split("# Verification")[1] ?? content.split("# Verification (this skill)")[1] ?? "";
+      content.split("# Verification")[1] ??
+      content.split("# Verification (this skill)")[1] ??
+      "";
     expect(
       verificationSection.includes("Independent Multi-Agent Review"),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Multi-Agent Review' " +
@@ -534,7 +569,9 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
         "/pr-review Step 1.5 Gatekeeper refactor; this list must enumerate all eight.",
     ).toBe(true);
     expect(
-      verificationSection.includes("Independent Consolidator-Validator Subagent"),
+      verificationSection.includes(
+        "Independent Consolidator-Validator Subagent",
+      ),
       "flow-pipeline/SKILL.md Verification section must reference 'Independent Consolidator-Validator Subagent' " +
         "as one of the named Task-tool exemptions. The eighth exemption was added in the " +
         "/pr-review Step 3.5 Consolidator-Validator refactor; this list must enumerate all eight.",
@@ -948,7 +985,7 @@ describe("Gatekeeper artifact JSON schema drift (pr-review/SKILL.md)", () => {
         gatekeeperSpawnPromptContent.includes('"skip_kind"'),
       "pr-review/references/gatekeeper-spawn-prompt.md must reference 'skip_kind' (as `skip_kind` or \"skip_kind\") " +
         "in the Gatekeeper subagent's documented artifact shape. The field is optional " +
-        "(emitted only on decision: \"skip\") but the prose must still surface it so the " +
+        '(emitted only on decision: "skip") but the prose must still surface it so the ' +
         "wrapper's reader knows to expect it on skip verdicts.",
     ).toBe(true);
   });
@@ -1087,7 +1124,9 @@ describe("AGENTS.md Output style anchors", () => {
       "AGENTS.md must contain the rule anchor phrase " +
         "'- **Treat user prompts as evidence of intent, not exhaustive specifications.**' " +
         "exactly once at the start of a list item in `## Output style`. " +
-        "Found " + (matches?.length ?? 0) + " match(es).",
+        "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
     ).toBe(1);
   });
 
@@ -1124,7 +1163,9 @@ describe("AGENTS.md Output style anchors", () => {
       "AGENTS.md must contain the rule anchor phrase " +
         "'- **Consider the middle ground when a request is framed as a binary choice.**' " +
         "exactly once at the start of a list item in `## Output style`. " +
-        "Found " + (matches?.length ?? 0) + " match(es).",
+        "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
     ).toBe(1);
   });
 
@@ -1146,7 +1187,9 @@ describe("AGENTS.md Output style anchors", () => {
       "AGENTS.md must contain the rule anchor phrase " +
         "'- **Fix cheap, in-scope robustness issues now rather than deferring them.**' " +
         "exactly once at the start of a list item in `## Output style`. " +
-        "Found " + (matches?.length ?? 0) + " match(es).",
+        "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
     ).toBe(1);
   });
 });
@@ -1179,7 +1222,9 @@ describe("Prompt-interpretation contract anchors", () => {
 
   it("discovery-instructions.md contains the '### Prompt interpretation (conditional)' heading", () => {
     expect(
-      discoveryInstructionsContent.includes("### Prompt interpretation (conditional)"),
+      discoveryInstructionsContent.includes(
+        "### Prompt interpretation (conditional)",
+      ),
       "discovery-instructions.md must contain the heading " +
         "'### Prompt interpretation (conditional)' verbatim. The PRD template " +
         "(skills/pipeline/product-planning/templates/prd-template.md), pr-review's " +
@@ -1196,7 +1241,9 @@ describe("Prompt-interpretation contract anchors", () => {
   // step exists that the linter can't find.
   it("agent-prompts.md Pattern & Consistency Process contains the 'Prompt-interpretation tension check' anchor", () => {
     expect(
-      agentPromptsContent.includes("Prompt-interpretation tension check (conditional)"),
+      agentPromptsContent.includes(
+        "Prompt-interpretation tension check (conditional)",
+      ),
       "agent-prompts.md must contain the anchor literal " +
         "'Prompt-interpretation tension check (conditional)' inside the Pattern & " +
         "Consistency Agent's Process section (step 8). This is the consumer of " +
@@ -1224,30 +1271,31 @@ describe("pr-review result-artifact contract lint", () => {
     '"clean"',
     '"partial"',
     '"escalated"',
-  ])("pr-review SKILL.md documents the result-artifact literal '%s'", (literal) => {
-    expect(
-      prReviewContent.includes(literal),
-      `pr-review SKILL.md must include the literal '${literal}' so the ` +
-        `result-artifact contract is grep-discoverable. The /flow-pipeline ` +
-        `step 8 reader branches on these exact strings; drift here means ` +
-        `the supervisor's parser falls through to the escalation path.`,
-    ).toBe(true);
-  });
+  ])(
+    "pr-review SKILL.md documents the result-artifact literal '%s'",
+    (literal) => {
+      expect(
+        prReviewContent.includes(literal),
+        `pr-review SKILL.md must include the literal '${literal}' so the ` +
+          `result-artifact contract is grep-discoverable. The /flow-pipeline ` +
+          `step 8 reader branches on these exact strings; drift here means ` +
+          `the supervisor's parser falls through to the escalation path.`,
+      ).toBe(true);
+    },
+  );
 
-  it.each([
-    '"clean"',
-    '"partial"',
-    '"escalated"',
-    "--resume-from",
-  ])("flow-pipeline SKILL.md Step 8 documents the result-artifact literal '%s'", (literal) => {
-    expect(
-      content.includes(literal),
-      `flow-pipeline SKILL.md Step 8 must include the literal '${literal}' ` +
-        `so the supervisor's branch-on-status logic stays anchored on the ` +
-        `same string the /pr-review wrapper writes. A drift means the ` +
-        `partial-retry path silently falls through to the escalation arm.`,
-    ).toBe(true);
-  });
+  it.each(['"clean"', '"partial"', '"escalated"', "--resume-from"])(
+    "flow-pipeline SKILL.md Step 8 documents the result-artifact literal '%s'",
+    (literal) => {
+      expect(
+        content.includes(literal),
+        `flow-pipeline SKILL.md Step 8 must include the literal '${literal}' ` +
+          `so the supervisor's branch-on-status logic stays anchored on the ` +
+          `same string the /pr-review wrapper writes. A drift means the ` +
+          `partial-retry path silently falls through to the escalation arm.`,
+      ).toBe(true);
+    },
+  );
 
   const PR_REVIEW_REQUIRED_KEYS = [
     "status",
@@ -1369,9 +1417,11 @@ describe("Task-tool ToolSearch-load preamble at all eight spawn sites", () => {
         ? fs.readFileSync(PREAMBLE_REF_PATH, "utf8")
         : "";
       const hasTask =
-        hasTaskInSkill || (isRefactored && refContent.includes('"name": "Task"'));
+        hasTaskInSkill ||
+        (isRefactored && refContent.includes('"name": "Task"'));
       const hasAgent =
-        hasAgentInSkill || (isRefactored && refContent.includes('"name": "Agent"'));
+        hasAgentInSkill ||
+        (isRefactored && refContent.includes('"name": "Agent"'));
 
       expect(
         hasTask,
@@ -1590,7 +1640,9 @@ describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-do
           `reminder so the Stop hook can tell the supervisor where to go next.`,
       ).toBeDefined();
 
-      const refs = [...label!.matchAll(/step (\d+(?:\.\d+)?)/gi)].map((m) => m[1]);
+      const refs = [...label!.matchAll(/step (\d+(?:\.\d+)?)/gi)].map(
+        (m) => m[1],
+      );
       expect(
         refs.length,
         `NEXT_STEP_BY_PHASE['${phase}'] = ${JSON.stringify(label)} contains ` +
@@ -1621,7 +1673,8 @@ describe("pr-review Step 11e inversion contract", () => {
   // follows the Fail-subtype list and would false-fail on legitimate edits to
   // adjacent IMPORTANT/After blocks.
   function isolateFailAutomatableBody(): string {
-    const stepSlice = prReviewContent.split("### 11e. Resolution")[1]?.split(/^## /m)[0] ?? "";
+    const stepSlice =
+      prReviewContent.split("### 11e. Resolution")[1]?.split(/^## /m)[0] ?? "";
     const failAutoMarker = "**Fail (automatable)**:";
     const failAutoStart = stepSlice.indexOf(failAutoMarker);
     expect(
@@ -1667,7 +1720,11 @@ describe("pr-review Step 11e inversion contract", () => {
     // contain at least two of the three substantive contract markers verbatim;
     // any wholesale rewrite that drops them must explicitly opt in by updating
     // this lint.
-    const markers = ["default-on", "Auto-push exemption", "redirects via reply"];
+    const markers = [
+      "default-on",
+      "Auto-push exemption",
+      "redirects via reply",
+    ];
     const present = markers.filter((m) => normalised.includes(m));
     expect(
       present.length,
@@ -1729,7 +1786,9 @@ describe("pr-review Step 11e inversion contract", () => {
         "undocumented on the SKILL.md side even if report-template.md is intact.",
     ).toBe(true);
     expect(
-      prReviewContent.includes("Manual items auto-converted (N items, redirect by replying)"),
+      prReviewContent.includes(
+        "Manual items auto-converted (N items, redirect by replying)",
+      ),
       "SKILL.md Step 12 must contain the verbatim cross-reference " +
         "'Manual items auto-converted (N items, redirect by replying)' so the " +
         "Step 12 prose and the report-template.md Status enum stay in lock-step. " +
@@ -1867,7 +1926,9 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
 
   it("manual-test-rubric.md states an unverified functional step blocks merge", () => {
     expect(
-      manualTestRubricContent.includes("unverified functional step blocks merge"),
+      manualTestRubricContent.includes(
+        "unverified functional step blocks merge",
+      ),
       "manual-test-rubric.md must contain the phrase 'unverified functional " +
         "step blocks merge' — the rule that a functional manual check may not " +
         "be reclassified as subjective to wave it through.",
@@ -1919,9 +1980,9 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
     expect(
       // Collapse whitespace — the phrase can wrap across a line break.
-      redirectHandlingContent.replace(/\s+/g, " ").includes(
-        "fresh, unambiguous, and in-context",
-      ),
+      redirectHandlingContent
+        .replace(/\s+/g, " ")
+        .includes("fresh, unambiguous, and in-context"),
       "redirect-handling.md must contain the phrase 'fresh, unambiguous, and " +
         "in-context' — the three-part bar a gate override must clear.",
     ).toBe(true);
@@ -1946,14 +2007,14 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     expect(
       content.includes('"cool", "thanks", "next"'),
       "flow-pipeline SKILL.md step 9 must contain the genuinely-ambiguous " +
-        "list '\"cool\", \"thanks\", \"next\"' verbatim — the anchor for the " +
+        'list \'"cool", "thanks", "next"\' verbatim — the anchor for the ' +
         "softened 'unambiguous' test's failure case (inputs that aren't " +
         "about merging at all).",
     ).toBe(true);
     expect(
       redirectHandlingContent.includes('"cool", "thanks", "next"'),
       "redirect-handling.md 'Gate override' section must contain the " +
-        "genuinely-ambiguous list '\"cool\", \"thanks\", \"next\"' verbatim — " +
+        'genuinely-ambiguous list \'"cool", "thanks", "next"\' verbatim — ' +
         "the sibling anchor on the references-doc side; both files must " +
         "carry the list or they drift out of lock-step.",
     ).toBe(true);
@@ -2025,29 +2086,32 @@ describe("/coder interactive-redirect caller anchor", () => {
     ["AGENTS.md", agentsContent],
     ["coder/SKILL.md", coderContent],
     ["references/exemption-contracts.md", exemptionContractsContent],
-  ])("%s carries the 'interactive code-change redirect' anchor phrase", (label, docContent) => {
-    const anchorIdx = docContent.indexOf(ANCHOR);
-    // Co-location check: a /coder mention must appear within a bounded
-    // window around the anchor, so the "next to a /coder mention"
-    // invariant the failure message promises is actually enforced — a
-    // relocated phrase severed from its /coder context fails here.
-    const WINDOW = 400;
-    const near =
-      anchorIdx !== -1 &&
-      docContent
-        .slice(
-          Math.max(0, anchorIdx - WINDOW),
-          anchorIdx + ANCHOR.length + WINDOW,
-        )
-        .includes("/coder");
-    expect(
-      near,
-      `${label} must contain the literal '${ANCHOR}' phrase next to a /coder ` +
-        `mention (within ${WINDOW} chars). This is the fourth /coder caller ` +
-        `(the /flow-pipeline supervisor routing a user's free-form ` +
-        `code-change redirect through /coder) and is documented across all ` +
-        `five docs in lockstep — a missing or relocated phrase here means a ` +
-        `one-sided edit drifted ${label} out of sync with the others.`,
-    ).toBe(true);
-  });
+  ])(
+    "%s carries the 'interactive code-change redirect' anchor phrase",
+    (label, docContent) => {
+      const anchorIdx = docContent.indexOf(ANCHOR);
+      // Co-location check: a /coder mention must appear within a bounded
+      // window around the anchor, so the "next to a /coder mention"
+      // invariant the failure message promises is actually enforced — a
+      // relocated phrase severed from its /coder context fails here.
+      const WINDOW = 400;
+      const near =
+        anchorIdx !== -1 &&
+        docContent
+          .slice(
+            Math.max(0, anchorIdx - WINDOW),
+            anchorIdx + ANCHOR.length + WINDOW,
+          )
+          .includes("/coder");
+      expect(
+        near,
+        `${label} must contain the literal '${ANCHOR}' phrase next to a /coder ` +
+          `mention (within ${WINDOW} chars). This is the fourth /coder caller ` +
+          `(the /flow-pipeline supervisor routing a user's free-form ` +
+          `code-change redirect through /coder) and is documented across all ` +
+          `five docs in lockstep — a missing or relocated phrase here means a ` +
+          `one-sided edit drifted ${label} out of sync with the others.`,
+      ).toBe(true);
+    },
+  );
 });

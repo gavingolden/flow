@@ -149,7 +149,10 @@ export function parseBiomeJson(stdout: string, worktree: string): Finding[] {
     const message =
       typeof raw.message === "string"
         ? raw.message
-        : raw.message?.content ?? raw.description ?? raw.category ?? "biome diagnostic";
+        : (raw.message?.content ??
+          raw.description ??
+          raw.category ??
+          "biome diagnostic");
     out.push({
       file: relativise(file, worktree),
       line,
@@ -165,7 +168,11 @@ export function parseBiomeJson(stdout: string, worktree: string): Finding[] {
 
 function extractBiomeFile(p: unknown): string | null {
   if (typeof p === "string") return p;
-  if (p && typeof p === "object" && typeof (p as { file?: string }).file === "string") {
+  if (
+    p &&
+    typeof p === "object" &&
+    typeof (p as { file?: string }).file === "string"
+  ) {
     return (p as { file: string }).file;
   }
   return null;
@@ -178,7 +185,11 @@ function extractBiomeLine(loc: unknown): number | null {
     sourceCode?: string;
   };
   // Modern biome: span is [byteStart, byteEnd] — derive line from sourceCode.
-  if (Array.isArray(l.span) && typeof l.span[0] === "number" && typeof l.sourceCode === "string") {
+  if (
+    Array.isArray(l.span) &&
+    typeof l.span[0] === "number" &&
+    typeof l.sourceCode === "string"
+  ) {
     const prefix = l.sourceCode.slice(0, l.span[0]);
     return prefix.split("\n").length;
   }
@@ -225,7 +236,8 @@ export function parseEslintJson(stdout: string, worktree: string): Finding[] {
         severity?: number;
       }>;
     };
-    if (typeof raw.filePath !== "string" || !Array.isArray(raw.messages)) continue;
+    if (typeof raw.filePath !== "string" || !Array.isArray(raw.messages))
+      continue;
     for (const m of raw.messages) {
       if (typeof m.line !== "number") continue;
       const confidence = ESLINT_CONFIDENCE[m.severity ?? 0] ?? 60;
@@ -284,7 +296,10 @@ export function parseTscOutput(stdout: string, worktree: string): Finding[] {
  * skipped. Machine lines carry no per-line TS code, so `rule_id` is the stable
  * label `"svelte-check"`.
  */
-export function parseSvelteCheckOutput(stdout: string, worktree: string): Finding[] {
+export function parseSvelteCheckOutput(
+  stdout: string,
+  worktree: string,
+): Finding[] {
   if (!stdout.trim()) return [];
   const out: Finding[] = [];
   const re = /^(\d+) (\d+) (ERROR|WARNING) "([^"]+)" (.+)$/;
@@ -298,7 +313,10 @@ export function parseSvelteCheckOutput(stdout: string, worktree: string): Findin
       line: parseInt(lineNum, 10),
       rule_id: "svelte-check",
       message,
-      confidence: severityStr === "ERROR" ? SVELTE_CHECK_CONFIDENCE : SVELTE_CHECK_WARNING_CONFIDENCE,
+      confidence:
+        severityStr === "ERROR"
+          ? SVELTE_CHECK_CONFIDENCE
+          : SVELTE_CHECK_WARNING_CONFIDENCE,
       severity: severityStr === "ERROR" ? "error" : "warning",
       source: "svelte-check",
     });
@@ -312,7 +330,10 @@ export function parseSvelteCheckOutput(stdout: string, worktree: string): Findin
  * counts). We emit one finding per uncovered statement, dropping
  * out-of-bounds entries defensively.
  */
-export function parseCoverageJson(content: string, worktree: string): Finding[] {
+export function parseCoverageJson(
+  content: string,
+  worktree: string,
+): Finding[] {
   if (!content.trim()) return [];
   let parsed: unknown;
   try {
@@ -322,11 +343,16 @@ export function parseCoverageJson(content: string, worktree: string): Finding[] 
   }
   if (!parsed || typeof parsed !== "object") return [];
   const out: Finding[] = [];
-  for (const [absFile, fileDataRaw] of Object.entries(parsed as Record<string, unknown>)) {
+  for (const [absFile, fileDataRaw] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
     if (!fileDataRaw || typeof fileDataRaw !== "object") continue;
     const fd = fileDataRaw as {
       path?: string;
-      statementMap?: Record<string, { start?: { line?: number }; end?: { line?: number } }>;
+      statementMap?: Record<
+        string,
+        { start?: { line?: number }; end?: { line?: number } }
+      >;
       s?: Record<string, number>;
     };
     const file = relativise(fd.path ?? absFile, worktree);
@@ -380,11 +406,13 @@ export function parseNpmAuditJson(
     !parsed ||
     typeof parsed !== "object" ||
     !(parsed as { vulnerabilities?: unknown }).vulnerabilities ||
-    typeof (parsed as { vulnerabilities?: unknown }).vulnerabilities !== "object"
+    typeof (parsed as { vulnerabilities?: unknown }).vulnerabilities !==
+      "object"
   ) {
     return [];
   }
-  const vulns = (parsed as { vulnerabilities: Record<string, unknown> }).vulnerabilities;
+  const vulns = (parsed as { vulnerabilities: Record<string, unknown> })
+    .vulnerabilities;
   const out: Finding[] = [];
   for (const [pkgName, vulnRaw] of Object.entries(vulns)) {
     if (!vulnRaw || typeof vulnRaw !== "object") continue;
@@ -410,7 +438,9 @@ export function parseNpmAuditJson(
       };
       const severity = (v.severity ?? vuln.severity ?? "low").toLowerCase();
       const confidence = NPM_AUDIT_CONFIDENCE[severity] ?? 60;
-      const ruleId = extractGhsaId(v.url) ?? (v.source !== undefined ? String(v.source) : "npm-audit/unknown");
+      const ruleId =
+        extractGhsaId(v.url) ??
+        (v.source !== undefined ? String(v.source) : "npm-audit/unknown");
       out.push({
         file: "package.json",
         line,
@@ -435,7 +465,10 @@ function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function resolveNpmAuditLine(pkgName: string, packageJsonContent: string | null): number {
+function resolveNpmAuditLine(
+  pkgName: string,
+  packageJsonContent: string | null,
+): number {
   if (packageJsonContent === null) return 1;
   const re = new RegExp(`"${escapeRegex(pkgName)}"\\s*:`);
   const lines = packageJsonContent.split("\n");
@@ -475,7 +508,11 @@ export function computeChangedLines(diff: string): Map<string, Set<number>> {
       inHunk = false;
       continue;
     }
-    if (line.startsWith("+++ ") || line.startsWith("--- ") || line.startsWith("diff --git ")) {
+    if (
+      line.startsWith("+++ ") ||
+      line.startsWith("--- ") ||
+      line.startsWith("diff --git ")
+    ) {
       inHunk = false;
       continue;
     }
@@ -533,7 +570,10 @@ export function applyDiffScope(
 /**
  * Filter a finding list to those at or above the confidence threshold.
  */
-export function applyConfidenceThreshold(findings: Finding[], min: number): Finding[] {
+export function applyConfidenceThreshold(
+  findings: Finding[],
+  min: number,
+): Finding[] {
   if (min <= 0) return findings;
   return findings.filter((f) => f.confidence >= min);
 }

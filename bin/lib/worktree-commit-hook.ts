@@ -40,7 +40,9 @@ const FLOW_HOOKS_DIRNAME = "flow-hooks";
  */
 export function installCommitHook(worktreeDir: string): void {
   const gitDir = git(["rev-parse", "--git-dir"], worktreeDir);
-  const absGitDir = path.isAbsolute(gitDir) ? gitDir : path.join(worktreeDir, gitDir);
+  const absGitDir = path.isAbsolute(gitDir)
+    ? gitDir
+    : path.join(worktreeDir, gitDir);
   const hooksDir = path.join(absGitDir, FLOW_HOOKS_DIRNAME);
 
   git(["config", "extensions.worktreeConfig", "true"], worktreeDir);

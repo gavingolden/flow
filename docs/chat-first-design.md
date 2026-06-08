@@ -1,9 +1,9 @@
 # Chat-first design
 
 > **Audience:** future agents (LLM and human) picking up the design
-> rationale behind flow. This is *not* a getting-started doc and not a
+> rationale behind flow. This is _not_ a getting-started doc and not a
 > tutorial. It assumes the reader is implementing or reviewing a
-> specific change and needs the *why* behind every load-bearing choice.
+> specific change and needs the _why_ behind every load-bearing choice.
 >
 > For the high-level architecture shape, see
 > [`architecture.md`](./architecture.md).
@@ -17,15 +17,14 @@
 This is the deepest question, and it anchors every scope debate. Two
 plausible answers, with very different design implications:
 
-- *"Automate the copy-paste of the task I'm actively working on right
-  now."* If this is the goal, pure-skills wins. No CLI, just skills +
+- _"Automate the copy-paste of the task I'm actively working on right
+  now."_ If this is the goal, pure-skills wins. No CLI, just skills +
   chat. The orchestrator would be an in-session agent dispatching to
   subagents.
-- *"Let me queue work and walk away."* If this is the goal, headless
+- _"Let me queue work and walk away."_ If this is the goal, headless
   is mandatory. Today's subprocess-per-phase design is correct.
 
-**The user's stated need is the second.** Multi-task parallelism (PR
-15) is load-bearing for the actual workflow, not aspirational. Closing
+**The user's stated need is the second.** Multi-task parallelism (PR 15) is load-bearing for the actual workflow, not aspirational. Closing
 the laptop and coming back hours later to find PRs merged is the
 target experience. This anchors future scope debates: when someone
 proposes a change that requires attended runs, point at this section
@@ -45,23 +44,23 @@ laptop sleep, even Mac reboot (with PR 16's resume affordance).
 The full path from "I have an idea" to "code is merged," with what the
 user actually wants at each stage and how the system can fail them.
 
-| Stage | User input | Expected output | What "good" feels like | Failure modes |
-|---|---|---|---|---|
-| **Capture** | rough one-liner | something durable | <10s of friction | tool-switching kills the urge to log it |
-| **Refine** | conversation | a precise spec | 1-3 pushback questions, alternatives surfaced | yes-man triage; 15-question interrogation for a one-line fix |
-| **Plan** | spec + repo state | PRD + task breakdown | a believable outline that *cites the actual code* | invents abstractions; ignores existing patterns |
-| **Implement** | plan + clean worktree | code + tests + PR | passes locally first try | plausible-looking code that doesn't compile |
-| **Verify** | implementation | green test/lint/types | distinguishes "real fail" from "flake" | hides errors; pretends to fix |
-| **Open PR / CI** | green commit | PR with structured body, CI running | descriptive body, Test Steps section honest | CI red; bot reviewers trip on noise |
-| **Self-review** | open PR | inline findings the implementer missed | high signal-to-noise | performative comments; review theater |
-| **Gate** | reviewed PR | "merge now" or "human, please look" | calibrated trust — risky things flagged, trivial things flow | over-cautious or over-confident |
-| **Merge** | gated PR | squash, delete branch, prune worktree | invisible | leaves debris |
+| Stage            | User input            | Expected output                        | What "good" feels like                                       | Failure modes                                                |
+| ---------------- | --------------------- | -------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| **Capture**      | rough one-liner       | something durable                      | <10s of friction                                             | tool-switching kills the urge to log it                      |
+| **Refine**       | conversation          | a precise spec                         | 1-3 pushback questions, alternatives surfaced                | yes-man triage; 15-question interrogation for a one-line fix |
+| **Plan**         | spec + repo state     | PRD + task breakdown                   | a believable outline that _cites the actual code_            | invents abstractions; ignores existing patterns              |
+| **Implement**    | plan + clean worktree | code + tests + PR                      | passes locally first try                                     | plausible-looking code that doesn't compile                  |
+| **Verify**       | implementation        | green test/lint/types                  | distinguishes "real fail" from "flake"                       | hides errors; pretends to fix                                |
+| **Open PR / CI** | green commit          | PR with structured body, CI running    | descriptive body, Test Steps section honest                  | CI red; bot reviewers trip on noise                          |
+| **Self-review**  | open PR               | inline findings the implementer missed | high signal-to-noise                                         | performative comments; review theater                        |
+| **Gate**         | reviewed PR           | "merge now" or "human, please look"    | calibrated trust — risky things flagged, trivial things flow | over-cautious or over-confident                              |
+| **Merge**        | gated PR              | squash, delete branch, prune worktree  | invisible                                                    | leaves debris                                                |
 
 ### 2.2 The five things the user cares about
 
 1. **Send-and-forget** — low context-switch cost. Kick it off, close
    the laptop if you want.
-2. **Notify on the *interesting* events**, not every state transition.
+2. **Notify on the _interesting_ events**, not every state transition.
    Phase-start spam is noise; "needs-human" is signal.
 3. **Easy resume / redirect** when something gets stuck. Don't punish
    me for needing to interject.
@@ -145,7 +144,7 @@ The pipeline is a state machine over the task file's `status` field.
 Phases transition status; loop-backs are explicit edges, not implicit
 retries.
 
-> The diagram below illustrates the *flow* and the loop-back edges.
+> The diagram below illustrates the _flow_ and the loop-back edges.
 > The canonical list of `status` values lives in
 > [`task-schema.md`](./task-schema.md#status-state-machine); the
 > names there are the source of truth (e.g. `verifying`, `ci`,
@@ -350,7 +349,7 @@ reviewPhase({ taskPath })
 
 The fresh-context invariant holds even if the implement phase already
 made a "self-review pass" inline (some skills do). The review phase is
-a *second* observer reading the same artifact (the PR diff). That
+a _second_ observer reading the same artifact (the PR diff). That
 observation is what catches mistakes the implementer's own pass missed
 — rationalisation is the failure mode being designed against.
 
@@ -394,8 +393,7 @@ shared session, no shared context.
 **Cap-N parallelism:** the parent `flow run --all --max N` is just a
 worker pool. It pulls from `.orchestrator/tasks/*.md` where status ∈
 {triaged, needs-human-after-resume}, claims one, spawns
-`flow run <id>` as a child, and refills as children exit. This is PR
-15.
+`flow run <id>` as a child, and refills as children exit. This is PR 15.
 
 The "one task = one OS process tree" choice is what makes parallelism
 robust. There's no shared in-process state between tasks; the
@@ -456,7 +454,7 @@ recent events into the chat session.
 `terminal-notifier`/`osascript` fires on phase start/end and errors.
 
 - **Pro:** "I have other work to do" mode; low cognitive load.
-- **Con:** no observability into *what* a phase is doing, only *that*
+- **Con:** no observability into _what_ a phase is doing, only _that_
   it's running; debugging stuck phases requires reading logs anyway.
 - **Right when:** you trust the pipeline and want to know when it
   needs you.
@@ -464,11 +462,12 @@ recent events into the chat session.
 ### 7.5 Option 5 (PR 19, optional later): TUI dashboard (`flow tui`)
 
 Ink-based mission control. Lists all in-flight tasks with current phase
-+ heartbeat; attach to any task's log stream.
 
-- **Pro:** mission control for parallel queues; cost/status at a glance.
-- **Con:** real engineering effort.
-- **Right when:** parallel queues become routine and `flow status`
+- heartbeat; attach to any task's log stream.
+
+* **Pro:** mission control for parallel queues; cost/status at a glance.
+* **Con:** real engineering effort.
+* **Right when:** parallel queues become routine and `flow status`
   polling proves insufficient. YAGNI by default.
 
 ### 7.6 Option 6 (REJECTED): foreground-only
@@ -1075,7 +1074,7 @@ Single Claude session per task; orchestrator + planner/implementer/
 reviewer subagents. Subagents return summaries to keep parent context
 small.
 
-- **Why rejected:** hits the *exact* depth-limit constraint flow
+- **Why rejected:** hits the _exact_ depth-limit constraint flow
   exists to dodge. Once you fix it via subprocess fan-out, you've
   reinvented today's design.
 
@@ -1125,13 +1124,13 @@ The original PR-by-PR plan was structured in four phases:
   split. No user-visible change. Lays the load-bearing infrastructure
   for everything else.
 - **Phase 2 — pipeline buildout (PRs 4-8).** ci-wait, verify, `flow
-  log` viewer, review + critical loop-back, gate + merge. Every phase
+log` viewer, review + critical loop-back, gate + merge. Every phase
   in the state machine becomes real.
 - **Phase 3 — entry point + UX (PRs 9-12).** `/flow add` becomes the
   documented front door; `/flow status`, `/flow watch`, plan
   checkpoint land. Old `flow start` keeps working.
 - **Phase 4 — cutover + parallelism (PRs 13-19).** Deprecate `flow
-  start`; `flow install --upgrade` for target repos; `--all --max N`
+start`; `flow install --upgrade` for target repos; `--all --max N`
   parallelism; pause/resume/abort; opt-in macOS notifications;
   remove `flow start`; optional `flow tui` dashboard.
 

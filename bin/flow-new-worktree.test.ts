@@ -12,7 +12,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync, spawn } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createWorktreeWithRetry, parseArgs, pickBranchName } from "./flow-new-worktree";
+import {
+  createWorktreeWithRetry,
+  parseArgs,
+  pickBranchName,
+} from "./flow-new-worktree";
 import {
   MAX_SUFFIX_ATTEMPTS,
   findAvailableSlot,
@@ -76,7 +80,10 @@ describe(pickBranchName, () => {
   it("errors with slug-mismatch when the positional disagrees with the pane slug", () => {
     // Mirrors PR #152's footgun: pane @flow-slug was the auto-derived value,
     // supervisor passed a different reading of the same description.
-    const r = pickBranchName("all-scopes-rename", "rename-valid-scopes-all-scopes");
+    const r = pickBranchName(
+      "all-scopes-rename",
+      "rename-valid-scopes-all-scopes",
+    );
     expect(r.kind).toBe("error");
     if (r.kind !== "error") return;
     expect(r.message).toContain("slug-mismatch");
@@ -86,7 +93,10 @@ describe(pickBranchName, () => {
   });
 
   it("uses the positional when no pane slug is available", () => {
-    expect(pickBranchName("foo", null)).toEqual({ kind: "ok", branchName: "foo" });
+    expect(pickBranchName("foo", null)).toEqual({
+      kind: "ok",
+      branchName: "foo",
+    });
   });
 
   it("errors 'branch name is required' when both positional and pane slug are absent", () => {
@@ -167,7 +177,10 @@ function makeFixture(): Fixture {
   mustGit(["fetch", "origin"], repoDir);
   mustGit(["branch", "--set-upstream-to=origin/main", "main"], repoDir);
   // origin/HEAD makes detectDefaultBranch's first attempt succeed.
-  mustGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], repoDir);
+  mustGit(
+    ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"],
+    repoDir,
+  );
 
   return {
     repoDir,
@@ -199,7 +212,9 @@ function spawnHelper(args: string[], cwd: string): Promise<SpawnResult> {
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("close", (exitCode) => resolve({ exitCode: exitCode ?? -1, stdout, stderr }));
+    child.on("close", (exitCode) =>
+      resolve({ exitCode: exitCode ?? -1, stdout, stderr }),
+    );
   });
 }
 
@@ -219,7 +234,9 @@ describe(findAvailableSlot, () => {
       fx.repoDir,
     );
     expect(slot.branchName).toBe("foo");
-    expect(slot.worktreeDir).toBe(path.join(path.dirname(fx.repoDir), "repo-foo"));
+    expect(slot.worktreeDir).toBe(
+      path.join(path.dirname(fx.repoDir), "repo-foo"),
+    );
   });
 
   it("auto-suffixes to -2 when the directory already exists", () => {
@@ -252,7 +269,9 @@ describe(findAvailableSlot, () => {
     for (let i = 2; i <= MAX_SUFFIX_ATTEMPTS; i++) {
       fs.mkdirSync(initialDir + `-${i}`);
     }
-    expect(() => findAvailableSlot("foo", initialDir, fx.repoDir)).toThrow(/100 attempts/);
+    expect(() => findAvailableSlot("foo", initialDir, fx.repoDir)).toThrow(
+      /100 attempts/,
+    );
   });
 });
 
@@ -265,14 +284,20 @@ describe(writeBranchMarker, () => {
 
   it("writes the branch name with a trailing newline", () => {
     writeBranchMarker(dir, "feature-foo");
-    const contents = fs.readFileSync(path.join(dir, BRANCH_MARKER_FILENAME), "utf8");
+    const contents = fs.readFileSync(
+      path.join(dir, BRANCH_MARKER_FILENAME),
+      "utf8",
+    );
     expect(contents).toBe("feature-foo\n");
   });
 
   it("overwrites a stale marker with the new branch name", () => {
     writeBranchMarker(dir, "old-branch");
     writeBranchMarker(dir, "new-branch");
-    const contents = fs.readFileSync(path.join(dir, BRANCH_MARKER_FILENAME), "utf8");
+    const contents = fs.readFileSync(
+      path.join(dir, BRANCH_MARKER_FILENAME),
+      "utf8",
+    );
     expect(contents).toBe("new-branch\n");
   });
 });
@@ -321,7 +346,10 @@ describe(ensureFlowExcludes, () => {
 
   it("preserves existing exclude content", () => {
     fs.mkdirSync(path.dirname(sharedExcludePath()), { recursive: true });
-    fs.writeFileSync(sharedExcludePath(), "# Pre-existing user content\n*.tmp\n");
+    fs.writeFileSync(
+      sharedExcludePath(),
+      "# Pre-existing user content\n*.tmp\n",
+    );
     ensureFlowExcludes(fx.repoDir);
     const contents = fs.readFileSync(sharedExcludePath(), "utf8");
     expect(contents).toContain("# Pre-existing user content");
@@ -390,7 +418,10 @@ describe(ensureFlowExcludes, () => {
         cwd: wtDir,
         encoding: "utf8",
       });
-      expect(checkIgnore.status, `git check-ignore ${p} stderr: ${checkIgnore.stderr}`).toBe(0);
+      expect(
+        checkIgnore.status,
+        `git check-ignore ${p} stderr: ${checkIgnore.stderr}`,
+      ).toBe(0);
     }
   });
 });
@@ -413,11 +444,19 @@ describe(createWorktreeWithRetry, () => {
         // Simulate a peer winning the race: take the slot we'd planned to use,
         // so the next findAvailableSlot call moves on to the next suffix.
         fs.mkdirSync(worktreeDir, { recursive: true });
-        throw new Error("simulated: directory '" + worktreeDir + "' already exists");
+        throw new Error(
+          "simulated: directory '" + worktreeDir + "' already exists",
+        );
       }
     };
 
-    const slot = createWorktreeWithRetry("foo", initialDir, "main", fx.repoDir, fakeGitAdd);
+    const slot = createWorktreeWithRetry(
+      "foo",
+      initialDir,
+      "main",
+      fx.repoDir,
+      fakeGitAdd,
+    );
 
     expect(slot.branchName).toBe("foo-2");
     expect(slot.worktreeDir).toBe(initialDir + "-2");
@@ -437,7 +476,13 @@ describe(createWorktreeWithRetry, () => {
     };
 
     expect(() =>
-      createWorktreeWithRetry("foo", initialDir, "main", fx.repoDir, fakeGitAdd),
+      createWorktreeWithRetry(
+        "foo",
+        initialDir,
+        "main",
+        fx.repoDir,
+        fakeGitAdd,
+      ),
     ).toThrow(/simulated failure 5/);
     expect(count).toBe(5);
   });
@@ -458,14 +503,18 @@ describe("flow-new-worktree (integration)", () => {
 
     const expectedDir = path.join(path.dirname(fx.repoDir), "repo-foo");
     expect(fs.existsSync(expectedDir)).toBe(true);
-    expect(fs.readFileSync(path.join(expectedDir, BRANCH_MARKER_FILENAME), "utf8").trim()).toBe(
-      "foo",
-    );
+    expect(
+      fs
+        .readFileSync(path.join(expectedDir, BRANCH_MARKER_FILENAME), "utf8")
+        .trim(),
+    ).toBe("foo");
 
     // The user's tracked .gitignore must NOT have been touched — flow-runtime
     // metadata lives in .git/info/exclude (common dir), not the consumer
     // repo's tracked ignore rules.
-    expect(fs.readFileSync(path.join(fx.repoDir, ".gitignore"), "utf8")).toBe("");
+    expect(fs.readFileSync(path.join(fx.repoDir, ".gitignore"), "utf8")).toBe(
+      "",
+    );
 
     // The shared .git/info/exclude (the only one git reads patterns from) must
     // list both .flow-tmp/ and .flow-branch so they stay untracked across every
@@ -482,7 +531,10 @@ describe("flow-new-worktree (integration)", () => {
         cwd: expectedDir,
         encoding: "utf8",
       });
-      expect(checkIgnore.status, `check-ignore ${p} stderr: ${checkIgnore.stderr}`).toBe(0);
+      expect(
+        checkIgnore.status,
+        `check-ignore ${p} stderr: ${checkIgnore.stderr}`,
+      ).toBe(0);
     }
 
     // flow-new-worktree wires in the prepare-commit-msg hook (best-effort) on
@@ -493,7 +545,9 @@ describe("flow-new-worktree (integration)", () => {
     const gitDir = path.isAbsolute(gitDirRaw)
       ? gitDirRaw
       : path.join(expectedDir, gitDirRaw);
-    expect(fs.existsSync(path.join(gitDir, "flow-hooks", "prepare-commit-msg"))).toBe(true);
+    expect(
+      fs.existsSync(path.join(gitDir, "flow-hooks", "prepare-commit-msg")),
+    ).toBe(true);
   });
 
   it("two parallel calls with the same slug return distinct paths and branches", async () => {
@@ -509,8 +563,12 @@ describe("flow-new-worktree (integration)", () => {
     expect(fs.existsSync(dirA)).toBe(true);
     expect(fs.existsSync(dirB)).toBe(true);
 
-    const markerA = fs.readFileSync(path.join(dirA, BRANCH_MARKER_FILENAME), "utf8").trim();
-    const markerB = fs.readFileSync(path.join(dirB, BRANCH_MARKER_FILENAME), "utf8").trim();
+    const markerA = fs
+      .readFileSync(path.join(dirA, BRANCH_MARKER_FILENAME), "utf8")
+      .trim();
+    const markerB = fs
+      .readFileSync(path.join(dirB, BRANCH_MARKER_FILENAME), "utf8")
+      .trim();
     expect(markerA).toBe("pr-4-cleanup");
     expect(markerB).toBe("pr-4-cleanup-2");
 

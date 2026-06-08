@@ -29,21 +29,28 @@ function seedState(slug: string, autoMerge?: boolean): void {
     updatedAt: "2026-04-30T12:00:00Z",
   };
   if (autoMerge !== undefined) state.autoMerge = autoMerge;
-  fs.writeFileSync(path.join(stateDir, `${slug}.json`), JSON.stringify(state) + "\n");
+  fs.writeFileSync(
+    path.join(stateDir, `${slug}.json`),
+    JSON.stringify(state) + "\n",
+  );
 }
 
 // --- parseTestStepsSection -------------------------------------------------
 
 describe(parseTestStepsSection, () => {
   it("returns missing when the heading is absent", () => {
-    expect(parseTestStepsSection("## Why\n\nbecause.\n")).toEqual({ kind: "missing" });
+    expect(parseTestStepsSection("## Why\n\nbecause.\n")).toEqual({
+      kind: "missing",
+    });
   });
 
   it("returns missing for a similar-but-wrong heading", () => {
     // `## Manual validation` was the legacy heading; the new rubric only
     // matches `## Test Steps`. A leftover hand-edited PR with the old
     // heading must escalate, not silently auto-merge.
-    expect(parseTestStepsSection("## Manual validation\n\n- [ ] foo\n")).toEqual({
+    expect(
+      parseTestStepsSection("## Manual validation\n\n- [ ] foo\n"),
+    ).toEqual({
       kind: "missing",
     });
   });
@@ -89,7 +96,8 @@ describe(parseTestStepsSection, () => {
   });
 
   it("returns has-unchecked listing only the unchecked items when mixed with - [x]", () => {
-    const body = "## Test Steps\n\n- [x] done\n- [ ] still-todo\n- [x] also-done\n";
+    const body =
+      "## Test Steps\n\n- [x] done\n- [ ] still-todo\n- [x] also-done\n";
     const r = parseTestStepsSection(body);
     expect(r.kind).toBe("has-unchecked");
     if (r.kind === "has-unchecked") {
@@ -260,7 +268,11 @@ describe(fetchPrInputs, () => {
   });
 
   it("returns error on gh non-zero", () => {
-    const gh = vi.fn(() => ({ stdout: "", stderr: "auth required", exitCode: 4 }));
+    const gh = vi.fn(() => ({
+      stdout: "",
+      stderr: "auth required",
+      exitCode: 4,
+    }));
     const r = fetchPrInputs(1, gh);
     expect(r).toEqual({ kind: "error", message: "auth required" });
   });
@@ -304,11 +316,16 @@ describe(parseArgs, () => {
   });
 
   it("rejects unknown flags", () => {
-    expect(parseArgs(["100", "--bogus", "x"])).toEqual({ error: "unknown flag: --bogus" });
+    expect(parseArgs(["100", "--bogus", "x"])).toEqual({
+      error: "unknown flag: --bogus",
+    });
   });
 
   it("parses a valid invocation with explicit slug (back-compat)", () => {
-    expect(parseArgs(["142", "--slug", "csv-export"])).toEqual({ pr: 142, slug: "csv-export" });
+    expect(parseArgs(["142", "--slug", "csv-export"])).toEqual({
+      pr: 142,
+      slug: "csv-export",
+    });
   });
 });
 
@@ -327,10 +344,12 @@ describe("run() integration", () => {
       exitCode: 0,
     }));
     const writes: string[] = [];
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((s) => {
-      writes.push(s.toString());
-      return true;
-    });
+    const writeSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((s) => {
+        writes.push(s.toString());
+        return true;
+      });
     const exit = run(["100", "--slug", "alpha"], { gh, stateDir });
     writeSpy.mockRestore();
     expect(exit).toBe(0);
@@ -419,10 +438,12 @@ describe("run() integration", () => {
       exitCode: 0,
     }));
     const writes: string[] = [];
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((s) => {
-      writes.push(s.toString());
-      return true;
-    });
+    const writeSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((s) => {
+        writes.push(s.toString());
+        return true;
+      });
     const exit = run(["2"], { gh, stateDir, resolveSlug: () => "delta" });
     writeSpy.mockRestore();
     expect(exit).toBe(0);
@@ -447,10 +468,12 @@ describe("run() integration", () => {
       exitCode: 0,
     }));
     const writes: string[] = [];
-    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation((s) => {
-      writes.push(s.toString());
-      return true;
-    });
+    const writeSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((s) => {
+        writes.push(s.toString());
+        return true;
+      });
     const exit = run(["3", "--slug", "epsilon"], {
       gh,
       stateDir,

@@ -2,7 +2,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { countStopHook, ensureStopHook, repairSettings } from "./settings-merge";
+import {
+  countStopHook,
+  ensureStopHook,
+  repairSettings,
+} from "./settings-merge";
 
 const COMMAND = "flow-stop-guard";
 
@@ -56,13 +60,19 @@ describe("ensureStopHook", () => {
   it("preserves unrelated keys when the file exists with no hooks", () => {
     fs.writeFileSync(
       settings,
-      JSON.stringify({ theme: "dark", model: "opus", permissions: { allow: ["Bash(ls:*)"] } }),
+      JSON.stringify({
+        theme: "dark",
+        model: "opus",
+        permissions: { allow: ["Bash(ls:*)"] },
+      }),
     );
     expect(ensureWithHome(settings)).toEqual({ changed: true });
     const got = read() as Record<string, unknown>;
     expect(got.theme).toBe("dark");
     expect(got.model).toBe("opus");
-    expect((got.permissions as { allow: string[] }).allow).toEqual(["Bash(ls:*)"]);
+    expect((got.permissions as { allow: string[] }).allow).toEqual([
+      "Bash(ls:*)",
+    ]);
     expect(countStopHook(settings, COMMAND)).toBe(1);
   });
 
@@ -72,15 +82,23 @@ describe("ensureStopHook", () => {
       JSON.stringify({
         hooks: {
           Stop: [
-            { hooks: [{ type: "command", command: "/usr/local/bin/user-script.sh" }] },
+            {
+              hooks: [
+                { type: "command", command: "/usr/local/bin/user-script.sh" },
+              ],
+            },
           ],
         },
       }),
     );
     expect(ensureWithHome(settings)).toEqual({ changed: true });
-    const got = read() as { hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> } };
+    const got = read() as {
+      hooks: { Stop: Array<{ hooks: Array<{ command: string }> }> };
+    };
     expect(got.hooks.Stop).toHaveLength(2);
-    expect(got.hooks.Stop[0].hooks[0].command).toBe("/usr/local/bin/user-script.sh");
+    expect(got.hooks.Stop[0].hooks[0].command).toBe(
+      "/usr/local/bin/user-script.sh",
+    );
     expect(got.hooks.Stop[1].hooks[0].command).toBe(COMMAND);
   });
 
@@ -190,7 +208,9 @@ describe("repairSettings", () => {
     // Dotfiles-style layout: settings.json is a symlink to the real file
     // somewhere else. The backup must land next to the *target* (not next
     // to the symlink) and the symlink itself must survive.
-    const realDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-settings-real-"));
+    const realDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-settings-real-"),
+    );
     try {
       const target = path.join(realDir, "real-settings.json");
       const seed = '{"theme":"dar';
@@ -290,7 +310,9 @@ describe("symlink-target containment guard", () => {
     fs.writeFileSync(planted, "{}");
     fs.symlinkSync(planted, settingsLink);
 
-    const result = ensureStopHook(settingsLink, COMMAND, { homeDir: homeOverride });
+    const result = ensureStopHook(settingsLink, COMMAND, {
+      homeDir: homeOverride,
+    });
     expect(result.changed).toBe(false);
     expect(result.reason).toBe("unsafe-symlink-target");
     expect(result.error).toContain("escapes");
@@ -305,7 +327,9 @@ describe("symlink-target containment guard", () => {
     fs.writeFileSync(planted, seed);
     fs.symlinkSync(planted, settingsLink);
 
-    const result = repairSettings(settingsLink, COMMAND, { homeDir: homeOverride });
+    const result = repairSettings(settingsLink, COMMAND, {
+      homeDir: homeOverride,
+    });
     expect(result.changed).toBe(false);
     expect(result.reason).toBe("unsafe-symlink-target");
     expect(result.error).toContain("escapes");

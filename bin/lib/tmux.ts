@@ -49,7 +49,10 @@ export type SpawnResult = { stdout: string; stderr: string; exitCode: number };
 
 function tmux(args: string[]): SpawnResult {
   try {
-    const r = Bun.spawnSync(["tmux", ...args], { stdout: "pipe", stderr: "pipe" });
+    const r = Bun.spawnSync(["tmux", ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     return {
       stdout: r.stdout.toString().trim(),
       stderr: r.stderr.toString().trim(),
@@ -158,7 +161,14 @@ export function createWindow(
       stderr: `tmux ${args[0]} succeeded but printed no window id`,
     };
   }
-  const opt = tmux(["set-option", "-w", "-t", windowId, FLOW_SLUG_OPTION, slug]);
+  const opt = tmux([
+    "set-option",
+    "-w",
+    "-t",
+    windowId,
+    FLOW_SLUG_OPTION,
+    slug,
+  ]);
   if (opt.exitCode !== 0) {
     return {
       ok: false,

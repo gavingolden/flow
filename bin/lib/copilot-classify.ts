@@ -20,7 +20,10 @@ export type AgentDecision = "trivial" | "non-trivial";
  *   - EMPTY paths                                       → 'never-alone'
  * picomatch gives true glob semantics (`**`, `*`, `{a,b}`, `!`).
  */
-export function classifyByGlobs(paths: string[], globs: CopilotGlobs): GlobClass {
+export function classifyByGlobs(
+  paths: string[],
+  globs: CopilotGlobs,
+): GlobClass {
   if (paths.length === 0) return "never-alone";
   const matchesAlways = picomatch(globs.alwaysReview);
   if (paths.some((p) => matchesAlways(p))) return "always-review";
@@ -64,5 +67,7 @@ export function resolveRequestDecision(args: {
  * unit-testable.
  */
 export function isNotRequestableCollaborator422(stderr: string): boolean {
-  return stderr.toLowerCase().includes("may only be requested from collaborators");
+  return stderr
+    .toLowerCase()
+    .includes("may only be requested from collaborators");
 }

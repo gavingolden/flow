@@ -8,7 +8,11 @@ import { findProjectRoot, runEval } from "./run_eval.ts";
 import type { EvalItem, EvalResult, EvalSummary } from "./utils.ts";
 import { parseSkillMd } from "./utils.ts";
 
-function splitEvalSet(evalSet: EvalItem[], holdout: number, seed = 42): [EvalItem[], EvalItem[]] {
+function splitEvalSet(
+  evalSet: EvalItem[],
+  holdout: number,
+  seed = 42,
+): [EvalItem[], EvalItem[]] {
   // Simple seeded shuffle using seed for reproducibility
   const rng = (() => {
     let s = seed;
@@ -35,11 +39,17 @@ function splitEvalSet(evalSet: EvalItem[], holdout: number, seed = 42): [EvalIte
 
   const nTriggerTest =
     trigger.length > 1
-      ? Math.min(Math.max(1, Math.floor(trigger.length * holdout)), trigger.length - 1)
+      ? Math.min(
+          Math.max(1, Math.floor(trigger.length * holdout)),
+          trigger.length - 1,
+        )
       : 0;
   const nNoTriggerTest =
     noTrigger.length > 1
-      ? Math.min(Math.max(1, Math.floor(noTrigger.length * holdout)), noTrigger.length - 1)
+      ? Math.min(
+          Math.max(1, Math.floor(noTrigger.length * holdout)),
+          noTrigger.length - 1,
+        )
       : 0;
 
   const testSet = [
@@ -102,7 +112,11 @@ async function runLoop(opts: {
   logDir?: string;
 }): Promise<LoopOutput> {
   const projectRoot = findProjectRoot();
-  const { name, description: originalDescription, content } = parseSkillMd(opts.skillPath);
+  const {
+    name,
+    description: originalDescription,
+    content,
+  } = parseSkillMd(opts.skillPath);
   let currentDescription = opts.descriptionOverride || originalDescription;
 
   let trainSet: EvalItem[];
@@ -149,8 +163,12 @@ async function runLoop(opts: {
     const evalElapsed = (Date.now() - t0) / 1000;
 
     const trainQueriesSet = new Set(trainSet.map((q) => q.query));
-    const trainResultList = allResults.results.filter((r) => trainQueriesSet.has(r.query));
-    const testResultList = allResults.results.filter((r) => !trainQueriesSet.has(r.query));
+    const trainResultList = allResults.results.filter((r) =>
+      trainQueriesSet.has(r.query),
+    );
+    const testResultList = allResults.results.filter(
+      (r) => !trainQueriesSet.has(r.query),
+    );
 
     const trainPassed = trainResultList.filter((r) => r.pass).length;
     const trainTotal = trainResultList.length;
@@ -161,7 +179,8 @@ async function runLoop(opts: {
     };
     const trainResults = { results: trainResultList, summary: trainSummary };
 
-    let testResults: { results: EvalResult[]; summary: EvalSummary } | null = null;
+    let testResults: { results: EvalResult[]; summary: EvalSummary } | null =
+      null;
     let testSummary: EvalSummary | null = null;
 
     if (testSet.length > 0) {
@@ -210,7 +229,11 @@ async function runLoop(opts: {
     }
 
     if (opts.verbose) {
-      const printStats = (label: string, results: EvalResult[], elapsed: number) => {
+      const printStats = (
+        label: string,
+        results: EvalResult[],
+        elapsed: number,
+      ) => {
         const pos = results.filter((r) => r.should_trigger);
         const neg = results.filter((r) => !r.should_trigger);
         const tp = pos.reduce((s, r) => s + r.triggers, 0);
@@ -240,13 +263,15 @@ async function runLoop(opts: {
 
     if (trainSummary.failed === 0) {
       exitReason = `all_passed (iteration ${iteration})`;
-      if (opts.verbose) console.error(`\nAll train queries passed on iteration ${iteration}!`);
+      if (opts.verbose)
+        console.error(`\nAll train queries passed on iteration ${iteration}!`);
       break;
     }
 
     if (iteration === opts.maxIterations) {
       exitReason = `max_iterations (${opts.maxIterations})`;
-      if (opts.verbose) console.error(`\nMax iterations reached (${opts.maxIterations}).`);
+      if (opts.verbose)
+        console.error(`\nMax iterations reached (${opts.maxIterations}).`);
       break;
     }
 
@@ -278,7 +303,9 @@ async function runLoop(opts: {
     });
 
     if (opts.verbose) {
-      console.error(`Proposed (${((Date.now() - t1) / 1000).toFixed(1)}s): ${newDescription}`);
+      console.error(
+        `Proposed (${((Date.now() - t1) / 1000).toFixed(1)}s): ${newDescription}`,
+      );
     }
 
     currentDescription = newDescription;
@@ -286,7 +313,9 @@ async function runLoop(opts: {
 
   const best =
     testSet.length > 0
-      ? history.reduce((a, b) => ((b.test_passed ?? 0) > (a.test_passed ?? 0) ? b : a))
+      ? history.reduce((a, b) =>
+          (b.test_passed ?? 0) > (a.test_passed ?? 0) ? b : a,
+        )
       : history.reduce((a, b) => (b.train_passed > a.train_passed ? b : a));
 
   const bestScore =
@@ -305,7 +334,8 @@ async function runLoop(opts: {
     best_description: best.description,
     best_score: bestScore,
     best_train_score: `${best.train_passed}/${best.train_total}`,
-    best_test_score: testSet.length > 0 ? `${best.test_passed}/${best.test_total}` : null,
+    best_test_score:
+      testSet.length > 0 ? `${best.test_passed}/${best.test_total}` : null,
     final_description: currentDescription,
     iterations_run: history.length,
     holdout: opts.holdout,
@@ -347,12 +377,17 @@ if (import.meta.main) {
     process.exit(1);
   }
 
-  const evalSet: EvalItem[] = JSON.parse(readFileSync(resolve(values["eval-set"]), "utf-8"));
+  const evalSet: EvalItem[] = JSON.parse(
+    readFileSync(resolve(values["eval-set"]), "utf-8"),
+  );
   const { name } = parseSkillMd(skillPath);
 
   let liveReportPath: string | undefined;
   if (values.report !== "none") {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15);
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, "")
+      .slice(0, 15);
     liveReportPath =
       values.report === "auto"
         ? join(tmpdir(), `skill_description_report_${name}_${timestamp}.html`)
@@ -367,7 +402,10 @@ if (import.meta.main) {
 
   let resultsDir: string | undefined;
   if (values["results-dir"]) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")
+      .slice(0, 19);
     resultsDir = join(resolve(values["results-dir"]), timestamp);
     mkdirSync(resultsDir, { recursive: true });
   }
@@ -398,7 +436,10 @@ if (import.meta.main) {
   }
 
   if (liveReportPath) {
-    writeFileSync(liveReportPath, generateHtml(output, { autoRefresh: false, skillName: name }));
+    writeFileSync(
+      liveReportPath,
+      generateHtml(output, { autoRefresh: false, skillName: name }),
+    );
     console.error(`\nReport: ${liveReportPath}`);
   }
 

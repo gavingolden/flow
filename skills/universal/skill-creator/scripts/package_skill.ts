@@ -35,7 +35,10 @@ function collectFiles(dir: string, base: string): string[] {
   return files;
 }
 
-async function packageSkill(skillPath: string, outputDir?: string): Promise<string | null> {
+async function packageSkill(
+  skillPath: string,
+  outputDir?: string,
+): Promise<string | null> {
   const resolved = resolve(skillPath);
 
   if (!existsSync(resolved)) {
@@ -104,7 +107,9 @@ async function packageSkill(skillPath: string, outputDir?: string): Promise<stri
 if (import.meta.main) {
   const args = process.argv.slice(2);
   if (args.length < 1) {
-    console.log("Usage: bun run package_skill.ts <path/to/skill-folder> [output-directory]");
+    console.log(
+      "Usage: bun run package_skill.ts <path/to/skill-folder> [output-directory]",
+    );
     process.exit(1);
   }
 

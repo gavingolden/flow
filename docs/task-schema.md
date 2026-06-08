@@ -61,19 +61,19 @@ merge_commit: null
 ---
 ```
 
-| Field | Type | Set by | Notes |
-|---|---|---|---|
-| `id` | string | triage | Matches filename (without `.md`). |
-| `status` | enum | every phase that transitions | See state machine below. |
-| `created` | ISO-8601 UTC | triage | Immutable after creation. |
-| `updated` | ISO-8601 UTC | every phase | Set on every write. |
-| `target_repo` | absolute path | triage | The git repo `flow start` was run in. Canonicalised to the *primary* worktree, so a `flow start` from inside a child worktree still anchors the new task to the main repo's `.orchestrator/`. |
-| `worktree` | absolute path \| `null` | worktree phase | Created in M2. Null until phase 2 runs. |
-| `branch` | string \| `null` | worktree phase | Branch name created in the target repo. |
-| `pr` | integer \| `null` | implement phase | GitHub PR number. Null until phase 3 opens it. |
-| `test_steps` | bool \| `null` | gate phase | True if the PR's "Test Steps" section is non-empty. Null before the gate runs. |
-| `merge_commit` | string \| `null` | merge phase | SHA of the squash-merge commit on the base branch. Hard to recover after the fact (branch deleted, PR squashed) so we capture it explicitly. Null until M4's merge phase runs. |
-| `review_cycles` | integer \| `null` | review phase | Number of review→implement(fix) loop-backs that completed successfully (i.e. `implement(fix)` returned ok). Null until review runs the first time, then 0; increments only after a successful fix, so a failed fix does not consume budget and resume re-runs the same cycle. Capped at 2; reaching the cap with critical-code findings still present escalates to `needs-human (review-cycles-exhausted)`. Persists across crashes so resume-mid-loop continues from the right cycle. |
+| Field           | Type                    | Set by                       | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------- | ----------------------- | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`            | string                  | triage                       | Matches filename (without `.md`).                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `status`        | enum                    | every phase that transitions | See state machine below.                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `created`       | ISO-8601 UTC            | triage                       | Immutable after creation.                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `updated`       | ISO-8601 UTC            | every phase                  | Set on every write.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `target_repo`   | absolute path           | triage                       | The git repo `flow start` was run in. Canonicalised to the _primary_ worktree, so a `flow start` from inside a child worktree still anchors the new task to the main repo's `.orchestrator/`.                                                                                                                                                                                                                                                                                          |
+| `worktree`      | absolute path \| `null` | worktree phase               | Created in M2. Null until phase 2 runs.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `branch`        | string \| `null`        | worktree phase               | Branch name created in the target repo.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `pr`            | integer \| `null`       | implement phase              | GitHub PR number. Null until phase 3 opens it.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `test_steps`    | bool \| `null`          | gate phase                   | True if the PR's "Test Steps" section is non-empty. Null before the gate runs.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `merge_commit`  | string \| `null`        | merge phase                  | SHA of the squash-merge commit on the base branch. Hard to recover after the fact (branch deleted, PR squashed) so we capture it explicitly. Null until M4's merge phase runs.                                                                                                                                                                                                                                                                                                         |
+| `review_cycles` | integer \| `null`       | review phase                 | Number of review→implement(fix) loop-backs that completed successfully (i.e. `implement(fix)` returned ok). Null until review runs the first time, then 0; increments only after a successful fix, so a failed fix does not consume budget and resume re-runs the same cycle. Capped at 2; reaching the cap with critical-code findings still present escalates to `needs-human (review-cycles-exhausted)`. Persists across crashes so resume-mid-loop continues from the right cycle. |
 
 Add new fields freely as later phases need them, but keep the schema
 backward-compatible: existing readers must not crash on missing fields.
@@ -85,18 +85,18 @@ without parsing prose. The body holds **rich content** that varies
 per phase. Agents looking for information should consult them in this
 order:
 
-| Looking for | Look here |
-|---|---|
-| PR number | `frontmatter.pr` |
-| Merge commit SHA | `frontmatter.merge_commit` |
-| Branch / worktree path | `frontmatter.branch`, `frontmatter.worktree` |
-| Current state in pipeline | `frontmatter.status` (machine) or `## Progress` (visual) |
-| State transition history | `## Phase log` (timestamped audit) |
-| Files changed, tests added | `## Phase outputs > implement` |
-| Test results, lint state | `## Phase outputs > verify` |
-| CI run IDs and outcomes | `## Phase outputs > ci` |
-| Review findings / replies | `## Phase outputs > review` |
-| PRD, task breakdown, PR draft path | `## Phase outputs > plan` |
+| Looking for                        | Look here                                                |
+| ---------------------------------- | -------------------------------------------------------- |
+| PR number                          | `frontmatter.pr`                                         |
+| Merge commit SHA                   | `frontmatter.merge_commit`                               |
+| Branch / worktree path             | `frontmatter.branch`, `frontmatter.worktree`             |
+| Current state in pipeline          | `frontmatter.status` (machine) or `## Progress` (visual) |
+| State transition history           | `## Phase log` (timestamped audit)                       |
+| Files changed, tests added         | `## Phase outputs > implement`                           |
+| Test results, lint state           | `## Phase outputs > verify`                              |
+| CI run IDs and outcomes            | `## Phase outputs > ci`                                  |
+| Review findings / replies          | `## Phase outputs > review`                              |
+| PRD, task breakdown, PR draft path | `## Phase outputs > plan`                                |
 
 GitHub URLs are deliberately not stored — they're derivable from
 `frontmatter.pr` plus the target repo's remote (one `gh repo view --json
@@ -141,7 +141,7 @@ nameWithOwner` call) and storing both numbers and URLs invites drift.
 ```
 
 The `triaged → creating-worktree` edge is the post-triage entry: the
-worktree phase runs *before* plan so every later phase can execute
+worktree phase runs _before_ plan so every later phase can execute
 inside a per-task worktree, enabling concurrent `flow run` invocations
 against the same target repo.
 

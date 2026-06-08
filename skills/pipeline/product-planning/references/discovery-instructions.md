@@ -96,18 +96,18 @@ When forming assumptions, lean on these signals:
 
 Categories worth examining (use them as a checklist, not a question list):
 
-| Category              | What to determine                                                                                        |
-| --------------------- | -------------------------------------------------------------------------------------------------------- |
-| **User intent**       | What problem does this solve? Who is the primary user? What is the success criterion?                    |
-| **Scope**             | New page, modification, or backend-only change? Boundaries — what is explicitly out?                     |
-| **UI/UX**             | What does the user see and interact with? Existing UI to reference?                                      |
-| **Data**              | What data does this need? New tables or existing ones? External API?                                     |
-| **Architecture**      | What layers does this touch? New module or extend an existing one?                                       |
-| **Edge cases**        | What happens when X is empty? How should errors display?                                                 |
-| **Trade-offs**        | Would a simplification be acceptable for v1? If the request is framed as a binary A-or-B choice, is there a middle-ground option? |
-| **Necessity**         | Is this request necessary at all? Could doing nothing, or an existing capability the user has overlooked, serve them just as well? Treat "reject — do nothing" as a legitimate verdict to weigh, not a non-answer; the user invited the feature, but inviting it is not the same as needing it. |
+| Category                  | What to determine                                                                                                                                                                                                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **User intent**           | What problem does this solve? Who is the primary user? What is the success criterion?                                                                                                                                                                                                                                                       |
+| **Scope**                 | New page, modification, or backend-only change? Boundaries — what is explicitly out?                                                                                                                                                                                                                                                        |
+| **UI/UX**                 | What does the user see and interact with? Existing UI to reference?                                                                                                                                                                                                                                                                         |
+| **Data**                  | What data does this need? New tables or existing ones? External API?                                                                                                                                                                                                                                                                        |
+| **Architecture**          | What layers does this touch? New module or extend an existing one?                                                                                                                                                                                                                                                                          |
+| **Edge cases**            | What happens when X is empty? How should errors display?                                                                                                                                                                                                                                                                                    |
+| **Trade-offs**            | Would a simplification be acceptable for v1? If the request is framed as a binary A-or-B choice, is there a middle-ground option?                                                                                                                                                                                                           |
+| **Necessity**             | Is this request necessary at all? Could doing nothing, or an existing capability the user has overlooked, serve them just as well? Treat "reject — do nothing" as a legitimate verdict to weigh, not a non-answer; the user invited the feature, but inviting it is not the same as needing it.                                             |
 | **Options & exclusivity** | What other options exist beyond the literal request? Of the adjacent features, which are **complementary** (pair well, increase the request's value) and which are **mutually exclusive** — cannot coexist with the request, or conflict with each other, so the user must pick one path? Name both kinds, not just the complementary ones. |
-| **Existing patterns** | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.      |
+| **Existing patterns**     | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.                                                                                                                                                                                                                                         |
 
 For deeper techniques, load `<SKILL_DIR>/references/discovery-playbook.md`.
 
@@ -156,8 +156,8 @@ PRD style.
 If discovery surfaces orthogonal ideas the user did **not** ask for but that the codebase or
 the user's verbatim description suggests are worth tracking, capture them as a separate
 section that the supervisor will route through `flow-create-issue` post-merge. This is
-distinct from "Open Questions": Open Questions are assumptions about *this* feature that
-the user should confirm; candidate follow-up issues are *next-time* work the user can
+distinct from "Open Questions": Open Questions are assumptions about _this_ feature that
+the user should confirm; candidate follow-up issues are _next-time_ work the user can
 opt into.
 
 When (and only when) such ideas exist, add a top-level `# Candidate follow-up issues`
@@ -215,8 +215,8 @@ approval gate.
 
 This is the upstream artifact half of the `## Output style` rule **Treat user prompts as
 evidence of intent, not exhaustive specifications.** in `AGENTS.md`. The rule body covers
-the *why* (PR #170 is the canonical precedent — four prescribed trims landed at -71 lines
-vs a <800-line target, with no tension surfaced). This sub-section covers the *how* —
+the _why_ (PR #170 is the canonical precedent — four prescribed trims landed at -71 lines
+vs a <800-line target, with no tension surfaced). This sub-section covers the _how_ —
 what the discovery subagent must emit so downstream consumers (`/new-feature` Step 2,
 `/flow-pipeline` Step 3 routing, `/pr-review` Step 1.5 Gatekeeper) can act on it.
 
@@ -269,7 +269,6 @@ the consumer parses (see the Recommended-path bullet below).
   surrounding backticks, no bold, no trailing punctuation, on the same line as the colon —
   so the producer here and the consumer (`bin/flow-step3-route.ts`) agree on an exact
   string:
-
   - `methods plausibly reach target` — the prescribed methods fully cover the stated
     target without extension. No tension; downstream consumers treat the run as if no
     `## Prompt interpretation` section existed (same routing outcome).
@@ -360,7 +359,7 @@ the description early means the PR tells a coherent story from the start.
 
 **Extract from the PRD into this format:**
 
-```markdown
+````markdown
 ## Why
 
 <Distill the Problem Statement into 1–3 sentences. Keep the user's pain point and
@@ -418,7 +417,7 @@ Always emit the heading. Decide the body based on the PRD:
 - Otherwise — populate with `- [ ]` items derived from the acceptance criteria in
   User Stories, applying the **automation test** from
   `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Automate first"
-  section) to each candidate item *before* you write it. The test:
+  section) to each candidate item _before_ you write it. The test:
 
   > Can I name (a) a fixture / setup, (b) one or more deterministic assertions, and
   > (c) an exit condition — all without subjective human judgment? If yes, this is
@@ -426,7 +425,7 @@ Always emit the heading. Decide the body based on the PRD:
 
   When the answer is yes, write the item as the deterministic shell command itself
   (`npm run test -- <file>`, `bun bin/<helper>.test.ts`, `gh pr view <n> --json …
-  --jq …`, `test -f <path>`, `grep -q <pattern> <file>`,
+--jq …`, `test -f <path>`, `grep -q <pattern> <file>`,
   `[ "$(cat <path>)" = "<expected>" ]`) so `/pr-review` Step 8c can run it and tick
   the box. Manual prose survives only when the rubric flags the scenario as genuinely
   manual (subjective UX, production-only integrations, cross-browser rendering,
@@ -455,6 +454,7 @@ automation test from manual-test-rubric.md is: (a) named fixture/setup,
 without subjective human judgment, it must be a runnable item. Source of truth:
 skills/pipeline/pr-review/references/manual-test-rubric.md. -->
 ```
+````
 
 Example (auto-merge — empty section):
 
@@ -471,7 +471,8 @@ skills/pipeline/pr-review/references/manual-test-rubric.md. -->
 - [ ] Run `npm run test -- <test-file>` — all specs pass.
 - [ ] Run `[ -f <path> ] && grep -q "<expected>" <path>` — config is wired.
 - [ ] Open /portfolio in dark mode — chart contrast feels right (subjective UX, manual).
-```
+
+````
 
 **Rules:**
 
@@ -529,7 +530,7 @@ empty>
 # PR description draft
 
 <the Why / What / Key decisions / User-facing changes / Test Steps from step 7>
-```
+````
 
 This file is the predictable handoff for the `/flow-pipeline` supervisor — it
 reads `.flow-tmp/plan.md` after the wrapper returns to drive the implement phase.
@@ -561,14 +562,14 @@ short is the whole point of the subagent fan-out.
 
 Common failure modes during planning:
 
-| Problem                | Symptom                                             | Fix                                                                              |
-| ---------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------- |
-| Scope creep            | Tasks keep growing; PRD has 20+ acceptance criteria | Split into v1/v2 milestones; ask "Is this essential for launch?"                 |
+| Problem                | Symptom                                             | Fix                                                                                |
+| ---------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Scope creep            | Tasks keep growing; PRD has 20+ acceptance criteria | Split into v1/v2 milestones; ask "Is this essential for launch?"                   |
 | Ambiguous requirements | Multiple valid interpretations of a user story      | Pick the most defensible interpretation; surface the alternative in Open Questions |
-| Missing constraints    | Plan proposes patterns that conflict with AGENTS.md | Re-read `AGENTS.md` before finalizing; cross-reference security and style rules  |
-| Stale skill references | Recommended skill doesn't exist                     | Always list the skill directory before recommending — never assume               |
-| Over-planning          | Trivial change forced through full PRD              | Re-check the Scope Check (step 2) — if ≤ 3 tasks, use the lightweight flow       |
-| Skill mismatch         | Task recommends a skill that doesn't fit the work   | Re-read the skill's "When to Use" / "When NOT to Use" before assigning           |
+| Missing constraints    | Plan proposes patterns that conflict with AGENTS.md | Re-read `AGENTS.md` before finalizing; cross-reference security and style rules    |
+| Stale skill references | Recommended skill doesn't exist                     | Always list the skill directory before recommending — never assume                 |
+| Over-planning          | Trivial change forced through full PRD              | Re-check the Scope Check (step 2) — if ≤ 3 tasks, use the lightweight flow         |
+| Skill mismatch         | Task recommends a skill that doesn't fit the work   | Re-read the skill's "When to Use" / "When NOT to Use" before assigning             |
 
 # Verification
 

@@ -13,7 +13,10 @@ import type { InstallTargets } from "./sources";
 
 const RC_BLOCK_TAG = "completions";
 
-const RC_FILES_BY_SHELL: ReadonlyArray<{ filename: string; shell: "bash" | "zsh" }> = [
+const RC_FILES_BY_SHELL: ReadonlyArray<{
+  filename: string;
+  shell: "bash" | "zsh";
+}> = [
   { filename: ".zshrc", shell: "zsh" },
   { filename: ".bashrc", shell: "bash" },
   { filename: ".bash_profile", shell: "bash" },

@@ -51,7 +51,11 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { parseTestStepsSection, fetchPrInputs, type GhRunner } from "./flow-gate-decide";
+import {
+  parseTestStepsSection,
+  fetchPrInputs,
+  type GhRunner,
+} from "./flow-gate-decide";
 import { readState, writeState, type PipelineState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugFromPane } from "./lib/tmux";
@@ -225,7 +229,9 @@ function recordOverrideToken(
     updatedAt: confirmedAt,
   };
   writeState(updated, stateDir);
-  process.stdout.write(JSON.stringify({ recorded: true, pr, confirmedAt }) + "\n");
+  process.stdout.write(
+    JSON.stringify({ recorded: true, pr, confirmedAt }) + "\n",
+  );
   return 0;
 }
 
@@ -272,7 +278,9 @@ export function run(argv: string[], deps: Deps = {}): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     console.error(`flow-merge-guard: ${parsed.error}`);
-    console.error("usage: flow-merge-guard <PR> [--slug <slug>] [--record-override]");
+    console.error(
+      "usage: flow-merge-guard <PR> [--slug <slug>] [--record-override]",
+    );
     return 2;
   }
 

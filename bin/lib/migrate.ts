@@ -68,7 +68,10 @@ export function runMigrateCli(args: string[], cwd?: string): number {
   return runMigrate({ apply, includeOrchestrator, scan }, cwd);
 }
 
-export function runMigrate(options: MigrateOptions = {}, cwd = process.cwd()): number {
+export function runMigrate(
+  options: MigrateOptions = {},
+  cwd = process.cwd(),
+): number {
   if (options.scan) return runScan(options.scan, options);
 
   const repoRoot = resolveRepoRoot(cwd);
@@ -136,10 +139,20 @@ export function buildPlan(repoRoot: string): MigratePlan {
     }
   }
 
-  const hasOrchestrator = lstatOrNull(path.join(repoRoot, ".orchestrator")) !== null;
-  const blockedTasks = scanNonTerminalTasks(path.join(repoRoot, ".orchestrator", "tasks"));
+  const hasOrchestrator =
+    lstatOrNull(path.join(repoRoot, ".orchestrator")) !== null;
+  const blockedTasks = scanNonTerminalTasks(
+    path.join(repoRoot, ".orchestrator", "tasks"),
+  );
 
-  return { repoRoot, symlinksToRemove, realFilesEncountered, hasOrchestrator, blockedTasks, blocks };
+  return {
+    repoRoot,
+    symlinksToRemove,
+    realFilesEncountered,
+    hasOrchestrator,
+    blockedTasks,
+    blocks,
+  };
 }
 
 function applyPlan(plan: MigratePlan, options: MigrateOptions): number {
@@ -167,7 +180,10 @@ function applyPlan(plan: MigratePlan, options: MigrateOptions): number {
   }
 
   if (options.includeOrchestrator && plan.hasOrchestrator) {
-    fs.rmSync(path.join(plan.repoRoot, ".orchestrator"), { recursive: true, force: true });
+    fs.rmSync(path.join(plan.repoRoot, ".orchestrator"), {
+      recursive: true,
+      force: true,
+    });
     console.log(`  - removed .orchestrator/`);
   }
 
@@ -185,32 +201,47 @@ function printPlan(plan: MigratePlan, options: MigrateOptions): void {
 
   for (const block of plan.blocks) {
     if (!block.present) continue;
-    console.log(`  block '${block.tag}': ${block.paths.length} path(s) tracked`);
+    console.log(
+      `  block '${block.tag}': ${block.paths.length} path(s) tracked`,
+    );
   }
 
   for (const link of plan.symlinksToRemove) {
-    console.log(`  - ${path.relative(plan.repoRoot, link)}  (symlink — will be removed)`);
+    console.log(
+      `  - ${path.relative(plan.repoRoot, link)}  (symlink — will be removed)`,
+    );
   }
 
   for (const file of plan.realFilesEncountered) {
-    console.log(`  ! ${path.relative(plan.repoRoot, file)}  (real file — left untouched)`);
+    console.log(
+      `  ! ${path.relative(plan.repoRoot, file)}  (real file — left untouched)`,
+    );
   }
 
   if (plan.hasOrchestrator) {
     if (options.includeOrchestrator) {
-      console.log(`  - .orchestrator/  (will be removed; --include-orchestrator)`);
+      console.log(
+        `  - .orchestrator/  (will be removed; --include-orchestrator)`,
+      );
     } else {
-      console.log(`  . .orchestrator/  (kept; pass --include-orchestrator to delete)`);
+      console.log(
+        `  . .orchestrator/  (kept; pass --include-orchestrator to delete)`,
+      );
     }
   }
 
   if (plan.blockedTasks.length > 0) {
-    console.log(`  blocked: ${plan.blockedTasks.length} non-terminal task(s) in .orchestrator/tasks/`);
-    for (const t of plan.blockedTasks) console.log(`    - ${t.id} (${t.status})`);
+    console.log(
+      `  blocked: ${plan.blockedTasks.length} non-terminal task(s) in .orchestrator/tasks/`,
+    );
+    for (const t of plan.blockedTasks)
+      console.log(`    - ${t.id} (${t.status})`);
   }
 }
 
-function scanNonTerminalTasks(tasksDir: string): { id: string; status: string }[] {
+function scanNonTerminalTasks(
+  tasksDir: string,
+): { id: string; status: string }[] {
   if (!existsDir(tasksDir)) return [];
   const blocked: { id: string; status: string }[] = [];
   for (const entry of fs.readdirSync(tasksDir, { withFileTypes: true })) {
@@ -231,7 +262,9 @@ function isTerminalStatus(status: string): boolean {
   // `merged` and `aborted` are the canonical terminal statuses per
   // docs/task-schema.md; `cancelled`, `abandoned`, `done` are kept as
   // legacy/synonym safety nets in case older tasks predate the schema.
-  return ["merged", "aborted", "cancelled", "abandoned", "done"].includes(status);
+  return ["merged", "aborted", "cancelled", "abandoned", "done"].includes(
+    status,
+  );
 }
 
 function findGitRepos(root: string): string[] {

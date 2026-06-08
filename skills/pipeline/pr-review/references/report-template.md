@@ -90,7 +90,9 @@ so the audit trail names both the prose and the command the agent ran.
 End the section with the **Automation-precedence audit line**:
 
 ```
+
 Automation-precedence audit: ran N/M items (X prose-promoted, Y left manual: <reasons>)
+
 ```
 
 Always emit the audit line, including when `M = 0`
@@ -103,7 +105,9 @@ items into automated tests (default-on), emit a second adjacent line naming each
 converted bullet:
 
 ```
+
 - Auto-converted N items per rubric: <comma-separated list of converted bullets>
+
 ```
 
 Omit the line when no items were auto-converted in this run (the audit line above
@@ -115,6 +119,7 @@ item, prose-promoted one, left one manual, and auto-converted two manual items
 into tests:
 
 ```
+
 - [x] `unit tests pass` — pass (42 passed, 0 skipped)
 - [x] `verify CLI flag handling` — pass (prose-promoted: `bun bin/foo --help`)
 - [x] `verify runner.pid exists and matches printed PID` — auto-converted to test
@@ -122,7 +127,9 @@ into tests:
 - [ ] `confirm the toast feels right` — not run: subjective UX
 
 Automation-precedence audit: ran 2/3 items (1 prose-promoted, 1 left manual: subjective UX)
+
 - Auto-converted 2 items per rubric: "verify runner.pid exists and matches printed PID", "verify task ends needs-human after a phase throws"
+
 ```
 
 If every item was ticked: "All items ticked — PR body updated."

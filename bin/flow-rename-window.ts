@@ -54,7 +54,7 @@ export function parseArgs(argv: string[]): ParseOk | ParseHelp | ParseErr {
   if (argv.length > 2) {
     return {
       error:
-        "too many positional arguments — quote the title (e.g. flow-rename-window slug \"my title\")",
+        'too many positional arguments — quote the title (e.g. flow-rename-window slug "my title")',
     };
   }
   if (argv.length === 1) {
@@ -99,7 +99,9 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
     writeErr(
       "flow-rename-window: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n",
     );
-    writeErr("  pass <slug> explicitly, or run inside a tmux window created by `flow new`.\n");
+    writeErr(
+      "  pass <slug> explicitly, or run inside a tmux window created by `flow new`.\n",
+    );
     return 2;
   }
 
@@ -107,9 +109,7 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
   const spawn = deps?.spawnTmux ?? defaultSpawn;
   const window = findWindowBySlug(lister(), slug);
   if (!window) {
-    writeErr(
-      `flow-rename-window: no flow window matches slug '${slug}'.\n`,
-    );
+    writeErr(`flow-rename-window: no flow window matches slug '${slug}'.\n`);
     return 1;
   }
   const result = spawn(buildRenameArgs(window.id, parsed.title));
@@ -124,13 +124,19 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
 
 function defaultSpawn(args: string[]): SpawnResult {
   try {
-    const r = Bun.spawnSync(["tmux", ...args], { stdout: "pipe", stderr: "pipe" });
+    const r = Bun.spawnSync(["tmux", ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     return {
       exitCode: r.exitCode ?? 1,
       stderr: r.stderr.toString().trim(),
     };
   } catch (e: unknown) {
-    return { exitCode: 127, stderr: e instanceof Error ? e.message : String(e) };
+    return {
+      exitCode: 127,
+      stderr: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 

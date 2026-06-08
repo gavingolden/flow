@@ -23,7 +23,12 @@ afterEach(() => {
 // Universal sentinel-line invariant: every non-awaiting-approval status
 // renders with the byte-exact sentinel as its final non-empty line.
 function finalLine(rendered: string): string {
-  return rendered.split("\n").filter((l) => l !== "").pop() ?? "";
+  return (
+    rendered
+      .split("\n")
+      .filter((l) => l !== "")
+      .pop() ?? ""
+  );
 }
 
 describe("render — merged", () => {
@@ -47,7 +52,8 @@ describe("render — merged", () => {
     const out = render({
       status: "merged",
       prUrl: "https://example/pr/1",
-      deferredBlock: "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow setup --upgrade  (exit 0)",
+      deferredBlock:
+        "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow setup --upgrade  (exit 0)",
     });
     expect(out).toContain("FOLLOW-UPS:");
     expect(out).toContain("  LOCAL FOLLOW-UPS: 1 ran");
@@ -78,7 +84,9 @@ describe("render — merged", () => {
     expect(lines[idx + 1]).toBe(
       "  LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
     );
-    expect(lines[idx + 2]).toBe("  - [ ]   flow setup --upgrade  # new helper landed (auto)");
+    expect(lines[idx + 2]).toBe(
+      "  - [ ]   flow setup --upgrade  # new helper landed (auto)",
+    );
     // No whitespace-only lines and no 4-space-indented lines anywhere
     // in the rendered block.
     for (const ln of lines) {
@@ -139,8 +147,12 @@ describe("render — gated", () => {
     expect(finalLine(out)).toBe("GATED: https://github.com/org/repo/pull/142");
     expect(out).toContain("PR: https://github.com/org/repo/pull/142");
     expect(out).toContain("WHY: 2 unchecked test steps remain");
-    expect(out).toContain("NEXT ACTION: validate then run: gh pr merge --squash 142");
-    expect(out).toContain("  - Open /portfolio with the seeded user — chart renders");
+    expect(out).toContain(
+      "NEXT ACTION: validate then run: gh pr merge --squash 142",
+    );
+    expect(out).toContain(
+      "  - Open /portfolio with the seeded user — chart renders",
+    );
     expect(out).toContain("  - Switch time range to 1y — chart updates");
   });
 
@@ -154,7 +166,9 @@ describe("render — gated", () => {
     // Still has NEXT ACTION referencing the merge command — the
     // helper does not gate on item presence; absence just means no
     // bulleted items appear.
-    expect(out).toContain("NEXT ACTION: validate then run: gh pr merge --squash 1");
+    expect(out).toContain(
+      "NEXT ACTION: validate then run: gh pr merge --squash 1",
+    );
     expect(out.split("\n").filter((l) => l.startsWith("  - "))).toEqual([]);
     expect(finalLine(out)).toBe("GATED: https://example/pr/1");
   });
@@ -177,7 +191,9 @@ describe("render — gated", () => {
       status: "gated",
       why: "no URL given",
     });
-    expect(out).toContain("NEXT ACTION: validate then run: gh pr merge --squash <pr>");
+    expect(out).toContain(
+      "NEXT ACTION: validate then run: gh pr merge --squash <pr>",
+    );
     expect(finalLine(out)).toBe("GATED:");
   });
 
@@ -186,7 +202,8 @@ describe("render — gated", () => {
       status: "gated",
       prUrl: "https://example/pr/1",
       validationItems: ["one"],
-      deferredBlock: "LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
+      deferredBlock:
+        "LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
     });
     expect(out).toContain("FOLLOW-UPS:");
     expect(out).toContain("  LOCAL FOLLOW-UPS (deferred");
@@ -230,7 +247,9 @@ describe("render — needs-human (per-reason mapping)", () => {
     expect(out).toContain(
       `NEXT ACTION: ${NEXT_ACTION_BY_REASON["task-tool-unavailable"]} (spawn site: pr-review-fix-applier)`,
     );
-    expect(finalLine(out)).toBe("NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier");
+    expect(finalLine(out)).toBe(
+      "NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier",
+    );
     expect(out).toContain("WHY: task-tool-unavailable: pr-review-fix-applier");
   });
 
@@ -241,7 +260,9 @@ describe("render — needs-human (per-reason mapping)", () => {
       status: "needs-human",
       reason: "task-tool-unavailable:",
     });
-    expect(out).toContain(`NEXT ACTION: ${NEXT_ACTION_BY_REASON["task-tool-unavailable"]}`);
+    expect(out).toContain(
+      `NEXT ACTION: ${NEXT_ACTION_BY_REASON["task-tool-unavailable"]}`,
+    );
     expect(out).not.toContain("(spawn site:");
   });
 
@@ -252,7 +273,9 @@ describe("render — needs-human (per-reason mapping)", () => {
       prUrl: "https://example/pr/9",
     });
     expect(out).toContain("PR: https://example/pr/9");
-    expect(out).toContain(`NEXT ACTION: ${NEXT_ACTION_BY_REASON["pr-closed-without-merge"]}`);
+    expect(out).toContain(
+      `NEXT ACTION: ${NEXT_ACTION_BY_REASON["pr-closed-without-merge"]}`,
+    );
     expect(finalLine(out)).toBe("NEEDS HUMAN: pr-closed-without-merge");
   });
 
@@ -272,11 +295,14 @@ describe("render — needs-human (per-reason mapping)", () => {
       status: "needs-human",
       reason: "merge-failed",
       why: "rebase conflict in src/foo.ts",
-      deferredBlock: "LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
+      deferredBlock:
+        "LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
     });
     const lines = out.split("\n");
     const deferredIdx = lines.findIndex((l) => l === "FOLLOW-UPS:");
-    const sentinelIdx = lines.findIndex((l) => l === "NEEDS HUMAN: merge-failed");
+    const sentinelIdx = lines.findIndex(
+      (l) => l === "NEEDS HUMAN: merge-failed",
+    );
     expect(deferredIdx).toBeGreaterThanOrEqual(0);
     expect(sentinelIdx).toBeGreaterThan(deferredIdx);
   });
@@ -352,7 +378,11 @@ describe("render — cancelled", () => {
 });
 
 describe("universal sentinel invariant", () => {
-  const sentinelCases: Array<{ name: string; input: Parameters<typeof render>[0]; expected: string }> = [
+  const sentinelCases: Array<{
+    name: string;
+    input: Parameters<typeof render>[0];
+    expected: string;
+  }> = [
     {
       name: "merged sentinel byte-exact",
       input: { status: "merged", prUrl: "https://example/pr/1" },
@@ -360,7 +390,11 @@ describe("universal sentinel invariant", () => {
     },
     {
       name: "gated sentinel includes URL",
-      input: { status: "gated", prUrl: "https://example/pr/1", validationItems: ["x"] },
+      input: {
+        status: "gated",
+        prUrl: "https://example/pr/1",
+        validationItems: ["x"],
+      },
       expected: "GATED: https://example/pr/1",
     },
     {
@@ -558,7 +592,9 @@ describe("run (end-to-end CLI)", () => {
     // branch uses for validation items).
     const bullets = captured.split("\n").filter((l) => l.startsWith("  - "));
     expect(bullets).toEqual([]);
-    expect(captured.trimEnd().endsWith("GATED: https://example/pr/1")).toBe(true);
+    expect(captured.trimEnd().endsWith("GATED: https://example/pr/1")).toBe(
+      true,
+    );
   });
 
   it("silently suppresses validation bullets when validation-items file is empty", () => {

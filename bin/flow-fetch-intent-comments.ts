@@ -33,7 +33,8 @@ import {
 
 export const WHY_PREFIX = "**why:** ";
 export const INTEGRITY_SUFFIX = "<!-- flow-intent-v1 -->";
-export const NO_MATCHES_MESSAGE = "(none — author posted no intent annotations)";
+export const NO_MATCHES_MESSAGE =
+  "(none — author posted no intent annotations)";
 
 // --- Filter logic (pure — exported for tests) ---
 
@@ -44,7 +45,10 @@ export const NO_MATCHES_MESSAGE = "(none — author posted no intent annotations
  * Reply comments (in_reply_to_id != null) are excluded — replies are part
  * of a thread, not standalone intent annotations.
  */
-export function isIntentComment(comment: ReviewComment, prAuthorLogin: string): boolean {
+export function isIntentComment(
+  comment: ReviewComment,
+  prAuthorLogin: string,
+): boolean {
   if (comment.in_reply_to_id !== null) return false;
   if (comment.user.login !== prAuthorLogin) return false;
   if (!comment.body.startsWith(WHY_PREFIX)) return false;
@@ -58,7 +62,9 @@ export function isIntentComment(comment: ReviewComment, prAuthorLogin: string): 
  * rationale text.
  */
 export function stripIntentMarkers(body: string): string {
-  let stripped = body.startsWith(WHY_PREFIX) ? body.slice(WHY_PREFIX.length) : body;
+  let stripped = body.startsWith(WHY_PREFIX)
+    ? body.slice(WHY_PREFIX.length)
+    : body;
   // Remove the integrity suffix wherever it appears (typically at the end,
   // after a blank line).
   stripped = stripped.split(INTEGRITY_SUFFIX).join("");
