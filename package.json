@@ -11,7 +11,8 @@
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run typecheck:scripts && npm run test"
+    "lint": "prettier --check .",
+    "verify": "npm run typecheck:scripts && npm run test && npm run lint"
   },
   "dependencies": {
     "picomatch": "^4.0.2"
