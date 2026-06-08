@@ -25,7 +25,7 @@ the wrapper's brief return summary and reads the artifact once.
   the scout's `## affected_modules`.
 - `/verify` step 3 (Fix Failures) per outer attempt — the caller composes
   an edit-set from the `failure` JSON object emitted by `flow-pre-commit
-  --json` (one entry per failed check, naming the source file + the issue
+--json` (one entry per failed check, naming the source file + the issue
   the fix should resolve).
 - `/refactoring` step 3 (Apply Transformations) on the wider-scope path of
   its hybrid threshold — the caller composes an edit-set from the Step 2
@@ -119,7 +119,7 @@ unrestricted, so the spawn runs identically. Either path: one subagent,
 returns artifact on disk + a brief summary.
 
 **Verify re-run inside the subagent — load-bearing.** The subagent re-runs
-`flow-pre-commit --json` *after* applying every edit, before returning.
+`flow-pre-commit --json` _after_ applying every edit, before returning.
 Type/lint/test failures caused by the edit surface in-context where the
 edit rationale is still live, not after the subagent exits and the parent
 caller sees a verify failure with no rationale context. Skipping this

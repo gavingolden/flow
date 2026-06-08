@@ -71,7 +71,10 @@ function toReturn(r: ScriptedReturn): SpawnSyncReturns<string> {
 describe("resolveDefaultBranch", () => {
   it("returns the branch from `git symbolic-ref` when it succeeds", () => {
     const { spawn } = makeSpawn([
-      { match: matchArgs("symbolic-ref"), result: ok("refs/remotes/origin/main\n") },
+      {
+        match: matchArgs("symbolic-ref"),
+        result: ok("refs/remotes/origin/main\n"),
+      },
     ]);
     expect(resolveDefaultBranch("/repo", spawn)).toBe("main");
   });
@@ -108,7 +111,8 @@ describe("resolveDefaultBranch", () => {
       { match: matchArgs("symbolic-ref"), result: fail() },
       { match: matchArgs("remote", "show"), result: fail() },
       {
-        match: (_, a) => a[0] === "rev-parse" && a[2] === "refs/remotes/origin/main",
+        match: (_, a) =>
+          a[0] === "rev-parse" && a[2] === "refs/remotes/origin/main",
         result: ok("abc123"),
       },
     ]);
@@ -120,8 +124,14 @@ describe("fastForwardCanonical", () => {
   function defaultProbes(extra: Script = []): Script {
     return [
       { match: matchArgs("status", "--porcelain"), result: ok() },
-      { match: matchArgs("symbolic-ref"), result: ok("refs/remotes/origin/main\n") },
-      { match: matchArgs("rev-parse", "--abbrev-ref", "HEAD"), result: ok("main\n") },
+      {
+        match: matchArgs("symbolic-ref"),
+        result: ok("refs/remotes/origin/main\n"),
+      },
+      {
+        match: matchArgs("rev-parse", "--abbrev-ref", "HEAD"),
+        result: ok("main\n"),
+      },
       ...extra,
     ];
   }
@@ -154,7 +164,10 @@ describe("fastForwardCanonical", () => {
 
   it("returns skipped/dirty when status --porcelain shows uncommitted changes", () => {
     const { spawn } = makeSpawn([
-      { match: matchArgs("status", "--porcelain"), result: ok(" M bin/lib/git.ts\n") },
+      {
+        match: matchArgs("status", "--porcelain"),
+        result: ok(" M bin/lib/git.ts\n"),
+      },
     ]);
     expect(fastForwardCanonical({ canonicalRoot: "/repo", spawn })).toEqual({
       status: "skipped",
@@ -165,8 +178,14 @@ describe("fastForwardCanonical", () => {
   it("returns skipped/non-default-branch when HEAD is on a feature branch", () => {
     const { spawn } = makeSpawn([
       { match: matchArgs("status", "--porcelain"), result: ok() },
-      { match: matchArgs("symbolic-ref"), result: ok("refs/remotes/origin/main\n") },
-      { match: matchArgs("rev-parse", "--abbrev-ref", "HEAD"), result: ok("feature/x\n") },
+      {
+        match: matchArgs("symbolic-ref"),
+        result: ok("refs/remotes/origin/main\n"),
+      },
+      {
+        match: matchArgs("rev-parse", "--abbrev-ref", "HEAD"),
+        result: ok("feature/x\n"),
+      },
     ]);
     expect(fastForwardCanonical({ canonicalRoot: "/repo", spawn })).toEqual({
       status: "skipped",
@@ -176,7 +195,9 @@ describe("fastForwardCanonical", () => {
 
   it("returns skipped/fetch-failed when the network round-trip fails", () => {
     const { spawn } = makeSpawn(
-      defaultProbes([{ match: matchArgs("fetch", "origin"), result: fail("network down") }]),
+      defaultProbes([
+        { match: matchArgs("fetch", "origin"), result: fail("network down") },
+      ]),
     );
     expect(fastForwardCanonical({ canonicalRoot: "/repo", spawn })).toEqual({
       status: "skipped",
@@ -189,7 +210,10 @@ describe("fastForwardCanonical", () => {
       defaultProbes([
         { match: matchArgs("fetch", "origin"), result: ok() },
         { match: matchArgs("rev-list", "--count"), result: ok("2\n") },
-        { match: matchArgs("merge", "--ff-only"), result: fail("Not possible to fast-forward") },
+        {
+          match: matchArgs("merge", "--ff-only"),
+          result: fail("Not possible to fast-forward"),
+        },
       ]),
     );
     expect(fastForwardCanonical({ canonicalRoot: "/repo", spawn })).toEqual({
@@ -213,7 +237,10 @@ describe("fastForwardCanonical", () => {
 
   it("returns skipped/not-a-git-repo when status --porcelain itself fails", () => {
     const { spawn } = makeSpawn([
-      { match: matchArgs("status", "--porcelain"), result: fail("not a git repository") },
+      {
+        match: matchArgs("status", "--porcelain"),
+        result: fail("not a git repository"),
+      },
     ]);
     expect(fastForwardCanonical({ canonicalRoot: "/repo", spawn })).toEqual({
       status: "skipped",

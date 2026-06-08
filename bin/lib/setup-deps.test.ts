@@ -14,7 +14,10 @@ afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-function writePackageJson(deps: Record<string, string>, devDeps?: Record<string, string>): void {
+function writePackageJson(
+  deps: Record<string, string>,
+  devDeps?: Record<string, string>,
+): void {
   const pkg: Record<string, unknown> = { name: "fixture", dependencies: deps };
   if (devDeps) pkg.devDependencies = devDeps;
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify(pkg));
@@ -43,7 +46,10 @@ describe("findMissingRuntimeDeps", () => {
   it("does not gate devDependencies (absent devDep is not reported)", () => {
     // vitest is a devDependency here; its absence from node_modules must not
     // surface in `missing` because only `dependencies` are gated.
-    writePackageJson({ picomatch: "^4.0.0" }, { vitest: "^2.0.0", typescript: "^5.0.0" });
+    writePackageJson(
+      { picomatch: "^4.0.0" },
+      { vitest: "^2.0.0", typescript: "^5.0.0" },
+    );
     stubModule("picomatch");
     expect(findMissingRuntimeDeps(root)).toEqual({ missing: [] });
   });
@@ -68,7 +74,10 @@ describe("formatMissingDepsError", () => {
   });
 
   it("comma-joins multiple missing packages (whole-node_modules-absent case)", () => {
-    const msg = formatMissingDepsError(["picomatch", "execa"], "/canonical/flow");
+    const msg = formatMissingDepsError(
+      ["picomatch", "execa"],
+      "/canonical/flow",
+    );
     expect(msg).toContain("picomatch, execa");
   });
 });

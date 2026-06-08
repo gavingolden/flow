@@ -29,7 +29,8 @@ const VALID_FULL: unknown = {
     {
       file: "src/foo.ts",
       considered_approach: "throw on empty input",
-      why_rejected: "callers expect undefined, throwing would break two consumers",
+      why_rejected:
+        "callers expect undefined, throwing would break two consumers",
     },
   ],
   anti_patterns_found: [
@@ -178,7 +179,8 @@ describe("validateCoderResult — wrong-type rejections", () => {
 
   it("rejects an edits[] entry missing 'expected_outcome'", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
-    delete (fixture.edits as Array<Record<string, unknown>>)[0].expected_outcome;
+    delete (fixture.edits as Array<Record<string, unknown>>)[0]
+      .expected_outcome;
     const result = validateCoderResult(fixture);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -229,7 +231,8 @@ describe("validateCoderResult — wrong-type rejections", () => {
 
   it("rejects a rejected_alternatives[] entry missing 'file'", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
-    delete (fixture.rejected_alternatives as Array<Record<string, unknown>>)[0].file;
+    delete (fixture.rejected_alternatives as Array<Record<string, unknown>>)[0]
+      .file;
     const result = validateCoderResult(fixture);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -240,7 +243,8 @@ describe("validateCoderResult — wrong-type rejections", () => {
 
   it("rejects an anti_patterns_found[] entry missing 'location'", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
-    delete (fixture.anti_patterns_found as Array<Record<string, unknown>>)[0].location;
+    delete (fixture.anti_patterns_found as Array<Record<string, unknown>>)[0]
+      .location;
     const result = validateCoderResult(fixture);
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -250,7 +254,8 @@ describe("validateCoderResult — wrong-type rejections", () => {
 
   it("rejects an anti_patterns_found[] entry missing 'pattern'", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
-    delete (fixture.anti_patterns_found as Array<Record<string, unknown>>)[0].pattern;
+    delete (fixture.anti_patterns_found as Array<Record<string, unknown>>)[0]
+      .pattern;
     const result = validateCoderResult(fixture);
     expect(result.ok).toBe(false);
     if (!result.ok) {

@@ -21,7 +21,10 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function fixture(slug: string, overrides: Partial<TurnTracking> = {}): TurnTracking {
+function fixture(
+  slug: string,
+  overrides: Partial<TurnTracking> = {},
+): TurnTracking {
   return {
     slug,
     turnId: "2026-05-17T00:00:00.000Z",

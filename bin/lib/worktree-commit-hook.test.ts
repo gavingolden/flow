@@ -12,10 +12,17 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { PREPARE_COMMIT_MSG_HOOK, installCommitHook } from "./worktree-commit-hook";
+import {
+  PREPARE_COMMIT_MSG_HOOK,
+  installCommitHook,
+} from "./worktree-commit-hook";
 
 function mustGit(args: string[], cwd: string, env?: NodeJS.ProcessEnv): string {
-  const r = spawnSync("git", args, { cwd, encoding: "utf8", env: env ?? process.env });
+  const r = spawnSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: env ?? process.env,
+  });
   if (r.status !== 0) {
     throw new Error(`git ${args.join(" ")} failed in ${cwd}: ${r.stderr}`);
   }
@@ -58,7 +65,10 @@ function commitAndReadMessage(
   fileName: string,
   sessionId: string | undefined,
 ): string {
-  fs.writeFileSync(path.join(dir, fileName), `content ${Date.now()}-${Math.random()}\n`);
+  fs.writeFileSync(
+    path.join(dir, fileName),
+    `content ${Date.now()}-${Math.random()}\n`,
+  );
   const env = { ...process.env };
   if (sessionId === undefined) {
     delete env.CLAUDE_CODE_SESSION_ID;
@@ -90,14 +100,24 @@ describe(installCommitHook, () => {
     expect(fs.existsSync(hookPath)).toBe(true);
     expect((fs.statSync(hookPath).mode & 0o111) !== 0).toBe(true);
 
-    expect(mustGit(["config", "extensions.worktreeConfig"], fx.worktreeDir)).toBe("true");
-    expect(mustGit(["config", "--worktree", "core.hooksPath"], fx.worktreeDir)).toBe(hooksDir);
+    expect(
+      mustGit(["config", "extensions.worktreeConfig"], fx.worktreeDir),
+    ).toBe("true");
+    expect(
+      mustGit(["config", "--worktree", "core.hooksPath"], fx.worktreeDir),
+    ).toBe(hooksDir);
   });
 
   it("stamps a Claude-Code-Session-Id trailer on a commit when the env var is set", () => {
     installCommitHook(fx.worktreeDir);
-    const message = commitAndReadMessage(fx.worktreeDir, "a.txt", "sess-abc-123");
-    expect(message.trimEnd()).toMatch(/\nClaude-Code-Session-Id: sess-abc-123$/);
+    const message = commitAndReadMessage(
+      fx.worktreeDir,
+      "a.txt",
+      "sess-abc-123",
+    );
+    expect(message.trimEnd()).toMatch(
+      /\nClaude-Code-Session-Id: sess-abc-123$/,
+    );
   });
 
   it("adds no trailer when CLAUDE_CODE_SESSION_ID is unset", () => {
@@ -109,13 +129,18 @@ describe(installCommitHook, () => {
   it("does not double-stamp a message that already carries the trailer", () => {
     installCommitHook(fx.worktreeDir);
     const message = commitAndReadMessage(fx.worktreeDir, "c.txt", "sess-dup");
-    const occurrences = (message.match(/Claude-Code-Session-Id:/g) ?? []).length;
+    const occurrences = (message.match(/Claude-Code-Session-Id:/g) ?? [])
+      .length;
     expect(occurrences).toBe(1);
   });
 
   it("is idempotent — a second install does not duplicate config or corrupt the hook", () => {
     installCommitHook(fx.worktreeDir);
-    const hookPath = path.join(gitDirOf(fx.worktreeDir), "flow-hooks", "prepare-commit-msg");
+    const hookPath = path.join(
+      gitDirOf(fx.worktreeDir),
+      "flow-hooks",
+      "prepare-commit-msg",
+    );
     const after1 = fs.readFileSync(hookPath, "utf8");
 
     installCommitHook(fx.worktreeDir);
@@ -140,7 +165,11 @@ describe(installCommitHook, () => {
     installCommitHook(fx.worktreeDir);
     // Commit in the primary repo with the env var set: the worktree-scoped
     // core.hooksPath must not leak to the primary.
-    const message = commitAndReadMessage(fx.repoDir, "primary.txt", "sess-leak-check");
+    const message = commitAndReadMessage(
+      fx.repoDir,
+      "primary.txt",
+      "sess-leak-check",
+    );
     expect(message).not.toContain("Claude-Code-Session-Id");
   });
 
@@ -153,7 +182,11 @@ describe(installCommitHook, () => {
     // not implicitly opt the sibling into the flow hook.
     const siblingDir = path.join(path.dirname(fx.worktreeDir), "repo-sibling");
     mustGit(["worktree", "add", "-b", "sibling", siblingDir], fx.repoDir);
-    const message = commitAndReadMessage(siblingDir, "sibling.txt", "sess-sibling-check");
+    const message = commitAndReadMessage(
+      siblingDir,
+      "sibling.txt",
+      "sess-sibling-check",
+    );
     expect(message).not.toContain("Claude-Code-Session-Id");
   });
 });

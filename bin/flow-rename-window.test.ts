@@ -3,7 +3,13 @@ import { parseArgs, run, type SpawnResult } from "./flow-rename-window";
 import type { TmuxWindow } from "./lib/tmux";
 
 function w(overrides: Partial<TmuxWindow>): TmuxWindow {
-  return { id: "@1", name: "csv-export", slug: "csv-export", activity: 0, ...overrides };
+  return {
+    id: "@1",
+    name: "csv-export",
+    slug: "csv-export",
+    activity: 0,
+    ...overrides,
+  };
 }
 
 describe(parseArgs, () => {
@@ -29,7 +35,7 @@ describe(parseArgs, () => {
     // and now treats the remaining `-h` as the title positional.
     expect(parseArgs(["slug", "--", "-h"])).toEqual({
       error:
-        "too many positional arguments — quote the title (e.g. flow-rename-window slug \"my title\")",
+        'too many positional arguments — quote the title (e.g. flow-rename-window slug "my title")',
     });
   });
 
@@ -44,19 +50,26 @@ describe(parseArgs, () => {
   it("rejects extra positional arguments (unquoted multi-word title)", () => {
     expect(parseArgs(["slug", "two", "words"])).toEqual({
       error:
-        "too many positional arguments — quote the title (e.g. flow-rename-window slug \"my title\")",
+        'too many positional arguments — quote the title (e.g. flow-rename-window slug "my title")',
     });
   });
 
   it("rejects an empty slug or title", () => {
-    expect(parseArgs(["", "title"])).toEqual({ error: "<slug> must not be empty" });
-    expect(parseArgs(["slug", "  "])).toEqual({ error: "<title> must not be empty" });
+    expect(parseArgs(["", "title"])).toEqual({
+      error: "<slug> must not be empty",
+    });
+    expect(parseArgs(["slug", "  "])).toEqual({
+      error: "<title> must not be empty",
+    });
     expect(parseArgs(["  "])).toEqual({ error: "<title> must not be empty" });
   });
 });
 
 describe(run, () => {
-  function harness(windows: TmuxWindow[], spawn: (args: string[]) => SpawnResult) {
+  function harness(
+    windows: TmuxWindow[],
+    spawn: (args: string[]) => SpawnResult,
+  ) {
     const out: string[] = [];
     const err: string[] = [];
     const calls: string[][] = [];
@@ -78,9 +91,7 @@ describe(run, () => {
       () => ({ exitCode: 0, stderr: "" }),
     );
     expect(exit).toBe(0);
-    expect(calls).toEqual([
-      ["rename-window", "-t", "@7", "add CSV export"],
-    ]);
+    expect(calls).toEqual([["rename-window", "-t", "@7", "add CSV export"]]);
   });
 
   it("succeeds against a renamed window — slug lookup, not name", () => {
@@ -164,7 +175,9 @@ describe(run, () => {
   it("auto-resolves the slug from $TMUX_PANE when only a title is given", () => {
     const calls: string[][] = [];
     const exit = run(["add CSV export"], {
-      listWindows: () => [w({ id: "@7", name: "csv-export", slug: "csv-export" })],
+      listWindows: () => [
+        w({ id: "@7", name: "csv-export", slug: "csv-export" }),
+      ],
       spawnTmux: (args) => {
         calls.push(args);
         return { exitCode: 0, stderr: "" };

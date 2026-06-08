@@ -36,7 +36,10 @@ function parseFrontmatterKeys(text: string): Map<string, string> {
   return keys;
 }
 
-export function validateSkill(skillPath: string): { valid: boolean; message: string } {
+export function validateSkill(skillPath: string): {
+  valid: boolean;
+  message: string;
+} {
   if (!existsSync(join(skillPath, "SKILL.md"))) {
     return { valid: false, message: "SKILL.md not found" };
   }

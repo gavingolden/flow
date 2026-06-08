@@ -121,7 +121,10 @@ function parseConfigScope(raw: unknown): ConfigScope | undefined {
   return {
     name,
     prefixes,
-    checks: checks.map((cmd) => ({ name: cmd, argv: cmd.split(/\s+/).filter(Boolean) })),
+    checks: checks.map((cmd) => ({
+      name: cmd,
+      argv: cmd.split(/\s+/).filter(Boolean),
+    })),
   };
 }
 
@@ -131,12 +134,16 @@ function parseConfigScope(raw: unknown): ConfigScope | undefined {
  * malformed entry is dropped), or `undefined` when the file is
  * absent/unreadable/non-JSON/wrong-shaped. Never throws.
  */
-export function readMonorepoConfig(read: ReadConfigFile): ConfigScope[] | undefined {
+export function readMonorepoConfig(
+  read: ReadConfigFile,
+): ConfigScope[] | undefined {
   const raw = read();
   if (raw === undefined) return undefined;
   const list = Array.isArray(raw)
     ? raw
-    : typeof raw === "object" && raw !== null && Array.isArray((raw as Record<string, unknown>).scopes)
+    : typeof raw === "object" &&
+        raw !== null &&
+        Array.isArray((raw as Record<string, unknown>).scopes)
       ? ((raw as Record<string, unknown>).scopes as unknown[])
       : undefined;
   if (!list) return undefined;

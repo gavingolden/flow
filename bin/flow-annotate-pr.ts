@@ -74,7 +74,9 @@ export type Candidate = {
 };
 
 export type Envelope = {
-  candidates: Array<Omit<Candidate, "_matchedRule" | "_hunkLoc" | "_restructure">>;
+  candidates: Array<
+    Omit<Candidate, "_matchedRule" | "_hunkLoc" | "_restructure">
+  >;
   overflowBullet?: string;
 };
 
@@ -115,9 +117,11 @@ export function parseDiff(diff: string): FileDiff[] {
     if (hunkMatch) {
       flushHunk();
       const oldStart = parseInt(hunkMatch[1], 10);
-      const oldCount = hunkMatch[2] === undefined ? 1 : parseInt(hunkMatch[2], 10);
+      const oldCount =
+        hunkMatch[2] === undefined ? 1 : parseInt(hunkMatch[2], 10);
       const newStart = parseInt(hunkMatch[3], 10);
-      const newCount = hunkMatch[4] === undefined ? 1 : parseInt(hunkMatch[4], 10);
+      const newCount =
+        hunkMatch[4] === undefined ? 1 : parseInt(hunkMatch[4], 10);
       currentHunk = {
         oldStart,
         oldCount,
@@ -171,7 +175,10 @@ export function matchesRuleA(hunk: Hunk): boolean {
 
 /** Rule (b): mixed-add-delete restructure (≥4 + AND ≥4 -). */
 export function matchesRuleB(hunk: Hunk): boolean {
-  return countPlus(hunk) >= RESTRUCTURE_PLUS_MIN && countMinus(hunk) >= RESTRUCTURE_MINUS_MIN;
+  return (
+    countPlus(hunk) >= RESTRUCTURE_PLUS_MIN &&
+    countMinus(hunk) >= RESTRUCTURE_MINUS_MIN
+  );
 }
 
 /**
@@ -200,7 +207,11 @@ export function fileChangedLoc(file: FileDiff): number {
  * Returns line/end_line in post-image coordinates for RIGHT, pre-image
  * for LEFT.
  */
-function anchorHunk(hunk: Hunk): { line: number; end_line?: number; side: "RIGHT" | "LEFT" } {
+function anchorHunk(hunk: Hunk): {
+  line: number;
+  end_line?: number;
+  side: "RIGHT" | "LEFT";
+} {
   const hasPlus = hunk.lines.some((l) => l.kind === "+");
   const hasMinus = hunk.lines.some((l) => l.kind === "-");
 
@@ -259,7 +270,11 @@ function hunkExcerpt(hunk: Hunk): string {
   return parts.join("\n");
 }
 
-function makeCandidate(file: string, hunk: Hunk, rule: "a" | "b" | "c"): Candidate {
+function makeCandidate(
+  file: string,
+  hunk: Hunk,
+  rule: "a" | "b" | "c",
+): Candidate {
   const anchor = anchorHunk(hunk);
   return {
     file,
@@ -313,10 +328,14 @@ export function dedupPerFile(files: FileDiff[]): Candidate[] {
  * alphabetical → line ascending) and cap at MAX_ANNOTATIONS_PER_PR. Returns
  * {kept, surplus} so the caller can format the overflow bullet.
  */
-export function rankAndCap(candidates: Candidate[]): { kept: Candidate[]; surplus: number } {
+export function rankAndCap(candidates: Candidate[]): {
+  kept: Candidate[];
+  surplus: number;
+} {
   const sorted = [...candidates].sort((x, y) => {
     if (y._hunkLoc !== x._hunkLoc) return y._hunkLoc - x._hunkLoc;
-    if (y._restructure !== x._restructure) return y._restructure - x._restructure;
+    if (y._restructure !== x._restructure)
+      return y._restructure - x._restructure;
     if (x.file !== y.file) return x.file < y.file ? -1 : 1;
     return x.line - y.line;
   });
@@ -359,7 +378,9 @@ function runGit(args: string[]): string {
   const r = Bun.spawnSync(["git", ...args], { stdout: "pipe", stderr: "pipe" });
   if (r.exitCode !== 0) {
     const stderr = r.stderr.toString().trim();
-    throw new Error(stderr || `git ${args.join(" ")} failed with exit code ${r.exitCode}`);
+    throw new Error(
+      stderr || `git ${args.join(" ")} failed with exit code ${r.exitCode}`,
+    );
   }
   return r.stdout.toString();
 }
@@ -383,7 +404,11 @@ function resolveDefaultBranch(): string {
 
 function fetchDiff(): string {
   const defaultBranch = resolveDefaultBranch();
-  const mergeBase = runGit(["merge-base", "HEAD", `origin/${defaultBranch}`]).trim();
+  const mergeBase = runGit([
+    "merge-base",
+    "HEAD",
+    `origin/${defaultBranch}`,
+  ]).trim();
   return runGit(["diff", "-U0", `${mergeBase}...HEAD`]);
 }
 

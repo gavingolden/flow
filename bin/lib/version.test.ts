@@ -79,11 +79,15 @@ describe("runVersionCli (--help / -h short-circuit)", () => {
   for (const flag of ["--help", "-h"]) {
     it(`exits 0 and prints help when args is ['${flag}'] (no package.json read)`, () => {
       const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-      const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const err = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
       const code = runVersionCli([flag], { flowSource: scratch });
       expect(code).toBe(0);
       expect(log).toHaveBeenCalled();
-      expect(log.mock.calls[0][0]).toMatch(/^flow version — print the installed/);
+      expect(log.mock.calls[0][0]).toMatch(
+        /^flow version — print the installed/,
+      );
       expect(err).not.toHaveBeenCalled();
       log.mockRestore();
       err.mockRestore();

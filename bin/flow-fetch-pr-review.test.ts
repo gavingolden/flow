@@ -57,7 +57,11 @@ describe(parsePrNumber, () => {
 describe(parseNdjson, () => {
   it("should parse single JSON object per line", () => {
     const input = '{"a":1}\n{"a":2}\n{"a":3}';
-    expect(parseNdjson<{ a: number }>(input)).toEqual([{ a: 1 }, { a: 2 }, { a: 3 }]);
+    expect(parseNdjson<{ a: number }>(input)).toEqual([
+      { a: 1 },
+      { a: 2 },
+      { a: 3 },
+    ]);
   });
 
   it("should handle empty string", () => {
@@ -70,7 +74,9 @@ describe(parseNdjson, () => {
   });
 
   it("should handle single line", () => {
-    expect(parseNdjson<{ x: string }>('{"x":"hello"}')).toEqual([{ x: "hello" }]);
+    expect(parseNdjson<{ x: string }>('{"x":"hello"}')).toEqual([
+      { x: "hello" },
+    ]);
   });
 });
 
@@ -139,11 +145,15 @@ describe(formatLineRef, () => {
   });
 
   it("should format line range", () => {
-    expect(formatLineRef(createComment({ start_line: 10, line: 20 }))).toBe("L10-L20");
+    expect(formatLineRef(createComment({ start_line: 10, line: 20 }))).toBe(
+      "L10-L20",
+    );
   });
 
   it("should return file-level when no line info", () => {
-    expect(formatLineRef(createComment({ line: null, start_line: null }))).toBe("file-level");
+    expect(formatLineRef(createComment({ line: null, start_line: null }))).toBe(
+      "file-level",
+    );
   });
 });
 

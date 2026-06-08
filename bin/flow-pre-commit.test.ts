@@ -70,22 +70,27 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should detect scripts scope from scripts/ files", () => {
-    expect(detectScopesFromFiles(["scripts/fetch-pr-review.ts"])).toEqual(["scripts"]);
+    expect(detectScopesFromFiles(["scripts/fetch-pr-review.ts"])).toEqual([
+      "scripts",
+    ]);
   });
 
   it("should detect scripts scope from templates/scripts/ files (flow's legacy script source)", () => {
-    expect(detectScopesFromFiles(["templates/scripts/ci-wait.ts"])).toEqual(["scripts"]);
+    expect(detectScopesFromFiles(["templates/scripts/ci-wait.ts"])).toEqual([
+      "scripts",
+    ]);
   });
 
   it("should detect scripts scope from bin/ files (flow's canonical helper binary source)", () => {
-    expect(detectScopesFromFiles(["bin/flow-pre-commit.ts"])).toEqual(["scripts"]);
+    expect(detectScopesFromFiles(["bin/flow-pre-commit.ts"])).toEqual([
+      "scripts",
+    ]);
   });
 
   it("should detect BOTH scripts and actions scopes from .github/workflows/*.yml files (regression: workflow YAML edits trip the bin/ vitest workflow-shape regression suite AND actionlint coverage — different defect classes)", () => {
-    expect(detectScopesFromFiles([".github/workflows/cloudflare-pages-prune.yml"])).toEqual([
-      "scripts",
-      "actions",
-    ]);
+    expect(
+      detectScopesFromFiles([".github/workflows/cloudflare-pages-prune.yml"]),
+    ).toEqual(["scripts", "actions"]);
   });
 
   it("should detect both scripts and actions for .github/workflows/*.yaml (extension variant)", () => {
@@ -96,11 +101,16 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should NOT trip actions for .github/workflows-archive/foo.yml (prefix exactness — `.startsWith('.github/workflows/')` is false for `.github/workflows-archive/`, so the file lands in root-fallback)", () => {
-    expect(detectScopesFromFiles([".github/workflows-archive/foo.yml"])).toEqual(["root-fallback"]);
+    expect(
+      detectScopesFromFiles([".github/workflows-archive/foo.yml"]),
+    ).toEqual(["root-fallback"]);
   });
 
   it("should NOT trip actions for .github/workflows/notes.md (extension exactness — .md doesn't match .yml/.yaml; the file still trips scripts via prefix and docs via .md extension)", () => {
-    expect(detectScopesFromFiles([".github/workflows/notes.md"])).toEqual(["scripts", "docs"]);
+    expect(detectScopesFromFiles([".github/workflows/notes.md"])).toEqual([
+      "scripts",
+      "docs",
+    ]);
   });
 
   it("should detect multiple scopes from mixed files", () => {
@@ -109,17 +119,21 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should fall back to root-fallback when files exist but no specific scope matched", () => {
-    expect(detectScopesFromFiles(["package-lock.json", "vitest.config.ts"])).toEqual([
+    expect(
+      detectScopesFromFiles(["package-lock.json", "vitest.config.ts"]),
+    ).toEqual(["root-fallback"]);
+  });
+
+  it("should detect root-fallback from apps/<pkg>/src/ monorepo paths", () => {
+    expect(detectScopesFromFiles(["apps/web/src/index.ts"])).toEqual([
       "root-fallback",
     ]);
   });
 
-  it("should detect root-fallback from apps/<pkg>/src/ monorepo paths", () => {
-    expect(detectScopesFromFiles(["apps/web/src/index.ts"])).toEqual(["root-fallback"]);
-  });
-
   it("should detect root-fallback from packages/<pkg>/src/ monorepo paths", () => {
-    expect(detectScopesFromFiles(["packages/ui/src/Button.svelte"])).toEqual(["root-fallback"]);
+    expect(detectScopesFromFiles(["packages/ui/src/Button.svelte"])).toEqual([
+      "root-fallback",
+    ]);
   });
 
   it("should append root-fallback additively for an orphan bundled with a matched specific scope", () => {
@@ -133,7 +147,10 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should NOT append root-fallback when every file is claimed by a specific scope", () => {
-    expect(detectScopesFromFiles(["src/a.ts", "AGENTS.md"])).toEqual(["src", "docs"]);
+    expect(detectScopesFromFiles(["src/a.ts", "AGENTS.md"])).toEqual([
+      "src",
+      "docs",
+    ]);
   });
 
   it("should append root-fallback for a root-level file bundled with a scoped file (the package.json repro)", () => {
@@ -148,33 +165,39 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should detect docs scope from a deeply-nested .md file", () => {
-    expect(detectScopesFromFiles(["skills/stacks/svelte/SKILL.md"])).toEqual(["docs"]);
+    expect(detectScopesFromFiles(["skills/stacks/svelte/SKILL.md"])).toEqual([
+      "docs",
+    ]);
   });
 
   it("should detect both scripts and docs from a mixed change", () => {
-    expect(detectScopesFromFiles(["bin/flow-md-validate.ts", "docs/x.md"])).toEqual([
-      "scripts",
-      "docs",
-    ]);
+    expect(
+      detectScopesFromFiles(["bin/flow-md-validate.ts", "docs/x.md"]),
+    ).toEqual(["scripts", "docs"]);
   });
 
   it("should detect docs scope from a .claude/ skill-reference markdown path", () => {
-    expect(detectScopesFromFiles([".claude/skills/foo/reference.md"])).toEqual(["docs"]);
-  });
-
-  it("should detect both scripts and docs from a mixed .claude/ markdown + bin/ change", () => {
-    expect(detectScopesFromFiles([".claude/skills/foo/SKILL.md", "bin/x.ts"])).toEqual([
-      "scripts",
+    expect(detectScopesFromFiles([".claude/skills/foo/reference.md"])).toEqual([
       "docs",
     ]);
   });
 
+  it("should detect both scripts and docs from a mixed .claude/ markdown + bin/ change", () => {
+    expect(
+      detectScopesFromFiles([".claude/skills/foo/SKILL.md", "bin/x.ts"]),
+    ).toEqual(["scripts", "docs"]);
+  });
+
   it("should NOT trip docs for a .claude/ non-markdown file (extension-not-prefix — settings.json lands in root-fallback)", () => {
-    expect(detectScopesFromFiles([".claude/settings.json"])).toEqual(["root-fallback"]);
+    expect(detectScopesFromFiles([".claude/settings.json"])).toEqual([
+      "root-fallback",
+    ]);
   });
 
   it("should detect docs scope from a .template file so flow's own *.template source is not orphaned", () => {
-    expect(detectScopesFromFiles(["templates/AGENTS.md.template"])).toEqual(["docs"]);
+    expect(detectScopesFromFiles(["templates/AGENTS.md.template"])).toEqual([
+      "docs",
+    ]);
   });
 
   it("should deduplicate scopes", () => {
@@ -187,7 +210,9 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should handle deeply nested paths", () => {
-    expect(detectScopesFromFiles(["src/pipeline/phases/worktree.ts"])).toEqual(["src"]);
+    expect(detectScopesFromFiles(["src/pipeline/phases/worktree.ts"])).toEqual([
+      "src",
+    ]);
   });
 
   it("should ignore files that contain but don't start with scope prefixes", () => {
@@ -200,7 +225,9 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should detect backend scope from a deeply-nested backend/ file", () => {
-    expect(detectScopesFromFiles(["backend/cmd/server/main.go"])).toEqual(["backend"]);
+    expect(detectScopesFromFiles(["backend/cmd/server/main.go"])).toEqual([
+      "backend",
+    ]);
   });
 
   it("should detect BOTH src and backend from a mixed diff and NOT fall back to root-fallback", () => {
@@ -215,7 +242,9 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should NOT trip backend for backend-archive/foo.go (prefix exactness — `.startsWith('backend/')` is false for `backend-archive/`, so the file lands in root-fallback)", () => {
-    expect(detectScopesFromFiles(["backend-archive/foo.go"])).toEqual(["root-fallback"]);
+    expect(detectScopesFromFiles(["backend-archive/foo.go"])).toEqual([
+      "root-fallback",
+    ]);
   });
 });
 
@@ -225,7 +254,9 @@ describe(computeUnmatchedFiles, () => {
   });
 
   it("returns [] when every path matches a specific scope", () => {
-    expect(computeUnmatchedFiles(["src/a.ts", "scripts/b.ts", "AGENTS.md"])).toEqual([]);
+    expect(
+      computeUnmatchedFiles(["src/a.ts", "scripts/b.ts", "AGENTS.md"]),
+    ).toEqual([]);
   });
 
   it("returns every file when no specific scope matched (root-fallback bucket)", () => {
@@ -247,7 +278,12 @@ describe(computeUnmatchedFiles, () => {
 describe(computeAllPassedAndReason, () => {
   it("flags reason='no-checks-defined' + allPassed=false on non-empty diff + empty results", () => {
     expect(
-      computeAllPassedAndReason([], ["apps/web/src/x.ts"], ["root-fallback"], ["apps/web/src/x.ts"]),
+      computeAllPassedAndReason(
+        [],
+        ["apps/web/src/x.ts"],
+        ["root-fallback"],
+        ["apps/web/src/x.ts"],
+      ),
     ).toEqual({
       allPassed: false,
       reason: "no-checks-defined",
@@ -255,11 +291,15 @@ describe(computeAllPassedAndReason, () => {
   });
 
   it("returns allPassed=true with no reason on empty diff + empty results", () => {
-    expect(computeAllPassedAndReason([], [], [], [])).toEqual({ allPassed: true });
+    expect(computeAllPassedAndReason([], [], [], [])).toEqual({
+      allPassed: true,
+    });
   });
 
   it("returns allPassed=true with no reason on undefined changedFiles (--scope path)", () => {
-    expect(computeAllPassedAndReason([], undefined, ["src"], undefined)).toEqual({
+    expect(
+      computeAllPassedAndReason([], undefined, ["src"], undefined),
+    ).toEqual({
       allPassed: true,
     });
   });
@@ -267,10 +307,14 @@ describe(computeAllPassedAndReason, () => {
   it("reflects results.every on a mixed pass/fail set", () => {
     const passing = createResult({ passed: true });
     const failing = createResult({ passed: false });
-    expect(computeAllPassedAndReason([passing, failing], ["src/a.ts"], ["src"], [])).toEqual({
+    expect(
+      computeAllPassedAndReason([passing, failing], ["src/a.ts"], ["src"], []),
+    ).toEqual({
       allPassed: false,
     });
-    expect(computeAllPassedAndReason([passing, passing], ["src/a.ts"], ["src"], [])).toEqual({
+    expect(
+      computeAllPassedAndReason([passing, passing], ["src/a.ts"], ["src"], []),
+    ).toEqual({
       allPassed: true,
     });
   });
@@ -307,13 +351,17 @@ describe(computeAllPassedAndReason, () => {
 
   it("returns allPassed=true when a specific scope matched and there are no orphans", () => {
     const passing = createResult({ passed: true });
-    expect(computeAllPassedAndReason([passing], ["src/a.ts"], ["src"], [])).toEqual({
+    expect(
+      computeAllPassedAndReason([passing], ["src/a.ts"], ["src"], []),
+    ).toEqual({
       allPassed: true,
     });
   });
 
   it("does NOT flag unmatched-files on the --scope path (unmatchedFiles undefined)", () => {
-    expect(computeAllPassedAndReason([], undefined, ["src"], undefined)).toEqual({
+    expect(
+      computeAllPassedAndReason([], undefined, ["src"], undefined),
+    ).toEqual({
       allPassed: true,
     });
   });
@@ -368,7 +416,9 @@ describe(parseScopes, () => {
   });
 
   it("should reject the root-fallback pseudo-scope (auto-detect-only sentinel)", () => {
-    expect(() => parseScopes("root-fallback")).toThrow('Unknown scope "root-fallback"');
+    expect(() => parseScopes("root-fallback")).toThrow(
+      'Unknown scope "root-fallback"',
+    );
   });
 
   it("should accept the backend scope", () => {
@@ -413,7 +463,10 @@ describe(checksForScope, () => {
   it("should return actionlint .github/workflows/ and lint for actions", () => {
     const checks = checksForScope("actions");
     expect(checks).toEqual([
-      { name: "actionlint .github/workflows/", argv: ["actionlint", ".github/workflows/"] },
+      {
+        name: "actionlint .github/workflows/",
+        argv: ["actionlint", ".github/workflows/"],
+      },
       { name: "npm run lint", argv: ["npm", "run", "lint"] },
     ]);
   });
@@ -432,18 +485,28 @@ describe(checksForScope, () => {
   });
 
   it("adds the lint check to actions (parity with CI's root prettier --check)", () => {
-    expect(checksForScope("actions").map((c) => c.name)).toContain("npm run lint");
+    expect(checksForScope("actions").map((c) => c.name)).toContain(
+      "npm run lint",
+    );
   });
 
   it("does NOT add the lint check to backend", () => {
-    expect(checksForScope("backend").map((c) => c.name)).not.toContain("npm run lint");
+    expect(checksForScope("backend").map((c) => c.name)).not.toContain(
+      "npm run lint",
+    );
   });
 
   it("should return go vet and go test for backend in canonical order", () => {
     const checks = checksForScope("backend");
     expect(checks).toEqual([
-      { name: "go vet -C backend ./...", argv: ["go", "vet", "-C", "backend", "./..."] },
-      { name: "go test -C backend ./...", argv: ["go", "test", "-C", "backend", "./..."] },
+      {
+        name: "go vet -C backend ./...",
+        argv: ["go", "vet", "-C", "backend", "./..."],
+      },
+      {
+        name: "go test -C backend ./...",
+        argv: ["go", "test", "-C", "backend", "./..."],
+      },
     ]);
   });
 });
@@ -477,13 +540,22 @@ describe(filterDefinedChecks, () => {
     // flow's own repo has no `lint` script — the new lint check must stay
     // inert there rather than failing the gate with a Missing-script error.
     const checks = checksForScope("src");
-    const filtered = filterDefinedChecks(checks, new Set(["typecheck", "test"]));
-    expect(filtered.map((c) => c.name)).toEqual(["npm run typecheck", "npm run test"]);
+    const filtered = filterDefinedChecks(
+      checks,
+      new Set(["typecheck", "test"]),
+    );
+    expect(filtered.map((c) => c.name)).toEqual([
+      "npm run typecheck",
+      "npm run test",
+    ]);
   });
 
   it("keeps the lint check when 'lint' is present in the defined scripts", () => {
     const checks = checksForScope("src");
-    const filtered = filterDefinedChecks(checks, new Set(["typecheck", "test", "lint"]));
+    const filtered = filterDefinedChecks(
+      checks,
+      new Set(["typecheck", "test", "lint"]),
+    );
     expect(filtered.map((c) => c.name)).toContain("npm run lint");
   });
 
@@ -493,7 +565,10 @@ describe(filterDefinedChecks, () => {
     // and the docs gate must behave exactly as before this change.
     const checks = checksForScope("docs");
     const filtered = filterDefinedChecks(checks, new Set(["test"]));
-    expect(filtered.map((c) => c.name)).toEqual(["flow-md-validate .", "npm run test"]);
+    expect(filtered.map((c) => c.name)).toEqual([
+      "flow-md-validate .",
+      "npm run test",
+    ]);
   });
 });
 
@@ -532,9 +607,12 @@ describe(runCheck, () => {
   });
 
   it("returns skipReason when runner throws an ENOENT error for actionlint", () => {
-    const enoent = Object.assign(new Error("spawn actionlint ENOENT: no such file or directory"), {
-      code: "ENOENT",
-    });
+    const enoent = Object.assign(
+      new Error("spawn actionlint ENOENT: no such file or directory"),
+      {
+        code: "ENOENT",
+      },
+    );
     const result = runCheck(
       "actionlint .github/workflows/",
       ["actionlint", ".github/workflows/"],
@@ -572,7 +650,10 @@ describe(runCheck, () => {
       "npm run lint",
       ["npm", "run", "lint"],
       "src",
-      exitWith(1, "[warn] src/foo.ts\n[warn] Code style issues found in 1 file."),
+      exitWith(
+        1,
+        "[warn] src/foo.ts\n[warn] Code style issues found in 1 file.",
+      ),
     );
     expect(result.passed).toBe(false);
     expect(result.skipReason).toBeUndefined();
@@ -583,7 +664,10 @@ describe(runCheck, () => {
       "actionlint .github/workflows/",
       ["actionlint", ".github/workflows/"],
       "actions",
-      exitWith(1, "workflows/foo.yml:42:9: shellcheck reported issue in this script"),
+      exitWith(
+        1,
+        "workflows/foo.yml:42:9: shellcheck reported issue in this script",
+      ),
     );
     expect(result.passed).toBe(false);
     expect(result.skipReason).toBeUndefined();
@@ -602,9 +686,12 @@ describe(runCheck, () => {
   });
 
   it("returns skipReason go-not-installed when runner throws an ENOENT error for go", () => {
-    const enoent = Object.assign(new Error("spawn go ENOENT: no such file or directory"), {
-      code: "ENOENT",
-    });
+    const enoent = Object.assign(
+      new Error("spawn go ENOENT: no such file or directory"),
+      {
+        code: "ENOENT",
+      },
+    );
     const result = runCheck(
       "go vet -C backend ./...",
       ["go", "vet", "-C", "backend", "./..."],
@@ -698,14 +785,18 @@ describe(parsePrePushInput, () => {
   });
 
   it("should throw on malformed line with fewer than 4 tokens", () => {
-    expect(() => parsePrePushInput("refs/heads/main abc123")).toThrow("Malformed pre-push input");
+    expect(() => parsePrePushInput("refs/heads/main abc123")).toThrow(
+      "Malformed pre-push input",
+    );
   });
 });
 
 describe(getChangedFilesForPush, () => {
   it("should return changed files for a normal ref update", () => {
     const refs = [createRef({ remoteSha: "old111", localSha: "new222" })];
-    const git = createMockGit({ files: { "old111..new222": ["src/a.ts", "src/b.ts"] } });
+    const git = createMockGit({
+      files: { "old111..new222": ["src/a.ts", "src/b.ts"] },
+    });
     expect(getChangedFilesForPush(refs, git)).toEqual(["src/a.ts", "src/b.ts"]);
   });
 
@@ -742,7 +833,9 @@ describe(getChangedFilesForPush, () => {
     // sweeps already-merged files into the new-branch diff. Keying the mock off
     // the ref proves the helper queries origin/main, not local main.
     const refs = [createRef({ remoteSha: ZERO_SHA, localSha: "new222" })];
-    const mergeBase = vi.fn((ref: string) => (ref === "origin/main" ? "remotebase" : "stalebase"));
+    const mergeBase = vi.fn((ref: string) =>
+      ref === "origin/main" ? "remotebase" : "stalebase",
+    );
     const git = createMockGit({
       mergeBase,
       files: {
@@ -766,8 +859,16 @@ describe(getChangedFilesForPush, () => {
 
   it("should deduplicate files across multiple refs", () => {
     const refs = [
-      createRef({ remoteSha: "a1", localSha: "a2", localRef: "refs/heads/branch-a" }),
-      createRef({ remoteSha: "b1", localSha: "b2", localRef: "refs/heads/branch-b" }),
+      createRef({
+        remoteSha: "a1",
+        localSha: "a2",
+        localRef: "refs/heads/branch-a",
+      }),
+      createRef({
+        remoteSha: "b1",
+        localSha: "b2",
+        localRef: "refs/heads/branch-b",
+      }),
     ];
     const git = createMockGit({
       files: {
@@ -813,7 +914,9 @@ describe(resolveDefaultScopeFiles, () => {
       files: { "base000..HEAD": ["bin/flow-pre-commit.ts"] },
     });
 
-    expect(resolveDefaultScopeFiles([], git)).toEqual(["bin/flow-pre-commit.ts"]);
+    expect(resolveDefaultScopeFiles([], git)).toEqual([
+      "bin/flow-pre-commit.ts",
+    ]);
     expect(defaultBranch).toHaveBeenCalled();
     expect(mergeBase).toHaveBeenCalledWith("origin/main", "HEAD");
   });
@@ -838,7 +941,9 @@ describe(resolveDefaultScopeFiles, () => {
     // mock off the ref proves the helper queries the remote-tracking namespace:
     // origin/main → the true base (build.yml only); local main → a stale base
     // whose diff also includes phantom apps/web files.
-    const mergeBase = vi.fn((ref: string) => (ref === "origin/main" ? "remotebase" : "stalebase"));
+    const mergeBase = vi.fn((ref: string) =>
+      ref === "origin/main" ? "remotebase" : "stalebase",
+    );
     const defaultBranch = vi.fn().mockReturnValue("main");
     const git = createMockGit({
       mergeBase,
@@ -876,7 +981,10 @@ describe(resolveDefaultScopeFiles, () => {
 describe(formatReport, () => {
   it("should show pass markers for all-passing report", () => {
     const report = createReport({
-      results: [createResult({ passed: true }), createResult({ name: "npm run test", passed: true })],
+      results: [
+        createResult({ passed: true }),
+        createResult({ name: "npm run test", passed: true }),
+      ],
     });
     const output = formatReport(report);
     expect(output).toContain("PASS");
@@ -887,7 +995,12 @@ describe(formatReport, () => {
   it("should show fail markers and output for failed checks", () => {
     const report = createReport({
       allPassed: false,
-      results: [createResult({ passed: false, output: "Error: type mismatch on line 42" })],
+      results: [
+        createResult({
+          passed: false,
+          output: "Error: type mismatch on line 42",
+        }),
+      ],
     });
     const output = formatReport(report);
     expect(output).toContain("FAIL");
@@ -900,7 +1013,11 @@ describe(formatReport, () => {
       allPassed: false,
       results: [
         createResult({ name: "npm run typecheck", passed: true }),
-        createResult({ name: "npm run test", passed: false, output: "test error" }),
+        createResult({
+          name: "npm run test",
+          passed: false,
+          output: "test error",
+        }),
       ],
     });
     const output = formatReport(report);
@@ -915,13 +1032,17 @@ describe(formatReport, () => {
   });
 
   it("should show duration in milliseconds for short checks", () => {
-    const report = createReport({ results: [createResult({ durationMs: 500 })] });
+    const report = createReport({
+      results: [createResult({ durationMs: 500 })],
+    });
     const output = formatReport(report);
     expect(output).toContain("500ms");
   });
 
   it("should show duration in seconds for long checks", () => {
-    const report = createReport({ results: [createResult({ durationMs: 12500 })] });
+    const report = createReport({
+      results: [createResult({ durationMs: 12500 })],
+    });
     const output = formatReport(report);
     expect(output).toContain("12.5s");
   });
@@ -1215,7 +1336,8 @@ describe(buildFailureExcerpt, () => {
   });
 
   it("locates the first error line by 1-based index", () => {
-    const output = "compiling…\ndone\n\nFAIL  src/foo.test.ts > should bar\n  details";
+    const output =
+      "compiling…\ndone\n\nFAIL  src/foo.test.ts > should bar\n  details";
     const excerpt = buildFailureExcerpt(output);
     expect(excerpt.firstErrorLine).toBe(4);
     expect(excerpt.firstErrorText).toBe("FAIL  src/foo.test.ts > should bar");
@@ -1266,10 +1388,17 @@ describe(formatJsonReport, () => {
   });
 
   it("includes a bounded failure excerpt on failed checks", () => {
-    const huge = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`).join("\n");
+    const huge = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`).join(
+      "\n",
+    );
     const report = createReport({
       allPassed: false,
-      results: [createResult({ passed: false, output: `${huge}\nFAIL  src/foo.test.ts` })],
+      results: [
+        createResult({
+          passed: false,
+          output: `${huge}\nFAIL  src/foo.test.ts`,
+        }),
+      ],
     });
     const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
     expect(parsed.results[0].passed).toBe(false);
@@ -1287,7 +1416,11 @@ describe(formatJsonReport, () => {
       allPassed: false,
       results: [
         createResult({ name: "npm run typecheck", passed: true }),
-        createResult({ name: "npm run test", passed: false, output: "FAIL boom" }),
+        createResult({
+          name: "npm run test",
+          passed: false,
+          output: "FAIL boom",
+        }),
       ],
     });
     const parsed = JSON.parse(formatJsonReport(report)) as JsonReport;
@@ -1318,7 +1451,9 @@ describe(formatJsonReport, () => {
   });
 
   it("omits unmatchedFiles when undefined or an empty array", () => {
-    const parsedUndef = JSON.parse(formatJsonReport(createReport({}))) as JsonReport;
+    const parsedUndef = JSON.parse(
+      formatJsonReport(createReport({})),
+    ) as JsonReport;
     expect(parsedUndef).not.toHaveProperty("unmatchedFiles");
 
     const parsedEmpty = JSON.parse(
@@ -1383,7 +1518,9 @@ describe(formatJsonReport, () => {
     ) as JsonReport;
     expect(withReason.reason).toBe("no-checks-defined");
 
-    const withoutReason = JSON.parse(formatJsonReport(createReport({}))) as JsonReport;
+    const withoutReason = JSON.parse(
+      formatJsonReport(createReport({})),
+    ) as JsonReport;
     expect(withoutReason).not.toHaveProperty("reason");
   });
 
@@ -1445,7 +1582,10 @@ describe("integration: root-fallback + no-checks-defined silent-pass hole", () =
       ],
       { cwd: tmpDir },
     );
-    writeFileSync(join(tmpDir, "apps", "web", "src", "x.ts"), "export const x = 1;\n");
+    writeFileSync(
+      join(tmpDir, "apps", "web", "src", "x.ts"),
+      "export const x = 1;\n",
+    );
     spawnSync("git", ["add", "apps/web/src/x.ts"], { cwd: tmpDir });
   });
 
@@ -1456,7 +1596,8 @@ describe("integration: root-fallback + no-checks-defined silent-pass hole", () =
   it.skipIf(!bunOnPath)(
     "flow-pre-commit --json against a tmpdir fixture reports allPassed:false reason:no-checks-defined scopes:[root-fallback]",
     () => {
-      const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
       const scriptPath = resolve(here, "flow-pre-commit.ts");
       const result = spawnSync("bun", [scriptPath, "--json"], {
         cwd: tmpDir,
@@ -1524,7 +1665,8 @@ describe("integration: a .md-only diff detects the docs scope and runs npm run t
   it.skipIf(!bunOnPath)(
     "flow-pre-commit --json on a .md-only diff detects docs and includes npm run test in results",
     () => {
-      const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
       const scriptPath = resolve(here, "flow-pre-commit.ts");
       const result = spawnSync("bun", [scriptPath, "--json"], {
         cwd: tmpDir,
@@ -1559,22 +1701,44 @@ describe("integration: auto-detect positive path runs apps/web's declared checks
     writeFileSync(
       join(tmpDir, "package.json"),
       JSON.stringify(
-        { name: "fixture", version: "0.0.1", private: true, workspaces: ["apps/*"] },
+        {
+          name: "fixture",
+          version: "0.0.1",
+          private: true,
+          workspaces: ["apps/*"],
+        },
         null,
         2,
       ),
     );
     writeFileSync(
       join(tmpDir, "apps", "web", "package.json"),
-      JSON.stringify({ name: "web", version: "0.0.1", scripts: { test: "true" } }, null, 2),
+      JSON.stringify(
+        { name: "web", version: "0.0.1", scripts: { test: "true" } },
+        null,
+        2,
+      ),
     );
     spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
     spawnSync(
       "git",
-      ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "init"],
+      [
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--allow-empty",
+        "-q",
+        "-m",
+        "init",
+      ],
       { cwd: tmpDir },
     );
-    writeFileSync(join(tmpDir, "apps", "web", "src", "a.ts"), "export const a = 1;\n");
+    writeFileSync(
+      join(tmpDir, "apps", "web", "src", "a.ts"),
+      "export const a = 1;\n",
+    );
     spawnSync("git", ["add", "apps/web/src/a.ts"], { cwd: tmpDir });
   });
 
@@ -1585,12 +1749,18 @@ describe("integration: auto-detect positive path runs apps/web's declared checks
   it.skipIf(!bunOnPath)(
     "detects apps/web, runs npm run test -w apps/web, and passes with no unmatched files",
     () => {
-      const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
       const scriptPath = resolve(here, "flow-pre-commit.ts");
-      const result = spawnSync("bun", [scriptPath, "--json"], { cwd: tmpDir, encoding: "utf8" });
+      const result = spawnSync("bun", [scriptPath, "--json"], {
+        cwd: tmpDir,
+        encoding: "utf8",
+      });
       const report = JSON.parse(result.stdout) as JsonReport;
       expect(report.scopes).toContain("apps/web");
-      expect(report.results.map((r) => r.name)).toContain("npm run test -w apps/web");
+      expect(report.results.map((r) => r.name)).toContain(
+        "npm run test -w apps/web",
+      );
       expect(report.allPassed).toBe(true);
       expect(report).not.toHaveProperty("unmatchedFiles");
     },
@@ -1615,22 +1785,44 @@ describe("integration: --scope apps/web selects the dynamic scope through main()
     writeFileSync(
       join(tmpDir, "package.json"),
       JSON.stringify(
-        { name: "fixture", version: "0.0.1", private: true, workspaces: ["apps/*"] },
+        {
+          name: "fixture",
+          version: "0.0.1",
+          private: true,
+          workspaces: ["apps/*"],
+        },
         null,
         2,
       ),
     );
     writeFileSync(
       join(tmpDir, "apps", "web", "package.json"),
-      JSON.stringify({ name: "web", version: "0.0.1", scripts: { test: "true" } }, null, 2),
+      JSON.stringify(
+        { name: "web", version: "0.0.1", scripts: { test: "true" } },
+        null,
+        2,
+      ),
     );
     spawnSync("git", ["init", "-q", "-b", "main"], { cwd: tmpDir });
     spawnSync(
       "git",
-      ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "--allow-empty", "-q", "-m", "init"],
+      [
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--allow-empty",
+        "-q",
+        "-m",
+        "init",
+      ],
       { cwd: tmpDir },
     );
-    writeFileSync(join(tmpDir, "apps", "web", "src", "a.ts"), "export const a = 1;\n");
+    writeFileSync(
+      join(tmpDir, "apps", "web", "src", "a.ts"),
+      "export const a = 1;\n",
+    );
     spawnSync("git", ["add", "apps/web/src/a.ts"], { cwd: tmpDir });
   });
 
@@ -1638,29 +1830,47 @@ describe("integration: --scope apps/web selects the dynamic scope through main()
     if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it.skipIf(!bunOnPath)("--scope apps/web runs the dynamic scope's checks", () => {
-    const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
-    const scriptPath = resolve(here, "flow-pre-commit.ts");
-    const result = spawnSync("bun", [scriptPath, "--scope", "apps/web", "--json"], {
-      cwd: tmpDir,
-      encoding: "utf8",
-    });
-    const report = JSON.parse(result.stdout) as JsonReport;
-    expect(report.scopes).toEqual(["apps/web"]);
-    expect(report.results.map((r) => r.name)).toContain("npm run test -w apps/web");
-    expect(report.allPassed).toBe(true);
-  });
+  it.skipIf(!bunOnPath)(
+    "--scope apps/web runs the dynamic scope's checks",
+    () => {
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const scriptPath = resolve(here, "flow-pre-commit.ts");
+      const result = spawnSync(
+        "bun",
+        [scriptPath, "--scope", "apps/web", "--json"],
+        {
+          cwd: tmpDir,
+          encoding: "utf8",
+        },
+      );
+      const report = JSON.parse(result.stdout) as JsonReport;
+      expect(report.scopes).toEqual(["apps/web"]);
+      expect(report.results.map((r) => r.name)).toContain(
+        "npm run test -w apps/web",
+      );
+      expect(report.allPassed).toBe(true);
+    },
+  );
 
-  it.skipIf(!bunOnPath)("--scope apps/nope exits non-zero with 'Unknown scope'", () => {
-    const here = import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
-    const scriptPath = resolve(here, "flow-pre-commit.ts");
-    const result = spawnSync("bun", [scriptPath, "--scope", "apps/nope", "--json"], {
-      cwd: tmpDir,
-      encoding: "utf8",
-    });
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain('Unknown scope "apps/nope"');
-  });
+  it.skipIf(!bunOnPath)(
+    "--scope apps/nope exits non-zero with 'Unknown scope'",
+    () => {
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const scriptPath = resolve(here, "flow-pre-commit.ts");
+      const result = spawnSync(
+        "bun",
+        [scriptPath, "--scope", "apps/nope", "--json"],
+        {
+          cwd: tmpDir,
+          encoding: "utf8",
+        },
+      );
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('Unknown scope "apps/nope"');
+    },
+  );
 });
 
 // --- Stories 1–9: monorepo auto-detect + stack-aware resolution + config ---
@@ -1674,7 +1884,9 @@ const ownerSeam =
 
 describe("Story 1/2: auto-detect resolves apps/web through declared scripts", () => {
   const readPkg = ownerSeam({
-    "apps/web/package.json": { scripts: { check: "svelte-check", lint: "eslint", test: "vitest" } },
+    "apps/web/package.json": {
+      scripts: { check: "svelte-check", lint: "eslint", test: "vitest" },
+    },
   });
 
   it("detects an apps/web dynamic scope and keeps apps/web/src out of unmatchedFiles (Story 1)", () => {
@@ -1692,12 +1904,16 @@ describe("Story 1/2: auto-detect resolves apps/web through declared scripts", ()
       "npm run lint -w apps/web",
       "npm run test -w apps/web",
     ]);
-    expect(dyn[0].checks.map((c) => c.name)).not.toContain("npm run typecheck -w apps/web");
+    expect(dyn[0].checks.map((c) => c.name)).not.toContain(
+      "npm run typecheck -w apps/web",
+    );
   });
 });
 
 describe("Story 5: zero-config mixed diff covers apps/web AND backend", () => {
-  const readPkg = ownerSeam({ "apps/web/package.json": { scripts: { test: "vitest" } } });
+  const readPkg = ownerSeam({
+    "apps/web/package.json": { scripts: { test: "vitest" } },
+  });
 
   it("detects both backend and apps/web with no orphans", () => {
     const files = ["apps/web/src/a.ts", "backend/x.go"];
@@ -1715,7 +1931,9 @@ describe("Story 5: zero-config mixed diff covers apps/web AND backend", () => {
 });
 
 describe("Story 6: an orphan bundled with a matched scope is covered by root-fallback", () => {
-  const readPkg = ownerSeam({ "apps/web/package.json": { scripts: { test: "vitest" } } });
+  const readPkg = ownerSeam({
+    "apps/web/package.json": { scripts: { test: "vitest" } },
+  });
 
   it("claims apps/web AND appends root-fallback for vendor/legacy/z.js (no unmatched-files)", () => {
     // Pre-additive (#192) this asserted reason='unmatched-files' + allPassed=false.
@@ -1728,7 +1946,10 @@ describe("Story 6: an orphan bundled with a matched scope is covered by root-fal
     const dyn = detectWorkspaceScopes(computeUnmatchedFiles(files), readPkg);
     const orphans = computeUnmatchedAfterDynamic(files, dyn);
     expect(orphans).toEqual(["vendor/legacy/z.js"]);
-    expect(detectScopesFromFiles(files, dyn)).toEqual(["apps/web", "root-fallback"]);
+    expect(detectScopesFromFiles(files, dyn)).toEqual([
+      "apps/web",
+      "root-fallback",
+    ]);
     const { allPassed, reason } = computeAllPassedAndReason(
       [createResult({ scope: "apps/web", passed: true })],
       files,
@@ -1755,7 +1976,10 @@ describe("Story 6: an orphan bundled with a matched scope is covered by root-fal
     const dyn = detectWorkspaceScopes(computeUnmatchedFiles(files), readPkg);
     const orphans = computeUnmatchedAfterDynamic(files, dyn);
     expect(orphans).toEqual(["package.json"]);
-    expect(detectScopesFromFiles(files, dyn)).toEqual(["apps/web", "root-fallback"]);
+    expect(detectScopesFromFiles(files, dyn)).toEqual([
+      "apps/web",
+      "root-fallback",
+    ]);
     const { allPassed, reason } = computeAllPassedAndReason(
       [createResult({ scope: "apps/web", passed: true })],
       files,
@@ -1770,13 +1994,17 @@ describe("Story 6: an orphan bundled with a matched scope is covered by root-fal
 describe("Story 7: draftConfigEntryForOrphans (pure Layer-3 helper)", () => {
   it("drafts an entry for a recognizable check-command package the auto-detect missed", () => {
     const readPkg = ownerSeam({
-      "services/api/package.json": { scripts: { check: "tsc", test: "vitest" } },
+      "services/api/package.json": {
+        scripts: { check: "tsc", test: "vitest" },
+      },
     });
     // services/ is not an auto-detect root, but workspacePrefixOf only knows
     // apps/ + packages/; a services/ orphan returns null (genuine orphan to
     // auto-detect) — the draft helper agrees here since services/ isn't a
     // workspace root either. Use an apps/ orphan to exercise the entry path.
-    expect(draftConfigEntryForOrphans(["services/api/src/a.ts"], readPkg)).toBeNull();
+    expect(
+      draftConfigEntryForOrphans(["services/api/src/a.ts"], readPkg),
+    ).toBeNull();
   });
 
   it("drafts an apps/<pkg> entry whose checks come from the package's declared scripts", () => {
@@ -1793,7 +2021,9 @@ describe("Story 7: draftConfigEntryForOrphans (pure Layer-3 helper)", () => {
   });
 
   it("returns null for a genuine orphan (no owner)", () => {
-    expect(draftConfigEntryForOrphans(["vendor/legacy/z.js"], ownerSeam({}))).toBeNull();
+    expect(
+      draftConfigEntryForOrphans(["vendor/legacy/z.js"], ownerSeam({})),
+    ).toBeNull();
   });
 });
 
@@ -1802,9 +2032,17 @@ describe("Story 8: explicit config overrides/extends auto-detect", () => {
 
   it("a configured web scope's checks win over the auto-detected default for the same prefix", () => {
     const configured = readMonorepoConfig(
-      configReader([{ name: "web", prefixes: ["apps/web/"], checks: ["npm run lint -w apps/web"] }]),
+      configReader([
+        {
+          name: "web",
+          prefixes: ["apps/web/"],
+          checks: ["npm run lint -w apps/web"],
+        },
+      ]),
     );
-    expect(configured?.[0].checks.map((c) => c.name)).toEqual(["npm run lint -w apps/web"]);
+    expect(configured?.[0].checks.map((c) => c.name)).toEqual([
+      "npm run lint -w apps/web",
+    ]);
   });
 
   it("parseScopes accepts a known dynamic name and still throws Unknown scope for an unknown one", () => {
@@ -1831,7 +2069,11 @@ describe("Story 9: malformed or absent config degrades safely", () => {
     const scopes = readMonorepoConfig(
       configReader([
         { name: "src", prefixes: ["apps/web/"], checks: ["x"] },
-        { name: "ok", prefixes: ["apps/api/"], checks: ["npm run test -w apps/api"] },
+        {
+          name: "ok",
+          prefixes: ["apps/api/"],
+          checks: ["npm run test -w apps/api"],
+        },
       ]),
     );
     expect(scopes?.map((s) => s.name)).toEqual(["ok"]);
@@ -1839,7 +2081,9 @@ describe("Story 9: malformed or absent config degrades safely", () => {
 
   it("checks not a string[] → entry dropped without throwing", () => {
     expect(
-      readMonorepoConfig(configReader([{ name: "bad", prefixes: ["apps/web/"], checks: [1] }])),
+      readMonorepoConfig(
+        configReader([{ name: "bad", prefixes: ["apps/web/"], checks: [1] }]),
+      ),
     ).toEqual([]);
   });
 });
@@ -1849,13 +2093,21 @@ describe("Story 4 regression: dynamic scopes never disturb pure built-in detecti
     // The existing pure spec (line ~109) asserts root-fallback with no owner;
     // this re-pins it from the Story-4 angle: the default empty dynamicScopes
     // arg means no filesystem touch and no behavior change.
-    expect(detectScopesFromFiles(["apps/web/src/index.ts"])).toEqual(["root-fallback"]);
+    expect(detectScopesFromFiles(["apps/web/src/index.ts"])).toEqual([
+      "root-fallback",
+    ]);
   });
 
   it("a dynamic scope claiming every file leaves no orphan, so root-fallback is not appended", () => {
     const dyn: DynamicScope[] = [
-      { name: "apps/web", prefixes: ["apps/web/"], checks: [{ name: "x", argv: ["x"] }] },
+      {
+        name: "apps/web",
+        prefixes: ["apps/web/"],
+        checks: [{ name: "x", argv: ["x"] }],
+      },
     ];
-    expect(detectScopesFromFiles(["apps/web/src/index.ts"], dyn)).toEqual(["apps/web"]);
+    expect(detectScopesFromFiles(["apps/web/src/index.ts"], dyn)).toEqual([
+      "apps/web",
+    ]);
   });
 });

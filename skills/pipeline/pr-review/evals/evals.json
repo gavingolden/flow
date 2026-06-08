@@ -75,7 +75,10 @@
           "name": "at_least_one_praise",
           "check": "findings.json contains at least one praise entry"
         },
-        { "name": "address_mode_detected", "check": "report.md indicates address mode" },
+        {
+          "name": "address_mode_detected",
+          "check": "report.md indicates address mode"
+        },
         {
           "name": "retrospective_included",
           "check": "report.md contains '### Retrospective' with agent coverage stats"
@@ -92,7 +95,10 @@
           "name": "independent_before_comments",
           "check": "Transcript shows independent review completed before reading comments"
         },
-        { "name": "multi_agent_coverage", "check": "agent-findings/ contains 6 agent JSON files" },
+        {
+          "name": "multi_agent_coverage",
+          "check": "agent-findings/ contains 6 agent JSON files"
+        },
         {
           "name": "disposition_summary_present",
           "check": "report.md contains '### Disposition Summary' with Addressed and Deferred counts"
@@ -125,7 +131,10 @@
           "name": "conventional_comments_used",
           "check": "Findings use conventional comment format"
         },
-        { "name": "at_least_one_praise", "check": "At least one praise finding present" },
+        {
+          "name": "at_least_one_praise",
+          "check": "At least one praise finding present"
+        },
         {
           "name": "size_warning_present",
           "check": "Report or size-assessment.md flags PR as oversized (1000+ lines)"
@@ -134,8 +143,14 @@
           "name": "ambiguous_prompt_handled",
           "check": "Either asked for clarification or defaulted to address mode given existing comments"
         },
-        { "name": "retrospective_included", "check": "Report contains retrospective section" },
-        { "name": "multi_agent_coverage", "check": "agent-findings/ contains 6 agent JSON files" },
+        {
+          "name": "retrospective_included",
+          "check": "Report contains retrospective section"
+        },
+        {
+          "name": "multi_agent_coverage",
+          "check": "agent-findings/ contains 6 agent JSON files"
+        },
         {
           "name": "independent_before_comments",
           "check": "Independent review before reading comments"

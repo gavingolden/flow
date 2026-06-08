@@ -44,7 +44,12 @@ describe(render, () => {
 
   it("renders a single reason", () => {
     expect(
-      render({ ran: 1, total: 2, prosePromoted: 0, reasons: ["cross-browser"] }),
+      render({
+        ran: 1,
+        total: 2,
+        prosePromoted: 0,
+        reasons: ["cross-browser"],
+      }),
     ).toBe(
       "Automation-precedence audit: ran 1/2 items (0 prose-promoted, 1 left manual: cross-browser)",
     );
@@ -75,8 +80,15 @@ describe(render, () => {
 
   it("M=0 branch wins over reasons (reasons ignored when total is 0)", () => {
     expect(
-      render({ ran: 0, total: 0, prosePromoted: 0, reasons: ["subjective-UX"] }),
-    ).toBe("Automation-precedence audit: ran 0/0 items (no Test Steps to verify)");
+      render({
+        ran: 0,
+        total: 0,
+        prosePromoted: 0,
+        reasons: ["subjective-UX"],
+      }),
+    ).toBe(
+      "Automation-precedence audit: ran 0/0 items (no Test Steps to verify)",
+    );
   });
 });
 
@@ -105,26 +117,58 @@ describe(parseArgs, () => {
 
   it("returns missing required flag: --prose-promoted when omitted", () => {
     const r = parseArgs(["--ran", "3", "--total", "5"]);
-    expect("error" in r && r.error).toContain("missing required flag: --prose-promoted");
+    expect("error" in r && r.error).toContain(
+      "missing required flag: --prose-promoted",
+    );
   });
 
   it("rejects non-integer counts", () => {
-    const r = parseArgs(["--ran", "abc", "--total", "5", "--prose-promoted", "1"]);
+    const r = parseArgs([
+      "--ran",
+      "abc",
+      "--total",
+      "5",
+      "--prose-promoted",
+      "1",
+    ]);
     expect("error" in r && r.error).toContain("must be a non-negative integer");
   });
 
   it("rejects negative counts", () => {
-    const r = parseArgs(["--ran", "-1", "--total", "5", "--prose-promoted", "1"]);
+    const r = parseArgs([
+      "--ran",
+      "-1",
+      "--total",
+      "5",
+      "--prose-promoted",
+      "1",
+    ]);
     expect("error" in r && r.error).toContain("must be a non-negative integer");
   });
 
   it("rejects --ran > --total", () => {
-    const r = parseArgs(["--ran", "6", "--total", "5", "--prose-promoted", "0"]);
-    expect("error" in r && r.error).toContain("--ran (6) cannot exceed --total (5)");
+    const r = parseArgs([
+      "--ran",
+      "6",
+      "--total",
+      "5",
+      "--prose-promoted",
+      "0",
+    ]);
+    expect("error" in r && r.error).toContain(
+      "--ran (6) cannot exceed --total (5)",
+    );
   });
 
   it("rejects --prose-promoted > --ran", () => {
-    const r = parseArgs(["--ran", "3", "--total", "5", "--prose-promoted", "4"]);
+    const r = parseArgs([
+      "--ran",
+      "3",
+      "--total",
+      "5",
+      "--prose-promoted",
+      "4",
+    ]);
     expect("error" in r && r.error).toContain(
       "--prose-promoted (4) cannot exceed --ran (3)",
     );
@@ -202,7 +246,12 @@ describe(parseArgs, () => {
         "--reason",
         "subjective-UX",
       ]),
-    ).toEqual({ ran: 3, total: 5, prosePromoted: 1, reasons: ["subjective-UX"] });
+    ).toEqual({
+      ran: 3,
+      total: 5,
+      prosePromoted: 1,
+      reasons: ["subjective-UX"],
+    });
   });
 
   it("accepts --reason flags before the count flags (order-independent)", () => {
@@ -217,7 +266,12 @@ describe(parseArgs, () => {
         "--prose-promoted",
         "1",
       ]),
-    ).toEqual({ ran: 3, total: 5, prosePromoted: 1, reasons: ["subjective-UX"] });
+    ).toEqual({
+      ran: 3,
+      total: 5,
+      prosePromoted: 1,
+      reasons: ["subjective-UX"],
+    });
   });
 });
 

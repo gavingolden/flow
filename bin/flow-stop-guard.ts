@@ -81,7 +81,13 @@ export async function run(deps: Deps): Promise<number> {
   const prior = deps.readTurn(slug);
   const turnBoundary = input.stop_hook_active === false || prior === null;
   let tracking: TurnTracking = turnBoundary
-    ? { slug, turnId: now, blockCount: 0, lastPhase: state.phase, lastStopAt: now }
+    ? {
+        slug,
+        turnId: now,
+        blockCount: 0,
+        lastPhase: state.phase,
+        lastStopAt: now,
+      }
     : prior!;
 
   if (turnBoundary) deps.writeTurn(tracking);
@@ -92,7 +98,10 @@ export async function run(deps: Deps): Promise<number> {
     return 0;
   }
 
-  if (tracking.blockCount >= TURN_BLOCK_LIMIT && state.phase !== tracking.lastPhase) {
+  if (
+    tracking.blockCount >= TURN_BLOCK_LIMIT &&
+    state.phase !== tracking.lastPhase
+  ) {
     deps.writeErr(
       `flow-stop-guard: loop-break consumed at phase=${state.phase}; subsequent stops will exit 0 only if phase keeps advancing — stalling at this phase re-engages the stagnation reminder. Continue per /flow-pipeline SKILL.md.\n`,
     );
@@ -101,8 +110,14 @@ export async function run(deps: Deps): Promise<number> {
     return 0;
   }
 
-  if (tracking.blockCount >= TURN_BLOCK_LIMIT && state.phase === tracking.lastPhase) {
-    const reminder = buildStagnationReminder(state.phase, tracking.blockCount + 1);
+  if (
+    tracking.blockCount >= TURN_BLOCK_LIMIT &&
+    state.phase === tracking.lastPhase
+  ) {
+    const reminder = buildStagnationReminder(
+      state.phase,
+      tracking.blockCount + 1,
+    );
     for (const line of reminder) deps.writeErr(`${line}\n`);
     tracking = {
       ...tracking,
@@ -127,7 +142,8 @@ export async function run(deps: Deps): Promise<number> {
 }
 
 export const NEXT_STEP_BY_PHASE: Record<string, string> = {
-  starting: "step 1 (triage) — first action should be flow-state-update --phase triaging",
+  starting:
+    "step 1 (triage) — first action should be flow-state-update --phase triaging",
   triaging: "step 2 (worktree-create)",
   "worktree-create": "step 3 (plan)",
   planning: "step 4 (approval) for feature intent, else step 5 (implement)",
@@ -135,14 +151,18 @@ export const NEXT_STEP_BY_PHASE: Record<string, string> = {
   "installing-skills": "step 6 (verify)",
   verifying: "step 7 (ci-wait)",
   "ci-wait": "step 8 (review)",
-  "ci-wait-pending": "step 7 (ci-wait) — re-read the flow-ci-wait verdict and branch on .decision",
+  "ci-wait-pending":
+    "step 7 (ci-wait) — re-read the flow-ci-wait verdict and branch on .decision",
   reviewing: "step 9 (gate)",
   gating: "step 10 (merge)",
-  merging: "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED)",
+  merging:
+    "step 10 → step 11 (finalize merge, run local follow-ups, then MERGED)",
 };
 
 export function nextStepLabel(phase: string): string {
-  return NEXT_STEP_BY_PHASE[phase] ?? "the next step in /flow-pipeline SKILL.md";
+  return (
+    NEXT_STEP_BY_PHASE[phase] ?? "the next step in /flow-pipeline SKILL.md"
+  );
 }
 
 export function buildReminder(phase: string, next: string): string[] {
@@ -154,7 +174,10 @@ export function buildReminder(phase: string, next: string): string[] {
   ];
 }
 
-export function buildStagnationReminder(phase: string, count: number): string[] {
+export function buildStagnationReminder(
+  phase: string,
+  count: number,
+): string[] {
   return [
     `flow-stop-guard: phase has not advanced for ${count} consecutive stops; phase=${phase}.`,
     "The supervisor must continue to the next step per /flow-pipeline SKILL.md, or transition to a legitimate end-state if blocked.",

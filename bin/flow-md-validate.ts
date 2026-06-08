@@ -91,7 +91,9 @@ export function stripCode(source: string): string {
   return lines.join("\n");
 }
 
-export function extractHeadings(source: string): { line: number; slug: string }[] {
+export function extractHeadings(
+  source: string,
+): { line: number; slug: string }[] {
   // Track fenced-code state ourselves; do NOT call stripCode, which would
   // wipe inline-code spans from heading text (e.g. `## \`name\` Error` would
   // collapse to "Error" and lose the slug).
@@ -116,7 +118,9 @@ export function extractHeadings(source: string): { line: number; slug: string }[
   return out;
 }
 
-export function extractLinks(source: string): { line: number; raw: string; isImage: boolean }[] {
+export function extractLinks(
+  source: string,
+): { line: number; raw: string; isImage: boolean }[] {
   const stripped = stripCode(source);
   const out: { line: number; raw: string; isImage: boolean }[] = [];
   let line = 1;
@@ -175,14 +179,24 @@ export function validateFile(absPath: string): Violation[] {
 
     if (linkPath === "") {
       if (anchor && !ownHeadings.some((h) => h.slug === anchor)) {
-        violations.push({ file: absPath, line, kind: "broken-link-anchor", detail: `#${anchor}` });
+        violations.push({
+          file: absPath,
+          line,
+          kind: "broken-link-anchor",
+          detail: `#${anchor}`,
+        });
       }
       continue;
     }
 
     const target = path.resolve(fileDir, linkPath);
     if (!fs.existsSync(target)) {
-      violations.push({ file: absPath, line, kind: "broken-link-target", detail: linkPath });
+      violations.push({
+        file: absPath,
+        line,
+        kind: "broken-link-target",
+        detail: linkPath,
+      });
       continue;
     }
 
@@ -202,7 +216,11 @@ export function validateFile(absPath: string): Violation[] {
   return violations;
 }
 
-export type RunReport = { fileCount: number; linkCount: number; violations: Violation[] };
+export type RunReport = {
+  fileCount: number;
+  linkCount: number;
+  violations: Violation[];
+};
 
 export function runValidation(target: string): RunReport {
   const files = walkMarkdownFiles(target);
@@ -210,7 +228,9 @@ export function runValidation(target: string): RunReport {
   let linkCount = 0;
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8");
-    linkCount += extractLinks(source).filter((l) => !l.isImage && !EXTERNAL_RE.test(l.raw)).length;
+    linkCount += extractLinks(source).filter(
+      (l) => !l.isImage && !EXTERNAL_RE.test(l.raw),
+    ).length;
     violations.push(...validateFile(file));
   }
   violations.sort((a, b) =>
@@ -243,7 +263,9 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   const report = runValidation(target);
-  const root = fs.statSync(target).isDirectory() ? target : path.dirname(target);
+  const root = fs.statSync(target).isDirectory()
+    ? target
+    : path.dirname(target);
   for (const v of report.violations) {
     const rel = path.relative(root, v.file);
     console.log(`${rel}:${v.line}: ${v.kind}: ${v.detail}`);

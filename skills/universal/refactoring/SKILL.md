@@ -62,7 +62,7 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
 
 **Tiebreaker for soft-edge phrasing.** If the description names one file
 but contains fan-out language ("and all callers", "every caller of X",
-"and downstream consumers", "and update its tests") or introduces a *new*
+"and downstream consumers", "and update its tests") or introduces a _new_
 sibling module / component, route SPAWN regardless of the leading
 single-file phrasing. Renames, extractions, and signature changes that
 touch all call sites are the canonical case the threshold's wider-scope
@@ -107,7 +107,7 @@ code has been removed.
    Edit-Applier Subagent** via the Task tool (exemption #6 — see
    `skills/pipeline/flow-pipeline/SKILL.md` "Hard rules"). The subagent
    applies every edit in its own isolated context, runs `flow-pre-commit
-   --json` against the post-edit worktree, and writes the structured
+--json` against the post-edit worktree, and writes the structured
    artifact at `<worktree>/.flow-tmp/coder-result.json`.
 
 3. After `/coder` returns, do a cheap existence check on the artifact:

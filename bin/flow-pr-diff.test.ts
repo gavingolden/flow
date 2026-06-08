@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { capDiff, parseArgs, run, splitIntoBlocks, type GhRunner } from "./flow-pr-diff";
+import {
+  capDiff,
+  parseArgs,
+  run,
+  splitIntoBlocks,
+  type GhRunner,
+} from "./flow-pr-diff";
 
 // --- Fixtures ---
 
@@ -119,7 +125,9 @@ describe(capDiff, () => {
     expect(output).toContain("a/a.ts");
     expect(output).not.toContain("a/b.ts");
     expect(output).not.toContain("a/c.ts");
-    expect(output).toContain("[2 additional file(s) omitted; full diff: gh pr diff 7]");
+    expect(output).toContain(
+      "[2 additional file(s) omitted; full diff: gh pr diff 7]",
+    );
   });
 
   it("always keeps at least one file even when its size exceeds maxTotal", () => {
@@ -165,7 +173,9 @@ describe(parseArgs, () => {
   });
 
   it("parses --max-lines and --max-total overrides", () => {
-    expect(parseArgs(["7", "--max-lines", "500", "--max-total", "10000"])).toEqual({
+    expect(
+      parseArgs(["7", "--max-lines", "500", "--max-total", "10000"]),
+    ).toEqual({
       prNumber: 7,
       maxLines: 500,
       maxTotal: 10000,
@@ -195,7 +205,9 @@ describe(parseArgs, () => {
 
   it("rejects extra positional arguments", () => {
     const r = parseArgs(["7", "8"]);
-    expect("error" in r && r.error?.includes("unexpected extra argument")).toBe(true);
+    expect("error" in r && r.error?.includes("unexpected extra argument")).toBe(
+      true,
+    );
   });
 });
 
@@ -228,7 +240,11 @@ describe(run, () => {
       exitCode: 1,
     });
     const errs: string[] = [];
-    const exit = run(["7"], { gh, writeOut: () => {}, writeErr: (s) => errs.push(s) });
+    const exit = run(["7"], {
+      gh,
+      writeOut: () => {},
+      writeErr: (s) => errs.push(s),
+    });
     expect(exit).toBe(1);
     expect(errs.join("")).toContain("GraphQL: Could not resolve");
   });

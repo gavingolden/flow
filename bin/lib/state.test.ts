@@ -28,7 +28,10 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function fixture(slug: string, overrides: Partial<PipelineState> = {}): PipelineState {
+function fixture(
+  slug: string,
+  overrides: Partial<PipelineState> = {},
+): PipelineState {
   return {
     slug,
     phase: "starting",
@@ -61,7 +64,11 @@ describe("state", () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, "no-phase.json"),
-      JSON.stringify({ slug: "no-phase", repo: "/tmp/repo", updatedAt: "2026-05-17T00:00:00Z" }),
+      JSON.stringify({
+        slug: "no-phase",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
     );
     expect(readState("no-phase", dir)).toBeNull();
   });
@@ -70,7 +77,12 @@ describe("state", () => {
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(
       path.join(dir, "bad-phase.json"),
-      JSON.stringify({ slug: "bad-phase", phase: 42, repo: "/tmp/repo", updatedAt: "2026-05-17T00:00:00Z" }),
+      JSON.stringify({
+        slug: "bad-phase",
+        phase: 42,
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
     );
     expect(readState("bad-phase", dir)).toBeNull();
   });
@@ -303,7 +315,9 @@ describe("state", () => {
     writeState(fixture("a"), dir);
     writeState(fixture("b", { phase: "merged" }), dir);
     writeState(fixture("c", { phase: "planning" }), dir);
-    const all = listStates(dir).map((s) => s.slug).sort();
+    const all = listStates(dir)
+      .map((s) => s.slug)
+      .sort();
     expect(all).toEqual(["a", "b", "c"]);
   });
 
@@ -317,7 +331,13 @@ describe("state", () => {
     writeState(fixture("real"), dir);
     fs.writeFileSync(
       path.join(dir, "legacy.turn.json"),
-      JSON.stringify({ slug: "legacy", turnId: "x", blockCount: 1, lastPhase: "verifying", lastStopAt: "x" }) + "\n",
+      JSON.stringify({
+        slug: "legacy",
+        turnId: "x",
+        blockCount: 1,
+        lastPhase: "verifying",
+        lastStopAt: "x",
+      }) + "\n",
     );
     expect(listStates(dir).map((s) => s.slug)).toEqual(["real"]);
   });
@@ -333,7 +353,13 @@ describe("state", () => {
     fs.mkdirSync(path.join(dir, "turns"), { recursive: true });
     fs.writeFileSync(
       path.join(dir, "turns", "real.json"),
-      JSON.stringify({ slug: "real", turnId: "x", blockCount: 1, lastPhase: "verifying", lastStopAt: "x" }) + "\n",
+      JSON.stringify({
+        slug: "real",
+        turnId: "x",
+        blockCount: 1,
+        lastPhase: "verifying",
+        lastStopAt: "x",
+      }) + "\n",
     );
     expect(listStates(dir).map((s) => s.slug)).toEqual(["real"]);
   });
@@ -387,7 +413,11 @@ describe("phase constants", () => {
   });
 
   it("PIPELINE_PHASES is the union of TERMINAL, PENDING, STEP", () => {
-    const expected = new Set([...STEP_PHASES, ...PENDING_PHASES, ...TERMINAL_PHASES]);
+    const expected = new Set([
+      ...STEP_PHASES,
+      ...PENDING_PHASES,
+      ...TERMINAL_PHASES,
+    ]);
     expect(new Set(PIPELINE_PHASES)).toEqual(expected);
   });
 
@@ -411,7 +441,9 @@ describe("phase constants", () => {
     // flow-ci-wait runs force-backgrounded.
     expect(PENDING_PHASES).toContain("ci-wait-pending");
     expect(STEP_PHASES as readonly string[]).not.toContain("ci-wait-pending");
-    expect(TERMINAL_PHASES as readonly string[]).not.toContain("ci-wait-pending");
+    expect(TERMINAL_PHASES as readonly string[]).not.toContain(
+      "ci-wait-pending",
+    );
     expect(isLegitimateEndPhase("ci-wait-pending")).toBe(true);
     expect(isPipelinePhase("ci-wait-pending")).toBe(true);
   });

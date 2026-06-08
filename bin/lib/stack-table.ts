@@ -43,7 +43,12 @@ export const STACK_TABLE: Record<string, StackEntry> = {
   "package.json": {
     stack: "node",
     defaultChecks: [],
-    verifyScriptOrder: [["typecheck", "check"], ["lint"], ["test"], ["format:check"]],
+    verifyScriptOrder: [
+      ["typecheck", "check"],
+      ["lint"],
+      ["test"],
+      ["format:check"],
+    ],
     denylist: ["format", "dev", "build", "preview", "smoketest"],
     denylistSuffixes: [":watch", ":e2e"],
   },
@@ -124,7 +129,9 @@ export function resolveChecks(opts: ResolveChecksOpts): CheckDef[] {
 
     const checks: CheckDef[] = [];
     for (const group of entry.verifyScriptOrder) {
-      const pick = group.find((s) => declared.has(s) && !isDenylisted(s, entry));
+      const pick = group.find(
+        (s) => declared.has(s) && !isDenylisted(s, entry),
+      );
       if (pick) checks.push(npmRunCheck(pick, opts.workspacePath));
     }
     if (checks.length > 0) return checks;

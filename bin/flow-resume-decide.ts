@@ -92,7 +92,12 @@ export type WorktreeInfo =
 
 export type PrInfo =
   | { kind: "none" }
-  | { kind: "found"; state: "OPEN" | "MERGED" | "CLOSED"; number: number; url: string };
+  | {
+      kind: "found";
+      state: "OPEN" | "MERGED" | "CLOSED";
+      number: number;
+      url: string;
+    };
 
 export type CiState =
   | { kind: "all-terminal" }
@@ -186,7 +191,11 @@ export function decide(inputs: Inputs): DecisionResult {
 
   // Edge 1.3-1.5: terminal phases — pipeline already ended.
   if (TERMINAL_PHASES.has(inputs.state.phase)) {
-    return { resumeAt: "terminal", reason: `phase: ${inputs.state.phase}`, context: ctx };
+    return {
+      resumeAt: "terminal",
+      reason: `phase: ${inputs.state.phase}`,
+      context: ctx,
+    };
   }
 
   // Populate PR context up front so all downstream branches can reference it.
@@ -238,13 +247,21 @@ export function decide(inputs: Inputs): DecisionResult {
 
   // Row 2 — worktree present + git checkout.
   if (inputs.worktree.kind !== "present") {
-    return { resumeAt: "step-2", reason: "worktree not yet created", context: ctx };
+    return {
+      resumeAt: "step-2",
+      reason: "worktree not yet created",
+      context: ctx,
+    };
   }
 
   // Row 3 — plan.md exists and is non-empty.
   ctx.planExists = inputs.planExists;
   if (!inputs.planExists) {
-    return { resumeAt: "step-3", reason: "plan.md missing or empty", context: ctx };
+    return {
+      resumeAt: "step-3",
+      reason: "plan.md missing or empty",
+      context: ctx,
+    };
   }
 
   // Row 4 — approval reached; phase advanced past plan-pending-review.
@@ -264,7 +281,10 @@ export function decide(inputs: Inputs): DecisionResult {
   // Row 5.5 — re-symlink. Done when phase post-symlink, OR no skill/agent
   // additions on this branch (nothing to re-symlink).
   ctx.hasSkillAdditions = inputs.hasSkillAdditions;
-  if (!POST_SYMLINK_PHASES.has(inputs.state.phase) && inputs.hasSkillAdditions) {
+  if (
+    !POST_SYMLINK_PHASES.has(inputs.state.phase) &&
+    inputs.hasSkillAdditions
+  ) {
     return {
       resumeAt: "step-5.5",
       reason: "skills/agents added but re-symlink not yet run",
@@ -297,7 +317,11 @@ export function decide(inputs: Inputs): DecisionResult {
   // Row 8 — pr-review commit on HEAD.
   if (inputs.headCommit) ctx.headCommitSubject = inputs.headCommit.subject;
   if (!hasPrReviewCommit(inputs.headCommit)) {
-    return { resumeAt: "step-8", reason: "no pr-review commit on HEAD", context: ctx };
+    return {
+      resumeAt: "step-8",
+      reason: "no pr-review commit on HEAD",
+      context: ctx,
+    };
   }
 
   // Row 9 — gate. PR-MERGED branches (step-9 cleanup vs row-10 terminal) were
@@ -325,12 +349,20 @@ export type GitRunner = (argv: string[], cwd: string) => CmdResult;
 
 const defaultGh: GhRunner = (argv) => {
   const r = spawnSync("gh", argv, { encoding: "utf8" });
-  return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", exitCode: r.status ?? -1 };
+  return {
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? "",
+    exitCode: r.status ?? -1,
+  };
 };
 
 const defaultGit: GitRunner = (argv, cwd) => {
   const r = spawnSync("git", argv, { cwd, encoding: "utf8" });
-  return { stdout: r.stdout ?? "", stderr: r.stderr ?? "", exitCode: r.status ?? -1 };
+  return {
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? "",
+    exitCode: r.status ?? -1,
+  };
 };
 
 export type Deps = {
@@ -341,7 +373,10 @@ export type Deps = {
 };
 
 /** Probes the worktree path's status. Used by the runner to build Inputs.worktree. */
-export function probeWorktree(stateWorktree: string | undefined, git: GitRunner): WorktreeInfo {
+export function probeWorktree(
+  stateWorktree: string | undefined,
+  git: GitRunner,
+): WorktreeInfo {
   if (!stateWorktree) return { kind: "absent-from-state" };
   if (!fs.existsSync(stateWorktree)) {
     return { kind: "missing-on-disk", path: stateWorktree };
@@ -368,7 +403,10 @@ export function probePlan(worktreePath: string): boolean {
 }
 
 /** Resolves the default branch (e.g. "main", "master") from the worktree's origin/HEAD. */
-export function resolveDefaultBranch(worktreePath: string, git: GitRunner): string {
+export function resolveDefaultBranch(
+  worktreePath: string,
+  git: GitRunner,
+): string {
   const r = git(["symbolic-ref", "refs/remotes/origin/HEAD"], worktreePath);
   if (r.exitCode === 0) {
     const m = r.stdout.trim().match(/^refs\/remotes\/origin\/(.+)$/);
@@ -381,7 +419,10 @@ export function resolveDefaultBranch(worktreePath: string, git: GitRunner): stri
  * Detects whether the worktree's branch adds files under skills/ or agents/
  * relative to its merge-base with origin/<default>. Step 5.5's input.
  */
-export function probeSkillAdditions(worktreePath: string, git: GitRunner): boolean {
+export function probeSkillAdditions(
+  worktreePath: string,
+  git: GitRunner,
+): boolean {
   const defaultBranch = resolveDefaultBranch(worktreePath, git);
   const r = git(
     ["diff", "--name-only", `origin/${defaultBranch}...HEAD`],
@@ -395,7 +436,10 @@ export function probeSkillAdditions(worktreePath: string, git: GitRunner): boole
 }
 
 /** Reads the HEAD commit's subject + body via `git log -1 --pretty=%B`. */
-export function probeHeadCommit(worktreePath: string, git: GitRunner): HeadCommit | null {
+export function probeHeadCommit(
+  worktreePath: string,
+  git: GitRunner,
+): HeadCommit | null {
   const r = git(["log", "-1", "--pretty=%B"], worktreePath);
   if (r.exitCode !== 0) return null;
   const lines = r.stdout.replace(/\n+$/, "").split("\n");
@@ -418,22 +462,36 @@ export function probePr(branch: string, gh: GhRunner): PrInfo {
     return { kind: "none" };
   }
   try {
-    const parsed = JSON.parse(r.stdout) as { number?: number; state?: string; url?: string };
+    const parsed = JSON.parse(r.stdout) as {
+      number?: number;
+      state?: string;
+      url?: string;
+    };
     if (
       typeof parsed.number !== "number" ||
       typeof parsed.url !== "string" ||
-      (parsed.state !== "OPEN" && parsed.state !== "MERGED" && parsed.state !== "CLOSED")
+      (parsed.state !== "OPEN" &&
+        parsed.state !== "MERGED" &&
+        parsed.state !== "CLOSED")
     ) {
       return { kind: "none" };
     }
-    return { kind: "found", number: parsed.number, state: parsed.state, url: parsed.url };
+    return {
+      kind: "found",
+      number: parsed.number,
+      state: parsed.state,
+      url: parsed.url,
+    };
   } catch {
     return { kind: "none" };
   }
 }
 
 /** Computes the worktree's current branch (used for `gh pr view <branch>`). */
-export function probeBranch(worktreePath: string, git: GitRunner): string | null {
+export function probeBranch(
+  worktreePath: string,
+  git: GitRunner,
+): string | null {
   const r = git(["branch", "--show-current"], worktreePath);
   if (r.exitCode !== 0) return null;
   const branch = r.stdout.trim();
@@ -461,7 +519,9 @@ export function probeCi(prNumber: number, gh: GhRunner): CiState {
 
 // --- CLI -------------------------------------------------------------------
 
-export function parseArgs(argv: string[]): { slug?: string } | { error: string } {
+export function parseArgs(
+  argv: string[],
+): { slug?: string } | { error: string } {
   // Slug is optional: when omitted, the caller resolves from $TMUX_PANE.
   // A leading flag is treated as "no slug given" (matches the auto-resolve
   // contract used by flow-state-update / flow-open-pr).
@@ -505,13 +565,21 @@ export function gatherInputs(
 
   const worktree = probeWorktree(state.worktree, git);
 
-  const planExists = worktree.kind === "present" ? probePlan(worktree.path) : false;
+  const planExists =
+    worktree.kind === "present" ? probePlan(worktree.path) : false;
   const hasSkillAdditions =
-    worktree.kind === "present" ? probeSkillAdditions(worktree.path, git) : false;
-  const headCommit = worktree.kind === "present" ? probeHeadCommit(worktree.path, git) : null;
-  const branch = worktree.kind === "present" ? probeBranch(worktree.path, git) : null;
+    worktree.kind === "present"
+      ? probeSkillAdditions(worktree.path, git)
+      : false;
+  const headCommit =
+    worktree.kind === "present" ? probeHeadCommit(worktree.path, git) : null;
+  const branch =
+    worktree.kind === "present" ? probeBranch(worktree.path, git) : null;
   const pr = branch ? probePr(branch, gh) : { kind: "none" as const };
-  const ciState = pr.kind === "found" ? probeCi(pr.number, gh) : { kind: "no-checks-reported" as const };
+  const ciState =
+    pr.kind === "found"
+      ? probeCi(pr.number, gh)
+      : { kind: "no-checks-reported" as const };
 
   return {
     slug,

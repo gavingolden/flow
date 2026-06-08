@@ -25,7 +25,12 @@ import {
   windowExists,
   FLOW_SESSION,
 } from "./tmux";
-import { deleteState, listStates, readState, type PipelineState } from "./state";
+import {
+  deleteState,
+  listStates,
+  readState,
+  type PipelineState,
+} from "./state";
 import { deleteTurnTracking } from "./stop-turn-tracking";
 
 const TERMINAL_PHASES = new Set(["merged", "cancelled"]);
@@ -54,13 +59,18 @@ export function runDoneCli(args: string[]): number {
   return runDone(positional[0], { merged, orphans, yes });
 }
 
-export function runDone(name: string | undefined, options: DoneOptions = {}): number {
+export function runDone(
+  name: string | undefined,
+  options: DoneOptions = {},
+): number {
   if (options.merged && options.orphans) return runDoneCombined(options);
   if (options.orphans) return runDoneOrphans(options);
   if (options.merged) return runDoneMerged(options);
 
   if (!name) {
-    console.error("flow done: <name> is required (or pass --merged / --orphans).");
+    console.error(
+      "flow done: <name> is required (or pass --merged / --orphans).",
+    );
     return 1;
   }
 
@@ -121,18 +131,24 @@ function runDoneOrphans(options: DoneOptions): number {
 
 function runDoneCombined(options: DoneOptions): number {
   const windows = listWindows();
-  const reasons = new Map<string, { state: PipelineState; tag: "merged" | "orphan" | "merged+orphan" }>();
+  const reasons = new Map<
+    string,
+    { state: PipelineState; tag: "merged" | "orphan" | "merged+orphan" }
+  >();
 
   for (const s of listStates()) {
     const isMerged = TERMINAL_PHASES.has(s.phase);
     const isOrphan = !findWindowBySlug(windows, s.slug);
     if (!isMerged && !isOrphan) continue;
-    const tag = isMerged && isOrphan ? "merged+orphan" : isMerged ? "merged" : "orphan";
+    const tag =
+      isMerged && isOrphan ? "merged+orphan" : isMerged ? "merged" : "orphan";
     reasons.set(s.slug, { state: s, tag });
   }
 
   if (reasons.size === 0) {
-    console.log("flow done: no merged, cancelled, or orphan pipelines to close.");
+    console.log(
+      "flow done: no merged, cancelled, or orphan pipelines to close.",
+    );
     return 0;
   }
 

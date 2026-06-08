@@ -68,7 +68,10 @@ describe("flow migrate", () => {
   it("buildPlan: distinguishes real files from symlinks at managed paths", () => {
     writeGitignoreFixture([], ["/scripts/foo.ts"]);
     fs.mkdirSync(path.join(repoRoot, "scripts"), { recursive: true });
-    fs.writeFileSync(path.join(repoRoot, "scripts/foo.ts"), "user-replaced content");
+    fs.writeFileSync(
+      path.join(repoRoot, "scripts/foo.ts"),
+      "user-replaced content",
+    );
     const plan = buildPlan(repoRoot);
     expect(plan.symlinksToRemove).toEqual([]);
     expect(plan.realFilesEncountered).toHaveLength(1);
@@ -80,8 +83,14 @@ describe("flow migrate", () => {
     const before = fs.readFileSync(path.join(repoRoot, ".gitignore"), "utf8");
     const code = runMigrate({}, repoRoot);
     expect(code).toBe(0);
-    expect(fs.readFileSync(path.join(repoRoot, ".gitignore"), "utf8")).toBe(before);
-    expect(fs.lstatSync(path.join(repoRoot, ".claude/skills/alpha")).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(path.join(repoRoot, ".gitignore"), "utf8")).toBe(
+      before,
+    );
+    expect(
+      fs
+        .lstatSync(path.join(repoRoot, ".claude/skills/alpha"))
+        .isSymbolicLink(),
+    ).toBe(true);
   });
 
   it("--apply removes symlinks and strips managed gitignore blocks", () => {
@@ -90,9 +99,14 @@ describe("flow migrate", () => {
 
     runMigrate({ apply: true }, repoRoot);
 
-    expect(fs.existsSync(path.join(repoRoot, ".claude/skills/alpha"))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, ".claude/skills/alpha"))).toBe(
+      false,
+    );
     expect(fs.existsSync(path.join(repoRoot, "scripts/foo.ts"))).toBe(false);
-    const gitignore = fs.readFileSync(path.join(repoRoot, ".gitignore"), "utf8");
+    const gitignore = fs.readFileSync(
+      path.join(repoRoot, ".gitignore"),
+      "utf8",
+    );
     expect(gitignore).not.toContain("# managed by flow install-skills");
     expect(gitignore).not.toContain("# managed by flow install-scripts");
   });
@@ -103,7 +117,9 @@ describe("flow migrate", () => {
     runMigrate({ apply: true }, repoRoot);
     const after = fs.readFileSync(path.join(repoRoot, ".gitignore"), "utf8");
     runMigrate({ apply: true }, repoRoot);
-    expect(fs.readFileSync(path.join(repoRoot, ".gitignore"), "utf8")).toBe(after);
+    expect(fs.readFileSync(path.join(repoRoot, ".gitignore"), "utf8")).toBe(
+      after,
+    );
   });
 
   it("--apply leaves real files untouched (never deletes user content)", () => {
@@ -113,7 +129,9 @@ describe("flow migrate", () => {
 
     runMigrate({ apply: true }, repoRoot);
 
-    expect(fs.readFileSync(path.join(repoRoot, "scripts/foo.ts"), "utf8")).toBe("user content");
+    expect(fs.readFileSync(path.join(repoRoot, "scripts/foo.ts"), "utf8")).toBe(
+      "user content",
+    );
   });
 
   it("refuses to proceed when non-terminal tasks exist in .orchestrator/tasks/", () => {
@@ -121,7 +139,10 @@ describe("flow migrate", () => {
     createManagedSymlinks(["/.claude/skills/alpha"]);
     const tasksDir = path.join(repoRoot, ".orchestrator", "tasks");
     fs.mkdirSync(tasksDir, { recursive: true });
-    fs.writeFileSync(path.join(tasksDir, "task-1.md"), "---\nstatus: implementing\n---\n");
+    fs.writeFileSync(
+      path.join(tasksDir, "task-1.md"),
+      "---\nstatus: implementing\n---\n",
+    );
 
     const code = runMigrate({}, repoRoot);
     expect(code).toBe(1);
@@ -132,8 +153,14 @@ describe("flow migrate", () => {
     createManagedSymlinks(["/.claude/skills/alpha"]);
     const tasksDir = path.join(repoRoot, ".orchestrator", "tasks");
     fs.mkdirSync(tasksDir, { recursive: true });
-    fs.writeFileSync(path.join(tasksDir, "merged-task.md"), "---\nstatus: merged\n---\n");
-    fs.writeFileSync(path.join(tasksDir, "aborted-task.md"), "---\nstatus: aborted\n---\n");
+    fs.writeFileSync(
+      path.join(tasksDir, "merged-task.md"),
+      "---\nstatus: merged\n---\n",
+    );
+    fs.writeFileSync(
+      path.join(tasksDir, "aborted-task.md"),
+      "---\nstatus: aborted\n---\n",
+    );
 
     // No non-terminal tasks → migrate is allowed to proceed.
     const code = runMigrate({}, repoRoot);
@@ -141,8 +168,13 @@ describe("flow migrate", () => {
   });
 
   it("--include-orchestrator removes .orchestrator/ on apply", () => {
-    fs.mkdirSync(path.join(repoRoot, ".orchestrator", "tasks"), { recursive: true });
-    fs.writeFileSync(path.join(repoRoot, ".orchestrator", "tasks", "old.md"), "---\nstatus: merged\n---\n");
+    fs.mkdirSync(path.join(repoRoot, ".orchestrator", "tasks"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(repoRoot, ".orchestrator", "tasks", "old.md"),
+      "---\nstatus: merged\n---\n",
+    );
 
     runMigrate({ apply: true, includeOrchestrator: true }, repoRoot);
 
@@ -150,7 +182,9 @@ describe("flow migrate", () => {
   });
 
   it("default --apply preserves .orchestrator/ even without flag", () => {
-    fs.mkdirSync(path.join(repoRoot, ".orchestrator", "tasks"), { recursive: true });
+    fs.mkdirSync(path.join(repoRoot, ".orchestrator", "tasks"), {
+      recursive: true,
+    });
     runMigrate({ apply: true }, repoRoot);
     expect(fs.existsSync(path.join(repoRoot, ".orchestrator"))).toBe(true);
   });
@@ -163,7 +197,9 @@ describe("runMigrateCli (--help / -h short-circuit)", () => {
   for (const flag of ["--help", "-h"]) {
     it(`exits 0 and prints help when args is ['${flag}']`, () => {
       const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-      const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const err = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
       // Pass a non-git tmpdir for cwd; if the help check regresses, the
       // call would otherwise fail with a "not a git repository" error.
       const code = runMigrateCli([flag], repoRoot);

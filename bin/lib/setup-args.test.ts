@@ -241,14 +241,16 @@ describe("parseSetupArgs", () => {
     // the repair branch, so reject at the parser layer.
     const result = parseSetupArgs(["--no-hooks", "--repair-settings"]);
     expect(result).toEqual({
-      error: "flow setup: --no-hooks and --repair-settings are mutually exclusive",
+      error:
+        "flow setup: --no-hooks and --repair-settings are mutually exclusive",
     });
   });
 
   it("rejects --repair-settings followed by --no-hooks (order-independent)", () => {
     const result = parseSetupArgs(["--repair-settings", "--no-hooks"]);
     expect(result).toEqual({
-      error: "flow setup: --no-hooks and --repair-settings are mutually exclusive",
+      error:
+        "flow setup: --no-hooks and --repair-settings are mutually exclusive",
     });
   });
 });
@@ -345,7 +347,9 @@ describe("runSetupCli", () => {
   });
 
   it("returns exit code 2 on a parser error and prints to stderr", () => {
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const errSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const code = runSetupCli(["--bogus"]);
     expect(code).toBe(2);
     expect(errSpy).toHaveBeenCalledWith("flow setup: unknown option '--bogus'");
@@ -360,7 +364,9 @@ describe("runSetupCli", () => {
     // The CLI shim must intercept --help/-h before delegating to the parser.
     for (const flag of ["--help", "-h"]) {
       const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-      const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const err = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
       const code = runSetupCli([flag]);
       expect(code).toBe(0);
       expect(log).toHaveBeenCalled();
@@ -491,7 +497,13 @@ function buildFakeFlowSource(root: string): void {
   fs.writeFileSync(path.join(root, "agents", "reviewer.md"), "# reviewer\n");
   const binDir = path.join(root, "bin");
   fs.mkdirSync(binDir, { recursive: true });
-  fs.writeFileSync(path.join(binDir, "flow-helper.ts"), "#!/usr/bin/env bun\n// helper\n");
+  fs.writeFileSync(
+    path.join(binDir, "flow-helper.ts"),
+    "#!/usr/bin/env bun\n// helper\n",
+  );
   fs.writeFileSync(path.join(binDir, "flow-helper.test.ts"), "// test\n");
-  fs.writeFileSync(path.join(binDir, "flow"), "#!/usr/bin/env bun\n// wrapper\n");
+  fs.writeFileSync(
+    path.join(binDir, "flow"),
+    "#!/usr/bin/env bun\n// wrapper\n",
+  );
 }

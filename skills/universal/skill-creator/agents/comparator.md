@@ -132,13 +132,21 @@ Write a JSON file with this structure:
   "output_quality": {
     "A": {
       "score": 9,
-      "strengths": ["Complete solution", "Well-formatted", "All fields present"],
+      "strengths": [
+        "Complete solution",
+        "Well-formatted",
+        "All fields present"
+      ],
       "weaknesses": ["Minor style inconsistency in header"]
     },
     "B": {
       "score": 5,
       "strengths": ["Readable output", "Correct basic structure"],
-      "weaknesses": ["Missing date field", "Formatting inconsistencies", "Partial data extraction"]
+      "weaknesses": [
+        "Missing date field",
+        "Formatting inconsistencies",
+        "Partial data extraction"
+      ]
     }
   },
   "expectation_results": {

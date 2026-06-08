@@ -56,13 +56,13 @@ flow status [<task-id>]     # nice-to-have for M2; falls under M5 if it slips
 
 ## Phase 1 — plan
 
-| | |
-|---|---|
-| **Type** | headless Claude Code subprocess in the *target repo* |
-| **Skill invoked** | `/product-planning` |
-| **Entry status** | `triaged` |
-| **Exit status (ok)** | `planned` |
-| **On failure** | retry once with the failure log appended; then `failed` |
+|                      |                                                         |
+| -------------------- | ------------------------------------------------------- |
+| **Type**             | headless Claude Code subprocess in the _target repo_    |
+| **Skill invoked**    | `/product-planning`                                     |
+| **Entry status**     | `triaged`                                               |
+| **Exit status (ok)** | `planned`                                               |
+| **On failure**       | retry once with the failure log appended; then `failed` |
 
 The plan phase converts the triage's clarifications into a PRD, a task
 breakdown, and a PR description draft. econ-data's `product-planning`
@@ -80,7 +80,15 @@ export async function runPlanPhase(task: Task): Promise<PhaseResult> {
   const result = await runHeadless({
     cwd: task.target_repo,
     prompt,
-    allowedTools: ["Read", "Write", "Edit", "Glob", "Grep", "Bash(ls *)", "Bash(cat *)"],
+    allowedTools: [
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "Bash(ls *)",
+      "Bash(cat *)",
+    ],
     timeoutMs: 10 * 60 * 1000,
   });
   if (!result.ok) return { status: "retry", reason: result.error };
@@ -108,8 +116,8 @@ This is the first thing to verify in M2. Two paths:
   skill in the target repo's `.claude/skills/product-planning/`.
   Confirmed: skill runs, output JSON parsed, done.
 - **Fallback:** read `<target-repo>/.claude/skills/product-planning/SKILL.md`
-  and inline its content into the prompt: *"Follow these instructions:
-  …<skill body>… for the user request: …"*. Less elegant but
+  and inline its content into the prompt: _"Follow these instructions:
+  …<skill body>… for the user request: …"_. Less elegant but
   guaranteed-to-work.
 
 Implement the best case first. If `claude -p "/foo"` doesn't dispatch,
@@ -123,10 +131,10 @@ in some flows. In headless mode that hangs.
 
 Mitigations, in order of preference:
 
-1. Pre-answer in the wrapping prompt: *"You are running in non-
+1. Pre-answer in the wrapping prompt: _"You are running in non-
    interactive headless mode. Do not pause for confirmations; proceed
    through the full skill end-to-end and write the deliverables to
-   disk."* Often sufficient.
+   disk."_ Often sufficient.
 2. Add a `--non-interactive` flag to the target skill that auto-yeses
    confirmations. Requires changing the skill in econ-data — a separate
    PR there.
@@ -138,13 +146,13 @@ and works.
 
 ## Phase 2 — worktree
 
-| | |
-|---|---|
-| **Type** | script, no LLM |
-| **Action** | invoke the target repo's `scripts/new-agent-worktree.ts <branch>` |
-| **Entry status** | `planned` |
-| **Exit status (ok)** | `worktree-ready` |
-| **On failure** | abort (`failed`) — no retry; manual investigation needed |
+|                      |                                                                   |
+| -------------------- | ----------------------------------------------------------------- |
+| **Type**             | script, no LLM                                                    |
+| **Action**           | invoke the target repo's `scripts/new-agent-worktree.ts <branch>` |
+| **Entry status**     | `planned`                                                         |
+| **Exit status (ok)** | `worktree-ready`                                                  |
+| **On failure**       | abort (`failed`) — no retry; manual investigation needed          |
 
 Branch name derivation:
 
@@ -166,7 +174,11 @@ import { existsSync } from "node:fs";
 
 export async function runWorktreePhase(task: Task): Promise<PhaseResult> {
   const branch = deriveBranchName(task);
-  const scriptPath = path.join(task.target_repo, "scripts", "new-agent-worktree.ts");
+  const scriptPath = path.join(
+    task.target_repo,
+    "scripts",
+    "new-agent-worktree.ts",
+  );
 
   if (!existsSync(scriptPath)) {
     return { status: "failed", reason: `target repo missing ${scriptPath}` };
@@ -177,12 +189,15 @@ export async function runWorktreePhase(task: Task): Promise<PhaseResult> {
     return { status: "ok" };
   }
 
-  const { stdout, exitCode } = await execa(
-    "npx", ["tsx", scriptPath, branch],
-    { cwd: task.target_repo, reject: false },
-  );
+  const { stdout, exitCode } = await execa("npx", ["tsx", scriptPath, branch], {
+    cwd: task.target_repo,
+    reject: false,
+  });
   if (exitCode !== 0) {
-    return { status: "failed", reason: `worktree script exit ${exitCode}: ${stdout}` };
+    return {
+      status: "failed",
+      reason: `worktree script exit ${exitCode}: ${stdout}`,
+    };
   }
 
   const worktreePath = parseWorktreePathFromOutput(stdout);
@@ -207,13 +222,13 @@ the next phase needs. Configurable worktree commands land later (M5+).
 
 ## Phase 3 — implement
 
-| | |
-|---|---|
-| **Type** | headless Claude Code subprocess in the *worktree* |
-| **Skill invoked** | `/new-feature` |
-| **Entry status** | `worktree-ready` |
-| **Exit status (ok)** | `pr-open` |
-| **On failure** | retry once with failure log appended; then `failed` |
+|                      |                                                     |
+| -------------------- | --------------------------------------------------- |
+| **Type**             | headless Claude Code subprocess in the _worktree_   |
+| **Skill invoked**    | `/new-feature`                                      |
+| **Entry status**     | `worktree-ready`                                    |
+| **Exit status (ok)** | `pr-open`                                           |
+| **On failure**       | retry once with failure log appended; then `failed` |
 
 The implement phase opens a PR. Three things must happen inside the
 spawned Claude session:
@@ -248,8 +263,16 @@ export async function runImplementPhase(task: Task): Promise<PhaseResult> {
     cwd: task.worktree!,
     prompt,
     allowedTools: [
-      "Read", "Write", "Edit", "Glob", "Grep", "MultiEdit",
-      "Bash(npm *)", "Bash(git *)", "Bash(gh *)", "Bash(npx *)",
+      "Read",
+      "Write",
+      "Edit",
+      "Glob",
+      "Grep",
+      "MultiEdit",
+      "Bash(npm *)",
+      "Bash(git *)",
+      "Bash(gh *)",
+      "Bash(npx *)",
     ],
     timeoutMs: 30 * 60 * 1000,
   });
@@ -257,7 +280,10 @@ export async function runImplementPhase(task: Task): Promise<PhaseResult> {
 
   const prNumber = await detectOpenedPr(task);
   if (prNumber == null) {
-    return { status: "retry", reason: "implement returned ok but no PR was opened" };
+    return {
+      status: "retry",
+      reason: "implement returned ok but no PR was opened",
+    };
   }
   await updateTaskFrontmatter(task, { pr: prNumber });
   await transitionStatus(task, "pr-open");
@@ -377,12 +403,14 @@ export interface HeadlessOptions {
 
 export interface HeadlessResult {
   ok: boolean;
-  output: string;        // raw stdout
-  error?: string;        // stderr or parsed error
+  output: string; // raw stdout
+  error?: string; // stderr or parsed error
   exitCode: number;
 }
 
-export async function runHeadless(opts: HeadlessOptions): Promise<HeadlessResult> {
+export async function runHeadless(
+  opts: HeadlessOptions,
+): Promise<HeadlessResult> {
   const args = ["-p", opts.prompt];
   if (opts.allowedTools?.length) {
     args.push("--allowed-tools", opts.allowedTools.join(","));
@@ -411,11 +439,12 @@ needs to consume structured output (probably review in M3).
 
 ```ts
 // src/pipeline/runner.ts
-const M2_PIPELINE: Array<{ entry: TaskStatus; phase: PhaseFn; name: string }> = [
-  { entry: "triaged",         phase: runPlanPhase,      name: "plan" },
-  { entry: "planned",         phase: runWorktreePhase,  name: "worktree" },
-  { entry: "worktree-ready",  phase: runImplementPhase, name: "implement" },
-];
+const M2_PIPELINE: Array<{ entry: TaskStatus; phase: PhaseFn; name: string }> =
+  [
+    { entry: "triaged", phase: runPlanPhase, name: "plan" },
+    { entry: "planned", phase: runWorktreePhase, name: "worktree" },
+    { entry: "worktree-ready", phase: runImplementPhase, name: "implement" },
+  ];
 
 export async function runPipeline(task: Task): Promise<PhaseResult> {
   for (const { entry, phase, name } of M2_PIPELINE) {

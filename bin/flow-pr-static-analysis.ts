@@ -103,7 +103,11 @@ const MAX_STREAM_BYTES = 32 * 1024 * 1024;
 // non-timeout consumers (gh) don't keep the event loop alive on a stray timer.
 export const spawnAsync: SpawnRunner = (cmd, args, opts) =>
   new Promise<CmdResult>((resolve) => {
-    const child = spawn(cmd, args, opts.cwd !== undefined ? { cwd: opts.cwd } : undefined);
+    const child = spawn(
+      cmd,
+      args,
+      opts.cwd !== undefined ? { cwd: opts.cwd } : undefined,
+    );
     let stdout = "";
     let stderr = "";
     let stdoutLen = 0;
@@ -156,7 +160,12 @@ export const spawnAsync: SpawnRunner = (cmd, args, opts) =>
       settled = true;
       if (timer) clearTimeout(timer);
       if (killTimer) clearTimeout(killTimer);
-      resolve({ stdout: "", stderr: String(err), exitCode: -1, timedOut: false });
+      resolve({
+        stdout: "",
+        stderr: String(err),
+        exitCode: -1,
+        timedOut: false,
+      });
     });
     child.on("close", (code) => {
       if (settled) return;
@@ -172,7 +181,8 @@ export const spawnAsync: SpawnRunner = (cmd, args, opts) =>
     });
   });
 
-const defaultSpawn: SpawnRunner = (cmd, args, opts) => spawnAsync(cmd, args, opts);
+const defaultSpawn: SpawnRunner = (cmd, args, opts) =>
+  spawnAsync(cmd, args, opts);
 
 const defaultGh: GhRunner = (argv) => spawnAsync("gh", argv, {});
 
@@ -207,7 +217,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   }
   if ("error" in parsed) {
     writeErr(`flow-pr-static-analysis: ${parsed.error}\n`);
-    writeErr("usage: flow-pr-static-analysis <PR> [--min-confidence <n>] [--max-tool-timeout <sec>]\n");
+    writeErr(
+      "usage: flow-pr-static-analysis <PR> [--min-confidence <n>] [--max-tool-timeout <sec>]\n",
+    );
     return 2;
   }
 
@@ -226,7 +238,9 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   // collapses to empty findings (we can't diff-scope without a diff).
   const diffResult = await gh(["pr", "diff", String(parsed.pr)]);
   if (diffResult.exitCode !== 0) {
-    writeErr(`flow-pr-static-analysis: gh pr diff ${parsed.pr} failed: ${diffResult.stderr.trim() || "no stderr"}\n`);
+    writeErr(
+      `flow-pr-static-analysis: gh pr diff ${parsed.pr} failed: ${diffResult.stderr.trim() || "no stderr"}\n`,
+    );
     // Emit an envelope with every lens skipped so the consumer's JSON.parse
     // still works. The skipped_reason makes the failure visible.
     const empty = (reason: string): LensMeta => ({
@@ -235,7 +249,11 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
       duration_ms: 0,
     });
     const result: AnalysisResult = {
-      security: [], types: [], coverage: [], lint: [], dependencies: [],
+      security: [],
+      types: [],
+      coverage: [],
+      lint: [],
+      dependencies: [],
       meta: {
         security: empty("gh-pr-diff-failed"),
         types: empty("gh-pr-diff-failed"),
@@ -265,7 +283,10 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   ]);
 
   const filterAndScope = (findings: Finding[]): Finding[] =>
-    applyConfidenceThreshold(applyDiffScope(findings, changedLines), parsed.minConfidence);
+    applyConfidenceThreshold(
+      applyDiffScope(findings, changedLines),
+      parsed.minConfidence,
+    );
 
   const result: AnalysisResult = {
     security: filterAndScope(security.findings),

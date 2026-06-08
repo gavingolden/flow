@@ -35,7 +35,9 @@ import {
 // (file-backed) ReadConfigFile, which has no injectable seam at the call site.
 // Mock only that one export so the config tier is deterministic; everything
 // else in copilot-config stays real. `setAutoReview` drives the override per test.
-const autoReviewHolder = vi.hoisted(() => ({ value: undefined as boolean | undefined }));
+const autoReviewHolder = vi.hoisted(() => ({
+  value: undefined as boolean | undefined,
+}));
 vi.mock("./lib/copilot-config", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./lib/copilot-config")>();
   return { ...actual, readCopilotAutoReview: () => autoReviewHolder.value };
@@ -152,7 +154,9 @@ describe(deriveConflictState, () => {
   });
 
   it("does NOT flag conflicting on a stale CONFLICTING status while mergeable is still recomputing (mergeable=UNKNOWN)", () => {
-    expect(deriveConflictState("UNKNOWN", "CONFLICTING").conflicting).toBe(false);
+    expect(deriveConflictState("UNKNOWN", "CONFLICTING").conflicting).toBe(
+      false,
+    );
   });
 });
 
@@ -168,12 +172,17 @@ describe(deriveBlockedState, () => {
   // The inverse of deriveConflictState's list: a conflict (CONFLICTING/DIRTY)
   // is NOT a block (it routes to pr-conflicted, not pr-blocked), and the
   // benign states never block either.
-  it.each(["CLEAN", "BEHIND", "UNSTABLE", "HAS_HOOKS", "CONFLICTING", "DIRTY", "UNKNOWN"])(
-    "does NOT flag blocked for mergeStateStatus=%s",
-    (status) => {
-      expect(deriveBlockedState("MERGEABLE", status).blocked).toBe(false);
-    },
-  );
+  it.each([
+    "CLEAN",
+    "BEHIND",
+    "UNSTABLE",
+    "HAS_HOOKS",
+    "CONFLICTING",
+    "DIRTY",
+    "UNKNOWN",
+  ])("does NOT flag blocked for mergeStateStatus=%s", (status) => {
+    expect(deriveBlockedState("MERGEABLE", status).blocked).toBe(false);
+  });
 
   it("does NOT flag blocked while GitHub is still computing (mergeable=UNKNOWN, mergeStateStatus=UNKNOWN)", () => {
     expect(deriveBlockedState("UNKNOWN", "UNKNOWN").blocked).toBe(false);
@@ -191,7 +200,10 @@ describe(deriveBlockedState, () => {
 describe(observeMergeState, () => {
   it("returns the parsed object on a zero-exit gh call", () => {
     const gh: GhRunner = () => ({
-      stdout: JSON.stringify({ mergeable: "CONFLICTING", mergeStateStatus: "DIRTY" }),
+      stdout: JSON.stringify({
+        mergeable: "CONFLICTING",
+        mergeStateStatus: "DIRTY",
+      }),
       stderr: "",
       exitCode: 0,
     });
@@ -207,11 +219,15 @@ describe(observeMergeState, () => {
   });
 
   it("fails open (returns null) on malformed JSON", () => {
-    const gh: GhRunner = () => ({ stdout: "not json", stderr: "", exitCode: 0 });
+    const gh: GhRunner = () => ({
+      stdout: "not json",
+      stderr: "",
+      exitCode: 0,
+    });
     expect(observeMergeState(100, gh)).toBeNull();
   });
 
-  it("coerces non-string fields to \"\" on valid-JSON-but-wrong-shape payloads", () => {
+  it('coerces non-string fields to "" on valid-JSON-but-wrong-shape payloads', () => {
     // Pins the absent/non-string-field default: a valid-JSON response whose
     // mergeable/mergeStateStatus are missing or non-string (e.g. `null`)
     // coerces each to "" rather than throwing. "" is the safe direction —
@@ -229,9 +245,10 @@ describe(observeMergeState, () => {
     });
     const coerced = observeMergeState(100, nonString);
     expect(coerced).toEqual({ mergeable: "", mergeStateStatus: "" });
-    expect(deriveConflictState(coerced!.mergeable, coerced!.mergeStateStatus).conflicting).toBe(
-      false,
-    );
+    expect(
+      deriveConflictState(coerced!.mergeable, coerced!.mergeStateStatus)
+        .conflicting,
+    ).toBe(false);
   });
 });
 
@@ -248,10 +265,14 @@ describe(hasQualifyingWorkflowTrigger, () => {
 
   // Scalar form
   it("scalar form: 'on: pull_request' → true", () => {
-    expect(hasQualifyingWorkflowTrigger("on: pull_request\njobs: {}\n")).toBe(true);
+    expect(hasQualifyingWorkflowTrigger("on: pull_request\njobs: {}\n")).toBe(
+      true,
+    );
   });
   it("scalar form: 'on: schedule' → false", () => {
-    expect(hasQualifyingWorkflowTrigger("on: schedule\njobs: {}\n")).toBe(false);
+    expect(hasQualifyingWorkflowTrigger("on: schedule\njobs: {}\n")).toBe(
+      false,
+    );
   });
   it("scalar form: 'on: push' → false", () => {
     expect(hasQualifyingWorkflowTrigger("on: push\njobs: {}\n")).toBe(false);
@@ -259,18 +280,26 @@ describe(hasQualifyingWorkflowTrigger, () => {
 
   // List form
   it("list form: 'on: [pull_request, push]' → true", () => {
-    expect(hasQualifyingWorkflowTrigger("on: [pull_request, push]\njobs: {}\n")).toBe(true);
+    expect(
+      hasQualifyingWorkflowTrigger("on: [pull_request, push]\njobs: {}\n"),
+    ).toBe(true);
   });
   it("list form: 'on: [schedule, push]' → false", () => {
-    expect(hasQualifyingWorkflowTrigger("on: [schedule, push]\njobs: {}\n")).toBe(false);
+    expect(
+      hasQualifyingWorkflowTrigger("on: [schedule, push]\njobs: {}\n"),
+    ).toBe(false);
   });
   it("list form: 'on: [merge_group]' → true", () => {
-    expect(hasQualifyingWorkflowTrigger("on: [merge_group]\njobs: {}\n")).toBe(true);
+    expect(hasQualifyingWorkflowTrigger("on: [merge_group]\njobs: {}\n")).toBe(
+      true,
+    );
   });
 
   // Map form
   it("map form: bare 'pull_request:' child key → true", () => {
-    expect(hasQualifyingWorkflowTrigger("on:\n  pull_request:\njobs: {}\n")).toBe(true);
+    expect(
+      hasQualifyingWorkflowTrigger("on:\n  pull_request:\njobs: {}\n"),
+    ).toBe(true);
   });
   it("map form: 'pull_request:' with nested 'branches:' → true", () => {
     expect(
@@ -287,7 +316,9 @@ describe(hasQualifyingWorkflowTrigger, () => {
     ).toBe(false);
   });
   it("map form: bare 'pull_request_target:' child key → true", () => {
-    expect(hasQualifyingWorkflowTrigger("on:\n  pull_request_target:\n")).toBe(true);
+    expect(hasQualifyingWorkflowTrigger("on:\n  pull_request_target:\n")).toBe(
+      true,
+    );
   });
   it("map form: bare 'merge_group:' child key → true", () => {
     expect(hasQualifyingWorkflowTrigger("on:\n  merge_group:\n")).toBe(true);
@@ -295,7 +326,9 @@ describe(hasQualifyingWorkflowTrigger, () => {
 
   // Block-sequence form (`on:` followed by `- trigger` dash items).
   it("block-sequence form: '- pull_request' → true", () => {
-    expect(hasQualifyingWorkflowTrigger("on:\n  - pull_request\njobs: {}\n")).toBe(true);
+    expect(
+      hasQualifyingWorkflowTrigger("on:\n  - pull_request\njobs: {}\n"),
+    ).toBe(true);
   });
   it("block-sequence form: '- schedule, - push' → false", () => {
     expect(
@@ -306,21 +339,29 @@ describe(hasQualifyingWorkflowTrigger, () => {
     expect(hasQualifyingWorkflowTrigger("on:\n  - merge_group\n")).toBe(true);
   });
   it("block-sequence form: '- pull_request_target' → true", () => {
-    expect(hasQualifyingWorkflowTrigger("on:\n  - pull_request_target\n")).toBe(true);
+    expect(hasQualifyingWorkflowTrigger("on:\n  - pull_request_target\n")).toBe(
+      true,
+    );
   });
   it("block-sequence form: '- \"pull_request\"' (quoted) → true", () => {
-    expect(hasQualifyingWorkflowTrigger('on:\n  - "pull_request"\n')).toBe(true);
+    expect(hasQualifyingWorkflowTrigger('on:\n  - "pull_request"\n')).toBe(
+      true,
+    );
   });
 
   // Known limitation: inline-flow map (`on: { pull_request: foo }`) is
   // intentionally out of scope; document the conservative false return.
   it("inline-flow map (known limitation): 'on: { pull_request: foo }' → false", () => {
-    expect(hasQualifyingWorkflowTrigger("on: { pull_request: foo }\n")).toBe(false);
+    expect(hasQualifyingWorkflowTrigger("on: { pull_request: foo }\n")).toBe(
+      false,
+    );
   });
 
   // Each qualifying trigger individually
   it("pull_request_target alone → true", () => {
-    expect(hasQualifyingWorkflowTrigger("on: pull_request_target\n")).toBe(true);
+    expect(hasQualifyingWorkflowTrigger("on: pull_request_target\n")).toBe(
+      true,
+    );
   });
   it("merge_group alone (scalar) → true", () => {
     expect(hasQualifyingWorkflowTrigger("on: merge_group\n")).toBe(true);
@@ -349,9 +390,9 @@ describe(hasQualifyingWorkflowTrigger, () => {
   it("malformed indentation (child returns to zero indent) → false conservatively", () => {
     // The map-form body terminates at zero-indent — a trigger word that
     // appears as a sibling top-level key is not part of `on:`.
-    expect(
-      hasQualifyingWorkflowTrigger("on:\npull_request:\njobs: {}\n"),
-    ).toBe(false);
+    expect(hasQualifyingWorkflowTrigger("on:\npull_request:\njobs: {}\n")).toBe(
+      false,
+    );
   });
 });
 
@@ -489,7 +530,11 @@ describe(extractLatestCopilotReviewCommit, () => {
 
   it("excludes DISMISSED Copilot reviews", () => {
     const reviews: Review[] = [
-      { author: { login: LOGIN }, state: "DISMISSED", commitOid: "sha-dismissed" },
+      {
+        author: { login: LOGIN },
+        state: "DISMISSED",
+        commitOid: "sha-dismissed",
+      },
     ];
     expect(extractLatestCopilotReviewCommit(reviews, LOGIN)).toBeNull();
   });
@@ -541,7 +586,9 @@ describe(deriveCopilotSkipReason, () => {
   const HEAD = "sha-head";
   const OLDER = "sha-older";
 
-  function baseArgs(overrides: Partial<Parameters<typeof deriveCopilotSkipReason>[0]> = {}) {
+  function baseArgs(
+    overrides: Partial<Parameters<typeof deriveCopilotSkipReason>[0]> = {},
+  ) {
     return {
       reviews: [] as Review[],
       headRefOid: HEAD,
@@ -559,7 +606,9 @@ describe(deriveCopilotSkipReason, () => {
     const reviews: Review[] = [
       { author: { login: LOGIN }, state: "DISMISSED", commitOid: HEAD },
     ];
-    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe("self-dismissed");
+    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe(
+      "self-dismissed",
+    );
   });
 
   it("returns null when DISMISSED is on an older SHA but a posted review exists on the current SHA", () => {
@@ -598,13 +647,17 @@ describe(deriveCopilotSkipReason, () => {
 
   it("returns null when ciTerminalAt is null (CI not yet terminal)", () => {
     expect(
-      deriveCopilotSkipReason(baseArgs({ ciTerminalAt: null, elapsedSec: 600 })),
+      deriveCopilotSkipReason(
+        baseArgs({ ciTerminalAt: null, elapsedSec: 600 }),
+      ),
     ).toBeNull();
   });
 
   it("returns null when the deadline has not yet elapsed", () => {
     expect(
-      deriveCopilotSkipReason(baseArgs({ ciTerminalAt: 0, elapsedSec: 30, claimDeadlineSec: 60 })),
+      deriveCopilotSkipReason(
+        baseArgs({ ciTerminalAt: 0, elapsedSec: 30, claimDeadlineSec: 60 }),
+      ),
     ).toBeNull();
   });
 
@@ -641,7 +694,12 @@ describe(deriveCopilotSkipReason, () => {
     ).toBeNull();
     expect(
       deriveCopilotSkipReason(
-        baseArgs({ reviews: [], ciTerminalAt: 0, elapsedSec: 600, waitForCopilot: true }),
+        baseArgs({
+          reviews: [],
+          ciTerminalAt: 0,
+          elapsedSec: 600,
+          waitForCopilot: true,
+        }),
       ),
     ).toBeNull();
   });
@@ -654,7 +712,9 @@ describe(deriveCopilotSkipReason, () => {
         commitOid: HEAD,
       },
     ];
-    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe("self-dismissed");
+    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe(
+      "self-dismissed",
+    );
   });
 
   it("matches a [bot]-suffixed review author against the bare configured login", () => {
@@ -665,7 +725,9 @@ describe(deriveCopilotSkipReason, () => {
         commitOid: HEAD,
       },
     ];
-    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe("self-dismissed");
+    expect(deriveCopilotSkipReason(baseArgs({ reviews }))).toBe(
+      "self-dismissed",
+    );
   });
 
   it("precedence: self-dismissed wins over unclaimed-after-deadline when both signals apply", () => {
@@ -677,7 +739,12 @@ describe(deriveCopilotSkipReason, () => {
     ];
     expect(
       deriveCopilotSkipReason(
-        baseArgs({ reviews, ciTerminalAt: 0, elapsedSec: 600, claimDeadlineSec: 60 }),
+        baseArgs({
+          reviews,
+          ciTerminalAt: 0,
+          elapsedSec: 600,
+          claimDeadlineSec: 60,
+        }),
       ),
     ).toBe("self-dismissed");
   });
@@ -701,11 +768,21 @@ describe(retriggerCopilotReview, () => {
     const out = retriggerCopilotReview(161, gh);
     expect(out).toEqual({ ok: true, stderr: "" });
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toEqual(["pr", "edit", "161", "--add-reviewer", "@copilot"]);
+    expect(calls[0]).toEqual([
+      "pr",
+      "edit",
+      "161",
+      "--add-reviewer",
+      "@copilot",
+    ]);
   });
 
   it("returns ok:false with stderr propagated on non-zero exit", () => {
-    const gh: GhRunner = () => ({ stdout: "", stderr: "HTTP 422: Unprocessable", exitCode: 1 });
+    const gh: GhRunner = () => ({
+      stdout: "",
+      stderr: "HTTP 422: Unprocessable",
+      exitCode: 1,
+    });
     const out = retriggerCopilotReview(161, gh);
     expect(out).toEqual({ ok: false, stderr: "HTTP 422: Unprocessable" });
   });
@@ -718,7 +795,9 @@ describe(retriggerCopilotReview, () => {
 describe(fetchHistoricalBotReview, () => {
   const LOGIN = "copilot-pull-request-reviewer";
 
-  function ghFromQueue(queue: Array<{ stdout: string; exitCode: number }>): GhRunner & {
+  function ghFromQueue(
+    queue: Array<{ stdout: string; exitCode: number }>,
+  ): GhRunner & {
     calls: string[][];
   } {
     const calls: string[][] = [];
@@ -758,7 +837,10 @@ describe(fetchHistoricalBotReview, () => {
     const gh = ghFromQueue([
       { stdout: JSON.stringify([{ number: 78 }, { number: 77 }]), exitCode: 0 },
       // Pr 78: no copilot review
-      { stdout: JSON.stringify({ reviews: [{ author: { login: "alice" } }] }), exitCode: 0 },
+      {
+        stdout: JSON.stringify({ reviews: [{ author: { login: "alice" } }] }),
+        exitCode: 0,
+      },
       // Pr 77: copilot review
       {
         stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }),
@@ -786,7 +868,9 @@ describe(fetchHistoricalBotReview, () => {
       { stdout: JSON.stringify([{ number: 1 }]), exitCode: 0 },
       {
         stdout: JSON.stringify({
-          reviews: [{ author: { login: "copilot-pull-request-reviewer[bot]" } }],
+          reviews: [
+            { author: { login: "copilot-pull-request-reviewer[bot]" } },
+          ],
         }),
         exitCode: 0,
       },
@@ -796,9 +880,15 @@ describe(fetchHistoricalBotReview, () => {
 
   it("short-circuits on the first match (does not view PRs past the hit)", () => {
     const gh = ghFromQueue([
-      { stdout: JSON.stringify([{ number: 1 }, { number: 2 }, { number: 3 }]), exitCode: 0 },
+      {
+        stdout: JSON.stringify([{ number: 1 }, { number: 2 }, { number: 3 }]),
+        exitCode: 0,
+      },
       // Pr 1 already matches
-      { stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }), exitCode: 0 },
+      {
+        stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }),
+        exitCode: 0,
+      },
     ]);
     expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(true);
     // 1 list call + 1 view call; PR 2 / PR 3 never queried.
@@ -808,7 +898,10 @@ describe(fetchHistoricalBotReview, () => {
   it("returns false when no merged PR has a review by the configured login", () => {
     const gh = ghFromQueue([
       { stdout: JSON.stringify([{ number: 1 }, { number: 2 }]), exitCode: 0 },
-      { stdout: JSON.stringify({ reviews: [{ author: { login: "alice" } }] }), exitCode: 0 },
+      {
+        stdout: JSON.stringify({ reviews: [{ author: { login: "alice" } }] }),
+        exitCode: 0,
+      },
       { stdout: JSON.stringify({ reviews: [] }), exitCode: 0 },
     ]);
     expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(false);
@@ -820,7 +913,10 @@ describe(fetchHistoricalBotReview, () => {
       // Pr 1 view errors
       { stdout: "", exitCode: 1 },
       // Pr 2 has the review
-      { stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }), exitCode: 0 },
+      {
+        stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }),
+        exitCode: 0,
+      },
     ]);
     expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(true);
   });
@@ -829,7 +925,10 @@ describe(fetchHistoricalBotReview, () => {
     const gh = ghFromQueue([
       { stdout: JSON.stringify([{ number: 1 }, { number: 2 }]), exitCode: 0 },
       { stdout: "not-json{", exitCode: 0 },
-      { stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }), exitCode: 0 },
+      {
+        stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }),
+        exitCode: 0,
+      },
     ]);
     expect(fetchHistoricalBotReview(LOGIN, gh)).toBe(true);
   });
@@ -856,12 +955,17 @@ describe(fetchHistoricalBotReview, () => {
 
 describe(deriveCopilotRulesetEnabled, () => {
   it("returns true when a copilot_code_review rule is present", () => {
-    expect(deriveCopilotRulesetEnabled([{ type: "copilot_code_review" }])).toBe(true);
+    expect(deriveCopilotRulesetEnabled([{ type: "copilot_code_review" }])).toBe(
+      true,
+    );
   });
 
   it("returns true when copilot_code_review appears alongside other rules", () => {
     expect(
-      deriveCopilotRulesetEnabled([{ type: "pull_request" }, { type: "copilot_code_review" }]),
+      deriveCopilotRulesetEnabled([
+        { type: "pull_request" },
+        { type: "copilot_code_review" },
+      ]),
     ).toBe(true);
   });
 
@@ -887,7 +991,9 @@ describe(deriveCopilotRulesetEnabled, () => {
 // ---------------------------------------------------------------------------
 
 describe(observeCopilotRuleset, () => {
-  function ghFromQueue(queue: Array<{ stdout: string; exitCode: number }>): GhRunner & {
+  function ghFromQueue(
+    queue: Array<{ stdout: string; exitCode: number }>,
+  ): GhRunner & {
     calls: string[][];
   } {
     const calls: string[][] = [];
@@ -905,10 +1011,16 @@ describe(observeCopilotRuleset, () => {
   it("returns true when the rules API includes copilot_code_review", () => {
     const gh = ghFromQueue([
       { stdout: "main\n", exitCode: 0 },
-      { stdout: JSON.stringify([{ type: "copilot_code_review" }]), exitCode: 0 },
+      {
+        stdout: JSON.stringify([{ type: "copilot_code_review" }]),
+        exitCode: 0,
+      },
     ]);
     expect(observeCopilotRuleset(gh)).toBe(true);
-    expect(gh.calls[1]).toEqual(["api", "repos/{owner}/{repo}/rules/branches/main"]);
+    expect(gh.calls[1]).toEqual([
+      "api",
+      "repos/{owner}/{repo}/rules/branches/main",
+    ]);
   });
 
   it("returns false when the rules API omits copilot_code_review", () => {
@@ -963,7 +1075,9 @@ describe(observeCopilotRuleset, () => {
 describe(resolveCopilotConfigured, () => {
   const LOGIN = "copilot-pull-request-reviewer";
 
-  function ghFromQueue(queue: Array<{ stdout: string; exitCode: number }>): GhRunner & {
+  function ghFromQueue(
+    queue: Array<{ stdout: string; exitCode: number }>,
+  ): GhRunner & {
     calls: string[][];
   } {
     const calls: string[][] = [];
@@ -1000,7 +1114,10 @@ describe(resolveCopilotConfigured, () => {
       { stdout: "", exitCode: 1 },
       // heuristic floor: list merged PRs, then per-PR reviews (Copilot hit).
       { stdout: JSON.stringify([{ number: 1 }]), exitCode: 0 },
-      { stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }), exitCode: 0 },
+      {
+        stdout: JSON.stringify({ reviews: [{ author: { login: LOGIN } }] }),
+        exitCode: 0,
+      },
     ]);
     expect(resolveCopilotConfigured(LOGIN, gh)).toBe(true);
     // The heuristic pr-list call must have been issued.
@@ -1011,7 +1128,10 @@ describe(resolveCopilotConfigured, () => {
     setAutoReview(undefined);
     const gh = ghFromQueue([
       { stdout: "main", exitCode: 0 },
-      { stdout: JSON.stringify([{ type: "copilot_code_review" }]), exitCode: 0 },
+      {
+        stdout: JSON.stringify([{ type: "copilot_code_review" }]),
+        exitCode: 0,
+      },
     ]);
     expect(resolveCopilotConfigured(LOGIN, gh)).toBe(true);
     expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "list")).toBe(false);
@@ -1035,13 +1155,20 @@ describe("readHistoricalBotReview default wiring", () => {
     const gh: GhRunner = (argv) => {
       calls.push(argv);
       // observeCopilotRuleset: default-branch resolution succeeds, rules api 403s.
-      if (argv[0] === "repo") return { stdout: "main", stderr: "", exitCode: 0 };
-      if (argv[0] === "api") return { stdout: "", stderr: "forbidden", exitCode: 1 };
+      if (argv[0] === "repo")
+        return { stdout: "main", stderr: "", exitCode: 0 };
+      if (argv[0] === "api")
+        return { stdout: "", stderr: "forbidden", exitCode: 1 };
       // heuristic floor: list the merged PRs, then per-PR reviews (Copilot hit).
       if (argv[0] === "pr" && argv[1] === "list") {
-        return { stdout: JSON.stringify([{ number: 1 }]), stderr: "", exitCode: 0 };
+        return {
+          stdout: JSON.stringify([{ number: 1 }]),
+          stderr: "",
+          exitCode: 0,
+        };
       }
-      if (isPrView(argv)) return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isPrView(argv))
+        return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
       if (isReviewRequests(argv)) return reviewRequestsResponse([]);
       if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
       // The heuristic per-PR `gh pr view <n> --json reviews` call.
@@ -1060,7 +1187,10 @@ describe("readHistoricalBotReview default wiring", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       // readHistoricalBotReview intentionally NOT injected — exercise the default.
     });
@@ -1087,7 +1217,8 @@ describe("readHistoricalBotReview default wiring", () => {
     const gh: GhRunner = (argv) => {
       calls.push(argv);
       // observeCopilotRuleset: default-branch resolution + authoritative rules api.
-      if (argv[0] === "repo") return { stdout: "main", stderr: "", exitCode: 0 };
+      if (argv[0] === "repo")
+        return { stdout: "main", stderr: "", exitCode: 0 };
       if (argv[0] === "api") {
         return {
           stdout: JSON.stringify([{ type: "copilot_code_review" }]),
@@ -1096,7 +1227,8 @@ describe("readHistoricalBotReview default wiring", () => {
         };
       }
       if (isReviewRequests(argv)) return reviewRequestsResponse([]);
-      if (isPrView(argv)) return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isPrView(argv))
+        return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
       if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
       return { stdout: "", stderr: "", exitCode: 1 };
     };
@@ -1106,7 +1238,10 @@ describe("readHistoricalBotReview default wiring", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       // readHistoricalBotReview intentionally NOT injected — exercise the default.
     });
@@ -1129,7 +1264,8 @@ describe("readHistoricalBotReview default wiring", () => {
     const calls: string[][] = [];
     const gh: GhRunner = (argv) => {
       calls.push(argv);
-      if (argv[0] === "repo") return { stdout: "main", stderr: "", exitCode: 0 };
+      if (argv[0] === "repo")
+        return { stdout: "main", stderr: "", exitCode: 0 };
       if (argv[0] === "api") {
         return {
           stdout: JSON.stringify([{ type: "pull_request" }]),
@@ -1138,7 +1274,8 @@ describe("readHistoricalBotReview default wiring", () => {
         };
       }
       if (isReviewRequests(argv)) return reviewRequestsResponse([]);
-      if (isPrView(argv)) return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isPrView(argv))
+        return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
       if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
       return { stdout: "", stderr: "", exitCode: 1 };
     };
@@ -1148,7 +1285,10 @@ describe("readHistoricalBotReview default wiring", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       // readHistoricalBotReview intentionally NOT injected — exercise the default.
     });
@@ -1197,8 +1337,14 @@ describe("decideOnPoll — pr_state precedence", () => {
 describe("decideOnPoll — ci-failed", () => {
   it("exits with 'ci-failed' including failed check names", () => {
     const failedChecks: Check[] = [{ name: "lint", state: "FAILURE" }];
-    const v = decideOnPoll(makePollState({ ci: { kind: "failed", failedChecks } }));
-    expect(v).toEqual({ verdict: "exit", decision: "ci-failed", ciFailedChecks: failedChecks });
+    const v = decideOnPoll(
+      makePollState({ ci: { kind: "failed", failedChecks } }),
+    );
+    expect(v).toEqual({
+      verdict: "exit",
+      decision: "ci-failed",
+      ciFailedChecks: failedChecks,
+    });
   });
 });
 
@@ -1240,7 +1386,10 @@ describe("decideOnPoll — proceed-to-review-no-bot (Copilot timeout)", () => {
         pollNum: 12,
       }),
     );
-    expect(v).toEqual({ verdict: "exit", decision: "proceed-to-review-no-bot" });
+    expect(v).toEqual({
+      verdict: "exit",
+      decision: "proceed-to-review-no-bot",
+    });
   });
 });
 
@@ -1318,15 +1467,21 @@ describe("decideOnPoll — presence overrides", () => {
 
 describe("decideOnPoll — looping cadence", () => {
   it("loops with cadence 30s on poll 1 when ci is still pending", () => {
-    const v = decideOnPoll(makePollState({ pollNum: 1, ci: { kind: "pending" } }));
+    const v = decideOnPoll(
+      makePollState({ pollNum: 1, ci: { kind: "pending" } }),
+    );
     expect(v).toEqual({ verdict: "loop", cadenceSec: 30 });
   });
   it("loops with cadence 60s on poll 6 when ci is still pending", () => {
-    const v = decideOnPoll(makePollState({ pollNum: 6, ci: { kind: "pending" } }));
+    const v = decideOnPoll(
+      makePollState({ pollNum: 6, ci: { kind: "pending" } }),
+    );
     expect(v).toEqual({ verdict: "loop", cadenceSec: 60 });
   });
   it("loops with cadence 90s on poll 11 when ci is still pending", () => {
-    const v = decideOnPoll(makePollState({ pollNum: 11, ci: { kind: "pending" } }));
+    const v = decideOnPoll(
+      makePollState({ pollNum: 11, ci: { kind: "pending" } }),
+    );
     expect(v).toEqual({ verdict: "loop", cadenceSec: 90 });
   });
 });
@@ -1340,7 +1495,9 @@ describe(parseArgs, () => {
     expect(parseArgs([])).toEqual({ error: "PR number is required" });
   });
   it("errors on an unknown flag", () => {
-    expect(parseArgs(["100", "--bogus"])).toEqual({ error: "unknown flag: --bogus" });
+    expect(parseArgs(["100", "--bogus"])).toEqual({
+      error: "unknown flag: --bogus",
+    });
   });
   it("accepts just a PR number", () => {
     expect(parseArgs(["100"])).toEqual({ pr: 100 });
@@ -1352,7 +1509,9 @@ describe(parseArgs, () => {
     });
   });
   it("rejects a non-integer PR", () => {
-    expect(parseArgs(["abc"])).toEqual({ error: "PR must be a positive integer, got 'abc'" });
+    expect(parseArgs(["abc"])).toEqual({
+      error: "PR must be a positive integer, got 'abc'",
+    });
   });
 
   // --- --wait-for-copilot (boolean presence) ---
@@ -1455,7 +1614,10 @@ function captureStreams() {
   };
 }
 
-type GhStep = { matches: (argv: string[]) => boolean; response: { stdout: string; stderr: string; exitCode: number } };
+type GhStep = {
+  matches: (argv: string[]) => boolean;
+  response: { stdout: string; stderr: string; exitCode: number };
+};
 
 /**
  * Replays a queue of {match, response} pairs in order. Each gh call
@@ -1469,10 +1631,14 @@ function makeGhSequence(steps: GhStep[]): GhRunner & { calls: string[][] } {
     calls.push(argv);
     const step = steps[cursor];
     if (!step) {
-      throw new Error(`unexpected gh call (no step left): gh ${argv.join(" ")}`);
+      throw new Error(
+        `unexpected gh call (no step left): gh ${argv.join(" ")}`,
+      );
     }
     if (!step.matches(argv)) {
-      throw new Error(`gh call ${cursor} did not match: got 'gh ${argv.join(" ")}'`);
+      throw new Error(
+        `gh call ${cursor} did not match: got 'gh ${argv.join(" ")}'`,
+      );
     }
     cursor++;
     return step.response;
@@ -1491,7 +1657,8 @@ const isPrView = (argv: string[]) =>
   argv[0] === "pr" &&
   argv[1] === "view" &&
   argv.includes("--json") &&
-  argv[argv.indexOf("--json") + 1] === "state,url,reviews,headRefOid,reviewRequests";
+  argv[argv.indexOf("--json") + 1] ===
+    "state,url,reviews,headRefOid,reviewRequests";
 
 const isPrChecks = (argv: string[]) => argv[0] === "pr" && argv[1] === "checks";
 
@@ -1507,7 +1674,9 @@ const STABLE_HEAD_SHA = "sha-current";
 
 function reviewRequestsResponse(logins: string[]) {
   return {
-    stdout: JSON.stringify({ reviewRequests: logins.map((login) => ({ login })) }),
+    stdout: JSON.stringify({
+      reviewRequests: logins.map((login) => ({ login })),
+    }),
     stderr: "",
     exitCode: 0,
   };
@@ -1580,7 +1749,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1604,7 +1776,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1628,7 +1803,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1642,7 +1820,10 @@ describe("run() integration", () => {
   it("exits 0 with 'proceed-to-review' JSON when ci passes and the bot posts", async () => {
     const clock = makeFakeClock();
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
@@ -1653,7 +1834,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1673,7 +1857,12 @@ describe("run() integration", () => {
     // re-reading the same [bot] form per poll. The exact-match form would miss both.
     const clock = makeFakeClock();
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer[bot]"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse([
+          "copilot-pull-request-reviewer[bot]",
+        ]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
       perPollReviewRequests(["copilot-pull-request-reviewer[bot]"]),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
@@ -1684,7 +1873,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1718,16 +1910,25 @@ describe("run() integration", () => {
       },
     ];
     const steps: GhStep[] = [
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
     ];
     // ci_terminal lands at elapsedSec=0 (poll 1's all-passed observation).
     // Cadence ramp: 30×5 + 60×5 + 90×… → poll 12 elapsed=540s (<600), poll 13
     // elapsed=630s (>=600) → exit. 15 iterations gives headroom. Each poll also
     // re-reads requested_reviewers (item 1) between the prView and prChecks reads.
     for (let i = 0; i < 15; i++) {
-      steps.push({ matches: isPrView, response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD) });
+      steps.push({
+        matches: isPrView,
+        response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD),
+      });
       steps.push(perPollReviewRequests());
-      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(ALL_PASSED),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
@@ -1736,7 +1937,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1758,7 +1962,10 @@ describe("run() integration", () => {
     const PENDING_CHECKS: Check[] = [{ name: "test", state: "IN_PROGRESS" }];
     for (let i = 0; i < 25; i++) {
       steps.push({ matches: isPrView, response: prViewResponse("OPEN", []) });
-      steps.push({ matches: isPrChecks, response: prChecksResponse(PENDING_CHECKS) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(PENDING_CHECKS),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
@@ -1767,7 +1974,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1781,7 +1991,10 @@ describe("run() integration", () => {
   it("does NOT call 'gh pr checks' when CI is not configured", async () => {
     const clock = makeFakeClock();
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
       perPollReviewRequests(),
       // No isPrChecks step — if the runner calls it, the sequence will fail.
@@ -1792,7 +2005,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => false, // CI not configured
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1802,7 +2018,9 @@ describe("run() integration", () => {
     expect(result.decision).toBe("proceed-to-review");
     expect(result.ciConfigured).toBe(false);
     // Belt + suspenders: check the call log directly.
-    expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "checks")).toBe(false);
+    expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "checks")).toBe(
+      false,
+    );
   });
 
   it("does NOT wait the copilot timeout when Copilot is not in reviewRequests", async () => {
@@ -1812,7 +2030,10 @@ describe("run() integration", () => {
     // the 10-min timeout.
     const gh = makeGhSequence([
       // No copilot in reviewRequests.
-      { matches: isReviewRequests, response: reviewRequestsResponse(["someone-else"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["someone-else"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", []) },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -1822,7 +2043,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1852,7 +2076,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => true,
     });
@@ -1876,7 +2103,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1894,7 +2124,10 @@ describe("run() integration", () => {
       now: () => 0,
       sleep: async () => {},
       readWorkflowsDir: () => false,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -1931,9 +2164,15 @@ describe("run() integration", () => {
     // requested_reviewers stays empty (the org-level auto-review case), so the
     // per-poll read returns COPILOT_NOT_QUEUED.
     for (let i = 0; i < 15; i++) {
-      steps.push({ matches: isPrView, response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD) });
+      steps.push({
+        matches: isPrView,
+        response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD),
+      });
       steps.push(perPollReviewRequests(COPILOT_NOT_QUEUED));
-      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(ALL_PASSED),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
@@ -1942,7 +2181,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => true, // historical fallback HIT
     });
@@ -1971,7 +2213,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false, // historical fallback MISS
     });
@@ -1986,7 +2231,10 @@ describe("run() integration", () => {
   it("does NOT invoke the historical-PR fallback when Copilot is already in reviewRequests", async () => {
     const clock = makeFakeClock();
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
@@ -1998,7 +2246,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => {
         fallbackCalls++;
@@ -2024,7 +2275,8 @@ describe("run() integration", () => {
       // Default factory first tries the authoritative ruleset read; the
       // rules api 403s → "unknown" → it falls through to the heuristic.
       {
-        matches: (argv) => argv[0] === "repo" && argv.includes("defaultBranchRef"),
+        matches: (argv) =>
+          argv[0] === "repo" && argv.includes("defaultBranchRef"),
         response: { stdout: "main", stderr: "", exitCode: 0 },
       },
       {
@@ -2045,7 +2297,10 @@ describe("run() integration", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       // No readHistoricalBotReview — exercises the default that uses gh.
     });
@@ -2086,12 +2341,18 @@ describe("run() integration — Copilot retrigger", () => {
     const stale = staleCopilotReview(STALE_SHA);
     const fresh = staleCopilotReview(HEAD_SHA); // same login, fresh commit
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       // Poll 1: stale review observed against HEAD_SHA → retrigger fires.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      {
+        matches: isRequestedReviewersPost,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
       // Post-POST re-read (item 2) confirms Copilot is queued → copilotRetriggered.
       perPollReviewRequests(COPILOT_QUEUED),
       // Poll 2: fresh review at HEAD_SHA → proceed-to-review.
@@ -2105,7 +2366,10 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2121,7 +2385,9 @@ describe("run() integration — Copilot retrigger", () => {
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
     // Pins the user-facing stderr contract documented in the PR body's
     // User-facing changes section.
-    expect(cap.stderr.join("")).toMatch(/Copilot review stale.*re-requested at poll 1/);
+    expect(cap.stderr.join("")).toMatch(
+      /Copilot review stale.*re-requested at poll 1/,
+    );
   });
 
   it("(2) one-shot enforcement: stale review + no fresh review → proceed-to-review-no-bot, exactly one POST", async () => {
@@ -2129,12 +2395,18 @@ describe("run() integration — Copilot retrigger", () => {
     const stale = staleCopilotReview(STALE_SHA);
     // Build a long sequence where the stale review never gets a fresh follow-up.
     const steps: GhStep[] = [
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       // Poll 1: stale → retrigger fires.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      {
+        matches: isRequestedReviewersPost,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
       perPollReviewRequests(COPILOT_QUEUED), // post-POST re-read confirms queued
     ];
     // Polls 2+ keep observing the stale review (no fresh one ever lands).
@@ -2142,9 +2414,15 @@ describe("run() integration — Copilot retrigger", () => {
     // at >=600s elapsed-since-retrigger. Need enough polls for ~12-15
     // iterations under the 30-30-30-30-30-60-60-60-60-60-90-90-… ramp.
     for (let i = 0; i < 20; i++) {
-      steps.push({ matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) });
+      steps.push({
+        matches: isPrView,
+        response: prViewResponse("OPEN", stale, HEAD_SHA),
+      });
       steps.push(perPollReviewRequests());
-      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(ALL_PASSED),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
@@ -2153,7 +2431,10 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2173,7 +2454,10 @@ describe("run() integration — Copilot retrigger", () => {
     const clock = makeFakeClock();
     const fresh = staleCopilotReview(HEAD_SHA); // commit matches HEAD
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
@@ -2184,7 +2468,10 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2207,7 +2494,10 @@ describe("run() integration — Copilot retrigger", () => {
     const stale = staleCopilotReview(STALE_SHA);
     const PENDING_CHECKS: Check[] = [{ name: "test", state: "IN_PROGRESS" }];
     const steps: GhStep[] = [
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       // Poll 1: CI pending, stale review observed → NO retrigger fires.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
@@ -2220,10 +2510,20 @@ describe("run() integration — Copilot retrigger", () => {
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      {
+        matches: isRequestedReviewersPost,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
       perPollReviewRequests(COPILOT_QUEUED), // post-POST re-read confirms queued
       // Poll 4: fresh review lands → proceed-to-review.
-      { matches: isPrView, response: prViewResponse("OPEN", staleCopilotReview(HEAD_SHA), HEAD_SHA) },
+      {
+        matches: isPrView,
+        response: prViewResponse(
+          "OPEN",
+          staleCopilotReview(HEAD_SHA),
+          HEAD_SHA,
+        ),
+      },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ];
@@ -2234,7 +2534,10 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2254,7 +2557,10 @@ describe("run() integration — Copilot retrigger", () => {
     const clock = makeFakeClock();
     const stale = staleCopilotReview(STALE_SHA);
     const steps: GhStep[] = [
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       // Poll 1: stale review → retrigger fires but FAILS.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
@@ -2269,9 +2575,15 @@ describe("run() integration — Copilot retrigger", () => {
     // re-request anyone). One-shot cap means no retry; eventual exit at the
     // 10-min Copilot timeout under the no-bot decision branch.
     for (let i = 0; i < 20; i++) {
-      steps.push({ matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) });
+      steps.push({
+        matches: isPrView,
+        response: prViewResponse("OPEN", stale, HEAD_SHA),
+      });
       steps.push(perPollReviewRequests());
-      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(ALL_PASSED),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
@@ -2280,7 +2592,10 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2308,7 +2623,10 @@ describe("run() integration — Copilot retrigger", () => {
     // diverts the retrigger, and deriveCopilotPosted (pre-retrigger semantics)
     // sees a POSTED Copilot review → exit proceed-to-review.
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
@@ -2319,7 +2637,10 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => true,
@@ -2336,7 +2657,9 @@ describe("run() integration — Copilot retrigger", () => {
     expect(result.decision).toBe("proceed-to-review");
     // The merge-only stderr line fires so the user sees why the loop didn't
     // retrigger.
-    expect(cap.stderr.join("")).toMatch(/every intervening commit is a merge, skipping retrigger/);
+    expect(cap.stderr.join("")).toMatch(
+      /every intervening commit is a merge, skipping retrigger/,
+    );
   });
 
   it("(7) fires retrigger when at least one intervening commit is a regular non-merge commit", async () => {
@@ -2348,11 +2671,17 @@ describe("run() integration — Copilot retrigger", () => {
     const stale = staleCopilotReview(STALE_SHA);
     const fresh = staleCopilotReview(HEAD_SHA);
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      {
+        matches: isRequestedReviewersPost,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
       perPollReviewRequests(COPILOT_QUEUED), // post-POST re-read confirms queued
       { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
       perPollReviewRequests(),
@@ -2364,7 +2693,10 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2376,7 +2708,9 @@ describe("run() integration — Copilot retrigger", () => {
     expect(result.decision).toBe("proceed-to-review");
     expect(result.copilotRetriggered).toBe(true);
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
-    expect(cap.stderr.join("")).toMatch(/Copilot review stale.*re-requested at poll 1/);
+    expect(cap.stderr.join("")).toMatch(
+      /Copilot review stale.*re-requested at poll 1/,
+    );
   });
 
   it("(8) skips retrigger when intervening commits are a small follow-up", async () => {
@@ -2388,7 +2722,10 @@ describe("run() integration — Copilot retrigger", () => {
     // review still counts as "posted" pre-retrigger). Single-poll fixture: CI
     // all-passed + stale-but-posted Copilot review → exit proceed-to-review.
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
@@ -2399,7 +2736,10 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2426,11 +2766,17 @@ describe("run() integration — Copilot retrigger", () => {
     const stale = staleCopilotReview(STALE_SHA);
     const fresh = staleCopilotReview(HEAD_SHA);
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      {
+        matches: isRequestedReviewersPost,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
       perPollReviewRequests(COPILOT_QUEUED), // post-POST re-read confirms queued
       { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
       perPollReviewRequests(),
@@ -2442,7 +2788,10 @@ describe("run() integration — Copilot retrigger", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2454,7 +2803,9 @@ describe("run() integration — Copilot retrigger", () => {
     expect(result.decision).toBe("proceed-to-review");
     expect(result.copilotRetriggered).toBe(true);
     expect(gh.calls.filter(isRequestedReviewersPost)).toHaveLength(1);
-    expect(cap.stderr.join("")).toMatch(/Copilot review stale.*re-requested at poll 1/);
+    expect(cap.stderr.join("")).toMatch(
+      /Copilot review stale.*re-requested at poll 1/,
+    );
   });
 });
 
@@ -2473,12 +2824,18 @@ describe("run() integration — per-poll requested_reviewers signal", () => {
     // never posts → loop until the 10-min timeout. Per-poll read returns the
     // login, so the queued-variant stderr fires.
     const steps: GhStep[] = [
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
     ];
     for (let i = 0; i < 15; i++) {
       steps.push({ matches: isPrView, response: prViewResponse("OPEN", []) });
       steps.push(perPollReviewRequests(COPILOT_QUEUED));
-      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(ALL_PASSED),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
@@ -2487,7 +2844,10 @@ describe("run() integration — per-poll requested_reviewers signal", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -2509,7 +2869,10 @@ describe("run() integration — per-poll requested_reviewers signal", () => {
     for (let i = 0; i < 15; i++) {
       steps.push({ matches: isPrView, response: prViewResponse("OPEN", []) });
       steps.push(perPollReviewRequests(COPILOT_NOT_QUEUED));
-      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(ALL_PASSED),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
@@ -2518,7 +2881,10 @@ describe("run() integration — per-poll requested_reviewers signal", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => true, // fallback → copilotConfigured
     });
@@ -2545,12 +2911,18 @@ describe("run() integration — post-POST verification (item 2)", () => {
     const stale = staleCopilotReview(STALE_SHA);
     const fresh = staleCopilotReview(HEAD_SHA);
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       // Poll 1: stale → POST → re-read confirms queued.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      {
+        matches: isRequestedReviewersPost,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
       perPollReviewRequests(COPILOT_QUEUED), // re-read: present
       // Poll 2: fresh review lands → proceed-to-review.
       { matches: isPrView, response: prViewResponse("OPEN", fresh, HEAD_SHA) },
@@ -2563,7 +2935,10 @@ describe("run() integration — post-POST verification (item 2)", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2582,12 +2957,18 @@ describe("run() integration — post-POST verification (item 2)", () => {
     const clock = makeFakeClock();
     const stale = staleCopilotReview(STALE_SHA);
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       // Poll 1: stale → POST returns ok → re-read does NOT include Copilot.
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isRequestedReviewersPost, response: { stdout: "", stderr: "", exitCode: 0 } },
+      {
+        matches: isRequestedReviewersPost,
+        response: { stdout: "", stderr: "", exitCode: 0 },
+      },
       perPollReviewRequests(COPILOT_NOT_QUEUED), // re-read: absent → silent rejection
       // No further steps: the run must short-circuit and return immediately.
     ]);
@@ -2597,7 +2978,10 @@ describe("run() integration — post-POST verification (item 2)", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2620,20 +3004,33 @@ describe("run() integration — post-POST verification (item 2)", () => {
     const clock = makeFakeClock();
     const stale = staleCopilotReview(STALE_SHA);
     const steps: GhStep[] = [
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       {
         matches: isRequestedReviewersPost,
-        response: { stdout: "", stderr: "HTTP 422: Unprocessable", exitCode: 1 },
+        response: {
+          stdout: "",
+          stderr: "HTTP 422: Unprocessable",
+          exitCode: 1,
+        },
       },
       // POST non-zero: NO post-POST re-read. Loop falls through to the 10-min timeout.
     ];
     for (let i = 0; i < 15; i++) {
-      steps.push({ matches: isPrView, response: prViewResponse("OPEN", stale, HEAD_SHA) });
+      steps.push({
+        matches: isPrView,
+        response: prViewResponse("OPEN", stale, HEAD_SHA),
+      });
       steps.push(perPollReviewRequests());
-      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(ALL_PASSED),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
@@ -2642,7 +3039,10 @@ describe("run() integration — post-POST verification (item 2)", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2684,12 +3084,24 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       // Loop-entry presence check: copilot is configured (loop-entry only).
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
       // Poll 1: CI terminal, no Copilot review, copilot NOT in per-poll requests.
-      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
       // Poll 2: same observation, but now 30s elapsed since CI terminal.
-      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2698,7 +3110,10 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2711,7 +3126,9 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     expect(result.copilotSkipReason).toBe("unclaimed-after-deadline");
     expect(result.polls).toBe(2);
     // The auto-detect stderr line attributing the exit.
-    expect(cap.stderr.join("")).toMatch(/Copilot auto-detect: unclaimed-after-deadline/);
+    expect(cap.stderr.join("")).toMatch(
+      /Copilot auto-detect: unclaimed-after-deadline/,
+    );
   });
 
   // --- claim-deadline precedence: CLI flag -> config -> default -----------
@@ -2723,11 +3140,23 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     const clock = makeFakeClock();
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
-      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2736,7 +3165,10 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       readClaimDeadline: () => 30,
       readHistoricalBotReview: () => false,
@@ -2755,11 +3187,23 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     const clock = makeFakeClock();
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
-      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2768,7 +3212,10 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       // High config value loses to the flag; if config won here the
       // short-circuit would not fire by poll 2 and polls would exceed 2.
@@ -2791,14 +3238,32 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
       // Poll 1 (elapsedSec=0), poll 2 (elapsedSec=30) — below the 60s
       // default so no short-circuit yet; poll 3 (elapsedSec=60) fires.
-      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
-      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2807,7 +3272,10 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       readClaimDeadline: () => undefined,
       readHistoricalBotReview: () => false,
@@ -2825,13 +3293,23 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
   it("'self-dismissed' fires when DISMISSED on current headRefOid + retrigger does NOT fire", async () => {
     const clock = makeFakeClock();
     const dismissed: Review[] = [
-      { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
+      {
+        author: { login: LOGIN },
+        state: "DISMISSED",
+        commitOid: STABLE_HEAD_SHA,
+      },
     ];
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
       // Poll 1: CI terminal + Copilot DISMISSED on current SHA → self-dismissed.
-      { matches: isPrView, response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -2840,7 +3318,10 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2866,15 +3347,25 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     // doesn't fire either. The loop runs until the existing 10-min copilot
     // timeout fires (Copilot has not POSTED).
     const dismissed: Review[] = [
-      { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
+      {
+        author: { login: LOGIN },
+        state: "DISMISSED",
+        commitOid: STABLE_HEAD_SHA,
+      },
     ];
     const steps: GhStep[] = [
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
     ];
     for (let i = 0; i < 15; i++) {
-      steps.push({ matches: isPrView, response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []) });
+      steps.push({
+        matches: isPrView,
+        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
+      });
       steps.push(perPollReviewRequests(COPILOT_NOT_QUEUED));
-      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(ALL_PASSED),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
@@ -2883,7 +3374,10 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2907,29 +3401,45 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     // from firing under the auto-detect path (defence in depth, the
     // --wait-for-copilot flag is the primary suppressor here).
     const pending: Review[] = [
-      { author: { login: LOGIN }, state: "PENDING", commitOid: STABLE_HEAD_SHA },
+      {
+        author: { login: LOGIN },
+        state: "PENDING",
+        commitOid: STABLE_HEAD_SHA,
+      },
     ];
     const steps: GhStep[] = [
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
     ];
     for (let i = 0; i < 15; i++) {
-      steps.push({ matches: isPrView, response: prViewResponse("OPEN", pending, STABLE_HEAD_SHA, []) });
+      steps.push({
+        matches: isPrView,
+        response: prViewResponse("OPEN", pending, STABLE_HEAD_SHA, []),
+      });
       steps.push(perPollReviewRequests(COPILOT_NOT_QUEUED));
-      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(ALL_PASSED),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
-    const exit = await run(["100", "--wait-for-copilot", "--claim-deadline-sec", "30"], {
-      gh,
-      now: clock.now,
-      sleep: clock.sleep,
-      readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
-      readCopilotLogin: () => LOGIN,
-      readHistoricalBotReview: () => false,
-      readCommitsAreAllMerges: () => false,
-      readIsSmallFollowup: () => false,
-    });
+    const exit = await run(
+      ["100", "--wait-for-copilot", "--claim-deadline-sec", "30"],
+      {
+        gh,
+        now: clock.now,
+        sleep: clock.sleep,
+        readWorkflowsDir: () => true,
+        readMergeState: () => ({
+          mergeable: "MERGEABLE",
+          mergeStateStatus: "CLEAN",
+        }),
+        readCopilotLogin: () => LOGIN,
+        readHistoricalBotReview: () => false,
+        readCommitsAreAllMerges: () => false,
+        readIsSmallFollowup: () => false,
+      },
+    );
     cap.restore();
     expect(exit).toBe(0);
     const result = JSON.parse(cap.stdout.join("")) as RunResult;
@@ -2960,8 +3470,14 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       // requested. The auto-detect's deadline hasn't elapsed yet (poll 1
       // is at elapsedSec=0), but on poll 2 it would — except ci-failed
       // already exited at poll 1.
-      { matches: isPrView, response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", [], STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(failed) },
     ]);
     const cap = captureStreams();
@@ -2970,7 +3486,10 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -2992,12 +3511,22 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     // silently disabled.
     const failed: Check[] = [{ name: "test", state: "FAILURE" }];
     const dismissed: Review[] = [
-      { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
+      {
+        author: { login: LOGIN },
+        state: "DISMISSED",
+        commitOid: STABLE_HEAD_SHA,
+      },
     ];
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
-      { matches: isPrView, response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("OPEN", dismissed, STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(failed) },
     ]);
     const cap = captureStreams();
@@ -3006,7 +3535,10 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -3030,12 +3562,22 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     // ciConfigured=true (the per-poll observeChecks fires before
     // decideOnPoll routes on prState).
     const dismissed: Review[] = [
-      { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
+      {
+        author: { login: LOGIN },
+        state: "DISMISSED",
+        commitOid: STABLE_HEAD_SHA,
+      },
     ];
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
-      { matches: isPrView, response: prViewResponse("MERGED", dismissed, STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("MERGED", dismissed, STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -3044,7 +3586,10 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -3063,12 +3608,22 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
     // PR is CLOSED + Copilot self-dismissed on current SHA. Same shape as
     // the MERGED test above; both pr-state branches must take precedence.
     const dismissed: Review[] = [
-      { author: { login: LOGIN }, state: "DISMISSED", commitOid: STABLE_HEAD_SHA },
+      {
+        author: { login: LOGIN },
+        state: "DISMISSED",
+        commitOid: STABLE_HEAD_SHA,
+      },
     ];
     const gh = makeGhSequence([
       { matches: isReviewRequests, response: reviewRequestsResponse([LOGIN]) },
-      { matches: isPrView, response: prViewResponse("CLOSED", dismissed, STABLE_HEAD_SHA, []) },
-      { matches: isReviewRequests, response: reviewRequestsResponse(COPILOT_NOT_QUEUED) },
+      {
+        matches: isPrView,
+        response: prViewResponse("CLOSED", dismissed, STABLE_HEAD_SHA, []),
+      },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(COPILOT_NOT_QUEUED),
+      },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
     const cap = captureStreams();
@@ -3077,7 +3632,10 @@ describe("run() integration — Copilot auto-detect short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
       readCommitsAreAllMerges: () => false,
@@ -3122,7 +3680,10 @@ describe("run() integration — branch-conflict short-circuit", () => {
       readWorkflowsDir: () => false,
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
-      readMergeState: () => ({ mergeable: "CONFLICTING", mergeStateStatus: "CONFLICTING" }),
+      readMergeState: () => ({
+        mergeable: "CONFLICTING",
+        mergeStateStatus: "CONFLICTING",
+      }),
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -3146,7 +3707,10 @@ describe("run() integration — branch-conflict short-circuit", () => {
       readWorkflowsDir: () => false,
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "DIRTY" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "DIRTY",
+      }),
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -3177,7 +3741,10 @@ describe("run() integration — branch-conflict short-circuit", () => {
       readWorkflowsDir: () => true,
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
-      readMergeState: () => ({ mergeable: "UNKNOWN", mergeStateStatus: "UNKNOWN" }),
+      readMergeState: () => ({
+        mergeable: "UNKNOWN",
+        mergeStateStatus: "UNKNOWN",
+      }),
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -3258,7 +3825,10 @@ describe("run() integration — branch-conflict short-circuit", () => {
       readWorkflowsDir: () => false,
       readCopilotLogin: () => LOGIN,
       readHistoricalBotReview: () => false,
-      readMergeState: () => ({ mergeable: "CONFLICTING", mergeStateStatus: "CONFLICTING" }),
+      readMergeState: () => ({
+        mergeable: "CONFLICTING",
+        mergeStateStatus: "CONFLICTING",
+      }),
     });
     cap.restore();
     expect(exit).toBe(0);
@@ -3299,7 +3869,9 @@ describe("run() integration — branch-protection short-circuit", () => {
     const result = JSON.parse(cap.stdout.join("")) as RunResult;
     expect(result.decision).toBe("pr-blocked");
     expect(result.polls).toBe(1);
-    expect(cap.stderr.join("")).toMatch(/Branch protection blocked \(mergeStateStatus=BLOCKED\)/);
+    expect(cap.stderr.join("")).toMatch(
+      /Branch protection blocked \(mergeStateStatus=BLOCKED\)/,
+    );
   });
 
   it("(2) pending CI + BLOCKED does NOT fire while pending — fires only after CI reaches terminal (poll 2)", async () => {
@@ -3350,7 +3922,10 @@ describe("run() integration — branch-protection short-circuit", () => {
         readWorkflowsDir: () => true,
         readCopilotLogin: () => LOGIN,
         readHistoricalBotReview: () => false,
-        readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: status }),
+        readMergeState: () => ({
+          mergeable: "MERGEABLE",
+          mergeStateStatus: status,
+        }),
       });
       cap.restore();
       expect(exit).toBe(0);
@@ -3424,12 +3999,21 @@ describe("run() integration — branch-protection short-circuit", () => {
       },
     ];
     const steps: GhStep[] = [
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
     ];
     for (let i = 0; i < 15; i++) {
-      steps.push({ matches: isPrView, response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD) });
+      steps.push({
+        matches: isPrView,
+        response: prViewResponse("OPEN", PENDING_COPILOT_ON_HEAD),
+      });
       steps.push(perPollReviewRequests());
-      steps.push({ matches: isPrChecks, response: prChecksResponse(ALL_PASSED) });
+      steps.push({
+        matches: isPrChecks,
+        response: prChecksResponse(ALL_PASSED),
+      });
     }
     const gh = makeGhSequence(steps);
     const cap = captureStreams();
@@ -3438,7 +4022,10 @@ describe("run() integration — branch-protection short-circuit", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "BLOCKED" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "BLOCKED",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -3447,7 +4034,9 @@ describe("run() integration — branch-protection short-circuit", () => {
     const result = JSON.parse(cap.stdout.join("")) as RunResult;
     expect(result.decision).toBe("pr-blocked");
     expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
-    expect(cap.stderr.join("")).toMatch(/Branch protection blocked \(mergeStateStatus=BLOCKED\)/);
+    expect(cap.stderr.join("")).toMatch(
+      /Branch protection blocked \(mergeStateStatus=BLOCKED\)/,
+    );
   });
 });
 
@@ -3456,7 +4045,9 @@ describe("run() integration — branch-protection short-circuit", () => {
 // ---------------------------------------------------------------------------
 
 describe(allMergeCommitsBetween, () => {
-  function ghFromQueue(queue: Array<{ stdout: string; exitCode: number }>): GhRunner & {
+  function ghFromQueue(
+    queue: Array<{ stdout: string; exitCode: number }>,
+  ): GhRunner & {
     calls: string[][];
   } {
     const calls: string[][] = [];
@@ -3515,7 +4106,9 @@ describe(allMergeCommitsBetween, () => {
   it("returns true on a single merge commit", () => {
     const gh = ghFromQueue([
       {
-        stdout: JSON.stringify([{ sha: "a", parents: [{ sha: "p1" }, { sha: "p2" }] }]),
+        stdout: JSON.stringify([
+          { sha: "a", parents: [{ sha: "p1" }, { sha: "p2" }] },
+        ]),
         exitCode: 0,
       },
     ]);
@@ -3539,7 +4132,9 @@ describe(allMergeCommitsBetween, () => {
 // ---------------------------------------------------------------------------
 
 describe(isSmallFollowup, () => {
-  function ghFromQueue(queue: Array<{ stdout: string; exitCode: number }>): GhRunner & {
+  function ghFromQueue(
+    queue: Array<{ stdout: string; exitCode: number }>,
+  ): GhRunner & {
     calls: string[][];
   } {
     const calls: string[][] = [];
@@ -3558,7 +4153,10 @@ describe(isSmallFollowup, () => {
     const gh = ghFromQueue([
       {
         stdout: JSON.stringify({
-          messages: ["fix(x): thing (pr-review #97)", "chore(y): z (pr-review #97)"],
+          messages: [
+            "fix(x): thing (pr-review #97)",
+            "chore(y): z (pr-review #97)",
+          ],
           // Files large enough to exceed the size thresholds — the kind
           // signal must short-circuit before the size signal is consulted.
           files: [{ additions: 200, deletions: 100, filename: "a.ts" }],
@@ -3713,7 +4311,10 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
       now: clock.now,
       sleep: clock.sleep,
       cwd: tmp,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -3726,7 +4327,9 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
     // must not synthesise a bot signal silently for schedule-only repos.
     expect(result.copilotConfigured).toBe(false);
     expect(result.polls).toBe(1);
-    expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "checks")).toBe(false);
+    expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "checks")).toBe(
+      false,
+    );
   });
 
   it("mixed workflows directory: schedule-only .yml + qualifying .yaml → ciConfigured=true", async () => {
@@ -3744,7 +4347,10 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
     );
     const clock = makeFakeClock();
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
@@ -3755,7 +4361,10 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
       now: clock.now,
       sleep: clock.sleep,
       cwd: tmp,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -3796,7 +4405,10 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
       now: clock.now,
       sleep: clock.sleep,
       cwd: tmp,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => true, // bot is expected → don't short-circuit
     });
@@ -3821,7 +4433,10 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
       now: clock.now,
       sleep: clock.sleep,
       cwd: tmp,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -3830,7 +4445,9 @@ describe("run() integration — workflow trigger filesystem behavior", () => {
     const result = JSON.parse(cap.stdout.join("")) as RunResult;
     expect(result.decision).toBe("proceed-to-review");
     expect(result.ciConfigured).toBe(false);
-    expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "checks")).toBe(false);
+    expect(gh.calls.some((c) => c[0] === "pr" && c[1] === "checks")).toBe(
+      false,
+    );
   });
 });
 
@@ -3851,7 +4468,10 @@ describe("run() integration — verdict persistence", () => {
     const outPath = path.join(globalCwd, "out", "ci-wait-result.json");
     const clock = makeFakeClock();
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse(["copilot-pull-request-reviewer"]) },
+      {
+        matches: isReviewRequests,
+        response: reviewRequestsResponse(["copilot-pull-request-reviewer"]),
+      },
       { matches: isPrView, response: prViewResponse("OPEN", COPILOT_REVIEW) },
       perPollReviewRequests(),
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
@@ -3862,7 +4482,10 @@ describe("run() integration — verdict persistence", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => true,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -3872,7 +4495,9 @@ describe("run() integration — verdict persistence", () => {
     expect(stdoutResult.decision).toBe("proceed-to-review");
     // The file exists, parses, and is byte-identical to the stdout JSON.
     expect(fs.existsSync(outPath)).toBe(true);
-    const fileResult = JSON.parse(fs.readFileSync(outPath, "utf8")) as RunResult;
+    const fileResult = JSON.parse(
+      fs.readFileSync(outPath, "utf8"),
+    ) as RunResult;
     expect(fileResult).toEqual(stdoutResult);
   });
 
@@ -3891,17 +4516,26 @@ describe("run() integration — verdict persistence", () => {
       readWorkflowsDir: () => false,
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
-      readMergeState: () => ({ mergeable: "CONFLICTING", mergeStateStatus: "CONFLICTING" }),
+      readMergeState: () => ({
+        mergeable: "CONFLICTING",
+        mergeStateStatus: "CONFLICTING",
+      }),
     });
     cap.restore();
     expect(exit).toBe(0);
     expect(fs.existsSync(outPath)).toBe(true);
-    const fileResult = JSON.parse(fs.readFileSync(outPath, "utf8")) as RunResult;
+    const fileResult = JSON.parse(
+      fs.readFileSync(outPath, "utf8"),
+    ) as RunResult;
     expect(fileResult.decision).toBe("pr-conflicted");
   });
 
   it("defaults to <cwd>/.flow-tmp/ci-wait-result.json when --out is omitted", async () => {
-    const defaultPath = path.join(globalCwd, ".flow-tmp", "ci-wait-result.json");
+    const defaultPath = path.join(
+      globalCwd,
+      ".flow-tmp",
+      "ci-wait-result.json",
+    );
     expect(fs.existsSync(defaultPath)).toBe(false);
     const clock = makeFakeClock();
     const gh = makeGhSequence([
@@ -3914,7 +4548,10 @@ describe("run() integration — verdict persistence", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });
@@ -3922,7 +4559,9 @@ describe("run() integration — verdict persistence", () => {
     expect(exit).toBe(0);
     const stdoutResult = JSON.parse(cap.stdout.join("")) as RunResult;
     expect(fs.existsSync(defaultPath)).toBe(true);
-    const fileResult = JSON.parse(fs.readFileSync(defaultPath, "utf8")) as RunResult;
+    const fileResult = JSON.parse(
+      fs.readFileSync(defaultPath, "utf8"),
+    ) as RunResult;
     expect(fileResult).toEqual(stdoutResult);
     expect(fileResult.decision).toBe("merged-externally");
   });
@@ -3946,7 +4585,10 @@ describe("run() integration — verdict persistence", () => {
       now: clock.now,
       sleep: clock.sleep,
       readWorkflowsDir: () => false,
-      readMergeState: () => ({ mergeable: "MERGEABLE", mergeStateStatus: "CLEAN" }),
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
       readCopilotLogin: () => "copilot-pull-request-reviewer",
       readHistoricalBotReview: () => false,
     });

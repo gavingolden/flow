@@ -32,7 +32,11 @@ export type RemoveOptions = {
  * taken so the caller can summarise. Resolves source to its real path so
  * the recorded link target isn't itself a symlink (avoids long chains).
  */
-export function ensureSymlink(target: string, source: string, force: boolean): LinkResult {
+export function ensureSymlink(
+  target: string,
+  source: string,
+  force: boolean,
+): LinkResult {
   const realSource = fs.realpathSync(source);
   fs.mkdirSync(path.dirname(target), { recursive: true });
 
@@ -111,7 +115,10 @@ export function removeIfManagedSymlink(
     return true;
   }
 
-  if (resolved === recordedAbs || (recordedReal !== null && resolved === recordedReal)) {
+  if (
+    resolved === recordedAbs ||
+    (recordedReal !== null && resolved === recordedReal)
+  ) {
     fs.unlinkSync(target);
     return true;
   }
@@ -132,7 +139,10 @@ export function removeIfManagedSymlink(
  * behavior fires. This is critical for the PR #79 regression test fixture
  * (no .git directory) which expects the legacy reap to fire.
  */
-function shouldDeferDanglingReap(recordedSource: string, opts: RemoveOptions | undefined): boolean {
+function shouldDeferDanglingReap(
+  recordedSource: string,
+  opts: RemoveOptions | undefined,
+): boolean {
   if (!opts || !opts.canonicalRoot || !opts.defaultBranch) return false;
   const recordedAbs = path.resolve(recordedSource);
   const rel = path.relative(opts.canonicalRoot, recordedAbs);
@@ -140,7 +150,14 @@ function shouldDeferDanglingReap(recordedSource: string, opts: RemoveOptions | u
   try {
     const tree = spawnSync(
       "git",
-      ["-C", opts.canonicalRoot, "ls-tree", "-r", `origin/${opts.defaultBranch}`, "--name-only"],
+      [
+        "-C",
+        opts.canonicalRoot,
+        "ls-tree",
+        "-r",
+        `origin/${opts.defaultBranch}`,
+        "--name-only",
+      ],
       { encoding: "utf8" },
     );
     if (tree.status !== 0) return false;

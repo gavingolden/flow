@@ -78,7 +78,7 @@ future tweaks to the system prompt don't regress.
 
 - **Plan mode hijacked triage entirely.** The user invoked
   `flow start "add a small read-only badge…"`, Claude entered plan
-  mode (the user's default), drafted an *implementation* plan,
+  mode (the user's default), drafted an _implementation_ plan,
   the user approved, and Claude proceeded to modify `AppHeader.svelte`
   directly. No task.md was written. Root cause: the original system
   prompt buried "do not modify code" in a "What NOT to do" section
@@ -95,11 +95,11 @@ If new failures emerge during M2 verification, append them here.
 
 Summary of `templates/triage-system-prompt.md`:
 
-| Pattern | Class |
-|---|---|
-| "how does X work?", "explain Y", "what's the difference …", "why does …" | no-change |
-| "add", "implement", "build", "fix", "refactor", "change", "remove", "wire up" | change |
-| Ambiguous ("I'm thinking about …", "what would it take to …") | ASK before classifying |
+| Pattern                                                                       | Class                  |
+| ----------------------------------------------------------------------------- | ---------------------- |
+| "how does X work?", "explain Y", "what's the difference …", "why does …"      | no-change              |
+| "add", "implement", "build", "fix", "refactor", "change", "remove", "wire up" | change                 |
+| Ambiguous ("I'm thinking about …", "what would it take to …")                 | ASK before classifying |
 
 If the user starts in no-change mode and later says "OK let's actually
 do it", the agent escalates to the change flow.
@@ -130,11 +130,11 @@ worked around in plan.
 
 ## Files
 
-| Path | Role |
-|---|---|
-| `src/cli.ts` | Commander entry, wires the `start` command. |
-| `src/commands/start.ts` | Finds git root, ensures `.orchestrator/tasks/`, spawns `claude` with `--append-system-prompt`. |
-| `templates/triage-system-prompt.md` | The full triage rules: classification, conversation rules, task.md format, what NOT to do. |
+| Path                                | Role                                                                                           |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `src/cli.ts`                        | Commander entry, wires the `start` command.                                                    |
+| `src/commands/start.ts`             | Finds git root, ensures `.orchestrator/tasks/`, spawns `claude` with `--append-system-prompt`. |
+| `templates/triage-system-prompt.md` | The full triage rules: classification, conversation rules, task.md format, what NOT to do.     |
 
 ## Known gaps to address in M2 and beyond
 

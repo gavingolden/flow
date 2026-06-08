@@ -4,11 +4,17 @@ import { parseArgs } from "node:util";
 import type { EvalResult } from "./utils.ts";
 import { parseSkillMd } from "./utils.ts";
 
-async function callClaude(prompt: string, model?: string, timeout = 300): Promise<string> {
+async function callClaude(
+  prompt: string,
+  model?: string,
+  timeout = 300,
+): Promise<string> {
   const cmd = ["claude", "-p", "--output-format", "text"];
   if (model) cmd.push("--model", model);
 
-  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== "CLAUDECODE"));
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(([k]) => k !== "CLAUDECODE"),
+  );
 
   const proc = Bun.spawn(cmd, {
     stdin: new Blob([prompt]),
@@ -18,7 +24,10 @@ async function callClaude(prompt: string, model?: string, timeout = 300): Promis
   });
 
   const timeoutId = setTimeout(() => proc.kill(), timeout * 1000);
-  const [stdout, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  const [stdout, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    proc.exited,
+  ]);
   clearTimeout(timeoutId);
 
   if (exitCode !== 0) {
@@ -91,8 +100,12 @@ export async function improveDescription(opts: {
     iteration,
   } = opts;
 
-  const failedTriggers = evalResults.results.filter((r) => r.should_trigger && !r.pass);
-  const falseTriggers = evalResults.results.filter((r) => !r.should_trigger && !r.pass);
+  const failedTriggers = evalResults.results.filter(
+    (r) => r.should_trigger && !r.pass,
+  );
+  const falseTriggers = evalResults.results.filter(
+    (r) => !r.should_trigger && !r.pass,
+  );
 
   const trainScore = `${evalResults.summary.passed}/${evalResults.summary.total}`;
   const scoresSummary = testResults
@@ -129,7 +142,8 @@ Current scores (${scoresSummary}):
   }
 
   if (history.length > 0) {
-    prompt += "PREVIOUS ATTEMPTS (do NOT repeat these — try something structurally different):\n\n";
+    prompt +=
+      "PREVIOUS ATTEMPTS (do NOT repeat these — try something structurally different):\n\n";
     for (const h of history) {
       const trainS = `${h.train_passed ?? h.passed ?? 0}/${h.train_total ?? h.total ?? 0}`;
       const testS =
@@ -193,7 +207,9 @@ Please respond with only the new description text in <new_description> tags, not
   if (description.length > 1024) {
     const shortenPrompt = `${prompt}\n\n---\n\nA previous attempt produced this description, which at ${description.length} characters is over the 1024-character hard limit:\n\n"${description}"\n\nRewrite it to be under 1024 characters while keeping the most important trigger words and intent coverage. Respond with only the new description in <new_description> tags.`;
     const shortenText = await callClaude(shortenPrompt, model);
-    const m2 = shortenText.match(/<new_description>([\s\S]*?)<\/new_description>/);
+    const m2 = shortenText.match(
+      /<new_description>([\s\S]*?)<\/new_description>/,
+    );
     const shortened = m2
       ? m2[1].trim().replace(/^"|"$/g, "")
       : shortenText.trim().replace(/^"|"$/g, "");
@@ -254,7 +270,9 @@ if (import.meta.main) {
 
   if (values.verbose) {
     console.error(`Current: ${currentDescription}`);
-    console.error(`Score: ${evalResults.summary.passed}/${evalResults.summary.total}`);
+    console.error(
+      `Score: ${evalResults.summary.passed}/${evalResults.summary.total}`,
+    );
   }
 
   const newDescription = await improveDescription({

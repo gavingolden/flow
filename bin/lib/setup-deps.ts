@@ -16,7 +16,9 @@ import { join } from "node:path";
  * package.json yields `{ missing: [] }` — a missing package.json is not this
  * check's failure to own.
  */
-export function findMissingRuntimeDeps(sourceRoot: string): { missing: string[] } {
+export function findMissingRuntimeDeps(sourceRoot: string): {
+  missing: string[];
+} {
   const pkgPath = join(sourceRoot, "package.json");
   if (!existsSync(pkgPath)) return { missing: [] };
   let pkg: unknown;
@@ -46,7 +48,10 @@ export function findMissingRuntimeDeps(sourceRoot: string): { missing: string[] 
  * and the `npm install` (or `--install-deps`) fix. Pure — the caller decides
  * how to surface it.
  */
-export function formatMissingDepsError(missing: string[], sourceRoot: string): string {
+export function formatMissingDepsError(
+  missing: string[],
+  sourceRoot: string,
+): string {
   const names = missing.join(", ");
   return (
     `! missing runtime dependencies: ${names}\n` +

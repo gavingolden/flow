@@ -10,7 +10,12 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { CLAUDE_SETTINGS_PATH, FLOW_MANIFEST, resolveFlowSource, SETUP_LOCK_PATH } from "./paths";
+import {
+  CLAUDE_SETTINGS_PATH,
+  FLOW_MANIFEST,
+  resolveFlowSource,
+  SETUP_LOCK_PATH,
+} from "./paths";
 import {
   readManifest,
   writeManifest,
@@ -24,7 +29,11 @@ import {
   type InstallTargets,
   type SourceEntry,
 } from "./sources";
-import { ensureSymlink, removeIfManagedSymlink, type LinkResult } from "./symlink";
+import {
+  ensureSymlink,
+  removeIfManagedSymlink,
+  type LinkResult,
+} from "./symlink";
 import { withFileLock } from "./lock";
 import { applyShellRcCompletions } from "./setup-rc";
 import { ensureStopHook, repairSettings } from "./settings-merge";
@@ -146,7 +155,9 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   const flowSource = options.flowSource ?? resolveFlowSource();
   const installRoot = options.installRoot ?? resolveFlowSource();
   const targets = options.targets ?? DEFAULT_TARGETS;
-  const log = options.quiet ? () => undefined : (msg: string) => console.log(msg);
+  const log = options.quiet
+    ? () => undefined
+    : (msg: string) => console.log(msg);
 
   if (!options.skipPreflight) preflight(targets);
 
@@ -160,7 +171,9 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   if (missingRuntimeDeps.length > 0 && options.installDeps) {
     const install = (options.installRunner ?? npmInstall)(installRoot);
     if (!install.ok) {
-      log(`  ! install-deps failed at ${installRoot}: ${install.stderr ?? "no detail"}`);
+      log(
+        `  ! install-deps failed at ${installRoot}: ${install.stderr ?? "no detail"}`,
+      );
     }
     missingRuntimeDeps = findMissingRuntimeDeps(installRoot).missing;
   }
@@ -185,7 +198,15 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   // `flow setup --upgrade` can race on the same skill/agent symlink.
   return withFileLock(
     options.lockPath ?? SETUP_LOCK_PATH,
-    () => runUnderLock(flowSource, installRoot, targets, log, options, missingRuntimeDeps),
+    () =>
+      runUnderLock(
+        flowSource,
+        installRoot,
+        targets,
+        log,
+        options,
+        missingRuntimeDeps,
+      ),
     { timeoutMs: options.lockTimeoutMs },
   );
 }
@@ -213,13 +234,22 @@ function runUnderLock(
   log(`      source ${flowSource}`);
 
   for (const entry of entries) {
-    const result = ensureSymlink(entry.target, entry.source, options.force ?? false);
+    const result = ensureSymlink(
+      entry.target,
+      entry.source,
+      options.force ?? false,
+    );
     logResult(entry, result, log);
     summary[bucketFor(result)]++;
   }
 
   if (options.upgrade) {
-    summary.removed = reapOrphans(entries, options.manifestPath, log, installRoot);
+    summary.removed = reapOrphans(
+      entries,
+      options.manifestPath,
+      log,
+      installRoot,
+    );
   }
 
   // Edit the user's shell rc files to source the completion scripts. Run
@@ -234,23 +264,37 @@ function runUnderLock(
 
   const settingsPath = options.settingsPath ?? CLAUDE_SETTINGS_PATH;
   if (!options.noHooks) {
-    const result = ensureStopHook(settingsPath, STOP_HOOK_COMMAND, { homeDir: options.homeDir });
+    const result = ensureStopHook(settingsPath, STOP_HOOK_COMMAND, {
+      homeDir: options.homeDir,
+    });
     if (result.changed) {
-      log(`  + hooks/Stop:${STOP_HOOK_COMMAND}  (registered in ${settingsPath})`);
+      log(
+        `  + hooks/Stop:${STOP_HOOK_COMMAND}  (registered in ${settingsPath})`,
+      );
     } else if (result.reason === "malformed-json" && options.repairSettings) {
-      const repair = repairSettings(settingsPath, STOP_HOOK_COMMAND, { homeDir: options.homeDir });
+      const repair = repairSettings(settingsPath, STOP_HOOK_COMMAND, {
+        homeDir: options.homeDir,
+      });
       if (repair.changed) {
-        log(`  ~ hooks/Stop:${STOP_HOOK_COMMAND}  (repaired; backup at ${repair.backupPath})`);
+        log(
+          `  ~ hooks/Stop:${STOP_HOOK_COMMAND}  (repaired; backup at ${repair.backupPath})`,
+        );
         if (repair.resolvedPath && repair.resolvedPath !== settingsPath) {
           log(`      (followed symlink to ${repair.resolvedPath})`);
         }
       } else {
-        log(`  ! hooks/Stop:${STOP_HOOK_COMMAND}  (repair-failed: ${repair.error ?? repair.reason ?? "no detail"})`);
+        log(
+          `  ! hooks/Stop:${STOP_HOOK_COMMAND}  (repair-failed: ${repair.error ?? repair.reason ?? "no detail"})`,
+        );
       }
     } else if (result.reason) {
-      log(`  ! hooks/Stop:${STOP_HOOK_COMMAND}  (${result.reason}: ${result.error ?? "no detail"})`);
+      log(
+        `  ! hooks/Stop:${STOP_HOOK_COMMAND}  (${result.reason}: ${result.error ?? "no detail"})`,
+      );
       if (result.reason === "malformed-json") {
-        log(`      → run "flow setup --repair-settings" to back up and rewrite the file`);
+        log(
+          `      → run "flow setup --repair-settings" to back up and rewrite the file`,
+        );
       }
       // unsafe-symlink-target intentionally gets no repair hint — repair
       // would just chase the same escaping symlink. The user needs to
@@ -279,7 +323,9 @@ function runUnderLock(
   const validation = validateJsonFiles(validationTargets);
   for (const p of validation.failures) {
     summary.validationFailures.push(p);
-    log(`  ! ${p}  (validation-failed: ${validation.errors.get(p) ?? "no detail"})`);
+    log(
+      `  ! ${p}  (validation-failed: ${validation.errors.get(p) ?? "no detail"})`,
+    );
   }
 
   printSummary(summary, log);
@@ -293,9 +339,10 @@ function runUnderLock(
  * orchestrator so it can be unit-tested in isolation without standing up a
  * full setup fixture.
  */
-export function validateJsonFiles(
-  paths: string[],
-): { failures: string[]; errors: Map<string, string> } {
+export function validateJsonFiles(paths: string[]): {
+  failures: string[];
+  errors: Map<string, string>;
+} {
   const failures: string[] = [];
   const errors = new Map<string, string>();
   for (const p of paths) {
@@ -346,7 +393,13 @@ function reapOrphans(
   let removed = 0;
   for (const record of previous.symlinks) {
     if (currentTargets.has(record.target)) continue;
-    if (removeIfManagedSymlink(record.target, record.source, { canonicalRoot, defaultBranch, log })) {
+    if (
+      removeIfManagedSymlink(record.target, record.source, {
+        canonicalRoot,
+        defaultBranch,
+        log,
+      })
+    ) {
       log(`  - ${path.basename(record.target)}  (orphan removed)`);
       removed++;
     }
@@ -359,11 +412,15 @@ function mergeManifest(
   flowSource: string,
   installRoot: string,
 ): Manifest {
-  const records: SymlinkRecord[] = entries.map((e) => entryToRecord(e, flowSource, installRoot));
+  const records: SymlinkRecord[] = entries.map((e) =>
+    entryToRecord(e, flowSource, installRoot),
+  );
   return { version: 1, symlinks: records };
 }
 
-function bucketFor(result: LinkResult): keyof Pick<SetupSummary, "created" | "updated" | "skipped" | "blocked"> {
+function bucketFor(
+  result: LinkResult,
+): keyof Pick<SetupSummary, "created" | "updated" | "skipped" | "blocked"> {
   switch (result) {
     case "created":
       return "created";
@@ -376,7 +433,11 @@ function bucketFor(result: LinkResult): keyof Pick<SetupSummary, "created" | "up
   }
 }
 
-function logResult(entry: SourceEntry, result: LinkResult, log: (msg: string) => void): void {
+function logResult(
+  entry: SourceEntry,
+  result: LinkResult,
+  log: (msg: string) => void,
+): void {
   const label = `${entry.kind}/${entry.displayName}`;
   switch (result) {
     case "created":
@@ -389,7 +450,9 @@ function logResult(entry: SourceEntry, result: LinkResult, log: (msg: string) =>
       // Quiet on idempotent runs — chatty output drowns the real signal.
       break;
     case "blocked":
-      log(`  ! ${label}  (blocked — non-symlink at target; use --force to replace)`);
+      log(
+        `  ! ${label}  (blocked — non-symlink at target; use --force to replace)`,
+      );
       break;
   }
 }

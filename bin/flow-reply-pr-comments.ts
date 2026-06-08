@@ -46,7 +46,9 @@ function gh(args: string[]): string {
 
   if (result.exitCode !== 0) {
     const stderr = result.stderr.toString().trim();
-    throw new Error(stderr || `gh ${args.join(" ")} failed with exit code ${result.exitCode}`);
+    throw new Error(
+      stderr || `gh ${args.join(" ")} failed with exit code ${result.exitCode}`,
+    );
   }
 
   return result.stdout.toString().trim();
@@ -109,7 +111,10 @@ function postReply(prNumber: number, reply: CommentReply): ReplyResult {
   }
 }
 
-function postAllReplies(prNumber: number, replies: CommentReply[]): ReplySummary {
+function postAllReplies(
+  prNumber: number,
+  replies: CommentReply[],
+): ReplySummary {
   const results: ReplyResult[] = [];
 
   for (const reply of replies) {
@@ -132,7 +137,9 @@ function postAllReplies(prNumber: number, replies: CommentReply[]): ReplySummary
 export function formatSummary(summary: ReplySummary): string {
   const lines: string[] = [];
 
-  lines.push(`Replies: ${summary.succeeded}/${summary.total} posted successfully`);
+  lines.push(
+    `Replies: ${summary.succeeded}/${summary.total} posted successfully`,
+  );
   lines.push("");
 
   for (const result of summary.results) {
@@ -220,7 +227,9 @@ async function main(): Promise<void> {
   } else {
     input = await Bun.stdin.text();
     if (!input.trim()) {
-      console.error("Error: No input received on stdin. Pipe JSON or use --file.");
+      console.error(
+        "Error: No input received on stdin. Pipe JSON or use --file.",
+      );
       console.error("Run with --help for usage.");
       process.exit(1);
     }

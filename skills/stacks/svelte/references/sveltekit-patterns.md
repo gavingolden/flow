@@ -153,7 +153,7 @@ Otherwise the page freezes:
 6. Loop. The tab hangs because the navigation queue never drains.
 
 The previous form of the bug only doesn't trip when the canonical target
-*always* differs from the no-params landing — e.g. when the serializer
+_always_ differs from the no-params landing — e.g. when the serializer
 always emits `?grader=PSA&variant=all`, the first goto writes those
 params, the next tick's `search.has('grader') && search.has('variant')`
 is true, and the effect early-exits. The moment the serializer is
@@ -225,7 +225,7 @@ This is one instance of the broader "**`$effect` subscribes to X, writes
 something that re-triggers X**" loop family. The Svelte 5 anti-patterns
 section of `SKILL.md` documents the in-component variants
 (`state_unsafe_mutation`, read-then-write store loops); the SvelteKit
-twist is that `$page.url` is *also* a write-target via `goto`, so the
+twist is that `$page.url` is _also_ a write-target via `goto`, so the
 same loop shape applies across the store boundary. The fix shape is
 also consistent: either `untrack()` the read, or guard the write with
 an equality check.

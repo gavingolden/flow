@@ -133,7 +133,10 @@ export function probeExistingIssue(title: string, gh: GhRunner): ProbeResult {
     };
   }
   if (!Array.isArray(parsed)) {
-    return { kind: "error", message: `gh issue list returned non-array: ${r.stdout}` };
+    return {
+      kind: "error",
+      message: `gh issue list returned non-array: ${r.stdout}`,
+    };
   }
   for (const entry of parsed) {
     const obj = entry as { number?: number; title?: string; url?: string };
@@ -154,10 +157,14 @@ export function probeExistingIssue(title: string, gh: GhRunner): ProbeResult {
  * `gh issue create`'s stdout. The number is in the URL path. Parse both
  * out so the caller never has to follow up with `gh issue view`.
  */
-function parseCreateOutput(stdout: string): { number: number; url: string } | { error: string } {
+function parseCreateOutput(
+  stdout: string,
+): { number: number; url: string } | { error: string } {
   const url = stdout.trim().split(/\r?\n/).pop()?.trim() ?? "";
   if (!/^https:\/\/github\.com\//.test(url)) {
-    return { error: `gh issue create stdout did not end with a github.com URL: ${stdout}` };
+    return {
+      error: `gh issue create stdout did not end with a github.com URL: ${stdout}`,
+    };
   }
   const match = url.match(/\/issues\/(\d+)$/);
   if (!match) {
@@ -185,7 +192,8 @@ export function ensureLabels(labels: string[], gh: GhRunner): LabelResult {
     if (r.exitCode !== 0) {
       return {
         kind: "error",
-        message: r.stderr.trim() || `gh label create ${label} failed (${r.exitCode})`,
+        message:
+          r.stderr.trim() || `gh label create ${label} failed (${r.exitCode})`,
       };
     }
   }
@@ -193,7 +201,14 @@ export function ensureLabels(labels: string[], gh: GhRunner): LabelResult {
 }
 
 function buildCreateArgv(args: Args): string[] {
-  const out = ["issue", "create", "--title", args.title, "--body-file", args.bodyFile];
+  const out = [
+    "issue",
+    "create",
+    "--title",
+    args.title,
+    "--body-file",
+    args.bodyFile,
+  ];
   for (const label of args.labels) out.push("--label", label);
   return out;
 }

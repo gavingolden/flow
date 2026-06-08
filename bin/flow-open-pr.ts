@@ -165,16 +165,25 @@ export function probePr(gh: GhRunner): ProbeResult {
     if (/no pull requests? found|no pull request associated/i.test(r.stderr)) {
       return { kind: "none" };
     }
-    return { kind: "error", message: r.stderr.trim() || `gh pr view failed (${r.exitCode})` };
+    return {
+      kind: "error",
+      message: r.stderr.trim() || `gh pr view failed (${r.exitCode})`,
+    };
   }
   try {
     const parsed = JSON.parse(r.stdout) as { number?: number; url?: string };
     if (typeof parsed.number !== "number" || typeof parsed.url !== "string") {
-      return { kind: "error", message: `gh pr view returned unexpected JSON: ${r.stdout}` };
+      return {
+        kind: "error",
+        message: `gh pr view returned unexpected JSON: ${r.stdout}`,
+      };
     }
     return { kind: "found", number: parsed.number, url: parsed.url };
   } catch (e) {
-    return { kind: "error", message: `gh pr view returned non-JSON: ${(e as Error).message}` };
+    return {
+      kind: "error",
+      message: `gh pr view returned non-JSON: ${(e as Error).message}`,
+    };
   }
 }
 
@@ -185,7 +194,8 @@ export function probePr(gh: GhRunner): ProbeResult {
 export function readCurrentPr(gh: GhRunner): PrInfo | { error: string } {
   const probe = probePr(gh);
   if (probe.kind === "found") return { number: probe.number, url: probe.url };
-  if (probe.kind === "none") return { error: "no PR exists for the current branch" };
+  if (probe.kind === "none")
+    return { error: "no PR exists for the current branch" };
   return { error: probe.message };
 }
 
@@ -231,7 +241,9 @@ export function run(argv: string[], deps: Deps = {}): number {
   // `gh pr create` entirely. Avoids parsing gh's "already exists" stderr
   // message — the structured `pr view` signal is what we branch on.
   const validSessionId =
-    sessionId !== undefined && isValidSessionId(sessionId) ? sessionId : undefined;
+    sessionId !== undefined && isValidSessionId(sessionId)
+      ? sessionId
+      : undefined;
 
   const probe = probePr(gh);
   let pr: PrInfo;
@@ -245,7 +257,9 @@ export function run(argv: string[], deps: Deps = {}): number {
     if (validSessionId !== undefined) {
       const original = fs.readFileSync(parsed.bodyFile, "utf8");
       const augmented = `${original}\n\n${sessionMarker(validSessionId)}\n`;
-      const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-open-pr-body-"));
+      const tmpDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), "flow-open-pr-body-"),
+      );
       const tmpBody = path.join(tmpDir, "body.md");
       fs.writeFileSync(tmpBody, augmented);
       createArgs = { ...parsed, bodyFile: tmpBody };
@@ -272,7 +286,8 @@ export function run(argv: string[], deps: Deps = {}): number {
   }
 
   const updateArgv = [slug, "--pr", String(pr.number)];
-  if (validSessionId !== undefined) updateArgv.push("--session-id", validSessionId);
+  if (validSessionId !== undefined)
+    updateArgv.push("--session-id", validSessionId);
   const updateExit = updater(updateArgv);
   if (updateExit !== 0) return updateExit;
 

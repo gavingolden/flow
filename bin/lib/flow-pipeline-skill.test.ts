@@ -35,7 +35,11 @@ function readSkill(): string {
   return fs.readFileSync(skillPath, "utf8");
 }
 
-function sliceBetween(content: string, startMarker: string, endMarker: string): string {
+function sliceBetween(
+  content: string,
+  startMarker: string,
+  endMarker: string,
+): string {
   const start = content.indexOf(startMarker);
   if (start === -1) {
     throw new Error(`start marker not found: ${startMarker}`);
@@ -64,7 +68,8 @@ function sliceStep(content: string, step: string): string {
   const idx = stepHeadings.indexOf(step);
   if (idx === -1) throw new Error(`unknown step heading: ${step}`);
   const startIdx = content.indexOf(step);
-  if (startIdx === -1) throw new Error(`step heading missing from SKILL.md: ${step}`);
+  if (startIdx === -1)
+    throw new Error(`step heading missing from SKILL.md: ${step}`);
   const nextHeading = stepHeadings[idx + 1] ?? "# Resume mode";
   const endIdx = content.indexOf(nextHeading, startIdx + step.length);
   if (endIdx === -1) {
@@ -75,7 +80,11 @@ function sliceStep(content: string, step: string): string {
 
 describe("flow-pipeline supervisor SKILL.md", () => {
   describe("Hard rules — do-not-end-turn guard", () => {
-    const hardRules = sliceBetween(readSkill(), "# Hard rules", "# Harness-level enforcement");
+    const hardRules = sliceBetween(
+      readSkill(),
+      "# Hard rules",
+      "# Harness-level enforcement",
+    );
 
     it("Hard rules block contains the do-not-end-turn guard", () => {
       expect(hardRules).toMatch(
@@ -188,7 +197,9 @@ describe("flow-pipeline supervisor SKILL.md", () => {
         "## Edge cases",
         "## What resume mode does NOT do",
       );
-      expect(edgeCases).toMatch(/`\.flow-tmp\/plan\.md`\s+exists\s+but\s+no\s+PR/i);
+      expect(edgeCases).toMatch(
+        /`\.flow-tmp\/plan\.md`\s+exists\s+but\s+no\s+PR/i,
+      );
       expect(edgeCases).toMatch(/two\s+markdown\s+bullets/i);
       expect(edgeCases).toMatch(/no\s+trailing\s+punctuation/i);
     });

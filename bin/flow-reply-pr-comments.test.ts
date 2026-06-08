@@ -3,7 +3,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { formatSummary, parseReplies, type ReplySummary } from "./flow-reply-pr-comments";
+import {
+  formatSummary,
+  parseReplies,
+  type ReplySummary,
+} from "./flow-reply-pr-comments";
 
 // --- Tests ---
 
@@ -27,7 +31,9 @@ describe("parseReplies", () => {
   });
 
   it("should throw on non-array JSON (object)", () => {
-    expect(() => parseReplies('{"comment_id": 1}')).toThrow("Input must be a JSON array");
+    expect(() => parseReplies('{"comment_id": 1}')).toThrow(
+      "Input must be a JSON array",
+    );
   });
 
   it("should throw on non-array JSON (string)", () => {
@@ -48,22 +54,30 @@ describe("parseReplies", () => {
 
   it("should throw when comment_id is missing", () => {
     const input = JSON.stringify([{ body: "Done" }]);
-    expect(() => parseReplies(input)).toThrow('Entry 0: "comment_id" must be a number');
+    expect(() => parseReplies(input)).toThrow(
+      'Entry 0: "comment_id" must be a number',
+    );
   });
 
   it("should throw when body is missing", () => {
     const input = JSON.stringify([{ comment_id: 1 }]);
-    expect(() => parseReplies(input)).toThrow('Entry 0: "body" must be a string');
+    expect(() => parseReplies(input)).toThrow(
+      'Entry 0: "body" must be a string',
+    );
   });
 
   it("should throw when comment_id is not a number", () => {
     const input = JSON.stringify([{ comment_id: "abc", body: "Done" }]);
-    expect(() => parseReplies(input)).toThrow('Entry 0: "comment_id" must be a number');
+    expect(() => parseReplies(input)).toThrow(
+      'Entry 0: "comment_id" must be a number',
+    );
   });
 
   it("should throw when body is not a string", () => {
     const input = JSON.stringify([{ comment_id: 1, body: 123 }]);
-    expect(() => parseReplies(input)).toThrow('Entry 0: "body" must be a string');
+    expect(() => parseReplies(input)).toThrow(
+      'Entry 0: "body" must be a string',
+    );
   });
 
   it("should report correct index for invalid entry", () => {
@@ -71,7 +85,9 @@ describe("parseReplies", () => {
       { comment_id: 1, body: "OK" },
       { comment_id: "bad", body: "Fail" },
     ]);
-    expect(() => parseReplies(input)).toThrow('Entry 1: "comment_id" must be a number');
+    expect(() => parseReplies(input)).toThrow(
+      'Entry 1: "comment_id" must be a number',
+    );
   });
 
   it("should throw when entry is null", () => {

@@ -173,7 +173,10 @@ function findListItemEnd(lines: string[], headIdx: number): number {
  * treated as "no existing block" so the caller inserts a fresh one
  * and the orphan stays visible for the human to clean up.
  */
-function findExistingBlockEnd(lines: string[], matchIdx: number): number | null {
+function findExistingBlockEnd(
+  lines: string[],
+  matchIdx: number,
+): number | null {
   const itemEnd = findListItemEnd(lines, matchIdx);
   let i = itemEnd + 1;
   while (i < lines.length && lines[i].trim() === "") i++;

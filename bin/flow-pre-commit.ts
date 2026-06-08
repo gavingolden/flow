@@ -26,7 +26,13 @@ import {
 
 // --- Types ---
 
-export type Scope = "src" | "scripts" | "docs" | "actions" | "backend" | "root-fallback";
+export type Scope =
+  | "src"
+  | "scripts"
+  | "docs"
+  | "actions"
+  | "backend"
+  | "root-fallback";
 
 /**
  * Runtime scope identity. Built-in scopes keep the closed `Scope` union (the
@@ -151,7 +157,13 @@ export type GitOps = {
 
 // Path-based scopes only — root-fallback is a sentinel scope (not a matcher)
 // that fires additively for any file no specific or dynamic scope claimed.
-const SPECIFIC_SCOPES: Exclude<Scope, "root-fallback">[] = ["src", "scripts", "docs", "actions", "backend"];
+const SPECIFIC_SCOPES: Exclude<Scope, "root-fallback">[] = [
+  "src",
+  "scripts",
+  "docs",
+  "actions",
+  "backend",
+];
 const ZERO_SHA = "0000000000000000000000000000000000000000";
 
 // `scripts/` is the install location in target repos; `bin/` is the canonical
@@ -200,7 +212,11 @@ const SCOPE_MATCHERS: Record<Exclude<Scope, "root-fallback">, ScopeMatcher> = {
 
 // --- Helpers ---
 
-function run(argv: string[]): { stdout: string; stderr: string; exitCode: number } {
+function run(argv: string[]): {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+} {
   const result = Bun.spawnSync(argv, { stdout: "pipe", stderr: "pipe" });
   return {
     stdout: result.stdout.toString().trim(),
@@ -212,7 +228,9 @@ function run(argv: string[]): { stdout: string; stderr: string; exitCode: number
 function gh(args: string[]): string {
   const { stdout, stderr, exitCode } = run(["gh", ...args]);
   if (exitCode !== 0) {
-    throw new Error(stderr || `gh ${args.join(" ")} failed with exit code ${exitCode}`);
+    throw new Error(
+      stderr || `gh ${args.join(" ")} failed with exit code ${exitCode}`,
+    );
   }
   return stdout;
 }
@@ -260,7 +278,10 @@ export function detectScopesFromFiles(
   );
 
   const builtin = SPECIFIC_SCOPES.filter((s) => detected.has(s));
-  const scopes: ScopeName[] = [...builtin, ...dynamicMatched.map((d) => d.name)];
+  const scopes: ScopeName[] = [
+    ...builtin,
+    ...dynamicMatched.map((d) => d.name),
+  ];
 
   // Append root-fallback (last, for deterministic ordering) whenever any file
   // is unclaimed by a specific or dynamic scope. This subsumes the old
@@ -328,7 +349,11 @@ export function computeAllPassedAndReason(
   // (cheap, defensive, pinned by the type test) for any caller that constructs
   // a scopes/unmatchedFiles pair where root-fallback is absent. Never fires on
   // the --scope path (unmatchedFiles undefined).
-  if (scopes.length > 0 && !scopes.includes("root-fallback") && (unmatchedFiles?.length ?? 0) > 0) {
+  if (
+    scopes.length > 0 &&
+    !scopes.includes("root-fallback") &&
+    (unmatchedFiles?.length ?? 0) > 0
+  ) {
     return { allPassed: false, reason: "unmatched-files" };
   }
   return { allPassed: results.every((r) => r.passed) };
@@ -361,7 +386,10 @@ function describeMatcher(matcher: ScopeMatcher): string {
  * scope". Built-ins keep their canonical SPECIFIC_SCOPES order; dynamic names
  * are appended in the order they were requested.
  */
-export function parseScopes(input: string, dynamicNames: Set<string> = new Set()): ScopeName[] {
+export function parseScopes(
+  input: string,
+  dynamicNames: Set<string> = new Set(),
+): ScopeName[] {
   const tokens = input
     .split(",")
     .map((t) => t.trim())
@@ -395,9 +423,17 @@ export function parseScopes(input: string, dynamicNames: Set<string> = new Set()
 export function checksForScope(scope: Scope): CheckDef[] {
   switch (scope) {
     case "src":
-      return [npmRunCheck("typecheck"), npmRunCheck("test"), npmRunCheck("lint")];
+      return [
+        npmRunCheck("typecheck"),
+        npmRunCheck("test"),
+        npmRunCheck("lint"),
+      ];
     case "scripts":
-      return [npmRunCheck("typecheck:scripts"), npmRunCheck("test"), npmRunCheck("lint")];
+      return [
+        npmRunCheck("typecheck:scripts"),
+        npmRunCheck("test"),
+        npmRunCheck("lint"),
+      ];
     case "docs":
       // `npm run test` runs after flow-md-validate so .md-only diffs still
       // exercise the *full* vitest suite — which is the only place
@@ -433,7 +469,11 @@ export function checksForScope(scope: Scope): CheckDef[] {
     case "root-fallback":
       // Mirror src's check set: a consumer repo whose source layout doesn't
       // match flow's prefixes still expects typecheck + test + lint at the root.
-      return [npmRunCheck("typecheck"), npmRunCheck("test"), npmRunCheck("lint")];
+      return [
+        npmRunCheck("typecheck"),
+        npmRunCheck("test"),
+        npmRunCheck("lint"),
+      ];
   }
 }
 
@@ -442,7 +482,13 @@ export function checksForScope(scope: Scope): CheckDef[] {
  * `-C backend` form, preserving the exact argv the built-in test pins.
  */
 function goInBackend(check: CheckDef): CheckDef {
-  const argv = [check.argv[0], check.argv[1], "-C", "backend", ...check.argv.slice(2)];
+  const argv = [
+    check.argv[0],
+    check.argv[1],
+    "-C",
+    "backend",
+    ...check.argv.slice(2),
+  ];
   return { name: argv.join(" "), argv };
 }
 
@@ -464,7 +510,11 @@ export function filterDefinedChecks(
 
 // --- Check Runners ---
 
-export type Runner = (argv: string[]) => { stdout: string; stderr: string; exitCode: number };
+export type Runner = (argv: string[]) => {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+};
 
 const COMMAND_NOT_FOUND_REGEX = /command not found|ENOENT|: not found/i;
 
@@ -488,7 +538,9 @@ export function runCheck(
     // the binary isn't on PATH instead of returning exit 127). Treat as 127
     // so the downstream missing-binary branch fires.
     const code = (e as { code?: string } | null | undefined)?.code;
-    const message = String((e as { message?: string } | null | undefined)?.message ?? "");
+    const message = String(
+      (e as { message?: string } | null | undefined)?.message ?? "",
+    );
     if (code === "ENOENT" || /ENOENT|not found/i.test(message)) {
       exitCode = 127;
       stderr = message || "ENOENT";
@@ -607,9 +659,16 @@ const defaultGitOps: GitOps = {
     return stdout;
   },
   diffFiles(range: string): string[] {
-    const { stdout, stderr, exitCode } = run(["git", "diff", "--name-only", range]);
+    const { stdout, stderr, exitCode } = run([
+      "git",
+      "diff",
+      "--name-only",
+      range,
+    ]);
     if (exitCode !== 0) {
-      console.error(`git diff --name-only ${range} failed (exit ${exitCode}): ${stderr}`);
+      console.error(
+        `git diff --name-only ${range} failed (exit ${exitCode}): ${stderr}`,
+      );
       return [];
     }
     if (!stdout) return [];
@@ -631,7 +690,12 @@ const defaultGitOps: GitOps = {
       return head.replace("refs/remotes/origin/", "");
     }
     for (const candidate of ["main", "master"]) {
-      const { exitCode } = run(["git", "rev-parse", "--verify", `refs/remotes/origin/${candidate}`]);
+      const { exitCode } = run([
+        "git",
+        "rev-parse",
+        "--verify",
+        `refs/remotes/origin/${candidate}`,
+      ]);
       if (exitCode === 0) return candidate;
     }
     console.warn(
@@ -662,7 +726,10 @@ export function parsePrePushInput(input: string): PrePushRef[] {
 }
 
 /** Computes the union of changed files across all refs being pushed. */
-export function getChangedFilesForPush(refs: PrePushRef[], git: GitOps = defaultGitOps): string[] {
+export function getChangedFilesForPush(
+  refs: PrePushRef[],
+  git: GitOps = defaultGitOps,
+): string[] {
   const allFiles = new Set<string>();
 
   for (const ref of refs) {
@@ -732,7 +799,9 @@ export function formatReport(report: CheckReport): string {
   // matched nothing, or whether detection silently broke.
   if (report.changedFiles !== undefined) {
     const n = report.changedFiles.length;
-    lines.push(`flow-pre-commit: ${n} changed file${n === 1 ? "" : "s"}; checking scopes…`);
+    lines.push(
+      `flow-pre-commit: ${n} changed file${n === 1 ? "" : "s"}; checking scopes…`,
+    );
   } else {
     lines.push("flow-pre-commit: checking explicitly-requested scopes…");
   }
@@ -747,11 +816,16 @@ export function formatReport(report: CheckReport): string {
     }
   }
   if (matched.has("root-fallback")) {
-    lines.push("  root-fallback → matched (covers files no other scope claimed)");
+    lines.push(
+      "  root-fallback → matched (covers files no other scope claimed)",
+    );
   }
   // Auto-detected/configured scopes surface on their own lines (they have no
   // SCOPE_MATCHERS entry, so the SPECIFIC_SCOPES loop above skips them).
-  const builtinNames = new Set<ScopeName>([...SPECIFIC_SCOPES, "root-fallback"]);
+  const builtinNames = new Set<ScopeName>([
+    ...SPECIFIC_SCOPES,
+    "root-fallback",
+  ]);
   for (const scope of report.scopes) {
     if (!builtinNames.has(scope)) {
       lines.push(`  ${scope} → matched (auto-detected/configured scope)`);
@@ -802,7 +876,9 @@ export function formatReport(report: CheckReport): string {
   const total = ran.length;
   if (total === 0 && skipped === 0) {
     if (report.reason === "no-checks-defined") {
-      lines.push("No checks ran (no matching npm scripts defined in package.json).");
+      lines.push(
+        "No checks ran (no matching npm scripts defined in package.json).",
+      );
     } else {
       lines.push("No checks ran.");
     }
@@ -845,7 +921,9 @@ const FIRST_ERROR_REGEX = /\b(?:error|fail)\b|✗|✘/i;
 
 /** Strips ANSI escape sequences and replaces non-printable bytes with `�`. */
 export function stripAnsi(text: string): string {
-  return text.replace(ANSI_REGEX, "").replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "�");
+  return text
+    .replace(ANSI_REGEX, "")
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "�");
 }
 
 /**
@@ -882,7 +960,13 @@ export function buildFailureExcerpt(rawOutput: string): FailureExcerpt {
     tailExcerpt = lines.slice(totalLines - TAIL_LINES).join("\n");
   }
 
-  return { firstErrorLine, firstErrorText, headExcerpt, tailExcerpt, totalLines };
+  return {
+    firstErrorLine,
+    firstErrorText,
+    headExcerpt,
+    tailExcerpt,
+    totalLines,
+  };
 }
 
 /**
@@ -906,7 +990,8 @@ export function formatJsonReport(report: CheckReport): string {
     }),
     allPassed: report.allPassed,
   };
-  if (report.changedFiles !== undefined) json.changedFiles = report.changedFiles;
+  if (report.changedFiles !== undefined)
+    json.changedFiles = report.changedFiles;
   if (report.unmatchedFiles && report.unmatchedFiles.length > 0) {
     json.unmatchedFiles = report.unmatchedFiles;
   }
@@ -991,7 +1076,9 @@ async function main(): Promise<void> {
   } else if (scopeIdx !== -1) {
     const value = args[scopeIdx + 1];
     if (!value) {
-      console.error("Error: --scope requires a value (e.g. --scope src,scripts)");
+      console.error(
+        "Error: --scope requires a value (e.g. --scope src,scripts)",
+      );
       process.exit(1);
     }
     // Auto-detected/configured scope names (e.g. `apps/web`) must be
@@ -1065,7 +1152,8 @@ async function main(): Promise<void> {
     allPassed,
     changedFiles,
   };
-  if (unmatchedFiles && unmatchedFiles.length > 0) report.unmatchedFiles = unmatchedFiles;
+  if (unmatchedFiles && unmatchedFiles.length > 0)
+    report.unmatchedFiles = unmatchedFiles;
   if (reason) report.reason = reason;
 
   console.log(json ? formatJsonReport(report) : formatReport(report));

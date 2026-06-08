@@ -1,6 +1,6 @@
 # Accessibility
 
-Portable accessibility judgment, structured on the four WCAG 2.2 POUR principles — Perceivable, Operable, Understandable, Robust — and the W3C WAI-ARIA Authoring Practices Guide (APG). Named inline for traceability; canonical URLs live in `sources.md`. WCAG conformance level AA is the practical target this skill holds work to. The framework that emits a focus ring or a landmark element is the stack skill's job — what follows is *what must be true* of the result.
+Portable accessibility judgment, structured on the four WCAG 2.2 POUR principles — Perceivable, Operable, Understandable, Robust — and the W3C WAI-ARIA Authoring Practices Guide (APG). Named inline for traceability; canonical URLs live in `sources.md`. WCAG conformance level AA is the practical target this skill holds work to. The framework that emits a focus ring or a landmark element is the stack skill's job — what follows is _what must be true_ of the result.
 
 ## Perceivable (WCAG POUR)
 

@@ -110,9 +110,9 @@ POSIX-atomic step.
 
 ## Implementation
 
-| File | Role |
-|---|---|
-| `src/pipeline/phases/merge.ts` | Phase entry, gh-CLI calls, worktree removal, archive, final transition |
-| `src/state/phases.ts` | `merging` and `merged` statuses + helpers |
-| `templates/scripts/remove-agent-worktree.ts` | Worktree removal script (linked into target repo by `flow install`) |
-| `src/util/notify.ts` | `merged` is in `NOTIFY_STATUSES`, so the macOS notifier fires on the `→ merged` transition without phase-side changes |
+| File                                         | Role                                                                                                                  |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `src/pipeline/phases/merge.ts`               | Phase entry, gh-CLI calls, worktree removal, archive, final transition                                                |
+| `src/state/phases.ts`                        | `merging` and `merged` statuses + helpers                                                                             |
+| `templates/scripts/remove-agent-worktree.ts` | Worktree removal script (linked into target repo by `flow install`)                                                   |
+| `src/util/notify.ts`                         | `merged` is in `NOTIFY_STATUSES`, so the macOS notifier fires on the `→ merged` transition without phase-side changes |

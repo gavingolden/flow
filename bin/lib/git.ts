@@ -18,7 +18,9 @@ export function git(args: string[], cwd?: string): string {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" });
   if (result.status !== 0) {
     const stderr = (result.stderr ?? "").trim();
-    throw new Error(stderr || `git ${args[0]} failed with exit code ${result.status}`);
+    throw new Error(
+      stderr || `git ${args[0]} failed with exit code ${result.status}`,
+    );
   }
   return (result.stdout ?? "").trim();
 }
@@ -29,7 +31,8 @@ export type Spawner = (
   options: { cwd?: string; encoding: "utf8" },
 ) => SpawnSyncReturns<string>;
 
-const defaultSpawn: Spawner = (cmd, args, options) => spawnSync(cmd, args, options);
+const defaultSpawn: Spawner = (cmd, args, options) =>
+  spawnSync(cmd, args, options);
 
 /**
  * Fail-open default-branch resolver. Tries `git symbolic-ref
@@ -39,7 +42,10 @@ const defaultSpawn: Spawner = (cmd, args, options) => spawnSync(cmd, args, optio
  * exists. Returns `null` on hard failure (no ref resolves) — the throwing
  * variant is `detectDefaultBranch` in `bin/lib/worktree-fs.ts`.
  */
-export function resolveDefaultBranch(repoDir: string, spawn: Spawner = defaultSpawn): string | null {
+export function resolveDefaultBranch(
+  repoDir: string,
+  spawn: Spawner = defaultSpawn,
+): string | null {
   const symbolic = spawn("git", ["symbolic-ref", "refs/remotes/origin/HEAD"], {
     cwd: repoDir,
     encoding: "utf8",
@@ -103,11 +109,16 @@ export type FastForwardOptions = {
  * working tree is clean, the current branch matches the default, and the
  * fetch succeeds.
  */
-export function fastForwardCanonical(opts: FastForwardOptions): FastForwardResult {
+export function fastForwardCanonical(
+  opts: FastForwardOptions,
+): FastForwardResult {
   const spawn = opts.spawn ?? defaultSpawn;
   const cwd = opts.canonicalRoot;
 
-  const status = spawn("git", ["status", "--porcelain"], { cwd, encoding: "utf8" });
+  const status = spawn("git", ["status", "--porcelain"], {
+    cwd,
+    encoding: "utf8",
+  });
   if (status.status !== 0) {
     return { status: "skipped", reason: "not-a-git-repo" };
   }
@@ -120,12 +131,18 @@ export function fastForwardCanonical(opts: FastForwardOptions): FastForwardResul
     return { status: "skipped", reason: "no-default-branch" };
   }
 
-  const head = spawn("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd, encoding: "utf8" });
+  const head = spawn("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+    cwd,
+    encoding: "utf8",
+  });
   if (head.status !== 0 || (head.stdout ?? "").trim() !== defaultBranch) {
     return { status: "skipped", reason: "non-default-branch" };
   }
 
-  const fetch = spawn("git", ["fetch", "origin", defaultBranch], { cwd, encoding: "utf8" });
+  const fetch = spawn("git", ["fetch", "origin", defaultBranch], {
+    cwd,
+    encoding: "utf8",
+  });
   if (fetch.status !== 0) {
     return { status: "skipped", reason: "fetch-failed" };
   }

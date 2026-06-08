@@ -8,7 +8,9 @@ import {
 } from "./flow-create-issue";
 
 const ISSUE_URL = "https://github.com/me/repo/issues/42";
-const FOUND_JSON = JSON.stringify([{ number: 42, title: "exact title", url: ISSUE_URL }]);
+const FOUND_JSON = JSON.stringify([
+  { number: 42, title: "exact title", url: ISSUE_URL },
+]);
 
 function ghOk(stdout: string): ReturnType<GhRunner> {
   return { stdout, stderr: "", exitCode: 0 };
@@ -21,44 +23,98 @@ function ghErr(stderr: string, exitCode = 1): ReturnType<GhRunner> {
 describe(parseArgs, () => {
   it("parses required flags", () => {
     const out = parseArgs(["--title", "t", "--body-file", "/tmp/b.md"]);
-    expect(out).toEqual({ title: "t", bodyFile: "/tmp/b.md", labels: [], dryRun: false });
+    expect(out).toEqual({
+      title: "t",
+      bodyFile: "/tmp/b.md",
+      labels: [],
+      dryRun: false,
+    });
   });
 
   it("parses comma-separated labels", () => {
-    const out = parseArgs(["--title", "t", "--body-file", "b", "--label", "a,b,c"]);
-    expect(out).toEqual({ title: "t", bodyFile: "b", labels: ["a", "b", "c"], dryRun: false });
+    const out = parseArgs([
+      "--title",
+      "t",
+      "--body-file",
+      "b",
+      "--label",
+      "a,b,c",
+    ]);
+    expect(out).toEqual({
+      title: "t",
+      bodyFile: "b",
+      labels: ["a", "b", "c"],
+      dryRun: false,
+    });
   });
 
   it("trims whitespace and drops empty labels", () => {
-    const out = parseArgs(["--title", "t", "--body-file", "b", "--label", " a , , b "]);
-    expect(out).toEqual({ title: "t", bodyFile: "b", labels: ["a", "b"], dryRun: false });
+    const out = parseArgs([
+      "--title",
+      "t",
+      "--body-file",
+      "b",
+      "--label",
+      " a , , b ",
+    ]);
+    expect(out).toEqual({
+      title: "t",
+      bodyFile: "b",
+      labels: ["a", "b"],
+      dryRun: false,
+    });
   });
 
   it("accepts --dry-run", () => {
     const out = parseArgs(["--title", "t", "--body-file", "b", "--dry-run"]);
-    expect(out).toEqual({ title: "t", bodyFile: "b", labels: [], dryRun: true });
+    expect(out).toEqual({
+      title: "t",
+      bodyFile: "b",
+      labels: [],
+      dryRun: true,
+    });
   });
 
   it("rejects --repo loudly (current-repo only in v1)", () => {
-    const out = parseArgs(["--title", "t", "--body-file", "b", "--repo", "owner/other"]);
+    const out = parseArgs([
+      "--title",
+      "t",
+      "--body-file",
+      "b",
+      "--repo",
+      "owner/other",
+    ]);
     expect(out).toEqual({ error: "unknown flag: --repo" });
   });
 
   it("rejects unknown flags", () => {
-    const out = parseArgs(["--title", "t", "--body-file", "b", "--milestone", "v1"]);
+    const out = parseArgs([
+      "--title",
+      "t",
+      "--body-file",
+      "b",
+      "--milestone",
+      "v1",
+    ]);
     expect(out).toEqual({ error: "unknown flag: --milestone" });
   });
 
   it("requires --title", () => {
-    expect(parseArgs(["--body-file", "b"])).toEqual({ error: "--title is required" });
+    expect(parseArgs(["--body-file", "b"])).toEqual({
+      error: "--title is required",
+    });
   });
 
   it("requires --body-file", () => {
-    expect(parseArgs(["--title", "t"])).toEqual({ error: "--body-file is required" });
+    expect(parseArgs(["--title", "t"])).toEqual({
+      error: "--body-file is required",
+    });
   });
 
   it("rejects flag without a value", () => {
-    expect(parseArgs(["--title"])).toEqual({ error: "--title requires a value" });
+    expect(parseArgs(["--title"])).toEqual({
+      error: "--title requires a value",
+    });
     expect(parseArgs(["--title", "--body-file", "b"])).toEqual({
       error: "--title requires a value",
     });
@@ -107,8 +163,18 @@ describe(ensureLabels, () => {
     const r = ensureLabels(["flow-agent", "deferred-review"], gh);
     expect(r).toEqual({ kind: "ok" });
     expect(gh).toHaveBeenCalledTimes(2);
-    expect(gh.mock.calls[0][0]).toEqual(["label", "create", "flow-agent", "--force"]);
-    expect(gh.mock.calls[1][0]).toEqual(["label", "create", "deferred-review", "--force"]);
+    expect(gh.mock.calls[0][0]).toEqual([
+      "label",
+      "create",
+      "flow-agent",
+      "--force",
+    ]);
+    expect(gh.mock.calls[1][0]).toEqual([
+      "label",
+      "create",
+      "deferred-review",
+      "--force",
+    ]);
   });
 
   it("returns ok without calling gh when the label list is empty", () => {
@@ -122,7 +188,10 @@ describe(ensureLabels, () => {
       .fn()
       .mockReturnValueOnce(ghOk(""))
       .mockReturnValueOnce(ghErr("HTTP 403: must have admin rights", 1));
-    const r = ensureLabels(["flow-agent", "deferred-review", "out-of-scope-discovery"], gh);
+    const r = ensureLabels(
+      ["flow-agent", "deferred-review", "out-of-scope-discovery"],
+      gh,
+    );
     expect(r).toMatchObject({ kind: "error" });
     // stops at the failing label — the third is never attempted
     expect(gh).toHaveBeenCalledTimes(2);
@@ -132,8 +201,13 @@ describe(ensureLabels, () => {
 describe(run, () => {
   it("prints would-create JSON on --dry-run without calling gh", () => {
     const gh = vi.fn();
-    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    const code = run(["--title", "t", "--body-file", "/dev/null", "--dry-run"], { gh });
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const code = run(
+      ["--title", "t", "--body-file", "/dev/null", "--dry-run"],
+      { gh },
+    );
     expect(code).toBe(0);
     expect(gh).not.toHaveBeenCalled();
     expect(stdout).toHaveBeenCalledOnce();
@@ -149,8 +223,12 @@ describe(run, () => {
 
   it("prints existing JSON when probe finds an exact-title issue", () => {
     const gh = vi.fn().mockReturnValueOnce(ghOk(FOUND_JSON));
-    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    const code = run(["--title", "exact title", "--body-file", "/dev/null"], { gh });
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const code = run(["--title", "exact title", "--body-file", "/dev/null"], {
+      gh,
+    });
     expect(code).toBe(0);
     expect(gh).toHaveBeenCalledOnce();
     const written = String(stdout.mock.calls[0][0]);
@@ -174,16 +252,35 @@ describe(run, () => {
       .mockReturnValueOnce(ghOk(""))
       // create → URL on stdout
       .mockReturnValueOnce(ghOk("https://github.com/me/repo/issues/100\n"));
-    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
     const code = run(
-      ["--title", "new", "--body-file", "/dev/null", "--label", "flow-agent,deferred-review"],
+      [
+        "--title",
+        "new",
+        "--body-file",
+        "/dev/null",
+        "--label",
+        "flow-agent,deferred-review",
+      ],
       { gh },
     );
     expect(code).toBe(0);
     expect(gh).toHaveBeenCalledTimes(4);
     // every label is ensured before the issue is created
-    expect(gh.mock.calls[1][0]).toEqual(["label", "create", "flow-agent", "--force"]);
-    expect(gh.mock.calls[2][0]).toEqual(["label", "create", "deferred-review", "--force"]);
+    expect(gh.mock.calls[1][0]).toEqual([
+      "label",
+      "create",
+      "flow-agent",
+      "--force",
+    ]);
+    expect(gh.mock.calls[2][0]).toEqual([
+      "label",
+      "create",
+      "deferred-review",
+      "--force",
+    ]);
     expect(gh.mock.calls[3][0]).toEqual([
       "issue",
       "create",
@@ -208,9 +305,19 @@ describe(run, () => {
 
   it("does not provision labels on --dry-run", () => {
     const gh = vi.fn();
-    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
     const code = run(
-      ["--title", "t", "--body-file", "/dev/null", "--label", "flow-agent", "--dry-run"],
+      [
+        "--title",
+        "t",
+        "--body-file",
+        "/dev/null",
+        "--label",
+        "flow-agent",
+        "--dry-run",
+      ],
       { gh },
     );
     expect(code).toBe(0);
@@ -220,9 +327,18 @@ describe(run, () => {
 
   it("does not provision labels when the probe finds an existing issue", () => {
     const gh = vi.fn().mockReturnValueOnce(ghOk(FOUND_JSON));
-    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
     const code = run(
-      ["--title", "exact title", "--body-file", "/dev/null", "--label", "flow-agent"],
+      [
+        "--title",
+        "exact title",
+        "--body-file",
+        "/dev/null",
+        "--label",
+        "flow-agent",
+      ],
       { gh },
     );
     expect(code).toBe(0);
@@ -236,14 +352,21 @@ describe(run, () => {
       .fn()
       .mockReturnValueOnce(ghOk("[]"))
       .mockReturnValueOnce(ghErr("HTTP 403: must have admin rights", 1));
-    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const code = run(["--title", "t", "--body-file", "/dev/null", "--label", "flow-agent"], {
-      gh,
-    });
+    const errors = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const code = run(
+      ["--title", "t", "--body-file", "/dev/null", "--label", "flow-agent"],
+      {
+        gh,
+      },
+    );
     expect(code).toBe(1);
     // probe + the failing label create — gh issue create is never reached
     expect(gh).toHaveBeenCalledTimes(2);
-    expect(gh.mock.calls.some((c) => c[0][0] === "issue" && c[0][1] === "create")).toBe(false);
+    expect(
+      gh.mock.calls.some((c) => c[0][0] === "issue" && c[0][1] === "create"),
+    ).toBe(false);
     errors.mockRestore();
   });
 
@@ -252,7 +375,9 @@ describe(run, () => {
       .fn()
       .mockReturnValueOnce(ghOk("[]"))
       .mockReturnValueOnce(ghOk("https://github.com/me/repo/issues/7\n"));
-    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
     const code = run(["--title", "t", "--body-file", "/dev/null"], { gh });
     expect(code).toBe(0);
     expect(gh).toHaveBeenCalledTimes(2);
@@ -262,8 +387,12 @@ describe(run, () => {
 
   it("returns 2 with usage on parse errors", () => {
     const gh = vi.fn();
-    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
-    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const errors = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const code = run(["--repo", "owner/repo"], { gh });
     expect(code).toBe(2);
     expect(gh).not.toHaveBeenCalled();
@@ -277,15 +406,21 @@ describe(run, () => {
       .fn()
       .mockReturnValueOnce(ghOk("[]"))
       .mockReturnValueOnce(ghErr("rate limited", 1));
-    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
     const code = run(["--title", "t", "--body-file", "/dev/null"], { gh });
     expect(code).toBe(1);
     stderr.mockRestore();
   });
 
   it("returns 1 when gh is not installed (exitCode -1)", () => {
-    const gh = vi.fn().mockReturnValue({ stdout: "", stderr: "", exitCode: -1 });
-    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const gh = vi
+      .fn()
+      .mockReturnValue({ stdout: "", stderr: "", exitCode: -1 });
+    const errors = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const code = run(["--title", "t", "--body-file", "/dev/null"], { gh });
     expect(code).toBe(1);
     errors.mockRestore();

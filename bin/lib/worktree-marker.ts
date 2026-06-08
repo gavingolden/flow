@@ -12,8 +12,15 @@ export const FLOW_TMP_DIRNAME = ".flow-tmp/";
 const FLOW_EXCLUDE_PATHS = [BRANCH_MARKER_FILENAME, FLOW_TMP_DIRNAME] as const;
 
 /** Writes the worktree-local branch-name marker that flow-state-update reads. */
-export function writeBranchMarker(worktreeDir: string, branchName: string): void {
-  fs.writeFileSync(path.join(worktreeDir, BRANCH_MARKER_FILENAME), branchName + "\n", "utf8");
+export function writeBranchMarker(
+  worktreeDir: string,
+  branchName: string,
+): void {
+  fs.writeFileSync(
+    path.join(worktreeDir, BRANCH_MARKER_FILENAME),
+    branchName + "\n",
+    "utf8",
+  );
 }
 
 /**
@@ -32,15 +39,24 @@ export function writeBranchMarker(worktreeDir: string, branchName: string): void
  */
 export function ensureFlowExcludes(worktreeDir: string): void {
   const commonDir = git(["rev-parse", "--git-common-dir"], worktreeDir);
-  const absCommonDir = path.isAbsolute(commonDir) ? commonDir : path.join(worktreeDir, commonDir);
+  const absCommonDir = path.isAbsolute(commonDir)
+    ? commonDir
+    : path.join(worktreeDir, commonDir);
   const excludePath = path.join(absCommonDir, "info", "exclude");
   fs.mkdirSync(path.dirname(excludePath), { recursive: true });
 
-  const existing = fs.existsSync(excludePath) ? fs.readFileSync(excludePath, "utf8") : "";
+  const existing = fs.existsSync(excludePath)
+    ? fs.readFileSync(excludePath, "utf8")
+    : "";
   const present = new Set(existing.split("\n").map((l) => l.trim()));
   const toAdd = FLOW_EXCLUDE_PATHS.filter((p) => !present.has(p));
   if (toAdd.length === 0) return;
 
-  const trailingNewline = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
-  fs.writeFileSync(excludePath, existing + trailingNewline + toAdd.join("\n") + "\n", "utf8");
+  const trailingNewline =
+    existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+  fs.writeFileSync(
+    excludePath,
+    existing + trailingNewline + toAdd.join("\n") + "\n",
+    "utf8",
+  );
 }

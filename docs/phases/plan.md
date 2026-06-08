@@ -2,7 +2,7 @@
 
 The first headless phase. Reads a `worktree-ready` task and produces a
 PRD, task breakdown, and PR description draft so the implement phase
-has a plan to execute against. Runs *inside* the per-task worktree
+has a plan to execute against. Runs _inside_ the per-task worktree
 (not the main repo's checkout) so concurrent `flow run` invocations
 do not race over the same working tree.
 
@@ -20,10 +20,10 @@ do not race over the same working tree.
 
 Three files in `<target-repo>/.orchestrator/tasks/<id>-plan/`:
 
-| File | Role |
-|---|---|
-| `prd.md` | Full PRD: problem, scope, stories, architecture decisions, constraints, open questions |
-| `task-breakdown.md` | Ordered task list with skill assignments and acceptance criteria |
+| File                      | Role                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------- |
+| `prd.md`                  | Full PRD: problem, scope, stories, architecture decisions, constraints, open questions        |
+| `task-breakdown.md`       | Ordered task list with skill assignments and acceptance criteria                              |
 | `pr-description-draft.md` | Why / What / Key decisions / User-facing changes / How to test — seeds the PR body in phase 3 |
 
 A summary of which files landed is appended to the task's
@@ -82,11 +82,11 @@ practice.
 
 ## Implementation
 
-| File | Role |
-|---|---|
+| File                          | Role                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- |
 | `src/pipeline/phases/plan.ts` | Phase entry point; builds the prompt, invokes runHeadless, summarizes outputs, transitions status |
-| `src/pipeline/headless.ts` | Generic `claude -p` wrapper with cwd, allowed-tools, timeout |
-| `src/pipeline/retry.ts` | `retryOnce` helper — single retry with the failure log appended on second attempt |
+| `src/pipeline/headless.ts`    | Generic `claude -p` wrapper with cwd, allowed-tools, timeout                                      |
+| `src/pipeline/retry.ts`       | `retryOnce` helper — single retry with the failure log appended on second attempt                 |
 
 The phase allows: `Read,Write,Edit,Glob,Grep,Bash(ls *),Bash(cat *)`.
 Wider Bash scope isn't needed here — the skill's job is artefact

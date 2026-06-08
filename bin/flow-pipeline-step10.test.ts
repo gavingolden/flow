@@ -38,20 +38,25 @@ const rubricContent = fs.readFileSync(RUBRIC_MD_PATH, "utf8");
 
 function extractStep10(content: string): string {
   const lines = content.split("\n");
-  const startIdx = lines.findIndex((line) => line.startsWith("## Step 10 — Merge"));
+  const startIdx = lines.findIndex((line) =>
+    line.startsWith("## Step 10 — Merge"),
+  );
   if (startIdx === -1) {
-    throw new Error("Could not locate '## Step 10 — Merge' heading in SKILL.md");
+    throw new Error(
+      "Could not locate '## Step 10 — Merge' heading in SKILL.md",
+    );
   }
   const afterStart = lines.slice(startIdx + 1);
   const nextStepOffset = afterStart.findIndex((line) => /^## Step /.test(line));
-  const endIdx = nextStepOffset === -1 ? lines.length : startIdx + 1 + nextStepOffset;
+  const endIdx =
+    nextStepOffset === -1 ? lines.length : startIdx + 1 + nextStepOffset;
   return lines.slice(startIdx, endIdx).join("\n");
 }
 
 const STEP_10 = extractStep10(skillContent);
 
 describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree", () => {
-  it("wraps every `gh pr merge --squash` invocation in `cd \"$PRIMARY\" && `", () => {
+  it('wraps every `gh pr merge --squash` invocation in `cd "$PRIMARY" && `', () => {
     // An "invocation" is an executable shell line — it always has `"$PR"`
     // as the PR argument. Bare-prose backtick references like
     // "`gh pr merge --squash` stderr that triggered this resolver:" are
@@ -111,9 +116,10 @@ describe("flow-pipeline SKILL.md step 10 — gh pr merge from primary worktree",
       (line) => line.includes("gh pr merge") && line.includes('"$PR"'),
     );
     for (const line of mergeInvocations) {
-      expect(line, `step 10 merge invocation must carry no --body/--subject: ${line}`).not.toMatch(
-        /--body\b|--subject\b/,
-      );
+      expect(
+        line,
+        `step 10 merge invocation must carry no --body/--subject: ${line}`,
+      ).not.toMatch(/--body\b|--subject\b/);
     }
     expect(STEP_10).not.toMatch(/MERGE_FLAGS|flow-merge-body/);
 

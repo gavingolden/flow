@@ -24,7 +24,10 @@ import type { Finding } from "./flow-post-findings";
 
 /** Builds a single-file diff with N pure-addition lines starting at `newStart`. */
 function pureAddition(file: string, newStart: number, count: number): string {
-  const additions = Array.from({ length: count }, (_, i) => `+added line ${i + 1}`).join("\n");
+  const additions = Array.from(
+    { length: count },
+    (_, i) => `+added line ${i + 1}`,
+  ).join("\n");
   return [
     `diff --git a/${file} b/${file}`,
     "--- a/" + file,
@@ -42,8 +45,14 @@ function mixedHunk(
   minuses: number,
   pluses: number,
 ): string {
-  const minusLines = Array.from({ length: minuses }, (_, i) => `-removed ${i + 1}`).join("\n");
-  const plusLines = Array.from({ length: pluses }, (_, i) => `+added ${i + 1}`).join("\n");
+  const minusLines = Array.from(
+    { length: minuses },
+    (_, i) => `-removed ${i + 1}`,
+  ).join("\n");
+  const plusLines = Array.from(
+    { length: pluses },
+    (_, i) => `+added ${i + 1}`,
+  ).join("\n");
   return [
     `diff --git a/${file} b/${file}`,
     "--- a/" + file,
@@ -56,7 +65,10 @@ function mixedHunk(
 
 /** Builds a single pure-deletion hunk. */
 function pureDeletion(file: string, oldStart: number, count: number): string {
-  const lines = Array.from({ length: count }, (_, i) => `-removed ${i + 1}`).join("\n");
+  const lines = Array.from(
+    { length: count },
+    (_, i) => `-removed ${i + 1}`,
+  ).join("\n");
   return [
     `diff --git a/${file} b/${file}`,
     "--- a/" + file,
@@ -69,7 +81,12 @@ function pureDeletion(file: string, oldStart: number, count: number): string {
 /** Composes a multi-hunk diff for a single file. */
 function multiHunk(
   file: string,
-  hunks: Array<{ oldStart: number; newStart: number; minuses: number; pluses: number }>,
+  hunks: Array<{
+    oldStart: number;
+    newStart: number;
+    minuses: number;
+    pluses: number;
+  }>,
 ): string {
   const out: string[] = [
     `diff --git a/${file} b/${file}`,
@@ -193,7 +210,13 @@ describe("rule (a): hunk LOC >= 10", () => {
 
 describe("rule (b): mixed restructure", () => {
   it("fires on a 4+/4- mixed hunk → 1 candidate", () => {
-    const diff = mixedHunk("a.ts", 1, 1, RESTRUCTURE_MINUS_MIN, RESTRUCTURE_PLUS_MIN);
+    const diff = mixedHunk(
+      "a.ts",
+      1,
+      1,
+      RESTRUCTURE_MINUS_MIN,
+      RESTRUCTURE_PLUS_MIN,
+    );
     const files = parseDiff(diff);
     const candidates = dedupPerFile(files);
     expect(candidates).toHaveLength(1);
@@ -285,7 +308,9 @@ describe("rule (c): file LOC >= 30 with per-file dedup", () => {
 describe("no-match case", () => {
   it("5 small hunks across 3 small files → empty candidates array", () => {
     // Files below FILE_LOC_THRESHOLD with small hunks below all rule thresholds.
-    const a = multiHunk("a.ts", [{ oldStart: 1, newStart: 1, minuses: 1, pluses: 2 }]);
+    const a = multiHunk("a.ts", [
+      { oldStart: 1, newStart: 1, minuses: 1, pluses: 2 },
+    ]);
     const b = multiHunk("b.ts", [
       { oldStart: 1, newStart: 1, minuses: 1, pluses: 2 },
       { oldStart: 10, newStart: 10, minuses: 1, pluses: 2 },
@@ -320,7 +345,9 @@ describe(rankAndCap, () => {
     const files = parseDiff(diff);
     const envelope = buildEnvelope(files);
     expect(envelope.candidates).toHaveLength(MAX_ANNOTATIONS_PER_PR);
-    expect(envelope.overflowBullet).toBe(overflowPointer(12 - MAX_ANNOTATIONS_PER_PR));
+    expect(envelope.overflowBullet).toBe(
+      overflowPointer(12 - MAX_ANNOTATIONS_PER_PR),
+    );
   });
 
   it("priority tie-break: two hunks both 15-LOC, the higher min(+,-) wins", () => {
@@ -370,7 +397,9 @@ describe(buildEnvelope, () => {
     const diff = pureAddition("a.ts", 1, 12);
     const envelope = buildEnvelope(parseDiff(diff));
     expect(envelope.candidates).toHaveLength(1);
-    expect((envelope.candidates[0] as Record<string, unknown>).body).toBeUndefined();
+    expect(
+      (envelope.candidates[0] as Record<string, unknown>).body,
+    ).toBeUndefined();
   });
 
   it("candidate + body string is Finding-compatible", () => {

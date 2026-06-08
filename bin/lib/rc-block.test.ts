@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { applyManagedBlock, hasManagedBlock, removeManagedBlock } from "./rc-block";
+import {
+  applyManagedBlock,
+  hasManagedBlock,
+  removeManagedBlock,
+} from "./rc-block";
 
 const TAG = "completions";
 const BODY = [

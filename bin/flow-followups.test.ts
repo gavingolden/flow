@@ -40,7 +40,9 @@ afterEach(() => {
 
 describe("resolveJsonlPath", () => {
   it("returns the override verbatim when provided", () => {
-    expect(resolveJsonlPath("/explicit/path.jsonl")).toBe("/explicit/path.jsonl");
+    expect(resolveJsonlPath("/explicit/path.jsonl")).toBe(
+      "/explicit/path.jsonl",
+    );
   });
 
   it("resolves via slug → state.worktree when no override", () => {
@@ -82,7 +84,10 @@ describe("resolveJsonlPath", () => {
 
 describe("ALLOWLIST", () => {
   it("seeds with flow setup variants only", () => {
-    expect([...ALLOWLIST].sort()).toEqual(["flow setup", "flow setup --upgrade"]);
+    expect([...ALLOWLIST].sort()).toEqual([
+      "flow setup",
+      "flow setup --upgrade",
+    ]);
   });
 });
 
@@ -94,7 +99,9 @@ describe("computeId", () => {
   });
 
   it("changes when command changes", () => {
-    expect(computeId("flow setup", "x")).not.toBe(computeId("flow setup --upgrade", "x"));
+    expect(computeId("flow setup", "x")).not.toBe(
+      computeId("flow setup --upgrade", "x"),
+    );
   });
 
   it("changes when reason changes", () => {
@@ -110,19 +117,27 @@ describe("computeId", () => {
 
 describe("parseAddArgs", () => {
   it("requires --command", () => {
-    expect(parseAddArgs(["--reason", "x"])).toEqual({ error: "--command is required" });
+    expect(parseAddArgs(["--reason", "x"])).toEqual({
+      error: "--command is required",
+    });
   });
 
   it("requires --reason", () => {
-    expect(parseAddArgs(["--command", "flow setup"])).toEqual({ error: "--reason is required" });
+    expect(parseAddArgs(["--command", "flow setup"])).toEqual({
+      error: "--reason is required",
+    });
   });
 
   it("rejects unknown flags", () => {
-    expect(parseAddArgs(["--bogus", "x"])).toEqual({ error: "unknown flag: --bogus" });
+    expect(parseAddArgs(["--bogus", "x"])).toEqual({
+      error: "unknown flag: --bogus",
+    });
   });
 
   it("rejects a flag without a value", () => {
-    expect(parseAddArgs(["--command"])).toEqual({ error: "--command requires a value" });
+    expect(parseAddArgs(["--command"])).toEqual({
+      error: "--command requires a value",
+    });
   });
 
   it("parses a full set", () => {
@@ -148,7 +163,9 @@ describe("parseAddArgs", () => {
   });
 
   it("defaults auto to false", () => {
-    expect(parseAddArgs(["--command", "x", "--reason", "y"])).toMatchObject({ auto: false });
+    expect(parseAddArgs(["--command", "x", "--reason", "y"])).toMatchObject({
+      auto: false,
+    });
   });
 });
 
@@ -160,7 +177,10 @@ describe("parseRunArgs", () => {
   });
 
   it("parses note-only and json flags", () => {
-    expect(parseRunArgs(["--note-only", "--json"])).toEqual({ noteOnly: true, json: true });
+    expect(parseRunArgs(["--note-only", "--json"])).toEqual({
+      noteOnly: true,
+      json: true,
+    });
   });
 
   it("parses --jsonl override", () => {
@@ -170,7 +190,9 @@ describe("parseRunArgs", () => {
   });
 
   it("rejects unknown flags", () => {
-    expect(parseRunArgs(["--bogus"])).toEqual({ error: "--bogus requires a value" });
+    expect(parseRunArgs(["--bogus"])).toEqual({
+      error: "--bogus requires a value",
+    });
   });
 });
 
@@ -182,9 +204,15 @@ describe("parseUpsertArgs", () => {
   });
 
   it("rejects non-positive integer", () => {
-    expect(parseUpsertArgs(["abc"])).toMatchObject({ error: expect.stringContaining("PR must") });
-    expect(parseUpsertArgs(["0"])).toMatchObject({ error: expect.stringContaining("PR must") });
-    expect(parseUpsertArgs(["-1"])).toMatchObject({ error: expect.stringContaining("PR must") });
+    expect(parseUpsertArgs(["abc"])).toMatchObject({
+      error: expect.stringContaining("PR must"),
+    });
+    expect(parseUpsertArgs(["0"])).toMatchObject({
+      error: expect.stringContaining("PR must"),
+    });
+    expect(parseUpsertArgs(["-1"])).toMatchObject({
+      error: expect.stringContaining("PR must"),
+    });
   });
 
   it("parses PR and --jsonl override", () => {
@@ -206,9 +234,27 @@ describe("readEntries", () => {
     fs.writeFileSync(
       jsonlPath,
       [
-        JSON.stringify({ id: "a", command: "x", reason: "r1", auto: true, registeredAt: "t" }),
-        JSON.stringify({ id: "b", command: "y", reason: "r2", auto: false, registeredAt: "t" }),
-        JSON.stringify({ id: "a", command: "x", reason: "DUP", auto: true, registeredAt: "t" }),
+        JSON.stringify({
+          id: "a",
+          command: "x",
+          reason: "r1",
+          auto: true,
+          registeredAt: "t",
+        }),
+        JSON.stringify({
+          id: "b",
+          command: "y",
+          reason: "r2",
+          auto: false,
+          registeredAt: "t",
+        }),
+        JSON.stringify({
+          id: "a",
+          command: "x",
+          reason: "DUP",
+          auto: true,
+          registeredAt: "t",
+        }),
         "",
       ].join("\n"),
     );
@@ -223,7 +269,13 @@ describe("readEntries", () => {
       jsonlPath,
       [
         "not json",
-        JSON.stringify({ id: "a", command: "x", reason: "r", auto: false, registeredAt: "t" }),
+        JSON.stringify({
+          id: "a",
+          command: "x",
+          reason: "r",
+          auto: false,
+          registeredAt: "t",
+        }),
         '{"missing":"required-fields"}',
       ].join("\n"),
     );
@@ -247,8 +299,20 @@ describe("appendEntry", () => {
   });
 
   it("appends one line per call", () => {
-    appendEntry(jsonlPath, { id: "a", command: "x", reason: "r1", auto: false, registeredAt: "t" });
-    appendEntry(jsonlPath, { id: "b", command: "y", reason: "r2", auto: false, registeredAt: "t" });
+    appendEntry(jsonlPath, {
+      id: "a",
+      command: "x",
+      reason: "r1",
+      auto: false,
+      registeredAt: "t",
+    });
+    appendEntry(jsonlPath, {
+      id: "b",
+      command: "y",
+      reason: "r2",
+      auto: false,
+      registeredAt: "t",
+    });
     const text = fs.readFileSync(jsonlPath, "utf8");
     expect(text.split("\n").filter(Boolean)).toHaveLength(2);
   });
@@ -270,7 +334,9 @@ describe("buildExcerpt", () => {
   });
 
   it("splits head and tail when over cap", () => {
-    const lines = Array.from({ length: 200 }, (_, i) => `line${i + 1}`).join("\n");
+    const lines = Array.from({ length: 200 }, (_, i) => `line${i + 1}`).join(
+      "\n",
+    );
     const e = buildExcerpt(lines);
     expect(e.totalLines).toBe(200);
     expect(e.headExcerpt.split("\n")).toHaveLength(50);
@@ -283,7 +349,11 @@ describe("buildExcerpt", () => {
 // --- runEntries decision logic ---
 
 const okSpawn: Spawner = () => ({ stdout: "ok\n", stderr: "", exitCode: 0 });
-const failSpawn: Spawner = () => ({ stdout: "", stderr: "boom\n", exitCode: 1 });
+const failSpawn: Spawner = () => ({
+  stdout: "",
+  stderr: "boom\n",
+  exitCode: 1,
+});
 
 const allowedAuto: Entry = {
   id: "a",
@@ -320,7 +390,9 @@ describe("runEntries", () => {
     });
     expect(calls).toEqual([]);
     expect(v.summary).toEqual({ total: 3, ran: 0, noted: 3, failed: 0 });
-    expect(v.noted.find((n) => n.id === "a")?.autoDeniedBecause).toBe("note-only-mode");
+    expect(v.noted.find((n) => n.id === "a")?.autoDeniedBecause).toBe(
+      "note-only-mode",
+    );
   });
 
   it("executes auto-allowlisted entries", () => {
@@ -364,7 +436,17 @@ describe("runEntries", () => {
 
 describe("formatVerdict", () => {
   it("returns empty string for an empty log", () => {
-    expect(formatVerdict({ summary: { total: 0, ran: 0, noted: 0, failed: 0 }, ran: [], failed: [], noted: [] }, false)).toBe("");
+    expect(
+      formatVerdict(
+        {
+          summary: { total: 0, ran: 0, noted: 0, failed: 0 },
+          ran: [],
+          failed: [],
+          noted: [],
+        },
+        false,
+      ),
+    ).toBe("");
   });
 
   it("uses normal header for the merged path", () => {
@@ -407,21 +489,30 @@ describe("buildPrBodySection", () => {
     expect(md).toContain("- [ ] flow setup --upgrade  # new helper (auto)");
     expect(md).toContain("- [ ] manual step  # rotate creds");
     // Manual entry is not auto, so no (auto) tag.
-    expect(md.split("\n").find((l) => l.startsWith("- [ ] manual step"))).not.toContain("(auto)");
+    expect(
+      md.split("\n").find((l) => l.startsWith("- [ ] manual step")),
+    ).not.toContain("(auto)");
   });
 
   it("annotates auto entries that are not in the allowlist", () => {
     // Mirrors formatVerdict so a reviewer reading the PR body sees the same
     // denial signal the terminal block surfaces — no silent downgrade.
     const md = buildPrBodySection([blockedAuto]);
-    expect(md).toContain("- [ ] rm -rf /  # cleanup (auto-run denied: not in allowlist)");
+    expect(md).toContain(
+      "- [ ] rm -rf /  # cleanup (auto-run denied: not in allowlist)",
+    );
   });
 });
 
 describe("upsertPrBodySection", () => {
   it("appends to a body without the heading", () => {
-    const out = upsertPrBodySection("## Why\nbecause\n", "## Local Follow-ups\n\n- [ ] x  # r");
-    expect(out).toBe("## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] x  # r\n");
+    const out = upsertPrBodySection(
+      "## Why\nbecause\n",
+      "## Local Follow-ups\n\n- [ ] x  # r",
+    );
+    expect(out).toBe(
+      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] x  # r\n",
+    );
   });
 
   it("renders into an empty body", () => {
@@ -432,16 +523,25 @@ describe("upsertPrBodySection", () => {
   it("replaces an existing section in place when followed by another heading", () => {
     const before =
       "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] old  # old\n\n## Test Steps\n\n- [ ] verify\n";
-    const out = upsertPrBodySection(before, "## Local Follow-ups\n\n- [ ] new  # new");
+    const out = upsertPrBodySection(
+      before,
+      "## Local Follow-ups\n\n- [ ] new  # new",
+    );
     expect(out).toBe(
       "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] new  # new\n\n## Test Steps\n\n- [ ] verify\n",
     );
   });
 
   it("replaces an existing section at end of body", () => {
-    const before = "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] old  # old\n";
-    const out = upsertPrBodySection(before, "## Local Follow-ups\n\n- [ ] new  # new");
-    expect(out).toBe("## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] new  # new\n");
+    const before =
+      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] old  # old\n";
+    const out = upsertPrBodySection(
+      before,
+      "## Local Follow-ups\n\n- [ ] new  # new",
+    );
+    expect(out).toBe(
+      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] new  # new\n",
+    );
   });
 
   it("is idempotent — second run with same input returns same output", () => {
@@ -462,7 +562,15 @@ describe("runAdd", () => {
 
   it("appends an entry and exits 0", () => {
     const code = runAdd(
-      ["--command", "flow setup", "--reason", "test", "--auto", "--jsonl", jsonlPath],
+      [
+        "--command",
+        "flow setup",
+        "--reason",
+        "test",
+        "--auto",
+        "--jsonl",
+        jsonlPath,
+      ],
       { now: () => "2026-05-05T00:00:00.000Z" },
     );
     expect(code).toBe(0);
@@ -483,8 +591,26 @@ describe("runAdd", () => {
   });
 
   it("respects an explicit --id for dedup", () => {
-    runAdd(["--command", "a", "--reason", "b", "--id", "fixed", "--jsonl", jsonlPath]);
-    runAdd(["--command", "different", "--reason", "different", "--id", "fixed", "--jsonl", jsonlPath]);
+    runAdd([
+      "--command",
+      "a",
+      "--reason",
+      "b",
+      "--id",
+      "fixed",
+      "--jsonl",
+      jsonlPath,
+    ]);
+    runAdd([
+      "--command",
+      "different",
+      "--reason",
+      "different",
+      "--id",
+      "fixed",
+      "--jsonl",
+      jsonlPath,
+    ]);
     expect(readEntries(jsonlPath)).toHaveLength(1);
   });
 });
@@ -494,13 +620,23 @@ describe("runAdd", () => {
 describe("runRun", () => {
   it("emits empty output when log is missing", () => {
     let captured = "";
-    const code = runRun(["--jsonl", jsonlPath], { out: (s) => (captured += s) });
+    const code = runRun(["--jsonl", jsonlPath], {
+      out: (s) => (captured += s),
+    });
     expect(code).toBe(0);
     expect(captured).toBe("");
   });
 
   it("emits human-readable text on the merged path", () => {
-    runAdd(["--command", "flow setup --upgrade", "--reason", "new helper", "--auto", "--jsonl", jsonlPath]);
+    runAdd([
+      "--command",
+      "flow setup --upgrade",
+      "--reason",
+      "new helper",
+      "--auto",
+      "--jsonl",
+      jsonlPath,
+    ]);
     let captured = "";
     runRun(["--jsonl", jsonlPath], {
       out: (s) => (captured += s),
@@ -512,7 +648,15 @@ describe("runRun", () => {
   });
 
   it("emits JSON verdict on --json", () => {
-    runAdd(["--command", "flow setup", "--reason", "r", "--auto", "--jsonl", jsonlPath]);
+    runAdd([
+      "--command",
+      "flow setup",
+      "--reason",
+      "r",
+      "--auto",
+      "--jsonl",
+      jsonlPath,
+    ]);
     let captured = "";
     runRun(["--jsonl", jsonlPath, "--json"], {
       out: (s) => (captured += s),
@@ -525,7 +669,15 @@ describe("runRun", () => {
   });
 
   it("does not spawn under --note-only", () => {
-    runAdd(["--command", "flow setup --upgrade", "--reason", "r", "--auto", "--jsonl", jsonlPath]);
+    runAdd([
+      "--command",
+      "flow setup --upgrade",
+      "--reason",
+      "r",
+      "--auto",
+      "--jsonl",
+      jsonlPath,
+    ]);
     const calls: string[][] = [];
     const recordingSpawn: Spawner = (argv) => {
       calls.push(argv);
@@ -540,7 +692,15 @@ describe("runRun", () => {
   });
 
   it("emits a stderr warning when an auto entry is denied by allowlist", () => {
-    runAdd(["--command", "rm -rf /", "--reason", "blocked", "--auto", "--jsonl", jsonlPath]);
+    runAdd([
+      "--command",
+      "rm -rf /",
+      "--reason",
+      "blocked",
+      "--auto",
+      "--jsonl",
+      jsonlPath,
+    ]);
     let captured = "";
     runRun(["--jsonl", jsonlPath], {
       out: () => {},
@@ -558,7 +718,9 @@ describe("runUpsert", () => {
     let bodyForView = "";
     return {
       gh: (argv: string[]) => {
-        const entry: { argv: string[]; bodyFileContent?: string } = { argv: [...argv] };
+        const entry: { argv: string[]; bodyFileContent?: string } = {
+          argv: [...argv],
+        };
         if (argv[0] === "pr" && argv[1] === "edit") {
           const i = argv.indexOf("--body-file");
           if (i !== -1 && argv[i + 1]) {
@@ -586,7 +748,15 @@ describe("runUpsert", () => {
   });
 
   it("appends a new section when body lacks the heading", () => {
-    runAdd(["--command", "flow setup", "--reason", "test", "--auto", "--jsonl", jsonlPath]);
+    runAdd([
+      "--command",
+      "flow setup",
+      "--reason",
+      "test",
+      "--auto",
+      "--jsonl",
+      jsonlPath,
+    ]);
     const captured: { argv: string[]; bodyFileContent?: string }[] = [];
     const { gh, setBody } = makeGh(captured);
     setBody("## Why\nbecause\n");
@@ -595,14 +765,26 @@ describe("runUpsert", () => {
     const editCall = captured.find((c) => c.argv[1] === "edit");
     expect(editCall?.bodyFileContent).toBeDefined();
     expect(editCall!.bodyFileContent!).toContain("## Local Follow-ups");
-    expect(editCall!.bodyFileContent!).toContain("- [ ] flow setup  # test (auto)");
+    expect(editCall!.bodyFileContent!).toContain(
+      "- [ ] flow setup  # test (auto)",
+    );
   });
 
   it("replaces an existing section idempotently", () => {
-    runAdd(["--command", "flow setup", "--reason", "test", "--auto", "--jsonl", jsonlPath]);
+    runAdd([
+      "--command",
+      "flow setup",
+      "--reason",
+      "test",
+      "--auto",
+      "--jsonl",
+      jsonlPath,
+    ]);
     const captured: { argv: string[]; bodyFileContent?: string }[] = [];
     const { gh, setBody } = makeGh(captured);
-    setBody("## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] flow setup  # test (auto)\n");
+    setBody(
+      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] flow setup  # test (auto)\n",
+    );
     runUpsert(["99", "--jsonl", jsonlPath], { gh });
     // Second invocation: body is already correct → no edit call should fire.
     const editCalls = captured.filter((c) => c.argv[1] === "edit");
@@ -610,7 +792,15 @@ describe("runUpsert", () => {
   });
 
   it("returns 1 on gh pr view failure", () => {
-    runAdd(["--command", "flow setup", "--reason", "test", "--auto", "--jsonl", jsonlPath]);
+    runAdd([
+      "--command",
+      "flow setup",
+      "--reason",
+      "test",
+      "--auto",
+      "--jsonl",
+      jsonlPath,
+    ]);
     const code = runUpsert(["99", "--jsonl", jsonlPath], {
       gh: () => ({ stdout: "", stderr: "boom", exitCode: 1 }),
     });

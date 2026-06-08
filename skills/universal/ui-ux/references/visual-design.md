@@ -4,11 +4,11 @@ Portable visual-design judgment — hierarchy, spacing, surface and depth, typog
 
 ## The anti-default stance
 
-The core test: if another AI, given the same prompt, would produce the same output, you failed. Defaults are invisible decisions — a single radius, one spacing value, one surface color repeated everywhere — that accumulate into interfaces immediately recognizable as machine-made (Anthropic, *Improving frontend design through Skills*). For every choice that has a value, be able to answer "why this and not another?" If the answer is "it's the default," change it.
+The core test: if another AI, given the same prompt, would produce the same output, you failed. Defaults are invisible decisions — a single radius, one spacing value, one surface color repeated everywhere — that accumulate into interfaces immediately recognizable as machine-made (Anthropic, _Improving frontend design through Skills_). For every choice that has a value, be able to answer "why this and not another?" If the answer is "it's the default," change it.
 
-This is not decoration for its own sake. Attractive, coherent interfaces are *perceived* as more usable, and users tolerate minor friction in them — aesthetics and usability reinforce each other rather than competing (NNG: the aesthetic-usability effect). Polish is a usability investment, not a trade against it.
+This is not decoration for its own sake. Attractive, coherent interfaces are _perceived_ as more usable, and users tolerate minor friction in them — aesthetics and usability reinforce each other rather than competing (NNG: the aesthetic-usability effect). Polish is a usability investment, not a trade against it.
 
-Concrete defaults to reject (Anthropic cookbook, *Prompting for frontend aesthetics*):
+Concrete defaults to reject (Anthropic cookbook, _Prompting for frontend aesthetics_):
 
 - Generic system fonts as the only typeface (Inter / Roboto / Arial everywhere, no intentional pairing).
 - Timid, evenly-distributed color where every hue gets equal weight and nothing leads.
@@ -18,7 +18,7 @@ Concrete defaults to reject (Anthropic cookbook, *Prompting for frontend aesthet
 
 ## Hierarchy
 
-Establish what matters most *visually*, not just by labelling it. The eye should move from the most important element to the least without reading a single word. Build that ordering from size, weight, and contrast — not from a "Title:" prefix or a heavier border (Refactoring UI). Apple's first pillar, clarity, is the same idea from the platform side: the interface supports the content and never competes with it, and legibility holds at every size (Apple HIG). Layout itself directs attention before any content is read (Material 3 foundations).
+Establish what matters most _visually_, not just by labelling it. The eye should move from the most important element to the least without reading a single word. Build that ordering from size, weight, and contrast — not from a "Title:" prefix or a heavier border (Refactoring UI). Apple's first pillar, clarity, is the same idea from the platform side: the interface supports the content and never competes with it, and legibility holds at every size (Apple HIG). Layout itself directs attention before any content is read (Material 3 foundations).
 
 A practical move from Refactoring UI: de-emphasize secondary and tertiary content rather than fighting to emphasize the primary. Muting supporting text, metadata, and chrome lets the primary content lead without making it shout.
 
@@ -32,7 +32,7 @@ Work from a consistent spacing scale rather than ad-hoc values, so rhythm is sys
 
 Depth communicates hierarchy. Layered surfaces, shadows, and elevation tell the user what sits on top of what and what is recessed (Refactoring UI; Material 3 elevation; Apple's depth pillar). The portable rules:
 
-- Elevated surfaces read *lighter* in dark mode — elevation maps to lightness, the opposite of the light-mode intuition. Without surface-color variation between layers, a dark UI collapses into a single flat plane.
+- Elevated surfaces read _lighter_ in dark mode — elevation maps to lightness, the opposite of the light-mode intuition. Without surface-color variation between layers, a dark UI collapses into a single flat plane.
 - No two adjacent containers should share an identical surface-and-border treatment unless they are genuine peers in a list. Sameness erases the boundary.
 - Commit to one strategy for separation. Where shadows are weak (notably dark mode), lean on surface-color differences instead of borders; don't stack both as a reflex.
 - Every border must earn its place — it should separate things that need separating. A border added "to look more defined" is visual noise. Surface differences and spacing often separate content more cleanly than a line.

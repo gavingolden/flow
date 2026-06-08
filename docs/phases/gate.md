@@ -33,7 +33,7 @@ validation steps before merging.
   - **test-steps-section-missing** — defensive, surfaces a
     hand-edited or regressed PR body.
   - **gh-error / pr-missing / worktree-missing** — preflight or `gh pr
-    view` failures.
+view` failures.
 - `frontmatter.test_steps` set to `true` (gated) or `false`
   (auto-merge).
 - `frontmatter.merge_commit` set when state is `MERGED` and the SHA
@@ -111,14 +111,14 @@ contract for the LLM so it produces the right shape; the helpers in
   path. Gate re-fetches state, observes `MERGED`, captures the SHA, and
   transitions to `merging`.
 
-The decision is always derived from the *current* `gh pr view` payload —
+The decision is always derived from the _current_ `gh pr view` payload —
 no in-phase mutable state can corrupt it across re-entries.
 
 ## Implementation
 
-| File | Role |
-|---|---|
-| `src/pipeline/phases/gate.ts` | Phase entry, gh-CLI shell-out, status transitions, phase-output rendering |
-| `src/pipeline/phases/gate-helpers.ts` | Pure helpers: section extraction, HTML-comment stripping, decision enum |
-| `src/state/phases.ts` | `gating` and `gated` statuses + `STATUS_TO_LAST_CHECKED` / `STATUS_TO_PHASE_LABEL` mappings |
-| `src/util/notify.ts` | `gated` is in `NOTIFY_STATUSES`, so the macOS notifier fires on the `→ gated` transition without phase-side changes |
+| File                                  | Role                                                                                                                |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `src/pipeline/phases/gate.ts`         | Phase entry, gh-CLI shell-out, status transitions, phase-output rendering                                           |
+| `src/pipeline/phases/gate-helpers.ts` | Pure helpers: section extraction, HTML-comment stripping, decision enum                                             |
+| `src/state/phases.ts`                 | `gating` and `gated` statuses + `STATUS_TO_LAST_CHECKED` / `STATUS_TO_PHASE_LABEL` mappings                         |
+| `src/util/notify.ts`                  | `gated` is in `NOTIFY_STATUSES`, so the macOS notifier fires on the `→ gated` transition without phase-side changes |

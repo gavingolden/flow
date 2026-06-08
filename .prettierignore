@@ -1,0 +1,24 @@
+# Dependencies (prettier ignores node_modules by default; listed for clarity)
+node_modules/
+
+# Lockfiles — managed by the package manager, not hand-formatted
+package-lock.json
+
+# Per-pipeline scratch dir (flow worktrees register this in .git/info/exclude)
+.flow-tmp/
+
+# These markdown files conflict with existing structural guards in
+# bin/skill-md-lint.test.ts, so prettier is not allowed to manage them.
+# Each is still guarded by its own lint/anchor; re-enable here only if
+# the upstream cause is resolved.
+#
+# Non-idempotent: two consecutive `prettier --write` passes oscillate a
+# deeply-nested fenced code block's indentation (16 <-> 20 spaces) with
+# no fixpoint, so `prettier --check .` could never pass on it.
+skills/pipeline/flow-pipeline/SKILL.md
+# Reformatting grows it past the 34000-char budget skill-md-lint enforces
+# (keeps AGENTS.md clear of Claude Code's 40k per-session warning).
+AGENTS.md
+# Prettier re-pads a markdown table whose exact header skill-md-lint
+# anchors on ('| Status | Escalation tag |').
+skills/pipeline/pr-review/SKILL.md

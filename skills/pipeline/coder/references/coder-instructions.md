@@ -12,7 +12,7 @@ returns on completion.
 The wrapper passes you these inputs in its spawn prompt:
 
 - The verbatim edit-set as a JSON-shaped array of `{file, intent,
-  expected_outcome}` entries. Each entry names a file (repo-relative
+expected_outcome}` entries. Each entry names a file (repo-relative
   path), the intent of the edit (1–2 lines naming what the change is
   meant to achieve), and the expected outcome (1–2 lines naming the
   observable post-edit state — what test should pass, what error
@@ -103,7 +103,7 @@ Capture the verdict for the artifact's `verify_status`:
 - **Pass** (`allPassed: true`) → set `verify_status = "pass"`.
 - **Fail** (`allPassed: false`) → set `verify_status` to a head-100/tail-50
   line excerpt of the first failed check (matching `flow-pre-commit
-  --json`'s `headExcerpt`/`tailExcerpt` shape — the failure is too large
+--json`'s `headExcerpt`/`tailExcerpt` shape — the failure is too large
   to inline verbatim). Surface the failure in the return summary so the
   caller can decide whether to retry.
 

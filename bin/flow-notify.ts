@@ -90,7 +90,8 @@ export function buildPayload(args: Args): Payload {
   const title = `flow: ${args.status}`;
   const subtitle = args.slug ?? "";
   const reason = args.reason?.trim();
-  const message = reason && reason.length > 0 ? collapseAndTruncate(reason) : "(no reason)";
+  const message =
+    reason && reason.length > 0 ? collapseAndTruncate(reason) : "(no reason)";
   return { title, subtitle, message };
 }
 
@@ -121,7 +122,10 @@ export function buildOsascriptScript(payload: Payload): string {
   );
 }
 
-export function buildTerminalNotifierArgs(payload: Payload, url: string | undefined): string[] {
+export function buildTerminalNotifierArgs(
+  payload: Payload,
+  url: string | undefined,
+): string[] {
   const argv = ["-title", payload.title];
   if (payload.subtitle.length > 0) {
     argv.push("-subtitle", payload.subtitle);
@@ -149,7 +153,11 @@ export type Deps = {
 
 export type DispatchResult =
   | { dispatched: false; reason: "no-opt-in" | "non-darwin" }
-  | { dispatched: true; backend: "terminal-notifier" | "osascript"; argv: string[] };
+  | {
+      dispatched: true;
+      backend: "terminal-notifier" | "osascript";
+      argv: string[];
+    };
 
 export function dispatch(args: Args, deps: Deps): DispatchResult {
   if (deps.env.FLOW_NOTIFY !== "1") {
@@ -162,7 +170,9 @@ export function dispatch(args: Args, deps: Deps): DispatchResult {
   // result is fine — the helper is fire-and-forget by design and the
   // subtitle just stays empty.
   const resolved =
-    args.slug !== undefined ? args : { ...args, slug: deps.resolveSlug() ?? undefined };
+    args.slug !== undefined
+      ? args
+      : { ...args, slug: deps.resolveSlug() ?? undefined };
   const payload = buildPayload(resolved);
   if (deps.hasTerminalNotifier()) {
     const argv = buildTerminalNotifierArgs(payload, resolved.url);
@@ -206,7 +216,8 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
   const resolved: Deps = {
     platform: deps?.platform ?? process.platform,
     env: deps?.env ?? process.env,
-    hasTerminalNotifier: deps?.hasTerminalNotifier ?? defaultHasTerminalNotifier,
+    hasTerminalNotifier:
+      deps?.hasTerminalNotifier ?? defaultHasTerminalNotifier,
     spawnDetached: deps?.spawnDetached ?? defaultSpawnDetached,
     resolveSlug: deps?.resolveSlug ?? (() => resolveSlugFromPane()),
   };

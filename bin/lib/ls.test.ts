@@ -2,7 +2,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildRows, formatCostCell, formatNameCell, formatRepoCell, runLsCli } from "./ls";
+import {
+  buildRows,
+  formatCostCell,
+  formatNameCell,
+  formatRepoCell,
+  runLsCli,
+} from "./ls";
 import { encodeProjectSegment } from "./cost";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
@@ -69,7 +75,11 @@ describe(buildRows, () => {
   });
 
   it("falls back to tmux activity for (no state) rows", async () => {
-    const rows = await buildRows([], [window({ name: "manual", activity: NOW / 1000 - 90 })], NOW);
+    const rows = await buildRows(
+      [],
+      [window({ name: "manual", activity: NOW / 1000 - 90 })],
+      NOW,
+    );
     expect(rows[0].lastActivity).toBe("1m ago");
   });
 
@@ -209,8 +219,15 @@ describe("buildRows — waitForCopilot indicator", () => {
   });
 
   it("composes a (no window) drift annotation AND the wait-copilot marker", async () => {
-    const rows = await buildRows([state({ slug: "ghost", waitForCopilot: true })], [], NOW);
-    expect(rows[0]).toMatchObject({ annotation: "(no window)", waitForCopilot: true });
+    const rows = await buildRows(
+      [state({ slug: "ghost", waitForCopilot: true })],
+      [],
+      NOW,
+    );
+    expect(rows[0]).toMatchObject({
+      annotation: "(no window)",
+      waitForCopilot: true,
+    });
     expect(formatNameCell(rows[0])).toBe("ghost (no window) (wait-copilot)");
   });
 });
@@ -238,7 +255,10 @@ describe("buildRows + cost", () => {
   it("attaches a CostBreakdown when opts.cost is true", async () => {
     const repo = "/some/repo";
     seedSession(repo, "csv-export", [
-      { type: "user", message: { content: "Use the /flow-pipeline skill for: csv export" } },
+      {
+        type: "user",
+        message: { content: "Use the /flow-pipeline skill for: csv export" },
+      },
       {
         type: "assistant",
         message: {
@@ -287,12 +307,24 @@ describe("buildRows + cost", () => {
 describe(formatCostCell, () => {
   it("renders — when no data", () => {
     expect(formatCostCell(undefined)).toBe("—");
-    expect(formatCostCell({ total: 0, byModel: {}, unknownModels: [], hasData: false })).toBe("—");
+    expect(
+      formatCostCell({
+        total: 0,
+        byModel: {},
+        unknownModels: [],
+        hasData: false,
+      }),
+    ).toBe("—");
   });
 
   it("renders $ with two decimals when data is present", () => {
     expect(
-      formatCostCell({ total: 2.345, byModel: {}, unknownModels: [], hasData: true }),
+      formatCostCell({
+        total: 2.345,
+        byModel: {},
+        unknownModels: [],
+        hasData: true,
+      }),
     ).toBe("$2.35");
   });
 
@@ -307,7 +339,6 @@ describe(formatCostCell, () => {
     ).toBe("~$1.20");
   });
 });
-
 
 describe(formatRepoCell, () => {
   it("renders — for an unmanaged (no state) row with no repo", () => {
@@ -326,7 +357,9 @@ describe("runLsCli (--help / -h short-circuit)", () => {
   for (const flag of ["--help", "-h"]) {
     it(`exits 0 and prints help when args is ['${flag}']`, async () => {
       const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
-      const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const err = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => undefined);
       const code = await runLsCli([flag]);
       expect(code).toBe(0);
       expect(err).not.toHaveBeenCalled();

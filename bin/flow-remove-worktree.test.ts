@@ -49,7 +49,11 @@ describe(parseWorktreeListOutput, () => {
   });
 
   it("should strip refs/heads/ prefix from branch names", () => {
-    const raw = ["worktree /repo", "branch refs/heads/agent/improve-tooltips", ""].join("\n");
+    const raw = [
+      "worktree /repo",
+      "branch refs/heads/agent/improve-tooltips",
+      "",
+    ].join("\n");
 
     const entries = parseWorktreeListOutput(raw);
     expect(entries[0].branch).toBe("agent/improve-tooltips");
@@ -140,7 +144,10 @@ function makeFixture(): Fixture {
   };
 }
 
-const FLOW_REMOVE_WORKTREE_BIN = path.resolve(__dirname, "flow-remove-worktree.ts");
+const FLOW_REMOVE_WORKTREE_BIN = path.resolve(
+  __dirname,
+  "flow-remove-worktree.ts",
+);
 
 type SpawnResult = { exitCode: number; stdout: string; stderr: string };
 
@@ -154,7 +161,9 @@ function runHelper(args: string[], cwd: string): Promise<SpawnResult> {
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("close", (exitCode) => resolve({ exitCode: exitCode ?? -1, stdout, stderr }));
+    child.on("close", (exitCode) =>
+      resolve({ exitCode: exitCode ?? -1, stdout, stderr }),
+    );
   });
 }
 
@@ -181,7 +190,10 @@ describe("flow-remove-worktree (integration: scratch cleanup)", () => {
       cwd: fx.repoDir,
       encoding: "utf8",
     });
-    expect(dryRun.status, `expected git to refuse, got: ${dryRun.stderr}`).not.toBe(0);
+    expect(
+      dryRun.status,
+      `expected git to refuse, got: ${dryRun.stderr}`,
+    ).not.toBe(0);
     expect(dryRun.stderr).toMatch(/untracked|modified/i);
 
     // Invoke by branch name so the test is robust to macOS's
@@ -271,7 +283,10 @@ function makeFreshRepoFixture(): FreshRepoFixture {
   // and `node_modules/`) so the only flow-owned untracked-or-ignored file the
   // test exercises is `.flow-branch`. Crucially, this .gitignore does NOT list
   // `.flow-branch` — that absence is the consumer-repo state we're testing.
-  fs.writeFileSync(path.join(repoDir, ".gitignore"), "package-lock.json\nnode_modules/\n");
+  fs.writeFileSync(
+    path.join(repoDir, ".gitignore"),
+    "package-lock.json\nnode_modules/\n",
+  );
   mustGit(["add", "."], repoDir);
   mustGit(["commit", "-m", "initial"], repoDir);
 
@@ -279,7 +294,10 @@ function makeFreshRepoFixture(): FreshRepoFixture {
   mustGit(["remote", "add", "origin", remoteDir], repoDir);
   mustGit(["fetch", "origin"], repoDir);
   mustGit(["branch", "--set-upstream-to=origin/main", "main"], repoDir);
-  mustGit(["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"], repoDir);
+  mustGit(
+    ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"],
+    repoDir,
+  );
 
   return {
     repoDir,
@@ -305,7 +323,9 @@ function runNewWorktree(args: string[], cwd: string): Promise<SpawnResult> {
     let stderr = "";
     child.stdout.on("data", (chunk) => (stdout += chunk.toString()));
     child.stderr.on("data", (chunk) => (stderr += chunk.toString()));
-    child.on("close", (exitCode) => resolve({ exitCode: exitCode ?? -1, stdout, stderr }));
+    child.on("close", (exitCode) =>
+      resolve({ exitCode: exitCode ?? -1, stdout, stderr }),
+    );
   });
 }
 
@@ -318,7 +338,9 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
 
   it("on a fresh repo, .flow-branch lands as ignored (not untracked) after flow-new-worktree", async () => {
     const create = await runNewWorktree(["feat"], fx.repoDir);
-    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
+      0,
+    );
     const wtDir = path.join(path.dirname(fx.repoDir), "repo-feat");
 
     // The marker file exists (flow-state-update's branch-mismatch guard reads it).
@@ -332,28 +354,39 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
       encoding: "utf8",
     });
     expect(status.status, `git status stderr: ${status.stderr}`).toBe(0);
-    const lines = status.stdout.split("\n").filter((l) => l.includes(".flow-branch"));
+    const lines = status.stdout
+      .split("\n")
+      .filter((l) => l.includes(".flow-branch"));
     expect(lines.length).toBeGreaterThan(0);
     for (const line of lines) {
-      expect(line.startsWith("!! "), `expected '!! ' prefix, got: ${JSON.stringify(line)}`).toBe(
-        true,
-      );
+      expect(
+        line.startsWith("!! "),
+        `expected '!! ' prefix, got: ${JSON.stringify(line)}`,
+      ).toBe(true);
     }
 
     // The user's tracked .gitignore was NOT touched — flow-runtime metadata
     // lives in .git/info/exclude only.
-    const gitignore = fs.readFileSync(path.join(fx.repoDir, ".gitignore"), "utf8");
+    const gitignore = fs.readFileSync(
+      path.join(fx.repoDir, ".gitignore"),
+      "utf8",
+    );
     expect(gitignore).not.toContain(".flow-branch");
   });
 
   it("on a fresh repo, flow-remove-worktree succeeds without --force", async () => {
     const create = await runNewWorktree(["feat"], fx.repoDir);
-    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
+      0,
+    );
     const wtDir = path.join(path.dirname(fx.repoDir), "repo-feat");
     expect(fs.existsSync(wtDir)).toBe(true);
 
     const remove = await runHelper(["feat"], fx.repoDir);
-    expect(remove.exitCode, `stderr: ${remove.stderr}\nstdout: ${remove.stdout}`).toBe(0);
+    expect(
+      remove.exitCode,
+      `stderr: ${remove.stderr}\nstdout: ${remove.stdout}`,
+    ).toBe(0);
     expect(fs.existsSync(wtDir)).toBe(false);
 
     // The worktree is gone from `git worktree list`.
@@ -387,7 +420,9 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
 
   it("legacy path: succeeds even when .flow-branch is NOT registered in info/exclude (rm fallback)", async () => {
     const create = await runNewWorktree(["legacy-feat"], fx.repoDir);
-    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
+      0,
+    );
     const wtDir = path.join(path.dirname(fx.repoDir), "repo-legacy-feat");
 
     // Simulate an older worktree whose common dir's exclude file does NOT yet
@@ -412,13 +447,18 @@ describe("flow-remove-worktree (integration: .flow-branch cleanup)", () => {
     const untracked = status.stdout
       .split("\n")
       .filter((l) => l.startsWith("?? ") && l.includes(".flow-branch"));
-    expect(untracked.length, `expected .flow-branch as untracked, got status:\n${status.stdout}`)
-      .toBeGreaterThan(0);
+    expect(
+      untracked.length,
+      `expected .flow-branch as untracked, got status:\n${status.stdout}`,
+    ).toBeGreaterThan(0);
 
     // The rm fallback in flow-remove-worktree clears `.flow-branch` before
     // `git worktree remove`, so removal still succeeds.
     const remove = await runHelper(["legacy-feat"], fx.repoDir);
-    expect(remove.exitCode, `stderr: ${remove.stderr}\nstdout: ${remove.stdout}`).toBe(0);
+    expect(
+      remove.exitCode,
+      `stderr: ${remove.stderr}\nstdout: ${remove.stdout}`,
+    ).toBe(0);
     expect(fs.existsSync(wtDir)).toBe(false);
   });
 });
@@ -434,7 +474,9 @@ describe("flow-remove-worktree (integration: auto-delete merged branches)", () =
 
   it("auto-deletes the local branch when its tip is reachable from origin/<base>", async () => {
     const create = await runNewWorktree(["merged-feat"], fx.repoDir);
-    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
+      0,
+    );
     const wtDir = path.join(path.dirname(fx.repoDir), "repo-merged-feat");
 
     // Commit on the per-task branch from inside the worktree.
@@ -454,12 +496,16 @@ describe("flow-remove-worktree (integration: auto-delete merged branches)", () =
 
     const branches = mustGit(["branch", "--list"], fx.repoDir);
     expect(branches).not.toContain("merged-feat");
-    expect(r.stdout, `stdout: ${r.stdout}`).toMatch(/fully merged into origin\/main/);
+    expect(r.stdout, `stdout: ${r.stdout}`).toMatch(
+      /fully merged into origin\/main/,
+    );
   });
 
   it("preserves the local branch when it has commits not in origin/<base>", async () => {
     const create = await runNewWorktree(["unmerged-feat"], fx.repoDir);
-    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
+      0,
+    );
     const wtDir = path.join(path.dirname(fx.repoDir), "repo-unmerged-feat");
 
     // Commit on the per-task branch but DO NOT push — origin/main stays at the
@@ -479,7 +525,9 @@ describe("flow-remove-worktree (integration: auto-delete merged branches)", () =
 
   it("--delete-branch flag still force-attempts deletion regardless of merge state", async () => {
     const create = await runNewWorktree(["flag-feat"], fx.repoDir);
-    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(0);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
+      0,
+    );
     const wtDir = path.join(path.dirname(fx.repoDir), "repo-flag-feat");
 
     // No new commits — branch tip equals origin/main, so `git branch -d`
@@ -493,7 +541,9 @@ describe("flow-remove-worktree (integration: auto-delete merged branches)", () =
 
     const branches = mustGit(["branch", "--list"], fx.repoDir);
     expect(branches).not.toContain("flag-feat");
-    expect(r.stdout, `stdout: ${r.stdout}`).toContain("Branch 'flag-feat' deleted.");
+    expect(r.stdout, `stdout: ${r.stdout}`).toContain(
+      "Branch 'flag-feat' deleted.",
+    );
     expect(r.stdout, `stdout: ${r.stdout}`).not.toMatch(/fully merged into/);
   });
 });

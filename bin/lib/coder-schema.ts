@@ -74,8 +74,10 @@ function validateEditEntry(entry: unknown, path: string): ValidationErr | null {
     return err(`expected object`, path);
   }
   const o = entry as Record<string, unknown>;
-  if (!isNonEmptyString(o.file)) return err(`'file' must be a non-empty string`, path);
-  if (!isNonEmptyString(o.intent)) return err(`'intent' must be a non-empty string`, path);
+  if (!isNonEmptyString(o.file))
+    return err(`'file' must be a non-empty string`, path);
+  if (!isNonEmptyString(o.intent))
+    return err(`'intent' must be a non-empty string`, path);
   if (!isNonEmptyString(o.expected_outcome)) {
     return err(`'expected_outcome' must be a non-empty string`, path);
   }
@@ -99,7 +101,8 @@ function validateRejectedAlternativeEntry(
     return err(`expected object`, path);
   }
   const o = entry as Record<string, unknown>;
-  if (!isNonEmptyString(o.file)) return err(`'file' must be a non-empty string`, path);
+  if (!isNonEmptyString(o.file))
+    return err(`'file' must be a non-empty string`, path);
   if (!isNonEmptyString(o.considered_approach)) {
     return err(`'considered_approach' must be a non-empty string`, path);
   }
@@ -109,7 +112,10 @@ function validateRejectedAlternativeEntry(
   return null;
 }
 
-function validateAntiPatternEntry(entry: unknown, path: string): ValidationErr | null {
+function validateAntiPatternEntry(
+  entry: unknown,
+  path: string,
+): ValidationErr | null {
   if (typeof entry !== "object" || entry === null) {
     return err(`expected object`, path);
   }
@@ -167,13 +173,19 @@ export function validateCoderResult(parsed: unknown): ValidationResult {
 
   const rejected = o.rejected_alternatives as unknown[];
   for (let i = 0; i < rejected.length; i++) {
-    const e = validateRejectedAlternativeEntry(rejected[i], `rejected_alternatives[${i}]`);
+    const e = validateRejectedAlternativeEntry(
+      rejected[i],
+      `rejected_alternatives[${i}]`,
+    );
     if (e) return e;
   }
 
   const antiPatterns = o.anti_patterns_found as unknown[];
   for (let i = 0; i < antiPatterns.length; i++) {
-    const e = validateAntiPatternEntry(antiPatterns[i], `anti_patterns_found[${i}]`);
+    const e = validateAntiPatternEntry(
+      antiPatterns[i],
+      `anti_patterns_found[${i}]`,
+    );
     if (e) return e;
   }
 

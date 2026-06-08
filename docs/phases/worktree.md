@@ -1,6 +1,6 @@
 # Phase 1 — worktree
 
-Pure script phase. No LLM involvement. Runs as the *first* post-triage
+Pure script phase. No LLM involvement. Runs as the _first_ post-triage
 phase so every later phase, including plan, executes inside the per-task
 worktree. Calls the target repo's `scripts/new-agent-worktree.ts` to
 create a parallel worktree on a new feature branch, records the
@@ -124,13 +124,13 @@ phase cleanly.
 
 ## Failure modes
 
-| Symptom | Reason | Fix |
-|---|---|---|
-| `target repo missing scripts/new-agent-worktree.ts` | Script not present in the target | Run `flow install` from inside the target repo to symlink it from flow's bundled `templates/scripts/`. flow does not auto-install — it has to be opt-in per repo |
-| `branch <name> already exists but has no matching worktree` | Orphan branch from a prior crash between `git branch` and `git worktree add` | Run the printed `git -C <repo> branch -D <branch>` and re-run `flow run <id>` |
-| `worktree script exit <N>` | Script ran but failed (branch already exists, dirty index, etc.) | Investigate target repo state; do not `git worktree remove --force` blindly |
-| `script success but branch not found in 'git worktree list'` | Script printed success but didn't actually register a worktree (rare) | Open an issue against the target repo's script |
-| `<path>/.orchestrator exists and is not a symlink — refusing to overwrite` | Pre-existing regular file or directory at the symlink target | Inspect the file; remove or rename it, then re-run |
+| Symptom                                                                    | Reason                                                                       | Fix                                                                                                                                                              |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `target repo missing scripts/new-agent-worktree.ts`                        | Script not present in the target                                             | Run `flow install` from inside the target repo to symlink it from flow's bundled `templates/scripts/`. flow does not auto-install — it has to be opt-in per repo |
+| `branch <name> already exists but has no matching worktree`                | Orphan branch from a prior crash between `git branch` and `git worktree add` | Run the printed `git -C <repo> branch -D <branch>` and re-run `flow run <id>`                                                                                    |
+| `worktree script exit <N>`                                                 | Script ran but failed (branch already exists, dirty index, etc.)             | Investigate target repo state; do not `git worktree remove --force` blindly                                                                                      |
+| `script success but branch not found in 'git worktree list'`               | Script printed success but didn't actually register a worktree (rare)        | Open an issue against the target repo's script                                                                                                                   |
+| `<path>/.orchestrator exists and is not a symlink — refusing to overwrite` | Pre-existing regular file or directory at the symlink target                 | Inspect the file; remove or rename it, then re-run                                                                                                               |
 
 No retry for any of these — the worktree phase aborts (`status: failed`)
 on first error per m2-plan.md §"On failure". Manual investigation is
@@ -146,8 +146,8 @@ crash is safe — the script is not invoked twice.
 
 ## Implementation
 
-| File | Role |
-|---|---|
+| File                              | Role                                                                                            |
+| --------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `src/pipeline/phases/worktree.ts` | Phase entry; runs the target script, parses `git worktree list --porcelain`, writes frontmatter |
-| `src/state/ids.ts` | `deriveBranchName`, `slugFromId` |
-| `src/state/task-file.ts` | `updateTaskFrontmatter`, `transitionStatus` |
+| `src/state/ids.ts`                | `deriveBranchName`, `slugFromId`                                                                |
+| `src/state/task-file.ts`          | `updateTaskFrontmatter`, `transitionStatus`                                                     |

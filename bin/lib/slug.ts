@@ -19,9 +19,30 @@ const MAX_LENGTH = 40;
 const MAX_TOKENS = 5;
 
 const STOP_WORDS = new Set([
-  "the", "a", "an", "and", "or", "if", "with", "for", "to", "of",
-  "in", "on", "at", "by", "is", "are", "was", "were", "be", "been",
-  "that", "this", "it", "its",
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "if",
+  "with",
+  "for",
+  "to",
+  "of",
+  "in",
+  "on",
+  "at",
+  "by",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "been",
+  "that",
+  "this",
+  "it",
+  "its",
 ]);
 
 export function slugify(input: string): string {
@@ -39,6 +60,9 @@ export function slugify(input: string): string {
 }
 
 function fallbackSlug(input: string): string {
-  const hash = createHash("sha256").update(input.toLowerCase()).digest("hex").slice(0, 8);
+  const hash = createHash("sha256")
+    .update(input.toLowerCase())
+    .digest("hex")
+    .slice(0, 8);
   return `task-${hash}`;
 }

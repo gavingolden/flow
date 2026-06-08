@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isValidSessionId, parseArgs, readCurrentPr, run } from "./flow-open-pr";
+import {
+  isValidSessionId,
+  parseArgs,
+  readCurrentPr,
+  run,
+} from "./flow-open-pr";
 import { runUpdate } from "./flow-state-update";
 
 let scratch!: string;
@@ -34,7 +39,9 @@ function seedState(slug: string): void {
 }
 
 function readState(slug: string) {
-  return JSON.parse(fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"));
+  return JSON.parse(
+    fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
+  );
 }
 
 /** A test updater that delegates to the real runUpdate but against the test stateDir. */
@@ -67,7 +74,9 @@ describe(parseArgs, () => {
   });
 
   it("rejects an unknown flag", () => {
-    const r = parseArgs(["my-slug", "--body-file", "/tmp/x.md", "--bogus"]) as { error: string };
+    const r = parseArgs(["my-slug", "--body-file", "/tmp/x.md", "--bogus"]) as {
+      error: string;
+    };
     expect(r.error).toMatch(/unknown flag/);
   });
 
@@ -102,7 +111,10 @@ describe(parseArgs, () => {
 describe(readCurrentPr, () => {
   it("returns parsed PR info on success", () => {
     const gh = vi.fn(() => ({
-      stdout: JSON.stringify({ number: 99, url: "https://github.com/x/y/pull/99" }),
+      stdout: JSON.stringify({
+        number: 99,
+        url: "https://github.com/x/y/pull/99",
+      }),
       stderr: "",
       exitCode: 0,
     }));
@@ -111,7 +123,11 @@ describe(readCurrentPr, () => {
   });
 
   it("returns an error when gh fails for a non-absent reason", () => {
-    const gh = vi.fn(() => ({ stdout: "", stderr: "gh: authentication required", exitCode: 4 }));
+    const gh = vi.fn(() => ({
+      stdout: "",
+      stderr: "gh: authentication required",
+      exitCode: 4,
+    }));
     const r = readCurrentPr(gh) as { error: string };
     expect(r.error).toMatch(/authentication required/);
   });
@@ -119,7 +135,7 @@ describe(readCurrentPr, () => {
   it("returns 'no PR exists' when gh reports the absence (no PR for current branch)", () => {
     const gh = vi.fn(() => ({
       stdout: "",
-      stderr: "no pull requests found for branch \"feature\"",
+      stderr: 'no pull requests found for branch "feature"',
       exitCode: 1,
     }));
     const r = readCurrentPr(gh) as { error: string };
@@ -141,15 +157,23 @@ describe("flow-open-pr run()", () => {
    * `pr view` twice on the fresh-create path (probe, then re-probe), and
    * inline branching gave the same response to both.
    */
-  function makeGhSequence(steps: Array<{ matches: (argv: string[]) => boolean; response: GhResponse }>) {
+  function makeGhSequence(
+    steps: Array<{
+      matches: (argv: string[]) => boolean;
+      response: GhResponse;
+    }>,
+  ) {
     const calls: string[][] = [];
     let cursor = 0;
     const gh = vi.fn((argv: string[]) => {
       calls.push(argv);
       const step = steps[cursor];
-      if (!step) throw new Error(`unexpected gh call (no step left): ${argv.join(" ")}`);
+      if (!step)
+        throw new Error(`unexpected gh call (no step left): ${argv.join(" ")}`);
       if (!step.matches(argv)) {
-        throw new Error(`gh call ${cursor} did not match: got ${argv.join(" ")}`);
+        throw new Error(
+          `gh call ${cursor} did not match: got ${argv.join(" ")}`,
+        );
       }
       cursor++;
       return step.response;
@@ -170,13 +194,23 @@ describe("flow-open-pr run()", () => {
     seedState("alpha");
     const { updater } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 142, url: "https://github.com/x/y/pull/142" }),
+      stdout: JSON.stringify({
+        number: 142,
+        url: "https://github.com/x/y/pull/142",
+      }),
       stderr: "",
       exitCode: 0,
     };
     const { gh, calls } = makeGhSequence([
       { matches: isView, response: NO_PR },
-      { matches: isCreate, response: { stdout: "https://github.com/x/y/pull/142\n", stderr: "", exitCode: 0 } },
+      {
+        matches: isCreate,
+        response: {
+          stdout: "https://github.com/x/y/pull/142\n",
+          stderr: "",
+          exitCode: 0,
+        },
+      },
       { matches: isView, response: prJson },
     ]);
 
@@ -188,7 +222,14 @@ describe("flow-open-pr run()", () => {
       sessionId: "",
     });
     expect(exit).toBe(0);
-    expect(calls[1]).toEqual(["pr", "create", "--body-file", bodyFile, "--title", "feat: x"]);
+    expect(calls[1]).toEqual([
+      "pr",
+      "create",
+      "--body-file",
+      bodyFile,
+      "--title",
+      "feat: x",
+    ]);
     expect(readState("alpha").pr).toBe(142);
   });
 
@@ -196,7 +237,10 @@ describe("flow-open-pr run()", () => {
     seedState("beta");
     const { updater } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 77, url: "https://github.com/x/y/pull/77" }),
+      stdout: JSON.stringify({
+        number: 77,
+        url: "https://github.com/x/y/pull/77",
+      }),
       stderr: "",
       exitCode: 0,
     };
@@ -216,7 +260,14 @@ describe("flow-open-pr run()", () => {
     const { updater } = makeUpdater();
     const { gh } = makeGhSequence([
       { matches: isView, response: NO_PR },
-      { matches: isCreate, response: { stdout: "", stderr: "gh: authentication required\n", exitCode: 4 } },
+      {
+        matches: isCreate,
+        response: {
+          stdout: "",
+          stderr: "gh: authentication required\n",
+          exitCode: 4,
+        },
+      },
     ]);
 
     const exit = run(["gamma", "--body-file", bodyFile], { gh, updater });
@@ -228,7 +279,14 @@ describe("flow-open-pr run()", () => {
     seedState("eta");
     const { updater } = makeUpdater();
     const { gh } = makeGhSequence([
-      { matches: isView, response: { stdout: "", stderr: "gh: authentication required", exitCode: 4 } },
+      {
+        matches: isView,
+        response: {
+          stdout: "",
+          stderr: "gh: authentication required",
+          exitCode: 4,
+        },
+      },
     ]);
 
     const exit = run(["eta", "--body-file", bodyFile], { gh, updater });
@@ -245,7 +303,10 @@ describe("flow-open-pr run()", () => {
     seedState("epsilon");
     const { updater } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 5, url: "https://github.com/x/y/pull/5" }),
+      stdout: JSON.stringify({
+        number: 5,
+        url: "https://github.com/x/y/pull/5",
+      }),
       stderr: "",
       exitCode: 0,
     };
@@ -254,7 +315,10 @@ describe("flow-open-pr run()", () => {
       { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
       { matches: isView, response: prJson },
     ]);
-    run(["epsilon", "--body-file", bodyFile, "--draft", "--base", "develop"], { gh, updater });
+    run(["epsilon", "--body-file", bodyFile, "--draft", "--base", "develop"], {
+      gh,
+      updater,
+    });
     const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
     expect(createCall).toContain("--draft");
     const baseIdx = createCall.indexOf("--base");
@@ -265,7 +329,10 @@ describe("flow-open-pr run()", () => {
     // No seedState — the updater will exit 1.
     const { updater } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 5, url: "https://github.com/x/y/pull/5" }),
+      stdout: JSON.stringify({
+        number: 5,
+        url: "https://github.com/x/y/pull/5",
+      }),
       stderr: "",
       exitCode: 0,
     };
@@ -282,7 +349,10 @@ describe("flow-open-pr run()", () => {
     seedState("theta");
     const { updater, calls: updaterCalls } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 8, url: "https://github.com/x/y/pull/8" }),
+      stdout: JSON.stringify({
+        number: 8,
+        url: "https://github.com/x/y/pull/8",
+      }),
       stderr: "",
       exitCode: 0,
     };
@@ -318,7 +388,10 @@ describe("flow-open-pr run()", () => {
     seedState("other-pipeline");
     const { updater, calls: updaterCalls } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 9, url: "https://github.com/x/y/pull/9" }),
+      stdout: JSON.stringify({
+        number: 9,
+        url: "https://github.com/x/y/pull/9",
+      }),
       stderr: "",
       exitCode: 0,
     };
@@ -353,7 +426,10 @@ describe("flow-open-pr run()", () => {
     seedState("marker-create");
     const { updater } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 31, url: "https://github.com/x/y/pull/31" }),
+      stdout: JSON.stringify({
+        number: 31,
+        url: "https://github.com/x/y/pull/31",
+      }),
       stderr: "",
       exitCode: 0,
     };
@@ -379,7 +455,10 @@ describe("flow-open-pr run()", () => {
     seedState("no-session");
     const { updater } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 32, url: "https://github.com/x/y/pull/32" }),
+      stdout: JSON.stringify({
+        number: 32,
+        url: "https://github.com/x/y/pull/32",
+      }),
       stderr: "",
       exitCode: 0,
     };
@@ -390,7 +469,11 @@ describe("flow-open-pr run()", () => {
     ]);
     // sessionId: "" models the "no CLAUDE_CODE_SESSION_ID" case
     // deterministically — the empty string fails isValidSessionId.
-    const exit = run(["no-session", "--body-file", bodyFile], { gh, updater, sessionId: "" });
+    const exit = run(["no-session", "--body-file", bodyFile], {
+      gh,
+      updater,
+      sessionId: "",
+    });
     expect(exit).toBe(0);
     // No marker injection ⇒ create still points at the original body file.
     const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
@@ -402,7 +485,10 @@ describe("flow-open-pr run()", () => {
     seedState("bad-session");
     const { updater } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 33, url: "https://github.com/x/y/pull/33" }),
+      stdout: JSON.stringify({
+        number: 33,
+        url: "https://github.com/x/y/pull/33",
+      }),
       stderr: "",
       exitCode: 0,
     };
@@ -425,7 +511,10 @@ describe("flow-open-pr run()", () => {
     seedState("forward-create");
     const { updater, calls: updaterCalls } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 34, url: "https://github.com/x/y/pull/34" }),
+      stdout: JSON.stringify({
+        number: 34,
+        url: "https://github.com/x/y/pull/34",
+      }),
       stderr: "",
       exitCode: 0,
     };
@@ -454,7 +543,10 @@ describe("flow-open-pr run()", () => {
     seedState("forward-resume");
     const { updater, calls: updaterCalls } = makeUpdater();
     const prJson: GhResponse = {
-      stdout: JSON.stringify({ number: 35, url: "https://github.com/x/y/pull/35" }),
+      stdout: JSON.stringify({
+        number: 35,
+        url: "https://github.com/x/y/pull/35",
+      }),
       stderr: "",
       exitCode: 0,
     };
@@ -477,7 +569,9 @@ describe("flow-open-pr run()", () => {
       VALID_SESSION,
     ]);
     // The marker is appended only on fresh create — the body file is untouched.
-    expect(fs.readFileSync(bodyFile, "utf8")).not.toContain("Claude Code session");
+    expect(fs.readFileSync(bodyFile, "utf8")).not.toContain(
+      "Claude Code session",
+    );
   });
 });
 

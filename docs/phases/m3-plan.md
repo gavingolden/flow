@@ -23,7 +23,7 @@ Two cross-phase loops (ci→implement, review→implement) and one in-place loop
 
 ## Prerequisites (not part of M3)
 
-- **Phase 3 amendment** lands as **M3 PR 0** (see PR-sequence table below). `runImplementPhase` (mode `"create"`) runs `npm run verify` locally and confirms it exits 0 *before* `gh pr create`. The new invariant for `pr-open` is "PR exists **and** the local test suite passed against the pushed SHA".
+- **Phase 3 amendment** lands as **M3 PR 0** (see PR-sequence table below). `runImplementPhase` (mode `"create"`) runs `npm run verify` locally and confirms it exits 0 _before_ `gh pr create`. The new invariant for `pr-open` is "PR exists **and** the local test suite passed against the pushed SHA".
 
 ## Resolved open questions
 
@@ -63,11 +63,11 @@ Auto-detection reads the new frontmatter field `paused_at_phase` (set when trans
 
 ```yaml
 phase_counts:
-  verify: 0     # cap 6  — phase invocations, not in-place retries
-  ci: 0         # cap 6
-  implement: 0  # cap 4  — total across create + fix modes
-  review: 0     # cap 3  — initial + 2 fix-driven re-runs
-paused_at_phase: null  # set to PhaseName when transitioning to needs-human
+  verify: 0 # cap 6  — phase invocations, not in-place retries
+  ci: 0 # cap 6
+  implement: 0 # cap 4  — total across create + fix modes
+  review: 0 # cap 3  — initial + 2 fix-driven re-runs
+paused_at_phase: null # set to PhaseName when transitioning to needs-human
 ```
 
 Increment in `writeTask` paths from each phase entry. Inner caps (verify's 3 in-place retries, ci→implement's 3 cycles, review→implement's 2 cycles) are enforced from these counts plus per-cycle accounting in the runner. Inner counters effectively reset per outer cycle because each loop-back invokes `implement`, which re-enters `verify` with a fresh in-cycle attempt count, but the lifetime cap on `phase_counts.verify` is what prevents runaway loops.
@@ -123,11 +123,11 @@ Add two statuses to `TASK_STATUSES` in `src/state/phases.ts`:
 
 Updated transitions:
 
-| Phase | Entry status (and prior mid-flight) | Mid-flight | Exit (ok) | Exit (fail / loop) |
-|---|---|---|---|---|
-| verify | `pr-open` | `verifying` | `verified` | in-place retry; on cap exhaustion → `needs-human` |
-| ci | `verified` | `ci` | `ci-passed` | red → `implementing` (loop-back, mode:"fix"); cap exhaustion → `needs-human`; timeout → `needs-human` |
-| review | `ci-passed` | `reviewing` | `gated` | critical → `implementing` (loop-back, mode:"fix"); cap exhaustion → `needs-human` |
+| Phase  | Entry status (and prior mid-flight) | Mid-flight  | Exit (ok)   | Exit (fail / loop)                                                                                    |
+| ------ | ----------------------------------- | ----------- | ----------- | ----------------------------------------------------------------------------------------------------- |
+| verify | `pr-open`                           | `verifying` | `verified`  | in-place retry; on cap exhaustion → `needs-human`                                                     |
+| ci     | `verified`                          | `ci`        | `ci-passed` | red → `implementing` (loop-back, mode:"fix"); cap exhaustion → `needs-human`; timeout → `needs-human` |
+| review | `ci-passed`                         | `reviewing` | `gated`     | critical → `implementing` (loop-back, mode:"fix"); cap exhaustion → `needs-human`                     |
 
 `STATUS_TO_LAST_CHECKED` map: only two entries are new — `verified → verify` and `ci-passed → ci`. The other transient/terminal mappings (`verifying → implement`, `ci → verify`, `reviewing → ci`, `gated → review`) already exist in `src/state/phases.ts` from the M2 scaffold and are unchanged.
 
@@ -143,17 +143,17 @@ The runner's `unfinishedStatuses` arrays for the new phases:
 
 ## Phase 4 — verify
 
-| | |
-|---|---|
-| **Type** | headless Claude Code subprocess in the *worktree* |
-| **Skill invoked** | `/verify` |
-| **Entry status** | `pr-open` |
-| **Mid-flight** | `verifying` |
-| **Exit status (ok)** | `verified` |
-| **In-place retry cap** | 3 attempts (via `retryN(fn, 3)`) |
-| **Lifetime cap** | `phase_counts.verify ≤ 6` |
-| **Tools allowed** | `Read, Bash(npm *), Bash(npx *), Bash(bun *), Bash(node *)` |
-| **Timeout** | 10 min per attempt |
+|                        |                                                             |
+| ---------------------- | ----------------------------------------------------------- |
+| **Type**               | headless Claude Code subprocess in the _worktree_           |
+| **Skill invoked**      | `/verify`                                                   |
+| **Entry status**       | `pr-open`                                                   |
+| **Mid-flight**         | `verifying`                                                 |
+| **Exit status (ok)**   | `verified`                                                  |
+| **In-place retry cap** | 3 attempts (via `retryN(fn, 3)`)                            |
+| **Lifetime cap**       | `phase_counts.verify ≤ 6`                                   |
+| **Tools allowed**      | `Read, Bash(npm *), Bash(npx *), Bash(bun *), Bash(node *)` |
+| **Timeout**            | 10 min per attempt                                          |
 
 On retry, append the prior failure log (truncated to last 200 lines + lines matching `/error|fail|panic/i`, both bounded to 4 KB combined) to the next attempt's prompt — same shape as M2's existing `lastFailure` mechanism in `implement.ts`.
 
@@ -163,17 +163,17 @@ When verify passes on attempt > 1, append a flake note to `## Phase outputs > ve
 
 ## Phase 5 — ci
 
-| | |
-|---|---|
-| **Type** | script (no LLM) |
-| **Action** | poll `gh pr checks --json` until terminal; then absorb auto-reviewer wait |
-| **Entry status** | `verified` |
-| **Mid-flight** | `ci` |
-| **Exit status (ok)** | `ci-passed` |
-| **Exit status (red)** | `implementing` (loop-back) |
-| **Loop-back cap** | `phase_counts.ci ≤ 6` and per-loop `ci→implement ≤ 3` cycles |
-| **Poll cadence** | 30s |
-| **Hard timeout** | 30 min |
+|                       |                                                                           |
+| --------------------- | ------------------------------------------------------------------------- |
+| **Type**              | script (no LLM)                                                           |
+| **Action**            | poll `gh pr checks --json` until terminal; then absorb auto-reviewer wait |
+| **Entry status**      | `verified`                                                                |
+| **Mid-flight**        | `ci`                                                                      |
+| **Exit status (ok)**  | `ci-passed`                                                               |
+| **Exit status (red)** | `implementing` (loop-back)                                                |
+| **Loop-back cap**     | `phase_counts.ci ≤ 6` and per-loop `ci→implement ≤ 3` cycles              |
+| **Poll cadence**      | 30s                                                                       |
+| **Hard timeout**      | 30 min                                                                    |
 
 ### Polling
 
@@ -189,16 +189,18 @@ loop:
 Custom poller (not `gh pr checks --watch`) so it survives a `flow run` crash — re-running is idempotent (re-queries current state).
 
 Terminal-state classification:
+
 - **green:** every check is `success` (or `skipped` / `neutral` — those don't fail).
 - **red:** at least one is `failure` or `cancelled`.
 
 ### Auto-reviewer wait
 
-After CI reaches terminal, before declaring phase 5 done, wait up to `AUTO_REVIEWER_WAIT_MS` (5 min) for any reviewer in `AUTO_REVIEWER_BOTS` (default `["Copilot"]`) to post a review. If the bot list is empty *or* none of the listed bots is requested as a reviewer on the PR, **skip the wait entirely**. Collected bot findings are written to `## Phase outputs > ci` as `### auto-reviewers` and consumed by phase 6.
+After CI reaches terminal, before declaring phase 5 done, wait up to `AUTO_REVIEWER_WAIT_MS` (5 min) for any reviewer in `AUTO_REVIEWER_BOTS` (default `["Copilot"]`) to post a review. If the bot list is empty _or_ none of the listed bots is requested as a reviewer on the PR, **skip the wait entirely**. Collected bot findings are written to `## Phase outputs > ci` as `### auto-reviewers` and consumed by phase 6.
 
 ### Loop-back on red
 
 On red CI:
+
 1. Truncate failing checks' logs (`gh run view <run-id> --log-failed`) using the same 200-line + error-line algorithm as verify; combined budget 8 KB.
 2. Append to `## Phase outputs > ci`.
 3. Transition status to `implementing`. The runner's next iteration dispatches `runImplementPhase(task, { mode: "fix", failureContext })`.
@@ -212,17 +214,17 @@ On red CI:
 
 ## Phase 6 — review
 
-| | |
-|---|---|
-| **Type** | headless Claude Code subprocess (in worktree) |
-| **Skill invoked** | `/pr-review` |
-| **Entry status** | `ci-passed` |
-| **Mid-flight** | `reviewing` |
-| **Exit status (ok)** | `gated` |
-| **Exit status (critical)** | `implementing` (loop-back) |
-| **Loop-back cap** | `phase_counts.review ≤ 3` and per-loop `review→implement ≤ 2` cycles |
-| **Tools allowed** | `Read, Glob, Grep, Bash(gh *), Bash(git *)` |
-| **Timeout** | 20 min |
+|                            |                                                                      |
+| -------------------------- | -------------------------------------------------------------------- |
+| **Type**                   | headless Claude Code subprocess (in worktree)                        |
+| **Skill invoked**          | `/pr-review`                                                         |
+| **Entry status**           | `ci-passed`                                                          |
+| **Mid-flight**             | `reviewing`                                                          |
+| **Exit status (ok)**       | `gated`                                                              |
+| **Exit status (critical)** | `implementing` (loop-back)                                           |
+| **Loop-back cap**          | `phase_counts.review ≤ 3` and per-loop `review→implement ≤ 2` cycles |
+| **Tools allowed**          | `Read, Glob, Grep, Bash(gh *), Bash(git *)`                          |
+| **Timeout**                | 20 min                                                               |
 
 ### Posting findings
 
@@ -240,7 +242,15 @@ The `/pr-review` skill itself produces a markdown report — not a parseable JSO
 
 ```json
 [
-  {"file": "path", "line": 42, "label": "issue", "decoration": "blocking", "confidence": 90, "subject": "...", "addressed": false}
+  {
+    "file": "path",
+    "line": 42,
+    "label": "issue",
+    "decoration": "blocking",
+    "confidence": 90,
+    "subject": "...",
+    "addressed": false
+  }
 ]
 ```
 
@@ -252,7 +262,7 @@ If count > 0: loop back. Truncate the critical findings (full body, not truncate
 
 ### Auto-reviewer findings as second-opinion
 
-If phase 5 collected bot findings, prepend them to the `/pr-review` prompt as context: *"Auto-reviewers also flagged the following — consider their findings while running your own review."* This is the only cross-phase artefact phase 5 hands to phase 6.
+If phase 5 collected bot findings, prepend them to the `/pr-review` prompt as context: _"Auto-reviewers also flagged the following — consider their findings while running your own review."_ This is the only cross-phase artefact phase 5 hands to phase 6.
 
 ## Implement re-entry — the `mode` parameter
 
@@ -263,13 +273,13 @@ type ImplementMode = "create" | "fix";
 
 interface ImplementOptions {
   mode: ImplementMode;
-  failureContext?: string;  // required iff mode === "fix"
+  failureContext?: string; // required iff mode === "fix"
 }
 
 export async function runImplementPhase(
   task: Task,
   opts: ImplementOptions = { mode: "create" },
-): Promise<PhaseResult>
+): Promise<PhaseResult>;
 ```
 
 Behaviour:
@@ -296,7 +306,7 @@ pending_implement_mode: "fix" | null
 - **Set by** ci (phase 5) or review (phase 6) when transitioning the task
   to `implementing` for a loop-back. Value `"fix"`.
 - **Read by** the runner. Dispatches `runImplementPhase(task, { mode:
-  "fix", failureContext })` when the field is `"fix"`; otherwise
+"fix", failureContext })` when the field is `"fix"`; otherwise
   defaults to `mode: "create"` (the PR 0 crash-recovery path runs the
   gate and either skips `gh pr create` or surfaces the failure on the
   existing PR).
@@ -344,10 +354,10 @@ export const VERIFY_LIFETIME_CAP = 6;
 export const CI_POLL_INTERVAL_MS = 30 * 1000;
 export const CI_HARD_TIMEOUT_MS = 30 * 60 * 1000;
 export const CI_LIFETIME_CAP = 6;
-export const CI_LOOPBACK_CAP = 3;          // ci→implement cycles per task
+export const CI_LOOPBACK_CAP = 3; // ci→implement cycles per task
 
 export const REVIEW_LIFETIME_CAP = 3;
-export const REVIEW_LOOPBACK_CAP = 2;      // review→implement cycles per task
+export const REVIEW_LOOPBACK_CAP = 2; // review→implement cycles per task
 
 export const IMPLEMENT_LIFETIME_CAP = 4;
 
@@ -406,17 +416,17 @@ docs/
 
 Nine PRs, each non-breaking with respect to the M2 happy path. PR 0 is the Phase 3 amendment (pre-PR verify gate); PRs 1–3 are pure scaffolding; PRs 4, 6, 7 each extend the pipeline by one phase and shift the M3 terminal status forward; PR 5 introduces fix-mode infrastructure ahead of its first caller; PR 8 is the M2 test catch-up.
 
-| # | Title | Pipeline terminal after merge | Skill |
-|---|---|---|---|
-| 0 | Phase 3 amendment: pre-PR verify gate in implement | unchanged (`pr-open`) | `refactoring` |
-| 1 | Vitest setup + `retryN` helper | unchanged (`pr-open`) | `refactoring` (and `testing` for tests) |
-| 2 | `phase_counts` + `paused_at_phase` frontmatter | unchanged (`pr-open`) | `refactoring` |
-| 3 | `flow resume <task-id>` command | unchanged (`pr-open`) | `new-feature` |
-| 4 | Phase 4 (verify) | `verified` | `new-feature` |
-| 5 | `runImplementPhase` `mode: "fix"` infra (no caller) | unchanged (`verified`) | `new-feature` |
-| 6 | Phase 5 (ci) + auto-reviewer wait + ci-loop-back | `ci-passed` | `new-feature` |
-| 7 | Phase 6 (review) + critical-loop-back | `gated` (M4 takes over) | `new-feature` |
-| 8 | M2 catch-up tests (`runner.ts`, `task-file.ts` Progress regen) | unchanged | `testing` |
+| #   | Title                                                          | Pipeline terminal after merge | Skill                                   |
+| --- | -------------------------------------------------------------- | ----------------------------- | --------------------------------------- |
+| 0   | Phase 3 amendment: pre-PR verify gate in implement             | unchanged (`pr-open`)         | `refactoring`                           |
+| 1   | Vitest setup + `retryN` helper                                 | unchanged (`pr-open`)         | `refactoring` (and `testing` for tests) |
+| 2   | `phase_counts` + `paused_at_phase` frontmatter                 | unchanged (`pr-open`)         | `refactoring`                           |
+| 3   | `flow resume <task-id>` command                                | unchanged (`pr-open`)         | `new-feature`                           |
+| 4   | Phase 4 (verify)                                               | `verified`                    | `new-feature`                           |
+| 5   | `runImplementPhase` `mode: "fix"` infra (no caller)            | unchanged (`verified`)        | `new-feature`                           |
+| 6   | Phase 5 (ci) + auto-reviewer wait + ci-loop-back               | `ci-passed`                   | `new-feature`                           |
+| 7   | Phase 6 (review) + critical-loop-back                          | `gated` (M4 takes over)       | `new-feature`                           |
+| 8   | M2 catch-up tests (`runner.ts`, `task-file.ts` Progress regen) | unchanged                     | `testing`                               |
 
 Out-of-band, in parallel: **`/fix` skill in `skills/pipeline/fix/`.** Must exist before PR 6 lands. Authored via a separate `flow start` task; not part of flow's source PR sequence.
 

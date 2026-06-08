@@ -23,7 +23,9 @@ Exit codes:
   0  facts computed (any lens may be skipped)
   2  argument-parse error`;
 
-export function parseArgs(argv: string[]): Args | { error: string } | { help: true } {
+export function parseArgs(
+  argv: string[],
+): Args | { error: string } | { help: true } {
   if (argv.length === 0) return { error: "PR number is required" };
   if (argv.includes("--help") || argv.includes("-h")) return { help: true };
   const [first, ...rest] = argv;
@@ -45,7 +47,9 @@ export function parseArgs(argv: string[]): Args | { error: string } | { help: tr
         }
         const n = Number.parseInt(value, 10);
         if (!Number.isFinite(n) || n < 0 || n > 100 || String(n) !== value) {
-          return { error: `--min-confidence must be an integer 0-100, got '${value}'` };
+          return {
+            error: `--min-confidence must be an integer 0-100, got '${value}'`,
+          };
         }
         out.minConfidence = n;
         i++;
@@ -57,7 +61,9 @@ export function parseArgs(argv: string[]): Args | { error: string } | { help: tr
         }
         const n = Number.parseInt(value, 10);
         if (!Number.isFinite(n) || n <= 0 || String(n) !== value) {
-          return { error: `--max-tool-timeout must be a positive integer, got '${value}'` };
+          return {
+            error: `--max-tool-timeout must be a positive integer, got '${value}'`,
+          };
         }
         out.maxToolTimeoutSec = n;
         i++;

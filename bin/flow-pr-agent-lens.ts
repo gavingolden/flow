@@ -16,7 +16,12 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import type { AnalysisResult, Finding, LensMeta, LensName } from "./flow-pr-static-analysis/types";
+import type {
+  AnalysisResult,
+  Finding,
+  LensMeta,
+  LensName,
+} from "./flow-pr-static-analysis/types";
 
 export type AgentName =
   | "bug-detection"
@@ -26,7 +31,8 @@ export type AgentName =
   | "supply-chain"
   | "test-coverage";
 
-export const SYNTHETIC_SUPPLY_CHAIN: "synthetic-supply-chain" = "synthetic-supply-chain";
+export const SYNTHETIC_SUPPLY_CHAIN: "synthetic-supply-chain" =
+  "synthetic-supply-chain";
 
 export type LensKey = LensName | typeof SYNTHETIC_SUPPLY_CHAIN;
 
@@ -39,7 +45,9 @@ export const AGENT_LENS_MAP: Record<AgentName, readonly LensKey[]> = {
   "test-coverage": ["coverage"],
 };
 
-const AGENT_NAMES: readonly AgentName[] = Object.keys(AGENT_LENS_MAP) as AgentName[];
+const AGENT_NAMES: readonly AgentName[] = Object.keys(
+  AGENT_LENS_MAP,
+) as AgentName[];
 
 export type SyntheticSupplyChainMeta = {
   ran: false;
@@ -58,7 +66,11 @@ export function route(envelope: AnalysisResult, agent: AgentName): RouteOutput {
   if (lenses.length === 1 && lenses[0] === SYNTHETIC_SUPPLY_CHAIN) {
     return {
       findings: [],
-      meta: { ran: false, skipped_reason: "no supply-chain pre-digest lens", duration_ms: 0 },
+      meta: {
+        ran: false,
+        skipped_reason: "no supply-chain pre-digest lens",
+        duration_ms: 0,
+      },
     };
   }
 
@@ -105,7 +117,9 @@ export function parseArgs(argv: string[]): ParsedArgs {
 }
 
 function isAgentName(value: string | undefined): value is AgentName {
-  return value !== undefined && (AGENT_NAMES as readonly string[]).includes(value);
+  return (
+    value !== undefined && (AGENT_NAMES as readonly string[]).includes(value)
+  );
 }
 
 function usage(): string {
@@ -122,7 +136,9 @@ function usage(): string {
   ].join("\n");
 }
 
-async function readEnvelope(inPath: string | undefined): Promise<AnalysisResult> {
+async function readEnvelope(
+  inPath: string | undefined,
+): Promise<AnalysisResult> {
   const resolved = inPath ?? ".flow-tmp/static-analysis.json";
   if (resolved === "-") {
     const chunks: Buffer[] = [];
@@ -145,7 +161,9 @@ export async function run(argv: string[]): Promise<number> {
   }
   if (!isAgentName(parsed.agent)) {
     const name = parsed.agent ?? "<missing>";
-    process.stderr.write(`unknown agent: ${name}\nvalid agents: ${AGENT_NAMES.join(", ")}\n`);
+    process.stderr.write(
+      `unknown agent: ${name}\nvalid agents: ${AGENT_NAMES.join(", ")}\n`,
+    );
     return 2;
   }
   let envelope: AnalysisResult;

@@ -64,7 +64,8 @@ export function parseArgs(argv: string[]): ParseOk | ParseHelp | ParseErr {
       const value = argv[++i];
       if (value === undefined) return { error: "--max-lines requires a value" };
       const n = parseInt(value, 10);
-      if (isNaN(n) || n < 0) return { error: `invalid --max-lines value: ${value}` };
+      if (isNaN(n) || n < 0)
+        return { error: `invalid --max-lines value: ${value}` };
       maxLines = n;
       continue;
     }
@@ -72,7 +73,8 @@ export function parseArgs(argv: string[]): ParseOk | ParseHelp | ParseErr {
       const value = argv[++i];
       if (value === undefined) return { error: "--max-total requires a value" };
       const n = parseInt(value, 10);
-      if (isNaN(n) || n < 0) return { error: `invalid --max-total value: ${value}` };
+      if (isNaN(n) || n < 0)
+        return { error: `invalid --max-total value: ${value}` };
       maxTotal = n;
       continue;
     }
@@ -92,7 +94,10 @@ export function parseArgs(argv: string[]): ParseOk | ParseHelp | ParseErr {
 }
 
 /** Splits a unified diff into per-file blocks plus any preamble. */
-export function splitIntoBlocks(diff: string): { preamble: string[]; blocks: string[][] } {
+export function splitIntoBlocks(diff: string): {
+  preamble: string[];
+  blocks: string[][];
+} {
   const lines = diff.split("\n");
   // `gh pr diff` always ends with a trailing newline → a final empty element.
   // Drop it so `lines.length` reflects content lines and rejoining round-trips.
@@ -115,7 +120,11 @@ export function splitIntoBlocks(diff: string): { preamble: string[]; blocks: str
   return { preamble, blocks };
 }
 
-function capBlock(block: string[], maxLines: number, prNumber: number): string[] {
+function capBlock(
+  block: string[],
+  maxLines: number,
+  prNumber: number,
+): string[] {
   if (maxLines === 0 || block.length <= maxLines) return block;
   const headCount = Math.ceil(maxLines * HEAD_RATIO);
   const tailCount = maxLines - headCount;
@@ -177,7 +186,11 @@ export function capDiff(
 
 // --- gh wrapper ---
 
-export type GhRunner = (args: string[]) => { stdout: string; stderr: string; exitCode: number };
+export type GhRunner = (args: string[]) => {
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+};
 
 const defaultGhRunner: GhRunner = (args) => {
   const r = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
@@ -206,7 +219,9 @@ export function run(argv: string[], deps: RunDeps = {}): number {
   }
   if ("error" in parsed) {
     writeErr(`flow-pr-diff: ${parsed.error}\n`);
-    writeErr("usage: flow-pr-diff <pr-number> [--max-lines N] [--max-total N]\n");
+    writeErr(
+      "usage: flow-pr-diff <pr-number> [--max-lines N] [--max-total N]\n",
+    );
     return 2;
   }
 
@@ -217,7 +232,9 @@ export function run(argv: string[], deps: RunDeps = {}): number {
     );
     return 1;
   }
-  writeOut(capDiff(result.stdout, parsed.maxLines, parsed.maxTotal, parsed.prNumber));
+  writeOut(
+    capDiff(result.stdout, parsed.maxLines, parsed.maxTotal, parsed.prNumber),
+  );
   return 0;
 }
 

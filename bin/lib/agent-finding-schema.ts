@@ -124,7 +124,9 @@ function stripOneParenPair(s: string): string {
 // path must look like a path (contain '/' or '.') so a bare 'TODO:42' prose
 // lead is not mistaken for a location. One leading token only; `end_line`
 // (a '<path>:<start>-<end>' tail) is intentionally not parsed.
-function extractLeadingFileLine(s: string): { file: string; line: number } | null {
+function extractLeadingFileLine(
+  s: string,
+): { file: string; line: number } | null {
   const m = /^([^\s:]+):(\d+)\b/.exec(s.trim());
   if (!m) return null;
   const file = m[1];
@@ -209,10 +211,7 @@ function err(reason: string, path?: string): ValidationErr {
   return { ok: false, reason, path };
 }
 
-function validateFinding(
-  f: unknown,
-  idx: number,
-): ValidationResult<Finding> {
+function validateFinding(f: unknown, idx: number): ValidationResult<Finding> {
   if (!isPlainObject(f)) {
     return err(`findings[${idx}] must be an object`);
   }
@@ -409,8 +408,11 @@ async function cliMain(argv: string[]): Promise<number> {
   } catch (e) {
     const reason = e instanceof Error ? e.message : String(e);
     process.stderr.write(
-      JSON.stringify({ ok: false, reason: `JSON parse failed: ${reason}`, path }) +
-        "\n",
+      JSON.stringify({
+        ok: false,
+        reason: `JSON parse failed: ${reason}`,
+        path,
+      }) + "\n",
     );
     return 1;
   }

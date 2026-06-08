@@ -75,7 +75,10 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
   // the repair branch (no-hooks skips the entire merge), so reject it at the
   // CLI seam where the user can still react.
   if (out.noHooks && out.repairSettings) {
-    return { error: "flow setup: --no-hooks and --repair-settings are mutually exclusive" };
+    return {
+      error:
+        "flow setup: --no-hooks and --repair-settings are mutually exclusive",
+    };
   }
   return out;
 }
@@ -92,7 +95,10 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
  * fake source path includes characters that aren't worth round-tripping
  * through arg parsing.
  */
-export function runSetupCli(args: string[], extraOptions?: SetupOptions): number {
+export function runSetupCli(
+  args: string[],
+  extraOptions?: SetupOptions,
+): number {
   if (argsContainHelp(args)) {
     printVerbHelp("setup");
     return 0;

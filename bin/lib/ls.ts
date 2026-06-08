@@ -15,7 +15,12 @@
 
 import * as path from "node:path";
 
-import { computeCost, defaultProjectsRoot, EMPTY_COST, type CostBreakdown } from "./cost";
+import {
+  computeCost,
+  defaultProjectsRoot,
+  EMPTY_COST,
+  type CostBreakdown,
+} from "./cost";
 import { friendlyName } from "./cost-pricing";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { listStates, type PipelineState } from "./state";
@@ -142,7 +147,10 @@ export async function buildRows(
   return rows;
 }
 
-function lastActivityFrom(updatedAt: string | undefined, nowMs: number): string {
+function lastActivityFrom(
+  updatedAt: string | undefined,
+  nowMs: number,
+): string {
   if (!updatedAt) return "—";
   const ms = Date.parse(updatedAt);
   if (!Number.isFinite(ms)) return "—";
@@ -179,12 +187,18 @@ function printTable(rows: Row[], opts: LsOptions): void {
     { header: "PR", get: (r) => r.pr },
     { header: "LAST ACTIVITY", get: (r) => r.lastActivity },
   ];
-  if (opts.cost) cols.push({ header: "$ COST", get: (r) => formatCostCell(r.cost) });
+  if (opts.cost)
+    cols.push({ header: "$ COST", get: (r) => formatCostCell(r.cost) });
 
-  const widths = cols.map((c) => Math.max(c.header.length, ...rows.map((r) => c.get(r).length)));
+  const widths = cols.map((c) =>
+    Math.max(c.header.length, ...rows.map((r) => c.get(r).length)),
+  );
 
   const line = (cells: string[]) =>
-    cells.map((cell, i) => cell.padEnd(widths[i])).join("  ").trimEnd();
+    cells
+      .map((cell, i) => cell.padEnd(widths[i]))
+      .join("  ")
+      .trimEnd();
 
   console.log(line(cols.map((c) => c.header)));
   for (const row of rows) console.log(line(cols.map((c) => c.get(row))));
@@ -200,7 +214,9 @@ function printDetail(rows: Row[]): void {
     const parts = Object.entries(row.cost!.byModel)
       .filter(([, v]) => v > 0)
       .sort(([, a], [, b]) => b - a)
-      .map(([model, dollars]) => `${friendlyName(model)} $${dollars.toFixed(2)}`);
+      .map(
+        ([model, dollars]) => `${friendlyName(model)} $${dollars.toFixed(2)}`,
+      );
     console.log(`${row.name}: ${parts.join(" · ")}`);
   }
 }

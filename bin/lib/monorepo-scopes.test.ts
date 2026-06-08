@@ -12,7 +12,10 @@ import {
 import { type ReadPackageJson } from "./stack-table";
 
 // Inject seams so no real file is touched (copilot-config.test.ts idiom).
-const cfg = (raw: unknown): ReadConfigFile => () => raw;
+const cfg =
+  (raw: unknown): ReadConfigFile =>
+  () =>
+    raw;
 // A package-owner map: every listed path resolves to its package.json object;
 // anything else is an absent owner (undefined).
 const owners =
@@ -26,7 +29,9 @@ describe("workspacePrefixOf", () => {
   });
 
   it("derives packages/<pkg>/", () => {
-    expect(workspacePrefixOf("packages/ui/src/Button.svelte")).toBe("packages/ui/");
+    expect(workspacePrefixOf("packages/ui/src/Button.svelte")).toBe(
+      "packages/ui/",
+    );
   });
 
   it("returns undefined for a bare apps/x.ts with no package dir", () => {
@@ -48,7 +53,10 @@ describe("detectWorkspaceScopes", () => {
       ["apps/web/src/a.ts", "packages/ui/src/b.ts"],
       readPkg,
     );
-    expect(scopes.map((s) => s.name).sort()).toEqual(["apps/web", "packages/ui"]);
+    expect(scopes.map((s) => s.name).sort()).toEqual([
+      "apps/web",
+      "packages/ui",
+    ]);
     const web = scopes.find((s) => s.name === "apps/web")!;
     expect(web.prefixes).toEqual(["apps/web/"]);
     expect(web.checks.map((c) => c.name)).toEqual([
@@ -63,7 +71,9 @@ describe("detectWorkspaceScopes", () => {
   });
 
   it("deduplicates multiple files under the same package", () => {
-    const readPkg = owners({ "apps/web/package.json": { scripts: { test: "y" } } });
+    const readPkg = owners({
+      "apps/web/package.json": { scripts: { test: "y" } },
+    });
     const scopes = detectWorkspaceScopes(
       ["apps/web/src/a.ts", "apps/web/src/b.ts"],
       readPkg,
@@ -79,20 +89,33 @@ describe("readMonorepoConfig", () => {
 
   it("parses a top-level array of scope entries", () => {
     const scopes = readMonorepoConfig(
-      cfg([{ name: "web", prefixes: ["apps/web/"], checks: ["npm run lint -w apps/web"] }]),
+      cfg([
+        {
+          name: "web",
+          prefixes: ["apps/web/"],
+          checks: ["npm run lint -w apps/web"],
+        },
+      ]),
     );
     expect(scopes).toEqual<ConfigScope[]>([
       {
         name: "web",
         prefixes: ["apps/web/"],
-        checks: [{ name: "npm run lint -w apps/web", argv: ["npm", "run", "lint", "-w", "apps/web"] }],
+        checks: [
+          {
+            name: "npm run lint -w apps/web",
+            argv: ["npm", "run", "lint", "-w", "apps/web"],
+          },
+        ],
       },
     ]);
   });
 
   it("parses the { scopes: [...] } wrapper shape", () => {
     const scopes = readMonorepoConfig(
-      cfg({ scopes: [{ name: "web", prefixes: ["apps/web/"], checks: ["x"] }] }),
+      cfg({
+        scopes: [{ name: "web", prefixes: ["apps/web/"], checks: ["x"] }],
+      }),
     );
     expect(scopes?.map((s) => s.name)).toEqual(["web"]);
   });
@@ -109,7 +132,11 @@ describe("readMonorepoConfig", () => {
       cfg([
         { name: "bad1", prefixes: ["apps/web/"], checks: [1, 2] },
         { name: "bad2", prefixes: [42], checks: ["x"] },
-        { name: "good", prefixes: ["apps/api/"], checks: ["npm run test -w apps/api"] },
+        {
+          name: "good",
+          prefixes: ["apps/api/"],
+          checks: ["npm run test -w apps/api"],
+        },
       ]),
     );
     expect(scopes?.map((s) => s.name)).toEqual(["good"]);
@@ -122,23 +149,41 @@ describe("readMonorepoConfig", () => {
 
 describe("mergeScopeSources — precedence config > auto-detect", () => {
   const auto: DynamicScope[] = [
-    { name: "apps/web", prefixes: ["apps/web/"], checks: [{ name: "auto", argv: ["auto"] }] },
-    { name: "apps/api", prefixes: ["apps/api/"], checks: [{ name: "a", argv: ["a"] }] },
+    {
+      name: "apps/web",
+      prefixes: ["apps/web/"],
+      checks: [{ name: "auto", argv: ["auto"] }],
+    },
+    {
+      name: "apps/api",
+      prefixes: ["apps/api/"],
+      checks: [{ name: "a", argv: ["a"] }],
+    },
   ];
 
   it("a configured scope sharing a prefix shadows the auto-detected one", () => {
     const configured: ConfigScope[] = [
-      { name: "web", prefixes: ["apps/web/"], checks: [{ name: "cfg", argv: ["cfg"] }] },
+      {
+        name: "web",
+        prefixes: ["apps/web/"],
+        checks: [{ name: "cfg", argv: ["cfg"] }],
+      },
     ];
     const merged = mergeScopeSources(auto, configured);
     expect(merged.map((s) => s.name).sort()).toEqual(["apps/api", "web"]);
     // The surviving apps/web is the configured one, not the auto-detected one.
-    expect(merged.find((s) => s.prefixes.includes("apps/web/"))!.name).toBe("web");
+    expect(merged.find((s) => s.prefixes.includes("apps/web/"))!.name).toBe(
+      "web",
+    );
   });
 
   it("keeps both when prefixes don't overlap", () => {
     const configured: ConfigScope[] = [
-      { name: "svc", prefixes: ["services/api/"], checks: [{ name: "c", argv: ["c"] }] },
+      {
+        name: "svc",
+        prefixes: ["services/api/"],
+        checks: [{ name: "c", argv: ["c"] }],
+      },
     ];
     const merged = mergeScopeSources(auto, configured);
     expect(merged).toHaveLength(3);
@@ -159,25 +204,39 @@ describe("mergeScopeSources — precedence config > auto-detect", () => {
 
 describe("draftConfigEntryForOrphans — pure Layer-3 helper", () => {
   it("returns an entry for a recognizable apps/<pkg> orphan with an owner + scripts", () => {
-    const readPkg = owners({ "apps/web/package.json": { scripts: { check: "x", test: "y" } } });
+    const readPkg = owners({
+      "apps/web/package.json": { scripts: { check: "x", test: "y" } },
+    });
     const entry = draftConfigEntryForOrphans(["apps/web/src/a.ts"], readPkg);
     expect(entry).toEqual<ConfigScope>({
       name: "apps/web",
       prefixes: ["apps/web/"],
       checks: [
-        { name: "npm run check -w apps/web", argv: ["npm", "run", "check", "-w", "apps/web"] },
-        { name: "npm run test -w apps/web", argv: ["npm", "run", "test", "-w", "apps/web"] },
+        {
+          name: "npm run check -w apps/web",
+          argv: ["npm", "run", "check", "-w", "apps/web"],
+        },
+        {
+          name: "npm run test -w apps/web",
+          argv: ["npm", "run", "test", "-w", "apps/web"],
+        },
       ],
     });
   });
 
   it("returns null for a genuine orphan (vendor/legacy, no owner, no marker)", () => {
     const readPkg = owners({});
-    expect(draftConfigEntryForOrphans(["vendor/legacy/z.js"], readPkg)).toBeNull();
+    expect(
+      draftConfigEntryForOrphans(["vendor/legacy/z.js"], readPkg),
+    ).toBeNull();
   });
 
   it("returns null when a workspace owner exists but declares no verify-class script", () => {
-    const readPkg = owners({ "apps/docs/package.json": { scripts: { start: "x" } } });
-    expect(draftConfigEntryForOrphans(["apps/docs/src/a.ts"], readPkg)).toBeNull();
+    const readPkg = owners({
+      "apps/docs/package.json": { scripts: { start: "x" } },
+    });
+    expect(
+      draftConfigEntryForOrphans(["apps/docs/src/a.ts"], readPkg),
+    ).toBeNull();
   });
 });

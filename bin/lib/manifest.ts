@@ -34,7 +34,10 @@ export function readManifest(manifestPath = FLOW_MANIFEST): Manifest {
   }
 }
 
-export function writeManifest(manifest: Manifest, manifestPath = FLOW_MANIFEST): void {
+export function writeManifest(
+  manifest: Manifest,
+  manifestPath = FLOW_MANIFEST,
+): void {
   fs.mkdirSync(path.dirname(manifestPath), { recursive: true });
   fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
 }

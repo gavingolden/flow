@@ -131,7 +131,7 @@ construction/deserialization time, not reactively.
 
 This applies **transitively through getters**. A getter on an exported object
 that lazily initializes `$state` (e.g., reading `localStorage` on first call,
-flipping a `hydrated` flag) is *still* mutating state when the template /
+flipping a `hydrated` flag) is _still_ mutating state when the template /
 `$derived` reads it — the mutation just hides one call frame deep:
 
 ```typescript
@@ -193,7 +193,7 @@ future consumers shouldn't have to remember the loop trap.
 `$state`-store traps above (lazy-getter `state_unsafe_mutation`, read-then-write
 `effect_update_depth_exceeded`) are **silent in imperative unit tests**.
 `expect(store.entries).toEqual([])` and `store.record(card)` both run
-*outside* any `$derived` / template / `$effect` context, so neither the
+_outside_ any `$derived` / template / `$effect` context, so neither the
 template-read mutation rule nor the effect's dependency tracker ever fires.
 The reliable catch is a small **consumer-render smoke test**: a minimal
 `.svelte` harness that exercises the store the way real components do (read
@@ -404,7 +404,11 @@ Domain state follows a **Store -> Repository -> Database** layering:
 
 ```typescript
 export class DashboardStore {
-  private state: DashboardState = $state({ dashboard: null, loading: false, error: null });
+  private state: DashboardState = $state({
+    dashboard: null,
+    loading: false,
+    error: null,
+  });
 
   constructor(private readonly repositoryFactory: RepositoryFactory) {}
 

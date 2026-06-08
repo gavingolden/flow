@@ -40,7 +40,7 @@ your scouting is informed:
   models. Don't read every file — read the ones the user description
   implicates plus their immediate neighbours.
 - List `.claude/skills/` (or the project's skill directory) to identify
-  skills that may apply. The scout reports *which* skills are relevant via
+  skills that may apply. The scout reports _which_ skills are relevant via
   `recommended_strategy`; it does not pre-load them.
 
 This is read-only background — these reads stay in your context and don't

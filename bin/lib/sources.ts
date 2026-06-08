@@ -52,7 +52,10 @@ export const DEFAULT_TARGETS: InstallTargets = {
 };
 
 /** Lists every skill directory across all tiers under <flow-source>/skills/. */
-export function discoverSkills(flowSource: string, targets = DEFAULT_TARGETS): SourceEntry[] {
+export function discoverSkills(
+  flowSource: string,
+  targets = DEFAULT_TARGETS,
+): SourceEntry[] {
   const skillsRoot = path.join(flowSource, "skills");
   const entries: SourceEntry[] = [];
   for (const tier of SKILL_TIERS) {
@@ -72,7 +75,10 @@ export function discoverSkills(flowSource: string, targets = DEFAULT_TARGETS): S
 }
 
 /** Lists agent files under <flow-source>/agents/. Empty if dir absent. */
-export function discoverAgents(flowSource: string, targets = DEFAULT_TARGETS): SourceEntry[] {
+export function discoverAgents(
+  flowSource: string,
+  targets = DEFAULT_TARGETS,
+): SourceEntry[] {
   const agentsRoot = path.join(flowSource, "agents");
   if (!existsDir(agentsRoot)) return [];
   return fs
@@ -92,7 +98,10 @@ export function discoverAgents(flowSource: string, targets = DEFAULT_TARGETS): S
  * permissions can be controlled distinctly). Strips the .ts extension on
  * the install target — users invoke `flow-new-worktree`, not `.ts`.
  */
-export function discoverHelpers(flowSource: string, targets = DEFAULT_TARGETS): SourceEntry[] {
+export function discoverHelpers(
+  flowSource: string,
+  targets = DEFAULT_TARGETS,
+): SourceEntry[] {
   const binDir = path.join(flowSource, "bin");
   if (!existsDir(binDir)) return [];
   return fs

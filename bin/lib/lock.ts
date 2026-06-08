@@ -28,7 +28,11 @@ export class LockTimeoutError extends Error {
   }
 }
 
-export function withFileLock<T>(lockPath: string, fn: () => T, opts: LockOptions = {}): T {
+export function withFileLock<T>(
+  lockPath: string,
+  fn: () => T,
+  opts: LockOptions = {},
+): T {
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const pollMs = opts.pollMs ?? 100;
   const start = Date.now();
@@ -65,7 +69,11 @@ function tryAcquire(lockPath: string): boolean {
     try {
       fs.linkSync(tmpPath, lockPath);
     } finally {
-      try { fs.unlinkSync(tmpPath); } catch { /* best-effort cleanup */ }
+      try {
+        fs.unlinkSync(tmpPath);
+      } catch {
+        /* best-effort cleanup */
+      }
     }
     return true;
   } catch (e) {

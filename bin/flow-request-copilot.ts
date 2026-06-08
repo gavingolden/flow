@@ -66,7 +66,12 @@ type Verdict = {
 
 function parseArgs(argv: string[]):
   | { mode: "classify" }
-  | { mode: "request"; pr: number; override?: ReviewOverride; decision?: AgentDecision }
+  | {
+      mode: "request";
+      pr: number;
+      override?: ReviewOverride;
+      decision?: AgentDecision;
+    }
   | { mode: "help" }
   | { error: string } {
   if (argv.includes("--help") || argv.includes("-h")) return { mode: "help" };
@@ -79,9 +84,11 @@ function parseArgs(argv: string[]):
     const value = argv[i + 1];
     switch (flag) {
       case "--pr":
-        if (!value || value.startsWith("--")) return { error: "--pr requires a value" };
+        if (!value || value.startsWith("--"))
+          return { error: "--pr requires a value" };
         pr = Number.parseInt(value, 10);
-        if (!Number.isFinite(pr) || pr <= 0) return { error: `--pr must be a positive integer, got '${value}'` };
+        if (!Number.isFinite(pr) || pr <= 0)
+          return { error: `--pr must be a positive integer, got '${value}'` };
         i++;
         continue;
       case "--override":
@@ -100,7 +107,8 @@ function parseArgs(argv: string[]):
         return { error: `unknown flag: ${flag}` };
     }
   }
-  if (pr === undefined) return { error: "--pr <n> is required (or pass --classify)" };
+  if (pr === undefined)
+    return { error: "--pr <n> is required (or pass --classify)" };
   return { mode: "request", pr, override, decision };
 }
 
@@ -140,10 +148,14 @@ function postAndVerify(
       return { posted: false, queued: false, copilotRequestable: false };
     }
     // Fail-open: a request error must not silently suppress the review.
-    process.stderr.write(`NOTICE: Copilot request failed: ${post.stderr.slice(0, 200)}\n`);
+    process.stderr.write(
+      `NOTICE: Copilot request failed: ${post.stderr.slice(0, 200)}\n`,
+    );
     return { posted: false, queued: false };
   }
-  const queued = fetchRequestedReviewers(pr, gh).some((l) => matchesCopilot(l, matchLogin));
+  const queued = fetchRequestedReviewers(pr, gh).some((l) =>
+    matchesCopilot(l, matchLogin),
+  );
   if (!queued) {
     process.stderr.write(
       `NOTICE: Copilot request returned ok but Copilot is not in requested_reviewers — silent rejection, not queued.\n`,
@@ -154,7 +166,11 @@ function postAndVerify(
 
 export async function run(
   argv: string[],
-  deps: { gh?: GhRunner; readConfig?: ReadConfigFile; stdinPaths?: () => Promise<string[]> } = {},
+  deps: {
+    gh?: GhRunner;
+    readConfig?: ReadConfigFile;
+    stdinPaths?: () => Promise<string[]>;
+  } = {},
 ): Promise<number> {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -209,8 +225,13 @@ export async function run(
     // A forced request (`--override always`, `forced`) bypasses this
     // short-circuit entirely (#260): the user explicitly asked for the POST,
     // so it always fires.
-    const alreadyRequested = !forced && fetchRequestedReviewers(parsed.pr, gh).length > 0;
-    if (!forced && !alreadyRequested && resolveCopilotConfigured(cfg.login, gh)) {
+    const alreadyRequested =
+      !forced && fetchRequestedReviewers(parsed.pr, gh).length > 0;
+    if (
+      !forced &&
+      !alreadyRequested &&
+      resolveCopilotConfigured(cfg.login, gh)
+    ) {
       verdict.posted = false;
       verdict.requestSkipReason = "auto-review-already-enabled";
       // #260 Story 3: the suppression was previously invisible (only in the
@@ -219,7 +240,11 @@ export async function run(
         "NOTICE: skipping Copilot request — auto-review already enabled (recent merged PRs carry Copilot reviews); pass --override always to force the request, or set bots.copilotAutoReview in ~/.flow/config.json as the durable, declarative alternative.\n",
       );
     } else {
-      const { posted, queued, copilotRequestable } = postAndVerify(parsed.pr, cfg.login, gh);
+      const { posted, queued, copilotRequestable } = postAndVerify(
+        parsed.pr,
+        cfg.login,
+        gh,
+      );
       verdict.posted = posted;
       verdict.queued = queued;
       if (copilotRequestable === false) verdict.copilotRequestable = false;

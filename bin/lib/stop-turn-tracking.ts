@@ -77,7 +77,10 @@ export function writeTurnTracking(
   );
 }
 
-export function deleteTurnTracking(slug: string, dir = FLOW_STATE_DIR): boolean {
+export function deleteTurnTracking(
+  slug: string,
+  dir = FLOW_STATE_DIR,
+): boolean {
   try {
     fs.unlinkSync(turnTrackingPath(slug, dir));
     return true;

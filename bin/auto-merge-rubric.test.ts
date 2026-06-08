@@ -33,7 +33,10 @@ fi
 `;
 
 function classify(body: string): string {
-  const result = spawnSync("bash", ["-c", SNIPPET], { input: body, encoding: "utf8" });
+  const result = spawnSync("bash", ["-c", SNIPPET], {
+    input: body,
+    encoding: "utf8",
+  });
   if (result.status !== 0) {
     throw new Error(`snippet exited ${result.status}: ${result.stderr}`);
   }
@@ -70,11 +73,9 @@ describe("auto-merge rubric snippet", () => {
   });
 
   it("auto-merges when the section contains only prose", () => {
-    const body = [
-      "## Test Steps",
-      "",
-      "Verified end-to-end on staging.",
-    ].join("\n");
+    const body = ["## Test Steps", "", "Verified end-to-end on staging."].join(
+      "\n",
+    );
     expect(classify(body)).toBe("no-unchecked");
   });
 
