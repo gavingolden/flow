@@ -324,7 +324,7 @@ EOF
 npm install                # one-time
 npm run typecheck:scripts  # tsc -p tsconfig.scripts.json (bin/)
 npm run test               # vitest run (bin/)
-npm run verify             # typecheck:scripts + test
+npm run verify             # typecheck:scripts + test + lint
 bun bin/flow setup         # global install (skills, agents, helpers, wrapper)
 ```
 
@@ -334,7 +334,7 @@ no compile step.
 ## CI
 
 `.github/workflows/ci.yml` runs `npm run verify` (`typecheck:scripts` +
-vitest) on every pull request and every push to `main`. It is the
+vitest + lint) on every PR and push to `main`. It is the
 server-side backstop for the local-only `flow-pre-commit` gate, which a
 human pushing a PR outside `/flow-pipeline` never invokes and which an
 in-pipeline run can pass falsely against stale PATH-symlinked code. The
