@@ -1,0 +1,8 @@
+# Dependencies (prettier ignores node_modules by default; listed for clarity)
+node_modules/
+
+# Lockfiles — managed by the package manager, not hand-formatted
+package-lock.json
+
+# Per-pipeline scratch dir (flow worktrees register this in .git/info/exclude)
+.flow-tmp/
