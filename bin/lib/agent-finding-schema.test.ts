@@ -1289,6 +1289,21 @@ describe("normalizeFinding — title->subject alias", () => {
     expect(input).toEqual(snapshot);
   });
 
+  it("seeds file/line recovery from a title-carried <path>:<line> prefix (alias runs before recovery)", () => {
+    const out = normalizeFinding({
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      title: "src/foo.ts:42 — location keyed only in the title prose",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.subject).toBe(
+      "src/foo.ts:42 — location keyed only in the title prose",
+    );
+    expect(out.file).toBe("src/foo.ts");
+    expect(out.line).toBe(42);
+  });
+
   it("makes a title-only finding pass validation after the normalize walker", () => {
     const out = normalizeParsedFindings({
       findings: [
@@ -1337,6 +1352,18 @@ describe("normalizeFinding — line recovery/default when file present", () => {
       body: "y",
     }) as Record<string, unknown>;
     expect(out.line).toBe(88);
+  });
+
+  it("recovers line from a body prose prefix when file present, line missing, and subject has no prefix", () => {
+    const out = normalizeFinding({
+      file: "src/foo.ts",
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      subject: "no location in this subject",
+      body: "src/foo.ts:99 — line keyed only in body prose",
+    }) as Record<string, unknown>;
+    expect(out.line).toBe(99);
   });
 
   it("defaults line to 1 when file present, line missing, and no prose location exists", () => {
