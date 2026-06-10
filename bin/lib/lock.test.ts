@@ -159,15 +159,50 @@ describe(withTestSemaphore, () => {
     expect(throttled).toBe(true);
   });
 
-  it("K concurrent holders fit: K acquires succeed on an empty dir", () => {
-    for (let i = 0; i < K; i++) {
-      const { throttled } = withTestSemaphore(scratch, K, () => undefined, {
-        timeoutMs: 200,
-        pollMs: 25,
-      });
-      // Each call releases its slot in finally, so a fresh acquire always wins.
-      expect(throttled).toBe(true);
-    }
+  it("holds K slots simultaneously and denies the K+1th (true counting)", () => {
+    // The counting property the PR advertises: K holders fit at once, the
+    // (K+1)th falls through. Nested acquisitions (mirroring the withFileLock
+    // nested-hold test above) hold their slots LIVE across the inner call,
+    // so this proves SIMULTANEOUS holding — it would fail with slots=1,
+    // unlike a sequential-acquire loop that releases each slot before the
+    // next.
+    const outer = withTestSemaphore(scratch, K, () => {
+      // First holder won a slot; one slot file must now exist on disk.
+      const heldAfterOuter = [0, 1].filter((i) =>
+        fs.existsSync(slotPath(i)),
+      ).length;
+      expect(heldAfterOuter).toBe(1);
+
+      const inner = withTestSemaphore(
+        scratch,
+        K,
+        () => {
+          // Both slots held at once: the inner call won the SECOND distinct
+          // slot while the outer still holds its own.
+          expect(fs.existsSync(slotPath(0))).toBe(true);
+          expect(fs.existsSync(slotPath(1))).toBe(true);
+
+          // A third nested acquire with both slots live must fall through
+          // (throttled:false) rather than block — never block a commit.
+          const third = withTestSemaphore(scratch, K, () => "third-ran", {
+            timeoutMs: 100,
+            pollMs: 25,
+          });
+          expect(third.throttled).toBe(false);
+          expect(third.result).toBe("third-ran");
+          return "inner-ran";
+        },
+        { timeoutMs: 200, pollMs: 25 },
+      );
+      expect(inner.throttled).toBe(true);
+      expect(inner.result).toBe("inner-ran");
+      return "outer-ran";
+    });
+    expect(outer.throttled).toBe(true);
+    expect(outer.result).toBe("outer-ran");
+    // Both slots released after the outer call returns.
+    expect(fs.existsSync(slotPath(0))).toBe(false);
+    expect(fs.existsSync(slotPath(1))).toBe(false);
   });
 
   it("removes the won slot file after fn returns", () => {

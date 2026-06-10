@@ -19,6 +19,7 @@ import {
   formatJsonReport,
   formatReport,
   getChangedFilesForPush,
+  isTestCheck,
   parsePrePushInput,
   parseScopes,
   resolveDefaultScopeFiles,
@@ -511,23 +512,24 @@ describe(checksForScope, () => {
     ]);
   });
 
-  it("emits test argv whose [1]/[2] are 'run'/'test' (semaphore detection key)", () => {
-    // main()'s test-check dispatch keys on argv[1]==="run" && argv[2]==="test"
-    // rather than exact-array/join equality so the workspace form
-    // ["npm","run","test","-w",<pkg>] also matches. This pins the shape the
-    // predicate depends on across every scope that emits a test check.
-    const isTestArgv = (argv: string[]) =>
-      argv[1] === "run" && argv[2] === "test";
+  it("emits test argv the real isTestCheck predicate matches (semaphore detection key)", () => {
+    // main()'s test-check dispatch routes through the exported isTestCheck
+    // predicate (argv[1]==="run" && argv[2]==="test") rather than
+    // exact-array/join equality so the workspace form
+    // ["npm","run","test","-w",<pkg>] also matches. Asserting against the REAL
+    // exported helper (not a local copy) means a drift in the predicate — e.g.
+    // to argv[2]==="test:unit" — fails this test instead of silently changing
+    // production behavior while a private copy keeps passing.
     for (const scope of ["src", "docs", "root-fallback"] as const) {
-      const test = checksForScope(scope).find((c) => isTestArgv(c.argv));
+      const test = checksForScope(scope).find((c) => isTestCheck(c.argv));
       expect(test, `${scope} should emit a test check`).toBeDefined();
     }
     // Non-test checks (typecheck/lint) must NOT match the predicate.
-    expect(isTestArgv(["npm", "run", "typecheck"])).toBe(false);
-    expect(isTestArgv(["npm", "run", "lint"])).toBe(false);
+    expect(isTestCheck(["npm", "run", "typecheck"])).toBe(false);
+    expect(isTestCheck(["npm", "run", "lint"])).toBe(false);
     // Workspace variant still matches; bare root form matches.
-    expect(isTestArgv(["npm", "run", "test", "-w", "pkg"])).toBe(true);
-    expect(isTestArgv(["npm", "run", "test"])).toBe(true);
+    expect(isTestCheck(["npm", "run", "test", "-w", "pkg"])).toBe(true);
+    expect(isTestCheck(["npm", "run", "test"])).toBe(true);
   });
 });
 

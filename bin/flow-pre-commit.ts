@@ -532,6 +532,17 @@ export function resolveTestConcurrency(
   return Math.max(1, Math.ceil(cores / 9));
 }
 
+/**
+ * Whether a check's argv is the test check that gets throttled through the
+ * host-wide semaphore. Keys on argv[1]/argv[2] rather than exact-array
+ * equality so the workspace form `["npm","run","test","-w",<pkg>]` matches
+ * alongside the bare root form `["npm","run","test"]`. typecheck/lint/etc.
+ * return false and run unthrottled.
+ */
+export function isTestCheck(argv: string[]): boolean {
+  return argv[1] === "run" && argv[2] === "test";
+}
+
 export type Runner = (argv: string[]) => {
   stdout: string;
   stderr: string;
@@ -1158,8 +1169,7 @@ async function main(): Promise<void> {
       // Throttle ONLY the test check (root `npm run test` and the workspace
       // variant `npm run test -w <pkg>`) through the host-wide counting
       // semaphore; typecheck/lint/md-validate/actionlint/go run unthrottled.
-      const isTestCheck = check.argv[1] === "run" && check.argv[2] === "test";
-      if (isTestCheck) {
+      if (isTestCheck(check.argv)) {
         const { result, throttled } = withTestSemaphore(
           FLOW_TEST_SEM_DIR,
           testConcurrency,
