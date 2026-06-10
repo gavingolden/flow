@@ -19,6 +19,7 @@ export const FLOW_COMPLETIONS_DIR = path.join(FLOW_DIR, "completions");
 export const FLOW_MANIFEST = path.join(FLOW_DIR, "installed.json");
 export const FLOW_CONFIG = path.join(FLOW_DIR, "config.json");
 export const SETUP_LOCK_PATH = path.join(FLOW_DIR, "setup.lock");
+export const FLOW_TEST_SEM_DIR = path.join(FLOW_DIR, "test-sem");
 
 export const CLAUDE_SKILLS_DIR = path.join(HOME, ".claude", "skills");
 export const CLAUDE_AGENTS_DIR = path.join(HOME, ".claude", "agents");

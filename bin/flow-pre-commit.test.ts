@@ -19,9 +19,11 @@ import {
   formatJsonReport,
   formatReport,
   getChangedFilesForPush,
+  isTestCheck,
   parsePrePushInput,
   parseScopes,
   resolveDefaultScopeFiles,
+  resolveTestConcurrency,
   runCheck,
   stripAnsi,
   type CheckReport,
@@ -508,6 +510,47 @@ describe(checksForScope, () => {
         argv: ["go", "test", "-C", "backend", "./..."],
       },
     ]);
+  });
+
+  it("emits test argv the real isTestCheck predicate matches (semaphore detection key)", () => {
+    // main()'s test-check dispatch routes through the exported isTestCheck
+    // predicate (argv[1]==="run" && argv[2]==="test") rather than
+    // exact-array/join equality so the workspace form
+    // ["npm","run","test","-w",<pkg>] also matches. Asserting against the REAL
+    // exported helper (not a local copy) means a drift in the predicate — e.g.
+    // to argv[2]==="test:unit" — fails this test instead of silently changing
+    // production behavior while a private copy keeps passing.
+    for (const scope of ["src", "docs", "root-fallback"] as const) {
+      const test = checksForScope(scope).find((c) => isTestCheck(c.argv));
+      expect(test, `${scope} should emit a test check`).toBeDefined();
+    }
+    // Non-test checks (typecheck/lint) must NOT match the predicate.
+    expect(isTestCheck(["npm", "run", "typecheck"])).toBe(false);
+    expect(isTestCheck(["npm", "run", "lint"])).toBe(false);
+    // Workspace variant still matches; bare root form matches.
+    expect(isTestCheck(["npm", "run", "test", "-w", "pkg"])).toBe(true);
+    expect(isTestCheck(["npm", "run", "test"])).toBe(true);
+  });
+});
+
+describe(resolveTestConcurrency, () => {
+  it("falls back to max(1, ceil(cores/9)) when env is unset", () => {
+    expect(resolveTestConcurrency({}, 18)).toBe(2);
+    expect(resolveTestConcurrency({}, 9)).toBe(1);
+    expect(resolveTestConcurrency({}, 1)).toBe(1);
+  });
+
+  it("honors a valid positive-integer FLOW_TEST_CONCURRENCY override", () => {
+    expect(resolveTestConcurrency({ FLOW_TEST_CONCURRENCY: "4" }, 18)).toBe(4);
+    expect(resolveTestConcurrency({ FLOW_TEST_CONCURRENCY: "1" }, 18)).toBe(1);
+  });
+
+  it("falls back to the floored default for 0/negative/non-numeric/empty", () => {
+    for (const bad of ["0", "-2", "abc", "", "2.5"]) {
+      expect(resolveTestConcurrency({ FLOW_TEST_CONCURRENCY: bad }, 18)).toBe(
+        2,
+      );
+    }
   });
 });
 
