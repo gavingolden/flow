@@ -31,7 +31,9 @@
  * key or `null`), while every other label still requires a valid enum
  * decoration. Like the label/decoration coerce-then-validate pre-pass,
  * `normalizeFinding` also recovers an absent `file`/`line` from a leading
- * `<path>:<line>` prefix in `subject` (then `body`).
+ * `<path>:<line>` prefix in `subject` (then `body`), aliases an absent
+ * `subject` to a present `title`, and defaults a missing `line` to `1`
+ * when `file` is present but no prose location is recoverable.
  *
  * CLI mode: `bun bin/lib/agent-finding-schema.ts --validate <path>` —
  * reads the file, parses JSON, and decides which validator to use based
@@ -137,15 +139,23 @@ function extractLeadingFileLine(
 /**
  * Coerce trivially-fixable label/decoration drift on a single finding-shaped
  * object BEFORE validation. Returns a shallow copy — never mutates the input,
- * so re-running is idempotent. Label coercion runs first (a lens-name label
- * becomes `suggestion`, preserving praise's decoration-optionality only when
- * the label was already/becomes a real one), then decoration paren-stripping.
- * Only `label` and `decoration` are touched; every other field passes through
- * untouched so real malformation in those fields still fails validation.
+ * so re-running is idempotent. Recovers `file`/`line` from a prose prefix,
+ * aliases `title`→`subject`, and defaults a missing `line` to `1` when a
+ * `file` is present; label coercion (a lens-name label becomes `suggestion`,
+ * preserving praise's decoration-optionality only when the label was
+ * already/becomes a real one) then decoration paren-stripping run last. A
+ * present field is never clobbered, so real malformation still fails validation.
  */
 export function normalizeFinding(f: unknown): unknown {
   if (!isPlainObject(f)) return f;
   const out: Record<string, unknown> = { ...f };
+  // why: agents intermittently key the short description as `title` instead of
+  // the required `subject`, hard-failing validation and sinking the whole
+  // consolidator review. Alias title->subject before validation; never clobber
+  // a present subject.
+  if (!isNonEmptyString(out.subject) && isNonEmptyString(out.title)) {
+    out.subject = out.title;
+  }
   // why: a praise/issue finding that puts its location only in prose (e.g.
   // subject 'src/foo.ts:42 — ...') leaves `file` absent and would hard-fail
   // validation, sinking the whole consolidator review. Recover file/line from
@@ -158,6 +168,18 @@ export function normalizeFinding(f: unknown): unknown {
       out.file = recovered.file;
       if (!isNumber(out.line)) out.line = recovered.line;
     }
+  }
+  // why: the test-coverage agent names a `file` but omits `line`, which the
+  // file-absent recovery above never reaches (it only fires when `file` is also
+  // missing). Recover `line` from a prose prefix decoupled from the file guard,
+  // and default to 1 when no prose location is recoverable but `file` is present
+  // — a non-blocking finding's exact line is cosmetic for routing, and 1 is an
+  // always-valid 1-indexed sentinel that keeps the review from aborting.
+  if (isNonEmptyString(out.file) && !isNumber(out.line)) {
+    const recovered =
+      (isString(out.subject) ? extractLeadingFileLine(out.subject) : null) ??
+      (isString(out.body) ? extractLeadingFileLine(out.body) : null);
+    out.line = recovered ? recovered.line : 1;
   }
   if (
     isString(out.label) &&

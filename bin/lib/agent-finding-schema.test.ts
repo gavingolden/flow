@@ -1216,3 +1216,283 @@ describe("agent-finding-schema CLI — `--validate <path>`", () => {
     });
   });
 });
+
+describe("normalizeFinding — title->subject alias", () => {
+  it("aliases a present title to subject when subject is absent", () => {
+    const out = normalizeFinding({
+      file: "src/foo.ts",
+      line: 42,
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      title: "Short description keyed as title",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.subject).toBe("Short description keyed as title");
+  });
+
+  it("does not clobber a present non-empty subject", () => {
+    const out = normalizeFinding({
+      file: "src/foo.ts",
+      line: 42,
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      title: "from title",
+      subject: "from subject",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.subject).toBe("from subject");
+  });
+
+  it("aliases title to subject when subject is present-but-empty", () => {
+    const out = normalizeFinding({
+      file: "src/foo.ts",
+      line: 42,
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      title: "from title",
+      subject: "",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.subject).toBe("from title");
+  });
+
+  it("is idempotent — aliasing twice equals aliasing once", () => {
+    const input = {
+      file: "src/foo.ts",
+      line: 42,
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      title: "keyed as title",
+      body: "y",
+    };
+    const once = normalizeFinding(input);
+    const twice = normalizeFinding(once);
+    expect(twice).toEqual(once);
+  });
+
+  it("does not mutate the input object", () => {
+    const input = {
+      file: "src/foo.ts",
+      line: 42,
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      title: "keyed as title",
+      body: "y",
+    };
+    const snapshot = structuredClone(input);
+    normalizeFinding(input);
+    expect(input).toEqual(snapshot);
+  });
+
+  it("seeds file/line recovery from a title-carried <path>:<line> prefix (alias runs before recovery)", () => {
+    const out = normalizeFinding({
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      title: "src/foo.ts:42 — location keyed only in the title prose",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.subject).toBe(
+      "src/foo.ts:42 — location keyed only in the title prose",
+    );
+    expect(out.file).toBe("src/foo.ts");
+    expect(out.line).toBe(42);
+  });
+
+  it("makes a title-only finding pass validation after the normalize walker", () => {
+    const out = normalizeParsedFindings({
+      findings: [
+        {
+          file: "src/foo.ts",
+          line: 42,
+          label: "issue",
+          decoration: "blocking",
+          confidence: 92,
+          title: "keyed as title, no subject",
+          body: "y",
+        },
+      ],
+    });
+    const result = validateAgentFindings(out);
+    expect(result.ok).toBe(true);
+  });
+
+  it("still fails validation when a finding has neither subject nor title", () => {
+    const out = normalizeParsedFindings({
+      findings: [
+        {
+          file: "src/foo.ts",
+          line: 42,
+          label: "issue",
+          decoration: "blocking",
+          confidence: 92,
+          body: "no short description anywhere",
+        },
+      ],
+    });
+    const result = validateAgentFindings(out);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("subject");
+  });
+});
+
+describe("normalizeFinding — line recovery/default when file present", () => {
+  it("recovers line from a subject prose prefix when file present but line missing", () => {
+    const out = normalizeFinding({
+      file: "src/foo.ts",
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      subject: "src/foo.ts:88 — line keyed only in prose",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.line).toBe(88);
+  });
+
+  it("recovers line from a body prose prefix when file present, line missing, and subject has no prefix", () => {
+    const out = normalizeFinding({
+      file: "src/foo.ts",
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      subject: "no location in this subject",
+      body: "src/foo.ts:99 — line keyed only in body prose",
+    }) as Record<string, unknown>;
+    expect(out.line).toBe(99);
+  });
+
+  it("defaults line to 1 when file present, line missing, and no prose location exists", () => {
+    const out = normalizeFinding({
+      file: "src/foo.ts",
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      subject: "no location in prose",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.line).toBe(1);
+  });
+
+  it("defaults a non-numeric line to 1 when file present and no prose location", () => {
+    const out = normalizeFinding({
+      file: "src/foo.ts",
+      line: "nope",
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      subject: "no location in prose",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.line).toBe(1);
+  });
+
+  it("does not clobber a present numeric line", () => {
+    const out = normalizeFinding({
+      file: "src/foo.ts",
+      line: 7,
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      subject: "src/foo.ts:88 — prose line ignored",
+      body: "y",
+    }) as Record<string, unknown>;
+    expect(out.line).toBe(7);
+  });
+
+  it("is idempotent — defaulting twice equals defaulting once", () => {
+    const input = {
+      file: "src/foo.ts",
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      subject: "no location in prose",
+      body: "y",
+    };
+    const once = normalizeFinding(input);
+    const twice = normalizeFinding(once);
+    expect(twice).toEqual(once);
+  });
+
+  it("does not mutate the input object", () => {
+    const input = {
+      file: "src/foo.ts",
+      label: "issue",
+      decoration: "blocking",
+      confidence: 92,
+      subject: "no location in prose",
+      body: "y",
+    };
+    const snapshot = structuredClone(input);
+    normalizeFinding(input);
+    expect(input).toEqual(snapshot);
+  });
+
+  it("makes a line-omitted finding pass validation after the normalize walker", () => {
+    const out = normalizeParsedFindings({
+      findings: [
+        {
+          file: "src/coverage.ts",
+          label: "todo",
+          decoration: "non-blocking",
+          confidence: 90,
+          subject: "needs a test",
+          body: "no line supplied",
+        },
+      ],
+    });
+    const result = validateAgentFindings(out);
+    expect(result.ok).toBe(true);
+  });
+});
+
+describe("agent-finding-schema CLI — title/line drift recovery", () => {
+  it("exits 0 for a per-agent artifact whose finding is keyed `title` not `subject`", () => {
+    const artifact = {
+      findings: [
+        {
+          file: "src/lib/util.ts",
+          line: 10,
+          label: "issue",
+          decoration: "blocking",
+          confidence: 90,
+          title: "keyed as title",
+          body: "drift mode: title-for-subject",
+        },
+      ],
+    };
+    withTmpFile(JSON.stringify(artifact), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+      expect(result.stderr).toBe("");
+    });
+  });
+
+  it("exits 0 for a per-agent artifact whose finding names a file but omits line", () => {
+    const artifact = {
+      findings: [
+        {
+          file: "src/lib/coverage.ts",
+          label: "todo",
+          decoration: "non-blocking",
+          confidence: 90,
+          subject: "needs a test",
+          body: "drift mode: line omitted",
+        },
+      ],
+    };
+    withTmpFile(JSON.stringify(artifact), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+      expect(result.stderr).toBe("");
+    });
+  });
+});
