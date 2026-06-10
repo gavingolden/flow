@@ -1,10 +1,12 @@
 /**
- * Cross-process file lock with stale-PID detection.
+ * Cross-process file lock with stale-PID detection, plus a counting
+ * semaphore (`withTestSemaphore`) built on the same primitives.
  *
  * Why: `flow setup --upgrade` invoked concurrently from parallel pipelines
  * can race on `~/.claude/skills/` symlinks. Wrap the symlink-creation block
  * in `withFileLock(SETUP_LOCK_PATH, ...)` and the second invocation waits
- * for the first to finish.
+ * for the first to finish. `withTestSemaphore` reuses the same atomic
+ * publish + stale-reclaim path to cap host-wide concurrent test runs.
  *
  * How: `fs.openSync(path, "wx")` is atomic-create-or-fail on POSIX. If the
  * lock exists, read the PID inside; if the process is dead (`process.kill(pid, 0)`
@@ -51,6 +53,59 @@ export function withFileLock<T>(
     if (reclaimIfStale(lockPath)) continue;
     if (Date.now() - start >= timeoutMs) {
       throw new LockTimeoutError(lockPath, timeoutMs);
+    }
+    sleepSync(pollMs);
+  }
+}
+
+/**
+ * Counting semaphore over K slot files in `dir`, built on the same
+ * stale-PID-safe primitives as `withFileLock` (tryAcquire / release /
+ * reclaimIfStale). Each slot is an independent lock file
+ * `dir/slot-<i>`; a caller wins by acquiring ANY one slot.
+ *
+ * Why a separate entry point rather than reusing `withFileLock`: the
+ * semaphore must NEVER block a commit. On acquire-deadline it does NOT
+ * throw — it runs `fn()` holding no slot and reports `throttled: false`
+ * (over-subscribed but unblocked). `withFileLock` stays the K=1
+ * throw-on-timeout sibling, untouched.
+ */
+export function withTestSemaphore<T>(
+  dir: string,
+  slots: number,
+  fn: () => T,
+  opts: LockOptions = {},
+): { result: T; throttled: boolean } {
+  const timeoutMs = opts.timeoutMs ?? 300_000;
+  const pollMs = opts.pollMs ?? 100;
+  const start = Date.now();
+
+  fs.mkdirSync(dir, { recursive: true });
+
+  const slotPaths = Array.from({ length: slots }, (_, i) =>
+    path.join(dir, `slot-${i}`),
+  );
+
+  while (true) {
+    for (const slotPath of slotPaths) {
+      if (tryAcquire(slotPath)) {
+        try {
+          return { result: fn(), throttled: true };
+        } finally {
+          release(slotPath);
+        }
+      }
+    }
+    // Reclaim any stale slots before checking the deadline so a dir full
+    // of dead-PID slots is freed and re-attempted in the next loop pass.
+    let reclaimedAny = false;
+    for (const slotPath of slotPaths) {
+      if (reclaimIfStale(slotPath)) reclaimedAny = true;
+    }
+    if (reclaimedAny) continue;
+    if (Date.now() - start >= timeoutMs) {
+      // Never block a commit: run unthrottled, holding no slot.
+      return { result: fn(), throttled: false };
     }
     sleepSync(pollMs);
   }

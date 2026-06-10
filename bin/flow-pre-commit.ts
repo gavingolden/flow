@@ -16,7 +16,10 @@
  */
 
 import { readFileSync } from "node:fs";
+import * as os from "node:os";
 import { resolveChecks, npmRunCheck, type CheckDef } from "./lib/stack-table";
+import { withTestSemaphore } from "./lib/lock";
+import { FLOW_TEST_SEM_DIR } from "./lib/paths";
 import {
   detectWorkspaceScopes,
   readMonorepoConfig,
@@ -509,6 +512,25 @@ export function filterDefinedChecks(
 }
 
 // --- Check Runners ---
+
+/**
+ * Host-wide cap on concurrent local test runs. `FLOW_TEST_CONCURRENCY`
+ * overrides when it parses to a finite integer >= 1; otherwise fall back to
+ * `max(1, ceil(cores / 9))` (≈2 on 18 cores) so parallel pipelines stop
+ * oversubscribing CPUs with vitest workers. The fallback also covers
+ * unset/empty/0/negative/non-numeric env values.
+ */
+export function resolveTestConcurrency(
+  env: NodeJS.ProcessEnv,
+  cores: number,
+): number {
+  const raw = env.FLOW_TEST_CONCURRENCY;
+  if (raw !== undefined && raw.trim() !== "") {
+    const parsed = Number(raw);
+    if (Number.isInteger(parsed) && parsed >= 1) return parsed;
+  }
+  return Math.max(1, Math.ceil(cores / 9));
+}
 
 export type Runner = (argv: string[]) => {
   stdout: string;
@@ -1111,6 +1133,10 @@ async function main(): Promise<void> {
 
   const definedScripts = loadDefinedNpmScripts();
   const dynamicByName = new Map(dynamicScopes.map((d) => [d.name, d]));
+  const testConcurrency = resolveTestConcurrency(
+    process.env,
+    os.availableParallelism(),
+  );
   const results: CheckResult[] = [];
   for (const scope of scopes) {
     const dynamic = dynamicByName.get(scope);
@@ -1129,8 +1155,29 @@ async function main(): Promise<void> {
       continue;
     }
     for (const check of checks) {
-      const result = runCheck(check.name, check.argv, scope);
-      results.push(result);
+      // Throttle ONLY the test check (root `npm run test` and the workspace
+      // variant `npm run test -w <pkg>`) through the host-wide counting
+      // semaphore; typecheck/lint/md-validate/actionlint/go run unthrottled.
+      const isTestCheck = check.argv[1] === "run" && check.argv[2] === "test";
+      if (isTestCheck) {
+        const { result, throttled } = withTestSemaphore(
+          FLOW_TEST_SEM_DIR,
+          testConcurrency,
+          () => runCheck(check.name, check.argv, scope),
+        );
+        if (!throttled) {
+          // Acquire deadline elapsed: the test ran without holding a slot, so
+          // the host-wide cap was momentarily exceeded. Route to stderr in
+          // --json mode (stdout must stay a single JSON object), mirroring the
+          // no-checks skip message above.
+          const note = `Scope '${scope}': test ran unthrottled (acquire timed out past the FLOW_TEST_CONCURRENCY=${testConcurrency} cap).`;
+          if (json) console.error(note);
+          else console.log(note);
+        }
+        results.push(result);
+      } else {
+        results.push(runCheck(check.name, check.argv, scope));
+      }
     }
   }
 

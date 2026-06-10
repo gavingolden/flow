@@ -22,6 +22,7 @@ import {
   parsePrePushInput,
   parseScopes,
   resolveDefaultScopeFiles,
+  resolveTestConcurrency,
   runCheck,
   stripAnsi,
   type CheckReport,
@@ -508,6 +509,46 @@ describe(checksForScope, () => {
         argv: ["go", "test", "-C", "backend", "./..."],
       },
     ]);
+  });
+
+  it("emits test argv whose [1]/[2] are 'run'/'test' (semaphore detection key)", () => {
+    // main()'s test-check dispatch keys on argv[1]==="run" && argv[2]==="test"
+    // rather than exact-array/join equality so the workspace form
+    // ["npm","run","test","-w",<pkg>] also matches. This pins the shape the
+    // predicate depends on across every scope that emits a test check.
+    const isTestArgv = (argv: string[]) =>
+      argv[1] === "run" && argv[2] === "test";
+    for (const scope of ["src", "docs", "root-fallback"] as const) {
+      const test = checksForScope(scope).find((c) => isTestArgv(c.argv));
+      expect(test, `${scope} should emit a test check`).toBeDefined();
+    }
+    // Non-test checks (typecheck/lint) must NOT match the predicate.
+    expect(isTestArgv(["npm", "run", "typecheck"])).toBe(false);
+    expect(isTestArgv(["npm", "run", "lint"])).toBe(false);
+    // Workspace variant still matches; bare root form matches.
+    expect(isTestArgv(["npm", "run", "test", "-w", "pkg"])).toBe(true);
+    expect(isTestArgv(["npm", "run", "test"])).toBe(true);
+  });
+});
+
+describe(resolveTestConcurrency, () => {
+  it("falls back to max(1, ceil(cores/9)) when env is unset", () => {
+    expect(resolveTestConcurrency({}, 18)).toBe(2);
+    expect(resolveTestConcurrency({}, 9)).toBe(1);
+    expect(resolveTestConcurrency({}, 1)).toBe(1);
+  });
+
+  it("honors a valid positive-integer FLOW_TEST_CONCURRENCY override", () => {
+    expect(resolveTestConcurrency({ FLOW_TEST_CONCURRENCY: "4" }, 18)).toBe(4);
+    expect(resolveTestConcurrency({ FLOW_TEST_CONCURRENCY: "1" }, 18)).toBe(1);
+  });
+
+  it("falls back to the floored default for 0/negative/non-numeric/empty", () => {
+    for (const bad of ["0", "-2", "abc", "", "2.5"]) {
+      expect(resolveTestConcurrency({ FLOW_TEST_CONCURRENCY: bad }, 18)).toBe(
+        2,
+      );
+    }
   });
 });
 
