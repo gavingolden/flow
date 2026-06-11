@@ -816,6 +816,22 @@ export function fetchRequestedReviewers(
   prNumber: number,
   gh: GhRunner,
 ): string[] {
+  // GitHub's GraphQL `reviewRequests` projection can omit a genuinely-queued
+  // Copilot bot reviewer that the REST `requested_reviewers` endpoint still
+  // reports (verified live 2026-06-11 on gavingolden/pokemon#251 — after
+  // `gh pr edit --add-reviewer @copilot`, REST showed Copilot as a queued Bot
+  // while `gh pr view --json reviewRequests` returned []). Union both reads so
+  // a REST-only-visible Copilot is still detected by the `matchesCopilot`
+  // callers. The two reads fail open independently, so one source erroring
+  // never zeroes the other.
+  return unionLogins(
+    fetchReviewRequestLogins(prNumber, gh),
+    fetchRequestedReviewersRest(prNumber, gh),
+  );
+}
+
+/** GraphQL `reviewRequests` projection of the requested reviewers. Fail-open: non-zero exit / malformed JSON => []. Lowercased logins. */
+function fetchReviewRequestLogins(prNumber: number, gh: GhRunner): string[] {
   const r = gh(["pr", "view", String(prNumber), "--json", "reviewRequests"]);
   if (r.exitCode !== 0) return [];
   try {
@@ -829,6 +845,39 @@ export function fetchRequestedReviewers(
   } catch {
     return [];
   }
+}
+
+/**
+ * REST `requested_reviewers` projection. The GraphQL `reviewRequests` field
+ * can miss a queued Copilot bot reviewer that this endpoint reports, so the
+ * pending-detection path unions both. Routed through the injected `gh` runner
+ * (`gh api ...`) so it stays deterministically stubbable. Fail-open: any
+ * non-zero exit or malformed JSON contributes zero logins (degrade to
+ * GraphQL-only), never throws — mirroring the file's other boundary readers.
+ * Returns lowercased logins (user `login`s and team `slug`s).
+ */
+function fetchRequestedReviewersRest(prNumber: number, gh: GhRunner): string[] {
+  const r = gh([
+    "api",
+    `repos/{owner}/{repo}/pulls/${prNumber}/requested_reviewers`,
+    "--jq",
+    "[.users[]?.login, .teams[]?.slug]",
+  ]);
+  if (r.exitCode !== 0) return [];
+  try {
+    const parsed = JSON.parse(r.stdout) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((l): l is string => typeof l === "string")
+      .map((l) => l.toLowerCase());
+  } catch {
+    return [];
+  }
+}
+
+/** Lowercased set-union of two login lists, order-stable on first appearance. */
+function unionLogins(a: string[], b: string[]): string[] {
+  return [...new Set([...a, ...b])];
 }
 
 /**
@@ -978,10 +1027,13 @@ export function observePr(
       }));
     const headRefOid =
       typeof parsed.headRefOid === "string" ? parsed.headRefOid : "";
-    const requestedReviewers = (parsed.reviewRequests ?? [])
-      .map((rr) => rr.login)
-      .filter((l): l is string => typeof l === "string")
-      .map((l) => l.toLowerCase());
+    const requestedReviewers = unionLogins(
+      (parsed.reviewRequests ?? [])
+        .map((rr) => rr.login)
+        .filter((l): l is string => typeof l === "string")
+        .map((l) => l.toLowerCase()),
+      fetchRequestedReviewersRest(prNumber, gh),
+    );
     return {
       state: parsed.state,
       url: parsed.url,
