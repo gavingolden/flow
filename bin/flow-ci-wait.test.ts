@@ -15,11 +15,13 @@ import {
   deriveCopilotSkipReason,
   extractLatestCopilotReviewCommit,
   fetchHistoricalBotReview,
+  fetchRequestedReviewers,
   hasQualifyingWorkflowTrigger,
   isCopilotReviewStale,
   isSmallFollowup,
   observeCopilotRuleset,
   observeMergeState,
+  observePr,
   parseArgs,
   resolveCopilotConfigured,
   retriggerCopilotReview,
@@ -30,6 +32,7 @@ import {
   type Review,
   type RunResult,
 } from "./flow-ci-wait";
+import { matchesCopilot } from "./lib/copilot-config";
 
 // `resolveCopilotConfigured` consults `bots.copilotAutoReview` via the default
 // (file-backed) ReadConfigFile, which has no injectable seam at the call site.
@@ -785,6 +788,186 @@ describe(retriggerCopilotReview, () => {
     });
     const out = retriggerCopilotReview(161, gh);
     expect(out).toEqual({ ok: false, stderr: "HTTP 422: Unprocessable" });
+  });
+});
+
+describe(fetchRequestedReviewers, () => {
+  const PR = 100;
+  const COPILOT = "copilot-pull-request-reviewer";
+  // Matcher-style stub: respond to the GraphQL reviewRequests read and the
+  // REST requested_reviewers read independently. `graphql`/`rest` are the
+  // raw CmdResult each call returns.
+  function ghWith(opts: {
+    graphql: { stdout: string; exitCode: number };
+    rest: { stdout: string; exitCode: number };
+  }): GhRunner {
+    return (argv) => {
+      if (
+        argv[0] === "api" &&
+        typeof argv[1] === "string" &&
+        argv[1].endsWith("/requested_reviewers")
+      ) {
+        return {
+          stdout: opts.rest.stdout,
+          stderr: "",
+          exitCode: opts.rest.exitCode,
+        };
+      }
+      // GraphQL reviewRequests read.
+      return {
+        stdout: opts.graphql.stdout,
+        stderr: "",
+        exitCode: opts.graphql.exitCode,
+      };
+    };
+  }
+  const reviewRequestsJson = (logins: string[]) =>
+    JSON.stringify({ reviewRequests: logins.map((login) => ({ login })) });
+
+  it("detects a Copilot reviewer visible only via REST (GraphQL reviewRequests empty)", () => {
+    const gh = ghWith({
+      graphql: { stdout: reviewRequestsJson([]), exitCode: 0 },
+      rest: { stdout: JSON.stringify(["Copilot"]), exitCode: 0 },
+    });
+    const result = fetchRequestedReviewers(PR, gh);
+    expect(result.some((l) => matchesCopilot(l, COPILOT))).toBe(true);
+  });
+
+  it("unions GraphQL and REST logins (neither source dropped)", () => {
+    const gh = ghWith({
+      graphql: { stdout: reviewRequestsJson(["alice"]), exitCode: 0 },
+      rest: { stdout: JSON.stringify(["Copilot"]), exitCode: 0 },
+    });
+    const result = fetchRequestedReviewers(PR, gh);
+    expect(result).toContain("alice");
+    expect(result).toContain("copilot");
+  });
+
+  it("de-dups a login present in BOTH sources to a single entry", () => {
+    // GraphQL "Copilot" and REST "copilot" both lowercase to the same login;
+    // unionLogins' Set must collapse them. A regression dropping the Set
+    // (plain `[...a, ...b]`) would emit two "copilot" entries and still pass
+    // the disjoint-inputs spec above, so assert the dedup directly.
+    const gh = ghWith({
+      graphql: { stdout: reviewRequestsJson(["Copilot"]), exitCode: 0 },
+      rest: { stdout: JSON.stringify(["copilot"]), exitCode: 0 },
+    });
+    const result = fetchRequestedReviewers(PR, gh);
+    expect(result.filter((l) => l === "copilot")).toHaveLength(1);
+  });
+
+  it("lowercases the REST login", () => {
+    const gh = ghWith({
+      graphql: { stdout: reviewRequestsJson([]), exitCode: 0 },
+      rest: { stdout: JSON.stringify(["Copilot"]), exitCode: 0 },
+    });
+    expect(fetchRequestedReviewers(PR, gh)).toContain("copilot");
+    expect(fetchRequestedReviewers(PR, gh)).not.toContain("Copilot");
+  });
+
+  it("fails open to GraphQL-only logins when the REST call exits non-zero", () => {
+    const gh = ghWith({
+      graphql: { stdout: reviewRequestsJson(["alice"]), exitCode: 0 },
+      rest: { stdout: "", exitCode: 1 },
+    });
+    expect(fetchRequestedReviewers(PR, gh)).toEqual(["alice"]);
+  });
+
+  it("fails open to GraphQL-only logins when the REST call returns malformed JSON", () => {
+    const gh = ghWith({
+      graphql: { stdout: reviewRequestsJson(["alice"]), exitCode: 0 },
+      rest: { stdout: "not-json{", exitCode: 0 },
+    });
+    expect(fetchRequestedReviewers(PR, gh)).toEqual(["alice"]);
+  });
+
+  it("still surfaces a REST-only Copilot when the GraphQL read itself fails (independent fail-open)", () => {
+    const gh = ghWith({
+      graphql: { stdout: "", exitCode: 1 },
+      rest: { stdout: JSON.stringify(["Copilot"]), exitCode: 0 },
+    });
+    expect(
+      fetchRequestedReviewers(PR, gh).some((l) => matchesCopilot(l, COPILOT)),
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3a-bis. observePr — PR projection + its REST requested_reviewers union
+// ---------------------------------------------------------------------------
+
+describe(observePr, () => {
+  const PR = 100;
+  // Matcher-style gh stub recording every call so we can spy on whether the
+  // REST requested_reviewers endpoint was hit. `prView` is returned for the
+  // `gh pr view --json …` projection; `rest` for the REST union read.
+  function ghWith(opts: {
+    prView: { stdout: string; exitCode: number };
+    rest: { stdout: string; exitCode: number };
+  }): GhRunner & { calls: string[][] } {
+    const calls: string[][] = [];
+    const fn = ((argv: string[]) => {
+      calls.push(argv);
+      if (
+        argv[0] === "api" &&
+        typeof argv[1] === "string" &&
+        argv[1].endsWith("/requested_reviewers")
+      ) {
+        return {
+          stdout: opts.rest.stdout,
+          stderr: "",
+          exitCode: opts.rest.exitCode,
+        };
+      }
+      return {
+        stdout: opts.prView.stdout,
+        stderr: "",
+        exitCode: opts.prView.exitCode,
+      };
+    }) as GhRunner & { calls: string[][] };
+    fn.calls = calls;
+    return fn;
+  }
+  const prViewResponse = (reviewRequests: string[]) =>
+    JSON.stringify({
+      state: "OPEN",
+      url: "https://github.com/o/r/pull/100",
+      reviews: [],
+      headRefOid: "abc123",
+      reviewRequests: reviewRequests.map((login) => ({ login })),
+    });
+
+  it("unions a REST-only Copilot reviewer into requestedReviewers", () => {
+    const gh = ghWith({
+      prView: { stdout: prViewResponse([]), exitCode: 0 },
+      rest: { stdout: JSON.stringify(["Copilot"]), exitCode: 0 },
+    });
+    expect(observePr(PR, gh, true)!.requestedReviewers).toContain("copilot");
+  });
+
+  it("fails open to GraphQL-only logins when the REST union exits non-zero", () => {
+    const gh = ghWith({
+      prView: { stdout: prViewResponse(["alice"]), exitCode: 0 },
+      rest: { stdout: "", exitCode: 1 },
+    });
+    expect(observePr(PR, gh, true)!.requestedReviewers).toEqual(["alice"]);
+  });
+
+  it("skips the REST endpoint entirely when includeRestReviewers is false", () => {
+    const gh = ghWith({
+      prView: { stdout: prViewResponse(["alice"]), exitCode: 0 },
+      rest: { stdout: JSON.stringify(["Copilot"]), exitCode: 0 },
+    });
+    const result = observePr(PR, gh, false)!;
+    expect(result.requestedReviewers).toEqual(["alice"]);
+    expect(
+      gh.calls.some(
+        (argv) =>
+          argv[0] === "api" &&
+          typeof argv[1] === "string" &&
+          argv[1].endsWith("/requested_reviewers"),
+      ),
+    ).toBe(false);
   });
 });
 
@@ -1619,6 +1802,11 @@ type GhStep = {
   response: { stdout: string; stderr: string; exitCode: number };
 };
 
+const isRequestedReviewersRest = (argv: string[]) =>
+  argv[0] === "api" &&
+  typeof argv[1] === "string" &&
+  argv[1].endsWith("/requested_reviewers");
+
 /**
  * Replays a queue of {match, response} pairs in order. Each gh call
  * consumes the first matching entry. If a step's match fails, the test
@@ -1630,6 +1818,16 @@ function makeGhSequence(steps: GhStep[]): GhRunner & { calls: string[][] } {
   const fn = ((argv: string[]) => {
     calls.push(argv);
     const step = steps[cursor];
+    // The REST requested_reviewers union read (added for REST-only-visible
+    // Copilot detection) fires after every GraphQL reviewRequests/observePr
+    // read. Existing sequences don't queue it; auto-stub it to an empty array
+    // so the union degrades to the GraphQL-only behavior they assert. A test
+    // that needs REST to surface a reviewer queues an explicit
+    // isRequestedReviewersRest step, which the positional match below consumes
+    // first.
+    if (isRequestedReviewersRest(argv) && !(step && step.matches(argv))) {
+      return { stdout: "[]", stderr: "", exitCode: 0 };
+    }
     if (!step) {
       throw new Error(
         `unexpected gh call (no step left): gh ${argv.join(" ")}`,
@@ -1950,6 +2148,53 @@ describe("run() integration", () => {
     expect(result.decision).toBe("proceed-to-review-no-bot");
     expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
     expect(result.polls).toBe(13);
+  });
+
+  it("does NOT fire 'unclaimed-after-deadline' when Copilot is visible only via the REST requested_reviewers endpoint", async () => {
+    const clock = makeFakeClock();
+    const LOGIN = "copilot-pull-request-reviewer";
+    // GraphQL reviewRequests is empty (the blind spot); REST requested_reviewers
+    // surfaces Copilot as queued. CI passes from poll 1; Copilot never posts a
+    // review. Without the REST union on observePr.requestedReviewers, the skip
+    // would fire ~60s after CI terminal; with it, the wait runs to the 600s
+    // copilot timeout instead.
+    const gh: GhRunner = (argv) => {
+      if (
+        argv[0] === "api" &&
+        typeof argv[1] === "string" &&
+        argv[1].endsWith("/requested_reviewers")
+      ) {
+        return { stdout: JSON.stringify([LOGIN]), stderr: "", exitCode: 0 };
+      }
+      if (isReviewRequests(argv)) return reviewRequestsResponse([]);
+      if (isPrView(argv))
+        return prViewResponse("OPEN", [], STABLE_HEAD_SHA, []);
+      if (isPrChecks(argv)) return prChecksResponse(ALL_PASSED);
+      return { stdout: "", stderr: "", exitCode: 1 };
+    };
+    const cap = captureStreams();
+    const exit = await run(["100"], {
+      gh,
+      now: clock.now,
+      sleep: clock.sleep,
+      readWorkflowsDir: () => true,
+      readMergeState: () => ({
+        mergeable: "MERGEABLE",
+        mergeStateStatus: "CLEAN",
+      }),
+      readCopilotLogin: () => LOGIN,
+      readHistoricalBotReview: () => true,
+    });
+    cap.restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(cap.stdout.join("")) as RunResult;
+    // The REST-only-visible Copilot is detected as queued, so the early
+    // unclaimed-after-deadline skip is suppressed and the wait runs to the
+    // 10-min copilot timeout instead.
+    expect(result.copilotSkipReason).toBeNull();
+    expect(result.decision).toBe("proceed-to-review-no-bot");
+    expect(result.copilotConfigured).toBe(true);
+    expect(result.elapsedSec).toBeGreaterThanOrEqual(600);
   });
 
   it("exits 0 with 'ci-hang' JSON after the 20-min cap", async () => {

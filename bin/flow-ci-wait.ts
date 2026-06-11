@@ -816,6 +816,22 @@ export function fetchRequestedReviewers(
   prNumber: number,
   gh: GhRunner,
 ): string[] {
+  // GitHub's GraphQL `reviewRequests` projection can omit a genuinely-queued
+  // Copilot bot reviewer that the REST `requested_reviewers` endpoint still
+  // reports (verified live 2026-06-11 on gavingolden/pokemon#251 — after
+  // `gh pr edit --add-reviewer @copilot`, REST showed Copilot as a queued Bot
+  // while `gh pr view --json reviewRequests` returned []). Union both reads so
+  // a REST-only-visible Copilot is still detected by the `matchesCopilot`
+  // callers. The two reads fail open independently, so one source erroring
+  // never zeroes the other.
+  return unionLogins(
+    fetchReviewRequestLogins(prNumber, gh),
+    fetchRequestedReviewersRest(prNumber, gh),
+  );
+}
+
+/** GraphQL `reviewRequests` projection of the requested reviewers. Fail-open: non-zero exit / malformed JSON => []. Lowercased logins. */
+function fetchReviewRequestLogins(prNumber: number, gh: GhRunner): string[] {
   const r = gh(["pr", "view", String(prNumber), "--json", "reviewRequests"]);
   if (r.exitCode !== 0) return [];
   try {
@@ -829,6 +845,39 @@ export function fetchRequestedReviewers(
   } catch {
     return [];
   }
+}
+
+/**
+ * REST `requested_reviewers` projection. The GraphQL `reviewRequests` field
+ * can miss a queued Copilot bot reviewer that this endpoint reports, so the
+ * pending-detection path unions both. Routed through the injected `gh` runner
+ * (`gh api ...`) so it stays deterministically stubbable. Fail-open: any
+ * non-zero exit or malformed JSON contributes zero logins (degrade to
+ * GraphQL-only), never throws — mirroring the file's other boundary readers.
+ * Returns lowercased logins (user `login`s and team `slug`s).
+ */
+function fetchRequestedReviewersRest(prNumber: number, gh: GhRunner): string[] {
+  const r = gh([
+    "api",
+    `repos/{owner}/{repo}/pulls/${prNumber}/requested_reviewers`,
+    "--jq",
+    "[.users[]?.login, .teams[]?.slug]",
+  ]);
+  if (r.exitCode !== 0) return [];
+  try {
+    const parsed = JSON.parse(r.stdout) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((l): l is string => typeof l === "string")
+      .map((l) => l.toLowerCase());
+  } catch {
+    return [];
+  }
+}
+
+/** Lowercased set-union of two login lists, order-stable on first appearance. */
+function unionLogins(a: string[], b: string[]): string[] {
+  return [...new Set([...a, ...b])];
 }
 
 /**
@@ -918,7 +967,10 @@ type PrObservation = {
    * Logins currently in `requested_reviewers` (lowercased). Re-projected
    * per poll because GitHub auto-removes Copilot after its first review,
    * so a loop-entry snapshot can stale during the wait. Empty when `gh`
-   * omits `reviewRequests`.
+   * omits `reviewRequests`. The REST union that recovers logins GraphQL
+   * drops only fires when `includeRestReviewers` is true — its sole
+   * consumer (`deriveCopilotSkipReason`) sits behind the `copilotConfigured`
+   * guard, so the extra REST subprocess is dead work otherwise.
    */
   requestedReviewers: string[];
 };
@@ -926,6 +978,7 @@ type PrObservation = {
 export function observePr(
   prNumber: number,
   gh: GhRunner,
+  includeRestReviewers = true,
 ): PrObservation | null {
   const r = gh([
     "pr",
@@ -978,10 +1031,13 @@ export function observePr(
       }));
     const headRefOid =
       typeof parsed.headRefOid === "string" ? parsed.headRefOid : "";
-    const requestedReviewers = (parsed.reviewRequests ?? [])
-      .map((rr) => rr.login)
-      .filter((l): l is string => typeof l === "string")
-      .map((l) => l.toLowerCase());
+    const requestedReviewers = unionLogins(
+      (parsed.reviewRequests ?? [])
+        .map((rr) => rr.login)
+        .filter((l): l is string => typeof l === "string")
+        .map((l) => l.toLowerCase()),
+      includeRestReviewers ? fetchRequestedReviewersRest(prNumber, gh) : [],
+    );
     return {
       state: parsed.state,
       url: parsed.url,
@@ -1335,7 +1391,10 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     );
 
     // Observe PR state + reviews (always — pr_state can change mid-flight).
-    const prInfo = observePr(parsed.pr, gh);
+    // The REST requested_reviewers union only matters when Copilot is
+    // configured (its sole consumer is the copilotConfigured-guarded
+    // deriveCopilotSkipReason), so skip that subprocess otherwise.
+    const prInfo = observePr(parsed.pr, gh, copilotConfigured);
     if (!prInfo) {
       // Transient gh failure on PR observation. Treat as "still polling" — let
       // the cap eventually fire ci-hang. Do not loop-fail on a single
