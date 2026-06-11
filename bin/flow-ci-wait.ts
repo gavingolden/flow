@@ -967,7 +967,10 @@ type PrObservation = {
    * Logins currently in `requested_reviewers` (lowercased). Re-projected
    * per poll because GitHub auto-removes Copilot after its first review,
    * so a loop-entry snapshot can stale during the wait. Empty when `gh`
-   * omits `reviewRequests`.
+   * omits `reviewRequests`. The REST union that recovers logins GraphQL
+   * drops only fires when `includeRestReviewers` is true — its sole
+   * consumer (`deriveCopilotSkipReason`) sits behind the `copilotConfigured`
+   * guard, so the extra REST subprocess is dead work otherwise.
    */
   requestedReviewers: string[];
 };
@@ -975,6 +978,7 @@ type PrObservation = {
 export function observePr(
   prNumber: number,
   gh: GhRunner,
+  includeRestReviewers = true,
 ): PrObservation | null {
   const r = gh([
     "pr",
@@ -1032,7 +1036,7 @@ export function observePr(
         .map((rr) => rr.login)
         .filter((l): l is string => typeof l === "string")
         .map((l) => l.toLowerCase()),
-      fetchRequestedReviewersRest(prNumber, gh),
+      includeRestReviewers ? fetchRequestedReviewersRest(prNumber, gh) : [],
     );
     return {
       state: parsed.state,
@@ -1387,7 +1391,10 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     );
 
     // Observe PR state + reviews (always — pr_state can change mid-flight).
-    const prInfo = observePr(parsed.pr, gh);
+    // The REST requested_reviewers union only matters when Copilot is
+    // configured (its sole consumer is the copilotConfigured-guarded
+    // deriveCopilotSkipReason), so skip that subprocess otherwise.
+    const prInfo = observePr(parsed.pr, gh, copilotConfigured);
     if (!prInfo) {
       // Transient gh failure on PR observation. Treat as "still polling" — let
       // the cap eventually fire ci-hang. Do not loop-fail on a single
