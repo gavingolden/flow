@@ -243,11 +243,11 @@ scout report back; the artifact on disk is the record.
     identify features or improvements that would naturally pair with the requested feature
     (complementary — they increase its value) AND any that are mutually exclusive with it
     or with each other (conflicting approaches that cannot coexist — surface the trade-off
-    so the user consciously picks one path). Default a _cohesive_ complementary enhancement
-    — one that serves the requested feature's user goal or surface, or whose absence would
-    leave it partial — **into the build**, not a follow-up: per the AGENTS.md `## Output
-style` rule **Treat every request as production-bound, not a hobby project.**, the
-    include-vs-defer test is cohesion, not size. Reserve separate-issue suggestions for
+    so the user consciously picks one path). Per the AGENTS.md `## Output style` rule
+    **Treat every request as production-bound, not a hobby project.**, default a _cohesive_
+    complementary enhancement — one that serves the requested feature's user goal or
+    surface, or whose absence would leave it partial — **into the build**, not a follow-up;
+    the include-vs-defer test is cohesion, not size. Reserve separate-issue suggestions for
     genuinely separate features. These should be pragmatic, not scope creep.
   - **Rank recommendations** by: perceived customer value, technical complexity, likelihood
     of future debt, and composability.
