@@ -14,6 +14,8 @@ import * as path from "node:path";
 import { resolveDefaultBranch, type Spawner } from "./git";
 import { resolveFlowSource, FLOW_UPDATE_CACHE, FLOW_CONFIG } from "./paths";
 import { dimStderr } from "./color";
+import { isNewerVersion } from "./semver";
+import { readFlowVersion } from "./pkg-version";
 import { spawnSync } from "node:child_process";
 
 const THROTTLE_MS = 24 * 60 * 60 * 1000;
@@ -28,7 +30,13 @@ export type UpdateCheckSkippedReason =
   | "error";
 
 export type UpdateCheckResult =
-  | { status: "behind"; behind: number; upgradeCmd: string }
+  | {
+      status: "behind";
+      behind: number;
+      upgradeCmd: string;
+      localVersion?: string;
+      remoteVersion?: string;
+    }
   | { status: "current" }
   | { status: "skipped"; reason: UpdateCheckSkippedReason };
 
@@ -71,7 +79,11 @@ function extractUpdateConfig(raw: unknown): UpdateConfig {
   };
 }
 
-type CacheEntry = { lastCheckedMs: number; behind: number };
+type CacheEntry = {
+  lastCheckedMs: number;
+  behind: number;
+  remoteVersion?: string;
+};
 
 function readCache(cachePath: string): CacheEntry | null {
   try {
@@ -80,15 +92,18 @@ function readCache(cachePath: string): CacheEntry | null {
     const r = raw as Record<string, unknown>;
     const lastCheckedMs = r.lastCheckedMs;
     const behind = r.behind;
+    const remoteVersion = r.remoteVersion;
     if (
       typeof lastCheckedMs !== "number" ||
       !Number.isFinite(lastCheckedMs) ||
       typeof behind !== "number" ||
-      !Number.isFinite(behind)
+      !Number.isFinite(behind) ||
+      // Only validate remoteVersion when present — absent is tolerated.
+      (remoteVersion !== undefined && typeof remoteVersion !== "string")
     ) {
       return null;
     }
-    return { lastCheckedMs, behind };
+    return { lastCheckedMs, behind, remoteVersion };
   } catch {
     return null;
   }
@@ -105,7 +120,26 @@ function writeCache(cachePath: string, entry: CacheEntry): void {
   }
 }
 
-function behindResult(behind: number): UpdateCheckResult {
+function behindResult(
+  behind: number,
+  opts: { localVersion?: string; remoteVersion?: string } = {},
+): UpdateCheckResult {
+  const { localVersion, remoteVersion } = opts;
+  // A version-aware notice fires only when both versions are known AND the
+  // remote semver is strictly newer — otherwise fall back to commits-behind.
+  if (
+    localVersion &&
+    remoteVersion &&
+    isNewerVersion(remoteVersion, localVersion)
+  ) {
+    return {
+      status: "behind",
+      behind,
+      upgradeCmd: UPGRADE_CMD,
+      localVersion,
+      remoteVersion,
+    };
+  }
   return behind > 0
     ? { status: "behind", behind, upgradeCmd: UPGRADE_CMD }
     : { status: "current" };
@@ -129,12 +163,25 @@ export function checkForUpdate(
       return { status: "skipped", reason: "disabled" };
     }
 
+    const source = opts.source ?? resolveFlowSource();
+
+    // Local version is cheap (a single fs read) and not cached — read it fresh
+    // on every path. A throw collapses to undefined so the check never breaks.
+    const readLocalVersion = (): string | undefined => {
+      try {
+        return readFlowVersion(source);
+      } catch {
+        return undefined;
+      }
+    };
+
     const cache = readCache(cachePath);
     if (cache && now - cache.lastCheckedMs < THROTTLE_MS) {
-      return behindResult(cache.behind);
+      return behindResult(cache.behind, {
+        localVersion: readLocalVersion(),
+        remoteVersion: cache.remoteVersion,
+      });
     }
-
-    const source = opts.source ?? resolveFlowSource();
 
     const status = spawn("git", ["status", "--porcelain"], {
       cwd: source,
@@ -160,7 +207,11 @@ export function checkForUpdate(
     // suppresses repeated failed/slow fetches on the hot path — without it,
     // every `flow ls`/`flow version` re-runs the blocking fetch.
     if (fetch.status !== 0) {
-      writeCache(cachePath, { lastCheckedMs: now, behind: 0 });
+      writeCache(cachePath, {
+        lastCheckedMs: now,
+        behind: 0,
+        remoteVersion: undefined,
+      });
       return { status: "skipped", reason: "fetch-failed" };
     }
 
@@ -175,8 +226,28 @@ export function checkForUpdate(
       return Number.isFinite(n) ? n : 0;
     })();
 
-    writeCache(cachePath, { lastCheckedMs: now, behind });
-    return behindResult(behind);
+    // Best-effort remote version read. Any failure (non-zero status, missing
+    // file, parse error) collapses to undefined — never throws out of here.
+    const remoteVersion = ((): string | undefined => {
+      try {
+        const show = spawn(
+          "git",
+          ["show", `origin/${defaultBranch}:package.json`],
+          { cwd: source, encoding: "utf8" },
+        );
+        if (show.status !== 0) return undefined;
+        const v = (JSON.parse(show.stdout ?? "") as { version?: unknown })
+          .version;
+        return typeof v === "string" ? v : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+
+    const localVersion = readLocalVersion();
+
+    writeCache(cachePath, { lastCheckedMs: now, behind, remoteVersion });
+    return behindResult(behind, { localVersion, remoteVersion });
   } catch {
     // Any unanticipated throw collapses to a skipped result — the notice is
     // non-blocking, so a failed check must never break `flow ls`/`version`.
@@ -188,7 +259,12 @@ export function checkForUpdate(
 
 export function formatUpdateNotice(result: UpdateCheckResult): string | null {
   if (result.status !== "behind") return null;
-  const { behind, upgradeCmd } = result;
+  const { behind, upgradeCmd, localVersion, remoteVersion } = result;
+  if (localVersion && remoteVersion) {
+    return dimStderr(
+      `flow: v${localVersion} → v${remoteVersion} available — run \`${upgradeCmd}\` to update`,
+    );
+  }
   return dimStderr(
     `flow: ${behind} commit${behind === 1 ? "" : "s"} behind — run \`${upgradeCmd}\` to update`,
   );
