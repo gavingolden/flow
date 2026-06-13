@@ -585,13 +585,20 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * and once cleared Claude Code's 40k per-session performance warning with
    * little headroom (PR #218). #219 added this guard so the budget is
    * enforced on every PR via `npm run verify` rather than relying on a
-   * one-time PR-body checkbox. The budget is 34_000, not the 40_000
+   * one-time PR-body checkbox. The budget is 36_000, not the 40_000
    * warning threshold: it locks in the headroom won by offloading the eight
    * exemption contract bodies to references/exemption-contracts.md (#220)
-   * instead of letting the file silently regrow back toward 40k.
+   * instead of letting the file silently regrow back toward 40k. It was
+   * raised from 34_000 to fund one new first-class Output-style rule
+   * (**Treat every request as production-bound, not a hobby project.**),
+   * whose full bar is offloaded to templates/AGENTS.md.template so only the
+   * lean anchored summary lives here — a deliberate addition, not silent
+   * regrowth. New contracts still offload-then-trim (dedup an equivalent
+   * volume or move the body to a references/ file) rather than raise this
+   * budget again.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 34_000;
+    const CHAR_BUDGET = 36_000;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -1186,6 +1193,32 @@ describe("AGENTS.md Output style anchors", () => {
       matches?.length ?? 0,
       "AGENTS.md must contain the rule anchor phrase " +
         "'- **Fix cheap, in-scope robustness issues now rather than deferring them.**' " +
+        "exactly once at the start of a list item in `## Output style`. " +
+        "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
+    ).toBe(1);
+  });
+
+  it("AGENTS.md contains the production-bound rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Treat every request as production-bound, not
+    // a hobby project.** is the stable lint hook for the rule documented at
+    // AGENTS.md `## Output style`. It governs the include-vs-defer decision
+    // (cohesion over size) and the production-quality bar; the full treatment
+    // lives at templates/AGENTS.md.template (`## Scope: bundle cohesive work,
+    // defer only separate features`), and the skill-side enforcement sites
+    // (skills/pipeline/product-planning/references/discovery-instructions.md's
+    // "Bar for inclusion" + skills/pipeline/new-feature/SKILL.md Step 2's
+    // "Suggest complementary enhancements" bullet) cite this rule by name.
+    // Renaming the rule's anchor phrase requires updating this assertion in
+    // the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Treat every request as production-bound, not a hobby project\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Treat every request as production-bound, not a hobby project.**' " +
         "exactly once at the start of a list item in `## Output style`. " +
         "Found " +
         (matches?.length ?? 0) +
