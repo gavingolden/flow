@@ -137,6 +137,20 @@ describe("run", () => {
     expect(calls.some((c) => c[0] === "npm")).toBe(false);
   });
 
+  it("refuses when the default branch cannot be resolved and never invokes npm version", () => {
+    const { spawn, calls } = makeSpawn([
+      { match: match("git", "status", "--porcelain"), result: ok("") },
+      // Every resolveDefaultBranch probe fails → it returns null.
+      { match: match("git", "symbolic-ref"), result: fail() },
+      { match: match("git", "remote", "show", "origin"), result: fail() },
+      { match: match("git", "rev-parse", "--verify"), result: fail() },
+    ]);
+    const result = run({ type: "patch", cwd, spawn });
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("could not resolve default branch");
+    expect(calls.some((c) => c[0] === "npm")).toBe(false);
+  });
+
   it("happy path: bumps, forwards the type, returns the version, reminds about push", () => {
     writePkg("1.1.0");
     const logs: string[] = [];

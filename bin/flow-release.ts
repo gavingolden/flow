@@ -63,6 +63,13 @@ export function run(opts: RunOptions): RunResult {
   }
 
   const defaultBranch = resolveDefaultBranch(cwd ?? process.cwd(), spawn);
+  if (!defaultBranch) {
+    return {
+      ok: false,
+      error:
+        "refusing to release: could not resolve default branch (is origin/HEAD set?)",
+    };
+  }
   const head = spawn("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
     cwd,
     encoding: "utf8",

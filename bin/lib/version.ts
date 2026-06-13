@@ -13,11 +13,6 @@ import {
   type UpdateCheckResult,
 } from "./update-check";
 
-// Re-exported so existing consumers and tests that import `readFlowVersion`
-// from "./version" keep working; the definition now lives in the leaf
-// `./pkg-version` module to break the version.ts ↔ update-check.ts cycle.
-export { readFlowVersion } from "./pkg-version";
-
 export type VersionOptions = {
   /** Override the flow source root (test-only). */
   flowSource?: string;
