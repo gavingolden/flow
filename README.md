@@ -77,7 +77,7 @@ When the merge gate is not clear (an unchecked Test Steps item, or `flow new --n
 
 ## Consumer repos
 
-flow runs the `flow-pre-commit` verify gate before every push. **Single-package repos and monorepos work with zero config** — it auto-detects scope from the diff and runs your declared `npm run` scripts (plus per-package scripts in `apps/<pkg>/` and `packages/<pkg>/`). For a non-conventional layout, drop in a `.flow/pre-commit.json` escape hatch. Full detail is in [CONTRIBUTING.md](CONTRIBUTING.md).
+flow runs the `flow-pre-commit` verify gate before every push. **Single-package repos and monorepos work with zero config** — it auto-detects scope from the diff and runs your declared `npm run` scripts (plus per-package scripts in `apps/<pkg>/` and `packages/<pkg>/`). For a non-conventional layout, drop in a `.flow/pre-commit.json` escape hatch. Full detail is in [`AGENTS.md`](AGENTS.md) under `## Consumer-repo notes`.
 
 ## Contributing
 
