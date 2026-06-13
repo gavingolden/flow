@@ -14,6 +14,22 @@
 
 export const FLOW_SESSION = "flow";
 const FLOW_SLUG_OPTION = "@flow-slug";
+/**
+ * Window option mirroring the pipeline's current phase. Additive and
+ * opt-in: flow only ever *publishes* the value onto its own windows — it
+ * never writes `~/.tmux.conf` and ships no theme. A user opts in by binding
+ * `#{@flow-phase}` into their own status-bar format. `flow ls` stays the
+ * canonical status surface; this is a convenience mirror, not a replacement.
+ * Hyphenated to match `@flow-slug`.
+ */
+export const FLOW_PHASE_OPTION = "@flow-phase";
+/**
+ * The phase seeded at window creation, before the first
+ * `flow-state-update --phase` lands. Must match the initial phase `flow new`
+ * writes to `~/.flow/state/<slug>.json` (`STEP_PHASES[0]` in `./state`), so a
+ * status bar bound to `@flow-phase` never renders empty for a live pipeline.
+ */
+const INITIAL_PHASE = "starting";
 
 export type ResolveSlugDeps = {
   env?: NodeJS.ProcessEnv;
@@ -161,21 +177,72 @@ export function createWindow(
       stderr: `tmux ${args[0]} succeeded but printed no window id`,
     };
   }
-  const opt = tmux([
-    "set-option",
-    "-w",
-    "-t",
-    windowId,
-    FLOW_SLUG_OPTION,
-    slug,
-  ]);
-  if (opt.exitCode !== 0) {
+  return seedWindowOptions(windowId, slug);
+}
+
+/** Builds the `set-option -w` argv for a window-scoped user option. */
+export function buildSetOptionArgs(
+  windowId: string,
+  option: string,
+  value: string,
+): string[] {
+  return ["set-option", "-w", "-t", windowId, option, value];
+}
+
+/**
+ * Seeds a freshly created window's user options: `@flow-slug` (the canonical
+ * identifier, load-bearing for every later lookup — its failure fails creation)
+ * and `@flow-phase` (the additive phase mirror seeded to `starting` — a failure
+ * here is swallowed and never blocks creation, since state.json is the source
+ * of truth and `@flow-phase` is only a status-bar convenience). The windowId is
+ * already in hand from `createWindow`, so no extra `listWindows` round-trip.
+ */
+export function seedWindowOptions(
+  windowId: string,
+  slug: string,
+  spawnFn: (args: string[]) => SpawnResult = tmux,
+): { ok: boolean; stderr: string } {
+  const slugSet = spawnFn(buildSetOptionArgs(windowId, FLOW_SLUG_OPTION, slug));
+  if (slugSet.exitCode !== 0) {
     return {
       ok: false,
-      stderr: `set-option ${FLOW_SLUG_OPTION} failed: ${opt.stderr}`,
+      stderr: `set-option ${FLOW_SLUG_OPTION} failed: ${slugSet.stderr}`,
     };
   }
+  spawnFn(buildSetOptionArgs(windowId, FLOW_PHASE_OPTION, INITIAL_PHASE));
   return { ok: true, stderr: "" };
+}
+
+export type SetWindowPhaseDeps = {
+  spawnTmux?: (args: string[]) => SpawnResult;
+  listWindowsFn?: (session?: string) => TmuxWindow[];
+  session?: string;
+};
+
+/**
+ * Mirrors `phase` onto the window's `@flow-phase` user option, resolving the
+ * target window by `@flow-slug` (not display name) so a renamed window still
+ * receives the update. Best-effort: a missing window or a non-zero
+ * `set-option` exit is a soft failure returned as `{ ok: false }`, never a
+ * throw — callers (notably `flow-state-update`) ignore the result so a tmux
+ * hiccup can never block a state write.
+ */
+export function setWindowPhase(
+  slug: string,
+  phase: string,
+  deps: SetWindowPhaseDeps = {},
+): { ok: boolean; stderr: string } {
+  const spawn = deps.spawnTmux ?? tmux;
+  const list = deps.listWindowsFn ?? listWindows;
+  const window = findWindowBySlug(list(deps.session), slug);
+  if (!window) {
+    return {
+      ok: false,
+      stderr: `setWindowPhase: no window for slug '${slug}'`,
+    };
+  }
+  const r = spawn(buildSetOptionArgs(window.id, FLOW_PHASE_OPTION, phase));
+  return { ok: r.exitCode === 0, stderr: r.stderr };
 }
 
 export function buildNewWindowArgs(

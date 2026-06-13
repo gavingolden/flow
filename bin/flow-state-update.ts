@@ -37,7 +37,7 @@ import {
   type PipelineState,
 } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
-import { resolveSlugFromPane } from "./lib/tmux";
+import { resolveSlugFromPane, setWindowPhase } from "./lib/tmux";
 import { BRANCH_MARKER_FILENAME } from "./lib/worktree-marker";
 
 type Args = {
@@ -189,6 +189,13 @@ export type RunUpdateDeps = {
    * stub.
    */
   resolveSlug?: () => string | null;
+  /**
+   * Publishes the new phase onto the window's `@flow-phase` option.
+   * Defaults to the real `setWindowPhase` helper. Best-effort — the
+   * result is ignored and never alters the exit code. Tests inject a
+   * stub to assert it fires on `--phase` updates only.
+   */
+  publishPhase?: (slug: string, phase: string) => void;
 };
 
 export function runUpdate(
@@ -241,6 +248,17 @@ export function runUpdate(
 
   const next = applyUpdate(existing, parsed);
   writeState(next, dir);
+
+  // Best-effort mirror of the phase onto the window's @flow-phase option so a
+  // user's status bar can read it. Fires only on a --phase transition (never a
+  // --pr-only update) and only after the branch guard + write succeed (never on
+  // the exit-3 mismatch path above). The result is ignored: state.json is the
+  // source of truth and a tmux hiccup must not change the exit code.
+  if (parsed.phase !== undefined) {
+    const publishPhase =
+      deps.publishPhase ?? ((s, p) => void setWindowPhase(s, p));
+    publishPhase(slug, parsed.phase);
+  }
   return 0;
 }
 

@@ -55,6 +55,20 @@ Each pipeline is a tmux window inside a `flow` session. Inside the window, Claud
 
 The supervisor pauses for plan approval on `feature`-intent tasks (type `approved`, a redirection, or `cancel` into the chat). Non-feature intents (`bug`, `refactor`, `docs`, `infra`, `chore`) run straight through. Every pipeline ends with one of `MERGED`, `GATED: <url>`, `NEEDS HUMAN: <reason>`, or `cancelled` printed to the window's scrollback.
 
+### Status-bar phase indicator (`@flow-phase`)
+
+Every flow window publishes its current pipeline phase as a tmux window option named `@flow-phase`. It is seeded to `starting` when the window is created and tracks every transition the supervisor drives — `triaging`, `worktree-create`, `planning`, `implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, and the terminal/pending phases (`gated`, `merged`, `needs-human`, `cancelled`, …). It mirrors the `phase` field flow already writes to `~/.flow/state/<slug>.json`, so a status bar bound to it shows flow's _real_ phase instead of Claude Code's generic `@claude_state` activity proxy (`running`/`idle`).
+
+This is additive and opt-in: flow only ever _publishes_ the value onto its own windows. It never writes `~/.tmux.conf` and ships no theme — you compose your own status line and opt in by binding `#{@flow-phase}` yourself. Drop something like this in your `~/.tmux.conf`:
+
+```tmux
+# Show flow's pipeline phase per window (blank for non-flow windows).
+set -g window-status-format         "#I:#W#{?@flow-phase, [#{@flow-phase}],}"
+set -g window-status-current-format "#I:#W#{?@flow-phase, [#{@flow-phase}],}"
+```
+
+`flow ls` remains the canonical status surface — `@flow-phase` is a per-window convenience for your status bar, not a replacement. Publishing is best-effort: if tmux can't be reached, flow still writes `~/.flow/state/<slug>.json` (the source of truth) and never fails a transition over it.
+
 ### Opt-in Copilot review
 
 `flow new --copilot-review <auto|always|never>` (default `auto`) controls whether flow requests a Copilot review on the pipeline's PR. In `auto` mode a hybrid classifier requests a review only for non-trivial changes; trivial diffs (lockfiles, snapshots, generated files, docs-only) are declined and skip the bot wait entirely.
