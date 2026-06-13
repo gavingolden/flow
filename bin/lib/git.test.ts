@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import type { SpawnSyncReturns } from "node:child_process";
 import {
+  changedInstallPaths,
   fastForwardCanonical,
   resolveDefaultBranch,
   type Spawner,
@@ -141,12 +142,48 @@ describe("fastForwardCanonical", () => {
       defaultProbes([
         { match: matchArgs("fetch", "origin"), result: ok() },
         { match: matchArgs("rev-list", "--count"), result: ok("3\n") },
+        {
+          match: matchArgs("rev-parse", "--short", "HEAD"),
+          result: ok("abc1234\n"),
+        },
         { match: matchArgs("merge", "--ff-only"), result: ok() },
       ]),
     );
-    expect(fastForwardCanonical({ canonicalRoot: "/repo", spawn })).toEqual({
+    const result = fastForwardCanonical({ canonicalRoot: "/repo", spawn });
+    expect(result.status).toBe("ahead");
+    expect(result.advanced).toBe(3);
+  });
+
+  it("populates beforeSha/afterSha (short form) on an ahead result", () => {
+    let shortCalls = 0;
+    const script: Script = [
+      { match: matchArgs("status", "--porcelain"), result: ok() },
+      {
+        match: matchArgs("symbolic-ref"),
+        result: ok("refs/remotes/origin/main\n"),
+      },
+      {
+        match: matchArgs("rev-parse", "--abbrev-ref", "HEAD"),
+        result: ok("main\n"),
+      },
+      { match: matchArgs("fetch", "origin"), result: ok() },
+      { match: matchArgs("rev-list", "--count"), result: ok("2\n") },
+      {
+        match: matchArgs("rev-parse", "--short", "HEAD"),
+        // Stateful: first call → before SHA, second → after SHA.
+        get result() {
+          return ok(shortCalls++ === 0 ? "a1b2c3d\n" : "e4f5g6h\n");
+        },
+      },
+      { match: matchArgs("merge", "--ff-only"), result: ok() },
+    ];
+    const { spawn } = makeSpawn(script);
+    const result = fastForwardCanonical({ canonicalRoot: "/repo", spawn });
+    expect(result).toEqual({
       status: "ahead",
-      advanced: 3,
+      advanced: 2,
+      beforeSha: "a1b2c3d",
+      afterSha: "e4f5g6h",
     });
   });
 
@@ -211,6 +248,10 @@ describe("fastForwardCanonical", () => {
         { match: matchArgs("fetch", "origin"), result: ok() },
         { match: matchArgs("rev-list", "--count"), result: ok("2\n") },
         {
+          match: matchArgs("rev-parse", "--short", "HEAD"),
+          result: ok("abc1234\n"),
+        },
+        {
           match: matchArgs("merge", "--ff-only"),
           result: fail("Not possible to fast-forward"),
         },
@@ -257,5 +298,62 @@ describe("fastForwardCanonical", () => {
     );
     fastForwardCanonical({ canonicalRoot: "/repo", spawn });
     expect(calls.find((c) => c[1] === "merge")).toBeUndefined();
+  });
+});
+
+describe("changedInstallPaths", () => {
+  it("maps skills/ and bin/ diffs to display names, deduped", () => {
+    const { spawn } = makeSpawn([
+      {
+        match: matchArgs("-C", "/repo", "diff", "--name-only"),
+        result: ok(
+          [
+            "skills/pipeline/pr-review/SKILL.md",
+            "skills/pipeline/pr-review/references/x.md",
+            "skills/universal/refactoring/SKILL.md",
+            "bin/flow-ci-wait.ts",
+            "bin/flow-ci-wait.test.ts",
+            "bin/lib/git.ts",
+            "README.md",
+            "package.json",
+          ].join("\n"),
+        ),
+      },
+    ]);
+    expect(
+      changedInstallPaths({
+        canonicalRoot: "/repo",
+        beforeSha: "a1b2c3d",
+        afterSha: "e4f5g6h",
+        spawn,
+      }),
+    ).toEqual(["pr-review", "refactoring", "flow-ci-wait"]);
+  });
+
+  it("returns [] without throwing when SHAs are missing", () => {
+    let called = false;
+    const spawn: Spawner = () => {
+      called = true;
+      throw new Error("should not spawn");
+    };
+    expect(changedInstallPaths({ canonicalRoot: "/repo", spawn })).toEqual([]);
+    expect(called).toBe(false);
+  });
+
+  it("returns [] without throwing when the diff command fails", () => {
+    const { spawn } = makeSpawn([
+      {
+        match: matchArgs("-C", "/repo", "diff", "--name-only"),
+        result: fail("bad revision"),
+      },
+    ]);
+    expect(
+      changedInstallPaths({
+        canonicalRoot: "/repo",
+        beforeSha: "a1b2c3d",
+        afterSha: "e4f5g6h",
+        spawn,
+      }),
+    ).toEqual([]);
   });
 });

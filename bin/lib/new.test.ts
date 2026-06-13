@@ -142,6 +142,11 @@ describe("runNew --resume", () => {
       "Use the /flow-pipeline skill in --resume mode for: crashed",
     ]);
     expect(logs[0]).toBe("flow:crashed");
+    // Cross-verb voice: the second line uses the stable `flow new:` prose
+    // voice. Non-TTY (vitest) → no ANSI on either line.
+    expect(logs[1]).toBe(
+      "flow new: resumed — attach with `flow attach crashed`",
+    );
   });
 
   it("recreates the window when tmux has lost it (no window, dead pane)", () => {
@@ -201,6 +206,21 @@ describe("runNew (fresh)", () => {
       matched,
       `expected a task-<hash8>.json in ${files.join(",")}`,
     ).toBeDefined();
+  });
+
+  it("emits the stable 'flow new:' voice and a raw contract first line on a fresh start", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    // First line is the machine-read contract token — no ANSI, exact shape.
+    expect(logs[0]).toBe("flow:csv-export");
+    expect(logs[1]).toBe(
+      "flow new: created — attach with `flow attach csv-export`",
+    );
   });
 
   it("does not persist autoMerge by default (absent ≡ true)", () => {

@@ -1179,6 +1179,154 @@ describe("flow setup", () => {
       expect(code).toBe(1);
     });
   });
+
+  describe("version-stamped outcome headline (Stories 1-4, 6)", () => {
+    // Capture stdout (quiet:false) so we can assert the composed headline.
+    function setupLogged(opts: Parameters<typeof setup>[0] = {}): {
+      summary: ReturnType<typeof runSetup>;
+      logs: string[];
+    } {
+      const logs: string[] = [];
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation((...args: unknown[]) => {
+          logs.push(args.map(String).join(" "));
+        });
+      try {
+        const { flowSourceOverride, installRootOverride, ...rest } = opts;
+        const summary = runSetup({
+          ...rest,
+          flowSource: flowSourceOverride ?? flowSource,
+          installRoot: installRootOverride ?? flowSource,
+          targets: targets(),
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          // quiet:false so the outcome headline surfaces
+        });
+        return { summary, logs };
+      } finally {
+        logSpy.mockRestore();
+      }
+    }
+
+    function pinVersion(root: string, version: string): void {
+      const pkgPath = path.join(root, "package.json");
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+      pkg.version = version;
+      fs.writeFileSync(pkgPath, JSON.stringify(pkg));
+    }
+
+    /**
+     * Pins the version and commits + pushes it so the canonical working tree
+     * stays clean (a dirty tree would make the fast-forward skip). Keeps
+     * origin and canonical in sync at the bumped version.
+     */
+    function pinVersionCommitted(root: string, version: string): void {
+      pinVersion(root, version);
+      const env = {
+        ...process.env,
+        GIT_AUTHOR_NAME: "test",
+        GIT_AUTHOR_EMAIL: "test@example.com",
+        GIT_COMMITTER_NAME: "test",
+        GIT_COMMITTER_EMAIL: "test@example.com",
+      };
+      for (const args of [
+        ["add", "-A"],
+        ["commit", "-m", `bump ${version}`],
+        ["push", "origin", "main"],
+      ]) {
+        spawnSync("git", ["-C", root, ...args], { env, encoding: "utf8" });
+      }
+    }
+
+    it("Story 1: ahead → version + commit count + before→after SHA", () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      pinVersionCommitted(flowSource, "0.0.1");
+      addSkillToOriginMain(flowSource, "epsilon");
+
+      const { logs } = setupLogged({ upgrade: true });
+      const joined = logs.join("\n");
+      expect(joined).toMatch(/flow updated: v0\.0\.1, 1 commit/);
+      // Before→after SHAs are short hex tokens joined by an arrow.
+      expect(joined).toMatch(/flow updated:.*[0-9a-f]{7,}.* → .*[0-9a-f]{7,}/);
+      // No false "up to date" / "no changes" wording.
+      expect(joined).not.toMatch(/up to date/);
+      expect(joined).not.toMatch(/no changes/);
+    });
+
+    it("Story 4: ahead → changed-list names the changed skill", () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      addSkillToOriginMain(flowSource, "epsilon");
+
+      const { logs } = setupLogged({ upgrade: true });
+      const joined = logs.join("\n");
+      expect(joined).toMatch(/changed: .*epsilon/);
+    });
+
+    it("Story 2: up-to-date → 'already up to date at v<ver>', no list, no throw", () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      pinVersionCommitted(flowSource, "0.0.1");
+      // No addSkillToOriginMain → canonical is already at origin/main.
+
+      const { logs } = setupLogged({ upgrade: true });
+      const joined = logs.join("\n");
+      expect(joined).toMatch(/flow already up to date at v0\.0\.1/);
+      expect(joined).not.toMatch(/changed:/);
+      expect(joined).not.toMatch(/no changes/);
+    });
+
+    it("Story 3: skipped(dirty) → prominent 'NOT refreshed', no false up-to-date", () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      // Make the canonical tree dirty so the fast-forward skips.
+      fs.writeFileSync(path.join(flowSource, "DIRTY.txt"), "uncommitted\n");
+
+      const { logs } = setupLogged({ upgrade: true });
+      const joined = logs.join("\n");
+      expect(joined).toMatch(/NOT refreshed \(dirty\)/);
+      expect(joined).not.toMatch(/up to date/);
+    });
+
+    it("Story 3: skipped(non-default-branch) → quieter informational caveat", () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      // Check out a feature branch so HEAD != default.
+      spawnSync("git", ["-C", flowSource, "checkout", "-b", "feature/x"], {
+        encoding: "utf8",
+      });
+
+      const { logs } = setupLogged({ upgrade: true });
+      const joined = logs.join("\n");
+      expect(joined).toMatch(/not refreshed \(on a non-default branch\)/);
+      expect(joined).not.toMatch(/NOT refreshed/);
+      expect(joined).not.toMatch(/up to date/);
+    });
+
+    it("first install (non-upgrade) → 'flow installed v<ver>'", () => {
+      pinVersion(flowSource, "0.0.1");
+      const { logs } = setupLogged();
+      expect(logs.join("\n")).toMatch(/flow installed v0\.0\.1/);
+    });
+
+    it("Story 6: idempotent zero-churn upgrade emits ≤2 substantive lines plus warnings", () => {
+      buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
+      // First install wires everything; the second --upgrade has no churn.
+      setupLogged({ upgrade: true });
+      const { logs } = setupLogged({ upgrade: true });
+      // Drop the start-of-run banner (flow: setup / source ...) — count the
+      // outcome + any churn/warning lines.
+      const substantive = logs.filter(
+        (l) => !/^flow: setup$/.test(l) && !/^ {6}source /.test(l),
+      );
+      const warnings = substantive.filter((l) => /\s!\s/.test(l));
+      const nonWarning = substantive.filter((l) => !/\s!\s/.test(l));
+      expect(nonWarning.length).toBeLessThanOrEqual(2);
+      // The single outcome line is the up-to-date headline (no symlink churn).
+      expect(nonWarning.join("\n")).toMatch(/already up to date/);
+      void warnings;
+    });
+  });
 });
 
 // --- Fixture builders ---
