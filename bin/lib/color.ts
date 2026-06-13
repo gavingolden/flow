@@ -22,12 +22,27 @@ export function colorEnabled(): boolean {
   return process.stdout.isTTY === true && !("NO_COLOR" in process.env);
 }
 
+/**
+ * Like `colorEnabled` but gated on stderr's TTY rather than stdout's. The
+ * update-staleness notice prints to stderr, so coloring it on stdout's TTY
+ * leaks SGR bytes into `flow version 2>log` even when the log is a file.
+ */
+export function colorEnabledStderr(): boolean {
+  if (process.env.FORCE_COLOR) return true;
+  return process.stderr.isTTY === true && !("NO_COLOR" in process.env);
+}
+
 function wrap(code: number, s: string): string {
   return colorEnabled() ? `\x1b[${code}m${s}\x1b[0m` : s;
 }
 
 export function dim(s: string): string {
   return wrap(2, s);
+}
+
+/** stderr-gated `dim` — see `colorEnabledStderr`. */
+export function dimStderr(s: string): string {
+  return colorEnabledStderr() ? `\x1b[2m${s}\x1b[0m` : s;
 }
 
 export function green(s: string): string {

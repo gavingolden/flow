@@ -18,6 +18,7 @@ export const FLOW_STATE_DIR = path.join(FLOW_DIR, "state");
 export const FLOW_COMPLETIONS_DIR = path.join(FLOW_DIR, "completions");
 export const FLOW_MANIFEST = path.join(FLOW_DIR, "installed.json");
 export const FLOW_CONFIG = path.join(FLOW_DIR, "config.json");
+export const FLOW_UPDATE_CACHE = path.join(FLOW_DIR, "update-check.json");
 export const SETUP_LOCK_PATH = path.join(FLOW_DIR, "setup.lock");
 export const FLOW_TEST_SEM_DIR = path.join(FLOW_DIR, "test-sem");
 

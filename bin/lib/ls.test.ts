@@ -393,10 +393,52 @@ describe("runLs empty state (Story 5 cross-verb voice)", () => {
     vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
 
-    const code = await runLs();
+    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
 
     expect(code).toBe(0);
     expect(log).toHaveBeenCalledTimes(1);
     expect(String(log.mock.calls[0][0])).toBe("flow ls: no active pipelines");
+  });
+});
+
+describe("runLs — update notice seam", () => {
+  beforeEach(() => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("should print an update notice to stderr when checkUpdate reports behind", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const code = await runLs({
+      checkUpdate: () => ({
+        status: "behind",
+        behind: 2,
+        upgradeCmd: "flow setup --upgrade",
+      }),
+    });
+    expect(code).toBe(0);
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(String(err.mock.calls[0][0])).toContain("2 commits behind");
+  });
+
+  it("should not print a notice when checkUpdate reports current", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+    expect(code).toBe(0);
+    expect(err).not.toHaveBeenCalled();
+  });
+
+  it("should not print a notice when checkUpdate reports skipped", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const code = await runLs({
+      checkUpdate: () => ({ status: "skipped", reason: "fetch-failed" }),
+    });
+    expect(code).toBe(0);
+    expect(err).not.toHaveBeenCalled();
   });
 });

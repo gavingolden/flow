@@ -8,10 +8,17 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { resolveFlowSource } from "./paths";
+import {
+  checkForUpdate,
+  formatUpdateNotice,
+  type UpdateCheckResult,
+} from "./update-check";
 
 export type VersionOptions = {
   /** Override the flow source root (test-only). */
   flowSource?: string;
+  /** Injectable for tests; defaults to the real read-only update check. */
+  checkUpdate?: () => UpdateCheckResult;
 };
 
 /**
@@ -71,5 +78,9 @@ export function runVersion(opts: VersionOptions = {}): number {
   }
 
   console.log(version);
+  // STDERR, on a separate line — never concatenated onto the bare version
+  // token that downstream parsers read from stdout.
+  const notice = formatUpdateNotice((opts.checkUpdate ?? checkForUpdate)());
+  if (notice) console.error(notice);
   return 0;
 }
