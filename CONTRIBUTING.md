@@ -51,7 +51,7 @@ flow's topology is one tmux session with many pipeline windows, so it's easy to 
 
 The mechanism: a tiny hook script sets a `@claude_state` window option on the pane's window, and `window-status-format` branches on it.
 
-**Caveat:** `@claude_state` is keyed on generic Claude-Code session activity (the `UserPromptSubmit` / `Stop` / `Notification` lifecycle), **not** on flow's pipeline phase. It's a coarse running-vs-paused proxy — useful for "is this session busy?", not for "what phase is this pipeline in?". For the latter, use `flow ls`. The option is also deliberately distinct from flow's own `@flow-slug` identity option, so it won't collide with anything flow sets.
+**Caveat:** `@claude_state` is keyed on generic Claude-Code session activity (the `UserPromptSubmit` / `Stop` / `Notification` lifecycle), **not** on flow's pipeline phase. It's a coarse running-vs-paused proxy — useful for "is this session busy?", not for "what phase is this pipeline in?". For the phase, use `flow ls` — or bind flow's own `@flow-phase` window option, described in the next section, which needs no hook script because flow sets it for you. Both `@claude_state` and `@flow-phase` are deliberately distinct from flow's `@flow-slug` identity option, so none of them collide.
 
 #### 1. A hook script
 
@@ -115,3 +115,19 @@ set -g window-status-current-format "#{?#{==:#{@claude_state},waiting},#[fg=yell
 ```
 
 Prefer a glyph to a color? Swap the `#[fg=...]` branches for a prefix like `● `, `◐ `, or `○ ` ahead of `#I:#W`.
+
+### Phase-accurate windows with `@flow-phase` (optional)
+
+> **Also optional user tmux config.** flow _publishes_ the value onto its own windows but ships no theme, never writes your `~/.tmux.conf`, and `flow ls` stays the canonical status surface. Binding it is yours to opt into.
+
+Where the `@claude_state` recipe above needs a hook script you wire up yourself and only tells you whether a session is busy, flow sets a `@flow-phase` window option **automatically** that carries the pipeline's actual phase — `starting`, `triaging`, `planning`, `implementing`, `verifying`, `ci-wait`, `reviewing`, `gating`, `merging`, and the terminal/pending phases (`gated`, `merged`, `needs-human`, `cancelled`, …). It mirrors the `phase` field flow already writes to `~/.flow/state/<slug>.json`: seeded to `starting` when the window is created, then updated at every transition the supervisor drives. So a window bound to it answers "what phase is this pipeline in?" at a glance — the question `@claude_state` can't.
+
+No hook setup is required; the only thing you opt into is reading it in your own `window-status-format`:
+
+```tmux
+# Show flow's pipeline phase per window; blank for non-flow windows.
+set -g window-status-format         "#I:#W#{?#{@flow-phase}, [#{@flow-phase}],}"
+set -g window-status-current-format "#I:#W#{?#{@flow-phase}, [#{@flow-phase}],}"
+```
+
+You can combine it with the `@claude_state` colors above — color by activity, label by phase — since the two options are independent. Publishing is best-effort: if tmux can't be reached, flow still writes `~/.flow/state/<slug>.json` (the source of truth) and never fails a transition over it.

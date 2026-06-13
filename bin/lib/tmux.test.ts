@@ -3,13 +3,28 @@ import {
   buildNewSessionArgs,
   buildNewWindowArgs,
   buildRenameArgs,
+  buildSetOptionArgs,
   findWindowBySlug,
   parseAliveStatus,
   parseWindowList,
   resolveSlugFromPane,
+  seedWindowOptions,
+  setWindowPhase,
   type SpawnResult,
   type TmuxWindow,
 } from "./tmux";
+
+/** A capturing fake `tmux` spawn: records every argv, returns the queued result. */
+function fakeSpawn(
+  result: SpawnResult = { stdout: "", stderr: "", exitCode: 0 },
+) {
+  const calls: string[][] = [];
+  const spawnTmux = (args: string[]): SpawnResult => {
+    calls.push(args);
+    return result;
+  };
+  return { calls, spawnTmux };
+}
 
 describe(parseAliveStatus, () => {
   it("returns true when pane_dead is 0 and pid probe succeeds", () => {
@@ -110,6 +125,109 @@ describe(buildRenameArgs, () => {
       "@7",
       "title with spaces",
     ]);
+  });
+});
+
+describe(buildSetOptionArgs, () => {
+  it("builds a window-scoped set-option argv targeting the window id", () => {
+    expect(buildSetOptionArgs("@7", "@flow-phase", "reviewing")).toEqual([
+      "set-option",
+      "-w",
+      "-t",
+      "@7",
+      "@flow-phase",
+      "reviewing",
+    ]);
+  });
+});
+
+describe(seedWindowOptions, () => {
+  it("sets @flow-slug then seeds @flow-phase=starting on the new window", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    const result = seedWindowOptions("@7", "csv-export", spawnTmux);
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(calls).toEqual([
+      ["set-option", "-w", "-t", "@7", "@flow-slug", "csv-export"],
+      ["set-option", "-w", "-t", "@7", "@flow-phase", "starting"],
+    ]);
+  });
+
+  it("fails creation when the @flow-slug set fails (identity is load-bearing)", () => {
+    // Slug set fails — the option is the canonical lookup key, so creation
+    // must fail and the @flow-phase seed must not even be attempted.
+    const calls: string[][] = [];
+    const spawnTmux = (args: string[]): SpawnResult => {
+      calls.push(args);
+      return { stdout: "", stderr: "boom", exitCode: 1 };
+    };
+    const result = seedWindowOptions("@7", "csv-export", spawnTmux);
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toContain("@flow-slug");
+    expect(calls).toEqual([
+      ["set-option", "-w", "-t", "@7", "@flow-slug", "csv-export"],
+    ]);
+  });
+
+  it("still succeeds when only the @flow-phase seed fails (best-effort mirror)", () => {
+    // Slug set succeeds, phase seed fails — creation must still report ok,
+    // since @flow-phase is an additive convenience, not load-bearing.
+    const calls: string[][] = [];
+    const spawnTmux = (args: string[]): SpawnResult => {
+      calls.push(args);
+      const isPhase = args.includes("@flow-phase");
+      return {
+        stdout: "",
+        stderr: isPhase ? "boom" : "",
+        exitCode: isPhase ? 1 : 0,
+      };
+    };
+    const result = seedWindowOptions("@7", "csv-export", spawnTmux);
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(calls).toHaveLength(2);
+  });
+});
+
+describe(setWindowPhase, () => {
+  const windows: TmuxWindow[] = [
+    { id: "@2", name: "renamed by user", slug: "csv-export", activity: 0 },
+  ];
+
+  it("resolves the window by @flow-slug and sets @flow-phase on its id (rename-safe)", () => {
+    // Display name diverges from the slug — the helper must target @2 via the
+    // @flow-slug match, not the name.
+    const { calls, spawnTmux } = fakeSpawn();
+    const result = setWindowPhase("csv-export", "reviewing", {
+      spawnTmux,
+      listWindowsFn: () => windows,
+    });
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(calls).toEqual([
+      ["set-option", "-w", "-t", "@2", "@flow-phase", "reviewing"],
+    ]);
+  });
+
+  it("soft-fails without throwing or spawning when no window owns the slug", () => {
+    const { calls, spawnTmux } = fakeSpawn();
+    const result = setWindowPhase("missing", "gating", {
+      spawnTmux,
+      listWindowsFn: () => windows,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toContain("missing");
+    expect(calls).toEqual([]); // never shelled out
+  });
+
+  it("returns ok:false when the set-option exits non-zero (tmux hiccup)", () => {
+    const { spawnTmux } = fakeSpawn({
+      stdout: "",
+      stderr: "nope",
+      exitCode: 1,
+    });
+    const result = setWindowPhase("csv-export", "merging", {
+      spawnTmux,
+      listWindowsFn: () => windows,
+    });
+    expect(result).toEqual({ ok: false, stderr: "nope" });
   });
 });
 

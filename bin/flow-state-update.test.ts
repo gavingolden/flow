@@ -365,6 +365,40 @@ describe("runUpdate", () => {
     expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
     errSpy.mockRestore();
   });
+
+  it("publishes the phase onto @flow-phase on a successful --phase update", () => {
+    seed("csv-export");
+    const published: Array<[string, string]> = [];
+    const code = runUpdate(["csv-export", "--phase", "implementing"], dir, {
+      publishPhase: (s, p) => published.push([s, p]),
+    });
+    expect(code).toBe(0);
+    expect(published).toEqual([["csv-export", "implementing"]]);
+  });
+
+  it("does NOT publish a phase on a --pr-only update (no --phase given)", () => {
+    seed("csv-export");
+    const published: Array<[string, string]> = [];
+    const code = runUpdate(["csv-export", "--pr", "142"], dir, {
+      publishPhase: (s, p) => published.push([s, p]),
+    });
+    expect(code).toBe(0);
+    expect(published).toEqual([]);
+  });
+
+  it("does NOT publish a phase on a branch-mismatch (exit 3, no state write)", () => {
+    const fx = makeWorktreeFixture("expected-branch", "actual-branch");
+    seed("csv-export", { worktree: fx.worktreeDir });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const published: Array<[string, string]> = [];
+    const code = runUpdate(["csv-export", "--phase", "implementing"], dir, {
+      publishPhase: (s, p) => published.push([s, p]),
+    });
+    errSpy.mockRestore();
+    expect(code).toBe(3);
+    expect(published).toEqual([]);
+    fx.cleanup();
+  });
 });
 
 // --- checkWorktreeBranch + worktree fixture --------------------------------
