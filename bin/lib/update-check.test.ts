@@ -207,7 +207,7 @@ describe("checkForUpdate — skipped", () => {
     expect(calls.length).toBe(0);
   });
 
-  it("should never throw when git status spawn itself throws", () => {
+  it("should never throw and skip with error when git status spawn itself throws", () => {
     const spawn: Spawner = () => {
       throw new Error("spawn exploded");
     };
@@ -219,7 +219,7 @@ describe("checkForUpdate — skipped", () => {
       readConfigFile: NOTIFY,
       env: {},
     });
-    expect(result.status).toBe("skipped");
+    expect(result).toEqual({ status: "skipped", reason: "error" });
   });
 });
 
@@ -269,6 +269,104 @@ describe("checkForUpdate — throttle", () => {
     expect(calls.find((c) => c[1] === "fetch")).toBeDefined();
     const rewritten = JSON.parse(fs.readFileSync(cachePath, "utf8"));
     expect(rewritten).toEqual({ lastCheckedMs: NOW, behind: 7 });
+  });
+
+  it("should fall through to a fresh fetch and rewrite the cache when the cached entry is malformed", () => {
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ lastCheckedMs: "not-a-number", foo: 1 }),
+    );
+    const { spawn, calls } = makeSpawn(probes("2\n"));
+    const result = checkForUpdate({
+      source: "/repo",
+      spawn,
+      now: NOW,
+      cachePath,
+      readConfigFile: NOTIFY,
+      env: {},
+    });
+    expect(result).toEqual({
+      status: "behind",
+      behind: 2,
+      upgradeCmd: "flow setup --upgrade",
+    });
+    expect(calls.find((c) => c[1] === "fetch")).toBeDefined();
+    const rewritten = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+    expect(rewritten).toEqual({ lastCheckedMs: NOW, behind: 2 });
+  });
+
+  it("should write the throttle cache on a fetch-failed result so an immediate re-check performs zero spawns", () => {
+    const fetchFailScript: Script = [
+      { match: matchArgs("status", "--porcelain"), result: ok() },
+      {
+        match: matchArgs("symbolic-ref"),
+        result: ok("refs/remotes/origin/main\n"),
+      },
+      { match: matchArgs("fetch", "origin"), result: fail("network down") },
+    ];
+    const first = makeSpawn(fetchFailScript);
+    const r1 = checkForUpdate({
+      source: "/repo",
+      spawn: first.spawn,
+      now: NOW,
+      cachePath,
+      readConfigFile: NOTIFY,
+      env: {},
+    });
+    expect(r1).toEqual({ status: "skipped", reason: "fetch-failed" });
+    expect(JSON.parse(fs.readFileSync(cachePath, "utf8"))).toEqual({
+      lastCheckedMs: NOW,
+      behind: 0,
+    });
+
+    // Second call inside the throttle window must short-circuit on cache.
+    const second = makeSpawn([]);
+    const r2 = checkForUpdate({
+      source: "/repo",
+      spawn: second.spawn,
+      now: NOW + 60 * 1000,
+      cachePath,
+      readConfigFile: NOTIFY,
+      env: {},
+    });
+    expect(r2).toEqual({ status: "current" });
+    expect(second.calls.length).toBe(0);
+  });
+});
+
+describe("checkForUpdate — rev-list coercion", () => {
+  it("should coerce behind to 0 (status current) when rev-list exits non-zero", () => {
+    const { spawn } = makeSpawn([
+      { match: matchArgs("status", "--porcelain"), result: ok() },
+      {
+        match: matchArgs("symbolic-ref"),
+        result: ok("refs/remotes/origin/main\n"),
+      },
+      { match: matchArgs("fetch", "origin"), result: ok() },
+      { match: matchArgs("rev-list", "--count"), result: fail("boom") },
+    ]);
+    const result = checkForUpdate({
+      source: "/repo",
+      spawn,
+      now: NOW,
+      cachePath,
+      readConfigFile: NOTIFY,
+      env: {},
+    });
+    expect(result).toEqual({ status: "current" });
+  });
+
+  it("should coerce behind to 0 (status current) when rev-list stdout is non-numeric", () => {
+    const { spawn } = makeSpawn(probes("not-a-number\n"));
+    const result = checkForUpdate({
+      source: "/repo",
+      spawn,
+      now: NOW,
+      cachePath,
+      readConfigFile: NOTIFY,
+      env: {},
+    });
+    expect(result).toEqual({ status: "current" });
   });
 });
 

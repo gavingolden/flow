@@ -13,17 +13,19 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveDefaultBranch, type Spawner } from "./git";
 import { resolveFlowSource, FLOW_UPDATE_CACHE, FLOW_CONFIG } from "./paths";
-import { dim } from "./color";
+import { dimStderr } from "./color";
 import { spawnSync } from "node:child_process";
 
 const THROTTLE_MS = 24 * 60 * 60 * 1000;
+const FETCH_TIMEOUT_MS = 10_000;
 const UPGRADE_CMD = "flow setup --upgrade";
 
 export type UpdateCheckSkippedReason =
   | "not-a-git-repo"
   | "no-default-branch"
   | "fetch-failed"
-  | "disabled";
+  | "disabled"
+  | "error";
 
 export type UpdateCheckResult =
   | { status: "behind"; behind: number; upgradeCmd: string }
@@ -151,8 +153,14 @@ export function checkForUpdate(
     const fetch = spawn("git", ["fetch", "origin", defaultBranch], {
       cwd: source,
       encoding: "utf8",
+      timeout: FETCH_TIMEOUT_MS,
     });
+    // A non-zero exit OR a timeout (spawnSync sets status=null on timeout)
+    // both land here. Write the throttle cache so the 24h window also
+    // suppresses repeated failed/slow fetches on the hot path — without it,
+    // every `flow ls`/`flow version` re-runs the blocking fetch.
     if (fetch.status !== 0) {
+      writeCache(cachePath, { lastCheckedMs: now, behind: 0 });
       return { status: "skipped", reason: "fetch-failed" };
     }
 
@@ -172,14 +180,16 @@ export function checkForUpdate(
   } catch {
     // Any unanticipated throw collapses to a skipped result — the notice is
     // non-blocking, so a failed check must never break `flow ls`/`version`.
-    return { status: "skipped", reason: "not-a-git-repo" };
+    // Distinct from the explicit "not-a-git-repo" status-exit path so callers
+    // can tell a genuine non-repo apart from an unexpected internal error.
+    return { status: "skipped", reason: "error" };
   }
 }
 
 export function formatUpdateNotice(result: UpdateCheckResult): string | null {
   if (result.status !== "behind") return null;
   const { behind, upgradeCmd } = result;
-  return dim(
+  return dimStderr(
     `flow: ${behind} commit${behind === 1 ? "" : "s"} behind — run \`${upgradeCmd}\` to update`,
   );
 }

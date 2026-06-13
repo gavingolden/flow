@@ -28,7 +28,7 @@ export function git(args: string[], cwd?: string): string {
 export type Spawner = (
   cmd: string,
   args: string[],
-  options: { cwd?: string; encoding: "utf8" },
+  options: { cwd?: string; encoding: "utf8"; timeout?: number },
 ) => SpawnSyncReturns<string>;
 
 const defaultSpawn: Spawner = (cmd, args, options) =>
