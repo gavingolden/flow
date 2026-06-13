@@ -72,6 +72,54 @@ describe("runVersion", () => {
   });
 });
 
+describe("runVersion — update notice seam", () => {
+  it("should print the bare version string to stdout unchanged when an update notice is also emitted", () => {
+    writePkg({ name: "flow", version: "1.2.3" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const code = runVersion({
+      flowSource: scratch,
+      checkUpdate: () => ({
+        status: "behind",
+        behind: 2,
+        upgradeCmd: "flow setup --upgrade",
+      }),
+    });
+
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledWith("1.2.3");
+    expect(err).toHaveBeenCalledTimes(1);
+    expect(String(err.mock.calls[0][0])).toContain("2 commits behind");
+    log.mockRestore();
+    err.mockRestore();
+  });
+
+  it("should not emit a notice when checkUpdate reports current/skipped", () => {
+    writePkg({ name: "flow", version: "1.2.3" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    expect(
+      runVersion({
+        flowSource: scratch,
+        checkUpdate: () => ({ status: "current" }),
+      }),
+    ).toBe(0);
+    expect(
+      runVersion({
+        flowSource: scratch,
+        checkUpdate: () => ({ status: "skipped", reason: "fetch-failed" }),
+      }),
+    ).toBe(0);
+
+    expect(log).toHaveBeenCalledWith("1.2.3");
+    expect(err).not.toHaveBeenCalled();
+    log.mockRestore();
+    err.mockRestore();
+  });
+});
+
 describe("readFlowVersion (extracted, unit-testable)", () => {
   it("round-trips the version field from package.json", () => {
     writePkg({ name: "flow", version: "2.5.0" });

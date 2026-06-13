@@ -23,6 +23,8 @@ bun bin/flow setup
 
 `flow setup` symlinks the skills, the helper binaries, and the `flow` wrapper itself into place. Verify it worked by running `flow ls` (it should print an empty pipeline list, not "command not found"). The most common failure is `~/.local/bin` not being on your `PATH` — add it and open a fresh shell. Setup internals (symlink mechanics, shell completions, the Copilot escape hatch) live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
+To come current, run `flow setup --upgrade`: it self-pulls (fast-forwards your canonical checkout to `origin`) and reports what changed, so a non-contributor needs only that one command. flow also surfaces a non-blocking staleness notice at `flow ls` and `flow version` when your checkout is behind origin, naming the exact upgrade command to run. Opt out by setting `update.checkFor` to `"off"` in `~/.flow/config.json` (or exporting `FLOW_UPDATE_CHECK=off`). A reserved `update.autoUpgrade` flag (default off, not yet executing) is parsed for a future opt-in that upgrades automatically.
+
 Upgrading from the old per-repo `flow install`? See [`docs/migration.md`](docs/migration.md).
 
 ## Usage

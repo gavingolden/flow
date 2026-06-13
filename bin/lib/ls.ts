@@ -27,12 +27,19 @@ import { listStates, type PipelineState } from "./state";
 import { relativeTime } from "./time";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
 import { dim } from "./color";
+import {
+  checkForUpdate,
+  formatUpdateNotice,
+  type UpdateCheckResult,
+} from "./update-check";
 
 export type LsOptions = {
   cost?: boolean;
   detail?: boolean;
   /** Override for tests; defaults to ~/.claude/projects/. */
   projectsRoot?: string;
+  /** Injectable for tests; defaults to the real read-only update check. */
+  checkUpdate?: () => UpdateCheckResult;
 };
 
 export type Row = {
@@ -80,13 +87,21 @@ export async function runLs(opts: LsOptions = {}): Promise<number> {
 
   if (rows.length === 0) {
     console.log(dim("flow ls: no active pipelines"));
+    emitUpdateNotice(opts);
     return 0;
   }
 
   printTable(rows, opts);
   if (opts.cost && opts.detail) printDetail(rows);
   warnUnknownModels(rows);
+  emitUpdateNotice(opts);
   return 0;
+}
+
+/** Print the staleness notice to STDERR so stdout stays a clean table. */
+function emitUpdateNotice(opts: LsOptions): void {
+  const notice = formatUpdateNotice((opts.checkUpdate ?? checkForUpdate)());
+  if (notice) console.error(notice);
 }
 
 export async function buildRows(
