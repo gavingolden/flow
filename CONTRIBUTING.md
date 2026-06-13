@@ -40,3 +40,78 @@ Update with `cd <flow-checkout> && git pull && flow setup --upgrade`.
 ## Project rules for agents & contributors
 
 All project-wide rules — commit/PR conventions, the output style, the `Task`-tool exemptions, the verify gate, consumer-repo notes — are in [`AGENTS.md`](AGENTS.md), which is canonical (`CLAUDE.md` is just `@AGENTS.md`). Don't duplicate those rules here; link to them.
+
+## Tips
+
+### tmux status integration (optional)
+
+> **This is optional user tmux config, not something flow ships or requires.** flow never writes to your `~/.tmux.conf`, and `flow ls` remains the canonical status surface. The recipe below is yours to copy, adapt, or ignore.
+
+flow's topology is one tmux session with many pipeline windows, so it's easy to lose track of which Claude Code sessions are actively working versus idle or waiting on you. If you run Claude Code inside tmux, you can color or glyph each window by session state using Claude Code's lifecycle hooks to set a window-scoped tmux option.
+
+The mechanism: a tiny hook script sets a `@claude_state` window option on the pane's window, and `window-status-format` branches on it.
+
+**Caveat:** `@claude_state` is keyed on generic Claude-Code session activity (the `UserPromptSubmit` / `Stop` / `Notification` lifecycle), **not** on flow's pipeline phase. It's a coarse running-vs-paused proxy — useful for "is this session busy?", not for "what phase is this pipeline in?". For the latter, use `flow ls`. The option is also deliberately distinct from flow's own `@flow-slug` identity option, so it won't collide with anything flow sets.
+
+#### 1. A hook script
+
+Save this as `~/.claude/hooks/tmux-state.sh` and `chmod +x` it. It takes the state as its first argument and is a no-op outside tmux:
+
+```bash
+#!/usr/bin/env bash
+# Reflect Claude Code session state onto the containing tmux window.
+[ -n "$TMUX_PANE" ] || exit 0
+tmux set-option -t "$TMUX_PANE" -w @claude_state "${1:-idle}"
+```
+
+#### 2. Wire it to the three Claude Code hooks
+
+In your Claude Code settings (`~/.claude/settings.json`), call the script from each lifecycle hook — `UserPromptSubmit` when a turn starts (working), `Stop` when it finishes (idle), `Notification` when Claude is waiting on you (waiting):
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/tmux-state.sh working"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "~/.claude/hooks/tmux-state.sh idle" }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/tmux-state.sh waiting"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The event names above are illustrative — confirm they match your installed Claude Code version, and adapt the mapping if yours differs.
+
+#### 3. Color the window list
+
+In `~/.tmux.conf`, branch `window-status-format` (and its current-window twin) on `@claude_state`:
+
+```tmux
+# waiting → yellow, working → green, idle/unset → default
+set -g window-status-format         "#{?#{==:#{@claude_state},waiting},#[fg=yellow],#{?#{==:#{@claude_state},working},#[fg=green],}}#I:#W#[default]"
+set -g window-status-current-format "#{?#{==:#{@claude_state},waiting},#[fg=yellow bold],#{?#{==:#{@claude_state},working},#[fg=green bold],#[bold]}}#I:#W#[default]"
+```
+
+Prefer a glyph to a color? Swap the `#[fg=...]` branches for a prefix like `● `, `◐ `, or `○ ` ahead of `#I:#W`.
