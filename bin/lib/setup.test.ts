@@ -1038,6 +1038,10 @@ describe("flow setup", () => {
         });
         const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
         expect(allLogs).not.toMatch(/canonical: (fast-forwarded|skipped)/);
+        // No content was fetched/compared, so the headline must NOT claim
+        // up-to-date — that would over-claim a check that never ran.
+        expect(allLogs).not.toMatch(/already up to date/);
+        expect(allLogs).toMatch(/content not checked/);
       } finally {
         logSpy.mockRestore();
       }

@@ -193,7 +193,7 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   // (printOutcome) rather than logged inline.
   let ff: FastForwardResult | undefined;
   if (options.upgrade && options.pullCanonicalFirst !== false) {
-    ff = fastForwardCanonical({ canonicalRoot: installRoot, log });
+    ff = fastForwardCanonical({ canonicalRoot: installRoot });
   }
 
   // Serialize symlink + manifest writes against any concurrent `flow setup`
@@ -516,9 +516,13 @@ function printOutcome(
       log(dim(`flow: content not refreshed (on a non-default branch)`));
     } else if (ff?.status === "skipped") {
       log(dim(`flow: content not refreshed (${ff.reason})`));
-    } else {
-      // up-to-date, or pull opted out — content is already current.
+    } else if (ff?.status === "up-to-date") {
       log(green(`flow already up to date at ${v}`));
+    } else {
+      // ff === undefined: --no-pull-canonical opted out, so content was never
+      // fetched/compared. Don't claim up-to-date — links were re-pointed but
+      // no content check happened.
+      log(green(`flow setup complete at ${v} (content not checked)`));
     }
   } else {
     log(green(`flow installed ${v}`));

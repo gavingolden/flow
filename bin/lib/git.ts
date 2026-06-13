@@ -103,7 +103,6 @@ export type FastForwardResult = {
 export type FastForwardOptions = {
   canonicalRoot: string;
   spawn?: Spawner;
-  log?: (msg: string) => void;
 };
 
 /**

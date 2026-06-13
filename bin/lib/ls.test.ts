@@ -7,8 +7,11 @@ import {
   formatCostCell,
   formatNameCell,
   formatRepoCell,
+  runLs,
   runLsCli,
 } from "./ls";
+import * as stateModule from "./state";
+import * as tmuxModule from "./tmux";
 import { encodeProjectSegment } from "./cost";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
@@ -377,5 +380,23 @@ describe("runLsCli (--help / -h short-circuit)", () => {
     const logged = log.mock.calls.map((c) => String(c[0]));
     expect(logged.some((s) => /repositor/i.test(s))).toBe(true);
     log.mockRestore();
+  });
+});
+
+describe("runLs empty state (Story 5 cross-verb voice)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("prints the 'flow ls:'-prefixed empty-state line when no pipelines exist", async () => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs();
+
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(String(log.mock.calls[0][0])).toBe("flow ls: no active pipelines");
   });
 });

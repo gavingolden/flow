@@ -57,6 +57,13 @@ describe("color helpers", () => {
     expect(red("bad")).toBe("bad");
   });
 
+  it("disables color when NO_COLOR is set to an empty string (no-color.org spec)", () => {
+    setIsTTY(true);
+    process.env.NO_COLOR = "";
+    expect(colorEnabled()).toBe(false);
+    expect(dim("x")).toBe("x");
+  });
+
   it("wraps with the expected SGR codes when FORCE_COLOR forces it on", () => {
     // FORCE_COLOR wins even when isTTY is false — the test/CI demo path.
     setIsTTY(false);

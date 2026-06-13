@@ -17,7 +17,9 @@
 
 export function colorEnabled(): boolean {
   if (process.env.FORCE_COLOR) return true;
-  return process.stdout.isTTY === true && !process.env.NO_COLOR;
+  // no-color.org: NO_COLOR present with ANY value (including empty) disables
+  // color. Gate on presence, not truthiness.
+  return process.stdout.isTTY === true && !("NO_COLOR" in process.env);
 }
 
 function wrap(code: number, s: string): string {
