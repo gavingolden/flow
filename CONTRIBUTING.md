@@ -126,8 +126,8 @@ No hook setup is required; the only thing you opt into is reading it in your own
 
 ```tmux
 # Show flow's pipeline phase per window; blank for non-flow windows.
-set -g window-status-format         "#I:#W#{?@flow-phase, [#{@flow-phase}],}"
-set -g window-status-current-format "#I:#W#{?@flow-phase, [#{@flow-phase}],}"
+set -g window-status-format         "#I:#W#{?#{@flow-phase}, [#{@flow-phase}],}"
+set -g window-status-current-format "#I:#W#{?#{@flow-phase}, [#{@flow-phase}],}"
 ```
 
 You can combine it with the `@claude_state` colors above — color by activity, label by phase — since the two options are independent. Publishing is best-effort: if tmux can't be reached, flow still writes `~/.flow/state/<slug>.json` (the source of truth) and never fails a transition over it.
