@@ -38,6 +38,8 @@ flow done --merged               # sweep windows that reached a terminal state
 
 By default a pipeline auto-merges its PR when the merge gate is clear; pass `flow new --no-auto-merge "<desc>"` to always stop at the gate for a manual merge.
 
+**New to tmux?** Your first `flow new` starts the pipeline in a tmux window but doesn't drop you into it — run `flow attach` (no args) to pop into the flow session (it lands you on your most-recent pipeline), or `flow attach <name>` (alias `flow a <name>`) to jump to a specific one. To step away from a running pipeline without stopping it, detach with `Ctrl-b d` (`Ctrl-b` is tmux's prefix key, then press `d`) — the pipeline keeps running in the background, and you come back with `flow attach`.
+
 <details>
 <summary>More <code>flow new</code> flags</summary>
 
@@ -51,7 +53,7 @@ Run `flow new --help` for the full surface.
 
 ## How it works
 
-Each pipeline is a tmux window inside a single `flow` session. Inside it, Claude Code loads the `/flow-pipeline` supervisor skill and drives the run from triage to merge; sub-skills load in-process, not as nested agents. Detach from tmux to walk away and re-attach (`flow attach <name>`) to pick the run back up — state persists at `~/.flow/state/<slug>.json` plus the worktree on disk plus the PR.
+Each pipeline is a tmux window inside a single `flow` session. Inside it, Claude Code loads the `/flow-pipeline` supervisor skill and drives the run from triage to merge; sub-skills load in-process, not as nested agents. Each pipeline runs in its own git worktree and branch in a sibling directory named like `<repo>-<slug>`, so parallel pipelines are isolated from each other and your main checkout is never touched. Detach from tmux to walk away and re-attach (`flow attach <name>`) to pick the run back up — state persists at `~/.flow/state/<slug>.json` plus the worktree on disk plus the PR.
 
 The supervisor pauses once for plan approval on feature work (type `approved`, a redirection, or `cancel`); non-feature changes run straight through. Every run ends with `MERGED`, `GATED: <url>` (a manual-merge needed), `NEEDS HUMAN: <reason>`, or `cancelled` printed to the window.
 
@@ -74,6 +76,27 @@ MERGED
 ```
 
 When the merge gate is not clear (an unchecked Test Steps item, or `flow new --no-auto-merge`), the run ends with `GATED: <url>` instead — open that URL and merge when you're ready.
+
+## Resuming
+
+There are two distinct ways to come back to a pipeline, and which one you need depends on whether it's still running.
+
+**Walk away and return.** If the pipeline is still running, just detach (`Ctrl-b d`) and later `flow attach` to re-enter — nothing special is needed, because the state lives on disk (`~/.flow/state/<slug>.json` plus the worktree plus the PR).
+
+**Resume after a crash.** If the supervisor crashed or you closed the window, run `flow ls` to find the pipeline's slug, then `flow new --resume <slug>` to re-launch Claude Code into the same window and pick up exactly where it left off — it reads the saved phase, worktree, and PR and continues. It refuses if the pipeline is actually still running, telling you to attach instead.
+
+The transcript below is **illustrative — not exact output**:
+
+```text
+$ flow ls
+  add-csv-export    review    window died
+  fix-login-redirect ci       running
+
+$ flow new --resume add-csv-export
+  → re-launching flow:add-csv-export
+RESUMING AT: review (PR #142, 2 findings open)
+[review] multi-agent review + Copilot ... resolving findings ...
+```
 
 ## Consumer repos
 
