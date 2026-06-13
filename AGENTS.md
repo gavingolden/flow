@@ -165,6 +165,21 @@ token-savings impact, highest first.
   `references/fix-applier-instructions.md`; the lint anchors on the
   exact phrase **Fix cheap, in-scope robustness issues now rather than
   deferring them.** in `bin/skill-md-lint.test.ts`.
+- **Treat every request as production-bound, not a hobby project.** Judge
+  scope and quality through a public-release lens. *Scope:* the
+  include-vs-defer test is cohesion, not size — build the cohesive parts
+  of the requested feature in-task (it shares the feature's user goal or
+  surface, or its absence leaves the feature partial) and suggest a
+  separate issue only for a genuinely separate feature; never use a
+  candidate follow-up as a hedge to dodge in-scope work. *Quality:* hold a
+  production bar — error handling, edge cases, accessibility, tests — on
+  the surface you touch. This raises completeness and quality, not feature
+  count: the **Fix cheap, in-scope robustness issues now…** rule and
+  Anti-Overengineering still govern, so the standard is minimal scope
+  executed to a production standard, not gold-plating. The full bar lives
+  in `templates/AGENTS.md.template`; the lint anchors on the exact phrase
+  **Treat every request as production-bound, not a hobby project.** in
+  `bin/skill-md-lint.test.ts`.
 - **Don't echo file contents or full diffs into chat.** Read with tools
   and reference findings as `path:line`. The user can open the file;
   pasting it back wastes tokens and clutters scrollback.

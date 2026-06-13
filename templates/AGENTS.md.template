@@ -267,6 +267,36 @@ are not reasons to defer or rationalize. Deferral-to-issue stays reserved for
 work that *fails* the fix-now bar — a fix needing meaningful design or research,
 or a cross-cutting change touching several files.
 
+## Scope: bundle cohesive work, defer only separate features
+
+Treat every request as production-bound — work real users will depend on, not a
+hobby-project MVP. This is the lens for two decisions the fix-now bar above does
+not cover, because it governs *features*, where the fix-now bar governs
+*robustness*.
+
+**Include cohesive work; key on cohesion, not size.** When deciding whether an
+addition belongs in the current task or a separate issue, the question is "is
+this a *completely separate feature*?" — not "is this small or large?". An
+addition is part of the current task when it serves the same user goal, touches
+the same surface, or its absence would leave the feature partial or awkward to
+use; build it in-task even if the request did not enumerate it. Suggest a
+separate issue only when the addition is genuinely independent — its own user
+goal and surface, valuable and shippable on its own. Never use a "candidate
+follow-up issue" or a backlog ticket as a hedge to avoid doing in-scope work.
+
+**Hold a production bar on what you build.** Error handling, edge cases,
+accessibility, and tests for the surface you touch are part of the feature, not
+deferrable polish. Shipping the happy path and filing the rest is the
+hobby-project pattern this rule forecloses.
+
+This raises *completeness and quality*, not *feature count*, and it does not
+loosen Anti-Overengineering above: the standard is minimal scope executed to a
+production standard — not gold-plating, not speculative features, and "challenge
+the request / do nothing" stays a valid recommendation. Effort is a secondary
+guardrail: a cohesive enhancement that would *materially* expand the work (a
+multi-file rewrite, new infrastructure, an unresolved design decision) is
+surfaced for the user to weigh rather than silently bundled.
+
 ## Code Quality
 
 - Review all code as a senior developer: scrutinize design, naming, edge cases, error handling.

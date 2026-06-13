@@ -183,10 +183,15 @@ and risks accumulating stale `- [ ]` entries on later edits. The supervisor's
 "section absent" and "count is 0" branches behave identically; the value of omitting
 the heading is signal-to-noise, not control flow.
 
-Bar for inclusion: would the user want to come back to this in a separate session? If the
-answer is "no, this is part of the current feature" or "no, this is just a question for
-the user", it does not belong here. Keep the bar high — backlogs full of low-confidence
-candidates are noise.
+Bar for inclusion: is this a _completely separate feature_ — its own user goal and
+surface, valuable and shippable on its own? Only then does it belong here. A small or
+medium enhancement that serves the requested feature's goal, touches the same surface, or
+whose absence would leave the feature partial or awkward is **not** a candidate — it
+belongs in the `# Task breakdown`, built now. Per the AGENTS.md `## Output style` rule
+**Treat every request as production-bound, not a hobby project.**, the include-vs-defer
+test is cohesion, not size; do not use this section as a hedge to defer cohesive in-scope
+work. Keep the bar high — backlogs full of low-confidence candidates are noise, and so is
+a feature shipped with its cohesive other half parked in a follow-up.
 
 ### Recommendation
 
