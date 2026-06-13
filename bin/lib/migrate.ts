@@ -28,6 +28,7 @@ import {
   writeGitignore,
 } from "./gitignore";
 import { argsContainHelp, printVerbHelp } from "./help";
+import { dim, green, red } from "./color";
 
 export type MigrateOptions = {
   apply?: boolean;
@@ -92,7 +93,7 @@ export function runMigrate(
   }
 
   if (!options.apply) {
-    console.log(`\n(dry-run — pass --apply to commit)`);
+    console.log(dim(`\nflow migrate: dry-run — pass --apply to commit`));
     return 0;
   }
 
@@ -187,7 +188,7 @@ function applyPlan(plan: MigratePlan, options: MigrateOptions): number {
     console.log(`  - removed .orchestrator/`);
   }
 
-  console.log(`\nflow migrate: applied. removed ${removed} symlink(s).`);
+  console.log(green(`\nflow migrate: applied — removed ${removed} symlink(s)`));
   return 0;
 }
 
@@ -214,7 +215,9 @@ function printPlan(plan: MigratePlan, options: MigrateOptions): void {
 
   for (const file of plan.realFilesEncountered) {
     console.log(
-      `  ! ${path.relative(plan.repoRoot, file)}  (real file — left untouched)`,
+      red(
+        `  ! ${path.relative(plan.repoRoot, file)}  (real file — left untouched)`,
+      ),
     );
   }
 

@@ -21,6 +21,7 @@ import {
   FLOW_SESSION,
 } from "./tmux";
 import { readState, writeState, nowIso } from "./state";
+import { dim } from "./color";
 
 export type NewOptions = {
   /** Override the cwd for the new window (default: process.cwd()). */
@@ -191,8 +192,9 @@ function runFresh(description: string, options: NewOptions): number {
     options.stateDir,
   );
 
+  // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
-  console.log(`  attach with: flow attach ${slug}`);
+  console.log(dim(`flow new: created — attach with \`flow attach ${slug}\``));
   return 0;
 }
 
@@ -251,8 +253,9 @@ function runResume(name: string, options: NewOptions): number {
 
   // Phase + worktree + pr stay as the crash left them. The supervisor's
   // first real transition is what updates state.json.
+  // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
-  console.log(`  attach with: flow attach ${slug}`);
+  console.log(dim(`flow new: resumed — attach with \`flow attach ${slug}\``));
   return 0;
 }
 

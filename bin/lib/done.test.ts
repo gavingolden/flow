@@ -272,7 +272,7 @@ describe("runDone --orphans", () => {
 
     expect(code).toBe(0);
     expect(stateMock.deleteState).not.toHaveBeenCalled();
-    expect(log).toHaveBeenCalledWith("aborted.");
+    expect(log).toHaveBeenCalledWith("flow done: aborted — nothing closed");
 
     stdoutWrite.mockRestore();
     log.mockRestore();
@@ -302,6 +302,23 @@ describe("runDone --orphans", () => {
     );
 
     stdoutWrite.mockRestore();
+    log.mockRestore();
+  });
+});
+
+describe("runDone (single name) closed: contract line", () => {
+  it("prints the raw `closed: flow:<name>` token with no ANSI on accept", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "feat-x", phase: "merged" }),
+    );
+
+    const code = runDone("feat-x", { yes: true });
+    expect(code).toBe(0);
+    // Contract: the closed: line is raw — never colorized, exact shape.
+    expect(log).toHaveBeenCalledWith("closed: flow:feat-x");
+
     log.mockRestore();
   });
 });

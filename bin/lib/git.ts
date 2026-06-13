@@ -94,12 +94,15 @@ export type FastForwardResult = {
   status: FastForwardStatus;
   reason?: FastForwardSkippedReason;
   advanced?: number;
+  /** Short HEAD SHA before the --ff-only merge (set on an `ahead` result). */
+  beforeSha?: string;
+  /** Short HEAD SHA after the --ff-only merge (set on an `ahead` result). */
+  afterSha?: string;
 };
 
 export type FastForwardOptions = {
   canonicalRoot: string;
   spawn?: Spawner;
-  log?: (msg: string) => void;
 };
 
 /**
@@ -162,6 +165,18 @@ export function fastForwardCanonical(
     return { status: "up-to-date" };
   }
 
+  const shortHead = (): string | undefined => {
+    const r = spawn("git", ["rev-parse", "--short", "HEAD"], {
+      cwd,
+      encoding: "utf8",
+    });
+    if (r.status !== 0) return undefined;
+    const s = (r.stdout ?? "").trim();
+    return s.length > 0 ? s : undefined;
+  };
+
+  const beforeSha = shortHead();
+
   const merge = spawn(
     "git",
     ["merge", "--ff-only", `origin/${defaultBranch}`],
@@ -171,5 +186,69 @@ export function fastForwardCanonical(
     return { status: "skipped", reason: "merge-failed" };
   }
 
-  return { status: "ahead", advanced };
+  const afterSha = shortHead();
+
+  return { status: "ahead", advanced, beforeSha, afterSha };
+}
+
+export type ChangedInstallPathsOptions = {
+  canonicalRoot: string;
+  beforeSha?: string;
+  afterSha?: string;
+  spawn?: Spawner;
+};
+
+/**
+ * Maps the files changed across the advanced commit range to installed
+ * skill/helper display names: a skill is the directory owning `SKILL.md`
+ * under `skills/...`; a helper is `bin/<name>.ts` (basename, `.ts` dropped,
+ * `.test.ts` ignored). Deduped, order-stable. Purely a reporting helper for
+ * `flow setup --upgrade`'s changed-list — it NEVER throws: any git error,
+ * missing SHA, or empty diff yields `[]`.
+ */
+export function changedInstallPaths(
+  opts: ChangedInstallPathsOptions,
+): string[] {
+  const { canonicalRoot, beforeSha, afterSha } = opts;
+  if (!beforeSha || !afterSha) return [];
+
+  const spawn = opts.spawn ?? defaultSpawn;
+  const diff = spawn(
+    "git",
+    ["-C", canonicalRoot, "diff", "--name-only", `${beforeSha}..${afterSha}`],
+    { cwd: canonicalRoot, encoding: "utf8" },
+  );
+  if (diff.status !== 0) return [];
+
+  const names: string[] = [];
+  const seen = new Set<string>();
+  const add = (name: string) => {
+    if (seen.has(name)) return;
+    seen.add(name);
+    names.push(name);
+  };
+
+  for (const line of (diff.stdout ?? "").split("\n")) {
+    const file = line.trim();
+    if (file.length === 0) continue;
+
+    if (file.startsWith("skills/")) {
+      // The skill is the directory immediately above SKILL.md. For any path
+      // under skills/<tier>/<name>/..., that's the segment at index 2.
+      const parts = file.split("/");
+      if (parts.length >= 4) add(parts[2]);
+      continue;
+    }
+
+    if (file.startsWith("bin/")) {
+      if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
+      // Only top-level helpers (bin/<name>.ts) are installed on PATH; nested
+      // bin/lib/*.ts modules are not user-facing helpers.
+      const parts = file.split("/");
+      if (parts.length !== 2) continue;
+      add(parts[1].slice(0, -".ts".length));
+    }
+  }
+
+  return names;
 }

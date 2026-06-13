@@ -37,8 +37,15 @@ import {
 import { withFileLock } from "./lock";
 import { applyShellRcCompletions } from "./setup-rc";
 import { ensureStopHook, repairSettings } from "./settings-merge";
-import { fastForwardCanonical, resolveDefaultBranch } from "./git";
+import {
+  changedInstallPaths,
+  fastForwardCanonical,
+  resolveDefaultBranch,
+  type FastForwardResult,
+} from "./git";
 import { findMissingRuntimeDeps, formatMissingDepsError } from "./setup-deps";
+import { readFlowVersion } from "./version";
+import { dim, green, red } from "./color";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
 
@@ -182,15 +189,11 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   }
 
   // Outside the lock so two parallel pipelines don't serialize on a network
-  // round-trip. Best-effort — log and continue on any failure (same priority
-  // as applyShellRcCompletions / ensureStopHook below).
+  // round-trip. Best-effort — captured and reported in the outcome headline
+  // (printOutcome) rather than logged inline.
+  let ff: FastForwardResult | undefined;
   if (options.upgrade && options.pullCanonicalFirst !== false) {
-    const ff = fastForwardCanonical({ canonicalRoot: installRoot, log });
-    if (ff.status === "ahead") {
-      log(`      canonical: fast-forwarded ${ff.advanced} commits`);
-    } else if (ff.status === "skipped") {
-      log(`      canonical: skipped (${ff.reason})`);
-    }
+    ff = fastForwardCanonical({ canonicalRoot: installRoot });
   }
 
   // Serialize symlink + manifest writes against any concurrent `flow setup`
@@ -206,6 +209,7 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
         log,
         options,
         missingRuntimeDeps,
+        ff,
       ),
     { timeoutMs: options.lockTimeoutMs },
   );
@@ -218,6 +222,7 @@ function runUnderLock(
   log: (msg: string) => void,
   options: SetupOptions,
   missingRuntimeDeps: string[],
+  ff: FastForwardResult | undefined,
 ): SetupSummary {
   const entries = discoverAll(flowSource, installRoot, targets);
   const summary: SetupSummary = {
@@ -324,11 +329,13 @@ function runUnderLock(
   for (const p of validation.failures) {
     summary.validationFailures.push(p);
     log(
-      `  ! ${p}  (validation-failed: ${validation.errors.get(p) ?? "no detail"})`,
+      red(
+        `  ! ${p}  (validation-failed: ${validation.errors.get(p) ?? "no detail"})`,
+      ),
     );
   }
 
-  printSummary(summary, log);
+  printOutcome(summary, log, options, installRoot, ff);
   return summary;
 }
 
@@ -400,7 +407,7 @@ function reapOrphans(
         log,
       })
     ) {
-      log(`  - ${path.basename(record.target)}  (orphan removed)`);
+      log(dim(`  - ${path.basename(record.target)}  (orphan removed)`));
       removed++;
     }
   }
@@ -441,23 +448,90 @@ function logResult(
   const label = `${entry.kind}/${entry.displayName}`;
   switch (result) {
     case "created":
-      log(`  + ${label}`);
+      log(dim(`  + ${label}`));
       break;
     case "updated":
-      log(`  ~ ${label}  (relinked)`);
+      log(dim(`  ~ ${label}  (relinked)`));
       break;
     case "exists":
       // Quiet on idempotent runs — chatty output drowns the real signal.
       break;
     case "blocked":
       log(
-        `  ! ${label}  (blocked — non-symlink at target; use --force to replace)`,
+        red(
+          `  ! ${label}  (blocked — non-symlink at target; use --force to replace)`,
+        ),
       );
       break;
   }
 }
 
-function printSummary(s: SetupSummary, log: (msg: string) => void): void {
+/**
+ * Composes the version-stamped outcome headline (and, on an `ahead`
+ * upgrade, a concise changed-skills/helpers list) under the per-item detail
+ * lines. Replaces the bare `no changes` symlink-churn summary: an upgrade
+ * whose content advanced reads as updated even with zero relinks. The
+ * symlink accounting moves to a dimmed detail line when there is churn.
+ */
+function printOutcome(
+  s: SetupSummary,
+  log: (msg: string) => void,
+  options: SetupOptions,
+  installRoot: string,
+  ff: FastForwardResult | undefined,
+): void {
+  const version = (() => {
+    try {
+      return readFlowVersion(installRoot);
+    } catch {
+      return undefined;
+    }
+  })();
+  const v = version ? `v${version}` : "(unknown version)";
+
+  if (options.upgrade) {
+    if (ff?.status === "ahead") {
+      const range =
+        ff.beforeSha && ff.afterSha ? `, ${ff.beforeSha} → ${ff.afterSha}` : "";
+      log(
+        green(
+          `flow updated: ${v}, ${ff.advanced} commit${
+            ff.advanced === 1 ? "" : "s"
+          }${range}`,
+        ),
+      );
+      const changed = changedInstallPaths({
+        canonicalRoot: installRoot,
+        beforeSha: ff.beforeSha,
+        afterSha: ff.afterSha,
+      });
+      if (changed.length > 0) log(dim(`      changed: ${changed.join(", ")}`));
+    } else if (ff?.status === "skipped" && ff.reason === "dirty") {
+      log(
+        red(
+          `flow: content NOT refreshed (dirty) — links re-pointed but content not refreshed`,
+        ),
+      );
+    } else if (ff?.status === "skipped" && ff.reason === "non-default-branch") {
+      log(dim(`flow: content not refreshed (on a non-default branch)`));
+    } else if (ff?.status === "skipped") {
+      log(dim(`flow: content not refreshed (${ff.reason})`));
+    } else if (ff?.status === "up-to-date") {
+      log(green(`flow already up to date at ${v}`));
+    } else {
+      // ff === undefined: --no-pull-canonical opted out, so content was never
+      // fetched/compared. Don't claim up-to-date — links were re-pointed but
+      // no content check happened.
+      log(green(`flow setup complete at ${v} (content not checked)`));
+    }
+  } else {
+    log(green(`flow installed ${v}`));
+  }
+
+  printSummaryLine(s, log);
+}
+
+function printSummaryLine(s: SetupSummary, log: (msg: string) => void): void {
   const parts = [
     s.created ? `${s.created} created` : null,
     s.updated ? `${s.updated} updated` : null,
@@ -465,7 +539,9 @@ function printSummary(s: SetupSummary, log: (msg: string) => void): void {
     s.removed ? `${s.removed} removed` : null,
     s.blocked ? `${s.blocked} blocked` : null,
   ].filter(Boolean);
-  log(parts.length ? `      ${parts.join(", ")}` : "      no changes");
+  // Only emit the symlink accounting when there was real churn — an
+  // idempotent run keeps to the one-line outcome above (Story 6).
+  if (parts.length) log(dim(`      ${parts.join(", ")}`));
 }
 
 function commandOnPath(cmd: string): boolean {

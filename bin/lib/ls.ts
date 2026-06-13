@@ -26,6 +26,7 @@ import { argsContainHelp, printVerbHelp } from "./help";
 import { listStates, type PipelineState } from "./state";
 import { relativeTime } from "./time";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
+import { dim } from "./color";
 
 export type LsOptions = {
   cost?: boolean;
@@ -78,7 +79,7 @@ export async function runLs(opts: LsOptions = {}): Promise<number> {
   const rows = await buildRows(states, windows, Date.now(), opts);
 
   if (rows.length === 0) {
-    console.log("no active pipelines.");
+    console.log(dim("flow ls: no active pipelines"));
     return 0;
   }
 

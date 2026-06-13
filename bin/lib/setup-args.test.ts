@@ -415,9 +415,9 @@ describe("runSetupCli", () => {
 
   it("plumbs pullCanonicalFirst=false through to runSetup when --no-pull-canonical is passed", () => {
     // The fake flow-source fixture is not a git repo, so the default
-    // upgrade path would log `canonical: skipped (not-a-git-repo)` via
-    // runSetup's fast-forward best-effort branch. With --no-pull-canonical
-    // the CLI must skip that branch entirely, so the line must not appear.
+    // upgrade path would run runSetup's fast-forward best-effort branch.
+    // With --no-pull-canonical the CLI must skip that branch entirely, so
+    // no `canonical:` diagnostics must appear.
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
       const code = runSetupCli(["--upgrade", "--no-pull-canonical"], {
@@ -441,8 +441,9 @@ describe("runSetupCli", () => {
 
   it("logs canonical: skipped on --upgrade alone (default pullCanonical=true) when fixture is not a git repo", () => {
     // Symmetric counterpart to the assertion above: confirms the default
-    // path actually fires the FF probe (and falls through to skipped/
-    // not-a-git-repo on the fake fixture).
+    // path actually fires the FF probe (and falls through to the
+    // not-a-git-repo skip on the fake fixture, surfaced in the outcome
+    // headline as "content not refreshed (not-a-git-repo)").
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
       const code = runSetupCli(["--upgrade"], {
@@ -457,7 +458,7 @@ describe("runSetupCli", () => {
       });
       expect(code).toBe(0);
       const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
-      expect(allLogs).toMatch(/canonical: skipped \(not-a-git-repo\)/);
+      expect(allLogs).toMatch(/content not refreshed \(not-a-git-repo\)/);
     } finally {
       logSpy.mockRestore();
     }

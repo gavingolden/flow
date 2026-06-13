@@ -32,6 +32,7 @@ import {
   type PipelineState,
 } from "./state";
 import { deleteTurnTracking } from "./stop-turn-tracking";
+import { dim } from "./color";
 
 const TERMINAL_PHASES = new Set(["merged", "cancelled"]);
 
@@ -84,7 +85,7 @@ export function runDone(
 
   if (!options.yes) {
     if (!confirm(`close pipeline '${name}'?`)) {
-      console.log("aborted.");
+      console.log(dim("flow done: aborted — nothing closed"));
       return 0;
     }
   }
@@ -169,7 +170,7 @@ function sweep(
 
   if (!options.yes) {
     if (!confirm("proceed?")) {
-      console.log("aborted.");
+      console.log(dim("flow done: aborted — nothing closed"));
       return 0;
     }
   }

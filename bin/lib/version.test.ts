@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runVersion, runVersionCli } from "./version";
+import { readFlowVersion, runVersion, runVersionCli } from "./version";
 
 let scratch!: string;
 
@@ -69,6 +69,31 @@ describe("runVersion", () => {
     expect(code).toBe(1);
     expect(String(err.mock.calls[0][0])).toContain("no 'version' field");
     err.mockRestore();
+  });
+});
+
+describe("readFlowVersion (extracted, unit-testable)", () => {
+  it("round-trips the version field from package.json", () => {
+    writePkg({ name: "flow", version: "2.5.0" });
+    expect(readFlowVersion(scratch)).toBe("2.5.0");
+  });
+
+  it("runVersion prints exactly what readFlowVersion returns", () => {
+    writePkg({ name: "flow", version: "9.9.9" });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const code = runVersion({ flowSource: scratch });
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledWith(readFlowVersion(scratch));
+    log.mockRestore();
+  });
+
+  it("throws (rather than printing) on a missing package.json", () => {
+    expect(() => readFlowVersion(scratch)).toThrow(/cannot read/);
+  });
+
+  it("throws when the version field is absent", () => {
+    writePkg({ name: "flow" });
+    expect(() => readFlowVersion(scratch)).toThrow(/no 'version' field/);
   });
 });
 
