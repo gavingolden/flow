@@ -105,6 +105,11 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.new).toContain("auto|always|never");
     expect(HELP_TEXT.new).toMatch(/default auto/);
   });
+
+  it("HELP_TEXT.new documents --effort with its five-value enum", () => {
+    expect(HELP_TEXT.new).toContain("--effort");
+    expect(HELP_TEXT.new).toContain("low|medium|high|xhigh|max");
+  });
 });
 
 describe("HELP_TOP", () => {
@@ -125,6 +130,10 @@ describe("HELP_TOP", () => {
 
   it("documents --copilot-review in the `flow new` synopsis", () => {
     expect(HELP_TOP).toContain("--copilot-review");
+  });
+
+  it("documents --effort in the `flow new` synopsis", () => {
+    expect(HELP_TOP).toContain("--effort");
   });
 });
 

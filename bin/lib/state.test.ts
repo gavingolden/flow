@@ -197,6 +197,54 @@ describe("state", () => {
     expect(readState("cr-bad", dir)).toBeNull();
   });
 
+  it.each(["low", "medium", "high", "xhigh", "max"] as const)(
+    "readState accepts effort='%s'",
+    (value) => {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, `effort-${value}.json`),
+        JSON.stringify({
+          slug: `effort-${value}`,
+          phase: "reviewing",
+          repo: "/tmp/repo",
+          updatedAt: "2026-05-17T00:00:00Z",
+          effort: value,
+        }),
+      );
+      expect(readState(`effort-${value}`, dir)?.effort).toBe(value);
+    },
+  );
+
+  it("readState accepts an absent effort field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "effort-absent.json"),
+      JSON.stringify({
+        slug: "effort-absent",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    expect(readState("effort-absent", dir)).not.toBeNull();
+    expect(readState("effort-absent", dir)).not.toHaveProperty("effort");
+  });
+
+  it("readState returns null for an invalid effort value (not a member)", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "effort-bad.json"),
+      JSON.stringify({
+        slug: "effort-bad",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        effort: "bogus",
+      }),
+    );
+    expect(readState("effort-bad", dir)).toBeNull();
+  });
+
   it.each([
     ["slug", 42],
     ["repo", 99],
@@ -277,6 +325,7 @@ describe("state", () => {
       autoMerge: false,
       waitForCopilot: true,
       copilotReview: "never",
+      effort: "high",
       sessionId: "b034430c-03bd-4fa0-8393-9f0859800531",
       gateOverride: { pr: 142, confirmedAt: "2026-05-17T00:05:00Z" },
     };

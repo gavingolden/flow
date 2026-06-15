@@ -20,7 +20,13 @@ import {
   isPaneAlive,
   FLOW_SESSION,
 } from "./tmux";
-import { readState, writeState, nowIso } from "./state";
+import {
+  readState,
+  writeState,
+  nowIso,
+  EFFORT_LEVELS,
+  type EffortLevel,
+} from "./state";
 import { dim } from "./color";
 
 export type NewOptions = {
@@ -44,6 +50,12 @@ export type NewOptions = {
    * `never`). Omitted when absent (absent ≡ `auto`).
    */
   copilotReview?: "auto" | "always" | "never";
+  /**
+   * Persist the Claude Code reasoning-effort level. Threaded into the
+   * launch argv as `--effort <level>` before the prompt. Omitted when
+   * absent (no `--effort` flag passed to claude).
+   */
+  effort?: EffortLevel;
 };
 
 export function runNew(input: string, options: NewOptions = {}): number {
@@ -105,6 +117,28 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   }
   const crValueToken = crIdx >= 0 ? args[crIdx + 1] : undefined;
 
+  // --effort <low|medium|high|xhigh|max> is a VALUE flag mirroring
+  // --copilot-review. Validate the enum here, before any side-effect, so an
+  // invalid value exits non-zero and writes no state. The flag + its value
+  // token are both stripped from the description args.
+  let effort: EffortLevel | undefined;
+  const effortIdx = args.indexOf("--effort");
+  if (effortIdx >= 0) {
+    const value = args[effortIdx + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error("flow new: --effort requires a value.");
+      console.error("  expected one of: low, medium, high, xhigh, max");
+      return 1;
+    }
+    if (!(EFFORT_LEVELS as readonly string[]).includes(value)) {
+      console.error(`flow new: invalid --effort value '${value}'.`);
+      console.error("  expected one of: low, medium, high, xhigh, max");
+      return 1;
+    }
+    effort = value as EffortLevel;
+  }
+  const effortValueToken = effortIdx >= 0 ? args[effortIdx + 1] : undefined;
+
   // Drop a leading `--` end-of-options sentinel so descriptions written
   // with `flow new -- fix the -h crash` round-trip without the literal
   // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
@@ -123,6 +157,12 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
         skipNext = crValueToken !== undefined && !crValueToken.startsWith("--");
         return false;
       }
+      if (a === "--effort") {
+        // Strip the flag and mark its value token for removal too.
+        skipNext =
+          effortValueToken !== undefined && !effortValueToken.startsWith("--");
+        return false;
+      }
       return a !== "--no-auto-merge" && a !== "--wait-for-copilot";
     })
     .join(" ");
@@ -131,6 +171,7 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     noAutoMerge,
     waitForCopilot,
     copilotReview,
+    effort,
   });
 }
 
@@ -138,7 +179,7 @@ function runFresh(description: string, options: NewOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow new: description is required.");
     console.error(
-      "usage: flow new [--no-auto-merge] [--wait-for-copilot] [--copilot-review <auto|always|never>] <description>",
+      "usage: flow new [--no-auto-merge] [--wait-for-copilot] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>",
     );
     return 1;
   }
@@ -165,7 +206,8 @@ function runFresh(description: string, options: NewOptions): number {
     return 1;
   }
 
-  const command = options.command ?? defaultCommand(description);
+  const command =
+    options.command ?? defaultCommand(description, options.effort);
   const result = createWindow(slug, repo, command);
   if (!result.ok) {
     console.error(`flow new: tmux failed to create the window.`);
@@ -187,6 +229,7 @@ function runFresh(description: string, options: NewOptions): number {
       autoMerge: options.noAutoMerge ? false : undefined,
       waitForCopilot: options.waitForCopilot ? true : undefined,
       copilotReview: options.copilotReview,
+      effort: options.effort,
       updatedAt: nowIso(),
     },
     options.stateDir,
@@ -239,7 +282,7 @@ function runResume(name: string, options: NewOptions): number {
     return 1;
   }
 
-  const command = options.command ?? resumeCommand(slug);
+  const command = options.command ?? resumeCommand(slug, state.effort);
   const result = exists
     ? respawnWindow(slug, state.repo, command)
     : createWindow(slug, state.repo, command);
@@ -259,19 +302,19 @@ function runResume(name: string, options: NewOptions): number {
   return 0;
 }
 
-function defaultCommand(description: string): string[] {
+function defaultCommand(description: string, effort?: EffortLevel): string[] {
   // The supervisor skill is invoked by the chat session itself, not by
   // passing the slash command on the CLI. We launch claude with an initial
   // prompt that tells the user (and the LLM, once active) what to do.
   const prompt = `Use the /flow-pipeline skill for: ${description}`;
-  return ["claude", prompt];
+  return effort ? ["claude", "--effort", effort, prompt] : ["claude", prompt];
 }
 
-function resumeCommand(slug: string): string[] {
+function resumeCommand(slug: string, effort?: EffortLevel): string[] {
   // The supervisor parses this prefix to detect resume mode and walk the
   // decision tree in references/failure-recovery.md section (b).
   const prompt = `Use the /flow-pipeline skill in --resume mode for: ${slug}`;
-  return ["claude", prompt];
+  return effort ? ["claude", "--effort", effort, prompt] : ["claude", prompt];
 }
 
 function resolveRepoRoot(cwd: string): string | null {

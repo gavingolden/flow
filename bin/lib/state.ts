@@ -12,6 +12,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_STATE_DIR } from "./paths";
 
+/**
+ * Reasoning-effort levels accepted by `claude --effort`. Single source of
+ * truth: `new.ts` imports this for `flow new --effort` validation; help text
+ * and completion scripts necessarily restate the literals as plain strings.
+ */
+export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
 export type PipelineState = {
   slug: string;
   phase: string;
@@ -39,6 +47,13 @@ export type PipelineState = {
    * documented default).
    */
   copilotReview?: "auto" | "always" | "never";
+  /**
+   * Claude Code reasoning-effort level for this pipeline's claude session.
+   * Set via `flow new --effort <low|medium|high|xhigh|max>` and re-applied
+   * to the respawn argv on `flow new --resume`. Absent ≡ the Claude Code
+   * default (no `--effort` flag passed).
+   */
+  effort?: EffortLevel;
   /**
    * Claude Code session ID captured by `flow-open-pr` at PR-open time.
    * Carries the ID to `/flow-pipeline` step 10, which emits it as a
@@ -147,6 +162,11 @@ function isPipelineState(x: unknown): x is PipelineState {
     o.copilotReview !== "auto" &&
     o.copilotReview !== "always" &&
     o.copilotReview !== "never"
+  )
+    return false;
+  if (
+    o.effort !== undefined &&
+    !(EFFORT_LEVELS as readonly string[]).includes(o.effort as string)
   )
     return false;
   if (o.sessionId !== undefined && typeof o.sessionId !== "string")
