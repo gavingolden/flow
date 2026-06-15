@@ -26,7 +26,14 @@
  *                            intent is non-feature and plan.md's
  *                            Recommended path is `methods plausibly
  *                            reach target` OR plan.md has no
- *                            Prompt-Interpretation section).
+ *                            Prompt-Interpretation section). NOTE: the
+ *                            supervisor runs its non-feature
+ *                            candidate-issues sub-step (via
+ *                            `flow-candidate-issues`) on this path
+ *                            BEFORE entering Step 5 — so a non-feature
+ *                            pipeline with discovered follow-ups is
+ *                            still offered the candidate-issues prompt;
+ *                            this is NOT a straight jump to Step 5.
  *                            Surrounding backtick/bold decoration and
  *                            a trailing `. , ; :` punctuation run on
  *                            the enum value are tolerated; case

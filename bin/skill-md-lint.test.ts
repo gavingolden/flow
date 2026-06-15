@@ -274,14 +274,34 @@ describe("flow-pipeline SKILL.md structural lint", () => {
     expect(
       content.includes("AskUserQuestion"),
       "flow-pipeline SKILL.md must reference 'AskUserQuestion' — the " +
-        "primitive the supervisor calls at its two authorised sites " +
-        "(step 4's candidate-issues sub-step and step 9's gate-override " +
-        "sub-step).",
+        "primitive the supervisor calls for its two authorised forms: the " +
+        "candidate-issues form (fired from step 4's affirmative-branch " +
+        "sub-step AND step 3's non-feature advance-to-step-5 sub-step) and " +
+        "step 9's gate-override sub-step.",
     ).toBe(true);
     expect(
       content.includes("# Candidate follow-up issues"),
       "flow-pipeline SKILL.md must reference '# Candidate follow-up issues' " +
         "so step 4 and step 10 stay anchored on the plan.md section name.",
+    ).toBe(true);
+  });
+
+  it("documents the non-feature candidate-issues firing point on advance-to-step-5", () => {
+    // The candidate-issues form now fires from a second location — step 3's
+    // non-feature `advance-to-step-5` branch. Anchor on the co-occurrence of
+    // the route value and the helper so the firing point can't be silently
+    // dropped without tripping this lint.
+    expect(
+      content.includes("advance-to-step-5"),
+      "flow-pipeline SKILL.md must reference 'advance-to-step-5' — the " +
+        "non-feature route on which the candidate-issues sub-step now fires.",
+    ).toBe(true);
+    expect(
+      content.includes("flow-candidate-issues"),
+      "flow-pipeline SKILL.md must reference 'flow-candidate-issues' — the " +
+        "LLM-free helper that owns the candidate-issues matrix decision, " +
+        "called from both the step-4 sub-step and the non-feature " +
+        "advance-to-step-5 sub-step.",
     ).toBe(true);
   });
 

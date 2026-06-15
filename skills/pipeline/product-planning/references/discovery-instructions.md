@@ -174,10 +174,13 @@ entry is a single-line markdown checkbox with a title and one-line body, in the 
 - [ ] `gh-action-cache@v3` is deprecated — pin to v4 in CI.
 ```
 
-Leave every checkbox **unticked** (`- [ ]`). The supervisor's step 4 will pop an
+Leave every checkbox **unticked** (`- [ ]`). The supervisor will pop an
 `AskUserQuestion` form to let the user pick which to file (1–4 candidates) or fall back to
-manual editing (5+ candidates). The user's selections persist back as `- [x]`; the post-
-merge sweep at step 10 reads `- [x]` items and fires `flow-create-issue` for each.
+manual editing (5+ candidates) — on step 4's affirmative branch for feature intents, and
+ALSO on the non-feature `advance-to-step-5` path (bug/refactor/docs/infra/chore
+pipelines, which skip step 4), so the prompt fires regardless of intent. The user's
+selections persist back as `- [x]`; the post-merge sweep at step 10 reads `- [x]` items
+and fires `flow-create-issue` for each.
 
 If discovery surfaces no orthogonal ideas, **omit the section entirely** — do not write an
 empty heading. An empty heading is a no-op for the supervisor (count is `0` → no form,
