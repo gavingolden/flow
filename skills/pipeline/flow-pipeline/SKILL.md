@@ -290,22 +290,27 @@ in-process for skills; shell out for scripts; never delegate.
 > worktrees, branch collisions, review-comment ID mapping,
 > allowlist enforcement on auto-run) that are easy to get wrong.
 
-> **You only call `AskUserQuestion` from the two named sites.** The
-> supervisor's only authorised `AskUserQuestion` calls are (a) step 4's
-> "Candidate follow-up issues sub-step" (the multi-select form for
-> picking which orthogonal candidates to file post-merge) and (b) step
-> 9's "Gate override (post-verdict, opt-in)" sub-step (the single
-> confirmation form fired when the user instructs the supervisor to
-> merge a `gated` PR anyway — the form is what makes a gate override a
-> *fresh* confirmation, putting the gate verdict in front of the user
-> rather than letting the supervisor infer authorisation from an
-> earlier instruction). Same narrow-and-named contract as the Task-tool
-> exemptions above: `AskUserQuestion` is a different primitive
+> **You only call `AskUserQuestion` from the two named forms.** The
+> supervisor's only authorised `AskUserQuestion` calls are (a) the
+> **candidate-issues form** (the multi-select for picking which
+> orthogonal candidates to file post-merge) and (b) step 9's "Gate
+> override (post-verdict, opt-in)" form (the single confirmation fired
+> when the user instructs the supervisor to merge a `gated` PR anyway —
+> the form is what makes a gate override a *fresh* confirmation,
+> putting the gate verdict in front of the user rather than letting the
+> supervisor infer authorisation from an earlier instruction). The
+> candidate-issues form fires from **two locations** — step 4's
+> "Candidate follow-up issues sub-step" (the Affirmative branch) AND
+> step 3's "Candidate follow-up issues sub-step (non-feature intents)"
+> on the `advance-to-step-5` branch — but it is **one** named form, not
+> two: the distinct named forms stay at two (candidate-issues +
+> gate-override), no third site. Same narrow-and-named contract as the
+> Task-tool exemptions above: `AskUserQuestion` is a different primitive
 > (synchronous user prompt, not a sub-agent fan-out), but a small named
 > set keeps the supervisor's user-prompt surface auditable. These two
-> are the **only** authorised sites — no other skill or step may call
-> `AskUserQuestion`. If a future skill needs the same license, add it
-> here by name rather than generalising the rule.
+> forms are the **only** authorised user-prompt surface — no other
+> skill or step may call `AskUserQuestion`. If a future skill needs the
+> same license, add it here by name rather than generalising the rule.
 
 > **You only auto-create GitHub issues from the named sites.**
 > `flow-create-issue` may fire only from (a) `/pr-review`'s Step 6
@@ -754,9 +759,54 @@ context-cost win the subagent fan-out is designed to deliver).
 
   - **`advance-to-step-5`** → no `## Prompt interpretation` section
     OR the section's Recommended path is `methods plausibly reach
-    target`. Continue directly to step 5 (existing behaviour
-    unchanged). The plan still exists on disk for traceability, but
-    the user wasn't asked to ratify it.
+    target`. The plan still exists on disk for traceability, but the
+    user wasn't asked to ratify it. Run the **non-feature
+    candidate-issues sub-step** immediately below before falling
+    through to step 5.
+
+    #### Candidate follow-up issues sub-step (non-feature intents)
+
+    Fires ONLY on this `advance-to-step-5` branch (NOT on
+    `route-to-step-4`, which already reaches step 4's affirmative-
+    branch sub-step — firing here too would double-prompt). This is
+    the SAME named candidate-issues form as step 4, fired from a
+    second location. It NEVER fires a plan-ratification gate: a
+    non-feature intent does not acquire an "approved to proceed"
+    checkpoint — only the candidate-issues prompt, and only when
+    discovery found candidates. Same thin shape as step 4's sub-step:
+
+    ```bash
+    CI=$(flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --json)
+    ACTION=$(printf '%s' "$CI" | jq -r '.action')
+    ```
+
+    Branch on `.action`:
+
+    - **`no-op`** / **`skip-already-ticked`** → NO prompt, NO
+      turn-end; continue straight to step 5 in the same turn. This is
+      the common autonomous case — it preserves the "non-feature
+      runs to terminal in one uninterrupted turn" principle.
+    - **`prompt`** (1–4 unticked candidates) → fire the SAME named
+      candidate-issues `AskUserQuestion` multi-select built from
+      `.candidates`, map the selections back to 1-based positions,
+      `flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --tick <indices>`
+      to flip them, then continue to step 5 in the SAME turn. The
+      form is synchronous and does not end the turn, so no pending
+      phase is needed.
+    - **`overflow`** (5+ unticked candidates) → render the AWAITING
+      APPROVAL manual-edit guidance via `flow-gate-summary --status
+      awaiting-approval --why "5+ candidate follow-up issues —
+      option cap exceeded; tick desired items manually in plan.md"
+      --worktree "$WORKTREE" --plan-file
+      "$WORKTREE/.flow-tmp/plan.md"`, touch the worktree-local marker
+      `"$WORKTREE/.flow-tmp/candidate-issues-overflow.pending"` (so a
+      crash-resume can tell this apart from a feature plan-approval
+      clarification — see Resume mode), write `flow-state-update
+      --phase approval-pending-clarification`, and end the turn.
+
+    The `AskUserQuestion` primitive and the decision to fire it stay
+    here in the supervisor; `flow-candidate-issues` is LLM-free.
+
   - **`route-to-step-4`** → the section is present and the
     Recommended path is one of `extend scope with named additional
     safe steps` / `relax target` / `split into multiple pipelines`.
@@ -811,31 +861,50 @@ typed something into the tmux chat. Classify the input using
 ### Candidate follow-up issues sub-step
 
 Runs only on the **Affirmative** branch above, before stepping to
-step 5. Reads `$WORKTREE/.flow-tmp/plan.md`, locates the optional
-`# Candidate follow-up issues` section, and applies this matrix:
-
-| Section state | Action |
-|---|---|
-| Section absent | No-op. Continue to step 5. |
-| Section present, every item is `- [ ]`, **count is 1–4** | Fire one `AskUserQuestion` (multi-select) listing each candidate. Persist the user's selections back to plan.md by flipping `- [ ]` → `- [x]` for every chosen item using the `Edit` tool with explicit `old_string`/`new_string` matches. Continue to step 5. |
-| Section present, **any item already `- [x]`** | The user pre-ticked during plan review (their explicit choice wins). Skip the form. Continue to step 5. |
-| Section present, count is `0` | No-op. Continue to step 5. |
-| Section present, **count is 5+** unticked | The form's option cap can't fit the candidates. Render the AWAITING APPROVAL block via `flow-gate-summary --status awaiting-approval --why "5+ candidate follow-up issues — option cap exceeded; tick desired items manually in plan.md" --worktree "$WORKTREE" --plan-file "$WORKTREE/.flow-tmp/plan.md"` so the user can scroll-tap-edit, write `flow-state-update --phase approval-pending-clarification`, end the turn. The next turn re-enters step 4. |
-
-**Quick presence probe.** Before reading the whole file, run a fast
-grep so the early-exit cases don't pull plan.md into context twice
-in the same supervisor session:
+step 5. The five-branch decision over plan.md's optional
+`# Candidate follow-up issues` section is owned by the
+`flow-candidate-issues` helper — this sub-step is a thin call site
+around it, never re-deriving the matrix in prose:
 
 ```bash
-if ! grep -q '^# Candidate follow-up issues' "$WORKTREE/.flow-tmp/plan.md" 2>/dev/null; then
-  : # section absent — fall through to step 5
-fi
+CI=$(flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --json)
+ACTION=$(printf '%s' "$CI" | jq -r '.action')
 ```
+
+Branch on `.action`:
+
+- **`no-op`** (section absent, or present with zero items) or
+  **`skip-already-ticked`** (the user pre-ticked during plan review —
+  their explicit choice wins) → no prompt; continue to step 5.
+- **`prompt`** (1–4 unticked candidates) → fire one `AskUserQuestion`
+  (multi-select) built from `.candidates` — each `{ title, body }`
+  becomes an option. Map the user's selections back to their 1-based
+  positions in `.candidates`, then flip the chosen items to `- [x]`
+  via the helper (it owns the flip; no hand-matched `Edit`
+  `old_string`/`new_string`):
+
+  ```bash
+  flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --tick <comma,separated,indices>
+  ```
+
+  Then continue to step 5.
+- **`overflow`** (5+ unticked candidates) → the form's option cap
+  can't fit the candidates. Render the AWAITING APPROVAL block via
+  `flow-gate-summary --status awaiting-approval --why "5+ candidate
+  follow-up issues — option cap exceeded; tick desired items manually
+  in plan.md" --worktree "$WORKTREE" --plan-file
+  "$WORKTREE/.flow-tmp/plan.md"` so the user can scroll-tap-edit,
+  write `flow-state-update --phase approval-pending-clarification`,
+  end the turn. The next turn re-enters step 4.
 
 `AskUserQuestion` is the **only** Claude Code user-prompt primitive
 the supervisor calls — see "Hard rules" above for the
-narrow-and-named exemption that authorises this single site. Other
-skills and steps may not invoke it.
+narrow-and-named exemption that authorises this site (the same named
+candidate-issues form also fires from step 3's non-feature
+`advance-to-step-5` sub-step). Other skills and steps may not invoke
+it. The decision to fire the form stays here in the supervisor;
+`flow-candidate-issues` is LLM-free parse/decide/flip only — it never
+calls `AskUserQuestion`.
 
 ## Step 5 — Implement
 
@@ -1796,29 +1865,16 @@ PLAN="$WORKTREE/.flow-tmp/plan.md"
 FILED=()
 WARN=()
 if [ -f "$PLAN" ] && grep -q '^# Candidate follow-up issues' "$PLAN"; then
-  # Extract ticked lines ("- [x] Title — body") from the section,
-  # stopping at the next top-level heading.
-  TICKED=$(awk '
-    /^# Candidate follow-up issues/ {section=1; next}
-    /^# / && section {exit}
-    section && /^- \[x\] / {sub(/^- \[x\] /, ""); print}
-  ' "$PLAN")
-  while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    # Split on the FIRST " — " only: title before, body after. Bash
-    # parameter expansion does this cleanly:
-    #   ${line%% — *} — strip longest suffix matching " — *" → title
-    #   ${line#* — }  — strip shortest prefix matching "* — " → body
-    # A naive awk -F ' — ' '{$1=""; print}' would rebuild $0 with
-    # OFS=" " and collapse every subsequent em-dash inside the body
-    # into a plain space, so we avoid awk's field-rebuild for this.
-    TITLE="${line%% — *}"
-    if [ "$TITLE" = "$line" ]; then
-      # No " — " delimiter — whole line is the title, body is empty.
-      BODY=""
-    else
-      BODY="${line#* — }"
-    fi
+  # The same helper that owns the candidate-issues decision also owns
+  # the ticked-item extraction — `--ticked` reuses its section parse
+  # and first-` — ` split, so the section is parsed in exactly one
+  # place (no hand-rolled awk + Bash em-dash split here). Emits
+  # { ticked: [{ title, body }] }, empty when zero items are ticked.
+  TICKED_JSON=$(flow-candidate-issues --plan-md-file "$PLAN" --ticked)
+  COUNT=$(printf '%s' "$TICKED_JSON" | jq -r '.ticked | length')
+  for ((i = 0; i < COUNT; i++)); do
+    TITLE=$(printf '%s' "$TICKED_JSON" | jq -r ".ticked[$i].title")
+    BODY=$(printf '%s' "$TICKED_JSON" | jq -r ".ticked[$i].body")
     BODY_FILE="$WORKTREE/.flow-tmp/sweep-$(echo "$TITLE" | tr ' /' '__').md"
     printf '%s\n\nSurfaced by /product-planning during the pipeline that landed PR #%s.\n' \
       "$BODY" "$PR" > "$BODY_FILE"
@@ -1833,7 +1889,7 @@ if [ -f "$PLAN" ] && grep -q '^# Candidate follow-up issues' "$PLAN"; then
     else
       WARN+=("$TITLE")
     fi
-  done <<< "$TICKED"
+  done
 fi
 if [ "${#FILED[@]}" -eq 0 ] && [ "${#WARN[@]}" -eq 0 ]; then
   echo "No follow-up issues filed"
@@ -1846,9 +1902,11 @@ fi
 ```
 
 The sweep is best-effort: per-call failure surfaces as a `WARN:` line
-but does not fail the pipeline — the merge already shipped. The
-helper's title-collision idempotency makes a sweep re-run on resume
-safe (re-firing yields `action: "existing"` and the same URL).
+but does not fail the pipeline — the merge already shipped.
+`flow-create-issue`'s title-collision idempotency makes a sweep re-run
+on resume safe (re-firing yields `flow-create-issue`'s `action:
+"existing"` and the same URL — distinct from `flow-candidate-issues`'
+decision enum).
 
 Continue to step 11 — local follow-ups must run *before*
 `flow-remove-worktree` so the JSONL log is still on disk when the
@@ -1985,7 +2043,7 @@ Branch on `.resumeAt`:
 |---|---|
 | `step-2` | Re-enter step 2 (worktree). Recreate via `flow-new-worktree`. |
 | `step-3` | Re-enter step 3 (plan). Re-invoke `/product-planning`. |
-| `step-4` | Re-enter step 4 (approval). Re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
+| `step-4` | Re-enter step 4 (approval) — **but first check for the non-feature candidate-issues overflow marker** (see the note below the table). Absent the marker: re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/new-feature`. |
 | `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow setup --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
 | `step-6` | Re-enter step 6 (verify). Re-invoke `/verify`. |
@@ -1995,6 +2053,27 @@ Branch on `.resumeAt`:
 | `terminal` | Already in a terminal state. Render the corresponding block via `flow-gate-summary --status <merged\|gated\|cancelled> ...` (the same helper every gate-emission site uses) and end without re-running anything. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |
+
+**Non-feature candidate-issues overflow re-route.**
+`flow-resume-decide` resolves `approval-pending-clarification` to
+`step-4` (`bin/flow-resume-decide.ts` Row 4 — the phase is not in
+`POST_APPROVAL_PHASES`). For a *feature* pipeline that is correct: it
+takes the normal step-4 plan-approval clarification path above. But a
+**non-feature** pipeline never solicited a plan-ratification gate, so
+the only way it can be parked at `approval-pending-clarification` is
+the candidate-issues 5+ **overflow** case from step 3's non-feature
+sub-step. The supervisor disambiguates by the presence of the
+worktree-local marker `"$WORKTREE/.flow-tmp/candidate-issues-overflow.pending"`
+(written by that overflow branch). When `.resumeAt` is `step-4` AND
+that marker exists, do NOT re-run step-4 plan ratification (the user
+never gave a plan to ratify). Instead re-enter the candidate-issues
+sub-step: re-run `flow-candidate-issues --plan-md-file
+"$WORKTREE/.flow-tmp/plan.md" --json` and branch on `.action` — on
+`prompt`, fire the candidate-issues `AskUserQuestion` + `--tick`; on
+`no-op`/`skip-already-ticked` (the user manually ticked items in
+plan.md while away), continue to step 5 — then remove the marker once
+resolved. A feature pipeline at the same phase (no marker) is
+unaffected.
 
 ## Edge cases (verbatim from `references/failure-recovery.md` section (b))
 
