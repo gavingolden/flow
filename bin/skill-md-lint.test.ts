@@ -1287,6 +1287,62 @@ describe("Prompt-interpretation contract anchors", () => {
   });
 });
 
+describe("New planning-discipline contract anchors", () => {
+  // PR #290 introduced three planning disciplines as verbatim prose, documented
+  // bidirectionally across new-feature/SKILL.md Step 2 (the Critical Analysis
+  // self-critique closer) and product-planning discovery-instructions.md (the
+  // "Draft the PRD" / "Plan risks" sub-sections). The parallel disciplines they
+  // were modeled on ("Prompt interpretation" / "Coverage breadth") already have
+  // anchor blocks above; without an equivalent here, a future edit could silently
+  // drop the `## Plan risks` section, rename a phrase, or sever the cross-link
+  // with nothing failing in CI. Issue #291 tracks closing this drift-surface gap.
+  it.each(["externally-failable", "## Plan risks", "weakest assumption"])(
+    "both planning skills carry the discipline phrase '%s'",
+    (phrase) => {
+      expect(
+        newFeatureContent.includes(phrase),
+        `new-feature/SKILL.md Step 2 must contain the verbatim planning-discipline ` +
+          `phrase '${phrase}'. PR #290 introduced it as prose cross-linked with ` +
+          `product-planning discovery-instructions.md; dropping or renaming it here ` +
+          `silently breaks the discipline with nothing failing in CI. Rename it in ` +
+          `lock-step across both files and update this lint in the same commit ` +
+          `(AGENTS.md anchored-phrase rule).`,
+      ).toBe(true);
+      expect(
+        discoveryInstructionsContent.includes(phrase),
+        `product-planning discovery-instructions.md must contain the verbatim ` +
+          `planning-discipline phrase '${phrase}'. PR #290 introduced it as prose ` +
+          `cross-linked with new-feature/SKILL.md Step 2; dropping or renaming it ` +
+          `here silently breaks the discipline with nothing failing in CI. Rename ` +
+          `it in lock-step across both files and update this lint in the same ` +
+          `commit (AGENTS.md anchored-phrase rule).`,
+      ).toBe(true);
+    },
+  );
+
+  it("new-feature/SKILL.md Step 2 and discovery-instructions.md cross-link bidirectionally", () => {
+    expect(
+      newFeatureContent.includes(
+        "skills/pipeline/product-planning/references/discovery-instructions.md",
+      ),
+      "new-feature/SKILL.md Step 2 must reference " +
+        "skills/pipeline/product-planning/references/discovery-instructions.md — the " +
+        "self-critique disciplines (externally-failable / weakest assumption) defer to " +
+        "the discovery-side source by path. Severing this direction of the cross-link " +
+        "orphans the discipline; restore the reference or update this lint in the same " +
+        "commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("new-feature/SKILL.md"),
+      "product-planning discovery-instructions.md must reference new-feature/SKILL.md — " +
+        "the `## Plan risks` discipline names new-feature/SKILL.md Step 2 as the " +
+        "counterpart self-critique site. Severing this direction of the cross-link " +
+        "orphans the discipline; restore the reference or update this lint in the same " +
+        "commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+});
+
 describe("pr-review result-artifact contract lint", () => {
   it("pr-review SKILL.md frontmatter does not include `context: fork`", () => {
     expect(
