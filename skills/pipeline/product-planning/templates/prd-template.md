@@ -108,6 +108,19 @@
 
 **[Proceed | Reconsider scope | Defer | Reject — do nothing]** — [one-line rationale; reference an Open Question when the verdict is not Proceed]
 
+## Plan risks
+
+<!-- Always present (unlike the omit-when-empty sections). One line: the plan's
+     single weakest assumption / biggest risk — adversarial self-critique ("if
+     this plan is wrong, here is the most likely reason"), not a restatement of
+     Open Questions. Modeled on ## Recommendation. Full always-present/single-line
+     contract lives in
+     skills/pipeline/product-planning/references/discovery-instructions.md
+     "Plan risks" — the single source of truth. Do NOT inline the contract here;
+     this is a thin sketch. -->
+
+[one line naming the single weakest assumption / biggest risk whose failure would most likely sink the plan]
+
 ## Prompt interpretation
 
 <!-- Conditional: include this section ONLY when the user's prompt names BOTH
