@@ -160,6 +160,28 @@ describe(tickCandidates, () => {
     expect(r.tickedCount).toBe(1);
     expect(r.untickedCount).toBe(2);
   });
+
+  it("dedups a repeated index: --tick 1,1 flips item 1 once", () => {
+    const { text, result } = tickCandidates(SECTION, [1, 1]);
+    // The Set-dedup collapses the duplicate so tickedCount reflects one flip,
+    // not the raw arg count, and the flipped text matches a single [1] flip.
+    expect(result.tickedIndices).toEqual([1]);
+    expect(result.tickedCount).toBe(1);
+    expect(text).toBe(tickCandidates(SECTION, [1]).text);
+  });
+
+  it("rebases the 1-based index into the UNTICKED enumeration on an interleaved section", () => {
+    // `- [x] done` is skipped: --tick 1 targets the first *unticked* item (a),
+    // leaving the pre-ticked line and the unselected unticked line byte-identical.
+    const interleaved = `${HEADING}\n\n- [x] done\n- [ ] a\n- [ ] b\n`;
+    const { text, result } = tickCandidates(interleaved, [1]);
+    const lines = text.split("\n");
+    expect(lines).toContain("- [x] done");
+    expect(lines).toContain("- [x] a");
+    expect(lines).toContain("- [ ] b");
+    expect(result.tickedIndices).toEqual([1]);
+    expect(result.tickedCount).toBe(1);
+  });
 });
 
 // --- extractTicked ---------------------------------------------------------
@@ -216,6 +238,24 @@ describe(parseArgs, () => {
   it("rejects unknown flags", () => {
     expect(parseArgs(["--plan-md-file", "p.md", "--bogus"])).toEqual({
       error: "unknown flag: --bogus",
+    });
+  });
+
+  it("errors when --plan-md-file is given no value", () => {
+    expect(parseArgs(["--plan-md-file"])).toEqual({
+      error: "--plan-md-file requires a value",
+    });
+  });
+
+  it("errors when --plan-md-file's value is swallowed by a following flag", () => {
+    expect(parseArgs(["--plan-md-file", "--tick"])).toEqual({
+      error: "--plan-md-file requires a value",
+    });
+  });
+
+  it("errors when --tick is given no value", () => {
+    expect(parseArgs(["--plan-md-file", "p.md", "--tick"])).toEqual({
+      error: "--tick requires comma-separated 1-based indices",
     });
   });
 });

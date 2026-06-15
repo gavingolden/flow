@@ -578,9 +578,12 @@ auto-detect > built-in; `checks` run as argv (no shell/injection), widening to t
     than inferring authorisation from an earlier instruction. An
     affirmative answer is recorded by `flow-merge-guard
     --record-override` and enforced by the step-10 backstop. These two
-    — step 4 candidate-issues and step 9 gate-override — are the
-    **only** authorised `AskUserQuestion` sites, documented
-    bidirectionally with `skills/pipeline/flow-pipeline/SKILL.md`.
+    named forms — the candidate-issues form (which fires from two
+    locations: step 4's affirmative branch + step 3's
+    `advance-to-step-5` non-feature sub-step) and the step 9
+    gate-override form — are the **only** authorised `AskUserQuestion`
+    sites, documented bidirectionally with
+    `skills/pipeline/flow-pipeline/SKILL.md`.
   - **Auto-issue-create exemption: `/pr-review` Step 6 deferral path
     and `/flow-pipeline` Step 10 post-merge sweep.** `flow-create-issue`
     may fire only from these two named sites: (a) `/pr-review` deferring
