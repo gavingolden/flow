@@ -460,6 +460,19 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(tmuxMock.createWindow).not.toHaveBeenCalled();
   });
 
+  it("runNewCli --effort followed by another flag returns non-zero and triggers no side-effect", () => {
+    // Pins the `value.startsWith("--")` half of the missing-value guard: a
+    // following flag must not be consumed as the effort value.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["--effort", "--no-auto-merge", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(1);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+  });
+
   it("runNewCli --effort high strips the flag and its value token from the slug", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const code = runNewCli(["--effort", "high", "do", "thing"], {
