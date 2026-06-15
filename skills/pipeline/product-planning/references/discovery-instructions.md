@@ -138,12 +138,15 @@ format. Sections:
 
 - **Problem Statement** — what problem this solves and why it matters (not solution language).
 - **Scope Boundary** — what's in and what's explicitly out.
-- **User Stories / Acceptance Criteria** — testable criteria as "Given/When/Then".
+- **User Stories / Acceptance Criteria** — testable criteria as "Given/When/Then". Each acceptance criterion must name an externally-failable check — something that can fail without a human looking at it: `a test that runs`, `a file in the expected shape`, or `a command exit code`. "It looks right" is not a check — a criterion a machine cannot falsify provides no regression signal and degrades into manual prose at the `## Test Steps` gate (step 7). This is a strong default, not an absolute MUST: it defers to the genuinely-manual carve-out one stage downstream (subjective UX, cross-browser rendering, performance-under-load criteria are legitimately human-judgment and cannot name an exit code — see the manual-prose carve-out in step 7's automation test), so do not force an author to fake an exit-code check for an irreducibly subjective item.
 - **Architecture Decisions** — from the checkpoint above.
 - **Technical Constraints** — framework, security, performance needs.
 - **Open Questions** — every assumption you made plus anything still unresolved.
 - **Recommendation** — a single clear recommendation; see the "Recommendation"
   sub-section below for the verdict enum and one-line-rationale contract.
+- **Plan risks** — an always-present single line naming the plan's single weakest
+  assumption / biggest risk; see the "Plan risks" sub-section below for the
+  always-present/single-line contract.
 - **Prompt interpretation** (conditional) — when the prompt names BOTH prescribed
   methods AND a quantitative target; see the "Prompt interpretation (conditional)"
   sub-section below for the full contract.
@@ -215,6 +218,10 @@ When the verdict is anything other than `Proceed`, the rationale should referenc
 relevant Open Question so the user can redirect at the next `plan-pending-review`
 checkpoint. The recommendation is advisory — the user always has the final say at the
 approval gate.
+
+### Plan risks
+
+After committing to a recommendation, name the plan's single weakest assumption / biggest risk and record it as an always-present `## Plan risks` section in the PRD. This is an adversarial self-critique — "if this plan is wrong, here is the most likely reason" — not a restatement of the Open Questions: Open Questions capture per-feature assumptions the user should confirm, while `## Plan risks` names the one load-bearing assumption whose failure would most likely sink the plan, so the author surfaces it before it ships silently into implementation. Modeled on `## Recommendation`, it is always present, never omit it — a single line, always meaningful and cheap, so emit it on every PRD (unlike `# Candidate follow-up issues` and `## Prompt interpretation`, which are omit-when-empty). The counterpart self-critique site is `new-feature/SKILL.md` Step 2, which closes its Critical Analysis with the same single-weakest-assumption bullet; the two sites cross-link so the discipline is consistent whether the plan originates in discovery or in `/new-feature`.
 
 ### Prompt interpretation (conditional)
 

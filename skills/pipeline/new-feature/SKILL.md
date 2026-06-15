@@ -251,6 +251,16 @@ scout report back; the artifact on disk is the record.
     genuinely separate features. These should be pragmatic, not scope creep.
   - **Rank recommendations** by: perceived customer value, technical complexity, likelihood
     of future debt, and composability.
+  - **Require externally-failable acceptance criteria.** Each acceptance criterion — and each
+    `it.todo()` spec you author in Step 3 — must name an externally-failable check: something
+    that can fail without a human looking at it (a test that runs, a file in the expected shape,
+    or a command exit code), not a self-review assertion like "it looks right". A criterion a
+    machine cannot falsify provides no regression signal. This is a strong default with named
+    exceptions, consistent with the same discipline in
+    `skills/pipeline/product-planning/references/discovery-instructions.md` "Draft the PRD": it
+    defers to the genuinely-manual carve-out (subjective UX, cross-browser rendering,
+    performance-under-load criteria are legitimately human-judgment), so do not force an author
+    to fake an exit-code check for an irreducibly subjective item.
   - **Surface scout's anti-patterns.** When the scout's `## anti_patterns`
     section names off-limits surfaces or rejected approaches that
     intersect the feature, raise them in the analysis so the user
@@ -275,6 +285,17 @@ scout report back; the artifact on disk is the record.
 interpretation` section, or the section's Recommended path is
     `methods plausibly reach target`, omit the row entirely (the original
     five-row table is unchanged for no-tension prompts).
+  - **Name the plan's weakest assumption.** Close the analysis with an adversarial
+    self-critique that names the plan's single weakest assumption / biggest risk — "if this
+    plan is wrong, here is the most likely reason". This is the load-bearing assumption whose
+    failure would most likely sink the implementation, not a restatement of the assessment
+    table; surface it before it ships silently into code. This mirrors the always-present
+    `## Plan risks` section authored upstream in
+    `skills/pipeline/product-planning/references/discovery-instructions.md` "Plan risks"; the
+    two self-critique sites cross-link so the discipline is consistent whether the plan
+    originated in discovery or in this Critical Analysis. When `.flow-tmp/plan.md` already
+    carries a `## Plan risks` line, reconcile against it rather than duplicating — confirm the
+    named risk still holds or update it if scouting changed the picture.
 
 ## 3. Write `it.todo()` Test Specs
 
