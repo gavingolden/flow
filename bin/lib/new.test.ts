@@ -396,6 +396,119 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw).not.toHaveProperty("copilotReview");
   });
 
+  it("runNewCli --effort high launches claude with --effort before the prompt and persists effort", () => {
+    // LOAD-BEARING: omit `command` so defaultCommand runs — passing
+    // `command: ["true"]` would short-circuit the argv under test.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["--effort", "high", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
+    expect(command).toEqual([
+      "claude",
+      "--effort",
+      "high",
+      "Use the /flow-pipeline skill for: do thing",
+    ]);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.effort).toBe("high");
+  });
+
+  it("runNewCli without --effort omits --effort from the launch argv and the effort key from state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
+    expect(command).toEqual([
+      "claude",
+      "Use the /flow-pipeline skill for: do thing",
+    ]);
+    expect(command).not.toContain("--effort");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("effort");
+  });
+
+  it("runNewCli --effort with an invalid value returns non-zero and triggers no side-effect", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["--effort", "bogus", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(1);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/low, medium, high, xhigh, max/);
+  });
+
+  it("runNewCli --effort with a missing value returns non-zero and triggers no side-effect", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["--effort"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(1);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+  });
+
+  it("runNewCli --effort followed by another flag returns non-zero and triggers no side-effect", () => {
+    // Pins the `value.startsWith("--")` half of the missing-value guard: a
+    // following flag must not be consumed as the effort value.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["--effort", "--no-auto-merge", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(1);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+  });
+
+  it("runNewCli --effort high strips the flag and its value token from the slug", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["--effort", "high", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    // Slug must not include the flag or its value token; description was "do thing".
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
+  });
+
+  it("runNew --resume re-applies the saved effort into the respawn argv", () => {
+    // LOAD-BEARING: omit `command` so resumeCommand runs.
+    writeState(
+      {
+        slug: "saved-effort",
+        phase: "verifying",
+        repo: repoDir,
+        effort: "max",
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runNew("saved-effort", { resume: true, stateDir });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.respawnWindow.mock.calls[0]!;
+    expect(command).toEqual([
+      "claude",
+      "--effort",
+      "max",
+      "Use the /flow-pipeline skill in --resume mode for: saved-effort",
+    ]);
+  });
+
   it("treats -h after `--` as part of the description, not a help flag", () => {
     // Regression for the over-eager argsContainHelp scan: a description body
     // that happens to contain `-h` (e.g. `flow new -- fix the -h crash`)

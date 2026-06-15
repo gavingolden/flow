@@ -72,9 +72,14 @@ _flow() {
                     COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
                     return
                     ;;
+                --effort)
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
+                    return
+                    ;;
             esac
             # shellcheck disable=SC2207
-            COMPREPLY=( $(compgen -W "--resume --no-auto-merge" -- "$cur") )
+            COMPREPLY=( $(compgen -W "--resume --no-auto-merge --effort" -- "$cur") )
             ;;
         ls)
             # shellcheck disable=SC2207
