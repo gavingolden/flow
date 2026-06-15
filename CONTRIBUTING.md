@@ -37,6 +37,27 @@ Update with `cd <flow-checkout> && git pull && flow setup --upgrade`.
 
 **Copilot review escape hatch.** `flow new --copilot-review <auto|always|never>` (default `auto`) controls per-PR Copilot review requests. The durable, declarative override is `bots.copilotAutoReview: true | false` in `~/.flow/config.json`: it is consulted first and short-circuits both the authoritative ruleset read and the 5-PR historical heuristic with zero `gh` calls — `true` declares Copilot already reviews every PR (flow skips its own request), `false` declares it does not, and **unset** keeps the auto-detect behavior. It is the right escape hatch when the ruleset API is unreachable (e.g. a private repo on a free account where the rules endpoint 403s). Per-repo glob overrides live under `bots.copilot.globs`. Note that GitHub's repo-level automatic Copilot review must be disabled in the GitHub UI for the opt-in to take effect — there is no stable API to toggle it.
 
+## Releasing
+
+flow is a symlink-distributed tool: a "release" tags the canonical `main` checkout, it does **not** publish to any registry. Users update by pulling `main` and re-running `flow setup --upgrade`; the tag and bumped version exist so the staleness check in [`bin/lib/update-check.ts`](bin/lib/update-check.ts) can compare versions, not just commits, when surfacing its upgrade notice.
+
+The ritual, from a clean `main` checkout:
+
+```sh
+bun bin/flow-release <patch|minor|major>   # maintainer-only; not on PATH, run from the checkout
+git push --follow-tags                     # publish the release commit and the vX.Y.Z tag
+```
+
+`flow-release` bumps `package.json` + `package-lock.json`, commits a `chore(release): vX.Y.Z`, and creates an annotated `vX.Y.Z` tag — atomically, via `npm version <type>` under the hood (run `npm version <type>` directly if the helper is unavailable). It never pushes; that final `git push --follow-tags` is yours.
+
+Post-1.0 versioning policy:
+
+- **major** — a breaking change to the flow CLI contract or the skill-distribution layout.
+- **minor** — new skills, helpers, or CLI surface.
+- **patch** — fixes, docs, internal-only changes.
+
+This bump is a deliberate, periodic maintainer ritual — **not** a per-PR auto-bump. flow-pipeline runs that build flow itself never touch the version. Commit/PR conventions for the release commit follow the usual rules in [`AGENTS.md`](AGENTS.md) Git workflow.
+
 ## Project rules for agents & contributors
 
 All project-wide rules — commit/PR conventions, the output style, the `Task`-tool exemptions, the verify gate, consumer-repo notes — are in [`AGENTS.md`](AGENTS.md), which is canonical (`CLAUDE.md` is just `@AGENTS.md`). Don't duplicate those rules here; link to them.

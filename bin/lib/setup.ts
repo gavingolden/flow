@@ -44,7 +44,7 @@ import {
   type FastForwardResult,
 } from "./git";
 import { findMissingRuntimeDeps, formatMissingDepsError } from "./setup-deps";
-import { readFlowVersion } from "./version";
+import { readFlowVersion } from "./pkg-version";
 import { dim, green, red } from "./color";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";

@@ -29,6 +29,13 @@ const VALIDATOR_MODULES = [
   "agent-finding-schema.ts",
 ] as const;
 
+/**
+ * Helpers that exist under `bin/` but must NOT be symlinked onto a user's
+ * PATH: maintainer-only, tree-mutating + tag-creating tools that should only
+ * ever run from a flow checkout.
+ */
+const MAINTAINER_ONLY = new Set(["flow-release"]);
+
 export type SourceEntry = {
   source: string;
   target: string;
@@ -109,6 +116,7 @@ export function discoverHelpers(
     .filter((d) => (d.isFile() || d.isSymbolicLink()) && d.name.endsWith(".ts"))
     .filter((d) => !d.name.endsWith(".test.ts"))
     .filter((d) => d.name !== "flow.ts") // wrapper itself, if present
+    .filter((d) => !MAINTAINER_ONLY.has(d.name.replace(/\.ts$/, "")))
     .map((d) => ({
       source: path.join(binDir, d.name),
       target: path.join(targets.binDir, d.name.replace(/\.ts$/, "")),

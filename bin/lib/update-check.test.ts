@@ -63,9 +63,13 @@ function toReturn(r: ScriptedReturn): SpawnSyncReturns<string> {
   };
 }
 
-/** Default probe set for a successful fetch path with a configurable count. */
-function probes(count: string): Script {
-  return [
+/**
+ * Default probe set for a successful fetch path with a configurable count.
+ * `remotePkg` is the stdout for `git show origin/<default>:package.json`;
+ * pass a JSON string for a valid remote version, or omit to fail the read.
+ */
+function probes(count: string, remotePkg?: string): Script {
+  const script: Script = [
     { match: matchArgs("status", "--porcelain"), result: ok() },
     {
       match: matchArgs("symbolic-ref"),
@@ -74,6 +78,20 @@ function probes(count: string): Script {
     { match: matchArgs("fetch", "origin"), result: ok() },
     { match: matchArgs("rev-list", "--count"), result: ok(count) },
   ];
+  script.push({
+    match: matchArgs("show"),
+    result: remotePkg === undefined ? fail("no such ref") : ok(remotePkg),
+  });
+  return script;
+}
+
+/** Writes a fake local package.json under `dir` so readFlowVersion resolves. */
+function writeLocalPkg(dir: string, version: string): void {
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ version }));
+}
+
+function pkgJson(version: string): string {
+  return JSON.stringify({ version });
 }
 
 const NOTIFY = () => ({ update: { checkFor: "notify" } });
@@ -268,7 +286,8 @@ describe("checkForUpdate — throttle", () => {
     });
     expect(calls.find((c) => c[1] === "fetch")).toBeDefined();
     const rewritten = JSON.parse(fs.readFileSync(cachePath, "utf8"));
-    expect(rewritten).toEqual({ lastCheckedMs: NOW, behind: 7 });
+    expect(rewritten.lastCheckedMs).toBe(NOW);
+    expect(rewritten.behind).toBe(7);
   });
 
   it("should fall through to a fresh fetch and rewrite the cache when the cached entry is malformed", () => {
@@ -292,7 +311,8 @@ describe("checkForUpdate — throttle", () => {
     });
     expect(calls.find((c) => c[1] === "fetch")).toBeDefined();
     const rewritten = JSON.parse(fs.readFileSync(cachePath, "utf8"));
-    expect(rewritten).toEqual({ lastCheckedMs: NOW, behind: 2 });
+    expect(rewritten.lastCheckedMs).toBe(NOW);
+    expect(rewritten.behind).toBe(2);
   });
 
   it("should write the throttle cache on a fetch-failed result so an immediate re-check performs zero spawns", () => {
@@ -396,5 +416,153 @@ describe("formatUpdateNotice", () => {
     });
     expect(notice).toContain("1 commit behind");
     expect(notice).not.toContain("1 commits");
+  });
+
+  it("renders the v… → v… available message for a version-aware behind", () => {
+    const notice = formatUpdateNotice({
+      status: "behind",
+      behind: 3,
+      upgradeCmd: "flow setup --upgrade",
+      localVersion: "1.0.0",
+      remoteVersion: "1.1.0",
+    });
+    expect(notice).toContain("v1.0.0 → v1.1.0 available");
+    expect(notice).toContain("flow setup --upgrade");
+    expect(notice).not.toContain("commit");
+  });
+});
+
+describe("checkForUpdate — version-aware", () => {
+  it("reports a version-aware behind when the remote version is a newer semver", () => {
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), "flow-uc-src-"));
+    writeLocalPkg(local, "1.0.0");
+    try {
+      const { spawn } = makeSpawn(probes("4\n", pkgJson("1.1.0")));
+      const result = checkForUpdate({
+        source: local,
+        spawn,
+        now: NOW,
+        cachePath,
+        readConfigFile: NOTIFY,
+        env: {},
+      });
+      expect(result).toEqual({
+        status: "behind",
+        behind: 4,
+        upgradeCmd: "flow setup --upgrade",
+        localVersion: "1.0.0",
+        remoteVersion: "1.1.0",
+      });
+      expect(formatUpdateNotice(result)).toContain("v1.0.0 → v1.1.0 available");
+    } finally {
+      fs.rmSync(local, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to commits-behind when remote version equals local but commits are behind", () => {
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), "flow-uc-src-"));
+    writeLocalPkg(local, "1.0.0");
+    try {
+      const { spawn } = makeSpawn(probes("2\n", pkgJson("1.0.0")));
+      const result = checkForUpdate({
+        source: local,
+        spawn,
+        now: NOW,
+        cachePath,
+        readConfigFile: NOTIFY,
+        env: {},
+      });
+      expect(result).toEqual({
+        status: "behind",
+        behind: 2,
+        upgradeCmd: "flow setup --upgrade",
+      });
+      expect(formatUpdateNotice(result)).toContain("2 commits behind");
+    } finally {
+      fs.rmSync(local, { recursive: true, force: true });
+    }
+  });
+
+  it("gracefully falls back to commits-behind when git show fails, never throwing", () => {
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), "flow-uc-src-"));
+    writeLocalPkg(local, "1.0.0");
+    try {
+      // probes() with no remotePkg scripts `git show` to fail.
+      const { spawn } = makeSpawn(probes("5\n"));
+      const result = checkForUpdate({
+        source: local,
+        spawn,
+        now: NOW,
+        cachePath,
+        readConfigFile: NOTIFY,
+        env: {},
+      });
+      expect(result).toEqual({
+        status: "behind",
+        behind: 5,
+        upgradeCmd: "flow setup --upgrade",
+      });
+    } finally {
+      fs.rmSync(local, { recursive: true, force: true });
+    }
+  });
+
+  it("gracefully falls back when the remote package.json is malformed, never throwing", () => {
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), "flow-uc-src-"));
+    writeLocalPkg(local, "1.0.0");
+    try {
+      const { spawn } = makeSpawn(probes("6\n", "not-json{"));
+      const result = checkForUpdate({
+        source: local,
+        spawn,
+        now: NOW,
+        cachePath,
+        readConfigFile: NOTIFY,
+        env: {},
+      });
+      expect(result).toEqual({
+        status: "behind",
+        behind: 6,
+        upgradeCmd: "flow setup --upgrade",
+      });
+    } finally {
+      fs.rmSync(local, { recursive: true, force: true });
+    }
+  });
+
+  it("reconstructs the version-aware notice from a cached remoteVersion without re-spawning git show", () => {
+    const local = fs.mkdtempSync(path.join(os.tmpdir(), "flow-uc-src-"));
+    writeLocalPkg(local, "1.0.0");
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({
+        lastCheckedMs: NOW - 60 * 60 * 1000,
+        behind: 3,
+        remoteVersion: "2.0.0",
+      }),
+    );
+    try {
+      const { spawn, calls } = makeSpawn([]);
+      const result = checkForUpdate({
+        source: local,
+        spawn,
+        now: NOW,
+        cachePath,
+        readConfigFile: NOTIFY,
+        env: {},
+      });
+      expect(result).toEqual({
+        status: "behind",
+        behind: 3,
+        upgradeCmd: "flow setup --upgrade",
+        localVersion: "1.0.0",
+        remoteVersion: "2.0.0",
+      });
+      // Cache hit ⇒ zero spawns, no git show re-run.
+      expect(calls.length).toBe(0);
+      expect(formatUpdateNotice(result)).toContain("v1.0.0 → v2.0.0 available");
+    } finally {
+      fs.rmSync(local, { recursive: true, force: true });
+    }
   });
 });

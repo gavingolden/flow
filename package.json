@@ -1,6 +1,6 @@
 {
   "name": "flow",
-  "version": "0.0.1",
+  "version": "1.0.0",
   "description": "Multi-phase AI agent dev orchestration: triage → plan → implement → verify → CI → review → merge",
   "type": "module",
   "files": [
