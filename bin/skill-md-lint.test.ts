@@ -1296,7 +1296,11 @@ describe("New planning-discipline contract anchors", () => {
   // anchor blocks above; without an equivalent here, a future edit could silently
   // drop the `## Plan risks` section, rename a phrase, or sever the cross-link
   // with nothing failing in CI. Issue #291 tracks closing this drift-surface gap.
-  it.each(["externally-failable", "## Plan risks", "weakest assumption"])(
+  // `## Plan risks` is backtick-wrapped to pin the documented content-convention
+  // code-span (present verbatim in both files) and not also match the `### Plan
+  // risks` h3 instruction heading via bare substring — that would let a future
+  // edit drop the prose reference while the lint stayed vacuously green.
+  it.each(["externally-failable", "`## Plan risks`", "weakest assumption"])(
     "both planning skills carry the discipline phrase '%s'",
     (phrase) => {
       expect(
