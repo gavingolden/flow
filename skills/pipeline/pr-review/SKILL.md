@@ -1170,7 +1170,16 @@ if git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
 fi
 ```
 
-Pass the `ADDED_FILES` list and the parsed `anti_patterns_found` entries to
+`ADDED_FILES` is a newline-delimited shell string, but `auditNewFileAntiPatterns`
+expects `addedFiles: string[]`. Split it on newlines and drop empty entries before
+the call so an empty `ADDED_FILES` (no added files / unavailable base ref) maps to
+`[]`, not `[""]`:
+
+```js
+const addedFiles = ADDED_FILES.split("\n").filter(Boolean);
+```
+
+Pass that `addedFiles` array and the parsed `anti_patterns_found` entries to
 `auditNewFileAntiPatterns` from `bin/lib/antipattern-newfile-audit.ts` (a pure
 function — `(antiPatterns, addedFiles) => flaggedEntries`, where an entry is flagged
 when its `location`, stripped of any trailing `:line` / `:line:col` suffix, exactly
