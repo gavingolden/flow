@@ -54,6 +54,7 @@ export type FixApplierAntiPattern = {
   location: string;
   pattern: string;
   recommendation: string;
+  introduced_by_this_pr: boolean;
 };
 
 export type FixApplierResult = {
@@ -178,6 +179,9 @@ function validateAntiPatternEntry(
   }
   if (!isNonEmptyString(o.recommendation)) {
     return err(`'recommendation' must be a non-empty string`, path);
+  }
+  if (typeof o.introduced_by_this_pr !== "boolean") {
+    return err(`'introduced_by_this_pr' must be a boolean`, path);
   }
   return null;
 }

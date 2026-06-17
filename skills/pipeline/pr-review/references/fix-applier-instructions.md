@@ -164,7 +164,14 @@ test shipped as a trade-off and later filed as a standalone issue, when the
 durable fix was a one-line `data-` attribute on the adjacent component).
 `anti_patterns_found` is for _pre-existing_ patterns in surrounding code you did
 not introduce and cannot fix in scope — not a release valve for brittleness this
-PR itself adds.
+PR itself adds. Every `anti_patterns_found` entry now carries the
+`introduced_by_this_pr` boolean that structures exactly this distinction:
+`false` for the pre-existing patterns this slot is for, `true` for a pattern
+living in code this PR added or changed. When `introduced_by_this_pr` is `true`,
+the entry MUST justify against the three-part fix-now bar above (small /
+low-risk-mechanical / in-scope) and may NOT use "not worth churning" /
+"future session" framing — and an introduced-in-PR entry that _clears_ that bar
+is illegal: it should have been a commit, not a note.
 
 Fix-now and deferral are two outcomes of one classification: a finding clearing
 the fix-now bar's three conditions is fixed now; a finding clearing the deferral
@@ -412,7 +419,8 @@ The artifact MUST conform to this JSON schema:
     {
       "location": "<file:line or file>",
       "pattern": "<what was observed — 1 line>",
-      "recommendation": "<what the next session should do — 1 line>"
+      "recommendation": "<what the next session should do — 1 line>",
+      "introduced_by_this_pr": false
     }
   ],
   "summary": "<3–5 sentence both-sides return summary; see step 10>"

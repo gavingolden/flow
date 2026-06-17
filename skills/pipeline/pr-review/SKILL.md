@@ -1149,6 +1149,36 @@ spawn procedure rather than rebuilding the path here:
 ARTIFACT=$(cat "$ARTIFACT_PATH")
 ```
 
+### 9a. New-file anti-pattern audit (warn, not block)
+
+A pattern flagged `introduced_by_this_pr: false` cannot legitimately live in a file
+this PR newly created — a brand-new file has no surrounding code that predates the PR.
+Audit the parsed `anti_patterns_found[]` entries against the PR's added-files list to
+surface that contradiction as a WARNING (never a hard block: a new file can legitimately
+re-implement a pattern that exists elsewhere in the codebase, and the warning lets the
+reader redirect at the gate rather than failing the run).
+
+Collect the PR's added files via `git`, guarded to a no-op when the base ref is
+unavailable (e.g. a shallow checkout or a missing remote-tracking ref) so the audit
+degrades to "nothing flagged" rather than erroring:
+
+```bash
+BASE_REF=$(gh pr view "$PR_NUMBER" --json baseRefName --jq .baseRefName)
+ADDED_FILES=""
+if git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
+  ADDED_FILES=$(git diff --diff-filter=A --name-only "origin/$BASE_REF...HEAD")
+fi
+```
+
+Pass the `ADDED_FILES` list and the parsed `anti_patterns_found` entries to
+`auditNewFileAntiPatterns` from `bin/lib/antipattern-newfile-audit.ts` (a pure
+function — `(antiPatterns, addedFiles) => flaggedEntries`, where an entry is flagged
+when its `location`, stripped of any trailing `:line` / `:line:col` suffix, exactly
+matches an added file). Surface each flagged entry as a WARNING line in the Step 12
+report — never a hard block. The audit runs independent of the self-declared
+`introduced_by_this_pr` flag: an added-file location is suspect regardless of how the
+subagent classified it.
+
 For each inline comment from Step 2's fetch output, look up the disposition
 in the parsed `ARTIFACT` using **exact match** on the structured
 `comment_ids` field (no substring/free-text fallback — the artifact is
@@ -1494,6 +1524,14 @@ artifact's `rejected_alternatives[]`), **Anti-Patterns Observed** (from the arti
 negative-findings sections surface what the Fix-Applier Subagent learned should NOT be
 done — render them as named report sections so a human reading the report sees the
 foreclosed paths alongside the fixes that landed.
+
+Each `anti_patterns_found[]` entry carries `introduced_by_this_pr` alongside its
+`location` / `pattern` / `recommendation`: `true` means the pattern lives in code this PR
+added or changed (which the fix-now bar requires be fixed in-commit, not noted), `false`
+means it is a pre-existing pattern in surrounding code. Render the boolean in the
+**Anti-Patterns Observed** section, and append the new-file audit's WARNING lines (see the
+**New-file anti-pattern audit** sub-step below) so a misclassified introduced-in-PR entry
+is visible to the reader.
 
 **The report MUST explicitly separate addressed vs deferred findings.** Never leave the
 reader guessing which findings were silently skipped — every finding surfaced in Step 4
