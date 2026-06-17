@@ -8,8 +8,12 @@
  * the writer the supervisor uses to keep it current.
  *
  * Usage:
- *   flow-state-update [<slug>] [--phase <phase>] [--pr <number>] [--worktree <path>]
- *                              [--auto-merge | --no-auto-merge] [--session-id <value>]
+ *   flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]
+ *                              [--worktree <path>] [--auto-merge | --no-auto-merge]
+ *                              [--session-id <value>]
+ *
+ * `--phase-outcome <text>` records a short outcome string on the phaseLog
+ * entry appended by the same `--phase` write (no-op without `--phase`).
  *
  * - At least one update flag is required.
  * - The slug is optional when invoked from inside a flow tmux pane: it
@@ -48,6 +52,7 @@ type Args = {
   worktree?: string;
   autoMerge?: boolean;
   sessionId?: string;
+  phaseOutcome?: string;
 };
 
 /**
@@ -147,6 +152,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--session-id":
         out.sessionId = value;
         break;
+      case "--phase-outcome":
+        out.phaseOutcome = value;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -171,6 +179,24 @@ export function applyUpdate(
   existing: PipelineState,
   args: Args,
 ): PipelineState {
+  // A --phase write is a real transition event: append it to the
+  // append-only phaseLog (creating the array when absent) so the snapshot
+  // has an authoritative trace. A no---phase update (e.g. --pr only) leaves
+  // phaseLog untouched. Omit the outcome key entirely when --phase-outcome
+  // is absent — never write `outcome: undefined`.
+  const phaseLog =
+    args.phase !== undefined
+      ? [
+          ...(existing.phaseLog ?? []),
+          {
+            phase: args.phase,
+            at: nowIso(),
+            ...(args.phaseOutcome !== undefined
+              ? { outcome: args.phaseOutcome }
+              : {}),
+          },
+        ]
+      : existing.phaseLog;
   return {
     ...existing,
     phase: args.phase ?? existing.phase,
@@ -178,6 +204,7 @@ export function applyUpdate(
     worktree: args.worktree ?? existing.worktree,
     autoMerge: args.autoMerge ?? existing.autoMerge,
     sessionId: args.sessionId ?? existing.sessionId,
+    phaseLog,
     updatedAt: nowIso(),
   };
 }
@@ -207,8 +234,9 @@ export function runUpdate(
   if ("error" in parsed) {
     console.error(`flow-state-update: ${parsed.error}`);
     console.error(
-      "usage: flow-state-update [<slug>] [--phase <phase>] [--pr <number>] [--worktree <path>]\n" +
-        "                                 [--auto-merge | --no-auto-merge] [--session-id <value>]",
+      "usage: flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]\n" +
+        "                                 [--worktree <path>] [--auto-merge | --no-auto-merge]\n" +
+        "                                 [--session-id <value>]",
     );
     return 2;
   }

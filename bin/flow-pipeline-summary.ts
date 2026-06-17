@@ -1,0 +1,237 @@
+#!/usr/bin/env bun
+/**
+ * Renders the supervisor's `## PIPELINE SNAPSHOT` block — an
+ * artifact-sourced, phase-by-phase account printed ABOVE the
+ * `flow-gate-summary` block at the post-review terminal states (MERGED,
+ * GATED, NEEDS HUMAN).
+ *
+ * Why: the gate-summary block answers "did it merge / what's next" but not
+ * "what did the pipeline actually do." Any richer trace was supervisor-
+ * composed free prose — unsourced, inconsistently shaped, fabrication-prone
+ * (the scrollback has scrolled past the evidence by the time the run ends).
+ * This helper aggregates the structured artifacts the pipeline already
+ * writes and renders ONLY sourced facts; every empty category prints an
+ * explicit `none`, never a fabricated "looks like it passed."
+ *
+ * Five sections: CHANGES (commits/diff size), PHASES (state.json phaseLog),
+ * FINDINGS (review verdict + fix-applier + consolidator + CI/Copilot),
+ * FOLLOW-UP ISSUES (filed sweep URLs + pr-review deferrals), MANUAL STEPS
+ * (the captured followups block).
+ *
+ * CRITICAL: this helper NEVER emits a flow-stop-guard sentinel
+ * (`MERGED` / `GATED:` / `NEEDS HUMAN:` / `cancelled`). flow-gate-summary
+ * owns the sentinel as the byte-exact last line of stdout; this block
+ * prints above it. A shape-invalid artifact degrades that one category to
+ * `(unreadable)` rather than crashing the whole snapshot.
+ *
+ * Usage:
+ *   flow-pipeline-summary --status <merged|gated|needs-human>
+ *                         [--state-file <path>] [--pr-changes-file <path>]
+ *                         [--pr-review-result <path>] [--fix-applier-result <path>]
+ *                         [--consolidator-result <path>] [--ci-wait-result <path>]
+ *                         [--followups-block-file <path>] [--followups-jsonl <path>]
+ *                         [--filed-issues-file <path>]
+ *
+ * Exit codes: 0 — block rendered to stdout. 2 — bad CLI args.
+ */
+
+import * as fs from "node:fs";
+import { readState } from "./lib/state";
+import { readEntries, runEntries, formatVerdict } from "./flow-followups";
+import {
+  renderChanges,
+  renderPhases,
+  renderFindings,
+  renderFollowupIssues,
+  renderManualSteps,
+} from "./lib/pipeline-summary-sources";
+
+export type Status = "merged" | "gated" | "needs-human";
+
+export type SummaryInputs = {
+  status: Status;
+  stateFile?: string;
+  prChangesFile?: string;
+  prReviewResult?: string;
+  fixApplierResult?: string;
+  consolidatorResult?: string;
+  ciWaitResult?: string;
+  followupsBlockFile?: string;
+  followupsJsonl?: string;
+  filedIssuesFile?: string;
+};
+
+const VALID_STATUSES: ReadonlySet<string> = new Set([
+  "merged",
+  "gated",
+  "needs-human",
+]);
+
+type Args = SummaryInputs;
+
+export function parseArgs(argv: string[]): Args | { error: string } {
+  const out: Partial<Args> = {};
+  for (let i = 0; i < argv.length; i++) {
+    const flag = argv[i];
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith("--")) {
+      return { error: `${flag} requires a value` };
+    }
+    switch (flag) {
+      case "--status":
+        if (!VALID_STATUSES.has(value)) {
+          return {
+            error: `--status must be one of ${[...VALID_STATUSES].join(", ")}, got '${value}'`,
+          };
+        }
+        out.status = value as Status;
+        break;
+      case "--state-file":
+        out.stateFile = value;
+        break;
+      case "--pr-changes-file":
+        out.prChangesFile = value;
+        break;
+      case "--pr-review-result":
+        out.prReviewResult = value;
+        break;
+      case "--fix-applier-result":
+        out.fixApplierResult = value;
+        break;
+      case "--consolidator-result":
+        out.consolidatorResult = value;
+        break;
+      case "--ci-wait-result":
+        out.ciWaitResult = value;
+        break;
+      case "--followups-block-file":
+        out.followupsBlockFile = value;
+        break;
+      case "--followups-jsonl":
+        out.followupsJsonl = value;
+        break;
+      case "--filed-issues-file":
+        out.filedIssuesFile = value;
+        break;
+      default:
+        return { error: `unknown flag: ${flag}` };
+    }
+    i++;
+  }
+  if (!out.status) return { error: "--status is required" };
+  return out as Args;
+}
+
+/**
+ * Pure render: takes the already-read source contents (and the state-file
+ * path, which readState owns) and produces the snapshot block. The block's
+ * last line is NEVER a stop-guard sentinel — that is gate-summary's job.
+ */
+export function render(inputs: {
+  prChangesRaw: string;
+  phaseLog: Array<{ phase: string; outcome?: string; at: string }> | null;
+  prReviewRaw: string;
+  fixApplierRaw: string;
+  consolidatorRaw: string;
+  ciWaitRaw: string;
+  filedIssuesRaw: string;
+  fixApplierForIssues: string;
+  manualStepsBlock: string;
+}): string {
+  const lines: string[] = ["## PIPELINE SNAPSHOT"];
+  lines.push("CHANGES:");
+  for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
+  lines.push("PHASES:");
+  for (const ln of renderPhases(inputs.phaseLog)) lines.push(`  ${ln}`);
+  lines.push("FINDINGS:");
+  for (const ln of renderFindings({
+    prReviewRaw: inputs.prReviewRaw,
+    fixApplierRaw: inputs.fixApplierRaw,
+    consolidatorRaw: inputs.consolidatorRaw,
+    ciWaitRaw: inputs.ciWaitRaw,
+  })) {
+    lines.push(`  ${ln}`);
+  }
+  lines.push("FOLLOW-UP ISSUES:");
+  for (const ln of renderFollowupIssues(
+    inputs.filedIssuesRaw,
+    inputs.fixApplierForIssues,
+  )) {
+    lines.push(`  ${ln}`);
+  }
+  lines.push("MANUAL STEPS:");
+  for (const ln of renderManualSteps(inputs.manualStepsBlock)) {
+    lines.push(`  ${ln}`);
+  }
+  return lines.join("\n");
+}
+
+function readFileOrEmpty(filePath: string | undefined): string {
+  if (!filePath) return "";
+  try {
+    return fs.readFileSync(filePath, "utf8");
+  } catch {
+    return "";
+  }
+}
+
+export function run(argv: string[]): number {
+  const parsed = parseArgs(argv);
+  if ("error" in parsed) {
+    process.stderr.write(`flow-pipeline-summary: ${parsed.error}\n`);
+    process.stderr.write(
+      "usage: flow-pipeline-summary --status <merged|gated|needs-human>\n" +
+        "                             [--state-file <path>] [--pr-changes-file <path>]\n" +
+        "                             [--pr-review-result <path>] [--fix-applier-result <path>]\n" +
+        "                             [--consolidator-result <path>] [--ci-wait-result <path>]\n" +
+        "                             [--followups-block-file <path>] [--followups-jsonl <path>]\n" +
+        "                             [--filed-issues-file <path>]\n",
+    );
+    return 2;
+  }
+  const slug = parsed.stateFile?.replace(/\.json$/, "").replace(/.*\//, "");
+  const stateDir = parsed.stateFile?.replace(/\/[^/]+$/, "");
+  const state =
+    slug !== undefined && stateDir !== undefined
+      ? readState(slug, stateDir)
+      : null;
+  const fixApplierRaw = readFileOrEmpty(parsed.fixApplierResult);
+  // MANUAL STEPS prefers the already-rendered block (preserves ran/failed
+  // results captured by `flow-followups run` on the MERGED path). A
+  // note-only JSONL re-read would lose them, so the block-file wins.
+  const manualStepsBlock = parsed.followupsBlockFile
+    ? readFileOrEmpty(parsed.followupsBlockFile)
+    : parsed.followupsJsonl
+      ? renderJsonlNoteOnly(parsed.followupsJsonl)
+      : "";
+  const block = render({
+    prChangesRaw: readFileOrEmpty(parsed.prChangesFile),
+    phaseLog: state?.phaseLog ?? null,
+    prReviewRaw: readFileOrEmpty(parsed.prReviewResult),
+    fixApplierRaw,
+    consolidatorRaw: readFileOrEmpty(parsed.consolidatorResult),
+    ciWaitRaw: readFileOrEmpty(parsed.ciWaitResult),
+    filedIssuesRaw: readFileOrEmpty(parsed.filedIssuesFile),
+    fixApplierForIssues: fixApplierRaw,
+    manualStepsBlock,
+  });
+  process.stdout.write(block + "\n");
+  return 0;
+}
+
+/**
+ * Reads the local-followups JSONL and renders its note-only verdict.
+ * `noteOnly: true` is load-bearing: it NEVER re-executes auto-allowlisted
+ * entries (the MERGED path's `flow-followups run` already did), avoiding a
+ * double-execution bug.
+ */
+function renderJsonlNoteOnly(jsonlPath: string): string {
+  return formatVerdict(
+    runEntries(readEntries(jsonlPath), { noteOnly: true }),
+    true,
+  );
+}
+
+if (import.meta.main) {
+  process.exit(run(process.argv.slice(2)));
+}

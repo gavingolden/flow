@@ -351,6 +351,74 @@ describe("state", () => {
     expect(readState("bad-override", dir)).toBeNull();
   });
 
+  it("readState round-trips a valid phaseLog array through writeState", () => {
+    const withLog: PipelineState = {
+      slug: "phaselog",
+      phase: "reviewing",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      phaseLog: [
+        { phase: "planning", at: "2026-05-17T00:01:00Z" },
+        {
+          phase: "reviewing",
+          outcome: "clean",
+          at: "2026-05-17T00:02:00Z",
+        },
+      ],
+    };
+    writeState(withLog, dir);
+    expect(readState("phaselog", dir)).toEqual(withLog);
+  });
+
+  it("readState accepts an absent phaseLog field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "phaselog-absent.json"),
+      JSON.stringify({
+        slug: "phaselog-absent",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    expect(readState("phaselog-absent", dir)).not.toBeNull();
+    expect(readState("phaselog-absent", dir)).not.toHaveProperty("phaseLog");
+  });
+
+  it("readState returns null when phaseLog is a non-array", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "phaselog-non-array.json"),
+      JSON.stringify({
+        slug: "phaselog-non-array",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        phaseLog: { phase: "planning", at: "2026-05-17T00:01:00Z" },
+      }),
+    );
+    expect(readState("phaselog-non-array", dir)).toBeNull();
+  });
+
+  it("readState returns null when a phaseLog element is missing phase or at", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "phaselog-bad-element.json"),
+      JSON.stringify({
+        slug: "phaselog-bad-element",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        // first entry is fine; second is missing `at`.
+        phaseLog: [
+          { phase: "planning", at: "2026-05-17T00:01:00Z" },
+          { phase: "reviewing" },
+        ],
+      }),
+    );
+    expect(readState("phaselog-bad-element", dir)).toBeNull();
+  });
+
   it("listStates skips off-shape JSON files alongside valid ones", () => {
     writeState(fixture("real"), dir);
     fs.writeFileSync(
