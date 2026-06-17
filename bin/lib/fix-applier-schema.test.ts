@@ -47,6 +47,7 @@ const VALID_FULL: unknown = {
       location: "src/bar.ts:42",
       pattern: "untyped any in public function signature",
       recommendation: "tighten the param type when this module is next touched",
+      introduced_by_this_pr: false,
     },
   ],
   summary:
@@ -207,6 +208,28 @@ describe("validateFixApplierResult — wrong-type rejections", () => {
     }
   });
 
+  it("rejects an anti_patterns_found[] entry missing 'location'", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    delete (fixture.anti_patterns_found as Array<Record<string, unknown>>)[0]
+      .location;
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("location");
+    }
+  });
+
+  it("rejects an anti_patterns_found[] entry missing 'pattern'", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    delete (fixture.anti_patterns_found as Array<Record<string, unknown>>)[0]
+      .pattern;
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("pattern");
+    }
+  });
+
   it("rejects an anti_patterns_found[] entry missing 'recommendation'", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
     delete (fixture.anti_patterns_found as Array<Record<string, unknown>>)[0]
@@ -215,6 +238,29 @@ describe("validateFixApplierResult — wrong-type rejections", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toContain("recommendation");
+    }
+  });
+
+  it("rejects an anti_patterns_found[] entry missing 'introduced_by_this_pr'", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    delete (fixture.anti_patterns_found as Array<Record<string, unknown>>)[0]
+      .introduced_by_this_pr;
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("introduced_by_this_pr");
+    }
+  });
+
+  it("rejects an anti_patterns_found[] entry where 'introduced_by_this_pr' is not a boolean", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (
+      fixture.anti_patterns_found as Array<Record<string, unknown>>
+    )[0].introduced_by_this_pr = "true";
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("introduced_by_this_pr");
     }
   });
 });

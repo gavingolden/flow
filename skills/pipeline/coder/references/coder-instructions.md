@@ -76,8 +76,21 @@ For each entry in the edit-set:
 5. If you observe a related anti-pattern in the surrounding code that
    the edit-set didn't ask you to fix but the next session should know
    about, record it in `anti_patterns_found` with `location`, `pattern`,
-   and `recommendation`. **Same rule as `rejected_alternatives`:
-   populate proactively.**
+   `recommendation`, and `introduced_by_this_pr`. **Same rule as
+   `rejected_alternatives`: populate proactively.**
+
+   Every `anti_patterns_found` entry carries `introduced_by_this_pr` (a
+   boolean): `true` when the pattern lives in code this edit-set itself
+   added or changed, `false` when it is a pre-existing pattern in
+   surrounding code you did not introduce. When `introduced_by_this_pr`
+   is `true`, the entry MUST justify against the three-part fix-now bar —
+   **small** (a handful of lines), **low-risk / mechanical** (no
+   meaningful design decision), and **in-scope** (related to code this
+   edit-set touches) — and may NOT use soft "not worth churning now" /
+   "future session" framing. An introduced-in-PR entry that _clears_ that
+   bar is illegal: it should have been a commit, not a note. The slot is
+   for pre-existing brittleness you cannot fix in scope, not a release
+   valve for brittleness this edit-set itself adds.
 
 Skip edits whose `applied` is `false` for downstream verify purposes —
 the failed Edit/Write tool result is the canonical signal, but record
@@ -151,7 +164,8 @@ The artifact MUST conform to this JSON schema:
     {
       "location": "<file:line or file>",
       "pattern": "<what was observed — 1 line>",
-      "recommendation": "<what the next session should do — 1 line>"
+      "recommendation": "<what the next session should do — 1 line>",
+      "introduced_by_this_pr": false
     }
   ],
   "summary": "<3–5 sentence both-sides return summary; see step 5>"

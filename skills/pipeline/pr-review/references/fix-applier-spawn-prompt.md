@@ -46,7 +46,11 @@ Populate `rejected_alternatives` for every fix you considered and rolled
 back, and `anti_patterns_found` for every observation that did not reach
 the >=80 confidence bar but the next agent session should know about. An
 empty array is permitted only when you genuinely encountered none —
-silence is not the default. Do not call `gh issue create`, `linear`, or
+silence is not the default. Set `introduced_by_this_pr` on every
+`anti_patterns_found` entry: `true` for a pattern this PR introduced
+(which must then clear the fix-now bar — small / low-risk-mechanical /
+in-scope — or be fixed instead of noted), `false` for a pre-existing
+pattern in surrounding code. Do not call `gh issue create`, `linear`, or
 any tracker integration; flow has no GitHub-issue creation today.
 `tracker_entry_url` defaults to empty string when no in-repo tracker
 exists.

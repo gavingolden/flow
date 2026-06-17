@@ -223,7 +223,12 @@ artifact's `rejected_alternatives` or `anti_patterns_found` slots.
 Populate `rejected_alternatives` for every edit-shape you considered and
 rolled back, and `anti_patterns_found` for every off-pattern observation
 the next session should know about. An empty array is permitted only when
-you genuinely encountered none — silence is not the default. Do not call
+you genuinely encountered none — silence is not the default. Set
+`introduced_by_this_pr` on every `anti_patterns_found` entry: `true` for a
+pattern living in code this edit-set added or changed (which must then
+clear the fix-now bar — small / low-risk-mechanical / in-scope — or be
+fixed instead of noted), `false` for a pre-existing pattern in surrounding
+code. Do not call
 `gh issue create`, `flow-create-issue`, or any tracker integration; surface
 deferred-worthy observations as `anti_patterns_found` and let the parent
 caller file the issue if appropriate.

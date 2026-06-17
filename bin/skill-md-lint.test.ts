@@ -955,6 +955,31 @@ describe("Fix-Applier artifact JSON schema drift (pr-review/SKILL.md ↔ referen
         "the user-redirect contract is silently broken.",
     ).toBe(true);
   });
+
+  it("references/fix-applier-instructions.md documents the per-entry 'introduced_by_this_pr' field", () => {
+    expect(
+      fixApplierContent.includes("introduced_by_this_pr"),
+      "references/fix-applier-instructions.md must document the per-entry " +
+        "'introduced_by_this_pr' boolean on anti_patterns_found entries. Dropping it here " +
+        "breaks lockstep with the fix-applier-schema.ts validator that now requires the field.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md documents the per-entry 'introduced_by_this_pr' field", () => {
+    expect(
+      prReviewContent.includes("introduced_by_this_pr"),
+      "pr-review/SKILL.md must document the per-entry 'introduced_by_this_pr' boolean on " +
+        "anti_patterns_found entries (Step-12 renderer note). Dropping it here breaks lockstep.",
+    ).toBe(true);
+  });
+
+  it("pr-review/references/fix-applier-spawn-prompt.md instructs the subagent on 'introduced_by_this_pr'", () => {
+    expect(
+      fixApplierSpawnPromptContent.includes("introduced_by_this_pr"),
+      "pr-review/references/fix-applier-spawn-prompt.md must instruct the subagent to set " +
+        "'introduced_by_this_pr' on every anti_patterns_found entry. Dropping it here breaks lockstep.",
+    ).toBe(true);
+  });
 });
 
 describe("Edit-Applier artifact JSON schema drift (coder/SKILL.md ↔ references/coder-instructions.md)", () => {
@@ -1009,6 +1034,23 @@ describe("Edit-Applier artifact JSON schema drift (coder/SKILL.md ↔ references
         "populate 'rejected_alternatives' and 'anti_patterns_found' (and warn that 'silence is " +
         "not the default'). Without this, the subagent defaults to leaving the slots empty and " +
         "the user-redirect contract is silently broken.",
+    ).toBe(true);
+  });
+
+  it("references/coder-instructions.md documents the per-entry 'introduced_by_this_pr' field", () => {
+    expect(
+      coderInstructionsContent.includes("introduced_by_this_pr"),
+      "references/coder-instructions.md must document the per-entry 'introduced_by_this_pr' " +
+        "boolean on anti_patterns_found entries. Dropping it here breaks lockstep with the " +
+        "coder-schema.ts validator that now requires the field.",
+    ).toBe(true);
+  });
+
+  it("coder/SKILL.md documents the per-entry 'introduced_by_this_pr' field", () => {
+    expect(
+      coderContent.includes("introduced_by_this_pr"),
+      "coder/SKILL.md must document the per-entry 'introduced_by_this_pr' boolean on " +
+        "anti_patterns_found entries (spawn-prompt template). Dropping it here breaks lockstep.",
     ).toBe(true);
   });
 
