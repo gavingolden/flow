@@ -334,6 +334,67 @@ describe("flow-pipeline SKILL.md structural lint", () => {
   });
 });
 
+describe("pipeline-snapshot wiring lint", () => {
+  // Pins the four post-review terminal `flow-pipeline-summary` call sites so
+  // a future edit cannot silently drop the snapshot. The helper renders the
+  // `## PIPELINE SNAPSHOT` block ABOVE the gate-summary block; the ordering
+  // anchor below enforces "snapshot precedes gate-summary precedes the
+  // terminal state transition" at the canonical MERGED block.
+
+  it("wires flow-pipeline-summary at each of the three post-review terminal statuses", () => {
+    for (const status of ["merged", "gated", "needs-human"] as const) {
+      expect(
+        content.includes(`flow-pipeline-summary --status ${status}`),
+        `flow-pipeline SKILL.md must call 'flow-pipeline-summary --status ${status}' ` +
+          "at the corresponding post-review terminal site so the snapshot " +
+          "renders above the gate-summary block.",
+      ).toBe(true);
+    }
+  });
+
+  it("the MERGED snapshot precedes the MERGED gate-summary, which precedes worktree removal + the phase transition", () => {
+    const snapIdx = content.indexOf("flow-pipeline-summary --status merged");
+    const gateIdx = content.indexOf(
+      "flow-gate-summary --status merged",
+      snapIdx,
+    );
+    const removeIdx = content.indexOf("flow-remove-worktree", gateIdx);
+    const phaseIdx = content.indexOf(
+      "flow-state-update --phase merged",
+      gateIdx,
+    );
+    expect(
+      snapIdx,
+      "flow-pipeline-summary --status merged is missing from the MERGED block",
+    ).toBeGreaterThan(0);
+    expect(
+      gateIdx,
+      "flow-gate-summary --status merged must appear AFTER the snapshot — " +
+        "the snapshot prints above the sentinel-bearing gate block.",
+    ).toBeGreaterThan(snapIdx);
+    expect(
+      removeIdx,
+      "flow-remove-worktree must appear AFTER the merged gate-summary render — " +
+        "removing the worktree first deletes the artifacts the snapshot reads.",
+    ).toBeGreaterThan(gateIdx);
+    expect(
+      phaseIdx,
+      "flow-state-update --phase merged must appear AFTER the merged gate-summary " +
+        "render — a render failure must leave state.json non-terminal so " +
+        "flow-stop-guard keeps nudging.",
+    ).toBeGreaterThan(gateIdx);
+  });
+
+  it("the step-10 sweep writes filed-issues.txt for the snapshot's FOLLOW-UP ISSUES source", () => {
+    expect(
+      content.includes("filed-issues.txt"),
+      "flow-pipeline SKILL.md step-10 sweep must redirect filed/unfiled URLs to " +
+        "filed-issues.txt — the flat-file source the snapshot reads as " +
+        "--filed-issues-file.",
+    ).toBe(true);
+  });
+});
+
 describe("pr-review deferral-tracker lint", () => {
   it("the wrapper SKILL.md names flow-create-issue and no ROADMAP.md fallback", () => {
     expect(

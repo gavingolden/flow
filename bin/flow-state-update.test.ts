@@ -129,6 +129,16 @@ describe("parseArgs", () => {
     });
   });
 
+  it("parses --phase-outcome into Args alongside --phase", () => {
+    expect(
+      parseArgs(["foo", "--phase", "reviewing", "--phase-outcome", "clean"]),
+    ).toEqual({
+      slug: "foo",
+      phase: "reviewing",
+      phaseOutcome: "clean",
+    });
+  });
+
   it("parses --auto-merge as autoMerge: true", () => {
     expect(parseArgs(["foo", "--auto-merge"])).toEqual({
       slug: "foo",
@@ -302,6 +312,54 @@ describe("runUpdate", () => {
     const got = readState("csv-export", dir);
     expect(got?.autoMerge).toBe(false);
     expect(got?.phase).toBe("gating");
+  });
+
+  it("appends exactly one phaseLog entry on a --phase write and refreshes phase + updatedAt", () => {
+    seed("csv-export");
+    const code = runUpdate(["csv-export", "--phase", "reviewing"], dir);
+    expect(code).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.phase).toBe("reviewing");
+    expect(got?.updatedAt).not.toBe("2026-04-30T12:00:00Z");
+    expect(got?.phaseLog).toHaveLength(1);
+    expect(got?.phaseLog?.[0].phase).toBe("reviewing");
+    expect(typeof got?.phaseLog?.[0].at).toBe("string");
+    // No --phase-outcome ⇒ the outcome key is omitted entirely.
+    expect(got?.phaseLog?.[0]).not.toHaveProperty("outcome");
+  });
+
+  it("records --phase-outcome on the appended phaseLog entry", () => {
+    seed("csv-export");
+    const code = runUpdate(
+      ["csv-export", "--phase", "reviewing", "--phase-outcome", "clean"],
+      dir,
+    );
+    expect(code).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.phaseLog).toHaveLength(1);
+    expect(got?.phaseLog?.[0].outcome).toBe("clean");
+  });
+
+  it("does NOT append to phaseLog on a --pr-only update (no --phase)", () => {
+    seed("csv-export", { phaseLog: [{ phase: "planning", at: "2026-01-01" }] });
+    const code = runUpdate(["csv-export", "--pr", "42"], dir);
+    expect(code).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.pr).toBe(42);
+    expect(got?.phaseLog).toHaveLength(1); // unchanged
+    expect(got?.phaseLog?.[0].phase).toBe("planning");
+  });
+
+  it("appends a second phaseLog entry preserving the first (order preserved)", () => {
+    seed("csv-export");
+    expect(runUpdate(["csv-export", "--phase", "planning"], dir)).toBe(0);
+    expect(runUpdate(["csv-export", "--phase", "reviewing"], dir)).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.phaseLog).toHaveLength(2);
+    expect(got?.phaseLog?.map((e) => e.phase)).toEqual([
+      "planning",
+      "reviewing",
+    ]);
   });
 
   it("returns 3 and does not update state when the worktree's branch does not match the marker", () => {

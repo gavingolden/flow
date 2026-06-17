@@ -71,6 +71,16 @@ export type PipelineState = {
    * on every pipeline that never overrode a gate.
    */
   gateOverride?: { pr: number; confirmedAt: string };
+  /**
+   * Append-only phase-transition history, one entry per `flow-state-update
+   * --phase` write. Feeds the `## PIPELINE SNAPSHOT` block's PHASES section
+   * (`flow-pipeline-summary`) with an authoritative trace instead of
+   * supervisor-composed prose. `outcome` is the optional `--phase-outcome`
+   * string (absent on phases with no short verdict). Absent on every
+   * pipeline that predates the field — no migration (AGENTS.md: no
+   * back-compat shims).
+   */
+  phaseLog?: Array<{ phase: string; outcome?: string; at: string }>;
   updatedAt: string;
 };
 
@@ -144,6 +154,20 @@ function isGateOverride(x: unknown): x is { pr: number; confirmedAt: string } {
   return typeof o.pr === "number" && typeof o.confirmedAt === "string";
 }
 
+function isPhaseLog(
+  x: unknown,
+): x is Array<{ phase: string; outcome?: string; at: string }> {
+  if (!Array.isArray(x)) return false;
+  for (const e of x) {
+    if (typeof e !== "object" || e === null || Array.isArray(e)) return false;
+    const o = e as Record<string, unknown>;
+    if (typeof o.phase !== "string") return false;
+    if (typeof o.at !== "string") return false;
+    if (o.outcome !== undefined && typeof o.outcome !== "string") return false;
+  }
+  return true;
+}
+
 function isPipelineState(x: unknown): x is PipelineState {
   if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
   const o = x as Record<string, unknown>;
@@ -173,6 +197,7 @@ function isPipelineState(x: unknown): x is PipelineState {
     return false;
   if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride))
     return false;
+  if (o.phaseLog !== undefined && !isPhaseLog(o.phaseLog)) return false;
   return true;
 }
 
