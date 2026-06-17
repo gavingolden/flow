@@ -194,6 +194,29 @@ describe("render — FINDINGS", () => {
     expect(out).toContain("Copilot: reviewed");
   });
 
+  it("renders `Copilot: not configured` when copilotConfigured is false", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      ciWaitRaw: JSON.stringify({
+        decision: "proceed-to-review-no-bot",
+        copilotConfigured: false,
+      }),
+    });
+    expect(out).toContain("Copilot: not configured");
+  });
+
+  it("renders `Copilot: skipped (<reason>)` when a skip reason is present", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      ciWaitRaw: JSON.stringify({
+        decision: "proceed-to-review-no-bot",
+        copilotConfigured: true,
+        copilotSkipReason: "unclaimed-after-deadline",
+      }),
+    });
+    expect(out).toContain("Copilot: skipped (unclaimed-after-deadline)");
+  });
+
   it("degrades a malformed pr-review artifact to (unreadable)", () => {
     const out = render({
       ...EMPTY_RENDER,
@@ -348,5 +371,59 @@ describe("run — end-to-end", () => {
       run(["--status", "merged", "--followups-block-file", blockFile]);
     });
     expect(out).toContain("RAN     flow setup --upgrade  (exit 0)");
+  });
+
+  it("renders the --followups-jsonl note-only verdict (never re-executing entries)", () => {
+    const jsonl = write(
+      "local-followups.jsonl",
+      JSON.stringify({
+        id: "abc123",
+        command: "flow setup --upgrade",
+        reason: "new helper landed",
+        auto: true,
+        registeredAt: "t1",
+      }) + "\n",
+    );
+    const out = captureStdout(() => {
+      run(["--status", "gated", "--followups-jsonl", jsonl]);
+    });
+    // noteOnly: true => the auto-allowlisted entry is NOTED, not run, and the
+    // header carries the deferred verdict.
+    expect(out).toContain("LOCAL FOLLOW-UPS (deferred — PR not yet merged)");
+    expect(out).toContain("flow setup --upgrade");
+    expect(out).not.toContain("RAN     flow setup --upgrade");
+  });
+
+  it("prefers --followups-block-file over --followups-jsonl when both are passed", () => {
+    const blockFile = write(
+      "followups-block.txt",
+      "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow setup --upgrade  (exit 0)\n",
+    );
+    const jsonl = write(
+      "local-followups.jsonl",
+      JSON.stringify({
+        id: "abc123",
+        command: "flow setup --upgrade",
+        reason: "new helper landed",
+        auto: true,
+        registeredAt: "t1",
+      }) + "\n",
+    );
+    const out = captureStdout(() => {
+      run([
+        "--status",
+        "merged",
+        "--followups-block-file",
+        blockFile,
+        "--followups-jsonl",
+        jsonl,
+      ]);
+    });
+    // Block-file wins: the captured ran/failed results are preserved and the
+    // jsonl note-only fallback never fires.
+    expect(out).toContain("RAN     flow setup --upgrade  (exit 0)");
+    expect(out).not.toContain(
+      "LOCAL FOLLOW-UPS (deferred — PR not yet merged)",
+    );
   });
 });

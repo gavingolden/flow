@@ -1900,9 +1900,11 @@ else
   printf '  %s\n' "${FILED[@]}"
 fi
 # Capture the sweep's filed URLs + unfiled warnings to a flat file the
-# ## PIPELINE SNAPSHOT block reads as --filed-issues-file (a filed line begins
-# `http`; an unfiled line is `unfiled\t<title>`). Truncate first, then append
-# each array guarded by a length check so an empty array does not error.
+# ## PIPELINE SNAPSHOT block reads as --filed-issues-file (a filed line is
+# `filed\t<url>`; an unfiled line is `unfiled\t<title>` — a bare `http…` line
+# is also accepted by the parser on the resume / hand-authored path). Truncate
+# first, then append each array guarded by a length check so an empty array
+# does not error.
 : > "$WORKTREE/.flow-tmp/filed-issues.txt"
 if [ "${#FILED[@]}" -gt 0 ]; then printf 'filed\t%s\n' "${FILED[@]}" >> "$WORKTREE/.flow-tmp/filed-issues.txt"; fi
 if [ "${#WARN[@]}" -gt 0 ]; then printf 'unfiled\t%s\n' "${WARN[@]}" >> "$WORKTREE/.flow-tmp/filed-issues.txt"; fi
