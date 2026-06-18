@@ -26,6 +26,7 @@ import {
   mergeScopeSources,
   type DynamicScope,
 } from "./lib/monorepo-scopes";
+import { isPathBoundHelper } from "./lib/sources";
 
 // --- Types ---
 
@@ -321,6 +322,103 @@ export function computeUnmatchedAfterDynamic(
   return computeUnmatchedFiles(files).filter(
     (f) => !dynamicScopes.some((d) => d.prefixes.some((p) => f.startsWith(p))),
   );
+}
+
+// --- Helper executable-mode gate ---
+
+/** A git-tracked path paired with its index file mode (e.g. `100755`). */
+export type GitModeEntry = { path: string; mode: string };
+
+// Matches a top-level bin helper (`bin/<basename>.ts`). The single-segment
+// capture `[^/]+` excludes subdirectory modules like
+// `bin/flow-pr-static-analysis/cli.ts`.
+const BIN_HELPER_REGEX = /^bin\/([^/]+\.ts)$/;
+
+/**
+ * From a list of git-tracked entries, returns the paths of top-level bin
+ * helpers that are NOT tracked executable (mode !== '100755'). Order follows
+ * input order.
+ */
+export function findNonExecutableHelpers(entries: GitModeEntry[]): string[] {
+  return entries
+    .filter((e) => {
+      const match = BIN_HELPER_REGEX.exec(e.path);
+      return (
+        match !== null && isPathBoundHelper(match[1]) && e.mode !== "100755"
+      );
+    })
+    .map((e) => e.path);
+}
+
+/**
+ * Parses `git ls-files -s` output: each line is `<mode> <sha> <stage>\t<path>`.
+ * Splits on newlines, drops blanks, and pulls `mode` (before the first space)
+ * and `path` (after the first tab) from each line.
+ */
+export function parseLsFilesModes(stdout: string): GitModeEntry[] {
+  return stdout
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .map((line) => ({
+      mode: line.slice(0, line.indexOf(" ")),
+      path: line.slice(line.indexOf("\t") + 1),
+    }));
+}
+
+/**
+ * Diff-scoped gate: when the changeset touches a top-level `bin/<helper>.ts`
+ * tracked non-executable, fail with a `chmod +x` hint. A non-executable helper
+ * symlinked onto PATH by `flow setup` dies with 'permission denied'. Returns
+ * null (inert) when no changed file is a candidate helper.
+ */
+export function checkHelperExecutableModes(
+  changedFiles: string[] | undefined,
+): CheckResult | null {
+  const candidates = (changedFiles ?? []).filter((f) => {
+    const match = BIN_HELPER_REGEX.exec(f);
+    return match !== null && isPathBoundHelper(match[1]);
+  });
+  if (candidates.length === 0) return null;
+
+  // git-tracked mode is authoritative: the committed bit — not the working-tree
+  // stat — is what `flow setup` and the merge ship.
+  const { stdout, exitCode } = run([
+    "git",
+    "ls-files",
+    "-s",
+    "--",
+    ...candidates,
+  ]);
+  if (exitCode !== 0) {
+    return {
+      name: "bin/*.ts executable mode",
+      scope: "scripts",
+      passed: false,
+      durationMs: 0,
+      output: `git ls-files -s failed (exit ${exitCode}) while checking bin helper modes`,
+    };
+  }
+
+  const offenders = findNonExecutableHelpers(parseLsFilesModes(stdout));
+  if (offenders.length === 0) {
+    return {
+      name: "bin/*.ts executable mode",
+      scope: "scripts",
+      passed: true,
+      durationMs: 0,
+      output: `All ${candidates.length} changed bin/*.ts helper(s) tracked executable (100755).`,
+    };
+  }
+  const remediation = offenders.map((p) => `  chmod +x ${p}`).join("\n");
+  return {
+    name: "bin/*.ts executable mode",
+    scope: "scripts",
+    passed: false,
+    durationMs: 0,
+    output:
+      "A non-executable bin/*.ts helper symlinked onto PATH dies with 'permission denied'. " +
+      `Make each tracked executable:\n${remediation}`,
+  };
 }
 
 /**
@@ -1190,6 +1288,9 @@ async function main(): Promise<void> {
       }
     }
   }
+
+  const helperModeCheck = checkHelperExecutableModes(changedFiles);
+  if (helperModeCheck) results.push(helperModeCheck);
 
   const unmatchedFiles =
     changedFiles !== undefined

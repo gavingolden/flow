@@ -36,6 +36,22 @@ const VALIDATOR_MODULES = [
  */
 const MAINTAINER_ONLY = new Set(["flow-release"]);
 
+/**
+ * Whether a `bin/` basename (e.g. `flow-new-worktree.ts`) is a helper that
+ * `flow setup` symlinks onto a user's PATH: a `.ts` file that is not a test,
+ * not the `flow` wrapper, and not a maintainer-only tool. Shared with
+ * flow-pre-commit's executable-mode gate so the installer and the gate cannot
+ * disagree about which files must be tracked executable.
+ */
+export function isPathBoundHelper(name: string): boolean {
+  return (
+    name.endsWith(".ts") &&
+    !name.endsWith(".test.ts") &&
+    name !== "flow.ts" &&
+    !MAINTAINER_ONLY.has(name.replace(/\.ts$/, ""))
+  );
+}
+
 export type SourceEntry = {
   source: string;
   target: string;
@@ -113,10 +129,9 @@ export function discoverHelpers(
   if (!existsDir(binDir)) return [];
   return fs
     .readdirSync(binDir, { withFileTypes: true })
-    .filter((d) => (d.isFile() || d.isSymbolicLink()) && d.name.endsWith(".ts"))
-    .filter((d) => !d.name.endsWith(".test.ts"))
-    .filter((d) => d.name !== "flow.ts") // wrapper itself, if present
-    .filter((d) => !MAINTAINER_ONLY.has(d.name.replace(/\.ts$/, "")))
+    .filter(
+      (d) => (d.isFile() || d.isSymbolicLink()) && isPathBoundHelper(d.name),
+    )
     .map((d) => ({
       source: path.join(binDir, d.name),
       target: path.join(targets.binDir, d.name.replace(/\.ts$/, "")),

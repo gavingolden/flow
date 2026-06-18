@@ -4,7 +4,13 @@
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,10 +22,12 @@ import {
   computeUnmatchedFiles,
   detectScopesFromFiles,
   filterDefinedChecks,
+  findNonExecutableHelpers,
   formatJsonReport,
   formatReport,
   getChangedFilesForPush,
   isTestCheck,
+  parseLsFilesModes,
   parsePrePushInput,
   parseScopes,
   resolveDefaultScopeFiles,
@@ -28,6 +36,7 @@ import {
   stripAnsi,
   type CheckReport,
   type CheckResult,
+  type GitModeEntry,
   type GitOps,
   type JsonReport,
   type PrePushRef,
@@ -765,6 +774,70 @@ describe(runCheck, () => {
     );
     expect(result.passed).toBe(false);
     expect(result.skipReason).toBeUndefined();
+  });
+});
+
+describe(findNonExecutableHelpers, () => {
+  const entry = (path: string, mode: string): GitModeEntry => ({ path, mode });
+
+  it("returns a top-level bin helper tracked 100644 (non-executable fails)", () => {
+    expect(
+      findNonExecutableHelpers([entry("bin/flow-foo.ts", "100644")]),
+    ).toEqual(["bin/flow-foo.ts"]);
+  });
+
+  it("does NOT return the same helper tracked 100755 (executable passes)", () => {
+    expect(
+      findNonExecutableHelpers([entry("bin/flow-foo.ts", "100755")]),
+    ).toEqual([]);
+  });
+
+  it("excludes non-helper bin paths even at 100644 (test/lib/subdir/wrapper/maintainer)", () => {
+    const excluded = [
+      entry("bin/flow-foo.test.ts", "100644"),
+      entry("bin/lib/git.ts", "100644"),
+      entry("bin/flow-pr-static-analysis/cli.ts", "100644"),
+      entry("bin/flow.ts", "100644"),
+      entry("bin/flow-release.ts", "100644"),
+    ];
+    expect(findNonExecutableHelpers(excluded)).toEqual([]);
+  });
+
+  it("excludes a non-bin path at 100644", () => {
+    expect(findNonExecutableHelpers([entry("src/app.ts", "100644")])).toEqual(
+      [],
+    );
+  });
+
+  it("returns [] for an empty entry list (inert when no helpers)", () => {
+    expect(findNonExecutableHelpers([])).toEqual([]);
+  });
+
+  it("preserves input order across multiple offenders", () => {
+    expect(
+      findNonExecutableHelpers([
+        entry("bin/flow-b.ts", "100644"),
+        entry("bin/flow-a.ts", "100755"),
+        entry("bin/flow-c.ts", "100644"),
+      ]),
+    ).toEqual(["bin/flow-b.ts", "bin/flow-c.ts"]);
+  });
+});
+
+describe(parseLsFilesModes, () => {
+  it("parses two git ls-files -s lines into {path, mode} entries", () => {
+    const stdout = "100755 abc 0\tbin/flow-a.ts\n100644 def 0\tbin/flow-b.ts";
+    expect(parseLsFilesModes(stdout)).toEqual([
+      { mode: "100755", path: "bin/flow-a.ts" },
+      { mode: "100644", path: "bin/flow-b.ts" },
+    ]);
+  });
+
+  it("drops blank and trailing lines", () => {
+    const stdout = "\n100755 abc 0\tbin/flow-a.ts\n\n";
+    expect(parseLsFilesModes(stdout)).toEqual([
+      { mode: "100755", path: "bin/flow-a.ts" },
+    ]);
   });
 });
 
@@ -2153,4 +2226,105 @@ describe("Story 4 regression: dynamic scopes never disturb pure built-in detecti
       "apps/web",
     ]);
   });
+});
+
+describe("integration: bin/*.ts executable-mode gate against a git fixture", () => {
+  // End-to-end coverage for checkHelperExecutableModes wired into main(): a
+  // top-level bin helper staged at mode 100644 must fail the gate with a
+  // `bin/*.ts executable mode` result; the same helper at 100755 must pass.
+  // Same cross-runtime node:child_process spawn as the blocks above so it runs
+  // under both node-vitest and bun-vitest. Each case uses its own fixture repo
+  // so the two staged modes don't interfere.
+  const bunOnPath = spawnSync("bun", ["--version"]).status === 0;
+  let nonExecDir: string;
+  let execDir: string;
+
+  function seedRepo(prefix: string): string {
+    const dir = mkdtempSync(join(tmpdir(), prefix));
+    mkdirSync(join(dir, "bin"), { recursive: true });
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "fixture", version: "0.0.1" }, null, 2),
+    );
+    spawnSync("git", ["init", "-q", "-b", "main"], { cwd: dir });
+    spawnSync(
+      "git",
+      [
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "--allow-empty",
+        "-q",
+        "-m",
+        "init",
+      ],
+      { cwd: dir },
+    );
+    return dir;
+  }
+
+  beforeAll(() => {
+    if (!bunOnPath) return;
+
+    // Case 1: helper staged at 100644 (non-executable) → gate fails.
+    nonExecDir = seedRepo("flow-pre-commit-mode-bad-");
+    writeFileSync(
+      join(nonExecDir, "bin", "flow-fixturehelper.ts"),
+      "export const x = 1;\n",
+    );
+    spawnSync("git", ["add", "bin/flow-fixturehelper.ts"], { cwd: nonExecDir });
+
+    // Case 2: same helper chmod 0o755 before staging (executable) → gate passes.
+    execDir = seedRepo("flow-pre-commit-mode-ok-");
+    const execFile = join(execDir, "bin", "flow-fixturehelper.ts");
+    writeFileSync(execFile, "export const x = 1;\n");
+    chmodSync(execFile, 0o755);
+    spawnSync("git", ["add", "bin/flow-fixturehelper.ts"], { cwd: execDir });
+  });
+
+  afterAll(() => {
+    if (nonExecDir) rmSync(nonExecDir, { recursive: true, force: true });
+    if (execDir) rmSync(execDir, { recursive: true, force: true });
+  });
+
+  it.skipIf(!bunOnPath)(
+    "fails when a staged bin helper is tracked 100644",
+    () => {
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const scriptPath = resolve(here, "flow-pre-commit.ts");
+      const result = spawnSync("bun", [scriptPath, "--json"], {
+        cwd: nonExecDir,
+        encoding: "utf8",
+      });
+      const report = JSON.parse(result.stdout) as JsonReport;
+      expect(report.allPassed).toBe(false);
+      const modeResult = report.results.find(
+        (r) => r.name === "bin/*.ts executable mode",
+      );
+      expect(modeResult).toBeDefined();
+      expect(modeResult!.passed).toBe(false);
+    },
+  );
+
+  it.skipIf(!bunOnPath)(
+    "passes when the staged bin helper is tracked 100755",
+    () => {
+      const here =
+        import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+      const scriptPath = resolve(here, "flow-pre-commit.ts");
+      const result = spawnSync("bun", [scriptPath, "--json"], {
+        cwd: execDir,
+        encoding: "utf8",
+      });
+      const report = JSON.parse(result.stdout) as JsonReport;
+      const modeResult = report.results.find(
+        (r) => r.name === "bin/*.ts executable mode",
+      );
+      expect(modeResult).toBeDefined();
+      expect(modeResult!.passed).toBe(true);
+    },
+  );
 });
