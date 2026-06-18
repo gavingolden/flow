@@ -25,16 +25,20 @@
  * prints above it. A shape-invalid artifact degrades that one category to
  * `(unreadable)` rather than crashing the whole snapshot.
  *
- * Durable persistence (`--post-comment <PR>`): on the MERGED status only,
- * the rendered block is ALSO posted as a top-level PR issue-comment so a
+ * Durable persistence (`--post-comment <PR>`): on the MERGED status only, a
+ * SLIMMED snapshot (renderComment — CHANGES / REVIEW / DECISIONS only, no
+ * PHASES or MANUAL STEPS) is ALSO posted as a top-level PR issue-comment so a
  * merged PR carries its own pipeline provenance beyond the transient tmux
- * scrollback. The write is idempotent — an HTML-comment marker
+ * scrollback. The posted body wraps the slim block in a ```text code fence;
+ * the dedup marker sits AFTER the closing fence (outside the fenced region).
+ * The write is idempotent — that HTML-comment marker
  * (`<!-- flow-pipeline-snapshot-v1 -->`) keys an edit-or-create upsert, so a
  * resume / re-run edits the existing comment in place rather than posting a
- * duplicate. The marker lives ONLY in the posted comment body, never in
- * stdout. The write is best-effort: a `gh` failure is reported to stderr and
- * never changes the exit code or the scrollback render (a peripheral
- * comment-post failure must not un-merge a PR).
+ * duplicate. The fence and marker live ONLY in the posted comment body, never
+ * in stdout (the scrollback render() output is unchanged). The write is
+ * best-effort: a `gh` failure is reported to stderr and never changes the exit
+ * code or the scrollback render (a peripheral comment-post failure must not
+ * un-merge a PR).
  *
  * Usage:
  *   flow-pipeline-summary --status <merged|gated|needs-human>
@@ -58,6 +62,7 @@ import {
   renderForeclosedPaths,
   renderFollowupIssues,
   renderManualSteps,
+  renderComment,
 } from "./lib/pipeline-summary-sources";
 
 /** Single-line HTML-comment dedup key for the persisted snapshot comment.
@@ -217,10 +222,13 @@ function readFileOrEmpty(filePath: string | undefined): string {
   }
 }
 
-/** The posted comment body is the rendered block plus the dedup marker. The
- *  marker is appended ONLY here — the block written to stdout stays clean. */
+/** The posted comment body wraps the block in a ```text code fence and
+ *  appends the dedup marker AFTER the closing fence (so the marker stays
+ *  outside the fenced region — findMarkedCommentId still substring-matches
+ *  it). The marker is appended ONLY here — the block written to stdout stays
+ *  clean (no fence, no marker). */
 export function buildCommentBody(block: string): string {
-  return `${block}\n\n${SNAPSHOT_MARKER}`;
+  return "```text\n" + block + "\n```\n\n" + SNAPSHOT_MARKER;
 }
 
 /** Scans a `gh api .../issues/<pr>/comments` list response for the first
@@ -336,6 +344,11 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
       ? readState(slug, stateDir)
       : null;
   const fixApplierRaw = readFileOrEmpty(parsed.fixApplierResult);
+  const prChangesRaw = readFileOrEmpty(parsed.prChangesFile);
+  const prReviewRaw = readFileOrEmpty(parsed.prReviewResult);
+  const consolidatorRaw = readFileOrEmpty(parsed.consolidatorResult);
+  const ciWaitRaw = readFileOrEmpty(parsed.ciWaitResult);
+  const filedIssuesRaw = readFileOrEmpty(parsed.filedIssuesFile);
   // MANUAL STEPS prefers the already-rendered block (preserves ran/failed
   // results captured by `flow-followups run` on the MERGED path). A
   // note-only JSONL re-read would lose them, so the block-file wins.
@@ -345,13 +358,13 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
       ? renderJsonlNoteOnly(parsed.followupsJsonl)
       : "";
   const block = render({
-    prChangesRaw: readFileOrEmpty(parsed.prChangesFile),
+    prChangesRaw,
     phaseLog: state?.phaseLog ?? null,
-    prReviewRaw: readFileOrEmpty(parsed.prReviewResult),
+    prReviewRaw,
     fixApplierRaw,
-    consolidatorRaw: readFileOrEmpty(parsed.consolidatorResult),
-    ciWaitRaw: readFileOrEmpty(parsed.ciWaitResult),
-    filedIssuesRaw: readFileOrEmpty(parsed.filedIssuesFile),
+    consolidatorRaw,
+    ciWaitRaw,
+    filedIssuesRaw,
     fixApplierForIssues: fixApplierRaw,
     manualStepsBlock,
   });
@@ -359,12 +372,22 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
 
   // Durable persistence: MERGED only, opt-in via --post-comment. Best-effort —
   // a gh failure (or an unparseable PR arg) is reported to stderr and never
-  // changes the exit code. The scrollback render above already happened.
+  // changes the exit code. The scrollback render above already happened. The
+  // posted comment uses the SLIM renderComment block (no PHASES/MANUAL STEPS),
+  // built from the same already-read inputs — never the full scrollback block.
   if (parsed.status === "merged" && parsed.postComment) {
     const gh = deps.gh ?? defaultGh;
     try {
       const prNumber = parsePrNumber(parsed.postComment);
-      const result = postSnapshotComment(prNumber, block, gh);
+      const commentBlock = renderComment({
+        prChangesRaw,
+        prReviewRaw,
+        fixApplierRaw,
+        consolidatorRaw,
+        ciWaitRaw,
+        filedIssuesRaw,
+      });
+      const result = postSnapshotComment(prNumber, commentBlock, gh);
       if (result.action === "failed") {
         process.stderr.write(
           `flow-pipeline-summary: snapshot comment post failed: ${result.error}\n`,

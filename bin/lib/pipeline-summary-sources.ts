@@ -203,6 +203,87 @@ export function renderManualSteps(block: string): string[] {
   return trimmed.split("\n");
 }
 
+/**
+ * Rejected decisions for the slim PR comment's DECISIONS section: the
+ * `rejected_alternatives[]` from BOTH the fix-applier artifact (objects with
+ * `finding_id` / `considered_approach` / `why_rejected`) AND the consolidator
+ * artifact (plain strings). `none` when neither artifact carries any.
+ */
+function rejectedDecisionLines(
+  fixApplierRaw: string,
+  consolidatorRaw: string,
+): string[] {
+  const lines: string[] = [];
+  if (fixApplierRaw.trim()) {
+    const parsed = parseJson(fixApplierRaw);
+    const v =
+      parsed === undefined ? undefined : validateFixApplierResult(parsed);
+    if (v && v.ok) {
+      for (const r of v.value.rejected_alternatives) {
+        lines.push(
+          `${r.finding_id}: ${r.considered_approach} — ${r.why_rejected}`,
+        );
+      }
+    }
+  }
+  if (consolidatorRaw.trim()) {
+    const parsed = parseJson(consolidatorRaw);
+    const v =
+      parsed === undefined ? undefined : validateConsolidatorResult(parsed);
+    if (v && v.ok) {
+      for (const r of v.value.rejected_alternatives) lines.push(r);
+    }
+  }
+  return lines.length > 0 ? lines : NONE;
+}
+
+/**
+ * Slimmed, un-fenced PR-comment block (NOT the scrollback block). A plain
+ * `PIPELINE SNAPSHOT` title line (no `##`) over three 2-space-indented
+ * labeled sections: CHANGES (the one-line diff summary, reusing
+ * renderChanges), REVIEW (the review/findings disposition, reusing
+ * renderFindings), and DECISIONS (deferred + rejected). PHASES and MANUAL
+ * STEPS are intentionally dropped. Pure over already-read inputs — mirrors
+ * render(); never reads files.
+ */
+export function renderComment(inputs: {
+  prChangesRaw: string;
+  prReviewRaw: string;
+  fixApplierRaw: string;
+  consolidatorRaw: string;
+  ciWaitRaw: string;
+  filedIssuesRaw: string;
+}): string {
+  const lines: string[] = ["PIPELINE SNAPSHOT"];
+  lines.push("CHANGES:");
+  for (const ln of renderChanges(inputs.prChangesRaw)) lines.push(`  ${ln}`);
+  lines.push("REVIEW:");
+  for (const ln of renderFindings({
+    prReviewRaw: inputs.prReviewRaw,
+    fixApplierRaw: inputs.fixApplierRaw,
+    consolidatorRaw: inputs.consolidatorRaw,
+    ciWaitRaw: inputs.ciWaitRaw,
+  })) {
+    lines.push(`  ${ln}`);
+  }
+  lines.push("DECISIONS:");
+  lines.push("  deferred:");
+  for (const ln of renderFollowupIssues(
+    inputs.filedIssuesRaw,
+    inputs.fixApplierRaw,
+  )) {
+    lines.push(`    ${ln}`);
+  }
+  lines.push("  rejected:");
+  for (const ln of rejectedDecisionLines(
+    inputs.fixApplierRaw,
+    inputs.consolidatorRaw,
+  )) {
+    lines.push(`    ${ln}`);
+  }
+  return lines.join("\n");
+}
+
 function parseJson(raw: string): unknown | undefined {
   try {
     return JSON.parse(raw);

@@ -12,6 +12,7 @@ import {
   SNAPSHOT_MARKER,
   type GhRunner,
 } from "./flow-pipeline-summary";
+import { renderComment } from "./lib/pipeline-summary-sources";
 import { writeState, type PipelineState } from "./lib/state";
 
 let tmpRoot!: string;
@@ -559,10 +560,18 @@ function captureStdout(fn: () => void): string {
 }
 
 describe("buildCommentBody / findMarkedCommentId", () => {
-  it("appends the marker to the block as the comment body", () => {
-    const body = buildCommentBody("## PIPELINE SNAPSHOT\nCHANGES:\n  none");
+  it("fences the block and appends the marker after the closing fence", () => {
+    const block = "PIPELINE SNAPSHOT\nCHANGES:\n  none";
+    const body = buildCommentBody(block);
+    // Opening fence, then the block, then a closing fence, then the marker.
+    expect(body.startsWith("```text\n")).toBe(true);
     expect(body.endsWith(`\n\n${SNAPSHOT_MARKER}`)).toBe(true);
-    expect(body.startsWith("## PIPELINE SNAPSHOT")).toBe(true);
+    expect(body).toContain(block);
+    // The marker sits OUTSIDE the fenced region: after the closing fence.
+    const closingFenceIdx = body.lastIndexOf("\n```");
+    const markerIdx = body.indexOf(SNAPSHOT_MARKER);
+    expect(closingFenceIdx).toBeGreaterThanOrEqual(0);
+    expect(markerIdx).toBeGreaterThan(closingFenceIdx);
   });
 
   it("finds the first comment bearing the marker", () => {
@@ -748,5 +757,153 @@ describe("run — --post-comment write path", () => {
     });
     expect(code).toBe(0);
     expect(calls).toHaveLength(0);
+  });
+});
+
+// A populated fixture exercising every slim-comment section: a diff summary,
+// a review verdict, a fix-applier with a deferred entry + a rejected
+// alternative, and a consolidator with its own (string) rejected alternative.
+const POPULATED_COMMENT_INPUTS = {
+  prChangesRaw: JSON.stringify({
+    additions: 40,
+    deletions: 7,
+    changedFiles: 5,
+    commits: 3,
+  }),
+  prReviewRaw: JSON.stringify({
+    status: "partial",
+    completed_steps: [],
+    missed_steps: ["x"],
+    escalation_tag: null,
+    summary: "two findings open",
+  }),
+  fixApplierRaw: JSON.stringify({
+    commits: [],
+    deferred: [
+      {
+        finding_id: "F2",
+        tracker_entry_url: "https://github.com/o/r/issues/2",
+        reason: "later",
+      },
+    ],
+    rejected_alternatives: [
+      {
+        finding_id: "F1",
+        considered_approach: "inline the helper",
+        why_rejected: "would break the seam",
+      },
+    ],
+    anti_patterns_found: [],
+    summary: "s",
+  }),
+  consolidatorRaw: JSON.stringify({
+    consolidated_findings: [],
+    dropped_by_validation: [],
+    rejected_alternatives: ["dropped a duplicate security finding"],
+    anti_patterns_found: [],
+    summary: "ok",
+  }),
+  ciWaitRaw: JSON.stringify({
+    decision: "proceed-to-review",
+    copilotConfigured: true,
+    copilotSkipReason: null,
+  }),
+  filedIssuesRaw: "filed\thttps://github.com/o/r/issues/1",
+};
+
+const EMPTY_COMMENT_INPUTS = {
+  prChangesRaw: "",
+  prReviewRaw: "",
+  fixApplierRaw: "",
+  consolidatorRaw: "",
+  ciWaitRaw: "",
+  filedIssuesRaw: "",
+};
+
+describe("renderComment — slim PR-comment block", () => {
+  it("surfaces change summary, review verdict, deferred + rejected decisions", () => {
+    const block = renderComment(POPULATED_COMMENT_INPUTS);
+    // Plain title line, no leading `##`.
+    expect(block.startsWith("PIPELINE SNAPSHOT")).toBe(true);
+    expect(block).not.toContain("## PIPELINE SNAPSHOT");
+    // CHANGES one-liner (reused from renderChanges).
+    expect(block).toContain("3 commits, +40/-7 across 5 files");
+    // REVIEW verdict / findings disposition (reused from renderFindings).
+    expect(block).toContain("REVIEW:");
+    expect(block).toContain("review: partial — two findings open");
+    // DECISIONS: deferred line(s).
+    expect(block).toContain("DECISIONS:");
+    expect(block).toContain(
+      "pr-review deferral: https://github.com/o/r/issues/2",
+    );
+    // PHASES and MANUAL STEPS are dropped entirely from the slim block.
+    expect(block).not.toContain("PHASES:");
+    expect(block).not.toContain("MANUAL STEPS:");
+  });
+
+  it("surfaces rejected_alternatives from BOTH fix-applier and consolidator", () => {
+    const block = renderComment(POPULATED_COMMENT_INPUTS);
+    // Fix-applier rejected_alternatives are objects → `id: approach — why`.
+    expect(block).toContain("F1: inline the helper — would break the seam");
+    // Consolidator rejected_alternatives are plain strings.
+    expect(block).toContain("dropped a duplicate security finding");
+  });
+
+  it("renders the literal `none` for empty deferred and rejected parts", () => {
+    const block = renderComment(EMPTY_COMMENT_INPUTS);
+    // Both DECISIONS sub-parts collapse to the explicit `none` discipline.
+    expect(block).toContain("deferred:");
+    expect(block).toContain("rejected:");
+    // Each empty sub-part prints `none`.
+    expect(block).toMatch(/deferred:\n\s+none/);
+    expect(block).toMatch(/rejected:\n\s+none/);
+    // CHANGES and REVIEW also fall back to `none`.
+    expect(block).toContain("CHANGES:");
+    expect(block).toContain("REVIEW:");
+  });
+});
+
+describe("buildCommentBody round-trip with findMarkedCommentId", () => {
+  it("dedups a fenced slim body and keeps the marker outside the fence", () => {
+    const body = buildCommentBody(renderComment(POPULATED_COMMENT_INPUTS));
+    // Round-trip through the dedup lookup: a comment carrying this body resolves.
+    const listJson = JSON.stringify([{ id: 314, body }]);
+    expect(findMarkedCommentId(listJson)).toBe(314);
+    // Marker index is greater than the closing-fence index (outside the fence).
+    const closingFenceIdx = body.lastIndexOf("\n```");
+    const markerIdx = body.indexOf(SNAPSHOT_MARKER);
+    expect(markerIdx).toBeGreaterThan(closingFenceIdx);
+  });
+});
+
+describe("run — slim comment vs unchanged scrollback", () => {
+  it("posts the slim fenced+marked block while scrollback stays full and clean", () => {
+    const { gh, calls } = fakeGh([{ stdout: "[]" }]);
+    const out = captureStdout(() => {
+      const code = run(["--status", "merged", "--post-comment", "123"], { gh });
+      expect(code).toBe(0);
+    });
+    // Scrollback: all five sections present, 2-space indentation preserved,
+    // and NO fence or marker.
+    for (const header of [
+      "CHANGES:",
+      "PHASES:",
+      "FINDINGS:",
+      "FOLLOW-UP ISSUES:",
+      "MANUAL STEPS:",
+    ]) {
+      expect(out).toContain(header);
+    }
+    expect(out).toContain("## PIPELINE SNAPSHOT");
+    expect(out).toContain("\n  none");
+    expect(out).not.toContain("```text");
+    expect(out).not.toContain(SNAPSHOT_MARKER);
+    // The gh comment-create body DOES carry the fence + marker, and does NOT
+    // carry the dropped scrollback-only sections.
+    const createBody = calls[1].join("\n");
+    expect(createBody).toContain("```text");
+    expect(createBody).toContain(SNAPSHOT_MARKER);
+    expect(createBody).not.toContain("PHASES:");
+    expect(createBody).not.toContain("MANUAL STEPS:");
   });
 });
