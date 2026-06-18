@@ -13,6 +13,11 @@ import { validatePrReviewResult } from "./pr-review-result-schema";
 import { validateFixApplierResult } from "./fix-applier-schema";
 import { validateConsolidatorResult } from "./agent-finding-schema";
 import { formatDuration } from "./time";
+import {
+  formatPlainText,
+  collectForeclosedEntries,
+  isEmpty,
+} from "./foreclosed-paths-format";
 
 const NONE = ["none"];
 
@@ -122,6 +127,21 @@ export function renderFindings(inputs: {
   }
 
   return lines;
+}
+
+/**
+ * FORECLOSED PATHS: full prose of the fix-applier + consolidator rejected
+ * alternatives and anti-patterns, in plain-text mode (the PR-body section
+ * shares the same core formatter). `none` when the entry set is empty; a
+ * shape-invalid artifact degrades to an `(unreadable)` contribution for that
+ * source rather than crashing.
+ */
+export function renderForeclosedPaths(inputs: {
+  fixApplierRaw: string;
+  consolidatorRaw: string;
+}): string[] {
+  if (isEmpty(collectForeclosedEntries(inputs))) return NONE;
+  return formatPlainText(inputs);
 }
 
 function copilotOutcome(o: Record<string, unknown>): string {

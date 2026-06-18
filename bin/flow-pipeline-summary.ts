@@ -13,10 +13,11 @@
  * writes and renders ONLY sourced facts; every empty category prints an
  * explicit `none`, never a fabricated "looks like it passed."
  *
- * Five sections: CHANGES (commits/diff size), PHASES (state.json phaseLog),
+ * Six sections: CHANGES (commits/diff size), PHASES (state.json phaseLog),
  * FINDINGS (review verdict + fix-applier + consolidator + CI/Copilot),
- * FOLLOW-UP ISSUES (filed sweep URLs + pr-review deferrals), MANUAL STEPS
- * (the captured followups block).
+ * FORECLOSED PATHS (fix-applier + consolidator foreclosed-path prose —
+ * rejected alternatives + anti-patterns), FOLLOW-UP ISSUES (filed sweep URLs
+ * + pr-review deferrals), MANUAL STEPS (the captured followups block).
  *
  * CRITICAL: this helper NEVER emits a flow-stop-guard sentinel
  * (`MERGED` / `GATED:` / `NEEDS HUMAN:` / `cancelled`). flow-gate-summary
@@ -54,6 +55,7 @@ import {
   renderChanges,
   renderPhases,
   renderFindings,
+  renderForeclosedPaths,
   renderFollowupIssues,
   renderManualSteps,
 } from "./lib/pipeline-summary-sources";
@@ -182,6 +184,13 @@ export function render(inputs: {
     fixApplierRaw: inputs.fixApplierRaw,
     consolidatorRaw: inputs.consolidatorRaw,
     ciWaitRaw: inputs.ciWaitRaw,
+  })) {
+    lines.push(`  ${ln}`);
+  }
+  lines.push("FORECLOSED PATHS:");
+  for (const ln of renderForeclosedPaths({
+    fixApplierRaw: inputs.fixApplierRaw,
+    consolidatorRaw: inputs.consolidatorRaw,
   })) {
     lines.push(`  ${ln}`);
   }

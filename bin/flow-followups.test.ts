@@ -19,7 +19,6 @@ import {
   runEntries,
   runRun,
   runUpsert,
-  upsertPrBodySection,
   type Entry,
   type Spawner,
 } from "./flow-followups";
@@ -504,54 +503,8 @@ describe("buildPrBodySection", () => {
   });
 });
 
-describe("upsertPrBodySection", () => {
-  it("appends to a body without the heading", () => {
-    const out = upsertPrBodySection(
-      "## Why\nbecause\n",
-      "## Local Follow-ups\n\n- [ ] x  # r",
-    );
-    expect(out).toBe(
-      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] x  # r\n",
-    );
-  });
-
-  it("renders into an empty body", () => {
-    const out = upsertPrBodySection("", "## Local Follow-ups\n\n- [ ] x  # r");
-    expect(out).toBe("## Local Follow-ups\n\n- [ ] x  # r\n");
-  });
-
-  it("replaces an existing section in place when followed by another heading", () => {
-    const before =
-      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] old  # old\n\n## Test Steps\n\n- [ ] verify\n";
-    const out = upsertPrBodySection(
-      before,
-      "## Local Follow-ups\n\n- [ ] new  # new",
-    );
-    expect(out).toBe(
-      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] new  # new\n\n## Test Steps\n\n- [ ] verify\n",
-    );
-  });
-
-  it("replaces an existing section at end of body", () => {
-    const before =
-      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] old  # old\n";
-    const out = upsertPrBodySection(
-      before,
-      "## Local Follow-ups\n\n- [ ] new  # new",
-    );
-    expect(out).toBe(
-      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] new  # new\n",
-    );
-  });
-
-  it("is idempotent — second run with same input returns same output", () => {
-    const before = "## Why\nbecause\n";
-    const section = "## Local Follow-ups\n\n- [ ] x  # r";
-    const once = upsertPrBodySection(before, section);
-    const twice = upsertPrBodySection(once, section);
-    expect(twice).toBe(once);
-  });
-});
+// upsertPrBodySection moved to bin/lib/pr-body-upsert.ts; its coverage lives
+// in bin/lib/pr-body-upsert.test.ts now.
 
 // --- runAdd ---
 
