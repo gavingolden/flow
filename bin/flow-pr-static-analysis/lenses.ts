@@ -1,13 +1,11 @@
 import * as path from "node:path";
 import {
   parseBiomeJson,
-  parseCoverageJson,
   parseEslintJson,
   parseNpmAuditJson,
   parseSemgrepJson,
   parseSvelteCheckOutput,
   parseTscOutput,
-  relativise,
 } from "./parsers";
 import { workspacePrefixOf } from "../lib/monorepo-scopes";
 import type { Args, Finding, LensMeta, LensRun } from "./types";
@@ -31,7 +29,12 @@ function timedSkip(
 export const runSecurityLens: LensRun = async (args, deps) => {
   const start = deps.now();
   const bin = deps.which("semgrep");
-  if (!bin) return timedSkip(start, "semgrep-not-on-path");
+  if (!bin) {
+    deps.writeErr(
+      "[security] semgrep not on PATH — install it to enable the security lens (https://semgrep.dev); skipping\n",
+    );
+    return timedSkip(start, "semgrep-not-on-path");
+  }
   deps.writeErr("[security] running semgrep --json --severity ERROR\n");
   const r = await deps.spawn(
     "semgrep",
@@ -420,22 +423,6 @@ function detectEslintConfig(
   }
   return false;
 }
-
-export const runCoverageLens: LensRun = async (args, deps) => {
-  const start = deps.now();
-  const candidate =
-    args.coverageFile ?? path.join(deps.cwd, "coverage", "coverage-final.json");
-  if (!deps.fileExists(candidate)) {
-    return timedSkip(start, "no-coverage-output");
-  }
-  const content = deps.readFile(candidate);
-  if (content === null) return timedSkip(start, "coverage-read-failed");
-  deps.writeErr(`[coverage] reading ${relativise(candidate, deps.cwd)}\n`);
-  return {
-    findings: parseCoverageJson(content, deps.cwd),
-    meta: { ran: true, duration_ms: deps.now() - start },
-  };
-};
 
 export const runDependenciesLens: LensRun = async (args, deps) => {
   const start = deps.now();

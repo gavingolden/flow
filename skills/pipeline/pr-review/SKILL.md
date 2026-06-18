@@ -45,11 +45,11 @@ Helpers (installed globally by `flow setup` and on PATH):
   surrounding context, so the diff is a "what changed at a glance" hint, not the
   source of truth.
 - `flow-pr-static-analysis` — runs the consumer's installed static-analysis tools
-  (semgrep for security, biome or eslint for lint, tsc for types, an existing
-  Istanbul coverage report for coverage), parses each into a unified
+  (semgrep for security, biome or eslint for lint, tsc for types), parses each
+  into a unified
   `{file, line, rule_id, confidence, severity, source}` shape, filters to PR-touched
   lines, and emits a single combined JSON envelope keyed by lens
-  (`{security, types, coverage, lint, meta}`). Default `--min-confidence 80`. Used
+  (`{security, types, lint, meta}`). Default `--min-confidence 80`. Used
   at Step 3 so each of the six review agents receives only the lens subset
   relevant to its role, instead of re-deriving the same low-level facts from raw
   diff inspection. Tool-presence detection is graceful: any missing tool produces
@@ -654,8 +654,8 @@ subagent rather than landing in the supervisor's transcript.
    flow-pr-static-analysis <number> > .flow-tmp/static-analysis.json
    ```
 
-   The helper runs semgrep (security), biome or eslint (lint), tsc (types), and the
-   project's existing Istanbul coverage report (coverage), parses each into a unified
+   The helper runs semgrep (security), biome or eslint (lint), and tsc (types),
+   parses each into a unified
    shape, filters to PR-touched lines, and emits a single combined JSON envelope keyed
    by lens. (Lenses run sequentially today; gh-issue #101 tracks switching to genuine
    parallelism — the structural `Promise.all` wrapper is in place but the underlying
@@ -748,7 +748,7 @@ The 6 agents:
 | **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code                        | Consistency, Lifecycle/Cleanup, Composition | `lint` (biome/eslint, shared with Performance) | `agent-output-pattern-consistency.json` |
 | **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | Performance (review-checklist.md §Performance) | `lint` (biome/eslint, shared with Pattern/Consistency) | `agent-output-performance.json` |
 | **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | Part 3 §Removing a Top-Level Field          | `none` (synthetic `meta.ran=false` block) | `agent-output-supply-chain.json` |
-| **Test Coverage**       | Missing tests, untested edges, test quality, env setup                           | Test Environment                            | `coverage` (Istanbul/c8/vitest) | `agent-output-test-coverage.json` |
+| **Test Coverage**       | Missing tests, untested edges, test quality, env setup                           | Test Environment                            | `none` (synthetic `meta.ran=false` block) | `agent-output-test-coverage.json` |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
 `decoration`, `confidence`, `subject`, `body`. The on-disk artifact at

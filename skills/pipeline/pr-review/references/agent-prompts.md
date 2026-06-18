@@ -128,7 +128,7 @@ a missed finding that a human reviewer will catch.
 ## Static Analysis Facts
 
 The block below is your lens's pre-digested static-analysis output from
-`flow-pr-static-analysis` (semgrep / biome-or-eslint / tsc / Istanbul-coverage / npm-audit),
+`flow-pr-static-analysis` (semgrep / biome-or-eslint / tsc / npm-audit),
 filtered to PR-touched lines and to `confidence >= min_confidence`. The
 substituted block is a single JSON object of shape `{findings: [...], meta: {...}}`,
 where each finding has the shape `{file, line, end_line?, rule_id, message,
@@ -537,15 +537,14 @@ Your concern is: **will the test suite catch regressions in the changed code?**
 
 ### Process
 
-1. Your `{{STATIC_ANALYSIS_FACTS}}` block contains the **`coverage`** lens — uncovered
-   statements on PR-touched lines (confidence 85, source `coverage`) parsed from the
-   project's existing Istanbul/c8/vitest `coverage-final.json`. Each entry is a line
-   added or modified by this PR that no test exercises. Confirm by Reading the cited
-   `file:line` and judging whether the line warrants a test (skip trivial getters,
-   constant returns, type narrowing — but flag conditional branches, error paths,
-   and new public-API behaviour). If `meta.ran=false` (`no-coverage-output`
-   means the consumer hasn't run their tests with `--coverage` yet), fall back
-   entirely to your own analysis.
+1. Your `{{STATIC_ANALYSIS_FACTS}}` block is a synthetic empty findings block —
+   `{findings: [], meta: {ran: false, skipped_reason: "no coverage pre-digest lens", duration_ms: 0}}`.
+   No pre-digest lens computes test coverage today, so `meta.ran=false` fires
+   unconditionally for this agent. Per the shared context block's fallback rule,
+   fall back entirely to your own analysis — determine which PR-touched lines a
+   test exercises by Reading the changed files and their test siblings directly,
+   skipping trivial getters, constant returns, and type narrowing, but flagging
+   conditional branches, error paths, and new public-API behaviour.
 2. Read `AGENTS.md` to understand the project's testing philosophy and requirements.
    Some projects explicitly deprioritize testing at certain stages — respect that.
 3. For each changed production file, find its corresponding test file (if any).
