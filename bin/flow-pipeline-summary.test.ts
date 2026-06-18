@@ -88,13 +88,14 @@ describe("parseArgs", () => {
 });
 
 describe("render — explicit none discipline", () => {
-  it("prints all five sections with `none` when every source is empty", () => {
+  it("prints all six sections with `none` when every source is empty", () => {
     const out = render(EMPTY_RENDER);
     expect(out).toContain("## PIPELINE SNAPSHOT");
     for (const header of [
       "CHANGES:",
       "PHASES:",
       "FINDINGS:",
+      "FORECLOSED PATHS:",
       "FOLLOW-UP ISSUES:",
       "MANUAL STEPS:",
     ]) {
@@ -252,6 +253,92 @@ describe("render — FINDINGS", () => {
   it("renders `FINDINGS: none` when no findings artifacts present", () => {
     const out = render(EMPTY_RENDER);
     expect(out).toContain("FINDINGS:\n  none");
+  });
+});
+
+describe("render — FORECLOSED PATHS", () => {
+  const fixApplierWithProse = JSON.stringify({
+    commits: [],
+    deferred: [],
+    rejected_alternatives: [
+      {
+        finding_id: "F1",
+        considered_approach: "memoize the parser",
+        why_rejected: "cache-invalidation complexity",
+      },
+    ],
+    anti_patterns_found: [],
+    summary: "s",
+  });
+  const consolidatorWithProse = JSON.stringify({
+    consolidated_findings: [],
+    dropped_by_validation: [],
+    rejected_alternatives: ["kept the two lenses separate"],
+    anti_patterns_found: [],
+    summary: "s",
+  });
+
+  it("renders a FORECLOSED PATHS section after FINDINGS", () => {
+    const out = render(EMPTY_RENDER);
+    const findingsIdx = out.indexOf("FINDINGS:");
+    const foreclosedIdx = out.indexOf("FORECLOSED PATHS:");
+    const followupIdx = out.indexOf("FOLLOW-UP ISSUES:");
+    expect(foreclosedIdx).toBeGreaterThan(findingsIdx);
+    expect(followupIdx).toBeGreaterThan(foreclosedIdx);
+  });
+
+  it("surfaces fix-applier + consolidator prose when present", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      fixApplierRaw: fixApplierWithProse,
+      consolidatorRaw: consolidatorWithProse,
+    });
+    expect(out).toContain("memoize the parser");
+    expect(out).toContain("kept the two lenses separate");
+  });
+
+  it("renders `FORECLOSED PATHS: none` when both sources empty", () => {
+    const out = render(EMPTY_RENDER);
+    expect(out).toContain("FORECLOSED PATHS:\n  none");
+  });
+
+  it("still renders the block (exit 0, no crash) for a malformed fix-applier artifact", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      fixApplierRaw: "{not json",
+      consolidatorRaw: consolidatorWithProse,
+    });
+    expect(out).toContain("FORECLOSED PATHS:");
+    expect(out).toContain("fix-applier: (unreadable)");
+    expect(out).toContain("kept the two lenses separate");
+  });
+
+  it("co-exists with the FINDINGS count line (not regressed)", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      fixApplierRaw: fixApplierWithProse,
+      consolidatorRaw: consolidatorWithProse,
+    });
+    // FINDINGS still summarizes counts; FORECLOSED PATHS carries the prose.
+    expect(out).toContain(
+      "fixes: 0 fixed in-cycle, 0 deferred, 0 anti-patterns noted",
+    );
+    expect(out).toContain("consolidator: 0 findings, 0 dropped");
+    expect(out).toContain("memoize the parser");
+  });
+
+  it("is not the last non-empty line (sentinel-safety)", () => {
+    const out = render({
+      ...EMPTY_RENDER,
+      fixApplierRaw: fixApplierWithProse,
+    });
+    const last = lastNonEmptyLine(out);
+    expect(last).not.toBe("MERGED");
+    expect(last.startsWith("GATED:")).toBe(false);
+    // MANUAL STEPS is below FORECLOSED PATHS, so the foreclosed prose is never last.
+    expect(out.indexOf("MANUAL STEPS:")).toBeGreaterThan(
+      out.indexOf("FORECLOSED PATHS:"),
+    );
   });
 });
 

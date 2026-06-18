@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { renderPhases } from "./pipeline-summary-sources";
+import {
+  renderForeclosedPaths,
+  renderPhases,
+} from "./pipeline-summary-sources";
 
 const iso = (s: number) =>
   new Date(Date.UTC(2026, 5, 17, 12, 0, s)).toISOString();
@@ -74,5 +77,80 @@ describe(renderPhases, () => {
 
   it("returns `none` for a null phaseLog", () => {
     expect(renderPhases(null)).toEqual(["none"]);
+  });
+});
+
+const fixApplier = JSON.stringify({
+  commits: [],
+  deferred: [],
+  rejected_alternatives: [
+    {
+      finding_id: "F1",
+      considered_approach: "memoize the parser",
+      why_rejected: "cache-invalidation complexity",
+    },
+  ],
+  anti_patterns_found: [
+    {
+      location: "bin/lib/x.ts:42",
+      pattern: "swallowed error",
+      recommendation: "log and rethrow",
+      introduced_by_this_pr: true,
+    },
+  ],
+  summary: "s",
+});
+
+const consolidator = JSON.stringify({
+  consolidated_findings: [],
+  dropped_by_validation: [],
+  rejected_alternatives: ["kept the two lenses separate"],
+  anti_patterns_found: [],
+  summary: "s",
+});
+
+describe("renderForeclosedPaths", () => {
+  it("returns prose lines for present artifacts (both shapes)", () => {
+    const lines = renderForeclosedPaths({
+      fixApplierRaw: fixApplier,
+      consolidatorRaw: consolidator,
+    });
+    const joined = lines.join("\n");
+    expect(joined).toContain("memoize the parser");
+    expect(joined).toContain("cache-invalidation complexity");
+    expect(joined).toContain("swallowed error");
+    expect(joined).toContain("(new)");
+    expect(joined).toContain("kept the two lenses separate");
+    // Plain-text mode: no markdown heading line.
+    expect(lines).not.toContain("## Foreclosed Paths");
+  });
+
+  it("returns ['none'] for empty inputs", () => {
+    expect(
+      renderForeclosedPaths({ fixApplierRaw: "", consolidatorRaw: "" }),
+    ).toEqual(["none"]);
+  });
+
+  it("returns ['none'] for artifacts with empty arrays", () => {
+    const empty = JSON.stringify({
+      commits: [],
+      deferred: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "s",
+    });
+    expect(
+      renderForeclosedPaths({ fixApplierRaw: empty, consolidatorRaw: "" }),
+    ).toEqual(["none"]);
+  });
+
+  it("degrades a malformed artifact to (unreadable) while the other source renders", () => {
+    const lines = renderForeclosedPaths({
+      fixApplierRaw: "{not json",
+      consolidatorRaw: consolidator,
+    });
+    const joined = lines.join("\n");
+    expect(joined).toContain("fix-applier: (unreadable)");
+    expect(joined).toContain("kept the two lenses separate");
   });
 });

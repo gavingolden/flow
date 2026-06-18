@@ -37,6 +37,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { readState } from "./lib/state";
 import { resolveSlugFromPane } from "./lib/tmux";
+import { upsertPrBodySection } from "./lib/pr-body-upsert";
 
 // Exact-match command strings the helper is permitted to execute when
 // `auto: true` is also set. Expanding this list is a future PR — the narrow
@@ -49,7 +50,6 @@ export const ALLOWLIST: ReadonlySet<string> = new Set([
 const HEAD_LINES = 50;
 const TAIL_LINES = 50;
 const SECTION_HEADING = "## Local Follow-ups";
-const PR_BODY_HEADING_RE = /^## Local Follow-ups[ \t]*$/m;
 
 export type Entry = {
   id: string;
@@ -359,41 +359,6 @@ export function buildPrBodySection(entries: Entry[]): string {
   return lines.join("\n");
 }
 
-/**
- * Idempotent upsert of the `## Local Follow-ups` section in a PR body.
- * Replaces an existing section in place; otherwise appends. Same shape as
- * the verify-exhausted `> [!CAUTION]` upsert pattern in pr-review step 6.
- */
-export function upsertPrBodySection(body: string, section: string): string {
-  if (!PR_BODY_HEADING_RE.test(body)) {
-    if (body.length === 0) return section + "\n";
-    const trailingSep = body.endsWith("\n") ? "" : "\n";
-    return body + trailingSep + "\n" + section + "\n";
-  }
-  const lines = body.split("\n");
-  const startIdx = lines.findIndex((l) => PR_BODY_HEADING_RE.test(l));
-  let endIdx = lines.length;
-  for (let i = startIdx + 1; i < lines.length; i++) {
-    if (/^## /.test(lines[i])) {
-      endIdx = i;
-      break;
-    }
-  }
-  const sectionLines = section.split("\n");
-  const followingHeadingExists = endIdx < lines.length;
-  const trailingBlanks = followingHeadingExists ? [""] : [];
-  const newLines = [
-    ...lines.slice(0, startIdx),
-    ...sectionLines,
-    ...trailingBlanks,
-    ...lines.slice(endIdx),
-  ];
-  let result = newLines.join("\n");
-  const hadTrailingNewline = body.endsWith("\n");
-  if (hadTrailingNewline && !result.endsWith("\n")) result += "\n";
-  return result;
-}
-
 // --- CLI arg parsing ---
 
 type AddArgs = {
@@ -635,7 +600,7 @@ export function runUpsert(argv: string[], deps: UpsertDeps = {}): number {
   }
   const currentBody = view.stdout;
   const section = buildPrBodySection(entries);
-  const newBody = upsertPrBodySection(currentBody, section);
+  const newBody = upsertPrBodySection(currentBody, SECTION_HEADING, section);
   if (newBody === currentBody) return 0;
 
   const tmpDirFactory =
