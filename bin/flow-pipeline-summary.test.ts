@@ -495,6 +495,16 @@ describe("buildCommentBody / findMarkedCommentId", () => {
     expect(findMarkedCommentId("{not json")).toBeNull();
     expect(findMarkedCommentId(JSON.stringify({ id: 1 }))).toBeNull();
   });
+
+  it("flattens the slurped multi-page shape (array-of-pages)", () => {
+    // `gh api --paginate --slurp` wraps each page in an outer array; the
+    // marked comment can live on any page. `.flat()` one level resolves it.
+    const slurped = JSON.stringify([
+      [{ id: 1, body: "x" }],
+      [{ id: 2, body: `snap\n\n${SNAPSHOT_MARKER}` }],
+    ]);
+    expect(findMarkedCommentId(slurped)).toBe(2);
+  });
 });
 
 describe("postSnapshotComment", () => {
@@ -506,6 +516,7 @@ describe("postSnapshotComment", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("repos/{owner}/{repo}/issues/123/comments");
     expect(calls[0]).toContain("--paginate");
+    expect(calls[0]).toContain("--slurp");
     const create = calls[1];
     expect(create).toContain("repos/{owner}/{repo}/issues/123/comments");
     expect(create).not.toContain("PATCH");
@@ -536,6 +547,35 @@ describe("postSnapshotComment", () => {
     const result = postSnapshotComment(123, "block", gh);
     expect(result.action).toBe("failed");
     expect(calls).toHaveLength(1); // bailed after the failed list, no write
+  });
+
+  it("returns failed when the create (POST) call exits non-zero", () => {
+    // list ok (empty -> no marked comment), then the create POST is denied.
+    const { gh, calls } = fakeGh([
+      { stdout: "[]" },
+      { exitCode: 1, stderr: "create denied" },
+    ]);
+    const result = postSnapshotComment(123, "block", gh);
+    expect(result).toEqual({ action: "failed", error: "create denied" });
+    expect(calls).toHaveLength(2);
+  });
+
+  it("returns failed with the PATCH fallback message when the edit fails with empty stderr", () => {
+    const listJson = JSON.stringify([
+      { id: 9, body: `old\n\n${SNAPSHOT_MARKER}` },
+    ]);
+    // list finds a marked comment, then the PATCH edit fails with no stderr,
+    // exercising the `gh api PATCH failed (<code>)` fallback message.
+    const { gh, calls } = fakeGh([
+      { stdout: listJson },
+      { exitCode: 1, stderr: "" },
+    ]);
+    const result = postSnapshotComment(123, "block", gh);
+    expect(result).toEqual({
+      action: "failed",
+      error: "gh api PATCH failed (1)",
+    });
+    expect(calls[1]).toContain("PATCH");
   });
 });
 
@@ -596,5 +636,30 @@ describe("run — --post-comment write path", () => {
     const out = captureStdout(() => run(["--status", "merged"], { gh }));
     expect(calls).toHaveLength(0);
     expect(out).not.toContain(SNAPSHOT_MARKER);
+  });
+
+  it("best-effort: a malformed --post-comment PR arg exits 0, still prints, and never calls gh", () => {
+    // parsePrNumber throws on a non-numeric, non-URL value; the catch turns
+    // it into a stderr line + exit 0 BEFORE postSnapshotComment runs.
+    const { gh, calls } = fakeGh();
+    let code = -1;
+    const out = captureStdout(() => {
+      code = run(["--status", "merged", "--post-comment", "not-a-pr"], { gh });
+    });
+    expect(code).toBe(0);
+    expect(out).toContain("## PIPELINE SNAPSHOT");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("no-ops on an empty --post-comment value (the empty-$PR contract)", () => {
+    // `--post-comment ""` parses as a falsy postComment, short-circuiting the
+    // merged-and-postComment guard so no gh call fires.
+    const { gh, calls } = fakeGh();
+    let code = -1;
+    captureStdout(() => {
+      code = run(["--status", "merged", "--post-comment", ""], { gh });
+    });
+    expect(code).toBe(0);
+    expect(calls).toHaveLength(0);
   });
 });

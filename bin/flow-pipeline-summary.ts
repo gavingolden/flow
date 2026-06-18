@@ -217,7 +217,12 @@ export function buildCommentBody(block: string): string {
 /** Scans a `gh api .../issues/<pr>/comments` list response for the first
  *  comment whose body carries the snapshot marker. Returns its id, or null
  *  when none is found or the response is unparseable (treated as "no prior
- *  comment" — the caller creates a fresh one). */
+ *  comment" — the caller creates a fresh one).
+ *
+ *  `--slurp` wraps multi-page output as an array-of-pages (`[[...],[...]]`),
+ *  so we `.flat()` one level before iterating. A single-page flat array
+ *  (`[{...}]`) flattens to itself (its objects aren't arrays), so the same
+ *  path handles both shapes. */
 export function findMarkedCommentId(listStdout: string): number | null {
   let parsed: unknown;
   try {
@@ -226,7 +231,7 @@ export function findMarkedCommentId(listStdout: string): number | null {
     return null;
   }
   if (!Array.isArray(parsed)) return null;
-  for (const c of parsed) {
+  for (const c of parsed.flat()) {
     if (
       c !== null &&
       typeof c === "object" &&
@@ -259,6 +264,7 @@ export function postSnapshotComment(
     "api",
     `repos/{owner}/{repo}/issues/${prNumber}/comments`,
     "--paginate",
+    "--slurp",
   ]);
   if (list.exitCode !== 0) {
     return {
