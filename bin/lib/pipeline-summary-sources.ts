@@ -12,6 +12,7 @@
 import { validatePrReviewResult } from "./pr-review-result-schema";
 import { validateFixApplierResult } from "./fix-applier-schema";
 import { validateConsolidatorResult } from "./agent-finding-schema";
+import { formatDuration } from "./time";
 
 const NONE = ["none"];
 
@@ -32,14 +33,28 @@ export function renderChanges(raw: string): string[] {
   }
 }
 
-/** PHASES: one line per phaseLog entry in order, or `none`. */
+/**
+ * PHASES: one line per phaseLog entry in order, or `none`. Each line carries
+ * the time spent in that phase — the gap from its `at` to the next entry's
+ * `at` — as a ` (3m12s)` suffix. The final entry (no successor) and any entry
+ * whose own or adjacent `at` is unparseable, zero, or out-of-order render with
+ * no suffix rather than a garbage value.
+ */
 export function renderPhases(
   phaseLog: Array<{ phase: string; outcome?: string; at: string }> | null,
 ): string[] {
   if (!phaseLog || phaseLog.length === 0) return NONE;
-  return phaseLog.map((e) =>
-    e.outcome !== undefined ? `${e.phase} -> ${e.outcome}` : e.phase,
-  );
+  return phaseLog.map((e, i) => {
+    const base =
+      e.outcome !== undefined ? `${e.phase} -> ${e.outcome}` : e.phase;
+    const next = phaseLog[i + 1];
+    if (!next) return base;
+    const start = Date.parse(e.at);
+    const end = Date.parse(next.at);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return base;
+    const duration = formatDuration(end - start);
+    return duration ? `${base} (${duration})` : base;
+  });
 }
 
 /**
