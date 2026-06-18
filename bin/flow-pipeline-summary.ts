@@ -24,13 +24,24 @@
  * prints above it. A shape-invalid artifact degrades that one category to
  * `(unreadable)` rather than crashing the whole snapshot.
  *
+ * Durable persistence (`--post-comment <PR>`): on the MERGED status only,
+ * the rendered block is ALSO posted as a top-level PR issue-comment so a
+ * merged PR carries its own pipeline provenance beyond the transient tmux
+ * scrollback. The write is idempotent — an HTML-comment marker
+ * (`<!-- flow-pipeline-snapshot-v1 -->`) keys an edit-or-create upsert, so a
+ * resume / re-run edits the existing comment in place rather than posting a
+ * duplicate. The marker lives ONLY in the posted comment body, never in
+ * stdout. The write is best-effort: a `gh` failure is reported to stderr and
+ * never changes the exit code or the scrollback render (a peripheral
+ * comment-post failure must not un-merge a PR).
+ *
  * Usage:
  *   flow-pipeline-summary --status <merged|gated|needs-human>
  *                         [--state-file <path>] [--pr-changes-file <path>]
  *                         [--pr-review-result <path>] [--fix-applier-result <path>]
  *                         [--consolidator-result <path>] [--ci-wait-result <path>]
  *                         [--followups-block-file <path>] [--followups-jsonl <path>]
- *                         [--filed-issues-file <path>]
+ *                         [--filed-issues-file <path>] [--post-comment <PR>]
  *
  * Exit codes: 0 — block rendered to stdout. 2 — bad CLI args.
  */
@@ -38,6 +49,7 @@
 import * as fs from "node:fs";
 import { readState } from "./lib/state";
 import { readEntries, runEntries, formatVerdict } from "./flow-followups";
+import { parsePrNumber } from "./flow-fetch-pr-review";
 import {
   renderChanges,
   renderPhases,
@@ -45,6 +57,23 @@ import {
   renderFollowupIssues,
   renderManualSteps,
 } from "./lib/pipeline-summary-sources";
+
+/** Single-line HTML-comment dedup key for the persisted snapshot comment.
+ *  Stable across releases (hence the -v1 suffix); it is the lookup key for
+ *  the idempotent edit-or-create upsert. Lives only in the comment body. */
+export const SNAPSHOT_MARKER = "<!-- flow-pipeline-snapshot-v1 -->";
+
+type GhResult = { stdout: string; stderr: string; exitCode: number };
+export type GhRunner = (argv: string[]) => GhResult;
+
+const defaultGh: GhRunner = (argv) => {
+  const r = Bun.spawnSync(["gh", ...argv], { stdout: "pipe", stderr: "pipe" });
+  return {
+    stdout: r.stdout.toString(),
+    stderr: r.stderr.toString(),
+    exitCode: r.exitCode ?? -1,
+  };
+};
 
 export type Status = "merged" | "gated" | "needs-human";
 
@@ -59,6 +88,7 @@ export type SummaryInputs = {
   followupsBlockFile?: string;
   followupsJsonl?: string;
   filedIssuesFile?: string;
+  postComment?: string;
 };
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -112,6 +142,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         break;
       case "--filed-issues-file":
         out.filedIssuesFile = value;
+        break;
+      case "--post-comment":
+        out.postComment = value;
         break;
       default:
         return { error: `unknown flag: ${flag}` };
@@ -175,7 +208,99 @@ function readFileOrEmpty(filePath: string | undefined): string {
   }
 }
 
-export function run(argv: string[]): number {
+/** The posted comment body is the rendered block plus the dedup marker. The
+ *  marker is appended ONLY here — the block written to stdout stays clean. */
+export function buildCommentBody(block: string): string {
+  return `${block}\n\n${SNAPSHOT_MARKER}`;
+}
+
+/** Scans a `gh api .../issues/<pr>/comments` list response for the first
+ *  comment whose body carries the snapshot marker. Returns its id, or null
+ *  when none is found or the response is unparseable (treated as "no prior
+ *  comment" — the caller creates a fresh one). */
+export function findMarkedCommentId(listStdout: string): number | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(listStdout);
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(parsed)) return null;
+  for (const c of parsed) {
+    if (
+      c !== null &&
+      typeof c === "object" &&
+      typeof (c as { body?: unknown }).body === "string" &&
+      (c as { body: string }).body.includes(SNAPSHOT_MARKER) &&
+      typeof (c as { id?: unknown }).id === "number"
+    ) {
+      return (c as { id: number }).id;
+    }
+  }
+  return null;
+}
+
+export type SnapshotCommentResult =
+  | { action: "created" }
+  | { action: "updated"; id: number }
+  | { action: "failed"; error: string };
+
+/** Idempotent edit-or-create of the snapshot comment on a PR. Lists existing
+ *  issue-comments, PATCHes the marked one if present, else POSTs a new one.
+ *  Never throws — every gh failure maps to an `{ action: "failed" }` so the
+ *  caller stays best-effort. Issue-comment endpoint (not /reviews) keeps this
+ *  a top-level summary comment, consistent with /pr-review's convention. */
+export function postSnapshotComment(
+  prNumber: number,
+  block: string,
+  gh: GhRunner,
+): SnapshotCommentResult {
+  const list = gh([
+    "api",
+    `repos/{owner}/{repo}/issues/${prNumber}/comments`,
+    "--paginate",
+  ]);
+  if (list.exitCode !== 0) {
+    return {
+      action: "failed",
+      error: list.stderr.trim() || `gh api list failed (${list.exitCode})`,
+    };
+  }
+  const body = buildCommentBody(block);
+  const existingId = findMarkedCommentId(list.stdout);
+  if (existingId !== null) {
+    const r = gh([
+      "api",
+      `repos/{owner}/{repo}/issues/comments/${existingId}`,
+      "-X",
+      "PATCH",
+      "-f",
+      `body=${body}`,
+    ]);
+    if (r.exitCode !== 0) {
+      return {
+        action: "failed",
+        error: r.stderr.trim() || `gh api PATCH failed (${r.exitCode})`,
+      };
+    }
+    return { action: "updated", id: existingId };
+  }
+  const r = gh([
+    "api",
+    `repos/{owner}/{repo}/issues/${prNumber}/comments`,
+    "-f",
+    `body=${body}`,
+  ]);
+  if (r.exitCode !== 0) {
+    return {
+      action: "failed",
+      error: r.stderr.trim() || `gh api POST failed (${r.exitCode})`,
+    };
+  }
+  return { action: "created" };
+}
+
+export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
     process.stderr.write(`flow-pipeline-summary: ${parsed.error}\n`);
@@ -185,7 +310,7 @@ export function run(argv: string[]): number {
         "                             [--pr-review-result <path>] [--fix-applier-result <path>]\n" +
         "                             [--consolidator-result <path>] [--ci-wait-result <path>]\n" +
         "                             [--followups-block-file <path>] [--followups-jsonl <path>]\n" +
-        "                             [--filed-issues-file <path>]\n",
+        "                             [--filed-issues-file <path>] [--post-comment <PR>]\n",
     );
     return 2;
   }
@@ -216,6 +341,27 @@ export function run(argv: string[]): number {
     manualStepsBlock,
   });
   process.stdout.write(block + "\n");
+
+  // Durable persistence: MERGED only, opt-in via --post-comment. Best-effort —
+  // a gh failure (or an unparseable PR arg) is reported to stderr and never
+  // changes the exit code. The scrollback render above already happened.
+  if (parsed.status === "merged" && parsed.postComment) {
+    const gh = deps.gh ?? defaultGh;
+    try {
+      const prNumber = parsePrNumber(parsed.postComment);
+      const result = postSnapshotComment(prNumber, block, gh);
+      if (result.action === "failed") {
+        process.stderr.write(
+          `flow-pipeline-summary: snapshot comment post failed: ${result.error}\n`,
+        );
+      }
+    } catch (e) {
+      process.stderr.write(
+        `flow-pipeline-summary: snapshot comment post failed: ${(e as Error).message}\n`,
+      );
+    }
+  }
+
   return 0;
 }
 
