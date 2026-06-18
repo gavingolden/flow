@@ -2,7 +2,16 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseArgs, render, run } from "./flow-pipeline-summary";
+import {
+  parseArgs,
+  render,
+  run,
+  buildCommentBody,
+  findMarkedCommentId,
+  postSnapshotComment,
+  SNAPSHOT_MARKER,
+  type GhRunner,
+} from "./flow-pipeline-summary";
 import { writeState, type PipelineState } from "./lib/state";
 
 let tmpRoot!: string;
@@ -425,5 +434,232 @@ describe("run — end-to-end", () => {
     expect(out).not.toContain(
       "LOCAL FOLLOW-UPS (deferred — PR not yet merged)",
     );
+  });
+});
+
+// A recording fake gh runner: captures every argv and returns canned
+// responses in order (defaulting to a success with empty stdout).
+type GhResp = { stdout?: string; stderr?: string; exitCode?: number };
+function fakeGh(responses: GhResp[] = []): { gh: GhRunner; calls: string[][] } {
+  const calls: string[][] = [];
+  let i = 0;
+  const gh: GhRunner = (argv) => {
+    calls.push(argv);
+    const r = responses[i] ?? {};
+    i++;
+    return {
+      stdout: r.stdout ?? "",
+      stderr: r.stderr ?? "",
+      exitCode: r.exitCode ?? 0,
+    };
+  };
+  return { gh, calls };
+}
+
+function captureStdout(fn: () => void): string {
+  const chunks: string[] = [];
+  const orig = process.stdout.write.bind(process.stdout);
+  process.stdout.write = ((s: string | Uint8Array) => {
+    chunks.push(String(s));
+    return true;
+  }) as typeof process.stdout.write;
+  try {
+    fn();
+  } finally {
+    process.stdout.write = orig;
+  }
+  return chunks.join("");
+}
+
+describe("buildCommentBody / findMarkedCommentId", () => {
+  it("appends the marker to the block as the comment body", () => {
+    const body = buildCommentBody("## PIPELINE SNAPSHOT\nCHANGES:\n  none");
+    expect(body.endsWith(`\n\n${SNAPSHOT_MARKER}`)).toBe(true);
+    expect(body.startsWith("## PIPELINE SNAPSHOT")).toBe(true);
+  });
+
+  it("finds the first comment bearing the marker", () => {
+    const json = JSON.stringify([
+      { id: 1, body: "unrelated comment" },
+      { id: 42, body: `old snapshot\n\n${SNAPSHOT_MARKER}` },
+    ]);
+    expect(findMarkedCommentId(json)).toBe(42);
+  });
+
+  it("returns null when no comment carries the marker", () => {
+    const json = JSON.stringify([{ id: 1, body: "nope" }]);
+    expect(findMarkedCommentId(json)).toBeNull();
+  });
+
+  it("returns null for unparseable or non-array responses", () => {
+    expect(findMarkedCommentId("{not json")).toBeNull();
+    expect(findMarkedCommentId(JSON.stringify({ id: 1 }))).toBeNull();
+  });
+
+  it("flattens the slurped multi-page shape (array-of-pages)", () => {
+    // `gh api --paginate --slurp` wraps each page in an outer array; the
+    // marked comment can live on any page. `.flat()` one level resolves it.
+    const slurped = JSON.stringify([
+      [{ id: 1, body: "x" }],
+      [{ id: 2, body: `snap\n\n${SNAPSHOT_MARKER}` }],
+    ]);
+    expect(findMarkedCommentId(slurped)).toBe(2);
+  });
+});
+
+describe("postSnapshotComment", () => {
+  it("creates a new comment when none is marked", () => {
+    const { gh, calls } = fakeGh([{ stdout: "[]" }]);
+    const result = postSnapshotComment(123, "## PIPELINE SNAPSHOT\n…", gh);
+    expect(result).toEqual({ action: "created" });
+    // calls[0] lists; calls[1] POSTs the create.
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("repos/{owner}/{repo}/issues/123/comments");
+    expect(calls[0]).toContain("--paginate");
+    expect(calls[0]).toContain("--slurp");
+    const create = calls[1];
+    expect(create).toContain("repos/{owner}/{repo}/issues/123/comments");
+    expect(create).not.toContain("PATCH");
+    expect(create.join("\n")).toContain(SNAPSHOT_MARKER);
+  });
+
+  it("edits the existing comment in place when one is marked (dedup)", () => {
+    const listJson = JSON.stringify([
+      { id: 555, body: `old\n\n${SNAPSHOT_MARKER}` },
+    ]);
+    const { gh, calls } = fakeGh([{ stdout: listJson }]);
+    const result = postSnapshotComment(123, "## PIPELINE SNAPSHOT\nnew", gh);
+    expect(result).toEqual({ action: "updated", id: 555 });
+    const patch = calls[1];
+    expect(patch).toContain("repos/{owner}/{repo}/issues/comments/555");
+    expect(patch).toContain("PATCH");
+    // Zero create POSTs: no call writes a body to the /issues/123/comments path.
+    const creates = calls.filter(
+      (c) =>
+        c.includes("repos/{owner}/{repo}/issues/123/comments") &&
+        c.includes("-f"),
+    );
+    expect(creates).toHaveLength(0);
+  });
+
+  it("returns failed (never throws) when the list call exits non-zero", () => {
+    const { gh, calls } = fakeGh([{ exitCode: 1, stderr: "boom" }]);
+    const result = postSnapshotComment(123, "block", gh);
+    expect(result.action).toBe("failed");
+    expect(calls).toHaveLength(1); // bailed after the failed list, no write
+  });
+
+  it("returns failed when the create (POST) call exits non-zero", () => {
+    // list ok (empty -> no marked comment), then the create POST is denied.
+    const { gh, calls } = fakeGh([
+      { stdout: "[]" },
+      { exitCode: 1, stderr: "create denied" },
+    ]);
+    const result = postSnapshotComment(123, "block", gh);
+    expect(result).toEqual({ action: "failed", error: "create denied" });
+    expect(calls).toHaveLength(2);
+  });
+
+  it("returns failed with the PATCH fallback message when the edit fails with empty stderr", () => {
+    const listJson = JSON.stringify([
+      { id: 9, body: `old\n\n${SNAPSHOT_MARKER}` },
+    ]);
+    // list finds a marked comment, then the PATCH edit fails with no stderr,
+    // exercising the `gh api PATCH failed (<code>)` fallback message.
+    const { gh, calls } = fakeGh([
+      { stdout: listJson },
+      { exitCode: 1, stderr: "" },
+    ]);
+    const result = postSnapshotComment(123, "block", gh);
+    expect(result).toEqual({
+      action: "failed",
+      error: "gh api PATCH failed (1)",
+    });
+    expect(calls[1]).toContain("PATCH");
+  });
+});
+
+describe("run — --post-comment write path", () => {
+  it("posts (create) on MERGED with the marker, exactly one create call", () => {
+    const { gh, calls } = fakeGh([{ stdout: "[]" }]);
+    const out = captureStdout(() => {
+      const code = run(["--status", "merged", "--post-comment", "123"], { gh });
+      expect(code).toBe(0);
+    });
+    // One list + one create.
+    expect(calls).toHaveLength(2);
+    const patchCalls = calls.filter((c) => c.includes("PATCH"));
+    expect(patchCalls).toHaveLength(0);
+    // The marker is in the posted comment body but NEVER in scrollback.
+    expect(calls[1].join("\n")).toContain(SNAPSHOT_MARKER);
+    expect(out).toContain("## PIPELINE SNAPSHOT");
+    expect(out).not.toContain(SNAPSHOT_MARKER);
+  });
+
+  it("edits-not-duplicates on a re-run with a marked comment present", () => {
+    const listJson = JSON.stringify([
+      { id: 777, body: `prior\n\n${SNAPSHOT_MARKER}` },
+    ]);
+    const { gh, calls } = fakeGh([{ stdout: listJson }]);
+    captureStdout(() =>
+      run(["--status", "merged", "--post-comment", "123"], { gh }),
+    );
+    expect(calls.some((c) => c.includes("PATCH"))).toBe(true);
+    const creates = calls.filter(
+      (c) =>
+        c.includes("repos/{owner}/{repo}/issues/123/comments") &&
+        c.includes("-f"),
+    );
+    expect(creates).toHaveLength(0);
+  });
+
+  it("makes zero gh write calls on a non-merged status (MERGED-only)", () => {
+    const { gh, calls } = fakeGh();
+    captureStdout(() =>
+      run(["--status", "gated", "--post-comment", "123"], { gh }),
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("is best-effort: a gh failure does not throw or change the exit code", () => {
+    const { gh } = fakeGh([{ exitCode: 1, stderr: "rate limited" }]);
+    let code = -1;
+    const out = captureStdout(() => {
+      code = run(["--status", "merged", "--post-comment", "123"], { gh });
+    });
+    expect(code).toBe(0);
+    expect(out).toContain("## PIPELINE SNAPSHOT");
+  });
+
+  it("leaves scrollback untouched and gh unused when --post-comment is absent", () => {
+    const { gh, calls } = fakeGh();
+    const out = captureStdout(() => run(["--status", "merged"], { gh }));
+    expect(calls).toHaveLength(0);
+    expect(out).not.toContain(SNAPSHOT_MARKER);
+  });
+
+  it("best-effort: a malformed --post-comment PR arg exits 0, still prints, and never calls gh", () => {
+    // parsePrNumber throws on a non-numeric, non-URL value; the catch turns
+    // it into a stderr line + exit 0 BEFORE postSnapshotComment runs.
+    const { gh, calls } = fakeGh();
+    let code = -1;
+    const out = captureStdout(() => {
+      code = run(["--status", "merged", "--post-comment", "not-a-pr"], { gh });
+    });
+    expect(code).toBe(0);
+    expect(out).toContain("## PIPELINE SNAPSHOT");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("no-ops on an empty --post-comment value (the empty-$PR contract)", () => {
+    // `--post-comment ""` parses as a falsy postComment, short-circuiting the
+    // merged-and-postComment guard so no gh call fires.
+    const { gh, calls } = fakeGh();
+    let code = -1;
+    captureStdout(() => {
+      code = run(["--status", "merged", "--post-comment", ""], { gh });
+    });
+    expect(code).toBe(0);
+    expect(calls).toHaveLength(0);
   });
 });
