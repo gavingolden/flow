@@ -184,27 +184,6 @@ export function renderManualSteps(block: string): string[] {
 }
 
 /**
- * Deferred decisions for the slim PR comment's DECISIONS section: the
- * FOLLOW-UP ISSUES body (filed sweep URLs + pr-review deferrals — reuses
- * renderFollowupIssues) PLUS the fix-applier artifact's `deferred[]`
- * entries surfaced as their own lines. `none` when both are empty.
- */
-function deferredDecisionLines(
-  filedIssuesRaw: string,
-  fixApplierRaw: string,
-): string[] {
-  const lines: string[] = [];
-  const followups = renderFollowupIssues(filedIssuesRaw, fixApplierRaw);
-  // renderFollowupIssues already folds in fix-applier deferred[] (as
-  // `pr-review deferral:` / `deferred (unfiled):` lines), so its body is the
-  // single source of deferred decisions; `["none"]` means genuinely empty.
-  if (!(followups.length === 1 && followups[0] === "none")) {
-    lines.push(...followups);
-  }
-  return lines.length > 0 ? lines : NONE;
-}
-
-/**
  * Rejected decisions for the slim PR comment's DECISIONS section: the
  * `rejected_alternatives[]` from BOTH the fix-applier artifact (objects with
  * `finding_id` / `considered_approach` / `why_rejected`) AND the consolidator
@@ -269,7 +248,7 @@ export function renderComment(inputs: {
   }
   lines.push("DECISIONS:");
   lines.push("  deferred:");
-  for (const ln of deferredDecisionLines(
+  for (const ln of renderFollowupIssues(
     inputs.filedIssuesRaw,
     inputs.fixApplierRaw,
   )) {
