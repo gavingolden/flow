@@ -16,6 +16,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   buildFailureExcerpt,
+  checkHelperExecutableModes,
   checksForScope,
   computeAllPassedAndReason,
   computeUnmatchedAfterDynamic,
@@ -50,6 +51,7 @@ import {
   type DynamicScope,
 } from "./lib/monorepo-scopes";
 import { type ReadPackageJson } from "./lib/stack-table";
+import { isPathBoundHelper } from "./lib/sources";
 
 // --- Factories ---
 
@@ -838,6 +840,98 @@ describe(parseLsFilesModes, () => {
     expect(parseLsFilesModes(stdout)).toEqual([
       { mode: "100755", path: "bin/flow-a.ts" },
     ]);
+  });
+});
+
+describe(isPathBoundHelper, () => {
+  // Pins the shared selection rule at its source module (bin/lib/sources.ts),
+  // so a future MAINTAINER_ONLY or wrapper-name edit fails here rather than
+  // only in a downstream caller's transitive assertion.
+  it("returns true for a normal top-level helper basename", () => {
+    expect(isPathBoundHelper("flow-foo.ts")).toBe(true);
+  });
+
+  it("excludes test files (*.test.ts)", () => {
+    expect(isPathBoundHelper("flow-foo.test.ts")).toBe(false);
+  });
+
+  it("excludes the flow.ts wrapper", () => {
+    expect(isPathBoundHelper("flow.ts")).toBe(false);
+  });
+
+  it("excludes the maintainer-only flow-release.ts", () => {
+    expect(isPathBoundHelper("flow-release.ts")).toBe(false);
+  });
+
+  it("excludes a non-.ts name", () => {
+    expect(isPathBoundHelper("flow-foo.sh")).toBe(false);
+  });
+});
+
+describe(checkHelperExecutableModes, () => {
+  const okRunner: Runner = () => ({ stdout: "", stderr: "", exitCode: 0 });
+
+  it("returns null (inert) when no changed file is a candidate helper", () => {
+    expect(checkHelperExecutableModes(["src/app.ts"], okRunner)).toBeNull();
+    expect(checkHelperExecutableModes(undefined, okRunner)).toBeNull();
+  });
+
+  it("fails with the git-failure message when git ls-files -s exits non-zero", () => {
+    const failingRunner: Runner = () => ({
+      stdout: "",
+      stderr: "fatal: not a git repository",
+      exitCode: 128,
+    });
+    const result = checkHelperExecutableModes(
+      ["bin/flow-foo.ts"],
+      failingRunner,
+    );
+    expect(result).not.toBeNull();
+    expect(result!.passed).toBe(false);
+    expect(result!.output).toBe(
+      "git ls-files -s failed (exit 128) while checking bin helper modes",
+    );
+  });
+
+  it("passes when every candidate helper is tracked executable (100755)", () => {
+    const runner: Runner = () => ({
+      stdout: "100755 abc 0\tbin/flow-foo.ts",
+      stderr: "",
+      exitCode: 0,
+    });
+    const result = checkHelperExecutableModes(["bin/flow-foo.ts"], runner);
+    expect(result!.passed).toBe(true);
+    expect(result!.output).toContain("tracked executable (100755)");
+  });
+
+  it("fails with a chmod +x remediation line for a single offender", () => {
+    const runner: Runner = () => ({
+      stdout: "100644 abc 0\tbin/flow-foo.ts",
+      stderr: "",
+      exitCode: 0,
+    });
+    const result = checkHelperExecutableModes(["bin/flow-foo.ts"], runner);
+    expect(result!.passed).toBe(false);
+    expect(result!.output).toContain("permission denied");
+    expect(result!.output).toContain("chmod +x bin/flow-foo.ts");
+  });
+
+  it("lists every offender's chmod +x line when multiple helpers are non-executable", () => {
+    const runner: Runner = () => ({
+      stdout:
+        "100644 a 0\tbin/flow-a.ts\n100755 b 0\tbin/flow-b.ts\n100644 c 0\tbin/flow-c.ts",
+      stderr: "",
+      exitCode: 0,
+    });
+    const result = checkHelperExecutableModes(
+      ["bin/flow-a.ts", "bin/flow-b.ts", "bin/flow-c.ts"],
+      runner,
+    );
+    expect(result!.passed).toBe(false);
+    expect(result!.output).toContain("chmod +x bin/flow-a.ts");
+    expect(result!.output).toContain("chmod +x bin/flow-c.ts");
+    // The executable helper (flow-b) is not an offender, so it gets no hint.
+    expect(result!.output).not.toContain("chmod +x bin/flow-b.ts");
   });
 });
 

@@ -373,6 +373,7 @@ export function parseLsFilesModes(stdout: string): GitModeEntry[] {
  */
 export function checkHelperExecutableModes(
   changedFiles: string[] | undefined,
+  runner: Runner = run,
 ): CheckResult | null {
   const candidates = (changedFiles ?? []).filter((f) => {
     const match = BIN_HELPER_REGEX.exec(f);
@@ -382,7 +383,7 @@ export function checkHelperExecutableModes(
 
   // git-tracked mode is authoritative: the committed bit — not the working-tree
   // stat — is what `flow setup` and the merge ship.
-  const { stdout, exitCode } = run([
+  const { stdout, exitCode } = runner([
     "git",
     "ls-files",
     "-s",
