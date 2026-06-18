@@ -127,13 +127,16 @@ export function isEmpty(entries: ForeclosedEntry[]): boolean {
 }
 
 /**
- * Neutralize a leading markdown heading marker in a free-form string so it
- * can never be misread as a section boundary by the idempotent upsert's
- * `^## ` re-parse. A leading `#`-run is escaped with a backslash; this keeps
- * the text readable while breaking the `^## ` anchor.
+ * Neutralize markdown heading markers in a free-form string so they can never
+ * be misread as a section boundary by the idempotent upsert's `^## ` re-parse.
+ * A `#`-run is escaped with a backslash. The match anchors at the start of the
+ * string OR after any embedded newline — a multi-line prose field with an
+ * interior `\n## ` line would otherwise survive a leading-only anchor and break
+ * `upsertPrBodySection`'s splice on the next upsert. Escaping keeps the text
+ * readable while breaking the `^## ` anchor.
  */
 function neutralizeHeading(s: string): string {
-  return s.replace(/^(\s*)(#+)(\s)/, "$1\\$2$3");
+  return s.replace(/(^|\n)(\s*)(#+)(\s)/g, "$1$2\\$3$4");
 }
 
 function annotateIntroduced(introduced: boolean | undefined): string {
@@ -159,13 +162,17 @@ export function formatMarkdown(inputs: {
     }
     if (e.category === "rejected-alternative") {
       const fid = e.finding_id ? ` (\`${e.finding_id}\`)` : "";
-      lines.push(`- **rejected:** ${e.considered_approach}${fid}`);
-      lines.push(`  - why: ${e.why_rejected}`);
+      lines.push(
+        `- **rejected:** ${neutralizeHeading(e.considered_approach ?? "")}${fid}`,
+      );
+      lines.push(`  - why: ${neutralizeHeading(e.why_rejected ?? "")}`);
     } else {
       lines.push(
-        `- **anti-pattern${annotateIntroduced(e.introduced_by_this_pr)}:** ${e.location} — ${e.pattern}`,
+        `- **anti-pattern${annotateIntroduced(e.introduced_by_this_pr)}:** ${neutralizeHeading(e.location ?? "")} — ${neutralizeHeading(e.pattern ?? "")}`,
       );
-      lines.push(`  - recommendation: ${e.recommendation}`);
+      lines.push(
+        `  - recommendation: ${neutralizeHeading(e.recommendation ?? "")}`,
+      );
     }
   }
   return lines;

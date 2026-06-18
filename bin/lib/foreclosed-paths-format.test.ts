@@ -6,6 +6,7 @@ import {
   isEmpty,
   FORECLOSED_HEADING,
 } from "./foreclosed-paths-format";
+import { upsertPrBodySection } from "./pr-body-upsert";
 
 const fixApplier = JSON.stringify({
   commits: [],
@@ -145,6 +146,16 @@ describe("full prose present", () => {
 });
 
 describe("markdown safety", () => {
+  // The only bare '^## ' line a rendered section may contain is the section
+  // heading itself; any other one breaks upsertPrBodySection's next-'^## '
+  // splice on the idempotent re-parse. Join + re-split so an array element that
+  // itself contains an embedded '\n## ' is caught as a true physical line.
+  const bareHeadingLines = (md: string[]) =>
+    md
+      .join("\n")
+      .split("\n")
+      .filter((l) => /^## /.test(l));
+
   it("a consolidator string with a leading '## ' does not emit a bare heading line", () => {
     const injected = JSON.stringify({
       consolidated_findings: [],
@@ -154,11 +165,73 @@ describe("markdown safety", () => {
       summary: "s",
     });
     const md = formatMarkdown({ fixApplierRaw: "", consolidatorRaw: injected });
-    // The only bare '^## ' line allowed is the section heading itself.
-    const headingLines = md.filter((l) => /^## /.test(l));
-    expect(headingLines).toEqual([FORECLOSED_HEADING]);
+    expect(bareHeadingLines(md)).toEqual([FORECLOSED_HEADING]);
     // The injected content survives (escaped), just not as a heading.
     expect(md.join("\n")).toContain("not actually a heading");
+  });
+
+  it("a consolidator string with an EMBEDDED '\\n## ' does not emit a bare heading line", () => {
+    const injected = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: ["intro line\n## sneaky embedded heading"],
+      anti_patterns_found: [],
+      summary: "s",
+    });
+    const md = formatMarkdown({ fixApplierRaw: "", consolidatorRaw: injected });
+    expect(bareHeadingLines(md)).toEqual([FORECLOSED_HEADING]);
+    expect(md.join("\n")).toContain("sneaky embedded heading");
+  });
+
+  it("a fix-applier prose field containing '## ' does not emit a bare heading line", () => {
+    const injected = JSON.stringify({
+      commits: [],
+      deferred: [],
+      rejected_alternatives: [
+        {
+          finding_id: "F9",
+          considered_approach: "leading\n## heading in considered_approach",
+          why_rejected: "embedded ## marker in why_rejected",
+        },
+      ],
+      anti_patterns_found: [
+        {
+          location: "bin/lib/z.ts:1",
+          pattern: "trailing\n## heading in pattern",
+          recommendation: "## heading in recommendation",
+          introduced_by_this_pr: true,
+        },
+      ],
+      summary: "s",
+    });
+    const md = formatMarkdown({ fixApplierRaw: injected, consolidatorRaw: "" });
+    expect(bareHeadingLines(md)).toEqual([FORECLOSED_HEADING]);
+    // The prose survives (escaped), just not as headings.
+    const joined = md.join("\n");
+    expect(joined).toContain("heading in considered_approach");
+    expect(joined).toContain("marker in why_rejected");
+    expect(joined).toContain("heading in pattern");
+    expect(joined).toContain("heading in recommendation");
+  });
+
+  it("round-trips idempotently through upsertPrBodySection for embedded-heading payloads", () => {
+    const injected = JSON.stringify({
+      consolidated_findings: [],
+      dropped_by_validation: [],
+      rejected_alternatives: ["intro line\n## sneaky embedded heading"],
+      anti_patterns_found: ["another\n## embedded heading"],
+      summary: "s",
+    });
+    const section = formatMarkdown({
+      fixApplierRaw: "",
+      consolidatorRaw: injected,
+    }).join("\n");
+    const once = upsertPrBodySection("", FORECLOSED_HEADING, section);
+    // A second upsert with the same section must be a no-op: if a prose '## '
+    // had leaked as a bare heading line, the splice would mis-terminate the
+    // section and corrupt/duplicate it on re-run.
+    const twice = upsertPrBodySection(once, FORECLOSED_HEADING, section);
+    expect(twice).toBe(once);
   });
 });
 
