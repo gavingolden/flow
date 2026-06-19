@@ -334,18 +334,46 @@ export type GitModeEntry = { path: string; mode: string };
 // `bin/flow-pr-static-analysis/cli.ts`.
 const BIN_HELPER_REGEX = /^bin\/([^/]+\.ts)$/;
 
+// Matches a bin/lib module (`bin/lib/<basename>.ts`). Unlike top-level helpers
+// (selected by name), bin/lib is overwhelmingly internal library code, so the
+// lib gate is content-based: a module is PATH-bound — and therefore must be
+// tracked executable — only when it carries a bun shebang AND an
+// `import.meta.main` guard (see isExecutableLibModule). This is the same signal
+// `discoverValidators`' allowlist encodes by hand; a name-only rule here would
+// falsely flag paths.ts/git.ts/etc.
+const BIN_LIB_REGEX = /^bin\/lib\/([^/]+\.ts)$/;
+
+const BUN_SHEBANG = "#!/usr/bin/env bun";
+
 /**
- * From a list of git-tracked entries, returns the paths of top-level bin
- * helpers that are NOT tracked executable (mode !== '100755'). Order follows
- * input order.
+ * Whether a bin/lib module's contents mark it as an executable CLI: a bun
+ * shebang on the first line AND an `import.meta.main` entry-point guard. Both
+ * are required — a pure library module (no shebang / no guard) returns false
+ * and stays exempt, as does a shebang-less helper that only mentions
+ * `import.meta.main` in a comment.
  */
-export function findNonExecutableHelpers(entries: GitModeEntry[]): string[] {
+export function isExecutableLibModule(contents: string): boolean {
+  const firstLine = contents.split(/\r?\n/, 1)[0].trim();
+  return firstLine === BUN_SHEBANG && contents.includes("import.meta.main");
+}
+
+/**
+ * From a list of git-tracked entries, returns the paths that are NOT tracked
+ * executable (mode !== '100755') among the candidate helpers: top-level bin
+ * helpers (selected by name) plus any path in `libCandidates` (bin/lib modules
+ * already content-verified as executable by the caller). Order follows input
+ * order.
+ */
+export function findNonExecutableHelpers(
+  entries: GitModeEntry[],
+  libCandidates: ReadonlySet<string> = new Set(),
+): string[] {
   return entries
     .filter((e) => {
+      if (e.mode === "100755") return false;
       const match = BIN_HELPER_REGEX.exec(e.path);
-      return (
-        match !== null && isPathBoundHelper(match[1]) && e.mode !== "100755"
-      );
+      if (match !== null && isPathBoundHelper(match[1])) return true;
+      return libCandidates.has(e.path);
     })
     .map((e) => e.path);
 }
@@ -366,19 +394,36 @@ export function parseLsFilesModes(stdout: string): GitModeEntry[] {
 }
 
 /**
- * Diff-scoped gate: when the changeset touches a top-level `bin/<helper>.ts`
- * tracked non-executable, fail with a `chmod +x` hint. A non-executable helper
- * symlinked onto PATH by `flow setup` dies with 'permission denied'. Returns
- * null (inert) when no changed file is a candidate helper.
+ * Diff-scoped gate: when the changeset touches a `bin/<helper>.ts` (top-level,
+ * selected by name) or a bun-executable `bin/lib/<helper>.ts` module (selected
+ * by content) tracked non-executable, fail with a `chmod +x` hint. A
+ * non-executable module symlinked onto PATH by `flow setup` dies with
+ * 'permission denied'. Returns null (inert) when no changed file is a
+ * candidate. `readFile` is injected for testability (defaults to a working-tree
+ * read — the candidate is in the current diff, so it exists on disk).
  */
 export function checkHelperExecutableModes(
   changedFiles: string[] | undefined,
   runner: Runner = run,
+  readFile: (path: string) => string = (p) => readFileSync(p, "utf8"),
 ): CheckResult | null {
-  const candidates = (changedFiles ?? []).filter((f) => {
+  const topLevelCandidates = (changedFiles ?? []).filter((f) => {
     const match = BIN_HELPER_REGEX.exec(f);
     return match !== null && isPathBoundHelper(match[1]);
   });
+  const libCandidates = (changedFiles ?? []).filter((f) => {
+    const match = BIN_LIB_REGEX.exec(f);
+    if (match === null || !isPathBoundHelper(match[1])) return false;
+    let contents: string;
+    try {
+      contents = readFile(f);
+    } catch {
+      return false; // unreadable (e.g. deleted in the diff) → not a candidate
+    }
+    return isExecutableLibModule(contents);
+  });
+  const libCandidateSet = new Set(libCandidates);
+  const candidates = [...topLevelCandidates, ...libCandidates];
   if (candidates.length === 0) return null;
 
   // git-tracked mode is authoritative: the committed bit — not the working-tree
@@ -400,7 +445,10 @@ export function checkHelperExecutableModes(
     };
   }
 
-  const offenders = findNonExecutableHelpers(parseLsFilesModes(stdout));
+  const offenders = findNonExecutableHelpers(
+    parseLsFilesModes(stdout),
+    libCandidateSet,
+  );
   if (offenders.length === 0) {
     return {
       name: "bin/*.ts executable mode",
