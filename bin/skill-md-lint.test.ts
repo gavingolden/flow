@@ -194,6 +194,15 @@ const AGENTS_TEMPLATE_PATH = path.resolve(
   "templates",
   "AGENTS.md.template",
 );
+const UI_VALIDATION_EVIDENCE_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "references",
+  "ui-validation-evidence.md",
+);
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
@@ -240,6 +249,10 @@ const tailwindShadcnContent = fs.readFileSync(
   "utf8",
 );
 const agentsTemplateContent = fs.readFileSync(AGENTS_TEMPLATE_PATH, "utf8");
+const uiValidationEvidenceContent = fs.readFileSync(
+  UI_VALIDATION_EVIDENCE_PATH,
+  "utf8",
+);
 
 /**
  * Strip markdown blockquote `> ` prefixes from line starts so cross-line
@@ -2467,6 +2480,22 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
+  it("flow-pipeline SKILL.md Step 6 documents the adaptive noise filter", () => {
+    // The other half of the noise filter: when an ok:false flags benign noise
+    // unrelated to the diff, the agent adds the substring to the manifest's
+    // ignore*Patterns and COMMITS that change (lands in the PR diff) instead of
+    // burning a fix-loop attempt. verify SKILL.md mirrors this guidance.
+    expect(
+      content.includes("Adaptive noise filter:") &&
+        content.includes(
+          "add the offending substring to the manifest's `ignoreRequestPatterns`",
+        ),
+      "flow-pipeline SKILL.md Step 6 must document the 'Adaptive noise " +
+        "filter' (add benign-noise substring to ignoreRequestPatterns + " +
+        "commit the manifest change, don't fix-loop on it).",
+    ).toBe(true);
+  });
+
   it("flow-pipeline SKILL.md Step 8 points to /pr-review Step 8c visual pass", () => {
     expect(
       content.includes(
@@ -2529,14 +2558,20 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
-  it("pr-review SKILL.md Step 8c documents the browser-item runnable bucket", () => {
-    // Step 8c becomes a runnable bucket for visual-appearance items when the
-    // MCP + manifest are present; the a11y snapshot is primary evidence
-    // injected via the unchanged flow-inject-evidence, screenshot by reference.
+  it("references/ui-validation-evidence.md documents the browser-item runnable bucket", () => {
+    // Step 8c's full runnable-bucket procedure moved out of pr-review/SKILL.md
+    // (line-budget extraction) into references/ui-validation-evidence.md; the
+    // canonical 'Browser-item runnable bucket' detail now lives there, and
+    // Step 8c carries only a concise pointer to it.
     expect(
-      prReviewContent.includes("Browser-item runnable bucket"),
-      "pr-review SKILL.md Step 8c must document the 'Browser-item runnable " +
-        "bucket' path for visual-appearance items.",
+      uiValidationEvidenceContent.includes("Browser-item runnable bucket"),
+      "references/ui-validation-evidence.md must document the 'Browser-item " +
+        "runnable bucket' path for visual-appearance items.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("references/ui-validation-evidence.md"),
+      "pr-review SKILL.md Step 8c must point to " +
+        "references/ui-validation-evidence.md for the extracted detail.",
     ).toBe(true);
   });
 
@@ -2579,14 +2614,15 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
-  it("pr-review SKILL.md Step 8c documents the screenshot save-path cascade", () => {
+  it("references/ui-validation-evidence.md documents the screenshot save-path cascade", () => {
     // The worktree may not be an MCP workspace root, so take_screenshot into
-    // it can be sandbox-denied; Step 8c documents the worktree -> session-cwd
-    // -> skip cascade (the a11y snapshot is the gate, screenshots evidence).
+    // it can be sandbox-denied; the worktree -> session-cwd -> skip cascade
+    // (a11y snapshot is the gate, screenshots evidence) moved with the rest of
+    // the Step 8c detail into references/ui-validation-evidence.md.
     expect(
-      prReviewContent.includes("Screenshot save-path cascade"),
-      "pr-review SKILL.md Step 8c must document the 'Screenshot save-path " +
-        "cascade' for screenshot evidence.",
+      uiValidationEvidenceContent.includes("Screenshot save-path cascade"),
+      "references/ui-validation-evidence.md must document the 'Screenshot " +
+        "save-path cascade' for screenshot evidence.",
     ).toBe(true);
   });
 
