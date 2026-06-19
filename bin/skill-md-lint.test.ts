@@ -980,6 +980,26 @@ describe("Fix-Applier artifact JSON schema drift (pr-review/SKILL.md ↔ referen
         "'introduced_by_this_pr' on every anti_patterns_found entry. Dropping it here breaks lockstep.",
     ).toBe(true);
   });
+
+  it("references/fix-applier-instructions.md documents the self-validate-before-exit step (validator invocation + re-emit-once)", () => {
+    expect(
+      fixApplierContent.includes("flow-fix-applier-schema --validate"),
+      "references/fix-applier-instructions.md must invoke 'flow-fix-applier-schema --validate' " +
+        "in section 9 so the subagent self-validates its candidate artifact before the mv. " +
+        "Dropping it here lets the subagent exit with an off-shape artifact undetected.",
+    ).toBe(true);
+    const hasReEmitOnce =
+      fixApplierContent.includes("re-emit") &&
+      (fixApplierContent.includes("EXACTLY ONCE") ||
+        fixApplierContent.includes("exactly once") ||
+        fixApplierContent.includes("once"));
+    expect(
+      hasReEmitOnce,
+      "references/fix-applier-instructions.md must document the re-emit-once contract " +
+        "(re-emit a corrected artifact exactly once on validation failure). Dropping this prose " +
+        "breaks the self-validate-before-exit hardening.",
+    ).toBe(true);
+  });
 });
 
 describe("Edit-Applier artifact JSON schema drift (coder/SKILL.md ↔ references/coder-instructions.md)", () => {

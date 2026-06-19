@@ -55,6 +55,10 @@ any tracker integration; flow has no GitHub-issue creation today.
 `tracker_entry_url` defaults to empty string when no in-repo tracker
 exists.
 
+Before exiting, self-validate the artifact with `flow-fix-applier-schema
+--validate` against a `.tmp` candidate and re-emit once on failure, then
+`mv` it into place — see fix-applier-instructions.md section 9.
+
 Return a one-paragraph summary (3–5 sentences) that surfaces BOTH sides
 of what you learned: at least one positive (top fix's intent, the verify
 verdict, finding count addressed) AND at least one negative (top entry
