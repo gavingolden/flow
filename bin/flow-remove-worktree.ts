@@ -134,7 +134,21 @@ export function removeWorktreeWithFallback(
       `git worktree remove failed on leftover ignored content; forcing rm -rf '${worktreeDir}' + git worktree prune.`,
     );
     deps.rmrf(worktreeDir);
-    deps.git(["worktree", "prune"], primaryDir);
+    // `prune` is advisory here: rm -rf already removed the working tree, so a
+    // prune failure (e.g. transient .git/worktrees lock contention from a
+    // parallel pipeline) must NOT propagate — that would abort the caller
+    // before branch deletion and re-strand the user in the exact failure this
+    // fallback exists to fix. Worst case is a stale admin entry the next
+    // `git worktree prune` reaps.
+    try {
+      deps.git(["worktree", "prune"], primaryDir);
+    } catch (pruneErr: unknown) {
+      const pruneMsg =
+        pruneErr instanceof Error ? pruneErr.message : String(pruneErr);
+      deps.warn(
+        `git worktree prune failed after rm -rf (continuing): ${pruneMsg}`,
+      );
+    }
   }
 }
 

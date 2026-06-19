@@ -239,6 +239,32 @@ describe(removeWorktreeWithFallback, () => {
     expect(warnCalls[0]).toMatch(/rm -rf/);
   });
 
+  it("prune failure after rm -rf does not abort — branch deletion still proceeds", () => {
+    const { deps, gitCalls, rmrfCalls, warnCalls } = makeDeps((args) => {
+      if (args[1] === "remove") {
+        throw new Error("failed to delete '/wt': Directory not empty");
+      }
+      if (args[1] === "prune") {
+        throw new Error("fatal: could not lock .git/worktrees: File exists");
+      }
+      return "";
+    });
+
+    // The prune failure must NOT propagate: main()'s branch-deletion arm runs
+    // only when this returns normally. rm -rf already removed the directory, so
+    // a stranded prune is advisory — swallowing it preserves the "branch
+    // deletion proceeds" contract this fallback exists to guarantee.
+    expect(() =>
+      removeWorktreeWithFallback("/wt", "/primary", deps),
+    ).not.toThrow();
+
+    expect(rmrfCalls).toEqual(["/wt"]); // rm -rf still fired
+    expect(prunes(gitCalls)).toHaveLength(1); // prune was attempted once
+    // Two warns: the fallback note, then the swallowed-prune-failure note.
+    expect(warnCalls).toHaveLength(2);
+    expect(warnCalls[1]).toMatch(/prune failed/);
+  });
+
   it("non-deletion failure (uncommitted tracked work) re-throws without retry, rm-rf, or prune — no auto-force", () => {
     const { deps, gitCalls, rmrfCalls, warnCalls } = makeDeps((args) => {
       if (args[1] === "remove") {
