@@ -8,6 +8,8 @@ import {
   chmodSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -27,6 +29,7 @@ import {
   formatJsonReport,
   formatReport,
   getChangedFilesForPush,
+  isExecutableLibModule,
   isTestCheck,
   parseLsFilesModes,
   parsePrePushInput,
@@ -824,6 +827,77 @@ describe(findNonExecutableHelpers, () => {
       ]),
     ).toEqual(["bin/flow-b.ts", "bin/flow-c.ts"]);
   });
+
+  it("flags a bin/lib path in libCandidates tracked 100644", () => {
+    expect(
+      findNonExecutableHelpers(
+        [entry("bin/lib/foo-schema.ts", "100644")],
+        new Set(["bin/lib/foo-schema.ts"]),
+      ),
+    ).toEqual(["bin/lib/foo-schema.ts"]);
+  });
+
+  it("does NOT flag a libCandidate tracked 100755", () => {
+    expect(
+      findNonExecutableHelpers(
+        [entry("bin/lib/foo-schema.ts", "100755")],
+        new Set(["bin/lib/foo-schema.ts"]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("does NOT flag a bin/lib path absent from libCandidates (pure lib stays exempt)", () => {
+    expect(
+      findNonExecutableHelpers([entry("bin/lib/git.ts", "100644")]),
+    ).toEqual([]);
+  });
+
+  it("unions top-level and lib offenders in input order", () => {
+    expect(
+      findNonExecutableHelpers(
+        [
+          entry("bin/flow-a.ts", "100644"),
+          entry("bin/lib/git.ts", "100644"),
+          entry("bin/lib/foo-schema.ts", "100644"),
+        ],
+        new Set(["bin/lib/foo-schema.ts"]),
+      ),
+    ).toEqual(["bin/flow-a.ts", "bin/lib/foo-schema.ts"]);
+  });
+});
+
+describe(isExecutableLibModule, () => {
+  const SHEBANG = "#!/usr/bin/env bun";
+
+  it("returns true for a bun shebang + import.meta.main module", () => {
+    expect(
+      isExecutableLibModule(`${SHEBANG}\nif (import.meta.main) main();\n`),
+    ).toBe(true);
+  });
+
+  it("returns false for a pure lib module (no shebang, no main)", () => {
+    expect(
+      isExecutableLibModule("/**\n * lib\n */\nexport const x = 1;\n"),
+    ).toBe(false);
+  });
+
+  it("returns false when the bun shebang is present but import.meta.main is not", () => {
+    expect(isExecutableLibModule(`${SHEBANG}\nexport const x = 1;\n`)).toBe(
+      false,
+    );
+  });
+
+  it("returns false when import.meta.main is present but the shebang is not", () => {
+    expect(
+      isExecutableLibModule("// import.meta.main mentioned in a comment\n"),
+    ).toBe(false);
+  });
+
+  it("returns false for a non-bun shebang", () => {
+    expect(
+      isExecutableLibModule(`#!/usr/bin/env node\nif (import.meta.main) {}\n`),
+    ).toBe(false);
+  });
 });
 
 describe(parseLsFilesModes, () => {
@@ -932,6 +1006,104 @@ describe(checkHelperExecutableModes, () => {
     expect(result!.output).toContain("chmod +x bin/flow-c.ts");
     // The executable helper (flow-b) is not an offender, so it gets no hint.
     expect(result!.output).not.toContain("chmod +x bin/flow-b.ts");
+  });
+
+  const SHEBANG = "#!/usr/bin/env bun";
+  const execLib = `${SHEBANG}\nif (import.meta.main) main();\n`;
+  const pureLib = "/**\n * lib\n */\nexport const x = 1;\n";
+
+  it("fails for a bun-executable bin/lib module tracked 100644", () => {
+    const runner: Runner = () => ({
+      stdout: "100644 abc 0\tbin/lib/foo-schema.ts",
+      stderr: "",
+      exitCode: 0,
+    });
+    const result = checkHelperExecutableModes(
+      ["bin/lib/foo-schema.ts"],
+      runner,
+      () => execLib,
+    );
+    expect(result!.passed).toBe(false);
+    expect(result!.output).toContain("permission denied");
+    expect(result!.output).toContain("chmod +x bin/lib/foo-schema.ts");
+  });
+
+  it("passes for the same bin/lib module tracked 100755", () => {
+    const runner: Runner = () => ({
+      stdout: "100755 abc 0\tbin/lib/foo-schema.ts",
+      stderr: "",
+      exitCode: 0,
+    });
+    const result = checkHelperExecutableModes(
+      ["bin/lib/foo-schema.ts"],
+      runner,
+      () => execLib,
+    );
+    expect(result!.passed).toBe(true);
+  });
+
+  it("is inert (null) for a pure bin/lib module — no shebang/main, never a candidate", () => {
+    // No runner call expected: a non-executable lib module is filtered out
+    // before git ls-files runs, so the change set has zero candidates.
+    const result = checkHelperExecutableModes(
+      ["bin/lib/git.ts"],
+      () => {
+        throw new Error("git ls-files should not run with zero candidates");
+      },
+      () => pureLib,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("drops an unreadable bin/lib candidate (readFile throws) → inert (null)", () => {
+    // A bin/lib/*.ts path that matches the regex and passes isPathBoundHelper
+    // but throws on read (e.g. deleted in the diff) is the only path into the
+    // readFile catch. The candidate is dropped, leaving zero candidates, so the
+    // gate is inert — and the throw does not bubble out of checkHelperExecutableModes.
+    let result: CheckResult | null = null;
+    expect(() => {
+      result = checkHelperExecutableModes(
+        ["bin/lib/foo-schema.ts"],
+        () => {
+          throw new Error("git ls-files should not run with zero candidates");
+        },
+        () => {
+          throw new Error("ENOENT");
+        },
+      );
+    }).not.toThrow();
+    expect(result).toBeNull();
+  });
+
+  it("exempts a maintainer-only bin/lib module even with the executable signal", () => {
+    // isPathBoundHelper excludes MAINTAINER_ONLY names, so a bin/lib/flow-release.ts
+    // is never a candidate — readFile is never consulted for it.
+    const result = checkHelperExecutableModes(
+      ["bin/lib/flow-release.ts"],
+      () => {
+        throw new Error("git ls-files should not run with zero candidates");
+      },
+      () => execLib,
+    );
+    expect(result).toBeNull();
+  });
+
+  it("unions a top-level offender and a lib offender in one remediation block", () => {
+    const runner: Runner = () => ({
+      stdout: "100644 a 0\tbin/flow-a.ts\n100644 b 0\tbin/lib/foo-schema.ts",
+      stderr: "",
+      exitCode: 0,
+    });
+    const result = checkHelperExecutableModes(
+      ["bin/flow-a.ts", "bin/lib/foo-schema.ts", "bin/lib/git.ts"],
+      runner,
+      (p) => (p === "bin/lib/git.ts" ? pureLib : execLib),
+    );
+    expect(result!.passed).toBe(false);
+    expect(result!.output).toContain("chmod +x bin/flow-a.ts");
+    expect(result!.output).toContain("chmod +x bin/lib/foo-schema.ts");
+    // Pure lib (git.ts) was never a candidate, so it gets no hint.
+    expect(result!.output).not.toContain("chmod +x bin/lib/git.ts");
   });
 });
 
@@ -2421,4 +2593,46 @@ describe("integration: bin/*.ts executable-mode gate against a git fixture", () 
       expect(modeResult!.passed).toBe(true);
     },
   );
+});
+
+describe("guard: shipped bin/lib executable modules are tracked 100755", () => {
+  // Live regression guard reproducing the PR #313 incident (ui-validation-schema.ts
+  // committed 100644). Dynamically discovers the real bin/lib/*.ts modules that
+  // carry the executable signal (bun shebang + import.meta.main) — rather than
+  // hardcoding a list that rots when a fifth is added — and asserts each is
+  // tracked executable in the git index. chmod 644 on any of them makes this fail.
+  const here =
+    import.meta.dirname ?? fileURLToPath(new URL(".", import.meta.url));
+  const libDir = resolve(here, "lib");
+  const repoRoot = resolve(here, "..");
+
+  const executableLibModules = readdirSync(libDir)
+    .filter((name) => name.endsWith(".ts") && !name.endsWith(".test.ts"))
+    .filter((name) =>
+      isExecutableLibModule(readFileSync(join(libDir, name), "utf8")),
+    )
+    .map((name) => `bin/lib/${name}`);
+
+  it("discovers at least the four known executable lib modules", () => {
+    // Sanity check that the dynamic scan actually found modules; a regex/path
+    // bug that silently matched nothing would make the per-file guard vacuous.
+    expect(executableLibModules).toEqual(
+      expect.arrayContaining([
+        "bin/lib/agent-finding-schema.ts",
+        "bin/lib/fix-applier-schema.ts",
+        "bin/lib/pr-review-result-schema.ts",
+        "bin/lib/ui-validation-schema.ts",
+      ]),
+    );
+  });
+
+  it.each(executableLibModules)("%s is tracked 100755", (path) => {
+    const result = spawnSync("git", ["ls-files", "-s", "--", path], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    expect(result.status).toBe(0);
+    const mode = result.stdout.slice(0, result.stdout.indexOf(" "));
+    expect(mode).toBe("100755");
+  });
 });
