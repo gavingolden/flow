@@ -10,9 +10,11 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { slugify } from "./slug";
+import { toDirSuffix } from "./worktree-slot";
 import {
   createWindow,
   respawnWindow,
@@ -206,8 +208,9 @@ function runFresh(description: string, options: NewOptions): number {
     return 1;
   }
 
+  const worktree = deriveWorktreePath(repo, slug);
   const command =
-    options.command ?? defaultCommand(description, options.effort);
+    options.command ?? defaultCommand(description, worktree, options.effort);
   const result = createWindow(slug, repo, command);
   if (!result.ok) {
     console.error(`flow new: tmux failed to create the window.`);
@@ -282,7 +285,13 @@ function runResume(name: string, options: NewOptions): number {
     return 1;
   }
 
-  const command = options.command ?? resumeCommand(slug, state.effort);
+  // Prefer the actual worktree path recorded at create-time; fall back to the
+  // deterministic derivation when state predates the worktree write (or when
+  // the pipeline crashed before step 2). Either way the resumed session
+  // re-pre-authorizes the worktree as an MCP workspace root.
+  const worktree = state.worktree ?? deriveWorktreePath(state.repo, slug);
+  const command =
+    options.command ?? resumeCommand(slug, worktree, state.effort);
   const result = exists
     ? respawnWindow(slug, state.repo, command)
     : createWindow(slug, state.repo, command);
@@ -302,19 +311,70 @@ function runResume(name: string, options: NewOptions): number {
   return 0;
 }
 
-function defaultCommand(description: string, effort?: EffortLevel): string[] {
+/**
+ * Derive the deterministic worktree path the supervisor's step 2 will pass
+ * to `flow-new-worktree` for this slug. Mirrors `flow-new-worktree.ts`'s rule
+ * (`path.dirname(repo)/<repoName>-<toDirSuffix(branch)>`, with `branch ===
+ * slug`); `toDirSuffix` is a no-op for a slash-free slug but is reused here so
+ * the two derivations cannot drift. This is the COMMON-CASE path only — when
+ * `<repo>-<slug>` already exists (parallel pipelines, stale worktrees),
+ * `flow-new-worktree`'s `findAvailableSlot` auto-suffixes (`-2`/`-3`/…), so the
+ * actual worktree may diverge from this value. `/flow-pipeline` step 2's
+ * best-effort runtime `/add-dir` of the actual path covers that divergence.
+ */
+export function deriveWorktreePath(repo: string, slug: string): string {
+  return path.join(
+    path.dirname(repo),
+    `${path.basename(repo)}-${toDirSuffix(slug)}`,
+  );
+}
+
+/**
+ * Prepend `--add-dir <worktree>` so the chrome-devtools MCP treats the
+ * per-pipeline worktree as a workspace root, letting `take_screenshot
+ * --filePath` write UI evidence into `<worktree>/.flow-tmp/ui-evidence/`
+ * instead of falling back to the session cwd (issue #317). The worktree does
+ * not exist yet at launch — it is created later by step 2 — and that is fine:
+ * `claude --add-dir <nonexistent-path>` does not error at launch (verified
+ * against claude 2.1.183), so pre-authorizing the path is safe. The a11y
+ * snapshot remains the evidence gate regardless; this only makes the
+ * supplementary screenshot artifact land in the documented preferred path.
+ * NOTE: `--add-dir` is documented to grant Claude Code's own file-tool access;
+ * its propagation to the MCP server's screenshot sandbox is the load-bearing
+ * (and externally unverified) assumption behind this fix — confirm via a live
+ * dogfood. Best-effort either way: a bad value degrades to today's session-cwd
+ * fallback, never blocking the pipeline.
+ */
+function launchArgv(
+  worktree: string,
+  prompt: string,
+  effort?: EffortLevel,
+): string[] {
+  const base = ["claude", "--add-dir", worktree];
+  return effort ? [...base, "--effort", effort, prompt] : [...base, prompt];
+}
+
+function defaultCommand(
+  description: string,
+  worktree: string,
+  effort?: EffortLevel,
+): string[] {
   // The supervisor skill is invoked by the chat session itself, not by
   // passing the slash command on the CLI. We launch claude with an initial
   // prompt that tells the user (and the LLM, once active) what to do.
   const prompt = `Use the /flow-pipeline skill for: ${description}`;
-  return effort ? ["claude", "--effort", effort, prompt] : ["claude", prompt];
+  return launchArgv(worktree, prompt, effort);
 }
 
-function resumeCommand(slug: string, effort?: EffortLevel): string[] {
+function resumeCommand(
+  slug: string,
+  worktree: string,
+  effort?: EffortLevel,
+): string[] {
   // The supervisor parses this prefix to detect resume mode and walk the
   // decision tree in references/failure-recovery.md section (b).
   const prompt = `Use the /flow-pipeline skill in --resume mode for: ${slug}`;
-  return effort ? ["claude", "--effort", effort, prompt] : ["claude", prompt];
+  return launchArgv(worktree, prompt, effort);
 }
 
 function resolveRepoRoot(cwd: string): string | null {

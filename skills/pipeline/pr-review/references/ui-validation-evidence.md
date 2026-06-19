@@ -66,11 +66,19 @@ binary).
 
 ## Screenshot save-path cascade
 
-The worktree may not be an MCP workspace root, so `take_screenshot --filePath`
-into it can be sandbox-denied. The cascade:
+`flow new` now pre-authorizes the per-pipeline worktree as an MCP workspace
+root at launch (`claude --add-dir <repo-parent>/<repo>-<slug>`), and
+`/flow-pipeline` step 2 best-effort runtime-`/add-dir`s the actual worktree
+path to cover the auto-suffix-collision case where the launch-time path
+diverges (issue #317). So the PREFERRED branch below is now expected to
+succeed for pipeline-launched sessions. The cascade stays as defense-in-depth
+— a session launched without the flag (or an MCP server that does not honor
+`--add-dir`'s workspace root for its screenshot sandbox) still degrades
+cleanly:
 
-1. PREFERRED — `.flow-tmp/ui-evidence/<n>.png` under the worktree (requires a
-   workspace-root worktree).
+1. PREFERRED — `.flow-tmp/ui-evidence/<n>.png` under the worktree (the
+   worktree is registered as a workspace root via `flow new`'s injected
+   `claude --add-dir`).
 2. On denial, FALL BACK to session-cwd `.flow-tmp/ui-evidence/`.
 3. Else SKIP with a loud note — the a11y snapshot is the gate, the screenshot
    supplementary, never blocking.

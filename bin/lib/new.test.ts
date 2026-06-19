@@ -27,7 +27,7 @@ const tmuxMock = vi.hoisted(() => ({
 }));
 vi.mock("./tmux", () => tmuxMock);
 
-import { runNew, runNewCli } from "./new";
+import { runNew, runNewCli, deriveWorktreePath } from "./new";
 import { writeState } from "./state";
 
 let stateDir!: string;
@@ -139,6 +139,8 @@ describe("runNew --resume", () => {
     // ever fails, update both ends in lockstep.
     expect(command).toEqual([
       "claude",
+      "--add-dir",
+      deriveWorktreePath(repoDir, "crashed"),
       "Use the /flow-pipeline skill in --resume mode for: crashed",
     ]);
     expect(logs[0]).toBe("flow:crashed");
@@ -280,6 +282,43 @@ describe("runNew (fresh)", () => {
     );
     expect(raw.waitForCopilot).toBe(true);
   });
+
+  it("launches claude with --add-dir <derived-worktree> before the prompt on a fresh start", () => {
+    // LOAD-BEARING: omit `command` so defaultCommand runs — passing
+    // `command: ["true"]` would short-circuit the argv under test (issue #317).
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNew("CSV export", { stateDir, cwd: repoDir });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
+    // runFresh resolves the repo via `git rev-parse --show-toplevel`, which
+    // returns the canonical realpath (macOS /var → /private/var), so derive
+    // the expected worktree from the resolved path, not the raw temp dir.
+    expect(command).toEqual([
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
+      "Use the /flow-pipeline skill for: CSV export",
+    ]);
+    // The flag pair must precede the prompt so claude parses --add-dir as an
+    // option, not as part of the prompt text.
+    expect(command.indexOf("--add-dir")).toBeLessThan(command.length - 1);
+  });
+});
+
+describe("deriveWorktreePath", () => {
+  it("mirrors flow-new-worktree's <repo-parent>/<repoName>-<slug> rule for a slash-free slug", () => {
+    expect(deriveWorktreePath("/Users/me/code/flow", "csv-export")).toBe(
+      "/Users/me/code/flow-csv-export",
+    );
+  });
+
+  it("collapses slashes via toDirSuffix parity (defensive — slugs are slash-free)", () => {
+    // slugify never emits slashes, but the derivation reuses toDirSuffix so it
+    // cannot drift from flow-new-worktree.ts if that invariant ever changes.
+    expect(deriveWorktreePath("/a/b/repo", "feature/foo")).toBe(
+      "/a/b/repo-feature-foo",
+    );
+  });
 });
 
 describe("runNewCli (--help / -h short-circuit)", () => {
@@ -408,6 +447,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
     expect(command).toEqual([
       "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--effort",
       "high",
       "Use the /flow-pipeline skill for: do thing",
@@ -428,6 +469,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
     expect(command).toEqual([
       "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "Use the /flow-pipeline skill for: do thing",
     ]);
     expect(command).not.toContain("--effort");
@@ -503,10 +546,45 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     const [, , command] = tmuxMock.respawnWindow.mock.calls[0]!;
     expect(command).toEqual([
       "claude",
+      "--add-dir",
+      deriveWorktreePath(repoDir, "saved-effort"),
       "--effort",
       "max",
       "Use the /flow-pipeline skill in --resume mode for: saved-effort",
     ]);
+  });
+
+  it("runNew --resume prefers the recorded worktree path over the derived one for --add-dir", () => {
+    // When state.worktree is set (the common post-step-2 case), the resume
+    // argv must pre-authorize the ACTUAL worktree — covering the auto-suffix
+    // divergence case where the derived bare-slug path is wrong.
+    const recordedWorktree = path.join(
+      path.dirname(repoDir),
+      `${path.basename(repoDir)}-suffixed-slug-2`,
+    );
+    writeState(
+      {
+        slug: "suffixed-slug",
+        phase: "verifying",
+        repo: repoDir,
+        worktree: recordedWorktree,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runNew("suffixed-slug", { resume: true, stateDir });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.respawnWindow.mock.calls[0]!;
+    expect(command).toEqual([
+      "claude",
+      "--add-dir",
+      recordedWorktree,
+      "Use the /flow-pipeline skill in --resume mode for: suffixed-slug",
+    ]);
+    // Falls back to the derived bare-slug path only when no worktree recorded.
+    expect(command).not.toContain(deriveWorktreePath(repoDir, "suffixed-slug"));
   });
 
   it("treats -h after `--` as part of the description, not a help flag", () => {
