@@ -325,6 +325,105 @@ describe("collectFixApplierTolerant — per-entry resilience", () => {
     }
   });
 
+  it("drops an off-shape entry from a NON-anti_patterns_found array (commits) and keeps siblings", () => {
+    // A bad `commits[]` entry (missing `sha`) exercises the `validateCommitEntry`
+    // branch of `collectValid` — proving the four per-entry validators are
+    // wired to the right arrays, not all pointed at anti_patterns_found.
+    const fixture = {
+      commits: [
+        {
+          // sha intentionally absent — off-shape.
+          files: ["src/x.ts"],
+          finding_id: "f-bad",
+          reasoning: "missing sha",
+          verify_status: "pass",
+        },
+        {
+          sha: "abc1234",
+          files: ["src/y.ts"],
+          finding_id: "f-good",
+          reasoning: "well-formed commit",
+          verify_status: "pass",
+        },
+      ],
+      deferred: [],
+      rejected_alternatives: [],
+      anti_patterns_found: [],
+      summary: "one bad commit entry, the rest valid",
+    };
+    const out = collectFixApplierTolerant(fixture);
+    expect(out).not.toBeNull();
+    expect(out!.skipped).toBe(1);
+    expect(out!.commits).toHaveLength(1);
+    expect(out!.commits[0].sha).toBe("abc1234");
+    // The off-shape entry's count came from the commits branch, while the
+    // sibling arrays stayed empty — so the validators are array-correct.
+    expect(out!.deferred).toHaveLength(0);
+    expect(out!.rejected_alternatives).toHaveLength(0);
+    expect(out!.anti_patterns_found).toHaveLength(0);
+  });
+
+  it("accumulates skipped across MULTIPLE arrays (deferred + rejected_alternatives) into a cumulative count", () => {
+    // One bad `deferred[]` entry AND one bad `rejected_alternatives[]` entry:
+    // the count must be cumulative (2), not per-array (1), pinning the
+    // multi-drop / multi-array math the (N unreadable) marker interpolates.
+    const fixture = {
+      commits: [],
+      deferred: [
+        {
+          finding_id: "d-bad",
+          // tracker_entry_url intentionally absent — off-shape.
+          reason: "missing tracker_entry_url",
+        },
+        {
+          finding_id: "d-good",
+          tracker_entry_url: "",
+          reason: "well-formed deferral",
+        },
+      ],
+      rejected_alternatives: [
+        {
+          finding_id: "r-bad",
+          considered_approach: "tried X",
+          // why_rejected intentionally absent — off-shape.
+        },
+      ],
+      anti_patterns_found: [],
+      summary: "two bad entries across two arrays",
+    };
+    const out = collectFixApplierTolerant(fixture);
+    expect(out).not.toBeNull();
+    expect(out!.skipped).toBe(2);
+    expect(out!.deferred).toHaveLength(1);
+    expect(out!.deferred[0].finding_id).toBe("d-good");
+    expect(out!.rejected_alternatives).toHaveLength(0);
+  });
+
+  it("returns empty arrays + skipped>0 (NOT null) when EVERY array entry is off-shape but top-level keys are present", () => {
+    // The seam between genuinely-broken (-> null -> whole-source unreadable)
+    // and partial (-> empty arrays + marker). All top-level keys present and
+    // well-typed, but every array entry is off-shape.
+    const fixture = {
+      commits: [
+        { files: [], finding_id: "c", reasoning: "r", verify_status: "pass" },
+      ],
+      deferred: [{ finding_id: "d", reason: "no url" }],
+      rejected_alternatives: [{ finding_id: "r", considered_approach: "a" }],
+      anti_patterns_found: [
+        { location: "x.ts:1", pattern: "p", recommendation: "fix" },
+      ],
+      summary: "every entry off-shape, all top-level keys present",
+    };
+    const out = collectFixApplierTolerant(fixture);
+    // NOT null: the artifact is partial, not genuinely broken.
+    expect(out).not.toBeNull();
+    expect(out!.skipped).toBe(4);
+    expect(out!.commits).toHaveLength(0);
+    expect(out!.deferred).toHaveLength(0);
+    expect(out!.rejected_alternatives).toHaveLength(0);
+    expect(out!.anti_patterns_found).toHaveLength(0);
+  });
+
   it("returns null for a genuinely-broken artifact (non-object)", () => {
     expect(collectFixApplierTolerant(null)).toBeNull();
     expect(collectFixApplierTolerant([])).toBeNull();

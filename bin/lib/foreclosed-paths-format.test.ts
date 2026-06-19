@@ -325,4 +325,35 @@ describe("degraded artifacts", () => {
     expect(md).toContain("(1 unreadable)");
     expect(md).not.toContain("fix-applier: (unreadable)");
   });
+
+  it("an all-entries-bad fix-applier artifact (all top-level keys, every entry off-shape) renders ONLY the (N unreadable) marker — not whole-source (unreadable), not none", () => {
+    // The seam between genuinely-broken (null -> whole-source unreadable) and
+    // partial (empty valid arrays + skipped>0 -> marker only). Every array
+    // entry is off-shape but the five top-level keys are present, so the
+    // tolerant collector returns empty arrays + skipped>0, NOT null.
+    const allBad = JSON.stringify({
+      commits: [
+        { files: [], finding_id: "c", reasoning: "r", verify_status: "pass" },
+      ],
+      deferred: [{ finding_id: "d", reason: "no url" }],
+      rejected_alternatives: [{ finding_id: "r", considered_approach: "a" }],
+      anti_patterns_found: [
+        { location: "x.ts:1", pattern: "p", recommendation: "fix" },
+      ],
+      summary: "s",
+    });
+    const inputs = { fixApplierRaw: allBad, consolidatorRaw: "" };
+    // isEmpty is false: the skipped marker entry is still pushed, so the
+    // section must NOT collapse to `none` at the render surface.
+    expect(isEmpty(collectForeclosedEntries(inputs))).toBe(false);
+    for (const surface of [formatMarkdown(inputs), formatPlainText(inputs)]) {
+      const joined = surface.join("\n");
+      expect(joined).toContain("(4 unreadable)");
+      // Marker-only: no whole-source (unreadable) degradation, no prose.
+      expect(joined).not.toContain("fix-applier: (unreadable)");
+      // No prose tokens leaked from the dropped entries.
+      expect(joined).not.toContain("anti-pattern");
+      expect(joined).not.toContain("rejected:");
+    }
+  });
 });

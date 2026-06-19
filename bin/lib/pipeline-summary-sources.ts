@@ -10,7 +10,6 @@
  */
 
 import { validatePrReviewResult } from "./pr-review-result-schema";
-import { validateFixApplierResult } from "./fix-applier-schema";
 import { collectFixApplierTolerant } from "./fix-applier-tolerant";
 import { validateConsolidatorResult } from "./agent-finding-schema";
 import { formatDuration } from "./time";
@@ -180,10 +179,12 @@ export function renderFollowupIssues(
   }
   if (fixApplierRaw.trim()) {
     const parsed = parseJson(fixApplierRaw);
-    const v =
-      parsed === undefined ? undefined : validateFixApplierResult(parsed);
-    if (v && v.ok) {
-      for (const d of v.value.deferred) {
+    // Tolerant read (mirrors renderFindings): a sibling off-shape entry no
+    // longer drops every valid deferral — only a genuinely-broken artifact
+    // (-> null) contributes nothing here.
+    const r = parsed === undefined ? null : collectFixApplierTolerant(parsed);
+    if (r) {
+      for (const d of r.deferred) {
         if (d.tracker_entry_url) {
           lines.push(`pr-review deferral: ${d.tracker_entry_url}`);
         } else {
@@ -219,12 +220,13 @@ function rejectedDecisionLines(
   const lines: string[] = [];
   if (fixApplierRaw.trim()) {
     const parsed = parseJson(fixApplierRaw);
-    const v =
-      parsed === undefined ? undefined : validateFixApplierResult(parsed);
-    if (v && v.ok) {
-      for (const r of v.value.rejected_alternatives) {
+    // Tolerant read (mirrors renderFindings): a sibling off-shape entry no
+    // longer drops every valid rejected alternative.
+    const r = parsed === undefined ? null : collectFixApplierTolerant(parsed);
+    if (r) {
+      for (const ra of r.rejected_alternatives) {
         lines.push(
-          `${r.finding_id}: ${r.considered_approach} — ${r.why_rejected}`,
+          `${ra.finding_id}: ${ra.considered_approach} — ${ra.why_rejected}`,
         );
       }
     }
