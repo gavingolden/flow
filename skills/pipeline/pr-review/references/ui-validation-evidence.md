@@ -77,7 +77,8 @@ succeed for pipeline-launched sessions. The cascade stays as defense-in-depth
 cleanly:
 
 1. PREFERRED — `.flow-tmp/ui-evidence/<n>.png` under the worktree (the
-   worktree is registered as a workspace root via `flow new --add-dir`).
+   worktree is registered as a workspace root via `flow new`'s injected
+   `claude --add-dir`).
 2. On denial, FALL BACK to session-cwd `.flow-tmp/ui-evidence/`.
 3. Else SKIP with a loud note — the a11y snapshot is the gate, the screenshot
    supplementary, never blocking.
