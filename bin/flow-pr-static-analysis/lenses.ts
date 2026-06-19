@@ -69,7 +69,7 @@ export const runSecurityLens: LensRun = async (args, deps) => {
 // framework detection out per owning workspace package); the field lives ONLY
 // on this local intersection — deliberately not on the shared `Deps` type or
 // the LensRun Pick — so the containment is expressed in exactly one place and
-// the other four lens runners aren't forced to surface a field they ignore.
+// the other three lens runners aren't forced to surface a field they ignore.
 type TypesLensDeps = Parameters<LensRun>[1] & { changedPaths?: string[] };
 
 // The single-cwd detect + svelte-check/tsc decision, parameterised on `dir`
@@ -219,7 +219,7 @@ export const runTypesLens: LensRun = async (args, deps) => {
 
   // Each per-package run spawns an independent tsc/svelte-check subprocess with
   // no shared state, and the types lens already sits on the critical path (the
-  // top-level Promise.all of the five lenses). Running the per-dir runs
+  // top-level Promise.all of the four lenses). Running the per-dir runs
   // SEQUENTIALLY compounded the per-call timeout budget (N packages -> up to
   // N x timeout worst-case), so fan them out concurrently. The optional
   // repo-root run is folded into the same batch. We collect results into a
