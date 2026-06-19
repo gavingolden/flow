@@ -663,6 +663,23 @@ Now record the worktree path in state.json (the only step where
 flow-state-update --phase worktree-create --worktree "$WORKTREE"
 ```
 
+**Runtime `/add-dir` fallback (best-effort, never-blocking).** `flow new`
+already pre-authorized the *deterministic* worktree path as a chrome-devtools
+MCP workspace root at launch (`claude --add-dir <repo-parent>/<repo>-<slug>`),
+so screenshot evidence in step 8c can write to
+`<worktree>/.flow-tmp/ui-evidence/` instead of falling back to the session
+cwd (issue #317). But when `flow-new-worktree` hit a collision and
+auto-suffixed the directory (`-2`/`-3`/…), the **actual** `$WORKTREE` diverges
+from the path `flow new` pre-authorized. To cover that divergence, issue a
+runtime `/add-dir "$WORKTREE"` now (the slash-command form a running Claude
+Code session uses to add a workspace root mid-session) so the *actual*
+worktree is authorized regardless. This is purely a reliability nicety for the
+supplementary screenshot artifact: the a11y snapshot remains the evidence
+gate, and if the runtime `/add-dir` is unavailable or does not propagate to
+the MCP server, the screenshot save-path cascade's session-cwd fallback still
+applies (see `/pr-review` `references/ui-validation-evidence.md`). Never block
+or escalate on it.
+
 **End condition:** the worktree directory exists, is on a fresh
 branch, and `pwd` matches `$WORKTREE`.
 
