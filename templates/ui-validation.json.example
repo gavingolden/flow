@@ -1,0 +1,15 @@
+{
+  "_comment": "Copy this stub to .flow/ui-validation.json and fill in your repo's real launch command, base URL, login flow, credential env-var NAMES, and routes. flow ships this example but never auto-writes the manifest. See AGENTS.md 'Local Testing Credentials' for the seeded-test-user convention.",
+  "launch": "npm run dev",
+  "baseUrl": "http://localhost:5173",
+  "loginUrl": "/login",
+  "credentialEnvVars": {
+    "user": "TEST_USER_EMAIL",
+    "pass": "TEST_USER_PASSWORD"
+  },
+  "routes": [
+    { "path": "/", "expectSelectors": ["main"] },
+    { "path": "/dashboard", "expectSelectors": ["[data-testid=\"dashboard\"]"] }
+  ],
+  "disableAnimations": true
+}

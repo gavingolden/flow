@@ -85,7 +85,15 @@ so the audit trail names both the prose and the command the agent ran.
 - [x] `<item as written>` — pass
 - [x] `<item as written>` — pass (<count> passed, <count> skipped)
 - [x] `<author prose>` — pass (prose-promoted: `<one-line shell command>`)
-- [ ] `<item as written>` — not run: <rubric category: subjective UX | production-only | cross-browser | performance under realistic load | cost-prohibitive infra>
+- [x] `<visual-appearance item>` — pass (a11y-snapshot evidence; screenshot `.flow-tmp/ui-evidence/<n>.png`)
+- [ ] `<item as written>` — not run: <rubric category: subjective UX | visual-appearance | production-only | cross-browser | performance under realistic load | cost-prohibitive infra>
+
+For a ticked **visual-appearance** item run via the browser-validation
+capability (Step 8c.iii), the a11y `take_snapshot` text is the **primary**
+evidence injected via `flow-inject-evidence` as a `<details>` block; the
+screenshot is **referenced by path** (`.flow-tmp/ui-evidence/<n>.png`), never
+embedded as binary — the snapshot-by-reference convention keeps the PR body
+under GitHub's 65,536-char limit.
 
 End the section with the **Automation-precedence audit line**:
 

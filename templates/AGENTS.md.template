@@ -79,6 +79,47 @@ tolerantly; malformation degrades to defaults with no error). A
 genuinely-uncovered file (no `package.json` owner, no stack marker, no
 config) still fails the gate loudly with `reason: "unmatched-files"`.
 
+### Browser-driven UI validation (optional, opt-in)
+
+flow can self-validate the rendered UI — render smoke (no console errors,
+no failed requests, key elements present) at verify time and a subjective
+visual-appearance pass at review time — via the `chrome-devtools` MCP plus
+a consumer-declared `.flow/ui-validation.json` manifest. It is **opt-in by
+manifest presence**: with no manifest the pipeline proceeds and never
+hard-fails. When the diff touches UI files (`.svelte`/`.css`/`.scss`, a
+`routes/` or `components/` path) and the MCP is present but no manifest
+exists, the skip is **loud** — an actionable nudge to enable it; otherwise
+the skip is quiet. An absent MCP always skips quietly (exit 0), so
+headless/CI runs stay green.
+
+The three-ingredient new-repo onboarding:
+
+1. **MCP, once per machine.** Register `chrome-devtools-mcp` in
+   `~/.claude.json` (local scope). This is outside flow's control and
+   outside any repo — flow only documents the pointer; it never installs
+   or ships the MCP config.
+2. **Manifest, once per repo.** Copy the committed
+   `templates/ui-validation.json.example` stub to `.flow/ui-validation.json`
+   and fill it in. flow **never auto-writes** the manifest (it cannot guess
+   your routes/selectors/launch/creds correctly). Fields:
+   - `launch` (required) — the dev-server command, e.g. `npm run dev`.
+   - `baseUrl` (required) — e.g. `http://localhost:5173`.
+   - `loginUrl` (optional) — the login route.
+   - `credentialEnvVars` (optional) — `{ user, pass }` env-var **NAMES**
+     (not values), e.g. `{ "user": "TEST_USER_EMAIL", "pass": "TEST_USER_PASSWORD" }`.
+   - `routes` (required) — an array of `{ path, expectSelectors? }`; each
+     `expectSelectors` entry must appear in the route's a11y snapshot.
+   - `disableAnimations` (optional boolean) — honored via
+     `prefers-reduced-motion` emulation for stable snapshots.
+3. **Seed + creds, once per repo.** Provide a loginable test user + fixture
+   data and document it under a "Local Testing Credentials" section in this
+   file, so the review/verify passes can log in deterministically.
+
+`.flow/ui-validation.json` lives under the `.flow/` prefix, so a consumer
+may add a `jq empty .flow/ui-validation.json` check to its
+`.flow/pre-commit.json` flow-config scope to lint the manifest's JSON on
+commit.
+
 ### Command Execution
 
 Prefer absolute paths over `cd <path> &&` to maintain a consistent working directory.

@@ -301,6 +301,7 @@ dark modes. For minor changes, a quick mental scan suffices.
 - No custom CSS in `<style>` blocks (use Tailwind utilities).
 - Semantic HTML and ARIA attributes are present for interactive elements.
 - Design choices are intentional — can explain WHY for surface, spacing, and typography decisions.
+- **UI-change Test Steps: author enumerated visual-appearance assertions.** When a change alters the rendered UI, write each PR Test Step as a concrete, checkable visual-appearance assertion ("the chart legend does not overlap the y-axis labels", "the empty state shows a centered icon above muted helper text") rather than vague "looks right" prose — these are runnable via the browser-validation capability. See the `visual-appearance` category in `skills/pipeline/pr-review/references/manual-test-rubric.md`.
 
 # Constraints
 

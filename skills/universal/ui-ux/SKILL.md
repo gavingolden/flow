@@ -67,6 +67,10 @@ Each principle there names its source inline; the framework that renders it stay
 
 Before declaring the work done, run the gate in `references/critique-protocol.md`: walk composition/craft, interaction, accessibility, and distinctiveness; apply the one to three highest-impact fixes; and name one non-default choice you made. If you can't name one, return to the design-intent step. When the work spanned more than one component, the critique's composition check extends across the set — confirm each component matches the shared foundation and its siblings, not just that it coheres on its own.
 
+## 5. Evaluate from a captured snapshot/screenshot
+
+This is the entry point `/pr-review` Step 8c invokes when it judges a rendered UI without editing code. You are handed a captured a11y snapshot (the **primary** input — the structured accessibility tree from `take_snapshot`, diffable and authoritative for hierarchy, roles, names, focus order, and reading order) and optionally a screenshot (a **supplementary** input — useful for spacing rhythm, alignment, color restraint, and surface/depth, but never the sole basis for a judgment). Judge what you are given against the same authorities as steps 3–4: read the snapshot for accessibility and structure (WCAG/POUR, the focus-order and name/role/value discipline), and read the screenshot for composition (Refactoring UI spacing/hierarchy, Nielsen's heuristics, Anthropic's coherence signal). Return a concrete pass/fail per visual-appearance assertion plus the one to three highest-impact fixes — never a vague "looks fine." Stay stack-agnostic: name the principle and its source, not the framework mechanic.
+
 # Anti-Patterns
 
 Lead by rejecting the convergent defaults Anthropic documents — these are the specific moves that read as AI slop:

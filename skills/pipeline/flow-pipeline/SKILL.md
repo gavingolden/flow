@@ -1184,6 +1184,8 @@ gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
 gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
 ```
 
+**Automated UI-smoke pass (before/alongside `/verify`).** When the worktree declares a `.flow/ui-validation.json` manifest, run the browser-driven UI-smoke pass as part of this step. First probe for the `chrome-devtools` MCP with a guarded `ToolSearch query="select:mcp__chrome-devtools__navigate_page"`; on missing schema, run `flow-ui-validate --mcp-absent --manifest .flow/ui-validation.json` (a quiet `ran:false` / `skipped_reason: mcp-not-available` skip — never a failure, mirroring `flow-pre-commit`'s optional-tool `skipReason`). Otherwise run `flow-ui-validate --manifest .flow/ui-validation.json --changed-files <git diff --name-only HEAD>`. On a `ran:false` skip, relay the loud `nudge` (the discovery prompt to copy `templates/ui-validation.json.example`, or a broken-precondition hint) when `loud:true` and proceed. On a `ran:true` ready envelope, drive the MCP per route (`navigate_page` → `wait_for` → `take_snapshot` → `list_console_messages` → `list_network_requests`, honoring `manifest.disableAnimations` via `prefers-reduced-motion` emulation), write a captures JSON, and call `flow-ui-validate --manifest ... --captures <path>`; a `ran:true` result with `ok:false` is a verify failure that feeds the **existing 3-attempt fix loop** above, exactly like any failed `flow-pre-commit` check. Headless / MCP-absent runs stay green. Prefer a durable Playwright/vitest spec for any deterministic guard worth keeping forever; reserve the MCP pass for the live + visual-evidence checks. The MCP tool calls live in this skill's LLM context (and `/verify`'s) — the helper is LLM-free and runs no nested LLM (no `claude -p`, no Task; `flow-pre-commit` is a pure subprocess and cannot drive MCP).
+
 **End condition:** `/verify` exits clean (an outer attempt 1, 2, or
 3 succeeds). Continue to step 7.
 
@@ -1371,6 +1373,8 @@ Invoke `/pr-review` in-process with the PR number:
 ```
 /pr-review <PR>
 ```
+
+When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are present, `/pr-review` Step 8c runs the subjective visual-appearance pass against the browser-validation capability: it drives each enumerated visual-appearance item, judges it via the `ui-ux` skill, captures an a11y snapshot as primary evidence (injected via `flow-inject-evidence`) plus a screenshot referenced by path under `.flow-tmp/ui-evidence/`, and ticks the box. This adds no new Task-tool exemption — Step 8c runs inside the already-exempt Fix-Applier surface.
 
 `/pr-review` itself spawns one **Fix-Applier Subagent** via the Task
 tool (the fourth of the eight named Task-tool exemptions in "Hard

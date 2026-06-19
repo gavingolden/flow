@@ -32,3 +32,5 @@ Stated without framework-specific class names; the stack skill carries the concr
 5. **Apply** those fixes.
 6. **Verify across modes** — if the UI has light and dark (or other) themes, confirm hierarchy and contrast hold in each.
 7. **Name one non-default choice** you made. If you can't, return to the design-intent step and reconsider.
+
+When the input is a **captured a11y snapshot + screenshot** rather than live code (the `/pr-review` Step 8c review path), treat the snapshot as the primary medium for the accessibility and structure dimensions and the screenshot as the supplementary medium for the composition dimension — walk the same four dimensions above against what was captured.
