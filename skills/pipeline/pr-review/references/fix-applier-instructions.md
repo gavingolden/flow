@@ -440,7 +440,28 @@ single off-pattern in passing, you must record it.**
 
 If the artifact is missing keys or fails to parse, the wrapper surfaces the
 failure to the supervisor (`NEEDS HUMAN: fix-applier-missing-artifact`).
-Validate your JSON before exiting.
+
+**Self-validate before exiting (atomic write → validate → re-emit once →
+mv).** Do not write directly to `$ARTIFACT_PATH` and exit. Instead, mirror
+the consolidator self-validate precedent in
+[consolidator-instructions.md](consolidator-instructions.md) section (e):
+
+1. Write the candidate artifact to `$ARTIFACT_PATH.tmp` first.
+2. Run `flow-fix-applier-schema --validate "$ARTIFACT_PATH.tmp"`. On
+   `{ok: true}` (exit 0), `mv "$ARTIFACT_PATH.tmp" "$ARTIFACT_PATH"` and
+   you are done.
+3. On `{ok: false}` (exit 1), re-read the typed `reason`/`path` from the
+   validator's stderr line, **re-emit a corrected artifact EXACTLY ONCE**
+   targeting that field — most commonly a missing `introduced_by_this_pr`
+   boolean on an `anti_patterns_found` entry — then re-validate the new
+   `.tmp`.
+4. Only if the SECOND emit is still off-shape, leave the `.tmp` on disk
+   and surface the failure in your return summary so the wrapper escalates
+   `NEEDS HUMAN: fix-applier-missing-artifact`. On success, `mv` the
+   `.tmp` into place.
+5. NEVER silently exit with an off-shape artifact, and NEVER auto-coerce
+   or default a missing field — the contract is correct-at-source via
+   re-emit, not silent coercion.
 
 ## 10. Return a brief summary
 

@@ -138,20 +138,21 @@ describe("flow setup", () => {
     expect(names).toContain("flow-new-worktree");
   });
 
-  it("discovers the two schema validators via the discoverValidators allowlist", () => {
-    // Regression guard: discoverValidators ships exactly the two validators
-    // named in the VALIDATOR_MODULES allowlist — pr-review-result-schema and
-    // agent-finding-schema — sourced from bin/lib/ with a `flow-` install
-    // target prefix. It must NOT pick up coder-schema (not on the allowlist)
-    // or any `*-schema.test.ts` file. Run against the real repo's bin/lib/
-    // rather than the synthetic fixture so this test fires if a future
-    // refactor regresses the allowlist or the naming.
+  it("discovers the three schema validators via the discoverValidators allowlist", () => {
+    // Regression guard: discoverValidators ships exactly the three validators
+    // named in the VALIDATOR_MODULES allowlist — pr-review-result-schema,
+    // agent-finding-schema, and fix-applier-schema — sourced from bin/lib/
+    // with a `flow-` install target prefix. It must NOT pick up coder-schema
+    // (not on the allowlist) or any `*-schema.test.ts` file. Run against the
+    // real repo's bin/lib/ rather than the synthetic fixture so this test
+    // fires if a future refactor regresses the allowlist or the naming.
     const repoRoot = path.resolve(__dirname, "..", "..");
     const validators = discoverValidators(repoRoot);
-    expect(validators).toHaveLength(2);
+    expect(validators).toHaveLength(3);
     const names = validators.map((v) => path.basename(v.target)).sort();
     expect(names).toEqual([
       "flow-agent-finding-schema",
+      "flow-fix-applier-schema",
       "flow-pr-review-result-schema",
     ]);
     for (const entry of validators) {

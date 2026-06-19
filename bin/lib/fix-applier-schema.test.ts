@@ -1,6 +1,38 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { validateFixApplierResult } from "./fix-applier-schema";
 import { collectFixApplierTolerant } from "./fix-applier-tolerant";
+
+const SCHEMA_SCRIPT = path.resolve(__dirname, "fix-applier-schema.ts");
+
+function runCli(args: string[]): {
+  status: number;
+  stdout: string;
+  stderr: string;
+} {
+  const result = spawnSync("bun", [SCHEMA_SCRIPT, ...args], {
+    encoding: "utf8",
+  });
+  return {
+    status: result.status ?? -1,
+    stdout: result.stdout ?? "",
+    stderr: result.stderr ?? "",
+  };
+}
+
+function withTmpFile(contents: string, fn: (filePath: string) => void): void {
+  const dir = mkdtempSync(path.join(tmpdir(), "fix-applier-schema-test-"));
+  const filePath = path.join(dir, "artifact.json");
+  writeFileSync(filePath, contents, "utf8");
+  try {
+    fn(filePath);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
 
 /**
  * Contract tests for the Fix-Applier Subagent's artifact at
@@ -447,5 +479,71 @@ describe("collectFixApplierTolerant — per-entry resilience", () => {
     const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
     fixture.commits = "not an array";
     expect(collectFixApplierTolerant(fixture)).toBeNull();
+  });
+});
+
+describe("fix-applier-schema CLI — `--validate <path>`", () => {
+  it("exits 2 with usage on stderr when --validate flag is missing", () => {
+    const result = runCli([]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("usage:");
+    expect(result.stdout).toBe("");
+  });
+
+  it("exits 2 with usage on stderr when --validate is given without a path argument", () => {
+    const result = runCli(["--validate"]);
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain("usage:");
+    expect(result.stdout).toBe("");
+  });
+
+  it("exits 1 with read failure on stderr when the target path does not exist", () => {
+    const missingPath = path.join(
+      tmpdir(),
+      "fix-applier-missing-" + Date.now() + ".json",
+    );
+    const result = runCli(["--validate", missingPath]);
+    expect(result.status).toBe(1);
+    const parsed = JSON.parse(result.stderr.trim());
+    expect(parsed.ok).toBe(false);
+    expect(parsed.reason).toContain("read failed");
+    expect(parsed.path).toBe(missingPath);
+  });
+
+  it("exits 1 with JSON parse failure on stderr when the file contains malformed JSON", () => {
+    withTmpFile("{ not valid json", (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(1);
+      const parsed = JSON.parse(result.stderr.trim());
+      expect(parsed.ok).toBe(false);
+      expect(parsed.reason).toContain("JSON parse failed");
+      expect(parsed.path).toBe(filePath);
+    });
+  });
+
+  it("exits 0 with {ok: true} on stdout for a well-formed fix-applier artifact", () => {
+    withTmpFile(JSON.stringify(VALID_FULL), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(0);
+      const parsed = JSON.parse(result.stdout.trim());
+      expect(parsed.ok).toBe(true);
+      expect(result.stderr).toBe("");
+    });
+  });
+
+  it("exits 1 on the canonical drift — an anti_patterns_found entry missing introduced_by_this_pr", () => {
+    // Derive the off-shape fixture by deleting `introduced_by_this_pr` from a
+    // valid anti_patterns_found entry — the most common Fix-Applier drift.
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    delete (fixture.anti_patterns_found as Array<Record<string, unknown>>)[0]
+      .introduced_by_this_pr;
+    withTmpFile(JSON.stringify(fixture), (filePath) => {
+      const result = runCli(["--validate", filePath]);
+      expect(result.status).toBe(1);
+      const parsed = JSON.parse(result.stderr.trim());
+      expect(parsed.ok).toBe(false);
+      expect(parsed.reason).toContain("introduced_by_this_pr");
+      expect(parsed.path).toBe(filePath);
+    });
   });
 });

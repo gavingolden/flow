@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 /**
  * Schema validator for the Fix-Applier Subagent's artifact at
  * `<worktree>/.flow-tmp/fix-applier-result.json`.
@@ -10,6 +11,12 @@
  * runtime counterpart: a wrapper that has just received the artifact can
  * call `validateFixApplierResult(parsed)` to confirm shape before
  * consuming `commits[]`, `deferred[]`, etc.
+ *
+ * CLI mode: `flow-fix-applier-schema --validate <path>` reads the file,
+ * parses JSON, and runs `validateFixApplierResult` — exit 0 (valid) /
+ * 1 (off-shape, read/parse failure) / 2 (usage) — so the spawned
+ * subagent can self-check its artifact just before atomically writing
+ * it to disk.
  *
  * The validator is permissive in two specific ways and the rest is strict:
  *
@@ -246,4 +253,54 @@ export function validateFixApplierResult(parsed: unknown): ValidationResult {
   }
 
   return { ok: true, value: parsed as FixApplierResult };
+}
+
+async function cliMain(argv: string[]): Promise<number> {
+  const flagIdx = argv.indexOf("--validate");
+  if (flagIdx === -1 || flagIdx === argv.length - 1) {
+    process.stderr.write(
+      "usage: fix-applier-schema --validate <path-to-fix-applier-result.json>\n",
+    );
+    return 2;
+  }
+  const path = argv[flagIdx + 1];
+  let raw: string;
+  try {
+    raw = await Bun.file(path).text();
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    process.stderr.write(
+      JSON.stringify({ ok: false, reason: `read failed: ${reason}`, path }) +
+        "\n",
+    );
+    return 1;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    const reason = e instanceof Error ? e.message : String(e);
+    process.stderr.write(
+      JSON.stringify({
+        ok: false,
+        reason: `JSON parse failed: ${reason}`,
+        path,
+      }) + "\n",
+    );
+    return 1;
+  }
+
+  const result = validateFixApplierResult(parsed);
+  if (result.ok) {
+    process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+    return 0;
+  }
+  process.stderr.write(
+    JSON.stringify({ ok: false, reason: result.reason, path }) + "\n",
+  );
+  return 1;
+}
+
+if (import.meta.main) {
+  cliMain(process.argv.slice(2)).then((code) => process.exit(code));
 }

@@ -27,6 +27,7 @@ const COMPLETION_SHELLS = ["bash", "zsh"] as const;
 const VALIDATOR_MODULES = [
   "pr-review-result-schema.ts",
   "agent-finding-schema.ts",
+  "fix-applier-schema.ts",
 ] as const;
 
 /**
