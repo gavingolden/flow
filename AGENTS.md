@@ -221,9 +221,8 @@ helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 `flow-notify`, `flow-stop-guard`, `flow-ui-validate` — live there with `.ts`
 extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow setup`
 symlinks each into `~/.local/bin/<name>` (extensionless on PATH).
-`flow-ui-validate` is the browser-driven UI-validation core; its
-`bin/lib/ui-validation-schema.ts` is an internal import, NOT in the allowlist
-below.
+`flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import,
+NOT in the allowlist below.
 
 The three schema validators `flow-pr-review-result-schema`,
 `flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked
@@ -421,7 +420,7 @@ which flow's built-ins are lifted unchanged;
 a top-level array of `{ name, prefixes, checks }` scopes (merged config >
 auto-detect > built-in); `checks` run as argv (no shell).
 
-**Optional UI-validation manifest.** A consumer may declare `.flow/ui-validation.json` (a single OBJECT, not `.flow/pre-commit.json`'s array) to opt into browser-driven UI validation; `flow-ui-validate` parses it tolerantly and skips gracefully (exit 0, loud only on UI-diff-with-no-manifest or a broken precondition). Fields + onboarding in `templates/AGENTS.md.template`.
+**Optional UI-validation manifest.** A consumer may declare `.flow/ui-validation.json` (a single OBJECT, not an array) to opt into browser-driven UI validation; `flow-ui-validate` parses it tolerantly and skips gracefully (exit 0, loud only on a broken precondition). Optional `ignoreConsolePatterns` / `ignoreRequestPatterns` lists suppress noise (favicon 404). Fields + onboarding in `templates/AGENTS.md.template`.
 
 ## Don'ts
 

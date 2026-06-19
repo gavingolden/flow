@@ -1096,32 +1096,39 @@ present, **enumerated visual-appearance items become a runnable bucket** rather
 than not-runnable. Probe the MCP with a guarded
 `ToolSearch query="select:mcp__chrome-devtools__navigate_page"` once at the top
 of this step; on missing schema, leave every browser item unticked with a
-`subjective UX` reason exactly as the legacy not-runnable path did (no
-regression). With the MCP present, for each visual-appearance item:
+`subjective UX` reason as before. With the MCP present, per visual item:
 
 1. Drive the browser via the manifest: `navigate_page` to the route →
    `wait_for` an explicit selector → `take_snapshot` (the a11y snapshot — the
-   **primary** evidence) → `take_screenshot` to `.flow-tmp/ui-evidence/<n>.png`
-   (the **secondary** artifact, referenced by path, never embedded — the PR body
-   caps at 65,536 chars and `gh` takes no inline binary). Honor
+   **primary** evidence) → `take_screenshot` (the **secondary** artifact,
+   referenced by path, never embedded — `gh` takes no inline binary). Honor
    `disableAnimations` via `prefers-reduced-motion` emulation.
+   **Captures contract:** `failedRequests` are request URLs (URL-filterable via
+   the manifest's `ignoreRequestPatterns`); `consoleErrors` are genuine JS
+   errors, NOT the "Failed to load resource" network echoes (those live in
+   `failedRequests`). The optional manifest `ignoreConsolePatterns` /
+   `ignoreRequestPatterns` substring lists suppress benign noise before `ok` —
+   canonically the favicon 404, via `ignoreRequestPatterns: ["/favicon.ico"]`.
+   **Screenshot save-path cascade** (the worktree may not be an MCP workspace
+   root, so `take_screenshot --filePath` into it can be sandbox-denied):
+   (1) PREFERRED, `.flow-tmp/ui-evidence/<n>.png` under the worktree (requires a
+   workspace-root worktree); (2) on denial, FALL BACK to session-cwd
+   `.flow-tmp/ui-evidence/`; (3) else SKIP with a loud note — the a11y snapshot
+   is the gate, the screenshot supplementary, never blocking.
 2. Judge the snapshot + screenshot against the `ui-ux` skill's authorities
-   (Nielsen, WCAG/POUR, Refactoring UI) — invoke `/ui-ux`'s "evaluate from a
+   (Nielsen, WCAG/POUR, Refactoring UI) via `/ui-ux`'s "evaluate from a
    snapshot/screenshot" entry point.
 3. On a pass, inject the a11y snapshot as the primary `<details>` block and tick
    the box via the **unchanged** `flow-inject-evidence` interface (8c.i), the
-   screenshot referenced by its `.flow-tmp/ui-evidence/<n>.png` path inside the
-   block (`--output-file` points at the captured snapshot text, `--exit-code 0`).
+   screenshot referenced by its saved path inside the block (`--output-file`
+   points at the captured snapshot text, `--exit-code 0`).
 4. An **irreducibly-aesthetic** item ("does this feel premium?") stays unticked
    with a `subjective UX` reason — only concrete, second-observer-reproducible
    visual-appearance assertions are runnable here.
 
 This adds **no new Task-tool exemption**: Step 8c runs inside the already-exempt
 Fix-Applier subagent surface, and the MCP calls are harness-level tool calls in
-that context — no `claude -p`, no nested Task spawn. See
-`references/manual-test-rubric.md`'s "Enumerated visual-appearance assertions"
-and "Caveat: browser-validation flakiness" for the authoring + flakiness
-contracts.
+that context. See `references/manual-test-rubric.md` "Caveat: browser-validation flakiness".
 
 ### 8c.i. Inject evidence under each runnable item
 

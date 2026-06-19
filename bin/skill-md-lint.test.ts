@@ -2568,6 +2568,28 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
+  it("AGENTS.md.template documents the ignoreRequestPatterns noise field", () => {
+    // The optional ignore*Patterns substring lists suppress benign browser
+    // noise (canonically the favicon 404) before a route's ok is computed;
+    // the manifest field reference must name them.
+    expect(
+      agentsTemplateContent.includes("ignoreRequestPatterns"),
+      "templates/AGENTS.md.template must reference 'ignoreRequestPatterns' in " +
+        "the ui-validation manifest field reference.",
+    ).toBe(true);
+  });
+
+  it("pr-review SKILL.md Step 8c documents the screenshot save-path cascade", () => {
+    // The worktree may not be an MCP workspace root, so take_screenshot into
+    // it can be sandbox-denied; Step 8c documents the worktree -> session-cwd
+    // -> skip cascade (the a11y snapshot is the gate, screenshots evidence).
+    expect(
+      prReviewContent.includes("Screenshot save-path cascade"),
+      "pr-review SKILL.md Step 8c must document the 'Screenshot save-path " +
+        "cascade' for screenshot evidence.",
+    ).toBe(true);
+  });
+
   it("svelte + tailwind-shadcn SKILLs direct authoring enumerated visual assertions", () => {
     const phrase =
       "UI-change Test Steps: author enumerated visual-appearance assertions";

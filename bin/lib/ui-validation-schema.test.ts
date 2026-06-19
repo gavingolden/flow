@@ -83,6 +83,16 @@ describe("validateUiValidationManifest — happy paths", () => {
     fixture.routes = [{ path: "/about" }];
     expect(validateUiValidationManifest(fixture).ok).toBe(true);
   });
+
+  it("accepts ignoreConsolePatterns + ignoreRequestPatterns as string arrays", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.ignoreConsolePatterns = ["Failed to load resource"];
+    fixture.ignoreRequestPatterns = ["/favicon.ico"];
+    expect(validateUiValidationManifest(fixture).ok).toBe(true);
+  });
 });
 
 describe("validateUiValidationManifest — wrong-shape rejections", () => {
@@ -171,6 +181,22 @@ describe("validateUiValidationManifest — wrong-shape rejections", () => {
     const result = validateUiValidationManifest(fixture);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("disableAnimations");
+  });
+
+  it("rejects ignoreConsolePatterns when not an array", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.ignoreConsolePatterns = "Failed to load resource";
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("ignoreConsolePatterns");
+  });
+
+  it("rejects ignoreRequestPatterns when an array of non-strings", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.ignoreRequestPatterns = [1, 2, 3];
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("ignoreRequestPatterns");
   });
 });
 

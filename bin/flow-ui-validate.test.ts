@@ -334,6 +334,101 @@ describe("ASSEMBLE — per-route findings (Story 2)", () => {
     expect(c.code).toBe(2);
   });
 
+  it("ignoreRequestPatterns suppresses a benign favicon 404 → ok:true", () => {
+    const manifest = JSON.stringify({
+      launch: "npm run dev",
+      baseUrl: "http://localhost:5173",
+      routes: [{ path: "/" }],
+      ignoreRequestPatterns: ["/favicon.ico"],
+    });
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: manifest,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: ["http://localhost:5173/favicon.ico 404"],
+          snapshotText: "<main>",
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ok).toBe(true);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    expect(route.ok).toBe(true);
+    expect(route.failedRequests).toEqual([]);
+  });
+
+  it("ignoreConsolePatterns suppresses a matching console error → ok:true", () => {
+    const manifest = JSON.stringify({
+      launch: "npm run dev",
+      baseUrl: "http://localhost:5173",
+      routes: [{ path: "/" }],
+      ignoreConsolePatterns: ["Failed to load resource"],
+    });
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: manifest,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: ["Failed to load resource: the server responded 404"],
+          failedRequests: [],
+          snapshotText: "<main>",
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ok).toBe(true);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    expect(route.consoleErrors).toEqual([]);
+  });
+
+  it("a non-matching failedRequest/consoleError still fails the route", () => {
+    const manifest = JSON.stringify({
+      launch: "npm run dev",
+      baseUrl: "http://localhost:5173",
+      routes: [{ path: "/" }],
+      ignoreRequestPatterns: ["/favicon.ico"],
+      ignoreConsolePatterns: ["Failed to load resource"],
+    });
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: manifest,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: ["Uncaught TypeError"],
+          failedRequests: ["http://localhost:5173/api/x 500"],
+          snapshotText: "<main>",
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ok).toBe(false);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    expect(route.consoleErrors).toEqual(["Uncaught TypeError"]);
+    expect(route.failedRequests).toEqual(["http://localhost:5173/api/x 500"]);
+  });
+
+  it("absent ignore patterns => the favicon failedRequest fails the route", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: VALID_MANIFEST,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: ["http://localhost:5173/favicon.ico 404"],
+          snapshotText: "<main>",
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ok).toBe(false);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    expect(route.failedRequests).toEqual([
+      "http://localhost:5173/favicon.ico 404",
+    ]);
+  });
+
   it("captures file that parses but lacks routes → exit 2", () => {
     const c = drive(["--captures", "cap.json"], {
       [MANIFEST_PATH]: VALID_MANIFEST,

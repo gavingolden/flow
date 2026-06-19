@@ -183,8 +183,19 @@ export function computeRouteFindings(
   manifest: UiValidationManifest,
   capture: Captures["routes"][number],
 ): RouteFindings {
-  const consoleErrors = capture.consoleErrors ?? [];
-  const failedRequests = capture.failedRequests ?? [];
+  // Substring (not regex) noise filters: an entry is suppressed when ANY
+  // pattern is a substring of it. Absent patterns => no filtering (the
+  // benign favicon 404 is the canonical case, cleared via
+  // ignoreRequestPatterns: ["/favicon.ico"]). Filter BEFORE computing ok
+  // and report the FILTERED lists so suppressed noise never fails a route.
+  const ignoreConsolePatterns = manifest.ignoreConsolePatterns ?? [];
+  const ignoreRequestPatterns = manifest.ignoreRequestPatterns ?? [];
+  const consoleErrors = (capture.consoleErrors ?? []).filter(
+    (e) => !ignoreConsolePatterns.some((p) => e.includes(p)),
+  );
+  const failedRequests = (capture.failedRequests ?? []).filter(
+    (r) => !ignoreRequestPatterns.some((p) => r.includes(p)),
+  );
   const manifestRoute = manifest.routes.find((r) => r.path === capture.path);
   const expectSelectors = manifestRoute?.expectSelectors ?? [];
   const snapshotText = capture.snapshotText ?? "";
