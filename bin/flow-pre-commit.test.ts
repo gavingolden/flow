@@ -1055,6 +1055,26 @@ describe(checkHelperExecutableModes, () => {
     expect(result).toBeNull();
   });
 
+  it("drops an unreadable bin/lib candidate (readFile throws) → inert (null)", () => {
+    // A bin/lib/*.ts path that matches the regex and passes isPathBoundHelper
+    // but throws on read (e.g. deleted in the diff) is the only path into the
+    // readFile catch. The candidate is dropped, leaving zero candidates, so the
+    // gate is inert — and the throw does not bubble out of checkHelperExecutableModes.
+    let result: CheckResult | null = null;
+    expect(() => {
+      result = checkHelperExecutableModes(
+        ["bin/lib/foo-schema.ts"],
+        () => {
+          throw new Error("git ls-files should not run with zero candidates");
+        },
+        () => {
+          throw new Error("ENOENT");
+        },
+      );
+    }).not.toThrow();
+    expect(result).toBeNull();
+  });
+
   it("exempts a maintainer-only bin/lib module even with the executable signal", () => {
     // isPathBoundHelper excludes MAINTAINER_ONLY names, so a bin/lib/flow-release.ts
     // is never a candidate — readFile is never consulted for it.
