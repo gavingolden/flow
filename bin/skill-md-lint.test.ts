@@ -2189,6 +2189,54 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("manual-test-rubric.md requires the concrete how for every manual precondition", () => {
+    expect(
+      manualTestRubricContent.includes("Spell out the concrete how"),
+      "manual-test-rubric.md must contain the phrase 'Spell out the concrete " +
+        "how' — the precondition-concreteness rule that every manual / " +
+        "human-verification step must name the exact command, click path, or " +
+        "setting behind each precondition and never use a bare 'turn X on' / " +
+        "'with X enabled' phrasing without the concrete how. The three " +
+        "authoring sites (new-feature/SKILL.md Step 4b, pr-review/SKILL.md " +
+        "Step 11e, product-planning discovery-instructions.md Step 7) defer to " +
+        "this phrase by reference; renaming it must update this lint in the " +
+        "same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("all three authoring sites defer to the rubric's 'Precondition concreteness' section", () => {
+    expect(
+      newFeatureContent.includes("Precondition concreteness"),
+      "new-feature/SKILL.md Step 4b must reference the rubric's 'Precondition " +
+        "concreteness' section — the cross-file-deference contract: the " +
+        "spell-out-the-how requirement is anchored once in manual-test-rubric.md " +
+        "(the single source of truth), and each authoring site defers to it by " +
+        "name. Dropping the reference here silently orphans the requirement. " +
+        "Renaming the section name must update all three sites and this lint in " +
+        "the same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("Precondition concreteness"),
+      "pr-review/SKILL.md Step 11e must reference the rubric's 'Precondition " +
+        "concreteness' section — same cross-file-deference contract: the " +
+        "spell-out-the-how requirement is anchored once in manual-test-rubric.md " +
+        "and deferred to by name here, governing every manual item Step 11e " +
+        "drafts or extends. Dropping the reference silently orphans the " +
+        "requirement. Renaming the section name must update all three sites and " +
+        "this lint in the same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("Precondition concreteness"),
+      "product-planning discovery-instructions.md Step 7 must reference the " +
+        "rubric's 'Precondition concreteness' section — same cross-file-deference " +
+        "contract: the spell-out-the-how requirement is anchored once in " +
+        "manual-test-rubric.md and deferred to by name here. Dropping the " +
+        "reference silently orphans the requirement. Renaming the section name " +
+        "must update all three sites and this lint in the same commit (AGENTS.md " +
+        "anchored-phrase rule).",
+    ).toBe(true);
+  });
+
   it("redirect-handling.md requires a gate override to be fresh, unambiguous, and in-context", () => {
     expect(
       redirectHandlingContent.includes("## Gate override"),

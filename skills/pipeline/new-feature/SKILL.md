@@ -432,6 +432,13 @@ Always emit the heading. Decide the body based on the change:
   `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Coverage breadth") for the
   requirement and a worked multi-facet example.
 
+  For whatever stays manual, spell out the exact how for every precondition the step states —
+  name the command, click path, or setting that satisfies it, assuming no prior knowledge of
+  project-specific toggles or jargon, and never a bare "turn X on" / "with X enabled" without
+  the concrete steps. See
+  `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Precondition concreteness")
+  for the rule and a before/after example.
+
 Open the `## Test Steps` section with this HTML comment, copied verbatim, between
 the heading and the first `- [ ]` item. The auto-merge gate strips HTML comments
 before counting so the marker is invisible to the count, and any later editor (an

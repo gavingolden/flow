@@ -1419,6 +1419,11 @@ the Fix-Applier Subagent — already parsed at Step 9) against the description:
 - If you are editing an existing description that is hard-wrapped, do not reflow it just
   for formatting — preserve the author's wrapping. The no-hard-wrap rule applies to your
   own output, not to lines you are leaving untouched.
+- For any manual / human-verification item you draft or extend, spell out the exact how for
+  every precondition it states — the command, click path, or setting that satisfies it —
+  assuming no prior knowledge of project-specific toggles or jargon, and never a bare
+  "turn X on" / "with X enabled" without the concrete steps. See
+  `references/manual-test-rubric.md` ("Precondition concreteness").
 
 Based on 12a-12d:
 
