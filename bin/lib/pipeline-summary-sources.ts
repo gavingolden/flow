@@ -11,6 +11,7 @@
 
 import { validatePrReviewResult } from "./pr-review-result-schema";
 import { validateFixApplierResult } from "./fix-applier-schema";
+import { collectFixApplierTolerant } from "./fix-applier-tolerant";
 import { validateConsolidatorResult } from "./agent-finding-schema";
 import { formatDuration } from "./time";
 import {
@@ -91,13 +92,15 @@ export function renderFindings(inputs: {
 
   if (inputs.fixApplierRaw.trim()) {
     const parsed = parseJson(inputs.fixApplierRaw);
-    const v =
-      parsed === undefined ? undefined : validateFixApplierResult(parsed);
-    if (!v || !v.ok) lines.push("fixes: (unreadable)");
+    // Tolerant read: a single off-shape entry no longer nukes the valid
+    // counts; only a genuinely-broken artifact (-> null) degrades to
+    // (unreadable). A residual `(N unreadable)` marker surfaces dropped entries.
+    const r = parsed === undefined ? null : collectFixApplierTolerant(parsed);
+    if (!r) lines.push("fixes: (unreadable)");
     else {
-      const r = v.value;
+      const residual = r.skipped > 0 ? ` (${r.skipped} unreadable)` : "";
       lines.push(
-        `fixes: ${r.commits.length} fixed in-cycle, ${r.deferred.length} deferred, ${r.anti_patterns_found.length} anti-patterns noted`,
+        `fixes: ${r.commits.length} fixed in-cycle, ${r.deferred.length} deferred, ${r.anti_patterns_found.length} anti-patterns noted${residual}`,
       );
     }
   }

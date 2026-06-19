@@ -45,6 +45,30 @@ const consolidator = JSON.stringify({
   summary: "s",
 });
 
+// Valid commits/deferred/rejected_alternatives, but one anti_patterns_found
+// entry is missing `introduced_by_this_pr` (the econ-data #346 regression). The
+// valid prose must still render; the bad entry contributes a residual marker.
+const fixApplierOneBadEntry = JSON.stringify({
+  commits: [],
+  deferred: [],
+  rejected_alternatives: [
+    {
+      finding_id: "F1",
+      considered_approach: "memoize the parser",
+      why_rejected: "added cache-invalidation complexity for no measured win",
+    },
+  ],
+  anti_patterns_found: [
+    {
+      location: "bin/lib/x.ts:42",
+      pattern: "swallowed error in catch",
+      recommendation: "log and rethrow",
+      // introduced_by_this_pr intentionally absent — off-shape entry.
+    },
+  ],
+  summary: "s",
+});
+
 describe("collectForeclosedEntries — shared core", () => {
   it("flattens all four arrays in a stable order", () => {
     const entries = collectForeclosedEntries({
@@ -105,6 +129,37 @@ describe("both modes share one core", () => {
     expect(md[0]).toBe(FORECLOSED_HEADING);
     expect(pt.some((l) => l === FORECLOSED_HEADING)).toBe(false);
     expect(entries.length).toBeGreaterThan(0);
+  });
+
+  it("renders the identical valid entry set + residual marker through both modes for the one-bad-entry fixture", () => {
+    const inputs = {
+      fixApplierRaw: fixApplierOneBadEntry,
+      consolidatorRaw: consolidator,
+    };
+    const md = formatMarkdown(inputs);
+    const pt = formatPlainText(inputs);
+    // The valid rejected-alternative + the consolidator prose survive in both.
+    for (const surface of [md, pt]) {
+      const joined = surface.join("\n");
+      expect(joined).toContain("memoize the parser");
+      expect(joined).toContain(
+        "added cache-invalidation complexity for no measured win",
+      );
+      expect(joined).toContain("duplicated validation across three call sites");
+      // The off-shape anti-pattern is surfaced as a residual marker, not a
+      // whole-source (unreadable) degradation.
+      expect(joined).toContain("(1 unreadable)");
+      expect(joined).not.toContain("fix-applier: (unreadable)");
+    }
+    // Cross-surface drift guard: both modes derive from the same collected
+    // entry set, so the ordered (source, category) sequence is identical.
+    const entries = collectForeclosedEntries(inputs);
+    expect(entries.map((e) => [e.source, e.category, e.skipped ?? 0])).toEqual([
+      ["fix-applier", "rejected-alternative", 0],
+      ["fix-applier", "anti-pattern", 1],
+      ["consolidator", "rejected-alternative", 0],
+      ["consolidator", "anti-pattern", 0],
+    ]);
   });
 });
 
@@ -243,5 +298,31 @@ describe("degraded artifacts", () => {
     }).join("\n");
     expect(md).toContain("fix-applier: (unreadable)");
     expect(md).toContain("duplicated validation across three call sites");
+  });
+
+  it("a fix-applier artifact missing a required top-level key degrades to (unreadable)", () => {
+    const missingKey = JSON.stringify({
+      commits: [],
+      deferred: [],
+      rejected_alternatives: [],
+      // anti_patterns_found absent → genuinely broken.
+      summary: "s",
+    });
+    const md = formatMarkdown({
+      fixApplierRaw: missingKey,
+      consolidatorRaw: consolidator,
+    }).join("\n");
+    expect(md).toContain("fix-applier: (unreadable)");
+    expect(md).toContain("duplicated validation across three call sites");
+  });
+
+  it("a one-bad-entry fix-applier artifact renders valid prose + a residual marker, not whole-source (unreadable)", () => {
+    const md = formatMarkdown({
+      fixApplierRaw: fixApplierOneBadEntry,
+      consolidatorRaw: "",
+    }).join("\n");
+    expect(md).toContain("memoize the parser");
+    expect(md).toContain("(1 unreadable)");
+    expect(md).not.toContain("fix-applier: (unreadable)");
   });
 });

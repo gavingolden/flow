@@ -7,12 +7,15 @@
  * snapshot) — derive from that same core so the two surfaces cannot drift.
  *
  * The two surfaces differ ONLY in output mode: the entry set and its order
- * are identical. A shape-invalid artifact degrades to an `(unreadable)`
- * marker for that source rather than throwing; an absent/empty artifact
- * contributes nothing.
+ * are identical. A genuinely-broken fix-applier artifact (non-JSON,
+ * non-object, or a missing/wrong-typed required top-level key) degrades to an
+ * `(unreadable)` marker for that source rather than throwing; a partially-
+ * broken one renders its per-entry-valid entries and appends a trailing
+ * `(N unreadable)` residual marker for the dropped off-shape entries; an
+ * absent/empty artifact contributes nothing.
  */
 
-import { validateFixApplierResult } from "./fix-applier-schema";
+import { collectFixApplierTolerant } from "./fix-applier-tolerant";
 import { validateConsolidatorResult } from "./agent-finding-schema";
 
 export const FORECLOSED_HEADING = "## Foreclosed Paths";
@@ -35,6 +38,12 @@ export type ForeclosedEntry = {
   raw?: string;
   /** Set when a source artifact was present but shape-invalid. */
   unreadable?: boolean;
+  /**
+   * Residual marker: when > 0, some per-entry-invalid entries from this source
+   * were dropped while valid ones still rendered. Surfaced as `(N unreadable)`
+   * so the partial degradation is not silent.
+   */
+  skipped?: number;
 };
 
 function parseJson(raw: string): unknown | undefined {
@@ -59,16 +68,17 @@ export function collectForeclosedEntries(inputs: {
 
   if (inputs.fixApplierRaw.trim()) {
     const parsed = parseJson(inputs.fixApplierRaw);
-    const v =
-      parsed === undefined ? undefined : validateFixApplierResult(parsed);
-    if (!v || !v.ok) {
+    const v = parsed === undefined ? null : collectFixApplierTolerant(parsed);
+    if (!v) {
+      // Genuinely-broken artifact (non-JSON/non-object/missing top-level key):
+      // degrade the whole source to a single (unreadable) marker, as before.
       entries.push({
         source: "fix-applier",
         category: "rejected-alternative",
         unreadable: true,
       });
     } else {
-      for (const r of v.value.rejected_alternatives) {
+      for (const r of v.rejected_alternatives) {
         entries.push({
           source: "fix-applier",
           category: "rejected-alternative",
@@ -77,7 +87,7 @@ export function collectForeclosedEntries(inputs: {
           finding_id: r.finding_id,
         });
       }
-      for (const a of v.value.anti_patterns_found) {
+      for (const a of v.anti_patterns_found) {
         entries.push({
           source: "fix-applier",
           category: "anti-pattern",
@@ -85,6 +95,13 @@ export function collectForeclosedEntries(inputs: {
           pattern: a.pattern,
           recommendation: a.recommendation,
           introduced_by_this_pr: a.introduced_by_this_pr,
+        });
+      }
+      if (v.skipped > 0) {
+        entries.push({
+          source: "fix-applier",
+          category: "anti-pattern",
+          skipped: v.skipped,
         });
       }
     }
@@ -152,6 +169,10 @@ export function formatMarkdown(inputs: {
   const entries = collectForeclosedEntries(inputs);
   const lines: string[] = [FORECLOSED_HEADING, ""];
   for (const e of entries) {
+    if (e.skipped) {
+      lines.push(`- ${e.source}: (${e.skipped} unreadable)`);
+      continue;
+    }
     if (e.unreadable) {
       lines.push(`- ${e.source}: (unreadable)`);
       continue;
@@ -186,6 +207,10 @@ export function formatPlainText(inputs: {
   const entries = collectForeclosedEntries(inputs);
   const lines: string[] = [];
   for (const e of entries) {
+    if (e.skipped) {
+      lines.push(`${e.source}: (${e.skipped} unreadable)`);
+      continue;
+    }
     if (e.unreadable) {
       lines.push(`${e.source}: (unreadable)`);
       continue;

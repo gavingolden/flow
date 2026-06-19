@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateFixApplierResult } from "./fix-applier-schema";
+import { collectFixApplierTolerant } from "./fix-applier-tolerant";
 
 /**
  * Contract tests for the Fix-Applier Subagent's artifact at
@@ -262,5 +263,90 @@ describe("validateFixApplierResult — wrong-type rejections", () => {
     if (!result.ok) {
       expect(result.reason).toContain("introduced_by_this_pr");
     }
+  });
+});
+
+describe("collectFixApplierTolerant — per-entry resilience", () => {
+  it("returns every entry with skipped=0 for a well-formed artifact", () => {
+    const out = collectFixApplierTolerant(VALID_FULL);
+    expect(out).not.toBeNull();
+    expect(out!.skipped).toBe(0);
+    expect(out!.commits).toHaveLength(1);
+    expect(out!.deferred).toHaveLength(1);
+    expect(out!.rejected_alternatives).toHaveLength(1);
+    expect(out!.anti_patterns_found).toHaveLength(1);
+    expect(out!.summary).toBe((VALID_FULL as Record<string, unknown>).summary);
+  });
+
+  it("drops one off-shape anti_patterns_found entry with skipped=1 and does NOT invent the missing field", () => {
+    // One anti_patterns_found entry is missing `introduced_by_this_pr`; the
+    // valid commits/deferred/rejected_alternatives must all survive intact.
+    const full = VALID_FULL as Record<string, unknown>;
+    const fixture = {
+      commits: full.commits,
+      deferred: full.deferred,
+      rejected_alternatives: full.rejected_alternatives,
+      anti_patterns_found: [
+        {
+          location: "src/bar.ts:42",
+          pattern: "untyped any in public function signature",
+          recommendation: "tighten the param type",
+          // introduced_by_this_pr intentionally absent.
+        },
+        {
+          location: "src/baz.ts:7",
+          pattern: "magic number",
+          recommendation: "extract a named constant",
+          introduced_by_this_pr: true,
+        },
+      ],
+      summary: "one bad anti-pattern entry, the rest valid",
+    };
+    const out = collectFixApplierTolerant(fixture);
+    expect(out).not.toBeNull();
+    expect(out!.skipped).toBe(1);
+    expect(out!.commits).toHaveLength(1);
+    expect(out!.deferred).toHaveLength(1);
+    expect(out!.rejected_alternatives).toHaveLength(1);
+    // Only the well-formed anti-pattern survives; the missing field is never
+    // fabricated onto the dropped entry.
+    expect(out!.anti_patterns_found).toHaveLength(1);
+    expect(out!.anti_patterns_found[0].location).toBe("src/baz.ts:7");
+    for (const a of out!.anti_patterns_found) {
+      expect(typeof a.introduced_by_this_pr).toBe("boolean");
+    }
+
+    // The strict validator still REJECTS the same artifact (proving the strict
+    // path is byte-for-byte unchanged).
+    const strict = validateFixApplierResult(fixture);
+    expect(strict.ok).toBe(false);
+    if (!strict.ok) {
+      expect(strict.reason).toContain("introduced_by_this_pr");
+    }
+  });
+
+  it("returns null for a genuinely-broken artifact (non-object)", () => {
+    expect(collectFixApplierTolerant(null)).toBeNull();
+    expect(collectFixApplierTolerant([])).toBeNull();
+    expect(collectFixApplierTolerant("string")).toBeNull();
+    expect(collectFixApplierTolerant(42)).toBeNull();
+  });
+
+  it.each([
+    "commits",
+    "deferred",
+    "rejected_alternatives",
+    "anti_patterns_found",
+    "summary",
+  ])("returns null when the required top-level key '%s' is absent", (key) => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    delete fixture[key];
+    expect(collectFixApplierTolerant(fixture)).toBeNull();
+  });
+
+  it("returns null when a required array key is the wrong container type", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.commits = "not an array";
+    expect(collectFixApplierTolerant(fixture)).toBeNull();
   });
 });
