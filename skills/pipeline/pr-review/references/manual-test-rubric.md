@@ -79,9 +79,47 @@ are correctness checks.
 - **Production-only integrations** — a third-party API without a sandbox, a
   prod-scoped secret, a real billing flow actually returns the expected result.
   The _outcome_ is still binary; it just can't be exercised in a fixture.
-- **Cross-browser / cross-device rendering** — the page renders correctly in
-  Safari, on a mobile viewport, with a screen reader. The _outcome_ is binary
-  even though the project has no harness for it yet.
+  (Cross-browser / cross-device rendering used to live here as genuinely-manual.
+  It is now **Automatable via the browser-validation capability** — see the next
+  subsection — whenever the `chrome-devtools` MCP and a `.flow/ui-validation.json`
+  manifest are present.)
+
+#### Automatable via the browser-validation capability
+
+When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are
+present, a browser-observable functional check is **no longer genuinely
+manual** — the agent runs it via the browser-validation capability and ticks
+the box. The gate for these is the **a11y `take_snapshot` text plus an
+explicit `wait_for`**, never a raw screenshot pixel comparison.
+
+- **Cross-browser / cross-device rendering** — "the page renders, key
+  elements are present, no console errors, no failed network requests" is a
+  binary observation the capability asserts against the a11y snapshot. (A
+  specific other-browser engine still needs that engine; the in-engine render
+  is now automatable.)
+- The deterministic half (no console errors, no failed requests, manifest
+  `expectSelectors` present) gates at Step 6 (`/verify`); the subjective half
+  (see the enumerated visual-appearance category below) runs at Step 8c
+  (`/pr-review`).
+
+#### Enumerated visual-appearance assertions
+
+A **visual-appearance** assertion is a concrete, checkable observation about
+how the rendered UI looks — distinct from "does it feel premium" taste. Write
+each as a single observation the agent runs via the `chrome-devtools` MCP,
+judges via the `ui-ux` skill's authorities (Nielsen, WCAG/POUR, Refactoring
+UI), and ticks. Concrete examples:
+
+- "The delete button is right-aligned in the card footer."
+- "The chart legend does not overlap the y-axis labels."
+- "The empty state shows a centered icon above muted helper text."
+- "The focus ring is visible on keyboard-tab to the primary action."
+
+Each is a real observation a second observer would record the same way given
+the same snapshot — so it is automatable via Step 8c, not left as an unchecked
+manual item. Author UI Test Steps as these enumerated assertions rather than
+vague "looks right" prose. Truly irreducibly-aesthetic items ("does this feel
+premium?") stay genuinely-manual subjective checks below.
 
 **An unverified functional step blocks merge.** A functional manual step that
 is still an unchecked `- [ ]` item is a feature that has _not been shown to
@@ -139,6 +177,29 @@ require a heavy harness disproportionate to the risk, prefer either:
 2. A `RUN_INTEGRATION=1`-style gated test that doesn't run by default but is callable.
 
 The bar is "safely automatable," not "automatable in principle."
+
+### Caveat: browser-validation flakiness
+
+The browser-validation capability extends the flakiness caveat above to the
+live-browser case. A browser check is only safely automatable when it gates on
+the **a11y `take_snapshot`** plus an explicit **`wait_for`** (not a raw-pixel
+comparison and not a fixed sleep), disables animations / respects
+`prefers-reduced-motion` (via the manifest's `disableAnimations` flag), and
+depends on **seeded fixture state** for stable data. Screenshots are
+**evidence, not the gate**: they are captured for the human and referenced by
+path, never diffed pixel-for-pixel to pass/fail a check. A check that can only
+be made reliable with raw-pixel matching or animation-timing assertions stays
+genuinely manual.
+
+### Durable-test precedence
+
+Prefer a **durable Playwright/vitest spec** over an ephemeral MCP check for any
+deterministic assertion worth guarding forever — a permanent spec runs in CI on
+every change with no live browser session required. Reserve the
+browser-validation MCP pass for the **live exploratory + visual-evidence**
+checks not worth a permanent spec (the subjective visual-appearance judgment,
+the one-off render smoke). The MCP capability complements the durable suite; it
+does not replace it.
 
 ### The `<!-- flow:authoring-rubric -->` marker
 

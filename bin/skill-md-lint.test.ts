@@ -156,6 +156,53 @@ const AGENT_PROMPTS_PATH = path.resolve(
   "references",
   "agent-prompts.md",
 );
+const VERIFY_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "verify",
+  "SKILL.md",
+);
+const UI_UX_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "universal",
+  "ui-ux",
+  "SKILL.md",
+);
+const SVELTE_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "stacks",
+  "svelte",
+  "SKILL.md",
+);
+const TAILWIND_SHADCN_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "stacks",
+  "tailwind-shadcn",
+  "SKILL.md",
+);
+const AGENTS_TEMPLATE_PATH = path.resolve(
+  HERE,
+  "..",
+  "templates",
+  "AGENTS.md.template",
+);
+const UI_VALIDATION_EVIDENCE_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "pr-review",
+  "references",
+  "ui-validation-evidence.md",
+);
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
@@ -194,6 +241,18 @@ const discoveryInstructionsContent = fs.readFileSync(
 );
 const newFeatureContent = fs.readFileSync(NEW_FEATURE_SKILL_MD_PATH, "utf8");
 const agentPromptsContent = fs.readFileSync(AGENT_PROMPTS_PATH, "utf8");
+const verifyContent = fs.readFileSync(VERIFY_SKILL_MD_PATH, "utf8");
+const uiUxContent = fs.readFileSync(UI_UX_SKILL_MD_PATH, "utf8");
+const svelteContent = fs.readFileSync(SVELTE_SKILL_MD_PATH, "utf8");
+const tailwindShadcnContent = fs.readFileSync(
+  TAILWIND_SHADCN_SKILL_MD_PATH,
+  "utf8",
+);
+const agentsTemplateContent = fs.readFileSync(AGENTS_TEMPLATE_PATH, "utf8");
+const uiValidationEvidenceContent = fs.readFileSync(
+  UI_VALIDATION_EVIDENCE_PATH,
+  "utf8",
+);
 
 /**
  * Strip markdown blockquote `> ` prefixes from line starts so cross-line
@@ -2398,4 +2457,187 @@ describe("/coder interactive-redirect caller anchor", () => {
       ).toBe(true);
     },
   );
+});
+
+describe("browser-driven UI-validation structural anchors", () => {
+  // Anchors the UI-validation feature's prose wiring so a doc rename can't
+  // silently drift away from what the helper (bin/flow-ui-validate.ts) and
+  // the skill prose contract on. Each phrase below is the EXACT string the
+  // corresponding doc carries; renaming the phrase requires updating this
+  // assertion in the same commit.
+
+  it("flow-pipeline SKILL.md Step 6 documents the Automated UI-smoke pass", () => {
+    // Step 6 (verifying) wires the LLM-free flow-ui-validate helper + the
+    // MCP probe → --mcp-absent fallback → loud-skip relay → ok:false fix-loop
+    // routing. Consumed by /verify's own SKILL.md (which mirrors it) and the
+    // supervisor that drives Step 6. NOT a new ## Step heading (the 12-step
+    // count is asserted above).
+    expect(
+      content.includes("Automated UI-smoke pass (before/alongside"),
+      "flow-pipeline SKILL.md Step 6 must document the 'Automated UI-smoke " +
+        "pass'. It is the supervisor-side contract for the browser-validation " +
+        "capability; /verify SKILL.md and the rubric reference it.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md Step 6 documents the adaptive noise filter", () => {
+    // The other half of the noise filter: when an ok:false flags benign noise
+    // unrelated to the diff, the agent adds the substring to the manifest's
+    // ignore*Patterns and COMMITS that change (lands in the PR diff) instead of
+    // burning a fix-loop attempt. verify SKILL.md mirrors this guidance.
+    expect(
+      content.includes("Adaptive noise filter:") &&
+        content.includes(
+          "add the offending substring to the manifest's `ignoreRequestPatterns`",
+        ),
+      "flow-pipeline SKILL.md Step 6 must document the 'Adaptive noise " +
+        "filter' (add benign-noise substring to ignoreRequestPatterns + " +
+        "commit the manifest change, don't fix-loop on it).",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md Step 8 points to /pr-review Step 8c visual pass", () => {
+    expect(
+      content.includes(
+        "subjective visual-appearance pass against the browser-validation capability",
+      ),
+      "flow-pipeline SKILL.md Step 8 must point to the Step 8c visual " +
+        "pass so the reviewing-phase wiring is discoverable.",
+    ).toBe(true);
+  });
+
+  it("verify SKILL.md documents the Optional UI-smoke pass", () => {
+    // /verify runs flow-ui-validate alongside flow-pre-commit; the MCP probe,
+    // --mcp-absent fallback, loud-nudge relay, and ok:false fix-loop routing
+    // live here. Mirrors flow-pipeline Step 6.
+    expect(
+      verifyContent.includes("Optional UI-smoke pass"),
+      "verify SKILL.md must document the 'Optional UI-smoke pass'.",
+    ).toBe(true);
+    expect(
+      verifyContent.includes("flow-ui-validate"),
+      "verify SKILL.md must name the 'flow-ui-validate' helper.",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md adds the enumerated visual-appearance category", () => {
+    // The new visual-appearance category + the automatable reclassification
+    // are what flip browser-observable checks from genuinely-manual to
+    // runnable; /pr-review SKILL.md Step 8c and report-template.md reference
+    // the 'visual-appearance' rubric category by name.
+    expect(
+      manualTestRubricContent.includes(
+        "Enumerated visual-appearance assertions",
+      ),
+      "manual-test-rubric.md must contain the 'Enumerated visual-appearance " +
+        "assertions' category heading.",
+    ).toBe(true);
+    expect(
+      manualTestRubricContent.includes(
+        "Automatable via the browser-validation capability",
+      ),
+      "manual-test-rubric.md must reclassify browser-observable checks as " +
+        "'Automatable via the browser-validation capability'.",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md adds the browser-flakiness caveat", () => {
+    expect(
+      manualTestRubricContent.includes("Caveat: browser-validation flakiness"),
+      "manual-test-rubric.md must contain the 'Caveat: browser-validation " +
+        "flakiness' caveat (gate on a11y snapshot + wait_for; screenshots " +
+        "are evidence-not-gate).",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md adds the durable-test-precedence note", () => {
+    expect(
+      manualTestRubricContent.includes("Durable-test precedence"),
+      "manual-test-rubric.md must contain the 'Durable-test precedence' note " +
+        "(prefer Playwright/vitest for permanent guards; MCP for live + visual).",
+    ).toBe(true);
+  });
+
+  it("references/ui-validation-evidence.md documents the browser-item runnable bucket", () => {
+    // Step 8c's full runnable-bucket procedure moved out of pr-review/SKILL.md
+    // (line-budget extraction) into references/ui-validation-evidence.md; the
+    // canonical 'Browser-item runnable bucket' detail now lives there, and
+    // Step 8c carries only a concise pointer to it.
+    expect(
+      uiValidationEvidenceContent.includes("Browser-item runnable bucket"),
+      "references/ui-validation-evidence.md must document the 'Browser-item " +
+        "runnable bucket' path for visual-appearance items.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("references/ui-validation-evidence.md"),
+      "pr-review SKILL.md Step 8c must point to " +
+        "references/ui-validation-evidence.md for the extracted detail.",
+    ).toBe(true);
+  });
+
+  it("report-template.md documents the visual-appearance evidence rows", () => {
+    expect(
+      reportTemplateContent.includes("For a ticked **visual-appearance** item"),
+      "report-template.md must document the visual-appearance evidence rows " +
+        "(a11y-snapshot primary, screenshot referenced by path).",
+    ).toBe(true);
+  });
+
+  it("ui-ux SKILL.md adds the snapshot/screenshot evaluation entry point", () => {
+    expect(
+      uiUxContent.includes("Evaluate from a captured snapshot/screenshot"),
+      "ui-ux SKILL.md must contain the 'Evaluate from a captured " +
+        "snapshot/screenshot' step — the entry point /pr-review Step 8c invokes.",
+    ).toBe(true);
+  });
+
+  it("AGENTS.md.template documents the ui-validation.json onboarding", () => {
+    expect(
+      agentsTemplateContent.includes("three-ingredient new-repo onboarding"),
+      "templates/AGENTS.md.template must document the 'three-ingredient " +
+        "new-repo onboarding' for UI validation.",
+    ).toBe(true);
+    expect(
+      agentsTemplateContent.includes("ui-validation.json"),
+      "templates/AGENTS.md.template must reference 'ui-validation.json'.",
+    ).toBe(true);
+  });
+
+  it("AGENTS.md.template documents the ignoreRequestPatterns noise field", () => {
+    // The optional ignore*Patterns substring lists suppress benign browser
+    // noise (canonically the favicon 404) before a route's ok is computed;
+    // the manifest field reference must name them.
+    expect(
+      agentsTemplateContent.includes("ignoreRequestPatterns"),
+      "templates/AGENTS.md.template must reference 'ignoreRequestPatterns' in " +
+        "the ui-validation manifest field reference.",
+    ).toBe(true);
+  });
+
+  it("references/ui-validation-evidence.md documents the screenshot save-path cascade", () => {
+    // The worktree may not be an MCP workspace root, so take_screenshot into
+    // it can be sandbox-denied; the worktree -> session-cwd -> skip cascade
+    // (a11y snapshot is the gate, screenshots evidence) moved with the rest of
+    // the Step 8c detail into references/ui-validation-evidence.md.
+    expect(
+      uiValidationEvidenceContent.includes("Screenshot save-path cascade"),
+      "references/ui-validation-evidence.md must document the 'Screenshot " +
+        "save-path cascade' for screenshot evidence.",
+    ).toBe(true);
+  });
+
+  it("svelte + tailwind-shadcn SKILLs direct authoring enumerated visual assertions", () => {
+    const phrase =
+      "UI-change Test Steps: author enumerated visual-appearance assertions";
+    expect(
+      svelteContent.includes(phrase),
+      "svelte SKILL.md must direct authoring enumerated visual-appearance " +
+        "assertions as Test Steps (cross-linking the rubric category).",
+    ).toBe(true);
+    expect(
+      tailwindShadcnContent.includes(phrase),
+      "tailwind-shadcn SKILL.md must direct authoring enumerated " +
+        "visual-appearance assertions as Test Steps.",
+    ).toBe(true);
+  });
 });

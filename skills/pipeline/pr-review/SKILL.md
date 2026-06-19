@@ -973,9 +973,16 @@ For each `- [ ]` item, classify before running:
   `./scripts/foo.ts`, `curl localhost:3000/x` paired with a documented assertion,
   "edit `.gitignore`, create symlink, run `flow setup --upgrade`, confirm `1
   removed` and the symlink is gone."
-- **Not runnable**: requires a browser, a deploy target, real human/UI judgment ("the
-  modal animates smoothly"), production credentials, or external services (Slack post,
-  Stripe redirect, real-LLM judgment). Leave unticked.
+- **Not runnable**: requires a deploy target, irreducibly-aesthetic human judgment ("the
+  modal animates smoothly", "does this feel premium?"), production credentials, or external
+  services (Slack post, Stripe redirect, real-LLM judgment). Leave unticked.
+- **Browser items are a runnable bucket when MCP + manifest are present.** A
+  visual-appearance item ("the delete button is right-aligned in the card footer", "the
+  focus ring is visible on keyboard-tab to the primary action") that would otherwise be
+  not-runnable becomes runnable when the `chrome-devtools` MCP and a `.flow/ui-validation.json`
+  manifest are present — see 8c.iii below. When the MCP is absent (the guarded
+  `ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns no schema), browser
+  items stay not-runnable and unticked exactly as today (no regression).
 
 **Self-check before classifying anything as not-runnable**: am I about to invoke
 phrases like "out of scope for an automated agent run", "the harness flagged this
@@ -1072,14 +1079,30 @@ For each promoted item:
 ~3 lines of shell to express the prose, or reaching for branching logic
 (`if/then`, `case`, multiple `&&` clauses across distinct asserts), the prose
 is **not** mechanically obvious — leave it not-runnable and record the
-rubric category that applies (`subjective UX`, `production-only`,
-`cross-browser`, `performance under realistic load`, etc.). Open-ended LLM
+rubric category that applies (`subjective UX`, `visual-appearance`,
+`production-only`, `cross-browser`, `performance under realistic load`,
+etc.). Open-ended LLM
 rewriting of arbitrary manual prose drifts toward executing scripts the
 author did not intend; the bounded version trades some recall for safety.
 
 Track the promotion count for Step 12's audit line: how many `- [ ]` items
 were promoted from author prose vs. ran as the author wrote them, and how
 many were left unticked with which rubric category.
+
+### 8c.iii. Browser-item runnable bucket (visual-appearance via the browser-validation capability)
+
+When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are
+present, **enumerated visual-appearance items become a runnable bucket** rather
+than not-runnable; the a11y `take_snapshot` is the primary evidence (injected
+via 8c.i's unchanged `flow-inject-evidence`), the screenshot supplementary and
+referenced by path. The full runnable-bucket procedure, the captures contract,
+and the **Screenshot save-path cascade** live in
+[references/ui-validation-evidence.md](references/ui-validation-evidence.md).
+On missing MCP schema (the guarded
+`ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns
+nothing), every browser item stays not-runnable and unticked exactly as today —
+no regression. Adds **no new Task-tool exemption**: Step 8c runs inside the
+already-exempt Fix-Applier surface.
 
 ### 8c.i. Inject evidence under each runnable item
 

@@ -504,6 +504,7 @@ synchronously before the first `await`, then use those captured values.
 - All `$props()` are explicitly typed.
 - `$derived` is used only for synchronous computations.
 - Reactive classes use `$state` field initializers, not stores.
+- **UI-change Test Steps: author enumerated visual-appearance assertions.** When a change alters the rendered UI, write each PR Test Step as a concrete, checkable visual-appearance assertion ("the delete button is right-aligned in the card footer", "the focus ring is visible on keyboard-tab to the primary action") rather than vague "looks right" prose — these are runnable via the browser-validation capability. See the `visual-appearance` category in `skills/pipeline/pr-review/references/manual-test-rubric.md`.
 
 # Constraints
 

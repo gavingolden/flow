@@ -1,0 +1,18 @@
+{
+  "_comment": "Copy this stub to .flow/ui-validation.json and fill in your repo's real launch command, base URL, login flow, credential env-var NAMES, and routes. flow ships this example but never auto-writes the manifest. See AGENTS.md 'Local Testing Credentials' for the seeded-test-user convention.",
+  "_comment_ignore": "ignoreRequestPatterns / ignoreConsolePatterns are optional substring lists (NOT regex) that suppress benign browser noise before a route's ok is computed. The canonical case is the favicon 404 the browser auto-requests: it emits both a /favicon.ico failed network request (URL-filterable here via ignoreRequestPatterns) and a generic 'Failed to load resource' console error. Resource-load failures are URL-filterable through ignoreRequestPatterns; genuine JS console errors are suppressed through ignoreConsolePatterns. Absent => no filtering (current behavior).",
+  "launch": "npm run dev",
+  "baseUrl": "http://localhost:5173",
+  "loginUrl": "/login",
+  "credentialEnvVars": {
+    "user": "TEST_USER_EMAIL",
+    "pass": "TEST_USER_PASSWORD"
+  },
+  "routes": [
+    { "path": "/", "expectSelectors": ["main"] },
+    { "path": "/dashboard", "expectSelectors": ["[data-testid=\"dashboard\"]"] }
+  ],
+  "disableAnimations": true,
+  "ignoreRequestPatterns": ["/favicon.ico"],
+  "ignoreConsolePatterns": []
+}

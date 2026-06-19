@@ -218,15 +218,18 @@ token-savings impact, highest first.
 Source for shipped helper binaries lives in **`bin/`**. The user-callable
 helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-state-update`,
-`flow-notify`, `flow-stop-guard` — live there with `.ts` extensions, Bun
-shebangs, and tests next door (`<name>.test.ts`). `flow setup` symlinks each into
-`~/.local/bin/<name>` (extensionless on PATH).
+`flow-notify`, `flow-stop-guard`, `flow-ui-validate` — live there with `.ts`
+extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow setup`
+symlinks each into `~/.local/bin/<name>` (extensionless on PATH).
+`flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import,
+NOT in the allowlist below.
 
-The two schema validators `flow-pr-review-result-schema` and
-`flow-agent-finding-schema` are ALSO symlinked onto PATH by `flow setup` —
-but sourced from `bin/lib/*-schema.ts` via an explicit-allowlist
-`discoverValidators` (distinct from `discoverHelpers`' auto-pickup of every
-`bin/*.ts`), so pipeline skills invoke them by bare name regardless of cwd.
+The three schema validators `flow-pr-review-result-schema`,
+`flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked
+onto PATH by `flow setup` — but sourced from `bin/lib/*-schema.ts` via an
+explicit-allowlist `discoverValidators` (distinct from `discoverHelpers`'
+auto-pickup of every `bin/*.ts`), so pipeline skills invoke them by bare name
+regardless of cwd.
 
 The `flow` wrapper itself is also Bun, at `bin/flow`. It dispatches every
 verb natively — there is no passthrough or legacy entry point.
@@ -376,30 +379,26 @@ a repo-admin setting, not something the workflow file can enforce.
 ## Consumer-repo notes
 
 `flow-pre-commit` is the verify gate `/flow-pipeline`, `/verify`, and
-`/coder` rely on, so consumer repos wiring it in as their sole gate need
-its surface area. Scope detection is prefix-/extension-based against the
-diff: `src/` trips `src`; `scripts/`, `templates/scripts/`, and
-`bin/` all trip `scripts`; any `.md` or `.template` file trips
-`docs`, which runs `flow-md-validate .` (link + frontmatter checks;
-`.md`-only, so skips `.template` source), `npm run test` (structural-anchor
-lints catch markdown-only breakage), and `npm run lint`
-(`prettier --check .`); the `backend/`
-prefix trips `backend` (prefix-only), which runs `go vet -C backend ./...`
-and `go test -C backend ./...`. Workflow YAML under `.github/workflows/`
+`/coder` rely on, so consumer repos wiring it in as their sole gate need its
+surface area. Scope detection is prefix-/extension-based against the diff:
+`src/` trips `src`; `scripts/`, `templates/scripts/`, and `bin/` all trip
+`scripts`; any `.md` or `.template` file trips
+`docs`, which runs `flow-md-validate .` (link + frontmatter, `.md`-only),
+`npm run test` (structural-anchor lints), and `npm run lint`
+(`prettier --check .`); the `backend/` prefix trips `backend`
+(prefix-only): `go vet -C backend ./...` and `go test -C backend ./...`.
+Workflow YAML under `.github/workflows/`
 (`.yml`/`.yaml`) ALSO trips `actions` (`actionlint .github/workflows/` +
 `npm run lint`) on top of `scripts`. `actionlint` and `go` are OPTIONAL:
-off `PATH`, the affected check emits `skipReason:
-'actionlint-not-installed'`/`'go-not-installed'` and counts `passed: true`. The
+off `PATH`, the affected check emits a `skipReason` and counts as passed. The
 `root-fallback` pseudo-scope (`npm run typecheck` + `npm run test` +
-`npm run lint` at root) fires **additively** — appended alongside
-matched scopes for any file no other scope claimed (a fully-claimed diff
-does not append it), reaching every unclaimed path, so
-`reason: "unmatched-files"` no longer fires (a defensive guard).
-(`filterDefinedChecks` drops any check whose npm script is undefined; a
-zero-check non-empty diff signals `allPassed: false`,
+`npm run lint` at root) fires **additively** — appended alongside matched
+scopes for any unclaimed file (not when the diff is fully claimed), so
+`reason: "unmatched-files"` no longer fires. (`filterDefinedChecks` drops
+checks with an undefined npm script; a zero-check non-empty diff signals
 `reason: "no-checks-defined"`.)
 
-**Host-wide test-concurrency cap.** `flow-pre-commit` caps concurrent local test runs host-wide at `K = max(1, ceil(os.availableParallelism()/9))` (2 on 18 cores) via a counting semaphore in `~/.flow/test-sem/`, so parallel pipelines stop oversubscribing cores. Only the test check (`npm run test`, incl. `-w <pkg>`) is throttled; `typecheck`/`lint`/`md-validate`/`actionlint`/`go` run unthrottled. Override `K` via `FLOW_TEST_CONCURRENCY` (finite integer ≥ 1; else the default). Best-effort: on acquire timeout the test runs anyway, never blocking a commit.
+**Host-wide test-concurrency cap.** `flow-pre-commit` caps concurrent local test runs host-wide at `K = max(1, ceil(os.availableParallelism()/9))` (2 on 18 cores) via a counting semaphore in `~/.flow/test-sem/`, so parallel pipelines stop oversubscribing cores. Only the test check is throttled; other checks run unthrottled. Override `K` via `FLOW_TEST_CONCURRENCY` (integer ≥ 1). On acquire timeout the test runs anyway.
 
 **Zero-config monorepo auto-detect + three-layer command resolution.**
 Before root-fallback claims orphans, a SEPARATE pass over the unclaimed
@@ -409,17 +408,19 @@ files recognizes `apps/<pkg>/` and `packages/<pkg>/` dirs that **own a
 root-fallback. Every scope's commands resolve through one shared table
 in `bin/lib/stack-table.ts`: (1) the package's own declared verify
 scripts, probed `typecheck`/`check` → `lint` → `test` → `format:check`,
-scoped `npm run <script> -w <pkg-path>`; a
-**name-based** denylist never runs mutating/interactive scripts
-(`format`/`dev`/`build`/`preview`/`smoketest`/`*:watch`/`*:e2e`) — matching
+scoped `npm run <script> -w <pkg-path>`; a **name-based** denylist never
+runs mutating/interactive scripts
+(`format`/`dev`/`build`/`preview`/`smoketest`/`*:watch`/`*:e2e`), matching
 NAMES not bodies;
 (2) a stack-default table keyed on a marker file (v1: node + go), into
 which flow's built-ins are lifted unchanged;
 (3) a flow-drafted `.flow/pre-commit.json` entry in the PR diff
 (see `/flow-pipeline` Step 6) when 1–2 resolve nothing — that file
 (distinct from `~/.flow/config.json`) is the **escape-hatch**:
-a top-level array of `{ name, prefixes, checks }` scopes, merged config >
-auto-detect > built-in; `checks` run as argv (no shell/injection), widening to trusted commands.
+a top-level array of `{ name, prefixes, checks }` scopes (merged config >
+auto-detect > built-in); `checks` run as argv (no shell).
+
+**Optional UI-validation manifest.** A consumer may declare `.flow/ui-validation.json` (a single OBJECT, not an array) to opt into browser-driven UI validation; `flow-ui-validate` parses it tolerantly and skips gracefully (exit 0, loud only on a broken precondition). Optional `ignoreConsolePatterns` / `ignoreRequestPatterns` lists suppress noise (favicon 404). Fields + onboarding in `templates/AGENTS.md.template`.
 
 ## Don'ts
 
