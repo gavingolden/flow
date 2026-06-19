@@ -115,6 +115,18 @@ The three-ingredient new-repo onboarding:
    data and document it under a "Local Testing Credentials" section in this
    file, so the review/verify passes can log in deterministically.
 
+**Security.** The `chrome-devtools` MCP drives a real browser and can run
+arbitrary JS in the page context, so harden the setup: (1) point it at
+**trusted/local targets only** — never let it navigate to an untrusted
+site; (2) use an **isolated/throwaway Chrome profile** — never set
+`--user-data-dir` to your real profile, or the automated session inherits
+its cookies, saved sessions, and passwords; (3) ensure Chrome's
+remote-debugging port (default `9222`) is an **unauthenticated** control
+channel bound to `127.0.0.1` (loopback) only, never `0.0.0.0` — otherwise
+any host on the LAN can drive the browser. flow sets no port, profile, or
+socket (the MCP config lives in `~/.claude.json`, outside flow's control),
+so these are the operator's responsibility.
+
 `.flow/ui-validation.json` lives under the `.flow/` prefix, so a consumer
 may add a `jq empty .flow/ui-validation.json` check to its
 `.flow/pre-commit.json` flow-config scope to lint the manifest's JSON on

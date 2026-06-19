@@ -296,7 +296,16 @@ export function run(argv: string[], deps: Deps = {}): number {
         captures = null;
       }
     }
-    if (captures === null) {
+    // Guard the shape we JSON.parse + cast `as Captures`: a file that parses
+    // but is not an object, or omits `routes` / carries a non-array `routes`,
+    // would otherwise reach `captures.routes.map(...)` below and throw an
+    // uncaught TypeError, breaking the exit-0/exit-2 contract. Treat it as
+    // bad CLI input, same as the malformed-JSON branch.
+    if (
+      captures === null ||
+      typeof captures !== "object" ||
+      !Array.isArray(captures.routes)
+    ) {
       writeErr(
         `flow-ui-validate: --captures file unreadable or malformed: ${parsed.captures}\n`,
       );

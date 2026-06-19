@@ -296,12 +296,51 @@ describe("ASSEMBLE — per-route findings (Story 2)", () => {
     expect(route.missingSelectors).toEqual(["main"]);
   });
 
+  it("filters missing/empty screenshotPath out of evidence_paths", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: VALID_MANIFEST,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "<main>",
+          screenshotPath: ".flow-tmp/ui-evidence/0.png",
+        },
+        {
+          path: "/empty",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "<main>",
+          screenshotPath: "",
+        },
+        {
+          path: "/missing",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "<main>",
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.evidence_paths).toEqual([".flow-tmp/ui-evidence/0.png"]);
+  });
+
   it("malformed --captures file → exit 2", () => {
     const c = drive(["--captures", "cap.json"], {
       [MANIFEST_PATH]: VALID_MANIFEST,
       "cap.json": "{ not json",
     });
     expect(c.code).toBe(2);
+  });
+
+  it("captures file that parses but lacks routes → exit 2", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: VALID_MANIFEST,
+      "cap.json": JSON.stringify({ launchOk: true, loginOk: true }),
+    });
+    expect(c.code).toBe(2);
+    expect(c.err).toContain("unreadable or malformed");
   });
 });
 

@@ -133,6 +133,22 @@ describe("validateUiValidationManifest — wrong-shape rejections", () => {
     if (!result.ok) expect(result.reason).toContain("expectSelectors");
   });
 
+  it("rejects loginUrl when present but not a non-empty string", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.loginUrl = 42;
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("loginUrl");
+  });
+
+  it("rejects credentialEnvVars when present but not an object", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.credentialEnvVars = "TEST_USER_EMAIL";
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("credentialEnvVars");
+  });
+
   it("rejects credentialEnvVars missing user", () => {
     const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
     fixture.credentialEnvVars = { pass: "TEST_USER_PASSWORD" };
