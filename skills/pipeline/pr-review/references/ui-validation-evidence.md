@@ -25,9 +25,14 @@ per visual item:
    envelope and inject it into the launch subprocess's environment, then bring
    up the launch. A consumer whose app needs a separate backend can have its
    single `launch` command start both the frontend and the backend (e.g. via
-   `concurrently`) with all overrides — ports, `VITE_*_URL`, CORS origins — in
-   the one `env` map; flow does not orchestrate a separate backend lifecycle.
-   Tear the launched server(s) down on completion.
+   `concurrently`). `meta.env` is injected **once** into the parent launch
+   environment, so it carries only overrides that are the same across processes
+   (`VITE_*_URL`, CORS origins); per-process-differing vars — most commonly each
+   process's own `PORT` — go **inline** in the `launch` command per sub-command
+   (e.g. `PORT=5273 … dev:frontend` and `PORT=8090 … dev:backend`), since one
+   flat `env` value can't express two different ports. flow does not orchestrate
+   a separate backend lifecycle. Tear the launched server(s) down on
+   completion.
 1. Drive the browser via the manifest: `navigate_page` to the route →
    `wait_for` an explicit selector → `take_snapshot` (the a11y snapshot — the
    **primary** evidence) → `take_screenshot` (the **secondary** artifact,

@@ -2616,10 +2616,10 @@ describe("browser-driven UI-validation structural anchors", () => {
 
   it("guards the self-improving-manifest persist-back instruction across doc sites", () => {
     // The CRITICAL persist-back instruction (the agent commits on-the-fly
-    // launch adaptations back into .flow/ui-validation.json) must survive in
-    // the onboarding template and at least the flow-pipeline Step 6 site so it
-    // can't be silently dropped. Anchor on a stable single-line substring
-    // written into every site that documents it.
+    // launch adaptations back into .flow/ui-validation.json) must survive at
+    // all four prose sites that document it so it can't be silently dropped
+    // from any one of them. Anchor on a stable single-line substring written
+    // into every site.
     const anchor = "persists the launch adaptation back into";
     expect(
       agentsTemplateContent.includes(anchor),
@@ -2632,6 +2632,20 @@ describe("browser-driven UI-validation structural anchors", () => {
       content.includes(anchor),
       "flow-pipeline SKILL.md Step 6 must document the self-improving-manifest " +
         "persist-back instruction (anchor: '" +
+        anchor +
+        "').",
+    ).toBe(true);
+    expect(
+      verifyContent.includes(anchor),
+      "verify/SKILL.md must document the self-improving-manifest " +
+        "persist-back instruction (anchor: '" +
+        anchor +
+        "').",
+    ).toBe(true);
+    expect(
+      uiValidationEvidenceContent.includes(anchor),
+      "references/ui-validation-evidence.md must document the " +
+        "self-improving-manifest persist-back instruction (anchor: '" +
         anchor +
         "').",
     ).toBe(true);
