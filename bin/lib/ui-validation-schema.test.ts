@@ -48,6 +48,11 @@ const FULL_MANIFEST: unknown = {
   baseUrl: "http://localhost:5173",
   loginUrl: "/login",
   credentialEnvVars: { user: "TEST_USER_EMAIL", pass: "TEST_USER_PASSWORD" },
+  env: {
+    PORT: "5273",
+    VITE_API_URL: "http://localhost:8090",
+    CORS_ALLOWED_ORIGINS: "http://localhost:5273",
+  },
   routes: [
     { path: "/", expectSelectors: ["main"] },
     { path: "/dashboard", expectSelectors: ['[data-testid="dashboard"]'] },
@@ -81,6 +86,19 @@ describe("validateUiValidationManifest — happy paths", () => {
       unknown
     >;
     fixture.routes = [{ path: "/about" }];
+    expect(validateUiValidationManifest(fixture).ok).toBe(true);
+  });
+
+  it("accepts a string→string env map (FULL_MANIFEST carries one)", () => {
+    expect(validateUiValidationManifest(FULL_MANIFEST).ok).toBe(true);
+  });
+
+  it("accepts an empty-string env value (values are config, not NAMES)", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.env = { OPTIONAL_FLAG: "" };
     expect(validateUiValidationManifest(fixture).ok).toBe(true);
   });
 
@@ -173,6 +191,22 @@ describe("validateUiValidationManifest — wrong-shape rejections", () => {
     const result = validateUiValidationManifest(fixture);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("pass");
+  });
+
+  it("rejects env when present but not an object", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.env = "PORT=5273";
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("env");
+  });
+
+  it("rejects env with a non-string value", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.env = { PORT: 3000 };
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("env");
   });
 
   it("rejects disableAnimations when not a boolean", () => {

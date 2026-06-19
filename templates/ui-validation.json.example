@@ -1,12 +1,19 @@
 {
   "_comment": "Copy this stub to .flow/ui-validation.json and fill in your repo's real launch command, base URL, login flow, credential env-var NAMES, and routes. flow ships this example but never auto-writes the manifest. See AGENTS.md 'Local Testing Credentials' for the seeded-test-user convention.",
+  "_comment_ports": "Dedicated agent-test ports: this example launches the app on a fixed documented offset (frontend :5273 / backend :8090, a +100 offset from the conventional :5173/:8080) so an agent run never collides with the developer's own running dev server. Keep the offset fixed and documented so the launch is deterministic. The single `launch` command brings up BOTH frontend and backend (here via `concurrently`) — flow does NOT orchestrate a separate backend lifecycle.",
+  "_comment_env": "`env` is a flat string→string map injected ONCE into the parent launch process for NON-SECRET launch config only — public URLs, CORS origins. Secrets stay as NAMES in `credentialEnvVars`, resolved from the shell env at run time; never inline a credential VALUE here. Because `env` is injected once into the parent, it carries only overrides that are the SAME across processes (here: VITE_API_URL pointing the frontend at the custom backend port, and CORS_ALLOWED_ORIGINS widened to admit the custom frontend origin). Per-process-DIFFERING vars — each process's own PORT — go INLINE in the `launch` command per sub-command (see PORT=5273 on dev:frontend and PORT=8090 on dev:backend above), since a single flat `env` value can't express two different ports.",
+  "_comment_maintained": "The agent maintains this file: when it adapts the launch on the fly to make a custom-port run work (tweaks the command, adds/changes an env var, fixes baseUrl), it persists the launch adaptation back into the consumer's `.flow/ui-validation.json` and commits it into the reviewable PR diff, so the next run starts deterministic. Treat the manifest as a deterministic cache of non-secret facts the agent maintains, not a frozen contract.",
   "_comment_ignore": "ignoreRequestPatterns / ignoreConsolePatterns are optional substring lists (NOT regex) that suppress benign browser noise before a route's ok is computed. The canonical case is the favicon 404 the browser auto-requests: it emits both a /favicon.ico failed network request (URL-filterable here via ignoreRequestPatterns) and a generic 'Failed to load resource' console error. Resource-load failures are URL-filterable through ignoreRequestPatterns; genuine JS console errors are suppressed through ignoreConsolePatterns. Absent => no filtering (current behavior).",
-  "launch": "npm run dev",
-  "baseUrl": "http://localhost:5173",
+  "launch": "concurrently \"PORT=5273 VITE_PORT=5273 npm run dev:frontend\" \"PORT=8090 npm run dev:backend\"",
+  "baseUrl": "http://localhost:5273",
   "loginUrl": "/login",
   "credentialEnvVars": {
     "user": "TEST_USER_EMAIL",
     "pass": "TEST_USER_PASSWORD"
+  },
+  "env": {
+    "VITE_API_URL": "http://localhost:8090",
+    "CORS_ALLOWED_ORIGINS": "http://localhost:5273"
   },
   "routes": [
     { "path": "/", "expectSelectors": ["main"] },

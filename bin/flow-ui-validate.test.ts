@@ -36,11 +36,18 @@ const VALID_MANIFEST = JSON.stringify({
   baseUrl: "http://localhost:5173",
   loginUrl: "/login",
   credentialEnvVars: { user: "TEST_USER_EMAIL", pass: "TEST_USER_PASSWORD" },
+  env: { PORT: "5273", VITE_API_URL: "http://localhost:8090" },
   routes: [
     { path: "/", expectSelectors: ["main"] },
     { path: "/dashboard", expectSelectors: ['[data-testid="dashboard"]'] },
   ],
   disableAnimations: true,
+});
+
+const MANIFEST_NO_ENV = JSON.stringify({
+  launch: "npm run dev",
+  baseUrl: "http://localhost:5173",
+  routes: [{ path: "/" }],
 });
 
 const MANIFEST_PATH = ".flow/ui-validation.json";
@@ -175,6 +182,18 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
     expect((e.meta as Record<string, unknown>).baseUrl).toBe(
       "http://localhost:5173",
     );
+    expect((e.meta as Record<string, unknown>).env).toEqual({
+      PORT: "5273",
+      VITE_API_URL: "http://localhost:8090",
+    });
+  });
+
+  it("ready envelope meta.env is {} when the manifest declares no env", () => {
+    const c = drive([], { [MANIFEST_PATH]: MANIFEST_NO_ENV });
+    expect(c.code).toBe(0);
+    const e = envelope(c);
+    expect(e.ran).toBe(true);
+    expect((e.meta as Record<string, unknown>).env).toEqual({});
   });
 });
 

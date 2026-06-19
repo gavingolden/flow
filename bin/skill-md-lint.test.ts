@@ -2614,6 +2614,43 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
+  it("guards the self-improving-manifest persist-back instruction across doc sites", () => {
+    // The CRITICAL persist-back instruction (the agent commits on-the-fly
+    // launch adaptations back into .flow/ui-validation.json) must survive at
+    // all four prose sites that document it so it can't be silently dropped
+    // from any one of them. Anchor on a stable single-line substring written
+    // into every site.
+    const anchor = "persists the launch adaptation back into";
+    expect(
+      agentsTemplateContent.includes(anchor),
+      "templates/AGENTS.md.template must document the self-improving-manifest " +
+        "persist-back instruction (anchor: '" +
+        anchor +
+        "').",
+    ).toBe(true);
+    expect(
+      content.includes(anchor),
+      "flow-pipeline SKILL.md Step 6 must document the self-improving-manifest " +
+        "persist-back instruction (anchor: '" +
+        anchor +
+        "').",
+    ).toBe(true);
+    expect(
+      verifyContent.includes(anchor),
+      "verify/SKILL.md must document the self-improving-manifest " +
+        "persist-back instruction (anchor: '" +
+        anchor +
+        "').",
+    ).toBe(true);
+    expect(
+      uiValidationEvidenceContent.includes(anchor),
+      "references/ui-validation-evidence.md must document the " +
+        "self-improving-manifest persist-back instruction (anchor: '" +
+        anchor +
+        "').",
+    ).toBe(true);
+  });
+
   it("references/ui-validation-evidence.md documents the screenshot save-path cascade", () => {
     // The worktree may not be an MCP workspace root, so take_screenshot into
     // it can be sandbox-denied; the worktree -> session-cwd -> skip cascade

@@ -1096,7 +1096,8 @@ present, **enumerated visual-appearance items become a runnable bucket** rather
 than not-runnable; the a11y `take_snapshot` is the primary evidence (injected
 via 8c.i's unchanged `flow-inject-evidence`), the screenshot supplementary and
 referenced by path. The full runnable-bucket procedure, the captures contract,
-and the **Screenshot save-path cascade** live in
+the **Screenshot save-path cascade**, and the env-injected launch / clean
+teardown / self-improving-manifest persist-back behavior live in
 [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
 On missing MCP schema (the guarded
 `ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns

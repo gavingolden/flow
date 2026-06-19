@@ -370,6 +370,7 @@ export function run(argv: string[], deps: Deps = {}): number {
       launch: manifest.launch,
       loginUrl: manifest.loginUrl ?? null,
       disableAnimations: manifest.disableAnimations ?? false,
+      env: manifest.env ?? {},
     },
   });
 }

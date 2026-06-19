@@ -40,6 +40,7 @@ export type UiValidationManifest = {
   baseUrl: string;
   loginUrl?: string;
   credentialEnvVars?: UiValidationCredentialEnvVars;
+  env?: Record<string, string>;
   routes: UiValidationRoute[];
   disableAnimations?: boolean;
   ignoreConsolePatterns?: string[];
@@ -121,6 +122,21 @@ export function validateUiValidationManifest(
       return err(
         "'credentialEnvVars.pass' must be a non-empty string (the env-var NAME, not the value)",
       );
+    }
+  }
+
+  if (parsed.env !== undefined) {
+    if (!isPlainObject(parsed.env)) {
+      return err(
+        "'env' must be an object of string→string launch-config overrides when present",
+      );
+    }
+    for (const [key, value] of Object.entries(parsed.env)) {
+      // VALUES are config strings (ports, URLs, CORS origins) — empty is
+      // allowed; only non-string values are rejected. Keys are arbitrary.
+      if (!isString(value)) {
+        return err(`'env.${key}' must be a string value`);
+      }
     }
   }
 
