@@ -34,7 +34,13 @@ export type AgentName =
 export const SYNTHETIC_SUPPLY_CHAIN: "synthetic-supply-chain" =
   "synthetic-supply-chain";
 
-export type LensKey = LensName | typeof SYNTHETIC_SUPPLY_CHAIN;
+export const SYNTHETIC_TEST_COVERAGE: "synthetic-test-coverage" =
+  "synthetic-test-coverage";
+
+export type LensKey =
+  | LensName
+  | typeof SYNTHETIC_SUPPLY_CHAIN
+  | typeof SYNTHETIC_TEST_COVERAGE;
 
 export const AGENT_LENS_MAP: Record<AgentName, readonly LensKey[]> = {
   "bug-detection": ["types"],
@@ -42,7 +48,7 @@ export const AGENT_LENS_MAP: Record<AgentName, readonly LensKey[]> = {
   "pattern-consistency": ["lint"],
   performance: ["lint"],
   "supply-chain": [SYNTHETIC_SUPPLY_CHAIN],
-  "test-coverage": ["coverage"],
+  "test-coverage": [SYNTHETIC_TEST_COVERAGE],
 };
 
 const AGENT_NAMES: readonly AgentName[] = Object.keys(
@@ -55,10 +61,17 @@ export type SyntheticSupplyChainMeta = {
   duration_ms: 0;
 };
 
+export type SyntheticTestCoverageMeta = {
+  ran: false;
+  skipped_reason: "no coverage pre-digest lens";
+  duration_ms: 0;
+};
+
 export type RouteOutput =
   | { findings: Finding[]; meta: LensMeta }
   | { findings: Finding[]; meta: Record<LensName, LensMeta> }
-  | { findings: Finding[]; meta: SyntheticSupplyChainMeta };
+  | { findings: Finding[]; meta: SyntheticSupplyChainMeta }
+  | { findings: Finding[]; meta: SyntheticTestCoverageMeta };
 
 export function route(envelope: AnalysisResult, agent: AgentName): RouteOutput {
   const lenses = AGENT_LENS_MAP[agent];
@@ -69,6 +82,17 @@ export function route(envelope: AnalysisResult, agent: AgentName): RouteOutput {
       meta: {
         ran: false,
         skipped_reason: "no supply-chain pre-digest lens",
+        duration_ms: 0,
+      },
+    };
+  }
+
+  if (lenses.length === 1 && lenses[0] === SYNTHETIC_TEST_COVERAGE) {
+    return {
+      findings: [],
+      meta: {
+        ran: false,
+        skipped_reason: "no coverage pre-digest lens",
         duration_ms: 0,
       },
     };

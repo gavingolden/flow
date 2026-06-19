@@ -10,6 +10,7 @@ import {
   route,
   run,
   SYNTHETIC_SUPPLY_CHAIN,
+  SYNTHETIC_TEST_COVERAGE,
   type AgentName,
 } from "./flow-pr-agent-lens";
 import type {
@@ -22,7 +23,6 @@ import type {
 const ALL_LENS_NAMES: readonly LensName[] = [
   "security",
   "types",
-  "coverage",
   "lint",
   "dependencies",
 ];
@@ -53,13 +53,11 @@ function makeEnvelope(): AnalysisResult {
   return {
     security: [f("s.ts", "S1", "semgrep")],
     types: [f("t.ts", "T1", "tsc")],
-    coverage: [f("c.ts", "C1", "coverage")],
     lint: [f("l.ts", "L1", "biome")],
     dependencies: [f("package.json", "D1", "npm-audit")],
     meta: {
       security: { ran: true, duration_ms: 10 },
       types: { ran: true, duration_ms: 20 },
-      coverage: { ran: true, duration_ms: 30 },
       lint: { ran: true, duration_ms: 40 },
       dependencies: { ran: true, duration_ms: 50 },
       pr: 1,
@@ -88,9 +86,9 @@ describe("AGENT_LENS_MAP", () => {
     ]);
   });
 
-  it("each non-supply-chain agent has 1-2 valid LensName values", () => {
+  it("each non-synthetic agent has 1-2 valid LensName values", () => {
     for (const agent of EXPECTED_AGENTS) {
-      if (agent === "supply-chain") continue;
+      if (agent === "supply-chain" || agent === "test-coverage") continue;
       const lenses = AGENT_LENS_MAP[agent];
       expect(lenses.length, `agent ${agent}`).toBeGreaterThanOrEqual(1);
       expect(lenses.length, `agent ${agent}`).toBeLessThanOrEqual(2);
@@ -103,10 +101,11 @@ describe("AGENT_LENS_MAP", () => {
     }
   });
 
-  it("union of all lens values is a subset of LensName ∪ {synthetic sentinel}", () => {
+  it("union of all lens values is a subset of LensName ∪ {synthetic sentinels}", () => {
     const allowed = new Set<string>([
       ...ALL_LENS_NAMES,
       SYNTHETIC_SUPPLY_CHAIN,
+      SYNTHETIC_TEST_COVERAGE,
     ]);
     for (const lenses of Object.values(AGENT_LENS_MAP)) {
       for (const lens of lenses) expect(allowed.has(lens)).toBe(true);
@@ -148,10 +147,14 @@ describe("route()", () => {
     });
   });
 
-  it("test-coverage emits flat .coverage shape", () => {
+  it("test-coverage emits the synthetic envelope verbatim", () => {
     expect(route(env, "test-coverage")).toEqual({
-      findings: env.coverage,
-      meta: env.meta.coverage,
+      findings: [],
+      meta: {
+        ran: false,
+        skipped_reason: "no coverage pre-digest lens",
+        duration_ms: 0,
+      },
     });
   });
 

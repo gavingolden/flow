@@ -5,7 +5,6 @@ import {
   computeChangedLines,
   parseArgs,
   parseBiomeJson,
-  parseCoverageJson,
   parseEslintJson,
   parseNpmAuditJson,
   parseSemgrepJson,
@@ -159,33 +158,6 @@ function makeSvelteCheckOutput(
     `COMPLETED ${diags.length} ERRORS 0 WARNINGS`,
   ];
   return lines.join("\n") + "\n";
-}
-
-function makeCoverageJson(
-  files: Array<{
-    file: string;
-    statements: Array<{
-      id: string;
-      line: number;
-      endLine?: number;
-      hits: number;
-    }>;
-  }>,
-): string {
-  const obj: Record<string, unknown> = {};
-  for (const f of files) {
-    const statementMap: Record<string, unknown> = {};
-    const s: Record<string, number> = {};
-    for (const stmt of f.statements) {
-      statementMap[stmt.id] = {
-        start: { line: stmt.line },
-        end: { line: stmt.endLine ?? stmt.line },
-      };
-      s[stmt.id] = stmt.hits;
-    }
-    obj[f.file] = { path: f.file, statementMap, s };
-  }
-  return JSON.stringify(obj);
 }
 
 function makeUnifiedDiff(
@@ -496,39 +468,6 @@ describe(parseSvelteCheckOutput, () => {
       "12 5 ERROR \"/cwd/src/App.svelte\" Cannot find name 'document'.\n";
     const findings = parseSvelteCheckOutput(stdout, "/cwd");
     expect(findings[0].file).toBe("src/App.svelte");
-  });
-});
-
-// --- parseCoverageJson -----------------------------------------------------
-
-describe(parseCoverageJson, () => {
-  it("returns empty array for empty / malformed input", () => {
-    expect(parseCoverageJson("", "/cwd")).toEqual([]);
-    expect(parseCoverageJson("not json", "/cwd")).toEqual([]);
-  });
-
-  it("emits one finding per uncovered statement, skipping covered ones", () => {
-    const json = makeCoverageJson([
-      {
-        file: "/cwd/src/a.ts",
-        statements: [
-          { id: "0", line: 1, hits: 5 }, // covered
-          { id: "1", line: 7, hits: 0 }, // uncovered
-          { id: "2", line: 12, endLine: 15, hits: 0 }, // uncovered with end_line
-        ],
-      },
-    ]);
-    const findings = parseCoverageJson(json, "/cwd");
-    expect(findings).toHaveLength(2);
-    expect(findings.map((f) => f.line)).toEqual([7, 12]);
-    expect(findings[1].end_line).toBe(15);
-    expect(findings[0]).toMatchObject({
-      confidence: 85,
-      rule_id: "coverage/uncovered-statement",
-      source: "coverage",
-      severity: "warning",
-      file: "src/a.ts",
-    });
   });
 });
 
@@ -865,18 +804,11 @@ describe(parseArgs, () => {
     expect("error" in parseArgs(["7", "--min-confidence", "foo"])).toBe(true);
   });
 
-  it("parses --max-tool-timeout and --coverage-file", () => {
-    const r = parseArgs([
-      "7",
-      "--max-tool-timeout",
-      "30",
-      "--coverage-file",
-      "cov.json",
-    ]);
+  it("parses --max-tool-timeout", () => {
+    const r = parseArgs(["7", "--max-tool-timeout", "30"]);
     expect(r).toMatchObject({
       pr: 7,
       maxToolTimeoutSec: 30,
-      coverageFile: "cov.json",
     });
   });
 
@@ -961,13 +893,11 @@ describe(run, () => {
     const result = JSON.parse(outs.join(""));
     expect(result.security).toEqual([]);
     expect(result.types).toEqual([]);
-    expect(result.coverage).toEqual([]);
     expect(result.lint).toEqual([]);
     expect(result.meta.security.ran).toBe(false);
     expect(result.meta.security.skipped_reason).toBe("semgrep-not-on-path");
     expect(result.meta.types.skipped_reason).toBe("no-tsconfig");
     expect(result.meta.lint.skipped_reason).toBe("no-lint-config");
-    expect(result.meta.coverage.skipped_reason).toBe("no-coverage-output");
     expect(Array.isArray(result.dependencies)).toBe(true);
     expect(result.dependencies).toEqual([]);
     // Default mockDeps has fileExists=false and which=null; the dependencies
@@ -991,16 +921,31 @@ describe(run, () => {
     const code = await run(["7"], deps);
     expect(code).toBe(0);
     const result = JSON.parse(outs.join(""));
-    for (const lens of [
-      "security",
-      "types",
-      "coverage",
-      "lint",
-      "dependencies",
-    ] as const) {
+    for (const lens of ["security", "types", "lint", "dependencies"] as const) {
       expect(result.meta[lens].skipped_reason).toBe("gh-pr-diff-failed");
     }
     expect(errs.join("")).toMatch(/gh pr diff 7 failed/);
+  });
+
+  it("writes an actionable stderr hint when semgrep is not on PATH", async () => {
+    const { deps, outs, errs } = makeMockDeps({
+      gh: vi.fn().mockResolvedValue({
+        stdout: makeUnifiedDiff([
+          {
+            path: "a.ts",
+            hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }],
+          },
+        ]),
+        stderr: "",
+        exitCode: 0,
+        timedOut: false,
+      }),
+    });
+    const code = await run(["42"], deps);
+    expect(code).toBe(0);
+    expect(errs.join("")).toMatch(/semgrep not on PATH/);
+    const result = JSON.parse(outs.join(""));
+    expect(result.meta.security.skipped_reason).toBe("semgrep-not-on-path");
   });
 
   it("runs semgrep when on PATH and surfaces ERROR findings on changed lines", async () => {
@@ -1150,7 +1095,6 @@ describe(run, () => {
       if (p.endsWith("node_modules/.bin/eslint")) return false;
       if (p.endsWith("node_modules/.bin/tsc")) return false;
       if (p.endsWith("tsconfig.json")) return false;
-      if (p.endsWith("coverage/coverage-final.json")) return false;
       return false;
     });
     const which = vi.fn().mockImplementation((cmd: string) => {
@@ -2222,22 +2166,10 @@ describe(run, () => {
     const fileExists = vi.fn().mockImplementation((p: string) => {
       if (p.endsWith("tsconfig.json")) return true;
       if (p.endsWith("biome.json")) return true;
-      if (p.endsWith("coverage/coverage-final.json")) return true;
       if (p.includes("node_modules/.bin/")) return false;
       return false;
     });
-    const readFile = vi.fn().mockImplementation((p: string) => {
-      if (p.endsWith("coverage-final.json")) {
-        return JSON.stringify({
-          "/cwd/a.ts": {
-            path: "/cwd/a.ts",
-            statementMap: { "0": { start: { line: 1 }, end: { line: 1 } } },
-            s: { "0": 1 },
-          },
-        });
-      }
-      return null;
-    });
+    const readFile = vi.fn().mockImplementation(() => null);
     const gh = vi.fn().mockResolvedValue({
       stdout: makeUnifiedDiff([
         { path: "a.ts", hunks: [{ oldStart: 1, newStart: 1, lines: ["+x"] }] },

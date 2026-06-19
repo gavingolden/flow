@@ -1,17 +1,16 @@
 #!/usr/bin/env bun
 /**
- * Pre-digests deterministic facts (security, types, lint, coverage,
- * dependencies) for a PR so `/pr-review`'s six review agents stop
- * re-deriving the same low-level findings from raw diff inspection on every
- * run. Each lens shells out to the consumer's already-installed tooling
- * (semgrep, biome or eslint, tsc, coverage report, npm audit), parses
- * native output into a unified `Finding` shape, filters to PR-touched
- * lines, and emits a single JSON envelope keyed by lens. All lenses run
- * concurrently via Promise.all over async spawn wrappers.
+ * Pre-digests deterministic facts (security, types, lint, dependencies) for
+ * a PR so `/pr-review`'s six review agents stop re-deriving the same
+ * low-level findings from raw diff inspection on every run. Each lens shells
+ * out to the consumer's already-installed tooling (semgrep, biome or eslint,
+ * tsc, npm audit), parses native output into a unified `Finding` shape,
+ * filters to PR-touched lines, and emits a single JSON envelope keyed by
+ * lens. All lenses run concurrently via Promise.all over async spawn
+ * wrappers.
  *
  * Usage:
  *   flow-pr-static-analysis <PR> [--min-confidence <n>] [--max-tool-timeout <sec>]
- *                                [--coverage-file <path>]
  *
  * Per-tool progress goes to STDERR so the final JSON on stdout is cleanly
  * capturable: `RESULT=$(flow-pr-static-analysis $PR)`.
@@ -20,12 +19,11 @@
  *   {
  *     "security":     Finding[],
  *     "types":        Finding[],
- *     "coverage":     Finding[],
  *     "lint":         Finding[],
  *     "dependencies": Finding[],
  *     "meta": {
  *       "security": LensMeta, "types": LensMeta,
- *       "coverage": LensMeta, "lint": LensMeta,
+ *       "lint": LensMeta,
  *       "dependencies": LensMeta,
  *       "pr": number, "min_confidence": number, "duration_ms": number
  *     }
@@ -41,7 +39,6 @@ import { spawn, spawnSync } from "node:child_process";
 
 import { HELP_TEXT, parseArgs } from "./flow-pr-static-analysis/cli";
 import {
-  runCoverageLens,
   runDependenciesLens,
   runLintLens,
   runSecurityLens,
@@ -70,7 +67,6 @@ export {
   applyDiffScope,
   computeChangedLines,
   parseBiomeJson,
-  parseCoverageJson,
   parseEslintJson,
   parseNpmAuditJson,
   parseSemgrepJson,
@@ -251,13 +247,11 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     const result: AnalysisResult = {
       security: [],
       types: [],
-      coverage: [],
       lint: [],
       dependencies: [],
       meta: {
         security: empty("gh-pr-diff-failed"),
         types: empty("gh-pr-diff-failed"),
-        coverage: empty("gh-pr-diff-failed"),
         lint: empty("gh-pr-diff-failed"),
         dependencies: empty("gh-pr-diff-failed"),
         pr: parsed.pr,
@@ -271,13 +265,12 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const changedLines = computeChangedLines(diffResult.stdout);
 
   // Only the types lens consumes the PR-touched paths (to fan out per owning
-  // workspace package); the other four receive the base lensDeps and ignore it.
+  // workspace package); the other three receive the base lensDeps and ignore it.
   const typesLensDeps = { ...lensDeps, changedPaths: [...changedLines.keys()] };
 
-  const [security, types, coverage, lint, dependencies] = await Promise.all([
+  const [security, types, lint, dependencies] = await Promise.all([
     runSecurityLens(parsed, lensDeps),
     runTypesLens(parsed, typesLensDeps),
-    runCoverageLens(parsed, lensDeps),
     runLintLens(parsed, lensDeps),
     runDependenciesLens(parsed, lensDeps),
   ]);
@@ -291,13 +284,11 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const result: AnalysisResult = {
     security: filterAndScope(security.findings),
     types: filterAndScope(types.findings),
-    coverage: filterAndScope(coverage.findings),
     lint: filterAndScope(lint.findings),
     dependencies: filterAndScope(dependencies.findings),
     meta: {
       security: security.meta,
       types: types.meta,
-      coverage: coverage.meta,
       lint: lint.meta,
       dependencies: dependencies.meta,
       pr: parsed.pr,

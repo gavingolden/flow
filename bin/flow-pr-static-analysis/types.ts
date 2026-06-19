@@ -1,11 +1,6 @@
 // --- Types -----------------------------------------------------------------
 
-export type LensName =
-  | "security"
-  | "types"
-  | "coverage"
-  | "lint"
-  | "dependencies";
+export type LensName = "security" | "types" | "lint" | "dependencies";
 
 export type Severity = "error" | "warning" | "info";
 
@@ -15,7 +10,6 @@ export type Source =
   | "eslint"
   | "tsc"
   | "svelte-check"
-  | "coverage"
   | "npm-audit";
 
 export type Finding = {
@@ -42,13 +36,11 @@ export type LensMeta = {
 export type AnalysisResult = {
   security: Finding[];
   types: Finding[];
-  coverage: Finding[];
   lint: Finding[];
   dependencies: Finding[];
   meta: {
     security: LensMeta;
     types: LensMeta;
-    coverage: LensMeta;
     lint: LensMeta;
     dependencies: LensMeta;
     pr: number;
@@ -91,7 +83,6 @@ export type Args = {
   pr: number;
   minConfidence: number;
   maxToolTimeoutSec: number;
-  coverageFile?: string;
 };
 
 // --- Lens types ------------------------------------------------------------

@@ -30,8 +30,6 @@ export const SVELTE_CHECK_CONFIDENCE = 100; // svelte-check is deterministic com
 // --min-confidence gate so they surface rather than being emitted-then-dropped.
 export const SVELTE_CHECK_WARNING_CONFIDENCE = 80;
 
-export const COVERAGE_UNCOVERED_CONFIDENCE = 85;
-
 export const NPM_AUDIT_CONFIDENCE: Record<string, number> = {
   low: 60,
   moderate: 80,
@@ -320,64 +318,6 @@ export function parseSvelteCheckOutput(
       severity: severityStr === "ERROR" ? "error" : "warning",
       source: "svelte-check",
     });
-  }
-  return out;
-}
-
-/**
- * Parse a `coverage-final.json` (Istanbul/c8/vitest format). Each file is
- * keyed by absolute path with a `statementMap` and `s` (statement-hit
- * counts). We emit one finding per uncovered statement, dropping
- * out-of-bounds entries defensively.
- */
-export function parseCoverageJson(
-  content: string,
-  worktree: string,
-): Finding[] {
-  if (!content.trim()) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return [];
-  }
-  if (!parsed || typeof parsed !== "object") return [];
-  const out: Finding[] = [];
-  for (const [absFile, fileDataRaw] of Object.entries(
-    parsed as Record<string, unknown>,
-  )) {
-    if (!fileDataRaw || typeof fileDataRaw !== "object") continue;
-    const fd = fileDataRaw as {
-      path?: string;
-      statementMap?: Record<
-        string,
-        { start?: { line?: number }; end?: { line?: number } }
-      >;
-      s?: Record<string, number>;
-    };
-    const file = relativise(fd.path ?? absFile, worktree);
-    const stmtMap = fd.statementMap ?? {};
-    const hits = fd.s ?? {};
-    for (const [stmtId, count] of Object.entries(hits)) {
-      if (count > 0) continue;
-      const stmt = stmtMap[stmtId];
-      const startLine = stmt?.start?.line;
-      if (typeof startLine !== "number") continue;
-      const finding: Finding = {
-        file,
-        line: startLine,
-        rule_id: "coverage/uncovered-statement",
-        message: `Statement on line ${startLine} is not covered by any test.`,
-        confidence: COVERAGE_UNCOVERED_CONFIDENCE,
-        severity: "warning",
-        source: "coverage",
-      };
-      const endLine = stmt?.end?.line;
-      if (typeof endLine === "number" && endLine > startLine) {
-        finding.end_line = endLine;
-      }
-      out.push(finding);
-    }
   }
   return out;
 }

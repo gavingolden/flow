@@ -12,8 +12,6 @@ Options:
                             Set to 0 to disable filtering.
   --max-tool-timeout <sec>  Per-tool wall-clock cap (default 60). A tool that
                             exceeds this is skipped with reason 'timeout'.
-  --coverage-file <path>    Path to coverage-final.json (default: auto-detect
-                            coverage/coverage-final.json in the worktree).
   --help, -h                Show this help.
 
 Output: a single JSON object on stdout when all lenses settle. Per-tool
@@ -69,13 +67,6 @@ export function parseArgs(
         i++;
         continue;
       }
-      case "--coverage-file":
-        if (!value || value.startsWith("--")) {
-          return { error: "--coverage-file requires a value" };
-        }
-        out.coverageFile = value;
-        i++;
-        continue;
       default:
         return { error: `unknown flag: ${flag}` };
     }
