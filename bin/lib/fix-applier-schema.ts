@@ -12,6 +12,12 @@
  * call `validateFixApplierResult(parsed)` to confirm shape before
  * consuming `commits[]`, `deferred[]`, etc.
  *
+ * CLI mode: `flow-fix-applier-schema --validate <path>` reads the file,
+ * parses JSON, and runs `validateFixApplierResult` — exit 0 (valid) /
+ * 1 (off-shape, read/parse failure) / 2 (usage) — so the spawned
+ * subagent can self-check its artifact just before atomically writing
+ * it to disk.
+ *
  * The validator is permissive in two specific ways and the rest is strict:
  *
  * 1. `verify_status` is a string — the literal `"pass"` or a bounded
