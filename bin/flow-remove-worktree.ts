@@ -54,6 +54,91 @@ function git(args: string[], cwd?: string): string {
 }
 
 /**
+ * True for the error class `git worktree remove` raises when it has already
+ * passed its clean-check (no untracked/modified *tracked* files) but then
+ * fails to physically delete the worktree directory. git's deletion phase
+ * runs only after the clean-check passes, and prints
+ * `error: failed to delete '<path>': <strerror(errno)>` — where the errno is
+ * `Directory not empty` (a lingering esbuild service or build-cache write
+ * raced the removal), `Operation not permitted`, or `Permission denied` (a
+ * file lock). We match the stable `failed to delete` deletion-phase prefix
+ * plus the raw `not empty` / `ENOTEMPTY` strings rather than special-casing
+ * the literal `.vite` path, so the fallback is robust to `node_modules/.vite`,
+ * `.svelte-kit`, esbuild caches, and any other ignored build artifact.
+ *
+ * Crucially this never matches the clean-check *refusal*
+ * (`'<path>' contains modified or untracked files, use --force to delete it`):
+ * that message has no `failed to delete` / `not empty` token, so a worktree
+ * with genuinely uncommitted tracked work still refuses — the rm-rf escalation
+ * fires only once git itself has confirmed the only leftover is ignored content.
+ */
+export function isRemovalPhaseFailure(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("failed to delete") ||
+    m.includes("not empty") ||
+    m.includes("enotempty")
+  );
+}
+
+/** Injectable dependencies for {@link removeWorktreeWithFallback} (tests stub these). */
+export type RemoveWorktreeDeps = {
+  /** Runs a git command; throws on non-zero exit (real impl: {@link git}). */
+  git: (args: string[], cwd?: string) => string;
+  /** Force-removes a directory tree (real impl: `fs.rmSync(dir, {recursive, force})`). */
+  rmrf: (dir: string) => void;
+  /** Logger (real impl: the module-level {@link log}). */
+  warn: (msg: string) => void;
+};
+
+/**
+ * Removes a worktree, keeping the no-`--force` `git worktree remove` as the
+ * PRIMARY path so a manual invocation on a worktree with uncommitted tracked
+ * work still refuses. Only when git's *own* removal fails on a deletion-phase
+ * error (see {@link isRemovalPhaseFailure}) — by which point git has already
+ * confirmed the tree is clean of untracked/modified tracked files — do we
+ * escalate to `rm -rf <worktreeDir>` + `git worktree prune` to guarantee the
+ * leftover ignored build artifacts (node_modules/.vite, .svelte-kit, …) are
+ * cleared and the stale worktree admin entry pruned. A single immediate retry
+ * runs before the rm-rf fallback to absorb a transient open-handle race.
+ *
+ * Returns normally on success (the caller proceeds to branch deletion);
+ * re-throws any non-deletion-phase failure unchanged (no auto-`--force`).
+ */
+export function removeWorktreeWithFallback(
+  worktreeDir: string,
+  primaryDir: string,
+  deps: RemoveWorktreeDeps,
+): void {
+  try {
+    deps.git(["worktree", "remove", worktreeDir], primaryDir);
+    return;
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    // A genuine clean-check refusal (uncommitted tracked work) is NOT a
+    // deletion-phase failure — re-throw without forcing.
+    if (!isRemovalPhaseFailure(msg)) throw e;
+
+    // Retry once: a lingering esbuild service may release its handle between
+    // the first attempt and now, letting git's own removal succeed cleanly.
+    try {
+      deps.git(["worktree", "remove", worktreeDir], primaryDir);
+      return;
+    } catch (retryErr: unknown) {
+      const retryMsg =
+        retryErr instanceof Error ? retryErr.message : String(retryErr);
+      if (!isRemovalPhaseFailure(retryMsg)) throw retryErr;
+    }
+
+    deps.warn(
+      `git worktree remove failed on leftover ignored content; forcing rm -rf '${worktreeDir}' + git worktree prune.`,
+    );
+    deps.rmrf(worktreeDir);
+    deps.git(["worktree", "prune"], primaryDir);
+  }
+}
+
+/**
  * Probes whether `branchName` is fully merged into `refs/remotes/origin/<baseBranch>`.
  * Two primitives in series, each independently try/caught so a transient failure of
  * one (e.g. unfetched ref) does not poison the other. Returns false on any error —
@@ -310,7 +395,11 @@ function main(): void {
 
   // Remove worktree (use primaryDir as cwd in case we're inside the worktree being removed)
   console.log("🧹 Removing worktree...");
-  git(["worktree", "remove", info.worktreeDir], info.primaryDir);
+  removeWorktreeWithFallback(info.worktreeDir, info.primaryDir, {
+    git,
+    rmrf: (dir) => fs.rmSync(dir, { recursive: true, force: true }),
+    warn: log.warn,
+  });
   log.success("Worktree removed.");
 
   // Auto-delete probe: when --delete-branch wasn't passed AND the per-task branch

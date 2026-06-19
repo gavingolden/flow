@@ -7,7 +7,13 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { parseWorktreeListOutput, resolveInput } from "./flow-remove-worktree";
+import {
+  isRemovalPhaseFailure,
+  parseWorktreeListOutput,
+  removeWorktreeWithFallback,
+  resolveInput,
+  type RemoveWorktreeDeps,
+} from "./flow-remove-worktree";
 
 // --- parseWorktreeListOutput ---
 
@@ -108,6 +114,149 @@ describe(resolveInput, () => {
     // resolveInput is intentionally narrow: positional ?? fallback. Empty
     // string passes through and downstream resolveWorktree() rejects it.
     expect(resolveInput("", () => "should-not-be-used")).toBe("");
+  });
+});
+
+// --- removeWorktreeWithFallback ---------------------------------------------
+
+describe(isRemovalPhaseFailure, () => {
+  it("matches git's ENOTEMPTY 'Directory not empty' deletion failure", () => {
+    expect(
+      isRemovalPhaseFailure(
+        "error: failed to delete '/code/repo-feat': Directory not empty",
+      ),
+    ).toBe(true);
+  });
+
+  it("matches a raw node ENOTEMPTY error string", () => {
+    expect(
+      isRemovalPhaseFailure(
+        "ENOTEMPTY: directory not empty, rmdir '/code/repo-feat/node_modules/.vite'",
+      ),
+    ).toBe(true);
+  });
+
+  it("matches lock-class deletion failures (Operation not permitted)", () => {
+    // An esbuild service holding a handle can surface as a lock errno rather
+    // than literally ENOTEMPTY — still a post-clean-check deletion-phase failure.
+    expect(
+      isRemovalPhaseFailure(
+        "error: failed to delete '/code/repo-feat': Operation not permitted",
+      ),
+    ).toBe(true);
+  });
+
+  it("does NOT match the clean-check refusal (uncommitted tracked work)", () => {
+    expect(
+      isRemovalPhaseFailure(
+        "'/code/repo-feat' contains modified or untracked files, use --force to delete it",
+      ),
+    ).toBe(false);
+  });
+});
+
+describe(removeWorktreeWithFallback, () => {
+  type Call = { args: string[]; cwd?: string };
+
+  function makeDeps(gitImpl: (args: string[], cwd?: string) => string): {
+    deps: RemoveWorktreeDeps;
+    gitCalls: Call[];
+    rmrfCalls: string[];
+    warnCalls: string[];
+  } {
+    const gitCalls: Call[] = [];
+    const rmrfCalls: string[] = [];
+    const warnCalls: string[] = [];
+    const deps: RemoveWorktreeDeps = {
+      git: (args, cwd) => {
+        gitCalls.push({ args, cwd });
+        return gitImpl(args, cwd);
+      },
+      rmrf: (dir) => rmrfCalls.push(dir),
+      warn: (msg) => warnCalls.push(msg),
+    };
+    return { deps, gitCalls, rmrfCalls, warnCalls };
+  }
+
+  const removes = (calls: Call[]) =>
+    calls.filter((c) => c.args[0] === "worktree" && c.args[1] === "remove");
+  const prunes = (calls: Call[]) =>
+    calls.filter((c) => c.args[0] === "worktree" && c.args[1] === "prune");
+
+  it("happy path: a single git worktree remove, no retry, no rm-rf, no prune", () => {
+    const { deps, gitCalls, rmrfCalls, warnCalls } = makeDeps(() => "");
+    removeWorktreeWithFallback("/wt", "/primary", deps);
+
+    expect(gitCalls).toEqual([
+      { args: ["worktree", "remove", "/wt"], cwd: "/primary" },
+    ]);
+    expect(rmrfCalls).toEqual([]);
+    expect(prunes(gitCalls)).toHaveLength(0);
+    expect(warnCalls).toEqual([]);
+  });
+
+  it("ENOTEMPTY then the retry succeeds: no rm-rf, no prune", () => {
+    let removeAttempts = 0;
+    const { deps, gitCalls, rmrfCalls } = makeDeps((args) => {
+      if (args[1] === "remove") {
+        removeAttempts += 1;
+        if (removeAttempts === 1) {
+          throw new Error("failed to delete '/wt': Directory not empty");
+        }
+        return "";
+      }
+      return "";
+    });
+
+    removeWorktreeWithFallback("/wt", "/primary", deps);
+
+    expect(removes(gitCalls)).toHaveLength(2);
+    expect(rmrfCalls).toEqual([]);
+    expect(prunes(gitCalls)).toHaveLength(0);
+  });
+
+  it("ENOTEMPTY on both attempts: falls back to rm -rf + git worktree prune, then returns so branch deletion proceeds", () => {
+    const { deps, gitCalls, rmrfCalls, warnCalls } = makeDeps((args) => {
+      if (args[1] === "remove") {
+        throw new Error(
+          "ENOTEMPTY: directory not empty, rmdir '/wt/node_modules/.vite'",
+        );
+      }
+      return ""; // prune succeeds
+    });
+
+    // Returns normally (does NOT throw) — main() then proceeds to delete the branch.
+    expect(() =>
+      removeWorktreeWithFallback("/wt", "/primary", deps),
+    ).not.toThrow();
+
+    expect(removes(gitCalls)).toHaveLength(2); // initial + one retry
+    expect(rmrfCalls).toEqual(["/wt"]);
+    expect(prunes(gitCalls)).toEqual([
+      { args: ["worktree", "prune"], cwd: "/primary" },
+    ]);
+    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls[0]).toMatch(/rm -rf/);
+  });
+
+  it("non-deletion failure (uncommitted tracked work) re-throws without retry, rm-rf, or prune — no auto-force", () => {
+    const { deps, gitCalls, rmrfCalls, warnCalls } = makeDeps((args) => {
+      if (args[1] === "remove") {
+        throw new Error(
+          "'/wt' contains modified or untracked files, use --force to delete it",
+        );
+      }
+      return "";
+    });
+
+    expect(() => removeWorktreeWithFallback("/wt", "/primary", deps)).toThrow(
+      /modified or untracked/,
+    );
+
+    expect(removes(gitCalls)).toHaveLength(1); // no retry on a genuine refusal
+    expect(rmrfCalls).toEqual([]);
+    expect(prunes(gitCalls)).toHaveLength(0);
+    expect(warnCalls).toEqual([]);
   });
 });
 
