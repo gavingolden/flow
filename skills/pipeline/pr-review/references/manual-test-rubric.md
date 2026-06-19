@@ -230,6 +230,30 @@ That one line under-states the scope. A reviewer can't tell four behaviors chang
 
 Three of the four facets are deterministic data transforms (Safely automatable, above) and become runnable items; only palette parity is a genuine visual-judgment check and stays manual. Without the breadth rule the PR shipped one conflated line; with it, the four behaviors are each visible and three are verified by exit code rather than by hope.
 
+## Precondition concreteness: spell out the exact how
+
+A manual step is only runnable by someone with no prior knowledge of the change when it names the exact action behind every precondition it states. A step that opens "With DEV logging on…" or "Once the feature flag is enabled…" assumes the reader already knows the project's toggles and jargon — but the reader who most needs the checklist is the one who does not, and a bare "turn X on" leaves them stuck with no way to start. **Spell out the concrete how** for each precondition: the exact command to run, the click path to follow, or the setting to change, in copy-pasteable form.
+
+Concretely, every manual or human-verification step must (a) name the exact command, click path, or setting that satisfies each precondition it states; (b) assume no prior knowledge of project-specific toggles, env vars, or jargon — define the term the first time it appears, or replace it with the action; (c) never use bare "turn X on" / "with X enabled" / "once X is configured" phrasing without the concrete steps that get there. This is orthogonal to functional-vs-subjective and to "Automate first" — it governs the prose of the items that legitimately stay manual, so the human running them is never blocked on an undocumented setup step.
+
+### Before / after: an undocumented precondition
+
+A step asserted a precondition without saying how to reach it. The toggle was gated behind `import.meta.env.DEV`, and the relevant lines only appeared once the browser DevTools console was raised to its Verbose level (the logger routes through `console.debug`) — none of which the step said.
+
+**Anti-pattern — bare precondition, no how:**
+
+- [ ] With DEV logging on, add a company to the watchlist and confirm the debug line appears.
+
+The reader has no way to act: nothing says what "DEV logging" is or how to turn it on.
+
+**Comprehensive — every precondition spelled out:**
+
+- [ ] Start the dev server: run `npm run dev` (DEV logging is gated behind `import.meta.env.DEV`, which the dev server sets).
+- [ ] In the browser DevTools console, set the level selector to **Verbose** (the debug lines route through `console.debug`, which the default level hides).
+- [ ] Add a company to the watchlist and confirm the debug line appears in the console.
+
+The rewrite names the command, the exact setting, and why each is needed, so a reader with no project knowledge can run it top to bottom.
+
 ## PR-type scenario menus
 
 Use these as a baseline. Not every entry applies to every PR — pick the ones that match
