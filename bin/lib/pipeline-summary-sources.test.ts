@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  renderFindings,
   renderForeclosedPaths,
   renderPhases,
 } from "./pipeline-summary-sources";
@@ -152,5 +153,152 @@ describe("renderForeclosedPaths", () => {
     const joined = lines.join("\n");
     expect(joined).toContain("fix-applier: (unreadable)");
     expect(joined).toContain("kept the two lenses separate");
+  });
+});
+
+// A well-formed fix-applier artifact with non-zero counts and every
+// anti_patterns_found entry carrying introduced_by_this_pr (Story 1).
+const fixApplierFull = JSON.stringify({
+  commits: [
+    {
+      sha: "a1b2c3d",
+      files: ["bin/lib/x.ts"],
+      finding_id: "F1",
+      reasoning: "added guard",
+      verify_status: "pass",
+    },
+    {
+      sha: "e4f5a6b",
+      files: ["bin/lib/y.ts"],
+      finding_id: "F2",
+      reasoning: "renamed symbol",
+      verify_status: "pass",
+    },
+  ],
+  deferred: [
+    {
+      finding_id: "F3",
+      tracker_entry_url: "",
+      reason: "cross-cutting refactor",
+    },
+  ],
+  rejected_alternatives: [
+    {
+      finding_id: "F1",
+      considered_approach: "memoize the parser",
+      why_rejected: "cache-invalidation complexity",
+    },
+  ],
+  anti_patterns_found: [
+    {
+      location: "bin/lib/x.ts:42",
+      pattern: "swallowed error",
+      recommendation: "log and rethrow",
+      introduced_by_this_pr: true,
+    },
+  ],
+  summary: "s",
+});
+
+// Valid commits/deferred/rejected_alternatives; one anti_patterns_found entry
+// is missing introduced_by_this_pr (the econ-data #346 regression, Story 2).
+const fixApplierOneBadEntry = JSON.stringify({
+  commits: [
+    {
+      sha: "a1b2c3d",
+      files: ["bin/lib/x.ts"],
+      finding_id: "F1",
+      reasoning: "added guard",
+      verify_status: "pass",
+    },
+  ],
+  deferred: [
+    {
+      finding_id: "F3",
+      tracker_entry_url: "",
+      reason: "cross-cutting refactor",
+    },
+  ],
+  rejected_alternatives: [
+    {
+      finding_id: "F1",
+      considered_approach: "memoize the parser",
+      why_rejected: "cache-invalidation complexity",
+    },
+  ],
+  anti_patterns_found: [
+    {
+      location: "bin/lib/x.ts:42",
+      pattern: "swallowed error",
+      recommendation: "log and rethrow",
+      // introduced_by_this_pr intentionally absent.
+    },
+  ],
+  summary: "s",
+});
+
+describe("renderFindings — fix-applier resilience", () => {
+  const base = { prReviewRaw: "", consolidatorRaw: "", ciWaitRaw: "" };
+
+  it("renders real fix counts and FORECLOSED prose for a well-formed artifact (Story 1)", () => {
+    const findings = renderFindings({
+      ...base,
+      fixApplierRaw: fixApplierFull,
+    }).join("\n");
+    expect(findings).toContain(
+      "fixes: 2 fixed in-cycle, 1 deferred, 1 anti-patterns noted",
+    );
+    expect(findings).not.toContain("(unreadable)");
+
+    const foreclosed = renderForeclosedPaths({
+      fixApplierRaw: fixApplierFull,
+      consolidatorRaw: "",
+    }).join("\n");
+    expect(foreclosed).toContain("memoize the parser");
+    expect(foreclosed).not.toContain("(unreadable)");
+  });
+
+  it("renders valid counts + a residual marker for the one-bad-entry artifact (Story 2)", () => {
+    const findings = renderFindings({
+      ...base,
+      fixApplierRaw: fixApplierOneBadEntry,
+    }).join("\n");
+    // The valid commits/deferred counts survive; the off-shape anti-pattern is
+    // dropped (0 anti-patterns counted) and surfaced as a residual marker.
+    expect(findings).toContain(
+      "fixes: 1 fixed in-cycle, 1 deferred, 0 anti-patterns noted (1 unreadable)",
+    );
+    expect(findings).not.toContain("fixes: (unreadable)");
+
+    const foreclosed = renderForeclosedPaths({
+      fixApplierRaw: fixApplierOneBadEntry,
+      consolidatorRaw: "",
+    }).join("\n");
+    expect(foreclosed).toContain("memoize the parser");
+    expect(foreclosed).toContain("(1 unreadable)");
+    expect(foreclosed).not.toContain("fix-applier: (unreadable)");
+  });
+
+  it("degrades a non-JSON fix-applier artifact to (unreadable) (Story 3)", () => {
+    const findings = renderFindings({
+      ...base,
+      fixApplierRaw: "{not json",
+    }).join("\n");
+    expect(findings).toContain("fixes: (unreadable)");
+  });
+
+  it("degrades a fix-applier artifact missing a required top-level key to (unreadable) (Story 3)", () => {
+    const missingKey = JSON.stringify({
+      commits: [],
+      deferred: [],
+      rejected_alternatives: [],
+      // anti_patterns_found absent → genuinely broken.
+      summary: "s",
+    });
+    const findings = renderFindings({
+      ...base,
+      fixApplierRaw: missingKey,
+    }).join("\n");
+    expect(findings).toContain("fixes: (unreadable)");
   });
 });

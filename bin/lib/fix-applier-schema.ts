@@ -81,7 +81,7 @@ function err(reason: string, path?: string): ValidationErr {
   return { ok: false, reason, path };
 }
 
-function validateCommitEntry(
+export function validateCommitEntry(
   entry: unknown,
   path: string,
 ): ValidationErr | null {
@@ -120,7 +120,7 @@ function validateCommitEntry(
   return null;
 }
 
-function validateDeferredEntry(
+export function validateDeferredEntry(
   entry: unknown,
   path: string,
 ): ValidationErr | null {
@@ -143,7 +143,7 @@ function validateDeferredEntry(
   return null;
 }
 
-function validateRejectedAlternativeEntry(
+export function validateRejectedAlternativeEntry(
   entry: unknown,
   path: string,
 ): ValidationErr | null {
@@ -163,7 +163,7 @@ function validateRejectedAlternativeEntry(
   return null;
 }
 
-function validateAntiPatternEntry(
+export function validateAntiPatternEntry(
   entry: unknown,
   path: string,
 ): ValidationErr | null {
