@@ -21,6 +21,13 @@ of Step 8c; on missing schema, leave every browser item unticked with a
 items stay not-runnable and unticked exactly as today). With the MCP present,
 per visual item:
 
+0. Before driving any route, read `meta.env` from the `flow-ui-validate` ready
+   envelope and inject it into the launch subprocess's environment, then bring
+   up the launch. A consumer whose app needs a separate backend can have its
+   single `launch` command start both the frontend and the backend (e.g. via
+   `concurrently`) with all overrides — ports, `VITE_*_URL`, CORS origins — in
+   the one `env` map; flow does not orchestrate a separate backend lifecycle.
+   Tear the launched server(s) down on completion.
 1. Drive the browser via the manifest: `navigate_page` to the route →
    `wait_for` an explicit selector → `take_snapshot` (the a11y snapshot — the
    **primary** evidence) → `take_screenshot` (the **secondary** artifact,
@@ -56,6 +63,14 @@ substring to `ignoreRequestPatterns` / `ignoreConsolePatterns` in
 `.flow/ui-validation.json`, commit that manifest change (it lands in the
 reviewable PR diff), and re-run. Reserve fix-loop failures for post-filter
 errors.
+
+**Self-improving manifest (CRITICAL).** Reusing that same commit-the-manifest
+pattern: when the agent adapts the launch on the fly to make a custom-port run
+work (tweaks the command, adds/changes an `env` var, fixes `baseUrl`), it
+persists the launch adaptation back into `.flow/ui-validation.json`
+(env/launch/baseUrl) and commits it into the reviewable PR diff, so the next
+run starts deterministic. Treat the manifest as a deterministic cache of
+non-secret facts the agent maintains, not a frozen contract.
 
 ## Snapshot-primary, screenshot-by-reference
 
