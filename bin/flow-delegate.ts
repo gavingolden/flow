@@ -39,6 +39,10 @@
  *                 [--model "<variant>"] [--timeout <godur>] [--skip-permissions]
  *                 [--add-dir <dir>]... [--out <path>] [--task <name>]
  *
+ *   A prompt whose text literally begins with `--` (a CLI flag, a `---` YAML
+ *   fence, a diff hunk header) is rejected by the missing-value guard; pass it
+ *   via `--prompt-file` instead. Mirrors the `flow-notify` precedent.
+ *
  * stdout is always a one-line JSON envelope:
  *   success: {"ran":true,"task":..,"model":..,"artifactPath":..,"exitCode":0,"durationMs":..}
  *   skip:    {"ran":false,"skipReason":"agy-not-found"|"agy-not-authenticated"|"agy-error",..}
@@ -189,7 +193,17 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
       );
       return 2;
     }
-    prompt = deps.readFile(parsed.promptFile as string);
+    // fileExists is existence-only; an EACCES/EISDIR/TOCTOU read still
+    // throws here. A bad --prompt-file is a usage/input error → exit 2,
+    // consistent with the not-found branch above.
+    try {
+      prompt = deps.readFile(parsed.promptFile as string);
+    } catch {
+      console.error(
+        `flow-delegate: cannot read prompt-file: ${parsed.promptFile}`,
+      );
+      return 2;
+    }
   }
 
   // Graceful skip: agy not installed → caller falls back to Claude.
@@ -202,9 +216,28 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   }
 
   const outPath = artifactPathFor(parsed);
-  deps.mkdirp(dirname(outPath));
+  // An unwritable --out dir is a usage/input error → exit 2.
+  try {
+    deps.mkdirp(dirname(outPath));
+  } catch {
+    console.error(
+      `flow-delegate: cannot create output dir: ${dirname(outPath)}`,
+    );
+    return 2;
+  }
   const start = deps.now();
-  const result = deps.runAgy(buildAgyArgv(parsed, prompt), outPath);
+  // A thrown spawn failure is a runtime failure → graceful exit-0 skip, per
+  // the contract (callers branch on the `ran` field, not the exit code).
+  let result: AgyResult;
+  try {
+    result = deps.runAgy(buildAgyArgv(parsed, prompt), outPath);
+  } catch {
+    return emit(deps, {
+      ran: false,
+      skipReason: "agy-error",
+      task: parsed.task,
+    });
+  }
   const durationMs = deps.now() - start;
 
   if (result.exitCode !== 0) {

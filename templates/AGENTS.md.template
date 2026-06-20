@@ -264,10 +264,17 @@ quota. When `agy` is absent or logged out, `flow-delegate` exits 0 with
 `{ran:false,skipReason}`, so a pipeline that hasn't configured it proceeds and
 never hard-fails — the same opt-in-by-presence model as UI validation above.
 
-Usage: `flow-delegate --prompt "<text>" [--model "Gemini 3.1 Pro (High)"]
-[--timeout 5m] [--out <path>]`. Omit `--model` to use your agy session default;
-pass a Gemini variant for model diversity. It is a standalone leaf helper —
-flow does not auto-invoke it from any pipeline step.
+Usage: `flow-delegate (--prompt "<text>" | --prompt-file <path>) [--model
+"Gemini 3.1 Pro (High)"] [--timeout 5m] [--skip-permissions] [--add-dir
+<dir>]... [--out <path>] [--task <name>]`. Pass exactly one prompt source
+(`--prompt` for inline text, `--prompt-file` for a path — also the escape hatch
+for a prompt that literally begins with `--`). Omit `--model` to use your agy
+session default; pass a Gemini variant for model diversity. `--skip-permissions`
+opts a tool-using run into non-interactive auto-approval, `--add-dir` scopes
+extra workspace dirs, and `--task` names the artifact
+(`.flow-tmp/delegate-<task>.md`). See the `bin/flow-delegate.ts` header docstring
+for the full per-flag contract. It is a standalone leaf helper — flow does not
+auto-invoke it from any pipeline step.
 
 ### Command Execution
 

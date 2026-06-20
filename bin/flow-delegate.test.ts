@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   artifactPathFor,
@@ -31,6 +33,14 @@ describe("parseArgs", () => {
   it("rejects a value-flag with no value", () => {
     expect(parseArgs(["--prompt"])).toEqual({
       error: "--prompt requires a value",
+    });
+  });
+
+  it("rejects a value-flag immediately followed by another flag", () => {
+    // The second arm of the guard (`value.startsWith("--")`): without it,
+    // `--model --prompt` would swallow `--prompt` as the model value.
+    expect(parseArgs(["--model", "--prompt"])).toEqual({
+      error: "--model requires a value",
     });
   });
 
@@ -161,6 +171,10 @@ describe("looksUnauthenticated", () => {
     "Please log in to continue",
     "unauthenticated request",
     "authentication required",
+    "Error: not logged in",
+    "please sign in to Google",
+    "authentication failed",
+    "session expired, please reauthenticate",
   ])("flags auth-error text: %s", (text) => {
     expect(looksUnauthenticated(text)).toBe(true);
   });
@@ -243,6 +257,43 @@ describe("run", () => {
     });
   });
 
+  it("returns 2 (usage error) when reading --prompt-file throws (EACCES/EISDIR)", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = makeDeps({
+      readFile: () => {
+        throw new Error("EISDIR: illegal operation on a directory");
+      },
+    });
+    expect(run(["--prompt-file", "/some/dir"], deps)).toBe(2);
+    expect(deps.calls.agy).toHaveLength(0);
+    errSpy.mockRestore();
+  });
+
+  it("returns 2 (usage error) when mkdirp on the output dir throws", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const deps = makeDeps({
+      mkdirp: () => {
+        throw new Error("EACCES: permission denied, mkdir");
+      },
+    });
+    expect(run(["--prompt", "hi", "--out", "/nope/out.md"], deps)).toBe(2);
+    expect(deps.calls.agy).toHaveLength(0);
+    errSpy.mockRestore();
+  });
+
+  it("gracefully skips (exit 0, agy-error) when runAgy throws a spawn failure", () => {
+    const deps = makeDeps({
+      runAgy: () => {
+        throw new Error("spawn agy ENOMEM");
+      },
+    });
+    expect(run(["--prompt", "hi"], deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({
+      ran: false,
+      skipReason: "agy-error",
+    });
+  });
+
   it("maps an auth-flavored agy failure to agy-not-authenticated", () => {
     const deps = makeDeps({
       runAgy: () => ({ exitCode: 1, stderr: "Please log in" }),
@@ -293,4 +344,44 @@ describe("run", () => {
     expect(envelope(deps).artifactPath).toBe("/tmp/out.md");
     expect(deps.calls.agy[0]!.outPath).toBe("/tmp/out.md");
   });
+});
+
+// Real-subprocess spec for the graceful-skip-on-absent-agy path. Unlike the
+// unit test above (which stubs `agyOnPath: () => false`), this spawns the built
+// helper as an actual process so it exercises the un-injected `defaultAgyOnPath`
+// (`which agy`) — the one seam the dependency injection never covers. Replaces
+// the former manual Test Step #3.
+describe("flow-delegate (subprocess, agy absent from PATH)", () => {
+  const HELPER = path.resolve(__dirname, "flow-delegate.ts");
+  // A PATH that contains `which`/`bun` (resolve bun absolutely below) but not
+  // the dir holding `agy` on a dev machine (~/.local/bin), so `which agy`
+  // misses and the helper takes the agy-not-found skip.
+  const SKIP_PATH = "/usr/local/bin:/usr/bin:/bin";
+
+  // Resolve bun absolutely from the inherited PATH; vitest itself runs on node.
+  const bunPath =
+    spawnSync("which", ["bun"], { encoding: "utf8" }).stdout.trim() || "bun";
+
+  // Guard against the (unlikely) case where this machine has `agy` inside one
+  // of SKIP_PATH's dirs — then the assertion below would be unsound, so skip.
+  const agyInSkipPath =
+    spawnSync("sh", ["-c", "which agy"], {
+      encoding: "utf8",
+      env: { PATH: SKIP_PATH },
+    }).status === 0;
+
+  it.skipIf(agyInSkipPath)(
+    "exits 0 with {ran:false,skipReason:'agy-not-found'} when agy is off PATH",
+    () => {
+      const r = spawnSync(bunPath, ["run", HELPER, "--prompt", "x"], {
+        encoding: "utf8",
+        env: { PATH: SKIP_PATH },
+      });
+      expect(r.status).toBe(0);
+      expect(JSON.parse(r.stdout.trim())).toMatchObject({
+        ran: false,
+        skipReason: "agy-not-found",
+      });
+    },
+  );
 });
