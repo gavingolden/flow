@@ -62,6 +62,7 @@ function setup(
     installRootOverride?: string;
     installDeps?: boolean;
     installRunner?: (root: string) => { ok: boolean; stderr?: string };
+    cachePath?: string;
   } = {},
 ) {
   const { flowSourceOverride, installRootOverride, ...rest } = opts;
@@ -1548,3 +1549,36 @@ function pickDeadPid(): number {
   }
   throw new Error("could not find a dead PID for the test");
 }
+
+describe("update-check cache invalidation on --upgrade", () => {
+  function seedCache(): string {
+    const cachePath = path.join(homeDir, ".flow", "update-check.json");
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ lastCheckedMs: 123, behind: 7 }),
+    );
+    return cachePath;
+  }
+
+  it("removes the cache file on --upgrade so the next check re-fetches", () => {
+    const cachePath = seedCache();
+    setup({ upgrade: true, cachePath });
+    expect(fs.existsSync(cachePath)).toBe(false);
+  });
+
+  it("completes without throwing when no cache file is present", () => {
+    const cachePath = path.join(homeDir, ".flow", "update-check.json");
+    expect(fs.existsSync(cachePath)).toBe(false);
+    const summary = setup({ upgrade: true, cachePath });
+    expect(summary.created).toBeGreaterThan(0);
+  });
+
+  it("leaves the cache file untouched on a plain (non-upgrade) setup", () => {
+    const cachePath = seedCache();
+    const before = fs.readFileSync(cachePath, "utf8");
+    setup({ cachePath });
+    expect(fs.existsSync(cachePath)).toBe(true);
+    expect(fs.readFileSync(cachePath, "utf8")).toBe(before);
+  });
+});

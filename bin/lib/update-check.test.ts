@@ -14,6 +14,7 @@ import type { SpawnSyncReturns } from "node:child_process";
 import {
   checkForUpdate,
   formatUpdateNotice,
+  invalidateUpdateCheckCache,
   type UpdateCheckResult,
 } from "./update-check";
 import type { Spawner } from "./git";
@@ -564,5 +565,50 @@ describe("checkForUpdate — version-aware", () => {
     } finally {
       fs.rmSync(local, { recursive: true, force: true });
     }
+  });
+});
+
+describe("invalidateUpdateCheckCache", () => {
+  it("should delete an existing cache file so the next check re-fetches", () => {
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ lastCheckedMs: NOW, behind: 7 }),
+    );
+    expect(fs.existsSync(cachePath)).toBe(true);
+
+    invalidateUpdateCheckCache(cachePath);
+
+    expect(fs.existsSync(cachePath)).toBe(false);
+  });
+
+  it("should not throw when the cache file is already absent", () => {
+    expect(fs.existsSync(cachePath)).toBe(false);
+    expect(() => invalidateUpdateCheckCache(cachePath)).not.toThrow();
+  });
+
+  it("should leave a re-fetch as the next checkForUpdate after invalidation", () => {
+    // Seed a stale "7 behind" cache inside the throttle window, then
+    // invalidate it: the next checkForUpdate must spawn git again (cache
+    // miss) rather than serving the stale count.
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ lastCheckedMs: NOW, behind: 7 }),
+    );
+    invalidateUpdateCheckCache(cachePath);
+
+    const { spawn, calls } = makeSpawn(probes("0\n"));
+    const result = checkForUpdate({
+      source: "/repo",
+      spawn,
+      now: NOW,
+      cachePath,
+      readConfigFile: NOTIFY,
+      env: {},
+    });
+
+    expect(result).toEqual({ status: "current" });
+    // A cache hit would have returned "behind: 7" with zero spawns; the
+    // re-fetch proves the stale entry was cleared.
+    expect(calls.length).toBeGreaterThan(0);
   });
 });

@@ -45,6 +45,7 @@ import {
 } from "./git";
 import { findMissingRuntimeDeps, formatMissingDepsError } from "./setup-deps";
 import { readFlowVersion } from "./pkg-version";
+import { invalidateUpdateCheckCache } from "./update-check";
 import { dim, green, red } from "./color";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
@@ -81,6 +82,13 @@ export type SetupOptions = {
   skipPreflight?: boolean;
   /** Manifest path override (test-only; default: ~/.flow/installed.json). */
   manifestPath?: string;
+  /**
+   * Update-check cache path override (test-only; default:
+   * ~/.flow/update-check.json). On `--upgrade`, this file is invalidated so
+   * the next `flow ls` / `flow version` re-fetches staleness rather than
+   * replaying the pre-upgrade notice from the 24h throttle cache.
+   */
+  cachePath?: string;
   /** Suppress stdout output. */
   quiet?: boolean;
   /** Setup-lock path override (test-only; default: ~/.flow/setup.lock). */
@@ -255,6 +263,12 @@ function runUnderLock(
       log,
       installRoot,
     );
+    // Invalidate the update-check throttle cache so the next `flow ls` /
+    // `flow version` re-fetches staleness instead of replaying the
+    // pre-upgrade "N commits behind" notice for up to 24h. Unconditional on
+    // upgrade (not gated on ff.status) — the cache can be stale even when
+    // this fast-forward was a no-op. Best-effort: never fails the upgrade.
+    invalidateUpdateCheckCache(options.cachePath);
   }
 
   // Edit the user's shell rc files to source the completion scripts. Run
