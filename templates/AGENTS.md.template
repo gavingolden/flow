@@ -115,7 +115,16 @@ The three-ingredient new-repo onboarding:
 1. **MCP, once per machine.** Register `chrome-devtools-mcp` in
    `~/.claude.json` (local scope). This is outside flow's control and
    outside any repo — flow only documents the pointer; it never installs
-   or ships the MCP config.
+   or ships the MCP config. Register it with `--isolated` so every browser
+   it launches gets its own auto-cleaned throwaway user-data-dir. This lets
+   concurrent flow pipelines — each its own session, hence its own
+   chrome-devtools MCP server process — run the UI-validation pass without
+   colliding on the single shared default profile. Without `--isolated`, the
+   second concurrent pipeline to reach UI validation fails with `The browser
+   is already running for ~/.cache/chrome-devtools-mcp/chrome-profile`; flow
+   degrades that to a clean skip (you lose browser coverage but the run stays
+   green). A per-repo `--user-data-dir` is an alternative if you want a
+   persistent logged-in profile per repo.
 2. **Manifest, once per repo.** Copy the committed
    `templates/ui-validation.json.example` stub to `.flow/ui-validation.json`
    and fill it in. flow **never auto-writes** the manifest (it cannot guess
@@ -186,7 +195,10 @@ arbitrary JS in the page context, so harden the setup: (1) point it at
 **trusted/local targets only** — never let it navigate to an untrusted
 site; (2) use an **isolated/throwaway Chrome profile** — never set
 `--user-data-dir` to your real profile, or the automated session inherits
-its cookies, saved sessions, and passwords; (3) ensure Chrome's
+its cookies, saved sessions, and passwords — registering with `--isolated`
+satisfies this automatically (temp profile, auto-cleaned) and additionally
+prevents the parallel-pipeline profile-lock collision described above;
+(3) ensure Chrome's
 remote-debugging port (default `9222`) is an **unauthenticated** control
 channel bound to `127.0.0.1` (loopback) only, never `0.0.0.0` — otherwise
 any host on the LAN can drive the browser. flow sets no port, profile, or
