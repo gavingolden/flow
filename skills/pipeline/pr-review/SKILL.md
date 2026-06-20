@@ -1003,6 +1003,21 @@ Open-ended LLM rewriting of arbitrary manual prose is *out of scope* — the bar
 literal: can I write a one-line shell command whose stdout/exit code answers the
 prose without me interpreting anything?
 
+**Third self-check — layered decomposition**: when an item is written as a browser-flavored
+step ("open `/watchlist` and confirm in the network panel exactly one batch request, zero
+429s"), do not auto-classify the whole item browser-only/not-runnable. Apply
+`references/manual-test-rubric.md` ("Decompose a manual step by layer"): a backend/API
+contract embedded in the step — one envelope serves the list, zero 429s, a compact payload,
+a cache-reuse / cap / per-symbol-degrade invariant — is runnable over an authenticated HTTP
+request to a local server (the **integration tier**), independent of any browser. Split the
+bundle: route the backend-contract half to a Step 11e `Fail (automatable)` conversion (an
+integration test that subsumes it) and keep only the genuinely-browser remainder — rendered
+output, console errors, a11y, visual layout, the request count the deployed client fires
+through a live render — in the browser bucket. This is a *classification* cue, not new
+execution machinery: 8c.ii's mechanical-obviousness bar still caps in-place promotion at a
+one-line shell command, so a contract that needs a server spin-up is an 11e conversion, not
+an 8c auto-run.
+
 For each runnable item:
 
 1. Execute it exactly as written, capturing both stdout and stderr to a file.
