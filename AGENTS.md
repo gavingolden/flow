@@ -176,6 +176,8 @@ token-savings impact, highest first.
   external/irreversible resources or subjective judgment; this loosens no guardrail
   on external/destructive/irreversible actions. Full contract
   `skills/pipeline/pr-review/references/manual-test-rubric.md`.
+- **Non-trivial UI appearance changes need an authored SUBJECTIVE: approval step the agent can't tick.**
+  Full contract `skills/pipeline/pr-review/references/manual-test-rubric.md`.
 - **Don't echo file contents or full diffs into chat.** Read with tools
   and reference findings as `path:line`. The user can open the file;
   pasting it back wastes tokens and clutters scrollback.
@@ -188,9 +190,8 @@ token-savings impact, highest first.
   analyses and explanations — bullets fragment reasoning that flows
   better as connected sentences. One-line answers for one-line
   questions. Don't expand a yes/no into a structured response.
-- **No sycophantic openers.** "Great question", "Excellent point",
-  "You're absolutely right" add nothing. Same for self-celebratory
-  updates ("Successfully implemented…", "I've now perfectly…").
+- **No sycophantic openers.** "Great question", "You're absolutely
+  right", "Successfully implemented…" add nothing.
 - **No emojis unless the user uses them first.** Match the user's
   register; don't introduce decoration they didn't invite.
 - **Don't apologize for errors — just correct.** "Sorry, you're right,
@@ -198,9 +199,6 @@ token-savings impact, highest first.
 - **Don't narrate internal deliberation.** Think between tool calls,
   not in chat. The user does not need to read your reasoning loop;
   they need the conclusion and the next action.
-- **Default to no code comments.** Add one only when the *why* is
-  non-obvious (a constraint, a workaround, a subtle invariant).
-  Restating what the code does is noise.
 - **Implement fully — no `// rest of code` placeholders.** Stay in
   scope: don't refactor unrelated code, don't introduce new
   abstractions the task didn't ask for, don't half-finish.

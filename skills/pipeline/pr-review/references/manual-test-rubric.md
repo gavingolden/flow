@@ -166,6 +166,76 @@ borderline step as functional keeps the safe default — the PR stays gated
 until a human verifies it — whereas mislabelling a functional step as
 subjective risks shipping a broken feature.
 
+#### A non-trivial UI appearance change must author a subjective approval step
+
+A non-trivial addition or change to UI appearance **REQUIRES** at least one
+authored subjective human-approval Test Step — and **one per distinct facet**
+(layout, animation, empty state, color/theme). Do not collapse facets into one
+representative step. This is the breadth axis applied to subjective checks — the
+exact parallel to **Coverage breadth: one check per distinct functional change**
+below and to **Decompose a manual step by layer** above: a facet no item asserts
+is a facet that ships unseen, because nothing ever required a human to eyeball
+it. The gap this closes is structural: the enumerated visual-appearance bucket
+above is legitimately auto-tickable at Step 8c, so a UI PR built entirely from
+those concrete assertions has zero unchecked subjective item for the gate to
+count — and a brand-new page auto-merges with no aesthetic sign-off at all.
+
+**Include-vs-exempt test:** would a reasonable person want to eyeball this before
+it ships? If yes, author the subjective step. Trivial tweaks — a copy fix, a
+padding nudge, an icon swap — are exempt; do not manufacture a subjective step
+where none is warranted.
+
+**The `SUBJECTIVE: ` marker contract.** Each such step carries a literal
+`SUBJECTIVE: ` prefix (uppercase, colon, single space) immediately after the
+`- [ ] ` — a human-facing, greppable label. The auto-merge gate still counts it
+as a plain unchecked `- [ ]` item (`bin/flow-gate-decide.ts` is prefix-agnostic;
+**no gate-count change**): one un-ticked subjective step ⇒ `gated`, exactly like
+any other unchecked item. The prefix adds machine meaning only to `/pr-review`,
+which never ticks it (Step 8c) and flags its absence on a non-trivial UI PR
+(Step 11).
+
+**Taxonomy placement.** A subjective aesthetic sign-off is **NOT** a
+local-and-reversible-runnable step (the **Genuinely manual** / local-reversible
+rule above): no mechanical assertion exists to run after any amount of setup, so
+the agent cannot stand it up and tick it. It is the **lowest faithful layer for
+taste — a human** — one notch beyond even the enumerated visual-appearance /
+browser tier (which auto-asserts alignment, focus-ring, no-overlap). It therefore
+stays a Subjective check, untouched by the local-reversible rule.
+
+**The prohibited-move guard still holds.** This must-exist rule must **not** be
+used to relabel a _functional_ step as `SUBJECTIVE: ` to dodge a tick — that is
+the prohibited move named above ("hover the legend entry, the popover opens" is
+functional, not subjective). Functional-vs-subjective classification stays
+primary; `SUBJECTIVE: ` is scoped strictly to genuinely-aesthetic UI judgment.
+
+##### Worked example: a new /portfolio page with no aesthetic sign-off (modeled on the structural gap)
+
+A PR adds a brand-new `/portfolio` page — a fresh layout, an entrance animation,
+and an empty state. It ships with only enumerated visual-appearance assertions:
+
+**Anti-pattern — every check auto-ticks, so the page merges unseen:**
+
+- [ ] The portfolio cards are evenly spaced in a 3-column grid.
+- [ ] The focus ring is visible on keyboard-tab to the first card.
+- [ ] The empty state shows a centered icon above muted helper text.
+
+Each of those is an observer-agnostic visual-appearance assertion the agent
+ticks at Step 8c — so the gate counts zero unchecked items and the new page
+auto-merges with no human ever judging whether the whole thing looks right.
+
+**Comprehensive — one `SUBJECTIVE: ` step per facet, plus the auto-tickable assertions:**
+
+- [ ] The portfolio cards are evenly spaced in a 3-column grid.
+- [ ] The focus ring is visible on keyboard-tab to the first card.
+- [ ] The empty state shows a centered icon above muted helper text.
+- [ ] SUBJECTIVE: you approve the overall look and feel of the new /portfolio page
+- [ ] SUBJECTIVE: you approve the entrance animation on the /portfolio page
+- [ ] SUBJECTIVE: you approve the empty state of the /portfolio page
+
+The enumerated assertions still auto-tick; the three `SUBJECTIVE: ` steps —
+layout, animation, empty state — each gate the merge until a human signs off,
+and `/pr-review` never ticks them on the user's behalf.
+
 ### Decision shortcut
 
 If you find yourself writing "verify the file appears at...", "check the process is

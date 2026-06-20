@@ -437,6 +437,14 @@ Always emit the heading. Decide the body based on the change:
   `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Coverage breadth") for the
   requirement and a worked multi-facet example.
 
+  For a non-trivial UI appearance change, author one `SUBJECTIVE: `-prefixed `- [ ]` Test
+  Step per distinct UI facet (layout, animation, empty state, color/theme) that the agent
+  can never tick on the user's behalf — a brand-new page built only from auto-tickable
+  visual-appearance assertions would otherwise auto-merge with no aesthetic sign-off. Trivial
+  tweaks (copy fix, padding nudge, icon swap) are exempt. Defer to
+  `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Subjective checks") for the
+  full contract, the include-vs-exempt test, and a worked example — do not inline the rule body.
+
   Before writing any item as a browser-manual step, apply the layered-decomposition check:
   route a backend/API contract to a deterministic integration test, reserve the browser tier
   for assertions only a browser can make, and split a step that bundles the two — pushing each
@@ -485,7 +493,7 @@ skills/pipeline/pr-review/references/manual-test-rubric.md. -->
 
 - [ ] Run `npm run test -- <test-file>` — all specs pass.
 - [ ] Run `[ -f <path> ] && grep -q "<expected>" <path>` — config is wired.
-- [ ] Open /foo in dark mode — animation feels balanced (subjective UX, manual).
+- [ ] SUBJECTIVE: you approve the overall look and feel of the new /portfolio page
 
 ```
 
