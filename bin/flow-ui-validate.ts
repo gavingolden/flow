@@ -36,7 +36,8 @@ export type SkippedReason =
   | "mcp-not-available"
   | "no-ui-manifest"
   | "app-launch-failed"
-  | "login-failed";
+  | "login-failed"
+  | "browser-profile-busy";
 
 export type RouteFindings = {
   path: string;
@@ -79,6 +80,7 @@ export type Captures = {
 export type Args = {
   manifest: string;
   mcpAbsent: boolean;
+  browserBusy: boolean;
   changedFiles?: string;
   captures?: string;
 };
@@ -96,7 +98,7 @@ const DEFAULT_MANIFEST = ".flow/ui-validation.json";
 export const HELP_TEXT = `flow-ui-validate — LLM-free core of browser-driven UI validation
 
 Usage:
-  flow-ui-validate [--manifest <path>] [--mcp-absent] [--changed-files <path>]
+  flow-ui-validate [--manifest <path>] [--mcp-absent] [--browser-busy] [--changed-files <path>]
   flow-ui-validate [--manifest <path>] --captures <path>
 
 Options:
@@ -104,6 +106,9 @@ Options:
                           (default ${DEFAULT_MANIFEST}).
   --mcp-absent            The chrome-devtools MCP is not available in this
                           session; emit a quiet mcp-not-available skip.
+  --browser-busy          Treat a busy/locked shared Chrome profile as a clean
+                          skip; emit a loud browser-profile-busy skip with a
+                          recovery nudge (another pipeline holds the profile).
   --changed-files <path>  File with newline-separated changed paths (the
                           diff-touches-UI signal). Also accepted via stdin.
   --captures <path>       ASSEMBLE mode: a JSON file the skill writes after
@@ -120,13 +125,20 @@ export function parseArgs(
   argv: string[],
 ): Args | { error: string } | { help: true } {
   if (argv.includes("--help") || argv.includes("-h")) return { help: true };
-  const out: Args = { manifest: DEFAULT_MANIFEST, mcpAbsent: false };
+  const out: Args = {
+    manifest: DEFAULT_MANIFEST,
+    mcpAbsent: false,
+    browserBusy: false,
+  };
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = argv[i + 1];
     switch (flag) {
       case "--mcp-absent":
         out.mcpAbsent = true;
+        continue;
+      case "--browser-busy":
+        out.browserBusy = true;
         continue;
       case "--manifest":
         if (!value || value.startsWith("--")) {
@@ -239,7 +251,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   if ("error" in parsed) {
     writeErr(`flow-ui-validate: ${parsed.error}\n`);
     writeErr(
-      "usage: flow-ui-validate [--manifest <path>] [--mcp-absent] [--changed-files <path>] | --captures <path>\n",
+      "usage: flow-ui-validate [--manifest <path>] [--mcp-absent] [--browser-busy] [--changed-files <path>] | --captures <path>\n",
     );
     return 2;
   }
@@ -255,6 +267,22 @@ export function run(argv: string[], deps: Deps = {}): number {
       ran: false,
       loud: false,
       skipped_reason: "mcp-not-available",
+    });
+  }
+
+  // --browser-busy: another pipeline holds chrome-devtools-mcp's shared Chrome
+  // profile (a cross-process on-disk lock, not something this diff caused), so
+  // degrade exactly like --mcp-absent — ran:false, NEVER ok:false. Loud, with a
+  // recovery nudge, since --isolated is the operator-side fix and the operator
+  // benefits from seeing it. ok:false would feed the 3-attempt fix loop and
+  // waste a retry on an environment condition the diff didn't introduce.
+  if (parsed.browserBusy) {
+    return emit({
+      ran: false,
+      loud: true,
+      skipped_reason: "browser-profile-busy",
+      nudge:
+        "Another flow pipeline is holding chrome-devtools-mcp's shared Chrome profile (~/.cache/chrome-devtools-mcp/chrome-profile). Register the chrome-devtools MCP with --isolated in ~/.claude.json so each pipeline gets its own auto-cleaned throwaway profile, or wait for/close the other pipeline's browser. UI validation was skipped for this run; verify/review proceeded on the rest of the diff.",
     });
   }
 

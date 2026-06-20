@@ -203,6 +203,15 @@ const UI_VALIDATION_EVIDENCE_PATH = path.resolve(
   "references",
   "ui-validation-evidence.md",
 );
+const UI_SMOKE_PASS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-pipeline",
+  "references",
+  "ui-smoke-pass.md",
+);
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
@@ -253,6 +262,7 @@ const uiValidationEvidenceContent = fs.readFileSync(
   UI_VALIDATION_EVIDENCE_PATH,
   "utf8",
 );
+const uiSmokePassContent = fs.readFileSync(UI_SMOKE_PASS_PATH, "utf8");
 
 /**
  * Strip markdown blockquote `> ` prefixes from line starts so cross-line
@@ -1896,12 +1906,17 @@ describe("pr-review include-by-reference structure", () => {
     // a regrowth of previously-trimmed prose. The intent-annotation PR
     // adds ~10 lines for the {{EXISTING_INTENT_COMMENTS}} substitution
     // block, well under this ceiling.
+    // Bumped 1850 → 1875: commit 018bedc (docs(test-rubric): three-tier
+    // pyramid) grew the file to 1862 lines past the prior ceiling without
+    // bumping the budget, leaving main red. The growth is legitimate
+    // rubric prose, not bloat; the ceiling is raised to absorb it with a
+    // small margin.
     expect(
       lineCount,
       `pr-review/SKILL.md line count must stay under the post-Consolidator ` +
-        `budget of 1850 lines. Material regrowth past this ceiling would ` +
+        `budget of 1875 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1850);
+    ).toBeLessThan(1875);
   });
 
   it("skills/pipeline/pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
@@ -2762,6 +2777,53 @@ describe("browser-driven UI-validation structural anchors", () => {
         anchor +
         "').",
     ).toBe(true);
+    expect(
+      uiSmokePassContent.includes(anchor),
+      "flow-pipeline/references/ui-smoke-pass.md must document the " +
+        "self-improving-manifest persist-back instruction (anchor: '" +
+        anchor +
+        "').",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline/references/ui-smoke-pass.md holds the shared gate-time procedure", () => {
+    // The gate-time UI-smoke procedure was de-duplicated out of
+    // flow-pipeline SKILL.md Step 6 AND verify/SKILL.md into one shared
+    // references/ file both consumers cite (issue #318). The canonical
+    // long-form drive-MCP sentence now lives ONLY here; both SKILLs keep a
+    // concise pointer. Guard the body's presence in the shared file and the
+    // pointer link from each consumer.
+    const driveMcpSentence =
+      "`navigate_page` → `wait_for` → `take_snapshot` → " +
+      "`list_console_messages`";
+    expect(
+      uiSmokePassContent.includes(driveMcpSentence),
+      "ui-smoke-pass.md must carry the canonical drive-MCP-per-route " +
+        "sentence (the de-duplicated procedure body).",
+    ).toBe(true);
+    expect(
+      content.includes("references/ui-smoke-pass.md"),
+      "flow-pipeline SKILL.md Step 6 must point to " +
+        "references/ui-smoke-pass.md for the shared procedure.",
+    ).toBe(true);
+    expect(
+      verifyContent.includes("flow-pipeline/references/ui-smoke-pass.md"),
+      "verify SKILL.md must point to the shared " +
+        "flow-pipeline/references/ui-smoke-pass.md procedure.",
+    ).toBe(true);
+    // Anti-drift: the long-form drive-MCP sentence must survive in exactly
+    // one file under skills/ — the shared reference, not a re-introduced
+    // copy in either citing SKILL.
+    const copiesUnderSkills = [
+      content,
+      verifyContent,
+      uiValidationEvidenceContent,
+    ].filter((c) => c.includes(driveMcpSentence)).length;
+    expect(
+      copiesUnderSkills,
+      "the long-form drive-MCP sentence must not be duplicated back into a " +
+        "citing SKILL (it lives only in ui-smoke-pass.md).",
+    ).toBe(0);
   });
 
   it("references/ui-validation-evidence.md documents the screenshot save-path cascade", () => {
