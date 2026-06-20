@@ -32,9 +32,9 @@ browser.
 pages within one MCP server but does NOT resolve this cross-process lock —
 `--isolated` is the real cross-pipeline fix and `isolatedContext` is
 complementary defense-in-depth. When Step 8c detects the lock error it treats
-it as a clean quiet skip via `flow-ui-validate --browser-busy`, emitting a
-loud-but-non-failing `ran:false` / `skipped_reason: browser-profile-busy`
-envelope with a recovery nudge — identical degradation to the MCP-absent path.
+it as a clean, loud-but-non-failing skip via `flow-ui-validate --browser-busy`,
+emitting a `ran:false` / `skipped_reason: browser-profile-busy` envelope with a
+recovery nudge — identical degradation to the MCP-absent path.
 A busy browser is never a hard failure; the a11y-snapshot gate is simply
 skipped for this run and review proceeds on the rest of the diff.
 

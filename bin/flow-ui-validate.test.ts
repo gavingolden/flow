@@ -133,6 +133,13 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
     expect(e.nudge).toContain("--isolated");
   });
 
+  it("--mcp-absent wins over --browser-busy (gated first → quiet skip)", () => {
+    const c = drive(["--mcp-absent", "--browser-busy"], {});
+    const e = envelope(c);
+    expect(e.skipped_reason).toBe("mcp-not-available");
+    expect(e.loud).toBe(false);
+  });
+
   it("no manifest + UI-touching diff → LOUD no-ui-manifest with nudge", () => {
     const c = drive(["--changed-files", "changed.txt"], {
       "changed.txt": "src/routes/+page.svelte\nsrc/lib/util.ts\n",
