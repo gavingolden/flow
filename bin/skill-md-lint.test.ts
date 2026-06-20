@@ -2558,6 +2558,46 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
+  it("manual-test-rubric.md pins the local-and-reversible boundary phrase", () => {
+    expect(
+      manualTestRubricContent.includes("local and reversible"),
+      "manual-test-rubric.md must contain the canonical boundary phrase 'local " +
+        "and reversible' — a Test Step whose only unmet preconditions are local " +
+        "and reversible is RUNNABLE, not manual. This is the single source of " +
+        "truth the SKILL surfaces; dropping the phrase unmoors the whole " +
+        "self-satisfy-preconditions contract from its anchor.",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md pins the probe-then-attempt fallback language", () => {
+    expect(
+      manualTestRubricContent.includes("Probe-then-attempt"),
+      "manual-test-rubric.md must contain 'Probe-then-attempt' — when unsure a " +
+        "local dependency is running, probe, attempt to start it, and only fall " +
+        "back to manual after a genuine attempt fails. Dropping it lets agents " +
+        "pre-label local-stack steps manual without trying.",
+    ).toBe(true);
+    expect(
+      manualTestRubricContent.includes("outside the agent's control"),
+      "manual-test-rubric.md must state the fallback trigger as a failure 'outside " +
+        "the agent's control' — the bar for leaving an item manual after a genuine " +
+        "start attempt. Without this phrase the fallback has no anchored trigger.",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md pins the guardrail-preservation clause", () => {
+    expect(
+      manualTestRubricContent.includes(
+        "This boundary does NOT loosen any guardrail",
+      ),
+      "manual-test-rubric.md must keep the guardrail-preservation clause " +
+        "('This boundary does NOT loosen any guardrail on external, destructive, " +
+        "or irreversible actions') so the local-and-reversible boundary can never " +
+        "be read as license over prod writes, destructive ops, the " +
+        ".github/workflows/* approval gate, or real secrets.",
+    ).toBe(true);
+  });
+
   it("references/ui-validation-evidence.md documents the browser-item runnable bucket", () => {
     // Step 8c's full runnable-bucket procedure moved out of pr-review/SKILL.md
     // (line-budget extraction) into references/ui-validation-evidence.md; the

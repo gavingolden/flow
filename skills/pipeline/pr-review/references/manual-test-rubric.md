@@ -40,6 +40,8 @@ Apply the **automation test** to every entry in the proposed manual section:
 > exit condition — all without subjective human judgment? If yes, it's a test, not a
 > manual step.
 
+**Probe-then-attempt before falling back to manual.** When you are unsure whether a local dependency a step needs — Docker, a local Supabase stack, a dev server — is already running, do NOT pre-label the step manual. Probe for it first (a health check, a port check, `docker ps`, `supabase status`), then attempt to start it (`npm run dev`, `supabase start`, `docker compose up -d`) and run the step. Only fall back to leaving the item manual after a genuine attempt to satisfy the precondition fails for a reason outside the agent's control (a credential you cannot mint, a service you cannot reach, a port you cannot bind). A step whose only blocker is "the local stack wasn't up yet" is runnable — bring the stack up and run it.
+
 ### Safely automatable (move to a test, do not leave manual)
 
 - **Process behavior** — exit codes, stdout/stderr substrings, signal handling
@@ -63,6 +65,10 @@ runnable item. Within that category every manual step is one of two kinds, and
 the distinction is **load-bearing for the auto-merge gate** — an agent must
 classify each manual step as functional or subjective, and must never relabel
 one as the other to change a merge outcome.
+
+**Reserve this category for genuinely external/irreversible resources or irreducibly-subjective human judgment.** The manual gate is for steps that depend on production credentials, a deploy target, or a real third-party service (Slack, Stripe, a real-LLM call) — resources that are external to the repo and cannot be stood up locally — or on aesthetic taste a person must sign off (the subjective checks below). The canonical rule: a Test Step whose ONLY unmet preconditions are **local and reversible** — start the dev server, bring up / seed the local DB, set a local `.env` var, drive the repo's own headless browser — is RUNNABLE, not manual, and the agent MUST satisfy those preconditions itself (probe-then-attempt per "Automate first" above) before ticking or gating. "Needs the local stack" is never a reason to leave a step manual; it is a setup step the agent performs.
+
+This boundary does NOT loosen any guardrail on external, destructive, or irreversible actions. No production writes, no destructive ops, the `.github/workflows/*` approval gate stays in force, and no real secrets are ever used — bringing up a _local_ stack to run a step is orthogonal to those guardrails, which still apply verbatim. The boundary moves only the local-and-reversible setup from "manual" to "the agent does it"; it grants no new license over external systems.
 
 #### Functional checks
 
@@ -290,6 +296,24 @@ That one line under-states the scope. A reviewer can't tell four behaviors chang
 - [ ] Open `/search`, run `^pika set:base`, and confirm results render in the legacy palette (subjective UX, manual).
 
 Three of the four facets are deterministic data transforms (Safely automatable, above) and become runnable items; only palette parity is a genuine visual-judgment check and stays manual. Without the breadth rule the PR shipped one conflated line; with it, the four behaviors are each visible and three are verified by exit code rather than by hope.
+
+### Worked example: local-and-reversible preconditions are runnable, not manual (modeled on `gavingolden/pokemon#296`)
+
+A PR added a seeded-login flow and shipped both its Test Steps pre-labeled manual because each "needs the local stack":
+
+**Anti-pattern — both steps gated on "needs the local stack":**
+
+- [ ] Manual — needs the local stack: run `seed-user.ts` against local Supabase and confirm the demo user exists.
+- [ ] Manual — needs the local stack: drive `/login -> /card` in a browser and confirm the card view renders for the seeded user.
+
+Neither blocker is external: a local Supabase stack and the repo's own headless browser are both **local and reversible**, so the agent must stand them up and run the steps rather than gate the PR on a human. Reclassified:
+
+**Comprehensive — both reclassified to RUNNABLE via probe-then-attempt:**
+
+- [ ] Probe local Supabase (`supabase status`); if it is not up, start it (`supabase start`), then run `bun seed-user.ts` and assert the demo row exists (`[ "$(psql ... -tAc "select count(*) from users where email='demo@example.com'")" = "1" ]`).
+- [ ] With the dev server up (`npm run dev`) and the repo's own headless browser (e.g. `@playwright/test` if present), drive `/login -> /card` for the seeded user and assert the card view's key elements are present in the a11y snapshot.
+
+The manual gate would apply to this pair ONLY if a step needed a resource the agent genuinely cannot stand up locally — production Supabase credentials, a deploy target, or a real third-party service (Slack, Stripe, a real-LLM call). A local DB the agent can seed and a headless browser it can drive are setup, not a manual gate.
 
 ## Precondition concreteness: spell out the exact how
 

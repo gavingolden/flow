@@ -444,8 +444,14 @@ Always emit the heading. Decide the body based on the PRD:
   `[ "$(cat <path>)" = "<expected>" ]`) so `/pr-review` Step 8c can run it and tick
   the box. Manual prose survives only when the rubric flags the scenario as genuinely
   manual (subjective UX, production-only integrations, cross-browser rendering,
-  performance under realistic load). Use as many items as the change warrants —
-  don't pad to look thorough and don't truncate to look concise.
+  performance under realistic load). A step whose only unmet preconditions are
+  `local and reversible` (start the dev server, bring up / seed the local DB, set a
+  local `.env` var, drive a headless browser) is `locally satisfiable` — write it as
+  the runnable setup-plus-assertion (perform the setup, then assert), NOT pre-labeled
+  "manual — needs the local stack"; see
+  `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Genuinely manual")
+  for the boundary. Use as many items as the change warrants — don't pad to look
+  thorough and don't truncate to look concise.
 
   When the PRD describes **multiple distinct user-facing behaviors** (several facets,
   commands, or states), emit at least one end-user functional check per distinct change —
