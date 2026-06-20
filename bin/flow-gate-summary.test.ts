@@ -349,6 +349,41 @@ describe("render — awaiting-approval", () => {
     const lines = out.split("\n");
     expect(lines[lines.length - 1]).toBe("  - /x");
   });
+
+  it("--echo-prose prepends the delimited recap block above STATUS", () => {
+    const out = render({
+      status: "awaiting-approval",
+      worktree: "/a",
+      planFile: "/a/p.md",
+      echoProse: true,
+    });
+    expect(out.startsWith("<!-- flow-echo-recap:start -->")).toBe(true);
+    const startIdx = out.indexOf("<!-- flow-echo-recap:start -->");
+    const endIdx = out.indexOf("<!-- flow-echo-recap:end -->");
+    const statusIdx = out.indexOf("STATUS: AWAITING APPROVAL");
+    expect(startIdx).toBe(0);
+    expect(endIdx).toBeGreaterThan(startIdx);
+    expect(statusIdx).toBeGreaterThan(endIdx);
+    // The plan-file bullet inside the recap carries no trailing punctuation.
+    const recapPlan = out
+      .split("\n")
+      .find((l) => l.startsWith("- Plan file:"))!;
+    expect(recapPlan).toBe("- Plan file: /a/p.md");
+    expect(recapPlan.endsWith(".")).toBe(false);
+    expect(recapPlan.endsWith(":")).toBe(false);
+    // The original two path bullets still close the block.
+    const lines = out.split("\n");
+    expect(lines.slice(-2)).toEqual(["  - /a", "  - /a/p.md"]);
+  });
+
+  it("--echo-prose without planFile renders the recap with `none`", () => {
+    const out = render({
+      status: "awaiting-approval",
+      worktree: "/x",
+      echoProse: true,
+    });
+    expect(out).toContain("- Plan file: none");
+  });
 });
 
 describe("render — cancelled", () => {
@@ -418,6 +453,17 @@ describe("universal sentinel invariant", () => {
       expect(out.endsWith("\n")).toBe(false);
       expect(out.endsWith(" ")).toBe(false);
       expect(out.endsWith("\t")).toBe(false);
+    });
+
+    it(`${c.name} — --echo-prose is a strict no-op`, () => {
+      const without = render(c.input);
+      const withFlag = render({ ...c.input, echoProse: true });
+      // --echo-prose fires ONLY on awaiting-approval; the four sentinel
+      // statuses are byte-for-byte identical with or without the flag, and
+      // their final line is still the exact sentinel.
+      expect(withFlag).toBe(without);
+      expect(withFlag).not.toContain("flow-echo-recap");
+      expect(finalLine(withFlag)).toBe(c.expected);
     });
   }
 });

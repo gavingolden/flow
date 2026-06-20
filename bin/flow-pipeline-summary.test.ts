@@ -86,6 +86,36 @@ describe("parseArgs", () => {
       prChangesFile: "/c.json",
     });
   });
+
+  it("parses the five echo-prose flags", () => {
+    expect(
+      parseArgs([
+        "--status",
+        "merged",
+        "--echo-prose",
+        "--pr-url",
+        "https://github.com/org/repo/pull/7",
+        "--plan-file",
+        "/w/.flow-tmp/plan.md",
+        "--pr-title",
+        "Add recap",
+        "--branch",
+        "feat/recap",
+      ]),
+    ).toEqual({
+      status: "merged",
+      echoProse: true,
+      prUrl: "https://github.com/org/repo/pull/7",
+      planFile: "/w/.flow-tmp/plan.md",
+      prTitle: "Add recap",
+      branch: "feat/recap",
+    });
+  });
+
+  it("treats --echo-prose as a valueless boolean flag", () => {
+    const r = parseArgs(["--status", "gated", "--echo-prose"]);
+    expect(r).toEqual({ status: "gated", echoProse: true });
+  });
 });
 
 describe("render — explicit none discipline", () => {
@@ -522,6 +552,139 @@ describe("run — end-to-end", () => {
     expect(out).not.toContain(
       "LOCAL FOLLOW-UPS (deferred — PR not yet merged)",
     );
+  });
+
+  it("--echo-prose leads stdout with the delimited recap above the snapshot", () => {
+    const out = captureStdout(() => {
+      const code = run([
+        "--status",
+        "merged",
+        "--echo-prose",
+        "--pr-url",
+        "https://github.com/org/repo/pull/9",
+        "--plan-file",
+        "/w/.flow-tmp/plan.md",
+        "--pr-title",
+        "Echo recap",
+        "--branch",
+        "feat/echo",
+      ]);
+      expect(code).toBe(0);
+    });
+    expect(out.startsWith("<!-- flow-echo-recap:start -->")).toBe(true);
+    const startIdx = out.indexOf("<!-- flow-echo-recap:start -->");
+    const endIdx = out.indexOf("<!-- flow-echo-recap:end -->");
+    const snapIdx = out.indexOf("## PIPELINE SNAPSHOT");
+    expect(startIdx).toBe(0);
+    expect(endIdx).toBeGreaterThan(startIdx);
+    // The recap block fully precedes the snapshot header.
+    expect(snapIdx).toBeGreaterThan(endIdx);
+    // Carries the bounded fields + the two click targets (no trailing punct).
+    expect(out).toContain("- PR URL: https://github.com/org/repo/pull/9");
+    expect(out).toContain("- Plan file: /w/.flow-tmp/plan.md");
+    expect(out).toContain("- branch: feat/echo");
+    expect(out).toContain("- PR title: Echo recap");
+    expect(out).toContain("- CI:");
+    expect(out).toContain("- Review:");
+    expect(out).toContain("- Follow-ups:");
+    // The helper still emits NO stop-guard sentinel as its last line.
+    expect(lastNonEmptyLine(out)).not.toBe("MERGED");
+  });
+
+  it("derives the bounded scalars from the read artifacts under --echo-prose", () => {
+    const ciFile = write("ci-wait-result.json", '{"decision":"proceed"}');
+    const reviewFile = write(
+      "pr-review-result.json",
+      '{"status":"clean","summary":"ok"}',
+    );
+    // Finding count falls back to fix-applier (commits + deferred) when no
+    // consolidator artifact is present: 2 commits + 1 deferred = 3 findings;
+    // follow-up count = 0 filed lines + 1 deferral = 1.
+    const fixApplierFile = write(
+      "fix-applier-result.json",
+      JSON.stringify({
+        commits: [
+          {
+            sha: "a1b2c3d",
+            files: ["bin/lib/x.ts"],
+            finding_id: "F1",
+            reasoning: "added guard",
+            verify_status: "pass",
+          },
+          {
+            sha: "e4f5a6b",
+            files: ["bin/lib/y.ts"],
+            finding_id: "F2",
+            reasoning: "renamed symbol",
+            verify_status: "pass",
+          },
+        ],
+        deferred: [
+          {
+            finding_id: "F3",
+            tracker_entry_url: "",
+            reason: "cross-cutting refactor",
+          },
+        ],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "applied two fixes, deferred one",
+      }),
+    );
+    const out = captureStdout(() => {
+      run([
+        "--status",
+        "gated",
+        "--echo-prose",
+        "--ci-wait-result",
+        ciFile,
+        "--pr-review-result",
+        reviewFile,
+        "--fix-applier-result",
+        fixApplierFile,
+      ]);
+    });
+    expect(out).toContain("- CI: proceed");
+    expect(out).toContain("- Review: clean (3 findings)");
+    expect(out).toContain("- Follow-ups: 1");
+  });
+
+  it("WITHOUT --echo-prose stdout is byte-for-byte unchanged (regression guard)", () => {
+    const argv = ["--status", "merged"];
+    const withFlag = captureStdout(() => run([...argv, "--echo-prose"]));
+    const without = captureStdout(() => run(argv));
+    // The non-echo render carries no recap marker at all.
+    expect(without).not.toContain("flow-echo-recap");
+    // The echo run's tail (after the recap block) equals the whole non-echo run.
+    const recapEnd = "<!-- flow-echo-recap:end -->\n\n";
+    expect(withFlag.slice(withFlag.indexOf(recapEnd) + recapEnd.length)).toBe(
+      without,
+    );
+  });
+});
+
+describe("run — --post-comment excludes the echo block", () => {
+  it("the persisted comment body carries no flow-echo-recap marker", () => {
+    const { gh, calls } = fakeGh([{ stdout: "[]" }]);
+    const out = captureStdout(() => {
+      run(
+        [
+          "--status",
+          "merged",
+          "--post-comment",
+          "123",
+          "--echo-prose",
+          "--pr-url",
+          "https://github.com/org/repo/pull/123",
+          "--plan-file",
+          "/w/.flow-tmp/plan.md",
+        ],
+        { gh },
+      );
+    });
+    // Scrollback DOES carry the recap; the posted comment body does NOT.
+    expect(out).toContain("flow-echo-recap:start");
+    expect(calls[1].join("\n")).not.toContain("flow-echo-recap");
   });
 });
 

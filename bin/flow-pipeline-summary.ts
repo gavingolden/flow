@@ -64,6 +64,9 @@ import {
   renderManualSteps,
   renderComment,
 } from "./lib/pipeline-summary-sources";
+import { renderEchoRecap } from "./lib/echo-recap";
+import { collectFixApplierTolerant } from "./lib/fix-applier-tolerant";
+import { validateConsolidatorResult } from "./lib/agent-finding-schema";
 
 /** Single-line HTML-comment dedup key for the persisted snapshot comment.
  *  Stable across releases (hence the -v1 suffix); it is the lookup key for
@@ -96,6 +99,11 @@ export type SummaryInputs = {
   followupsJsonl?: string;
   filedIssuesFile?: string;
   postComment?: string;
+  echoProse?: boolean;
+  prUrl?: string;
+  planFile?: string;
+  prTitle?: string;
+  branch?: string;
 };
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -110,6 +118,12 @@ export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    // --echo-prose is a boolean flag with no value; handle it before the
+    // value-required guard so it doesn't consume the next token.
+    if (flag === "--echo-prose") {
+      out.echoProse = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -152,6 +166,18 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         break;
       case "--post-comment":
         out.postComment = value;
+        break;
+      case "--pr-url":
+        out.prUrl = value;
+        break;
+      case "--plan-file":
+        out.planFile = value;
+        break;
+      case "--pr-title":
+        out.prTitle = value;
+        break;
+      case "--branch":
+        out.branch = value;
         break;
       default:
         return { error: `unknown flag: ${flag}` };
@@ -323,6 +349,87 @@ export function postSnapshotComment(
   return { action: "created" };
 }
 
+/**
+ * Derives the bounded recap scalars from the SAME already-read raws the
+ * snapshot consumes (no re-read). Finding count = consolidator
+ * `consolidated_findings.length` when that artifact validates, else the
+ * fix-applier `commits.length + deferred.length`, else undefined => `none`.
+ * Follow-up count = filed-issues lines + fix-applier deferrals.
+ */
+function deriveRecapScalars(inputs: {
+  ciWaitRaw: string;
+  prReviewRaw: string;
+  consolidatorRaw: string;
+  fixApplierRaw: string;
+  filedIssuesRaw: string;
+  phaseLog: Array<{ phase: string; outcome?: string; at: string }> | null;
+}): {
+  phase?: string;
+  ciVerdict?: string;
+  reviewVerdict?: string;
+  findingCount?: number;
+  followupCount?: number;
+} {
+  let ciVerdict: string | undefined;
+  if (inputs.ciWaitRaw.trim()) {
+    try {
+      const o = JSON.parse(inputs.ciWaitRaw) as Record<string, unknown>;
+      if (o.decision !== undefined) ciVerdict = String(o.decision);
+    } catch {
+      /* leave undefined => none */
+    }
+  }
+
+  let reviewVerdict: string | undefined;
+  if (inputs.prReviewRaw.trim()) {
+    try {
+      const o = JSON.parse(inputs.prReviewRaw) as Record<string, unknown>;
+      if (typeof o.status === "string") reviewVerdict = o.status;
+    } catch {
+      /* leave undefined => none */
+    }
+  }
+
+  const fixApplier = inputs.fixApplierRaw.trim()
+    ? collectFixApplierTolerant(parseJsonOrUndefined(inputs.fixApplierRaw))
+    : null;
+
+  let findingCount: number | undefined;
+  if (inputs.consolidatorRaw.trim()) {
+    const v = validateConsolidatorResult(
+      parseJsonOrUndefined(inputs.consolidatorRaw),
+    );
+    if (v.ok) findingCount = v.value.consolidated_findings.length;
+  }
+  if (findingCount === undefined && fixApplier) {
+    findingCount = fixApplier.commits.length + fixApplier.deferred.length;
+  }
+
+  let followupCount: number | undefined;
+  const filedLines = inputs.filedIssuesRaw
+    .split("\n")
+    .filter((l) => l.trim().length > 0).length;
+  const deferralCount = fixApplier ? fixApplier.deferred.length : 0;
+  if (inputs.filedIssuesRaw.trim() || fixApplier) {
+    followupCount = filedLines + deferralCount;
+  }
+
+  const phase =
+    inputs.phaseLog && inputs.phaseLog.length > 0
+      ? inputs.phaseLog[inputs.phaseLog.length - 1].phase
+      : undefined;
+
+  return { phase, ciVerdict, reviewVerdict, findingCount, followupCount };
+}
+
+function parseJsonOrUndefined(raw: string): unknown | undefined {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
 export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -333,7 +440,9 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
         "                             [--pr-review-result <path>] [--fix-applier-result <path>]\n" +
         "                             [--consolidator-result <path>] [--ci-wait-result <path>]\n" +
         "                             [--followups-block-file <path>] [--followups-jsonl <path>]\n" +
-        "                             [--filed-issues-file <path>] [--post-comment <PR>]\n",
+        "                             [--filed-issues-file <path>] [--post-comment <PR>]\n" +
+        "                             [--echo-prose] [--pr-url <url>] [--plan-file <path>]\n" +
+        "                             [--pr-title <title>] [--branch <name>]\n",
     );
     return 2;
   }
@@ -368,7 +477,33 @@ export function run(argv: string[], deps: { gh?: GhRunner } = {}): number {
     fixApplierForIssues: fixApplierRaw,
     manualStepsBlock,
   });
-  process.stdout.write(block + "\n");
+  // With --echo-prose, PREPEND the delimited recap block (a new top section of
+  // this SAME stdout write — never a separate invocation, so the
+  // snapshot→gate-summary→phase-transition ordering lint still holds) above
+  // `## PIPELINE SNAPSHOT`. The helper emits no sentinel, so the recap at the
+  // top is sentinel-safe by construction. It is NEVER added to the
+  // --post-comment body below.
+  let stdoutBlock = block;
+  if (parsed.echoProse) {
+    const scalars = deriveRecapScalars({
+      ciWaitRaw,
+      prReviewRaw,
+      consolidatorRaw,
+      fixApplierRaw,
+      filedIssuesRaw,
+      phaseLog: state?.phaseLog ?? null,
+    });
+    const recap = renderEchoRecap({
+      prUrl: parsed.prUrl,
+      planFile: parsed.planFile,
+      branch: parsed.branch,
+      prNumber: state?.pr !== undefined ? String(state.pr) : undefined,
+      prTitle: parsed.prTitle,
+      ...scalars,
+    });
+    stdoutBlock = `${recap}\n\n${block}`;
+  }
+  process.stdout.write(stdoutBlock + "\n");
 
   // Durable persistence: MERGED only, opt-in via --post-comment. Best-effort —
   // a gh failure (or an unparseable PR arg) is reported to stderr and never

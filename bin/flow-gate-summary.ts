@@ -45,6 +45,7 @@
  *                     [--deferred-file <path>]
  *                     [--worktree <path>]
  *                     [--plan-file <path>]
+ *                     [--echo-prose]   (awaiting-approval only; no-op elsewhere)
  *
  * Empty / missing --validation-items-file and --deferred-file are
  * silently suppressed (same convention as `flow-followups.formatVerdict`'s
@@ -56,6 +57,7 @@
  */
 
 import * as fs from "node:fs";
+import { renderEchoRecap } from "./lib/echo-recap";
 
 export type Status =
   | "merged"
@@ -73,6 +75,7 @@ export type GateSummaryInputs = {
   deferredBlock?: string;
   worktree?: string;
   planFile?: string;
+  echoProse?: boolean;
 };
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -166,12 +169,19 @@ type Args = {
   deferredFile?: string;
   worktree?: string;
   planFile?: string;
+  echoProse?: boolean;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    // --echo-prose is a boolean flag with no value; handle it before the
+    // value-required guard so it doesn't consume the next token.
+    if (flag === "--echo-prose") {
+      out.echoProse = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -326,7 +336,18 @@ function renderNeedsHuman(inputs: GateSummaryInputs): string {
 }
 
 function renderAwaitingApproval(inputs: GateSummaryInputs): string {
-  const lines: string[] = ["STATUS: AWAITING APPROVAL"];
+  const lines: string[] = [];
+  // --echo-prose PREPENDS the delimited recap block above STATUS. At
+  // awaiting-approval no reviewable artifact exists yet, so only the path
+  // fields are populated; review/CI/count fields render `none`. The block is
+  // the SAME marker pair flow-pipeline-summary uses; --echo-prose is a strict
+  // no-op on the four sentinel-bearing statuses (handled by their own
+  // renderers, which never read inputs.echoProse).
+  if (inputs.echoProse) {
+    const recap = renderEchoRecap({ planFile: inputs.planFile });
+    lines.push(recap, "");
+  }
+  lines.push("STATUS: AWAITING APPROVAL");
   const why = oneLine(inputs.why);
   if (why) lines.push(`WHY: ${why}`);
   lines.push("NEXT ACTION: reply approve / redirect <new direction> / cancel");
@@ -413,7 +434,7 @@ export function run(argv: string[]): number {
       "usage: flow-gate-summary --status <merged|gated|needs-human|awaiting-approval|cancelled>\n" +
         "                         [--pr-url <url>] [--why <text>] [--reason <tag>]\n" +
         "                         [--validation-items-file <path>] [--deferred-file <path>]\n" +
-        "                         [--worktree <path>] [--plan-file <path>]\n",
+        "                         [--worktree <path>] [--plan-file <path>] [--echo-prose]\n",
     );
     return 2;
   }
@@ -429,6 +450,7 @@ export function run(argv: string[]): number {
     deferredBlock,
     worktree: parsed.worktree,
     planFile: parsed.planFile,
+    echoProse: parsed.echoProse,
   });
   process.stdout.write(block + "\n");
   return 0;
