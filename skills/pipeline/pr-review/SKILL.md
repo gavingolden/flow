@@ -979,6 +979,9 @@ For each `- [ ]` item, classify before running:
   judgment ("the modal animates smoothly", "does this feel premium?"). Leave unticked.
   **"Needs the local stack" is NOT a not-runnable signal** — a local DB, a dev server, or a
   seeded fixture is local-and-reversible setup the agent performs, not an external dependency.
+  **An item whose text begins with the literal `SUBJECTIVE: ` prefix is always not-runnable**
+  — a human-only aesthetic sign-off: never tick it, prose-promote it (8c.ii), or browser-validate
+  it (8c.iii). See `references/manual-test-rubric.md` ("Subjective checks") for the marker contract.
 - **Runnable when the only blockers are local and reversible**: a step whose only unmet
   preconditions are `local and reversible` — start the dev server, bring up / seed the local
   DB, set a local `.env` var, drive the repo's own headless browser — is runnable, and the
@@ -1057,7 +1060,9 @@ For each runnable item:
 
 When 8c's second self-check identifies an author-prose item that maps to a
 mechanical assertion (`test -f`, `grep -q`, `[ "$(cat X)" = "Y" ]`,
-`[ "$(jq -r '.field' X)" = "Y" ]`), promote it inline. The author's `- [ ]`
+`[ "$(jq -r '.field' X)" = "Y" ]`), promote it inline. An item whose text begins
+with the literal `SUBJECTIVE: ` prefix is excluded from promotion — it is a
+human-only aesthetic sign-off with no mechanical assertion to script. The author's `- [ ]`
 wording in the PR body **stays as written** — only the box-tick + evidence
 injection runs. Body wording rewrites are a Step 11e responsibility (gated on
 user confirmation), never 8c's. This split keeps the audit honest: reviewers
@@ -1123,7 +1128,9 @@ many were left unticked with which rubric category.
 
 When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are
 present, **enumerated visual-appearance items become a runnable bucket** rather
-than not-runnable; the a11y `take_snapshot` is the primary evidence (injected
+than not-runnable — but a `SUBJECTIVE: `-prefixed item is excluded from browser
+validation: it is irreducibly-aesthetic judgment one notch beyond the enumerated
+bucket, never validated into a tick. The a11y `take_snapshot` is the primary evidence (injected
 via 8c.i's unchanged `flow-inject-evidence`), the screenshot supplementary and
 referenced by path. The full runnable-bucket procedure, the captures contract,
 the **Screenshot save-path cascade**, and the env-injected launch / clean
@@ -1417,7 +1424,12 @@ When scoring Testability, consult `references/manual-test-rubric.md` — it defi
 "material change", provides PR-type scenario menus (new data providers, migrations,
 UI features, config changes), and includes the **Automate first** section listing what's
 safely automatable vs genuinely manual. For non-material changes (pure internal refactors,
-typo fixes), happy-path only is acceptable; do not over-prescribe.
+typo fixes), happy-path only is acceptable; do not over-prescribe. A non-trivial UI
+appearance change whose Test Steps contain **no `SUBJECTIVE: ` step** is also a Testability
+finding (the page can auto-merge with no human aesthetic sign-off) — detection is reviewer
+judgment guided by the rubric's include-vs-exempt test. This folds into the Testability
+criterion above; no new fail subtype. Defer to `references/manual-test-rubric.md`
+("Subjective checks").
 
 **Format note (advisory, not a rubric criterion):** "Test Steps" should be a markdown
 checklist (`- [ ]` items) so reviewers can tick steps off as they verify and the

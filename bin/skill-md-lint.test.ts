@@ -1906,17 +1906,20 @@ describe("pr-review include-by-reference structure", () => {
     // a regrowth of previously-trimmed prose. The intent-annotation PR
     // adds ~10 lines for the {{EXISTING_INTENT_COMMENTS}} substitution
     // block, well under this ceiling.
-    // Bumped 1850 → 1875: commit 018bedc (docs(test-rubric): three-tier
-    // pyramid) grew the file to 1862 lines past the prior ceiling without
-    // bumping the budget, leaving main red. The growth is legitimate
-    // rubric prose, not bloat; the ceiling is raised to absorb it with a
-    // small margin.
+    //
+    // Bumped 1875 → 1880 to absorb the SUBJECTIVE-marker contract on top
+    // of #327's three-tier-pyramid bump (1850 → 1875, absorbing 018bedc's
+    // growth to 1862): Step 8c's Not-runnable bullet gains the
+    // `SUBJECTIVE: `-prefix never-runnable signal, 8c.ii / 8c.iii each
+    // gain a one-clause exclusion, and Step 11b's Testability prose folds
+    // in the missing-SUBJECTIVE-step finding. The new ceiling reflects the
+    // new contract's scope, not a regrowth of previously-trimmed prose.
     expect(
       lineCount,
-      `pr-review/SKILL.md line count must stay under the post-Consolidator ` +
-        `budget of 1875 lines. Material regrowth past this ceiling would ` +
+      `pr-review/SKILL.md line count must stay under the post-SUBJECTIVE ` +
+        `budget of 1880 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1875);
+    ).toBeLessThan(1880);
   });
 
   it("skills/pipeline/pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
@@ -2401,6 +2404,64 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "reference silently orphans the cue. Renaming the section name must " +
         "update all four consumer sites and this lint in the same commit " +
         "(AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md contains the SUBJECTIVE marker contract", () => {
+    expect(
+      manualTestRubricContent.includes("SUBJECTIVE: "),
+      "manual-test-rubric.md must contain the literal `SUBJECTIVE: ` marker " +
+        "string (uppercase, colon, single space) — the single source of truth " +
+        "for the subjective-approval contract: a non-trivial UI appearance " +
+        "change must author one `SUBJECTIVE: `-prefixed Test Step per facet that " +
+        "the agent can never tick. Six sites defer to this marker " +
+        "(new-feature/SKILL.md Step 4b, product-planning discovery-instructions.md " +
+        "Step 7, pr-review/SKILL.md Step 8c + Step 11, pr-review " +
+        "references/agent-prompts.md, AGENTS.md, templates/AGENTS.md.template); " +
+        "the byte-exact `SUBJECTIVE: ` string is the cross-file contract — " +
+        "renaming it must update all sites and this lint in the same commit " +
+        "(AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("all consumer sites carry the SUBJECTIVE marker contract", () => {
+    expect(
+      discoveryInstructionsContent.includes("SUBJECTIVE: "),
+      "product-planning discovery-instructions.md Step 7 must reference the " +
+        "literal `SUBJECTIVE: ` marker — the authoring site emits one " +
+        "`SUBJECTIVE: `-prefixed step per UI facet, deferring to " +
+        "manual-test-rubric.md ('Subjective checks') by name. Dropping it " +
+        "silently orphans the requirement.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("SUBJECTIVE: "),
+      "new-feature/SKILL.md Step 4b must reference the literal `SUBJECTIVE: ` " +
+        "marker — same cross-file-deference contract as discovery-instructions.md.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("SUBJECTIVE: "),
+      "pr-review/SKILL.md must reference the literal `SUBJECTIVE: ` marker — " +
+        "Step 8c classifies a `SUBJECTIVE: ` item as never-runnable (never " +
+        "ticked, prose-promoted, or browser-validated) and Step 11 flags a " +
+        "non-trivial UI PR with none. Dropping it reverts both behaviors.",
+    ).toBe(true);
+    expect(
+      agentPromptsContent.includes("SUBJECTIVE: "),
+      "pr-review references/agent-prompts.md must reference the literal " +
+        "`SUBJECTIVE: ` marker — the test lens must not flag a never-automatable " +
+        "`SUBJECTIVE: ` item for conversion to an automated check.",
+    ).toBe(true);
+    expect(
+      agentsContent.includes("SUBJECTIVE: "),
+      "AGENTS.md `## Output style` must reference the literal `SUBJECTIVE: ` " +
+        "marker — the lean bullet names the rule and defers to the rubric.",
+    ).toBe(true);
+    expect(
+      agentsTemplateContent.includes("SUBJECTIVE: "),
+      "templates/AGENTS.md.template must reference the literal `SUBJECTIVE: ` " +
+        "marker — the full bar carries the per-facet rule, the marker contract, " +
+        "and the never-tick / flag-if-absent consequence, deferring to the " +
+        "rubric by name.",
     ).toBe(true);
   });
 

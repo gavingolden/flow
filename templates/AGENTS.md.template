@@ -97,6 +97,24 @@ prohibitions all stay in force verbatim. Standing up a *local* stack to run a
 step is orthogonal to those guardrails — it grants no new license over external
 systems, prod writes, or secrets.
 
+**A non-trivial UI appearance change must author a subjective approval step the
+agent can never tick.** A net-new or materially-changed UI surface REQUIRES at
+least one authored subjective human-approval Test Step — and **one per distinct
+facet** (layout, animation, empty state, color/theme); do not collapse facets
+into one representative step. The include-vs-exempt test is "would a reasonable
+person want to eyeball this before it ships?" — trivial tweaks (copy fix, padding
+nudge, icon swap) are exempt, so no subjective step is manufactured where none is
+warranted. Each such step carries a literal `SUBJECTIVE: ` prefix (uppercase,
+colon, single space) after the `- [ ] ` — a human-facing, greppable label. The
+auto-merge gate counts it as a plain unchecked `- [ ]` item (no gate-count
+change), but `/pr-review` never ticks, prose-promotes, or browser-validates a
+`SUBJECTIVE: ` item into a tick, and flags a non-trivial UI PR that has none.
+This closes a structural gap: a UI PR built entirely from auto-tickable
+enumerated visual-appearance assertions (alignment, focus-ring) would otherwise
+merge with zero human aesthetic sign-off. Defer to
+`skills/pipeline/pr-review/references/manual-test-rubric.md` ("Subjective checks")
+for the canonical contract and a worked example.
+
 ### Browser-driven UI validation (optional, opt-in)
 
 flow can self-validate the rendered UI — render smoke (no console errors,

@@ -572,6 +572,9 @@ Your concern is: **will the test suite catch regressions in the changed code?**
    target test file. Default to "automate it"; reserve manual for the rubric's
    "Genuinely manual" categories (subjective UX, prod-only integrations, cross-browser
    rendering, etc.).
+   A `- [ ] ` item whose text begins with the literal `SUBJECTIVE: ` prefix is inherently
+   never-automatable (a human-only aesthetic sign-off) — do NOT flag it for conversion to an
+   automated check.
 9. Output your findings as JSON.
 
 ### Confidence Calibration (Test-Specific)
