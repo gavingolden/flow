@@ -586,6 +586,21 @@ describe("invalidateUpdateCheckCache", () => {
     expect(() => invalidateUpdateCheckCache(cachePath)).not.toThrow();
   });
 
+  it("should not throw when the cache path is an un-removable (non-empty dir) and leaves it intact", () => {
+    // The absent-file and existing-file cases never enter the catch: rmSync
+    // with force suppresses ENOENT, and a regular file removes cleanly. Point
+    // cachePath at a NON-EMPTY directory — rmSync without recursive throws
+    // (EISDIR/ENOTEMPTY) and force does NOT suppress it — so this genuinely
+    // drives the best-effort catch that guarantees never-throw.
+    fs.mkdirSync(cachePath);
+    fs.writeFileSync(path.join(cachePath, "occupant"), "blocks removal");
+
+    expect(() => invalidateUpdateCheckCache(cachePath)).not.toThrow();
+    // The catch swallowed the failure: the directory still exists untouched.
+    expect(fs.existsSync(cachePath)).toBe(true);
+    expect(fs.existsSync(path.join(cachePath, "occupant"))).toBe(true);
+  });
+
   it("should leave a re-fetch as the next checkForUpdate after invalidation", () => {
     // Seed a stale "7 behind" cache inside the throttle window, then
     // invalidate it: the next checkForUpdate must spawn git again (cache

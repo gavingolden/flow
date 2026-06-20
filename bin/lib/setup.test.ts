@@ -72,6 +72,12 @@ function setup(
   // divergence pass `flowSourceOverride` to drive flowSource away from
   // the canonical install-root fixture.
   return runSetup({
+    // Default the update-check cache into the tmpdir home so the ~19
+    // upgrade:true invocations invalidate a fixture-local cache instead of
+    // the developer's / CI runner's real ~/.flow/update-check.json. Placed
+    // before ...rest so an explicit opts.cachePath (arriving via ...rest)
+    // still overrides it.
+    cachePath: path.join(homeDir, ".flow", "update-check.json"),
     ...rest,
     flowSource: flowSourceOverride ?? flowSource,
     installRoot: installRootOverride ?? flowSource,
@@ -1032,6 +1038,9 @@ describe("flow setup", () => {
         runSetup({
           upgrade: true,
           pullCanonicalFirst: false,
+          // Fixture-local cache so this upgrade:true call doesn't touch the
+          // real ~/.flow/update-check.json.
+          cachePath: path.join(homeDir, ".flow", "update-check.json"),
           flowSource,
           installRoot: flowSource,
           targets: targets(),
@@ -1205,6 +1214,9 @@ describe("flow setup", () => {
       try {
         const { flowSourceOverride, installRootOverride, ...rest } = opts;
         const summary = runSetup({
+          // Same fixture-local default as setup(): keep upgrade:true callers
+          // off the real ~/.flow/update-check.json.
+          cachePath: path.join(homeDir, ".flow", "update-check.json"),
           ...rest,
           flowSource: flowSourceOverride ?? flowSource,
           installRoot: installRootOverride ?? flowSource,
