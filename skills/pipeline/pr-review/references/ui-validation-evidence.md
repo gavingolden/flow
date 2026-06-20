@@ -10,6 +10,34 @@ The `chrome-devtools` MCP must be **connected at session start** — Claude
 Code resolves MCP servers once when the session boots, so a manifest that
 appears mid-session without the MCP already connected stays not-runnable.
 
+## Shared-profile lock (parallel pipelines)
+
+chrome-devtools-mcp launches every browser against a single default on-disk
+Chrome profile (`~/.cache/chrome-devtools-mcp/chrome-profile`). Each flow
+pipeline runs its own Claude Code session and therefore its own
+chrome-devtools MCP server process, so two pipelines that both reach Step 8c
+under an un-isolated MCP registration contend for that one profile dir — the
+second to launch fails with:
+
+> `The browser is already running for ~/.cache/chrome-devtools-mcp/chrome-profile. Use --isolated to run multiple browser instances`
+
+**Recovery / prevention.** Register the chrome-devtools MCP server with
+`--isolated` in `~/.claude.json` so each server process gets its own
+auto-cleaned throwaway profile and concurrent pipelines never contend (a
+per-repo `--user-data-dir` is the alternative when you want a persistent
+logged-in profile). Failing that, wait for or close the other pipeline
+browser.
+
+**Degradation.** The per-call `isolatedContext` in the step-1 recipe isolates
+pages within one MCP server but does NOT resolve this cross-process lock —
+`--isolated` is the real cross-pipeline fix and `isolatedContext` is
+complementary defense-in-depth. When Step 8c detects the lock error it treats
+it as a clean quiet skip via `flow-ui-validate --browser-busy`, emitting a
+loud-but-non-failing `ran:false` / `skipped_reason: browser-profile-busy`
+envelope with a recovery nudge — identical degradation to the MCP-absent path.
+A busy browser is never a hard failure; the a11y-snapshot gate is simply
+skipped for this run and review proceeds on the rest of the diff.
+
 ## Browser-item runnable bucket (visual-appearance via the browser-validation capability)
 
 When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are
@@ -33,7 +61,11 @@ per visual item:
    flat `env` value can't express two different ports. flow does not orchestrate
    a separate backend lifecycle. Tear the launched server(s) down on
    completion.
-1. Drive the browser via the manifest: `navigate_page` to the route →
+1. Drive the browser via the manifest: open a per-pipeline isolated page first
+   — `new_page` with `isolatedContext` set to the pipeline slug (read from
+   `@flow-slug` / `~/.flow/state/<slug>.json` / the worktree basename) so
+   concurrent pipelines sharing one chrome-devtools MCP server do not share
+   cookies/storage — then `navigate_page` to the route →
    `wait_for` an explicit selector → `take_snapshot` (the a11y snapshot — the
    **primary** evidence) → `take_screenshot` (the **secondary** artifact,
    referenced by path, never embedded — `gh` takes no inline binary). Honor

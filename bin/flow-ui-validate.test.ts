@@ -55,11 +55,20 @@ const MANIFEST_PATH = ".flow/ui-validation.json";
 // --- arg parsing -----------------------------------------------------------
 
 describe("parseArgs", () => {
-  it("defaults manifest and mcpAbsent", () => {
+  it("defaults manifest, mcpAbsent, and browserBusy", () => {
     expect(parseArgs([])).toEqual({
       manifest: ".flow/ui-validation.json",
       mcpAbsent: false,
+      browserBusy: false,
     });
+  });
+
+  it("--browser-busy sets browserBusy true", () => {
+    const parsed = parseArgs(["--browser-busy"]);
+    expect("error" in parsed).toBe(false);
+    if (!("error" in parsed) && !("help" in parsed)) {
+      expect(parsed.browserBusy).toBe(true);
+    }
   });
 
   it("rejects an unknown flag", () => {
@@ -110,6 +119,18 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
   it("--mcp-absent wins even when --captures is also given", () => {
     const c = drive(["--mcp-absent", "--captures", "c.json"], {});
     expect(envelope(c).skipped_reason).toBe("mcp-not-available");
+  });
+
+  it("--browser-busy → LOUD browser-profile-busy skip with nudge, exit 0", () => {
+    const c = drive(["--browser-busy"], {});
+    expect(c.code).toBe(0);
+    const e = envelope(c);
+    expect(e.ran).toBe(false);
+    expect(e.loud).toBe(true);
+    expect(e.skipped_reason).toBe("browser-profile-busy");
+    expect(typeof e.nudge).toBe("string");
+    expect((e.nudge as string).length).toBeGreaterThan(0);
+    expect(e.nudge).toContain("--isolated");
   });
 
   it("no manifest + UI-touching diff → LOUD no-ui-manifest with nudge", () => {
