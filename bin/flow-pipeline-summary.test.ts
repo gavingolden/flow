@@ -649,6 +649,56 @@ describe("run — end-to-end", () => {
     expect(out).toContain("- Follow-ups: 1");
   });
 
+  it("renders a real `0` (not `none`) for genuine zero finding/follow-up counts under --echo-prose", () => {
+    const reviewFile = write(
+      "pr-review-result.json",
+      '{"status":"clean","summary":"ok"}',
+    );
+    // A VALID consolidator with an empty findings array pins findingCount=0
+    // (distinct from the undefined => `none` an absent artifact produces).
+    const consolidatorFile = write(
+      "consolidator-result.json",
+      JSON.stringify({
+        consolidated_findings: [],
+        dropped_by_validation: [],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "ok",
+      }),
+    );
+    // A fix-applier present but with zero deferrals + zero filed-issues lines
+    // pins followupCount=0 (the `filedIssuesRaw.trim() || fixApplier` branch
+    // fires, so 0 renders rather than collapsing to `none`).
+    const fixApplierFile = write(
+      "fix-applier-result.json",
+      JSON.stringify({
+        commits: [],
+        deferred: [],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "nothing to fix",
+      }),
+    );
+    const out = captureStdout(() => {
+      run([
+        "--status",
+        "gated",
+        "--echo-prose",
+        "--pr-review-result",
+        reviewFile,
+        "--consolidator-result",
+        consolidatorFile,
+        "--fix-applier-result",
+        fixApplierFile,
+      ]);
+    });
+    // A truthiness regression collapsing a legitimate 0 to `none` must fail here.
+    expect(out).toContain("- Review: clean (0 findings)");
+    expect(out).toContain("- Follow-ups: 0");
+    expect(out).not.toContain("(none findings)");
+    expect(out).not.toContain("- Follow-ups: none");
+  });
+
   it("WITHOUT --echo-prose stdout is byte-for-byte unchanged (regression guard)", () => {
     const argv = ["--status", "merged"];
     const withFlag = captureStdout(() => run([...argv, "--echo-prose"]));
