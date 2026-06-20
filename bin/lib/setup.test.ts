@@ -62,6 +62,7 @@ function setup(
     installRootOverride?: string;
     installDeps?: boolean;
     installRunner?: (root: string) => { ok: boolean; stderr?: string };
+    cachePath?: string;
   } = {},
 ) {
   const { flowSourceOverride, installRootOverride, ...rest } = opts;
@@ -71,6 +72,12 @@ function setup(
   // divergence pass `flowSourceOverride` to drive flowSource away from
   // the canonical install-root fixture.
   return runSetup({
+    // Default the update-check cache into the tmpdir home so the ~19
+    // upgrade:true invocations invalidate a fixture-local cache instead of
+    // the developer's / CI runner's real ~/.flow/update-check.json. Placed
+    // before ...rest so an explicit opts.cachePath (arriving via ...rest)
+    // still overrides it.
+    cachePath: path.join(homeDir, ".flow", "update-check.json"),
     ...rest,
     flowSource: flowSourceOverride ?? flowSource,
     installRoot: installRootOverride ?? flowSource,
@@ -1031,6 +1038,9 @@ describe("flow setup", () => {
         runSetup({
           upgrade: true,
           pullCanonicalFirst: false,
+          // Fixture-local cache so this upgrade:true call doesn't touch the
+          // real ~/.flow/update-check.json.
+          cachePath: path.join(homeDir, ".flow", "update-check.json"),
           flowSource,
           installRoot: flowSource,
           targets: targets(),
@@ -1204,6 +1214,9 @@ describe("flow setup", () => {
       try {
         const { flowSourceOverride, installRootOverride, ...rest } = opts;
         const summary = runSetup({
+          // Same fixture-local default as setup(): keep upgrade:true callers
+          // off the real ~/.flow/update-check.json.
+          cachePath: path.join(homeDir, ".flow", "update-check.json"),
           ...rest,
           flowSource: flowSourceOverride ?? flowSource,
           installRoot: installRootOverride ?? flowSource,
@@ -1548,3 +1561,36 @@ function pickDeadPid(): number {
   }
   throw new Error("could not find a dead PID for the test");
 }
+
+describe("update-check cache invalidation on --upgrade", () => {
+  function seedCache(): string {
+    const cachePath = path.join(homeDir, ".flow", "update-check.json");
+    fs.mkdirSync(path.dirname(cachePath), { recursive: true });
+    fs.writeFileSync(
+      cachePath,
+      JSON.stringify({ lastCheckedMs: 123, behind: 7 }),
+    );
+    return cachePath;
+  }
+
+  it("removes the cache file on --upgrade so the next check re-fetches", () => {
+    const cachePath = seedCache();
+    setup({ upgrade: true, cachePath });
+    expect(fs.existsSync(cachePath)).toBe(false);
+  });
+
+  it("completes without throwing when no cache file is present", () => {
+    const cachePath = path.join(homeDir, ".flow", "update-check.json");
+    expect(fs.existsSync(cachePath)).toBe(false);
+    const summary = setup({ upgrade: true, cachePath });
+    expect(summary.created).toBeGreaterThan(0);
+  });
+
+  it("leaves the cache file untouched on a plain (non-upgrade) setup", () => {
+    const cachePath = seedCache();
+    const before = fs.readFileSync(cachePath, "utf8");
+    setup({ cachePath });
+    expect(fs.existsSync(cachePath)).toBe(true);
+    expect(fs.readFileSync(cachePath, "utf8")).toBe(before);
+  });
+});

@@ -120,6 +120,24 @@ function writeCache(cachePath: string, entry: CacheEntry): void {
   }
 }
 
+/**
+ * Best-effort cache invalidation called by `flow setup --upgrade` so the next
+ * `checkForUpdate` re-fetches instead of replaying a stale "N commits behind"
+ * notice from the 24h throttle cache. Deletes the file rather than resetting
+ * it to `behind: 0`: `readCache` returns `null` for a missing file (forcing a
+ * clean re-fetch), and a reset would leave a stale `lastCheckedMs` inside the
+ * throttle window that suppresses a genuinely-new behind notice. Never throws
+ * — an un-removable cache just means the next run re-fetches anyway, same
+ * best-effort contract as `writeCache`.
+ */
+export function invalidateUpdateCheckCache(cachePath?: string): void {
+  try {
+    fs.rmSync(cachePath ?? FLOW_UPDATE_CACHE, { force: true });
+  } catch {
+    /* swallow */
+  }
+}
+
 function behindResult(
   behind: number,
   opts: { localVersion?: string; remoteVersion?: string } = {},
