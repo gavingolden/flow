@@ -34,7 +34,7 @@ The single biggest framing the prior review got right, and this spec keeps: **th
 | Turn an epic's feature into a running pipeline                               | `flow new "<description>"` → `/flow-pipeline`                                   | verified                                                                            | **Feed it; never reimplement it**                                      |
 | Acyclic ready-set math                                                       | not present (greenfield)                                                        | —                                                                                   | **New** (pure Kahn's-algorithm helper)                                 |
 
-**Genuinely new surface (small):** (a) the epic-grain extension to discovery (emit a feature DAG, not an intra-feature task list); (b) the committed manifest schema + validator; (c) the `epic design` CLI verb + epic-id minting; (d) a DAG-validation helper (acyclic / no-orphan-deps / ready-set). Everything else is reuse — the proof that the designer is a _grain change to an existing capability_, not a second pipeline.
+**Genuinely new surface (small):** (a) the epic-grain extension to discovery (emit a feature DAG, not an intra-feature task list); (b) the committed manifest schema + validator; (c) the `epic create` CLI verb + epic-id minting; (d) a DAG-validation helper (acyclic / no-orphan-deps / ready-set). Everything else is reuse — the proof that the designer is a _grain change to an existing capability_, not a second pipeline.
 
 ## 2. What the designer must NOT reimplement
 
@@ -139,17 +139,23 @@ The schema validator (shape of `manifest.json`) + this DAG validator together ar
 
 Resolved in `04-artifact-storage-recommendation.md`. Summary: **git-committed `design.md` + schema-validated `manifest.json` under `.flow/epics/<epic-slug>/` in the target repo, landed via a flow PR reviewed at the design checkpoint.** Not GitHub Issues (a later opt-in _projection_ only), not `beads` (DB breaks git-auditability; deferred behind an adapter), not per-machine `~/.flow/` (reserved for the deferred orchestrator's runtime status — the design output must be auditable and reviewable-as-a-diff). The committed manifest is the clean seam a future orchestrator reads.
 
-## 9. Command namespace (greenfield) — RECOMMEND `flow epic design`
+## 9. Command namespace (greenfield) — RECOMMEND a consistent `flow <noun> <verb>` scheme
 
-**Decision: `flow epic design "<prompt>"`** for the design-phase entry; the eventual layer reads `flow epic <design|run|status>`; `flow new` stays exactly as-is for single features.
+**Decision (revised per developer redirect): one consistent `flow <noun> <verb>` namespace across both pipelines.**
 
-`01` Area 5 settles the verb choice on evidence, not taste:
+| Command                       | What it does                                                     | Status                                          |
+| ----------------------------- | ---------------------------------------------------------------- | ----------------------------------------------- |
+| `flow feature run "<desc>"`   | run one feature pipeline end-to-end (today's `flow new`)         | rename of `flow new` (separate mechanical task) |
+| `flow epic create "<prompt>"` | the epic **designer** — emit `design.md` + `manifest.json`, stop | **this dossier**                                |
+| `flow epic run <id>`          | the epic **orchestrator** — execute the manifest                 | deferred (out of scope)                         |
 
-- **`design`** (recommended) — matches **Kiro's `design.md`** [V2], instantly legible, pairs naturally with a future `run`/`status`. The field's own vocabulary.
-- **`shape`** — evocative (Basecamp), _but_ `01` confirms Shape Up's `shape` deliberately produces _an outline without a task breakdown_, whereas the designer's entire output is a concrete dependency DAG. So `shape` is **semantically off-message** — the same objection `00` raised against `architect`. Rejected despite its memorability.
-- **`spec` / `specify`** — strongest field resonance (Spec Kit [V2]) but generic, and flow already overloads "plan"; risks plan/spec/manifest confusion. Rejected.
+This supersedes the earlier `flow epic design` + keep-`flow new` recommendation. The driver is **consistency**: a single `flow <noun> <verb>` shape reads better than today's `flow new` (feature) beside an `epic` sub-namespace. `run` is the shared execution verb (a feature runs end-to-end; an epic runs its created plan); `create` is the epic-only design verb — a single feature needs no separate create step, since it plans inline behind its own `plan-pending-review`.
 
-A full rename of every flow verb is a separate mechanical task — out of scope here; this only recommends the new epic verbs and confirms `flow new` is kept (add a `feature` _alias_ at most, per `00`'s candidate follow-up).
+**`create` vs `design` (the one verb changed from `01`'s pick).** `01` Area 5 recommended `design` (matches Kiro's `design.md`, the artifact this phase literally emits). `create` is adopted instead because it is the more standard CLI verb (`gh repo create`, `docker create`), pairs cleanly with `run`, and consistency is the optimization target. `design` is recorded as the considered-and-rejected alternative; `shape` stays rejected (`01`: Shape Up deliberately produces an outline _without_ a task breakdown — the opposite of the designer's DAG output); `spec`/`specify` stays rejected (generic; collides with flow's existing "plan" vocabulary).
+
+**Abbreviations (recommended, optional).** Noun aliases `feat` ≡ `feature` and `ep` ≡ `epic`, verbs unchanged: `flow feat run`, `flow ep create`, `flow ep run`. Plus a bare `flow feat "<desc>"` shorthand (run implied — `run` is the feature's only verb), so the most-common command stays as short as today's two-token `flow new`. The epic always takes an explicit verb because it has two (`create`/`run`); a bare `flow ep` would be ambiguous.
+
+**Naming note for this dossier.** The body of these documents refers to the feature command by its _current_ name `flow new` (the real, verified command today); §9 is the single place that owns the forward recommendation `flow feature run`. The `flow new` → `flow feature run` rename — touching `bin/lib/verbs.ts`, the wrapper, completion scripts, and dozens of skill references — is the "separate mechanical task" flagged earlier, not part of building the designer. The new epic verbs (`flow epic create`/`run`) are greenfield, so they carry no rename cost.
 
 ## 10. Clean seams left for the deferred orchestrator (noted, not designed)
 

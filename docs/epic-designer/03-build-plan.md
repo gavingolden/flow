@@ -24,7 +24,7 @@ Per `02` §4, the design artifact's decisions _are_ the list of likely-to-change
 - **D2 — DAG correctness algorithm.** _Context:_ a decomposition is only trustworthy if the graph is provably well-formed. _Decision:_ a pure Kahn's-algorithm helper (acyclic / orphan / ready-set), unit-tested in isolation. _Consequence:_ the graph-theory choice is hidden from everything else behind a `--validate` CLI. → **F2**
 - **D3 — CLI surface & epic identity.** _Context:_ the designer needs an invocation verb and a stable id for the future `run`/`status`. _Decision:_ a `flow epic` verb (`bin/lib/epic.ts` + `verbs.ts` + dispatch + completion) minting an epic-id via the existing `slug.ts`. _Consequence:_ CLI wiring and id/state storage are hidden behind one verb module. → **F3**
 - **D4 — The design methodology itself.** _Context:_ turning a prompt into requirements + design + a decomposition is the actual intelligence. _Decision:_ an epic-grain extension of `/product-planning`'s discovery implementing pipeline ① (`02` §4) — hybrid clarify (`02` §3), EARS criteria, Parnas/Simon vertical-slice decomposition (`02` §6), Mermaid DAG, Open Questions. _Consequence:_ the methodology is the most volatile part (it will be tuned often), so it is isolated in one skill/discovery surface that emits the stable manifest contract. → **F4**
-- **D5 — End-to-end flow & the human checkpoint.** _Context:_ the pieces must compose into `flow epic design "<prompt>"` with a review gate. _Decision:_ wire CLI → designer → validators → an `epic-design-pending-review` checkpoint mirroring `plan-pending-review`. _Consequence:_ the approval contract is hidden behind the integration feature, which closes the DAG. → **F5**
+- **D5 — End-to-end flow & the human checkpoint.** _Context:_ the pieces must compose into `flow epic create "<prompt>"` with a review gate. _Decision:_ wire CLI → designer → validators → an `epic-design-pending-review` checkpoint mirroring `plan-pending-review`. _Consequence:_ the approval contract is hidden behind the integration feature, which closes the DAG. → **F5**
 
 **Why these cuts (Parnas + Simon, `01` §Headline):** each feature hides exactly one volatile decision (D1–D5); the edges between them are the _stable_ interfaces (the manifest shape, the validator CLI, the verb surface). Inter-feature coupling is sparse by construction — every edge is a concrete produced/consumed artifact, never a "feels-later" — so each feature is independently buildable in the near-decomposable sense.
 
@@ -53,7 +53,7 @@ Five features. Each is one `flow new` pipeline / one PR, sized per `02` §6 (ver
 - **Secret hidden (D3):** CLI invocation surface + epic identity/state storage.
 - **Depends on:** **F1** — _edge artifact: the manifest/path contract it reads and writes._
 - **Produces:** `"epic"` in `bin/lib/verbs.ts`; `bin/lib/epic.ts` (`runEpicCli` dispatching `design`/`run`/`status`/`ls`, where `run`/`status`/`ls` are out-of-scope stubs that print "deferred — orchestrator phase"); epic-id minting via `slug.ts`; minimal epic-state read/write; a `runVerb` case in `bin/flow`; completion entries; tests.
-- **Acceptance:** WHEN `flow epic --help` runs THE SYSTEM SHALL print usage and exit 0; WHEN `flow epic design --help` runs THE SYSTEM SHALL short-circuit before any side effect (mirror the `flow new --help` guard); WHEN two epics are minted from colliding prompts THE SYSTEM SHALL produce distinct ids (slug `task-<hash>` fallback); the completion-parity test (which imports `VERBS`) passes.
+- **Acceptance:** WHEN `flow epic --help` runs THE SYSTEM SHALL print usage and exit 0; WHEN `flow epic create --help` runs THE SYSTEM SHALL short-circuit before any side effect (mirror the `flow new --help` guard); WHEN two epics are minted from colliding prompts THE SYSTEM SHALL produce distinct ids (slug `task-<hash>` fallback); the completion-parity test (which imports `VERBS`) passes.
 - **Skill:** `testing` (CLI wiring). **Size:** medium. **Note:** independently mergeable — ships the verb skeleton even before the designer logic exists; `design` is wired to the brain in F5.
 
 ### F4 · `designer-logic` — epic-grain discovery → design.md + manifest.json **[MVP · first real user value]**
@@ -65,12 +65,12 @@ Five features. Each is one `flow new` pipeline / one PR, sized per `02` §6 (ver
 - **Skill:** `product-planning` (reused/extended). **Size:** large but cohesive (it is the methodology). **Possible sub-split if it proves too big:** ship "prompt → design.md + manifest (autonomous)" first, add the hybrid clarification round second — a _vertical_ re-cut (each still emits valid artifacts), never a horizontal one.
 - **MVP marker:** **F1 + F2 + F4 is the minimal valuable designer** — invokable as a skill, producing a reviewed, validated decomposition, before any `flow epic` CLI ergonomics exist.
 
-### F5 · `epic-design-end-to-end` — `flow epic design` + approval checkpoint
+### F5 · `epic-design-end-to-end` — `flow epic create` + approval checkpoint
 
 - **Secret hidden (D5):** the end-to-end invocation + the human approval contract.
-- **Depends on:** **F3** — _edge artifact: the `flow epic design` verb entry;_ and **F4** — _edge artifact: the designer that produces the artifacts._
-- **Produces:** the wiring `flow epic design "<prompt>"` → mint id (F3) → run designer (F4) → write artifacts → run F1 + F2 validators as a gate → surface `design.md` at an `epic-design-pending-review` checkpoint (mirror `plan-pending-review`: approve / redirect / cancel); tests for the end-to-end happy path + the redirect path.
-- **Acceptance:** WHEN `flow epic design "<sample epic>"` runs THE SYSTEM SHALL write committed `design.md` + `manifest.json`, pass both validators, and halt at the approval checkpoint without launching or merging anything; WHEN the developer redirects at the checkpoint THE SYSTEM SHALL re-run the designer with the redirect appended; WHEN approved THE SYSTEM SHALL stop (handing off to the deferred orchestrator is out of scope).
+- **Depends on:** **F3** — _edge artifact: the `flow epic create` verb entry;_ and **F4** — _edge artifact: the designer that produces the artifacts._
+- **Produces:** the wiring `flow epic create "<prompt>"` → mint id (F3) → run designer (F4) → write artifacts → run F1 + F2 validators as a gate → surface `design.md` at an `epic-design-pending-review` checkpoint (mirror `plan-pending-review`: approve / redirect / cancel); tests for the end-to-end happy path + the redirect path.
+- **Acceptance:** WHEN `flow epic create "<sample epic>"` runs THE SYSTEM SHALL write committed `design.md` + `manifest.json`, pass both validators, and halt at the approval checkpoint without launching or merging anything; WHEN the developer redirects at the checkpoint THE SYSTEM SHALL re-run the designer with the redirect appended; WHEN approved THE SYSTEM SHALL stop (handing off to the deferred orchestrator is out of scope).
 - **Skill:** `testing` / `flow-pipeline` patterns (CLI + checkpoint wiring). **Size:** medium.
 
 ## 5. Dependency DAG
@@ -145,7 +145,7 @@ This is the same build plan as a schema-valid manifest in the `02` §5 shape —
       "dependsOn": ["f1-manifest-schema"],
       "rationale": "Hides D3 (CLI surface + epic identity/state); independently mergeable verb skeleton.",
       "acceptanceCriteria": [
-        "WHEN flow epic design --help runs THE SYSTEM SHALL short-circuit before any side effect",
+        "WHEN flow epic create --help runs THE SYSTEM SHALL short-circuit before any side effect",
         "WHEN the completion-parity test runs THE SYSTEM SHALL pass"
       ],
       "flowNewHints": { "copilotReview": "auto", "effort": "medium" }
@@ -165,12 +165,12 @@ This is the same build plan as a schema-valid manifest in the `02` §5 shape —
     },
     {
       "id": "f5-end-to-end",
-      "title": "flow epic design end-to-end + approval checkpoint",
-      "description": "Wire flow epic design '<prompt>' → mint id (F3) → run designer (F4) → write artifacts → run F1+F2 validators as a gate → surface design.md at an epic-design-pending-review checkpoint (approve/redirect/cancel); stop (no execution).",
+      "title": "flow epic create end-to-end + approval checkpoint",
+      "description": "Wire flow epic create '<prompt>' → mint id (F3) → run designer (F4) → write artifacts → run F1+F2 validators as a gate → surface design.md at an epic-design-pending-review checkpoint (approve/redirect/cancel); stop (no execution).",
       "dependsOn": ["f3-epic-cli", "f4-designer-logic"],
       "rationale": "Hides D5 (end-to-end flow + human approval contract); the diamond-closing integration.",
       "acceptanceCriteria": [
-        "WHEN flow epic design '<sample epic>' runs THE SYSTEM SHALL write committed artifacts, pass both validators, and halt at the checkpoint without launching or merging",
+        "WHEN flow epic create '<sample epic>' runs THE SYSTEM SHALL write committed artifacts, pass both validators, and halt at the checkpoint without launching or merging",
         "WHEN the developer redirects at the checkpoint THE SYSTEM SHALL re-run the designer with the redirect appended"
       ],
       "flowNewHints": { "copilotReview": "always", "effort": "high" }

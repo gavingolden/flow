@@ -19,7 +19,7 @@ DAG:  A → B → { C, D } → E      root → chain → fan-out → join
 
 **Design phase (designed).** One tmux window, one Claude session, exactly like `flow new`:
 
-1. `flow epic design "add a watchlist: schema, backend, list + add-form UI, nav wiring"`. The designer runs discovery at epic altitude. If it finds a _material_ ambiguity (one that changes the feature set or the DAG shape) it fires **one** `AskUserQuestion` round; otherwise it proceeds. → you answer 0–N questions, once.
+1. `flow epic create "add a watchlist: schema, backend, list + add-form UI, nav wiring"`. The designer runs discovery at epic altitude. If it finds a _material_ ambiguity (one that changes the feature set or the DAG shape) it fires **one** `AskUserQuestion` round; otherwise it proceeds. → you answer 0–N questions, once.
 2. It writes `design.md` + `manifest.json`, opens a **design PR**, and **pauses at the checkpoint** (phase `epic-design-pending-review`, turn ends — the same mechanic as `plan-pending-review`).
 3. You review the PR — the prose design and the Mermaid DAG — and **approve** (merge) or **redirect** ("split B into read/write"; the designer re-runs). On merge the design artifacts land in `main`.
 
@@ -29,7 +29,7 @@ DAG:  A → B → { C, D } → E      root → chain → fan-out → join
 
 | Step           | What happens                                                       | Ready set          | Worktrees alive                           | Files written / where                                                               |
 | -------------- | ------------------------------------------------------------------ | ------------------ | ----------------------------------------- | ----------------------------------------------------------------------------------- |
-| 0              | `flow epic design "…"`                                             | —                  | **design wt** `flow-watchlist/`           | discovery scratch in `flow-watchlist/.flow-tmp/`                                    |
+| 0              | `flow epic create "…"`                                             | —                  | **design wt** `flow-watchlist/`           | discovery scratch in `flow-watchlist/.flow-tmp/`                                    |
 | 1              | designer emits artifacts, opens design PR, **pauses**              | —                  | design wt                                 | `flow-watchlist/.flow/epics/watchlist/{design.md,manifest.json}` (on the PR branch) |
 | 2              | you approve → **design PR merges**                                 | —                  | _(design wt removed)_                     | `.flow/epics/watchlist/{design.md,manifest.json}` now in **`main`** — survives      |
 | 3 _(deferred)_ | `flow epic run watchlist` → tick reads manifest, computes frontier | **{A}**            | A's wt `flow-watchlist-schema/`           | A runs as a normal `flow new`; scratch in _its_ `.flow-tmp/`                        |
@@ -54,12 +54,12 @@ So: **design output is durable and git-auditable; feature scratch dies with each
 
 ## Supervisor / script — start, pause, resume
 
-- **Design supervisor (designed).** A normal one-window Claude session. **Starts** on `flow epic design`. **Pauses** once, at the design checkpoint (writes the pending phase, ends the turn — crash-resilient via the same resume-from-disk logic as `/flow-pipeline`). **Resumes** when you approve/redirect. **Ends** at the gated/merged design PR.
+- **Design supervisor (designed).** A normal one-window Claude session. **Starts** on `flow epic create`. **Pauses** once, at the design checkpoint (writes the pending phase, ends the turn — crash-resilient via the same resume-from-disk logic as `/flow-pipeline`). **Resumes** when you approve/redirect. **Ends** at the gated/merged design PR.
 - **Run orchestrator (deferred — `00` Decision J).** Deliberately **not** a long-lived process. A **stateless tick**: invoked (by `flow epic run`, opportunistically on `flow epic status`, or a launchd timer), it reads disk → computes the frontier → launches newly-ready `flow new` windows → **exits**. It doesn't "pause" in a process sense — between ticks nothing of _it_ runs; the per-feature pipelines run independently in their own windows. It "resumes" by ticking again and re-reading disk. That is the "not a daemon" choice, and why crash-resilience is free.
 
 ## Dogfooding & the bootstrap problem
 
-**You cannot use `flow epic design` to build the epic designer — chicken-and-egg.** The tool doesn't exist until features F1–F5 (`03-build-plan.md`) land, so the first epic must be built without it.
+**You cannot use `flow epic create` to build the epic designer — chicken-and-egg.** The tool doesn't exist until features F1–F5 (`03-build-plan.md`) land, so the first epic must be built without it.
 
 What _is_ already dogfooded is the **output format**: `03` is a hand-authored instance of exactly what the designer emits — a feature-DAG manifest, with an embedded `manifest.json` built to pass its own F1/F2 validators.
 
