@@ -973,9 +973,21 @@ For each `- [ ]` item, classify before running:
   `./scripts/foo.ts`, `curl localhost:3000/x` paired with a documented assertion,
   "edit `.gitignore`, create symlink, run `flow setup --upgrade`, confirm `1
   removed` and the symlink is gone."
-- **Not runnable**: requires a deploy target, irreducibly-aesthetic human judgment ("the
-  modal animates smoothly", "does this feel premium?"), production credentials, or external
-  services (Slack post, Stripe redirect, real-LLM judgment). Leave unticked.
+- **Not runnable**: requires a GENUINELY external/irreversible resource — a deploy target,
+  production credentials, or a real third-party service (Slack post, Stripe redirect,
+  real-LLM judgment) — that the agent cannot stand up locally, OR irreducibly-aesthetic human
+  judgment ("the modal animates smoothly", "does this feel premium?"). Leave unticked.
+  **"Needs the local stack" is NOT a not-runnable signal** — a local DB, a dev server, or a
+  seeded fixture is local-and-reversible setup the agent performs, not an external dependency.
+- **Runnable when the only blockers are local and reversible**: a step whose only unmet
+  preconditions are `local and reversible` — start the dev server, bring up / seed the local
+  DB, set a local `.env` var, drive the repo's own headless browser — is runnable, and the
+  agent MUST satisfy those preconditions itself before ticking or gating. Probe-then-attempt
+  when unsure a dependency is up: probe (`supabase status`, a port/health check), attempt to
+  start it (`npm run dev`, `supabase start`), then run the step; leave it not-runnable and
+  unticked only after a genuine attempt fails for a reason outside the agent's control. See
+  `references/manual-test-rubric.md` ("Genuinely manual", "Automate first") for the full
+  contract.
 - **Browser items are a runnable bucket when MCP + manifest are present.** A
   visual-appearance item ("the delete button is right-aligned in the card footer", "the
   focus ring is visible on keyboard-tab to the primary action") that would otherwise be
@@ -986,9 +998,12 @@ For each `- [ ]` item, classify before running:
 
 **Self-check before classifying anything as not-runnable**: am I about to invoke
 phrases like "out of scope for an automated agent run", "the harness flagged this
-as manual", or "this is the author's deliberate human sanity check"? If so, stop —
-those are post-hoc excuses, not real signals. The bar is literal: can I exec this
-from a terminal in this repo? If yes, run it.
+as manual", "this is the author's deliberate human sanity check", or "needs the
+local stack / a dev server / a local DB / a seeded DB"? If so, stop — those are
+post-hoc excuses, not real signals. A missing local stack is a setup step I run
+(start the dev server, bring up / seed the local DB), not a not-runnable signal.
+The bar is literal: can I exec this from a terminal in this repo — standing up any
+local-and-reversible dependency it needs first? If yes, run it.
 
 **Second self-check — author-prose promotion**: when the item is written as prose
 ("verify `runner.pid` exists and matches printed PID", "confirm `~/.flow/state/<slug>.json`
@@ -1099,11 +1114,20 @@ referenced by path. The full runnable-bucket procedure, the captures contract,
 the **Screenshot save-path cascade**, and the env-injected launch / clean
 teardown / self-improving-manifest persist-back behavior live in
 [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
-On missing MCP schema (the guarded
-`ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns
-nothing), every browser item stays not-runnable and unticked exactly as today —
-no regression. Adds **no new Task-tool exemption**: Step 8c runs inside the
-already-exempt Fix-Applier surface.
+When the `chrome-devtools` MCP is **absent or contended** — the guarded
+`ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns nothing
+(absent), or an attempted MCP call fails because its single Chrome profile is
+already in use by a concurrent pipeline (contended) — drive the repo's
+own headless browser instead (e.g. `@playwright/test`) **when the repo has one**,
+rather than leaving the browser item manual: a local headless browser is a
+local-and-reversible dependency the agent stands up, not an external service. The
+`@playwright/test` run is an ordinary Bash invocation, so it preserves
+**Durable-test precedence** and stays **Automatable via the browser-validation
+capability**. Only if neither the MCP nor a repo headless browser is available does
+the browser item legitimately stay not-runnable and unticked exactly as today —
+no regression. Adds **no new Task-tool exemption**: Step 8c (MCP or the ordinary
+headless-browser Bash invocation alike) runs inside the already-exempt Fix-Applier
+surface.
 
 ### 8c.i. Inject evidence under each runnable item
 

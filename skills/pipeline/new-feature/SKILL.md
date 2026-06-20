@@ -417,7 +417,12 @@ Always emit the heading. Decide the body based on the change:
   `[ "$(cat <path>)" = "<expected>" ]`) so `/pr-review` Step 8c can run it and tick
   the box. Manual prose survives only when the rubric flags the scenario as genuinely
   manual (subjective UX, production-only integrations, cross-browser rendering,
-  performance under realistic load). Authoring manual prose for an automatable
+  performance under realistic load). A step whose only unmet preconditions are
+  `local and reversible` (start the dev server, bring up / seed the local DB, set a
+  local `.env` var, drive a headless browser) is `locally satisfiable` — write it as
+  the runnable setup-plus-assertion, NOT pre-labeled "manual — needs the local
+  stack"; see `references/manual-test-rubric.md` ("Genuinely manual") for the
+  boundary. Authoring manual prose for an automatable
   scenario is the failure mode this contract exists to prevent — it surfaces as a
   `GATED:` end state where every unticked item could have been an exit-code check
   the agent ran itself.

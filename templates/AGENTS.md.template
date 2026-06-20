@@ -79,6 +79,24 @@ tolerantly; malformation degrades to defaults with no error). A
 genuinely-uncovered file (no `package.json` owner, no stack marker, no
 config) still fails the gate loudly with `reason: "unmatched-files"`.
 
+**Satisfy local, reversible Test-Step preconditions yourself — don't gate them
+as manual.** A Test Step whose only unmet preconditions are
+**local and reversible** is runnable, not manual: start the dev server, bring up
+/ seed the local DB, set a local `.env`, drive the repo's own headless browser
+(if present), and run it. When you are unsure whether a local dependency (Docker, a local DB, a
+dev server) is already up, probe-then-attempt — probe for it, try to start it,
+then run the step — and leave it manual only after a genuine attempt fails for a
+reason outside your control. Reserve the manual gate for genuinely external or
+irreversible resources (production credentials, deploy targets, third-party
+services like Slack/Stripe/real-LLM) or subjective human judgment.
+
+This boundary does **not** loosen the `### Requires Approval` or
+`### Forbidden (No Exceptions)` guardrails above: the `.github/workflows/*`
+approval gate, the destructive-git approval rules, and the credential
+prohibitions all stay in force verbatim. Standing up a *local* stack to run a
+step is orthogonal to those guardrails — it grants no new license over external
+systems, prod writes, or secrets.
+
 ### Browser-driven UI validation (optional, opt-in)
 
 flow can self-validate the rendered UI — render smoke (no console errors,
