@@ -464,6 +464,96 @@ describe("pipeline-snapshot wiring lint", () => {
   });
 });
 
+describe("gate-stage echo-verbatim recap wiring lint", () => {
+  // Pins the `--echo-prose` echo-verbatim contract: the supervisor must echo
+  // the helper-computed recap block VERBATIM as assistant prose (not tool
+  // output, which Claude Code truncates) at every gate site, the delimiter
+  // markers must match the helper's emitted markers, and the bounded field set
+  // must stay pinned so the recap can't grow into a second snapshot. Mirrors
+  // the `pipeline-snapshot wiring lint` describe above.
+
+  it("documents the echo-verbatim contract subsection (prose, not tool output)", () => {
+    expect(
+      content.includes("echo it VERBATIM"),
+      "flow-pipeline SKILL.md must instruct the supervisor to 'echo it VERBATIM' — " +
+        "the recap block is mirrored, not restated from memory.",
+    ).toBe(true);
+    expect(
+      content.includes("prose, not tool output"),
+      "flow-pipeline SKILL.md must name the 'prose, not tool output' rationale — " +
+        "Claude Code truncates Bash tool results, so the recap must render as " +
+        "assistant prose.",
+    ).toBe(true);
+    expect(
+      content.includes("Gate-stage echo-verbatim recap"),
+      "flow-pipeline SKILL.md must carry the single-source-of-truth " +
+        "'Gate-stage echo-verbatim recap' subsection that the per-site " +
+        "references point at.",
+    ).toBe(true);
+  });
+
+  it("names both echo-recap delimiter markers so the extraction can't drift from the helper", () => {
+    for (const marker of [
+      "<!-- flow-echo-recap:start -->",
+      "<!-- flow-echo-recap:end -->",
+    ] as const) {
+      expect(
+        content.includes(marker),
+        `flow-pipeline SKILL.md must name the delimiter marker '${marker}' so the ` +
+          "extraction instruction stays in sync with bin/lib/echo-recap.ts's " +
+          "emitted markers.",
+      ).toBe(true);
+    }
+  });
+
+  it("wires --echo-prose at the post-review gate sites and the awaiting-approval gate", () => {
+    expect(
+      /flow-pipeline-summary[^\n]*--echo-prose/.test(content),
+      "flow-pipeline SKILL.md must pass '--echo-prose' to flow-pipeline-summary " +
+        "at the post-review gate sites (MERGED / GATED / NEEDS HUMAN / " +
+        "merged-externally).",
+    ).toBe(true);
+    expect(
+      content.includes(
+        "flow-gate-summary --status awaiting-approval --echo-prose",
+      ),
+      "flow-pipeline SKILL.md must pass '--echo-prose' to " +
+        "'flow-gate-summary --status awaiting-approval' for the plan-approval gate.",
+    ).toBe(true);
+  });
+
+  it("pins the bounded recap field set so the recap can't grow open-ended", () => {
+    // Anchor on the `### ` heading (not the earlier cross-reference links that
+    // share the title), and slice to the subsection's end (`# Resume mode`).
+    const subsectionIdx = content.indexOf("### Gate-stage echo-verbatim recap");
+    expect(
+      subsectionIdx,
+      "the '### Gate-stage echo-verbatim recap' subsection must exist to anchor " +
+        "the bounded field set.",
+    ).toBeGreaterThan(0);
+    const subsectionEnd = content.indexOf("# Resume mode", subsectionIdx);
+    const subsection = content.slice(subsectionIdx, subsectionEnd);
+    for (const field of [
+      "PR URL",
+      "plan-file path",
+      "branch",
+      "PR number",
+      "PR title",
+      "current phase",
+      "CI verdict",
+      "review verdict",
+      "finding count",
+      "follow-up count",
+    ] as const) {
+      expect(
+        subsection.includes(field),
+        `the echo-verbatim contract subsection must pin the bounded field '${field}' ` +
+          "so the recap stays a concise re-orientation block, not a second snapshot.",
+      ).toBe(true);
+    }
+  });
+});
+
 describe("pr-review deferral-tracker lint", () => {
   it("the wrapper SKILL.md names flow-create-issue and no ROADMAP.md fallback", () => {
     expect(
