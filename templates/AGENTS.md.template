@@ -248,6 +248,27 @@ The motivating incident: an automated visual pass left the chrome-devtools
 MCP Chrome running, holding its profile lock and orphaning a browser window,
 which blocked the MCP for the rest of the run.
 
+### Google-AI delegation via headless Antigravity (optional)
+
+`flow-delegate` is an optional helper that offloads a single prompt to a
+**headless Antigravity (`agy`) session** running on your **Google AI Ultra
+subscription quota**, writing the model's output to
+`.flow-tmp/delegate-<task>.md`. It exists for **cost-arbitrage** — spend idle
+Ultra quota on research / heavy reasoning instead of Claude subscription
+credits.
+
+Onboarding is one step: install the Antigravity CLI (`agy`) and log in once via
+Google OAuth with your Ultra account (`agy` caches the session in your OS
+keyring). No API key is needed — a local OAuth login draws the subscription
+quota. When `agy` is absent or logged out, `flow-delegate` exits 0 with
+`{ran:false,skipReason}`, so a pipeline that hasn't configured it proceeds and
+never hard-fails — the same opt-in-by-presence model as UI validation above.
+
+Usage: `flow-delegate --prompt "<text>" [--model "Gemini 3.1 Pro (High)"]
+[--timeout 5m] [--out <path>]`. Omit `--model` to use your agy session default;
+pass a Gemini variant for model diversity. It is a standalone leaf helper —
+flow does not auto-invoke it from any pipeline step.
+
 ### Command Execution
 
 Prefer absolute paths over `cd <path> &&` to maintain a consistent working directory.

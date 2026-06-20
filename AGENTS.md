@@ -211,7 +211,7 @@ token-savings impact, highest first.
 Source for shipped helper binaries lives in **`bin/`**. The user-callable
 helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-state-update`,
-`flow-notify`, `flow-stop-guard`, `flow-ui-validate` — live there with `.ts`
+`flow-notify`, `flow-stop-guard`, `flow-ui-validate`, `flow-delegate` — live there with `.ts`
 extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow setup`
 symlinks each into `~/.local/bin/<name>` (extensionless on PATH).
 `flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import,
