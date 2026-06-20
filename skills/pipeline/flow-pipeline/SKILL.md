@@ -737,8 +737,11 @@ context-cost win the subagent fan-out is designed to deliver).
   `<!-- flow-echo-recap:end -->` from the helper output and echo it VERBATIM
   as markdown bullets in your assistant message (prose, not tool output) — see
   the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose)
-  subsection. At AWAITING APPROVAL no reviewable artifact exists yet, so the
-  recap carries only the plan-file bullet.
+  subsection. At AWAITING APPROVAL no reviewable artifact exists yet, so
+  `flow-gate-summary --echo-prose` calls `renderEchoRecap({ planFile })`: the
+  block still carries the full bounded field set, but the plan-file path is the
+  only populated bullet — the PR URL and every review/CI/count field render the
+  literal `none`.
 
   The helper renders two markdown bullets as the **last** lines of
   the message — the worktree absolute path first, the plan file's
