@@ -2316,6 +2316,79 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("manual-test-rubric.md names the three-tier pyramid's 'lowest faithful layer' principle", () => {
+    expect(
+      manualTestRubricContent.includes("lowest faithful layer"),
+      "manual-test-rubric.md must contain the phrase 'lowest faithful layer' — " +
+        "the load-bearing principle of the unit -> HTTP/integration -> browser " +
+        "test pyramid: push every assertion to the cheapest tier that can still " +
+        "fail honestly. It anchors the 'Automate first' pyramid framing and the " +
+        "'Decompose a manual step by layer' section. Renaming the phrase must " +
+        "update this lint in the same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md contains the 'Decompose a manual step by layer' section", () => {
+    expect(
+      manualTestRubricContent.includes("Decompose a manual step by layer"),
+      "manual-test-rubric.md must contain the section heading 'Decompose a " +
+        "manual step by layer' — the single source of truth for the layered " +
+        "decomposition rule (route a backend/API contract to an integration " +
+        "test, reserve the browser tier for assertions only a browser can make, " +
+        "split a step that bundles the two). Four sites defer to this phrase by " +
+        "reference (new-feature/SKILL.md Step 4b, product-planning " +
+        "discovery-instructions.md Step 7, pr-review/SKILL.md Step 8c, " +
+        "pr-review references/agent-prompts.md); renaming it must update all " +
+        "four sites and this lint in the same commit (AGENTS.md " +
+        "anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("all four consumer sites defer to the rubric's 'Decompose a manual step by layer' section", () => {
+    expect(
+      newFeatureContent.includes("Decompose a manual step by layer"),
+      "new-feature/SKILL.md Step 4b must reference the rubric's 'Decompose a " +
+        "manual step by layer' section — the cross-file-deference contract: the " +
+        "layered-decomposition rule is anchored once in manual-test-rubric.md " +
+        "(the single source of truth), and each authoring site defers to it by " +
+        "name rather than inlining the rule body. Dropping the reference here " +
+        "silently orphans the requirement. Renaming the section name must update " +
+        "all four consumer sites and this lint in the same commit (AGENTS.md " +
+        "anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("Decompose a manual step by layer"),
+      "product-planning discovery-instructions.md Step 7 must reference the " +
+        "rubric's 'Decompose a manual step by layer' section — same " +
+        "cross-file-deference contract as new-feature/SKILL.md: the rule is " +
+        "anchored once in manual-test-rubric.md and deferred to by name here. " +
+        "Dropping the reference silently orphans the requirement. Renaming the " +
+        "section name must update all four consumer sites and this lint in the " +
+        "same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("Decompose a manual step by layer"),
+      "pr-review/SKILL.md Step 8c must reference the rubric's 'Decompose a " +
+        "manual step by layer' section — the layered-decomposition " +
+        "classification cue routes a backend-contract assertion embedded in a " +
+        "browser-flavored step to a Step 11e `Fail (automatable)` conversion " +
+        "(integration tier) rather than auto-classifying it browser-only. " +
+        "Dropping the reference silently reverts Step 8c to the conflated " +
+        "behavior. Renaming the section name must update all four consumer sites " +
+        "and this lint in the same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      agentPromptsContent.includes("Decompose a manual step by layer"),
+      "pr-review references/agent-prompts.md must reference the rubric's " +
+        "'Decompose a manual step by layer' section — the multi-agent test lens " +
+        "applies layered decomposition so a conflated backend-contract-plus-" +
+        "visual manual step is flagged for an integration test. Dropping the " +
+        "reference silently orphans the cue. Renaming the section name must " +
+        "update all four consumer sites and this lint in the same commit " +
+        "(AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
   it("redirect-handling.md requires a gate override to be fresh, unambiguous, and in-context", () => {
     expect(
       redirectHandlingContent.includes("## Gate override"),

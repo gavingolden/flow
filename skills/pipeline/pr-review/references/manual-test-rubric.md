@@ -20,6 +20,8 @@ human cost — for the author, the reviewer, and every future contributor who ru
 before merging a related change. When a scenario can be expressed as "run command X, assert
 condition Y," it should be an automated test, not a manual checklist item.
 
+**Automation is a three-tier pyramid, not a binary.** "Run command X, assert condition Y" spans three layers, and the cheapest one that can still fail honestly wins. A **unit** test exercises a pure function or a request-builder in isolation. An **HTTP / integration** test spins up a local server and issues an authenticated request (real auth token; real or stubbed upstream) to exercise a backend/API contract end to end on the server side — no browser involved. A **browser** check observes what only a real render can: rendered output, console errors, accessibility, visual layout, and how many requests the deployed client actually fires. Push each assertion to the **lowest faithful layer** — the cheapest tier that still fails when the behavior breaks. The recurring-cost argument is why: a unit or integration test runs in CI on every change forever; a browser-manual step bills a human each time. See **Decompose a manual step by layer** below for how to apply this when a candidate step looks browser-shaped.
+
 > **Section headings do not exempt items from this rubric.** "Test Steps" is the
 > canonical heading and the auto-merge gate signal, not a verdict on automatability.
 > Apply the rubric to each checkbox individually — if it passes the automation
@@ -206,6 +208,36 @@ browser-validation MCP pass for the **live exploratory + visual-evidence**
 checks not worth a permanent spec (the subjective visual-appearance judgment,
 the one-off render smoke). The MCP capability complements the durable suite; it
 does not replace it.
+
+### Decompose a manual step by layer
+
+Before authoring any Test Step as browser-manual, run the **layer test**: is the intent a backend/API contract you could exercise by spinning up a local server and issuing an authenticated request (real auth token; real or stubbed upstream)? If yes, it is a deterministic **integration test**, not a manual step — author it at the HTTP tier and let CI run it forever. Reserve the **browser tier** strictly for assertions only a browser can make: rendered output, console errors, accessibility, visual layout, and how many requests the deployed client code actually fires through a live render. Use the `chrome-devtools` MCP for live and visual _evidence_; prefer a durable Playwright/vitest spec for any deterministic browser assertion worth guarding forever (the **Durable-test precedence** note above, applied to the browser tier).
+
+**A single manual step often bundles assertions from more than one tier — split it.** When one step mixes a backend-contract assertion with a genuinely-visual one, separate them and push each to its **lowest faithful layer**: the contract half becomes an integration test, the visual remainder stays a browser check (manual or MCP). The carve-outs are _not_ re-routed by this rule — subjective UX, cross-browser engines, and performance-under-realistic-load remain genuinely manual (see **Genuinely manual** above). The rule only rescues backend-contract assertions that were mis-filed as browser-manual; it never demotes a genuinely-visual or genuinely-manual assertion to a tier that cannot faithfully make it.
+
+This is the **lowest faithful layer** principle from **Automate first**, made operational at authoring time. Both human authors (`/new-feature` Step 4b, `/product-planning` Step 7) and the `/pr-review` Step 8c automation pass apply it when they read a browser-flavored step.
+
+#### Worked example: a watchlist batch-load step (modeled on `gavingolden/econ-data#370`)
+
+An econ-data PR ("feat(watchlist): batch cold-load via Go envelope endpoint") added a cold-load path where one envelope endpoint serves a whole watchlist. It shipped with a single gated manual step:
+
+**Anti-pattern — one step, a backend contract and a visual check conflated:**
+
+- [ ] Open `/watchlist` and, in the network panel, confirm exactly one batch request and zero HTTP 429s, then sort by a return column and confirm the rows reorder correctly.
+
+That one line buries a rich, automatable backend contract under a network-panel glance. Six of its assertions are exercisable over authenticated HTTP against a local server — none need a browser. Expanded, each pushed to its lowest faithful layer:
+
+**Comprehensive — backend contract at the integration tier, thin visual remainder left manual:**
+
+- [ ] Run `npm run test -- watchlist-batch.test.ts -t "single envelope"` — one request to the batch endpoint serves the whole 40-ticker watchlist (one envelope, not 40 calls).
+- [ ] Run `npm run test -- watchlist-batch.test.ts -t "no rate limiting"` — the batch path issues zero upstream requests that return HTTP 429.
+- [ ] Run `npm run test -- watchlist-batch.test.ts -t "compact strip payload"` — the envelope returns the compact strip shape, not the full per-ticker series.
+- [ ] Run `npm run test -- watchlist-batch.test.ts -t "cache reuse"` — a second load reuses each ticker's cached entry rather than re-fetching it.
+- [ ] Run `npm run test -- watchlist-batch.test.ts -t "100-symbol cap"` — a watchlist above the 100-symbol cap is rejected or truncated at the documented boundary.
+- [ ] Run `npm run test -- watchlist-batch.test.ts -t "per-symbol degrade"` — one failing symbol degrades to its own error state without sinking the whole envelope.
+- [ ] Open `/watchlist`, and in the network panel confirm the deployed client fires exactly one batch request, then sort by a return column and confirm the rows reorder correctly (the literal request _count the live client fires_ and the visual sort are the only browser-faithful assertions here).
+
+Six backend-contract assertions move to deterministic integration tests that run in CI forever; only the count _as the deployed client fires it through a live render_ and the visual sort stay a browser step. The original step left the whole bundle manual — and the PR's own test suite already asserted "an N-symbol watchlist issues exactly one batch request" at the store layer, proving the contract half was automatable all along. Note the request _count_ stays in the visual remainder only because it asserts what the live client fires end to end; the same count asserted against the request-builder's logic is a unit test, not a browser check.
 
 ### The `<!-- flow:authoring-rubric -->` marker
 

@@ -463,6 +463,13 @@ Always emit the heading. Decide the body based on the PRD:
   `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Coverage breadth") for the
   requirement and a worked multi-facet example.
 
+  Before writing any item as a browser-manual step, apply the layered-decomposition check:
+  route a backend/API contract to a deterministic integration test, reserve the browser tier
+  for assertions only a browser can make, and split a step that bundles the two — pushing each
+  assertion to its lowest faithful layer. See
+  `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Decompose a manual step by layer")
+  for the rule and the econ-data #370 worked example.
+
   For whatever stays manual, spell out the exact how for every precondition the step states —
   name the command, click path, or setting that satisfies it, assuming no prior knowledge of
   project-specific toggles or jargon, and never a bare "turn X on" / "with X enabled" without

@@ -563,6 +563,11 @@ Your concern is: **will the test suite catch regressions in the changed code?**
    test from `references/manual-test-rubric.md`:
    if the scenario can be expressed as fixture + deterministic assertion + exit
    condition without subjective judgment, it should be a test, not a manual checkbox.
+   Also apply **Decompose a manual step by layer** from the same rubric: a backend/API
+   contract hidden inside a browser-flavored step (a network-panel request count, an
+   envelope shape, a cache / cap / per-symbol-degrade invariant) is runnable over an
+   authenticated HTTP request to a local server — flag it for an integration test and keep
+   only the genuinely-visual remainder manual, splitting any step that bundles the two.
    Flag each safely-automatable manual item with a sketch of the assertion and the
    target test file. Default to "automate it"; reserve manual for the rubric's
    "Genuinely manual" categories (subjective UX, prod-only integrations, cross-browser
