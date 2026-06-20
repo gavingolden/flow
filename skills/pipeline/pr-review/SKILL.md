@@ -984,8 +984,8 @@ For each `- [ ]` item, classify before running:
   DB, set a local `.env` var, drive the repo's own headless browser — is runnable, and the
   agent MUST satisfy those preconditions itself before ticking or gating. Probe-then-attempt
   when unsure a dependency is up: probe (`supabase status`, a port/health check), attempt to
-  start it (`npm run dev`, `supabase start`), then run the step; leave it manual only after a
-  genuine attempt fails for a reason outside the agent's control. See
+  start it (`npm run dev`, `supabase start`), then run the step; leave it not-runnable and
+  unticked only after a genuine attempt fails for a reason outside the agent's control. See
   `references/manual-test-rubric.md` ("Genuinely manual", "Automate first") for the full
   contract.
 - **Browser items are a runnable bucket when MCP + manifest are present.** A
@@ -1115,8 +1115,9 @@ the **Screenshot save-path cascade**, and the env-injected launch / clean
 teardown / self-improving-manifest persist-back behavior live in
 [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
 When the `chrome-devtools` MCP is **absent or contended** — the guarded
-`ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns nothing,
-or its single Chrome profile is busy on a concurrent pipeline — drive the repo's
+`ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns nothing
+(absent), or an attempted MCP call fails because its single Chrome profile is
+already in use by a concurrent pipeline (contended) — drive the repo's
 own headless browser instead (e.g. `@playwright/test`) **when the repo has one**,
 rather than leaving the browser item manual: a local headless browser is a
 local-and-reversible dependency the agent stands up, not an external service. The
