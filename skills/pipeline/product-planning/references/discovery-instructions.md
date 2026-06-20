@@ -513,7 +513,7 @@ skills/pipeline/pr-review/references/manual-test-rubric.md. -->
 
 - [ ] Run `npm run test -- <test-file>` — all specs pass.
 - [ ] Run `[ -f <path> ] && grep -q "<expected>" <path>` — config is wired.
-- [ ] SUBJECTIVE: you approve the overall look and feel of the new /portfolio page
+- [ ] SUBJECTIVE: you approve the overall look and feel of the new <route> page
 
 ````
 
