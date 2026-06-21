@@ -3033,4 +3033,28 @@ describe("browser-driven UI-validation structural anchors", () => {
         "visual-appearance assertions as Test Steps.",
     ).toBe(true);
   });
+
+  it("the multi-viewport 'UI traits to verify' rubric stays wired and not skippable", () => {
+    // The per-viewport responsive rubric is the single source of truth both
+    // browser passes apply per captured viewport; this anchor fails if the
+    // rubric is dropped, un-wired from one pass, or the 1.4.10 Reflow citation
+    // is removed from the ui-ux judgment dimension.
+    const rubricHeading = "## UI traits to verify";
+    expect(
+      uiValidationEvidenceContent.includes(rubricHeading),
+      "references/ui-validation-evidence.md must author the canonical " +
+        "'## UI traits to verify' rubric block (the single source of truth " +
+        "both browser passes apply per captured viewport).",
+    ).toBe(true);
+    expect(
+      uiSmokePassContent.includes("UI traits to verify"),
+      "flow-pipeline/references/ui-smoke-pass.md must reference the " +
+        "'UI traits to verify' rubric so both passes point at the same block.",
+    ).toBe(true);
+    expect(
+      uiUxContent.includes("1.4.10"),
+      "ui-ux SKILL.md must cite WCAG 1.4.10 Reflow in the responsive-layout " +
+        "judgment dimension (the no-horizontal-scroll-at-320px floor).",
+    ).toBe(true);
+  });
 });

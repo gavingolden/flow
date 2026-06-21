@@ -35,6 +35,12 @@ export type UiValidationCredentialEnvVars = {
   pass: string;
 };
 
+export type Viewport = {
+  name: string;
+  width: number;
+  height?: number;
+};
+
 export type UiValidationManifest = {
   launch: string;
   baseUrl: string;
@@ -45,6 +51,7 @@ export type UiValidationManifest = {
   disableAnimations?: boolean;
   ignoreConsolePatterns?: string[];
   ignoreRequestPatterns?: string[];
+  viewports?: Viewport[];
 };
 
 export type ValidationOk<T> = { ok: true; value: T };
@@ -71,6 +78,10 @@ function err(reason: string, path?: string): ValidationErr {
   return { ok: false, reason, path };
 }
 
+function isPositiveFiniteNumber(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v) && v > 0;
+}
+
 function validateRoute(
   r: unknown,
   idx: number,
@@ -87,6 +98,24 @@ function validateRoute(
     );
   }
   return { ok: true, value: r as unknown as UiValidationRoute };
+}
+
+function validateViewport(v: unknown, idx: number): ValidationResult<Viewport> {
+  if (!isPlainObject(v)) {
+    return err(`viewports[${idx}] must be an object`);
+  }
+  if (!isNonEmptyString(v.name)) {
+    return err(`viewports[${idx}].name must be a non-empty string`);
+  }
+  if (!isPositiveFiniteNumber(v.width)) {
+    return err(`viewports[${idx}].width must be a positive number`);
+  }
+  if (v.height !== undefined && !isPositiveFiniteNumber(v.height)) {
+    return err(
+      `viewports[${idx}].height must be a positive number when present`,
+    );
+  }
+  return { ok: true, value: v as unknown as Viewport };
 }
 
 export function validateUiValidationManifest(
@@ -170,6 +199,16 @@ export function validateUiValidationManifest(
     return err(
       "'ignoreRequestPatterns' must be an array of strings when present",
     );
+  }
+
+  if (parsed.viewports !== undefined) {
+    if (!Array.isArray(parsed.viewports)) {
+      return err("'viewports' must be an array when present");
+    }
+    for (let i = 0; i < parsed.viewports.length; i++) {
+      const v = validateViewport(parsed.viewports[i], i);
+      if (!v.ok) return v;
+    }
   }
 
   return { ok: true, value: parsed as UiValidationManifest };

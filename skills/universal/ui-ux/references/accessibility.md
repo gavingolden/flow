@@ -9,6 +9,7 @@ Users must be able to perceive the information regardless of sense or assistive 
 - Provide text alternatives for non-text content — every meaningful image, icon, and chart needs an accessible description; purely decorative graphics are marked so assistive tech can skip them.
 - Meet color-contrast targets. Treat WCAG AA contrast as the practical floor for text against its background, and verify it rather than eyeballing it.
 - Never rely on color alone to convey meaning. Pair color with a label, icon, shape, or text so a status or distinction survives for users who can't perceive the hue (WCAG: use of color).
+- Reflow without loss (WCAG 2.2 success criterion **1.4.10 Reflow**): content must reflow to a single column at a 320px CSS width — equivalent to a 400% zoom of a 1280px viewport — with no loss of content or functionality and **no two-dimensional / horizontal scrolling** to read it. Verify the narrowest width directly: text wraps rather than truncating, and nothing overflows the viewport horizontally. This is the accessibility floor the responsive-layout judgment dimension and the per-viewport mechanical overflow assertion both enforce.
 
 ## Operable (WCAG POUR)
 

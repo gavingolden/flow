@@ -225,6 +225,64 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
   });
 });
 
+// --- Multi-viewport: meta.viewports surfacing -------------------------------
+
+describe("SKIP-DECISION — meta.viewports (multi-viewport)", () => {
+  it("ready envelope carries the 5-entry default when the manifest omits viewports", () => {
+    const c = drive([], { [MANIFEST_PATH]: MANIFEST_NO_ENV });
+    const e = envelope(c);
+    expect(e.ran).toBe(true);
+    expect((e.meta as Record<string, unknown>).viewports).toEqual([
+      { name: "xs", width: 320 },
+      { name: "mobile", width: 390 },
+      { name: "tablet", width: 768 },
+      { name: "desktop", width: 1280 },
+      { name: "wide", width: 1440 },
+    ]);
+  });
+
+  it("ready envelope carries the declared viewport set verbatim when present", () => {
+    const manifest = JSON.stringify({
+      launch: "npm run dev",
+      baseUrl: "http://localhost:5173",
+      routes: [{ path: "/" }],
+      viewports: [
+        { name: "narrow", width: 360 },
+        { name: "wide", width: 1600, height: 1200 },
+      ],
+    });
+    const c = drive([], { [MANIFEST_PATH]: manifest });
+    const e = envelope(c);
+    expect((e.meta as Record<string, unknown>).viewports).toEqual([
+      { name: "narrow", width: 360 },
+      { name: "wide", width: 1600, height: 1200 },
+    ]);
+  });
+
+  it("viewports default is ABSENT on the --mcp-absent skip envelope", () => {
+    const c = drive(["--mcp-absent"], {});
+    const e = envelope(c);
+    expect(e.ran).toBe(false);
+    expect(e.meta).toBeUndefined();
+  });
+
+  it("viewports default is ABSENT on the --browser-busy skip envelope", () => {
+    const c = drive(["--browser-busy"], {});
+    const e = envelope(c);
+    expect(e.ran).toBe(false);
+    expect(e.meta).toBeUndefined();
+  });
+
+  it("viewports default is ABSENT on the no-ui-manifest skip envelope", () => {
+    const c = drive(["--changed-files", "changed.txt"], {
+      "changed.txt": "src/routes/+page.svelte\n",
+    });
+    const e = envelope(c);
+    expect(e.ran).toBe(false);
+    expect(e.meta).toBeUndefined();
+  });
+});
+
 // --- Story 2: ASSEMBLE mode ------------------------------------------------
 
 describe("ASSEMBLE — precondition failures are loud (Story 2)", () => {
@@ -483,6 +541,254 @@ describe("ASSEMBLE — per-route findings (Story 2)", () => {
     });
     expect(c.code).toBe(2);
     expect(c.err).toContain("unreadable or malformed");
+  });
+});
+
+// --- Multi-viewport: per-viewport geometry assertions (ASSEMBLE) ------------
+
+describe("ASSEMBLE — per-viewport geometry assertions (multi-viewport)", () => {
+  function captures(routes: unknown[]): string {
+    return JSON.stringify({ launchOk: true, loginOk: true, routes });
+  }
+
+  // A manifest with a declared selector so missing-at-breakpoint has a target.
+  const MANIFEST_WITH_SELECTOR = JSON.stringify({
+    launch: "npm run dev",
+    baseUrl: "http://localhost:5173",
+    routes: [{ path: "/", expectSelectors: ["main"] }],
+  });
+
+  it("all viewports clean → ran:true ok:true with per-viewport screenshots aggregated", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: MANIFEST_WITH_SELECTOR,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "",
+          viewports: [
+            {
+              name: "mobile",
+              width: 390,
+              snapshotText: "<main>",
+              rootGap: { left: 8, right: 8 },
+              scrollWidth: 390,
+              clientWidth: 390,
+              screenshotPath: ".flow-tmp/ui-evidence/0-mobile.png",
+            },
+            {
+              name: "wide",
+              width: 1440,
+              snapshotText: "<main>",
+              rootGap: { left: 460, right: 460 },
+              scrollWidth: 1440,
+              clientWidth: 1440,
+              screenshotPath: ".flow-tmp/ui-evidence/0-wide.png",
+            },
+          ],
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ran).toBe(true);
+    expect(e.ok).toBe(true);
+    expect(e.evidence_paths).toEqual([
+      ".flow-tmp/ui-evidence/0-mobile.png",
+      ".flow-tmp/ui-evidence/0-wide.png",
+    ]);
+  });
+
+  it("off-center constrained column (asymmetric rootGap beyond tolerance) → ok:false naming the viewport", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: MANIFEST_WITH_SELECTOR,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "",
+          viewports: [
+            {
+              name: "wide",
+              width: 1440,
+              snapshotText: "<main>",
+              // mimics the /account regression: 24px left, 584px+ right gap
+              rootGap: { left: 24, right: 880 },
+              scrollWidth: 1440,
+              clientWidth: 1440,
+            },
+          ],
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ok).toBe(false);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    expect(route.ok).toBe(false);
+    expect((route.geometryIssues as string[]).join(" ")).toContain("[wide]");
+    expect((route.geometryIssues as string[]).join(" ")).toContain(
+      "off-center",
+    );
+  });
+
+  it("symmetric rootGap within tolerance does not flag off-center", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: MANIFEST_WITH_SELECTOR,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "",
+          viewports: [
+            {
+              name: "wide",
+              width: 1440,
+              snapshotText: "<main>",
+              // 40px asymmetry < tolerance max(16, 0.05*1440=72)
+              rootGap: { left: 440, right: 480 },
+              scrollWidth: 1440,
+              clientWidth: 1440,
+            },
+          ],
+        },
+      ]),
+    });
+    expect(envelope(c).ok).toBe(true);
+  });
+
+  it("horizontal overflow (scrollWidth > clientWidth) → ok:false naming the viewport", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: MANIFEST_WITH_SELECTOR,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "",
+          viewports: [
+            {
+              name: "xs",
+              width: 320,
+              snapshotText: "<main>",
+              rootGap: { left: 8, right: 8 },
+              scrollWidth: 412,
+              clientWidth: 320,
+            },
+          ],
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ok).toBe(false);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    expect((route.geometryIssues as string[]).join(" ")).toContain("[xs]");
+    expect((route.geometryIssues as string[]).join(" ")).toContain("overflow");
+  });
+
+  it("missing-element-at-breakpoint (declared selector present at one viewport, absent at another) → ok:false", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: MANIFEST_WITH_SELECTOR,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "",
+          viewports: [
+            {
+              name: "mobile",
+              width: 390,
+              snapshotText: "div body span", // 'main' absent here
+            },
+            {
+              name: "desktop",
+              width: 1280,
+              snapshotText: "<main> present",
+            },
+          ],
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ok).toBe(false);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    const issues = (route.geometryIssues as string[]).join(" ");
+    expect(issues).toContain("missing-at-breakpoint");
+    expect(issues).toContain("main");
+    expect(issues).toContain("mobile");
+  });
+
+  it("a selector absent at EVERY viewport surfaces as missingSelectors, not a breakpoint mismatch", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: MANIFEST_WITH_SELECTOR,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "",
+          viewports: [
+            { name: "mobile", width: 390, snapshotText: "div body" },
+            { name: "desktop", width: 1280, snapshotText: "span button" },
+          ],
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ok).toBe(false);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    expect(route.missingSelectors).toEqual(["[mobile] main", "[desktop] main"]);
+    expect(route.geometryIssues).toEqual([]);
+  });
+
+  it("a console error at one viewport fails the route, naming that viewport", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: MANIFEST_WITH_SELECTOR,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "",
+          viewports: [
+            {
+              name: "tablet",
+              width: 768,
+              snapshotText: "<main>",
+              consoleErrors: ["Uncaught TypeError"],
+            },
+          ],
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ok).toBe(false);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    expect(route.consoleErrors).toEqual(["[tablet] Uncaught TypeError"]);
+  });
+
+  it("an empty viewports[] falls through the legacy single-capture path", () => {
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: VALID_MANIFEST,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "<main>",
+          screenshotPath: ".flow-tmp/ui-evidence/0.png",
+          viewports: [],
+        },
+      ]),
+    });
+    const e = envelope(c);
+    expect(e.ok).toBe(true);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    // legacy path emits no geometryIssues key
+    expect(route.geometryIssues).toBeUndefined();
+    expect(e.evidence_paths).toEqual([".flow-tmp/ui-evidence/0.png"]);
   });
 });
 
