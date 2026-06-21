@@ -28,6 +28,7 @@ const VALIDATOR_MODULES = [
   "pr-review-result-schema.ts",
   "agent-finding-schema.ts",
   "fix-applier-schema.ts",
+  "epic-manifest-schema.ts",
 ] as const;
 
 /**
