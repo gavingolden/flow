@@ -45,7 +45,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag (empty argv)", () => {
     expect(parseArgs([])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id is required",
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer is required",
     });
   });
 
@@ -61,7 +61,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag", () => {
     expect(parseArgs(["foo"])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id is required",
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer is required",
     });
   });
 
@@ -126,6 +126,19 @@ describe("parseArgs", () => {
   it("rejects --session-id without a value", () => {
     expect(parseArgs(["foo", "--session-id"])).toEqual({
       error: "--session-id requires a value",
+    });
+  });
+
+  it("parses --answer into Args", () => {
+    expect(parseArgs(["foo", "--answer", "X works by Y."])).toEqual({
+      slug: "foo",
+      answer: "X works by Y.",
+    });
+  });
+
+  it("rejects --answer without a value", () => {
+    expect(parseArgs(["foo", "--answer"])).toEqual({
+      error: "--answer requires a value",
     });
   });
 
@@ -303,6 +316,40 @@ describe("runUpdate", () => {
     expect(runUpdate(["csv-export", "--phase", "gating"], dir)).toBe(0);
     const got = readState("csv-export", dir);
     expect(got?.sessionId).toBe("session-xyz");
+    expect(got?.phase).toBe("gating");
+  });
+
+  it("persists answer via --answer alongside --phase without clobbering pr/worktree/sessionId/phaseLog", () => {
+    seed("csv-export", {
+      pr: 142,
+      worktree: "/tmp/wt",
+      sessionId: "session-xyz",
+      phaseLog: [{ phase: "planning", at: "2026-01-01" }],
+    });
+    expect(
+      runUpdate(
+        ["csv-export", "--phase", "triaged-no-change", "--answer", "X works."],
+        dir,
+      ),
+    ).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.answer).toBe("X works.");
+    expect(got?.phase).toBe("triaged-no-change");
+    expect(got?.pr).toBe(142);
+    expect(got?.worktree).toBe("/tmp/wt");
+    expect(got?.sessionId).toBe("session-xyz");
+    // phaseLog gains the new entry; the seeded one is preserved.
+    expect(got?.phaseLog?.map((e) => e.phase)).toEqual([
+      "planning",
+      "triaged-no-change",
+    ]);
+  });
+
+  it("preserves answer across a later update that omits --answer", () => {
+    seed("csv-export", { answer: "X works." });
+    expect(runUpdate(["csv-export", "--phase", "gating"], dir)).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.answer).toBe("X works.");
     expect(got?.phase).toBe("gating");
   });
 

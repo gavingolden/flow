@@ -99,6 +99,36 @@ describe("decide() — pre-tree edge cases", () => {
     expect(r.reason).toBe("no-change-investigation-complete");
   });
 
+  it("surfaces .context.answer on the triaged-no-change terminal verdict when the state carries one", () => {
+    // A no-change pipeline persists its chat answer under state.answer; the
+    // terminal verdict must carry it so resume can re-print it.
+    const r = decide(
+      makeInputs({
+        state: baseState({
+          phase: "triaged-no-change",
+          worktree: undefined,
+          answer: "X works by Y.",
+        }),
+        worktree: { kind: "absent-from-state" },
+      }),
+    );
+    expect(r.resumeAt).toBe("terminal");
+    expect(r.reason).toBe("no-change-investigation-complete");
+    expect(r.context.answer).toBe("X works by Y.");
+  });
+
+  it("omits .context.answer on triaged-no-change when the state has no answer", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "triaged-no-change", worktree: undefined }),
+        worktree: { kind: "absent-from-state" },
+      }),
+    );
+    expect(r.resumeAt).toBe("terminal");
+    expect(r.reason).toBe("no-change-investigation-complete");
+    expect(r.context.answer).toBeUndefined();
+  });
+
   it("returns terminal (NOT step-2) when phase is 'triage-pending-clarification' with no worktree", () => {
     // A pipeline awaiting the user's triage-clarification reply has no
     // worktree; a --resume can't re-ask in-context and must not build.

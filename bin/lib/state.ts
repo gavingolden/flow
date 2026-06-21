@@ -62,6 +62,14 @@ export type PipelineState = {
    */
   sessionId?: string;
   /**
+   * The chat answer the supervisor gave the user on the no-change branch of
+   * step 1, persisted by `flow-state-update --phase triaged-no-change
+   * --answer`. A no-change pipeline has no worktree to store the answer under,
+   * so it lives here to be re-surfaced by `flow-resume-decide` on resume.
+   * Absent on every pipeline that never took the no-change branch.
+   */
+  answer?: string;
+  /**
    * Fresh-confirmation token for a gate override. Written by
    * `flow-merge-guard --record-override` after the user gives an
    * unambiguous, in-context instruction — confirmed via `AskUserQuestion`
@@ -195,6 +203,7 @@ function isPipelineState(x: unknown): x is PipelineState {
     return false;
   if (o.sessionId !== undefined && typeof o.sessionId !== "string")
     return false;
+  if (o.answer !== undefined && typeof o.answer !== "string") return false;
   if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride))
     return false;
   if (o.phaseLog !== undefined && !isPhaseLog(o.phaseLog)) return false;

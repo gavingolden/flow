@@ -10,7 +10,7 @@
  * Usage:
  *   flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]
  *                              [--worktree <path>] [--auto-merge | --no-auto-merge]
- *                              [--session-id <value>]
+ *                              [--session-id <value>] [--answer <text>]
  *
  * `--phase-outcome <text>` records a short outcome string on the phaseLog
  * entry appended by the same `--phase` write (no-op without `--phase`).
@@ -52,6 +52,7 @@ type Args = {
   worktree?: string;
   autoMerge?: boolean;
   sessionId?: string;
+  answer?: string;
   phaseOutcome?: string;
 };
 
@@ -152,6 +153,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--session-id":
         out.sessionId = value;
         break;
+      case "--answer":
+        out.answer = value;
+        break;
       case "--phase-outcome":
         out.phaseOutcome = value;
         break;
@@ -165,11 +169,12 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     out.pr === undefined &&
     out.worktree === undefined &&
     out.autoMerge === undefined &&
-    out.sessionId === undefined
+    out.sessionId === undefined &&
+    out.answer === undefined
   ) {
     return {
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id is required",
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer is required",
     };
   }
   return out;
@@ -204,6 +209,7 @@ export function applyUpdate(
     worktree: args.worktree ?? existing.worktree,
     autoMerge: args.autoMerge ?? existing.autoMerge,
     sessionId: args.sessionId ?? existing.sessionId,
+    answer: args.answer ?? existing.answer,
     phaseLog,
     updatedAt: nowIso(),
   };
@@ -236,7 +242,7 @@ export function runUpdate(
     console.error(
       "usage: flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]\n" +
         "                                 [--worktree <path>] [--auto-merge | --no-auto-merge]\n" +
-        "                                 [--session-id <value>]",
+        "                                 [--session-id <value>] [--answer <text>]",
     );
     return 2;
   }
