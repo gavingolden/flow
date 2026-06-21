@@ -99,8 +99,12 @@ early-exit path** (a launch failure, an MCP-call error, a bail-out mid-bucket)
 the `isolatedContext`, in the same breath as bringing the launched server(s)
 down. Close **only** the page/context THIS pipeline opened (keyed on the
 pipeline slug); never close a sibling pipeline's page or a pre-existing page the
-user opened. The MCP-absent and browser-busy paths opened nothing, so teardown
-is a no-op there, never a failure.
+user opened. `close_page` takes the numeric `pageId` your `new_page` call
+returned — capture that id at open time and pass exactly it; do NOT re-derive
+the page via `list_pages` at teardown, since the `isolatedContext` name is not a
+closeable handle and a `list_pages` scan under a shared MCP server can land on a
+sibling pipeline's page or the user's own tab. The MCP-absent and browser-busy
+paths opened nothing, so teardown is a no-op there, never a failure.
 
 ## Captures contract
 

@@ -28,9 +28,13 @@ captures-assembly error, a fix-loop bail-out), close the per-pipeline isolated
 page you opened — `close_page` on that page, disposing the `isolatedContext` —
 in the same breath as bringing the launched server(s) down. Close **only** the
 page/context THIS pipeline opened (keyed on the pipeline slug); never close a
-sibling pipeline's page or any pre-existing page the user opened. The
-MCP-absent and headless paths opened nothing, so teardown is a no-op there,
-never a failure.
+sibling pipeline's page or any pre-existing page the user opened. `close_page`
+takes the numeric `pageId` your `new_page` call returned — capture that id at
+open time and pass exactly it; do NOT re-derive the page via `list_pages` at
+teardown, since the `isolatedContext` name is not a closeable handle and a
+`list_pages` scan under a shared MCP server can land on a sibling pipeline's
+page or the user's own tab. The MCP-absent and headless paths opened nothing,
+so teardown is a no-op there, never a failure.
 
 ## Fix-loop routing
 

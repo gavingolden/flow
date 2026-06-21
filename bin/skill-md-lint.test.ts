@@ -2989,6 +2989,36 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 
+  it("browser-teardown contract is anchored across both teardown sections and the supervisor cleanup checkpoint", () => {
+    // The browser-teardown contract (close the per-pipeline isolated MCP
+    // page, symmetric with the existing dev-server teardown) lives in a
+    // "## Teardown (servers and browser, symmetric)" section in BOTH
+    // browser-pass reference files, and the flow-pipeline supervisor's
+    // "# Resource cleanup" checkpoint plus the pr-review Step 8c.iii pointer
+    // cite that teardown by the bare literal "Teardown". flow-md-validate
+    // can't catch a prose heading rename, so pin the heading text + the
+    // citing checkpoint here so the cross-reference can't rot silently.
+    const teardownHeading = "## Teardown (servers and browser, symmetric)";
+    expect(
+      uiSmokePassContent.includes(teardownHeading),
+      "ui-smoke-pass.md must carry the '" +
+        teardownHeading +
+        "' section (browser teardown symmetric with the server teardown).",
+    ).toBe(true);
+    expect(
+      uiValidationEvidenceContent.includes(teardownHeading),
+      "ui-validation-evidence.md must carry the '" +
+        teardownHeading +
+        "' section so the supervisor cleanup checkpoint's prose cite resolves.",
+    ).toBe(true);
+    expect(
+      content.includes("# Resource cleanup (before any terminal state)"),
+      "flow-pipeline SKILL.md must carry the '# Resource cleanup (before any " +
+        "terminal state)' checkpoint tying the per-pass teardown sections to " +
+        "the terminal-state contract.",
+    ).toBe(true);
+  });
+
   it("svelte + tailwind-shadcn SKILLs direct authoring enumerated visual assertions", () => {
     const phrase =
       "UI-change Test Steps: author enumerated visual-appearance assertions";
