@@ -52,11 +52,22 @@ _flow() {
                         '--no-hooks[skip Stop-hook merge into ~/.claude/settings.json]'
                     ;;
                 new)
-                    _arguments \
-                        '--resume[resume a crashed pipeline]:pipeline:_flow_slugs' \
-                        '--no-auto-merge[stop at gated regardless of rubric]' \
-                        '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
-                        '*::description:'
+                    # When --resume appears, the trailing positionals are a
+                    # repeating slug list (`flow new --resume x y z`); complete
+                    # each via _flow_slugs. Otherwise the rest is a free-text
+                    # description (no completion). Mirrors `done`'s `*::` rest.
+                    if (( ${words[(I)--resume]} )); then
+                        _arguments \
+                            '--resume[resume one or more crashed pipelines]' \
+                            '(--yes -y)'{--yes,-y}'[skip the multi-resume confirmation]' \
+                            '*::pipeline:_flow_slugs'
+                    else
+                        _arguments \
+                            '--resume[resume a crashed pipeline]' \
+                            '--no-auto-merge[stop at gated regardless of rubric]' \
+                            '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
+                            '*::description:'
+                    fi
                     ;;
                 ls)
                     _arguments \

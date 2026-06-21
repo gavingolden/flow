@@ -44,10 +44,10 @@ Usage:
                                         even when auto-detect would skip;
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session)
-  flow new --resume <name>              resume a crashed pipeline in its existing window
+  flow new --resume <name> [<name> ...] resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
-  flow attach [<name>]                  attach to a pipeline window  (alias: a)
-  flow done <name>                      close a pipeline window
+  flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
+  flow done <name> [<name> ...]         close one or more pipeline windows
   flow done --merged                    close every merged or cancelled window
   flow done --orphans                   close every state file whose tmux window is gone
   flow done --merged --orphans          compose: close terminal-state OR orphaned pipelines
@@ -68,7 +68,7 @@ export const HELP_TEXT: Record<string, string> = {
 
 Usage:
   flow new [--no-auto-merge] [--wait-for-copilot] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>
-  flow new --resume <name>
+  flow new --resume <name> [<name> ...] [--yes]
 
 Options:
   --no-auto-merge       stop at gated regardless of the auto-merge rubric
@@ -78,7 +78,11 @@ Options:
                         'never' never requests, 'auto' lets the hybrid classifier decide
   --effort <low|medium|high|xhigh|max>
                         Claude Code reasoning-effort level for the pipeline's claude session
-  --resume <name>       resume a crashed pipeline in its existing window`,
+  --resume <name> [<name> ...]
+                        resume one or more crashed pipelines in their existing windows;
+                        resumes sequentially, and with >=2 names previews the list and
+                        confirms once (each name spawns a Claude Code session)
+  --yes, -y             skip the multi-resume confirmation preview`,
 
   ls: `flow ls — list active pipelines
 
@@ -98,12 +102,15 @@ Usage:
 
 When <name> is omitted, attach into the 'flow' session for browsing; if
 several windows exist the most-recently-active one is focused first.
-With <name>, it must match a window in the 'flow' tmux session.`,
+With <name>, it must match a window in the 'flow' tmux session.
+
+attach takes a single window only — a tmux client attaches to exactly one
+window, so passing more than one <name> is an error (not a silent drop).`,
 
   done: `flow done — close a pipeline window and remove its state
 
 Usage:
-  flow done <name>
+  flow done <name> [<name> ...]
   flow done --merged
   flow done --orphans
   flow done --merged --orphans
@@ -113,6 +120,8 @@ Options:
   --orphans             close every pipeline whose state file has no matching tmux window
   --yes, -y             skip the confirmation prompt
 
+Pass two or more <name>s to close several pipelines in one confirm-once sweep
+(an unknown name warns and forces a non-zero exit while the rest still close).
 When both --merged and --orphans are passed, the sweep unions the two filters
 and tags each preview row 'merged', 'orphan', or 'merged+orphan'.`,
 

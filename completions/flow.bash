@@ -67,19 +67,27 @@ _flow() {
             ;;
         new)
             case "$prev" in
-                --resume)
-                    # shellcheck disable=SC2207
-                    COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
-                    return
-                    ;;
                 --effort)
                     # shellcheck disable=SC2207
                     COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
                     return
                     ;;
             esac
+            # When --resume appeared earlier in the line, every trailing
+            # non-flag token is a slug (`flow new --resume x y z`). Complete
+            # slugs cur-based (like `done`) so the SECOND+ slug completes too,
+            # not just the first after `prev == --resume`.
+            local has_resume="" j
+            for ((j=1; j < cword; j++)); do
+                if [ "${words[j]}" = "--resume" ]; then has_resume=1; break; fi
+            done
+            if [ -n "$has_resume" ] && [[ "$cur" != -* ]]; then
+                # shellcheck disable=SC2207
+                COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
+                return
+            fi
             # shellcheck disable=SC2207
-            COMPREPLY=( $(compgen -W "--resume --no-auto-merge --effort" -- "$cur") )
+            COMPREPLY=( $(compgen -W "--resume --no-auto-merge --effort --yes -y" -- "$cur") )
             ;;
         ls)
             # shellcheck disable=SC2207

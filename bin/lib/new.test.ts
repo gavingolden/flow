@@ -4,6 +4,19 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Mock node:fs's readSync so the multi-slug --resume preview's confirm() is
+// drivable from tests. Everything else (real mkdtempSync / writeState reads /
+// existsSync) passes through via `...actual`. The real fs.readSync property
+// isn't reconfigurable, so vi.spyOn fails — vi.mock at module scope is the
+// only seam (mirrors done.test.ts).
+const readSyncMock = vi.hoisted(() =>
+  vi.fn<(fd: number, buf: Buffer, ...rest: unknown[]) => number>(() => 0),
+);
+vi.mock("node:fs", async () => {
+  const actual = await vi.importActual<typeof import("node:fs")>("node:fs");
+  return { ...actual, readSync: readSyncMock };
+});
+
 // Mock tmux primitives so the resume happy/refusal paths don't shell out.
 // The mocks are toggled per-test via the exported handles below.
 const tmuxMock = vi.hoisted(() => ({
@@ -50,7 +63,24 @@ beforeEach(() => {
   tmuxMock.isPaneAlive.mockReset().mockReturnValue(false);
   tmuxMock.createWindow.mockReset().mockReturnValue({ ok: true, stderr: "" });
   tmuxMock.respawnWindow.mockReset().mockReturnValue({ ok: true, stderr: "" });
+  readSyncMock.mockReset().mockReturnValue(0);
 });
+
+function declinePrompt(): void {
+  readSyncMock.mockImplementation((_fd, buf) => {
+    const bytes = Buffer.from("n\n");
+    bytes.copy(buf as Buffer);
+    return bytes.length;
+  });
+}
+
+function acceptPrompt(): void {
+  readSyncMock.mockImplementation((_fd, buf) => {
+    const bytes = Buffer.from("y\n");
+    bytes.copy(buf as Buffer);
+    return bytes.length;
+  });
+}
 
 afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
@@ -183,6 +213,102 @@ describe("runNew --resume", () => {
     expect(code).toBe(1);
     expect(errors.join("\n")).toMatch(/tmux failed to respawn/);
     expect(errors.join("\n")).toContain("can't find session: flow");
+  });
+});
+
+describe("runNewCli --resume (multi-slug)", () => {
+  it("resumes each slug sequentially with the per-slug resume seed and exits 0", () => {
+    seedState("x");
+    seedState("y");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+
+    const code = runNewCli(["--resume", "x", "y", "--yes"], { stateDir });
+
+    expect(code).toBe(0);
+    expect(tmuxMock.respawnWindow).toHaveBeenCalledTimes(2);
+    const launched = tmuxMock.respawnWindow.mock.calls.map(
+      ([name, , command]) => ({ name, prompt: command[command.length - 1] }),
+    );
+    expect(launched).toContainEqual({
+      name: "x",
+      prompt: "Use the /flow-pipeline skill in --resume mode for: x",
+    });
+    expect(launched).toContainEqual({
+      name: "y",
+      prompt: "Use the /flow-pipeline skill in --resume mode for: y",
+    });
+  });
+
+  it("is sequential and fail-soft — a live-pane slug is skipped, the rest resume, exit 1", () => {
+    seedState("x");
+    seedState("alive");
+    seedState("y");
+    // `alive` has a live pane; x and y are crashed (dead pane). windowExists is
+    // true for all three; only `alive` reports a live pane.
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockImplementation((name: string) => name === "alive");
+
+    const code = runNewCli(["--resume", "x", "alive", "y", "--yes"], {
+      stateDir,
+    });
+
+    expect(code).toBe(1);
+    const resumed = tmuxMock.respawnWindow.mock.calls.map(([name]) => name);
+    expect(resumed).toContain("x");
+    expect(resumed).toContain("y");
+    expect(resumed).not.toContain("alive");
+    expect(errors.join("\n")).toMatch(/'alive' is still running/);
+  });
+
+  it("previews + confirms once for >=2 slugs — a declined prompt launches nothing", () => {
+    seedState("x");
+    seedState("y");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const stdoutWrite = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    declinePrompt();
+
+    const code = runNewCli(["--resume", "x", "y"], { stateDir });
+
+    expect(code).toBe(0);
+    expect(tmuxMock.respawnWindow).not.toHaveBeenCalled();
+    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+    expect(logs.join("\n")).toMatch(/will resume 2 pipeline\(s\)/);
+    expect(logs.join("\n")).toMatch(/aborted — nothing resumed/);
+    stdoutWrite.mockRestore();
+  });
+
+  it("previews + confirms once for >=2 slugs — accepting launches all", () => {
+    seedState("x");
+    seedState("y");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const stdoutWrite = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    acceptPrompt();
+
+    const code = runNewCli(["--resume", "x", "y"], { stateDir });
+
+    expect(code).toBe(0);
+    expect(tmuxMock.respawnWindow).toHaveBeenCalledTimes(2);
+    stdoutWrite.mockRestore();
+  });
+
+  it("--yes bypasses the preview entirely (readSync is never consulted)", () => {
+    seedState("x");
+    seedState("y");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+
+    const code = runNewCli(["--resume", "x", "y", "--yes"], { stateDir });
+
+    expect(code).toBe(0);
+    expect(readSyncMock).not.toHaveBeenCalled();
+    expect(logs.join("\n")).not.toMatch(/will resume/);
   });
 });
 

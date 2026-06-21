@@ -479,3 +479,71 @@ describe("runDoneCli --orphans / --merged plumbing", () => {
     err.mockRestore();
   });
 });
+
+describe("runDoneCli (multi-slug)", () => {
+  it("closes both slugs behind one (bypassed) confirm via the sweep path", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.readState.mockImplementation((slug: string) =>
+      slug === "a" || slug === "b" ? state({ slug, phase: "merged" }) : null,
+    );
+    tmuxMock.listWindows.mockReturnValue([window("a"), window("b")]);
+
+    const code = runDoneCli(["a", "b", "--yes"]);
+
+    expect(code).toBe(0);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("a");
+    expect(stateMock.deleteState).toHaveBeenCalledWith("b");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("a");
+    expect(turnTrackingMock.deleteTurnTracking).toHaveBeenCalledWith("b");
+    log.mockRestore();
+  });
+
+  it("confirms once for the batch — a declined prompt deletes nothing and aborts exactly once", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const stdoutWrite = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    readSyncMock.mockImplementation((_fd, buf) => {
+      const bytes = Buffer.from("n\n");
+      bytes.copy(buf as Buffer);
+      return bytes.length;
+    });
+    stateMock.readState.mockImplementation((slug: string) =>
+      slug === "a" || slug === "b" ? state({ slug, phase: "merged" }) : null,
+    );
+
+    const code = runDoneCli(["a", "b"]);
+
+    expect(code).toBe(0);
+    expect(stateMock.deleteState).not.toHaveBeenCalled();
+    const aborts = log.mock.calls.filter(
+      (c) => c[0] === "flow done: aborted — nothing closed",
+    );
+    expect(aborts).toHaveLength(1);
+
+    stdoutWrite.mockRestore();
+    log.mockRestore();
+  });
+
+  it("reports a partial failure — a resolvable slug closes, an unresolvable one warns + exits 1", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    stateMock.readState.mockImplementation((slug: string) =>
+      slug === "a" ? state({ slug, phase: "merged" }) : null,
+    );
+    tmuxMock.listWindows.mockReturnValue([window("a")]);
+    // "a" resolves via state; "bogus" has neither state nor (default-false)
+    // window, so it is the partial-failure slug.
+
+    const code = runDoneCli(["a", "bogus", "--yes"]);
+
+    expect(code).toBe(1);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("a");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("bogus");
+    expect(err).toHaveBeenCalledWith(
+      "flow done: no window or state for 'bogus'.",
+    );
+    log.mockRestore();
+    err.mockRestore();
+  });
+});
