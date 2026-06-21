@@ -48,7 +48,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { readState, type PipelineState } from "./lib/state";
+import { readState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugFromPane } from "./lib/tmux";
 
@@ -124,7 +124,29 @@ export type Inputs = {
 // "is row N's phase precondition satisfied?" — they're exactly the table from
 // failure-recovery.md (b).
 
-export const TERMINAL_PHASES = new Set(["merged", "gated", "cancelled"]);
+// Sourced from the canonical taxonomy in lib/state so the resume reader can't
+// drift from the supervisor's own phase set — the prior local literal
+// (["merged","gated","cancelled"]) silently omitted `needs-human`, so a crashed
+// escalation fell through the row tree to whatever disk state implied instead of
+// resolving terminal. Wrapped in a Set for O(1) membership, mirroring
+// lib/state's own PIPELINE_PHASE_SET.
+export const TERMINAL_PHASE_SET = new Set<string>(TERMINAL_PHASES);
+
+// The pending phases that have NO in-flight work on a clean crash — no worktree,
+// no plan, no PR — because they occur BEFORE step 2 creates the worktree.
+// `triaged-no-change`: the no-change investigation already produced its answer
+// and ended. `triage-pending-clarification`: awaiting the user's reply to a
+// clarifying question, which a `--resume` can't re-ask in-context. A resume of
+// either must resolve to a terminal no-op, NOT fall through to Row 2 (which
+// would spin up a worktree + plan + build, contradicting the recorded triage).
+// The other PENDING_PHASES (plan-pending-review, approval-pending-clarification,
+// ci-wait-pending) DO have in-flight work and fall through to their correct rows
+// (4 / 4 / 7) — deliberately excluded here. The subset relationship to the
+// canonical PENDING_PHASES is guarded in flow-resume-decide.test.ts.
+export const NO_INFLIGHT_WORK_PHASES = new Set<string>([
+  "triaged-no-change",
+  "triage-pending-clarification",
+]);
 
 // Row 4: approval done — phase advanced past plan-pending-review.
 // `ci-wait-pending` (the step-7 yield-while-backgrounded pending phase)
@@ -190,10 +212,29 @@ export function decide(inputs: Inputs): DecisionResult {
   }
 
   // Edge 1.3-1.5: terminal phases — pipeline already ended.
-  if (TERMINAL_PHASES.has(inputs.state.phase)) {
+  if (TERMINAL_PHASE_SET.has(inputs.state.phase)) {
     return {
       resumeAt: "terminal",
       reason: `phase: ${inputs.state.phase}`,
+      context: ctx,
+    };
+  }
+
+  // No-in-flight-work pending phases: the pipeline already produced its answer
+  // and ended (triaged-no-change), or is awaiting a user reply a `--resume`
+  // can't re-ask in-context (triage-pending-clarification). Both occur before
+  // the worktree exists, so there is nothing to resume — resolve to a terminal
+  // no-op. Checked here, before the worktree/PR branches, precisely because
+  // these phases carry no worktree and no PR: without this short-circuit they
+  // reach Row 2's "worktree not yet created" → step-2 and mechanically spin up
+  // a worktree + plan + build, contradicting the recorded triage.
+  if (NO_INFLIGHT_WORK_PHASES.has(inputs.state.phase)) {
+    return {
+      resumeAt: "terminal",
+      reason:
+        inputs.state.phase === "triaged-no-change"
+          ? "no-change-investigation-complete"
+          : "awaiting-triage-clarification",
       context: ctx,
     };
   }
@@ -547,10 +588,14 @@ export function gatherInputs(
   gh: GhRunner,
   git: GitRunner,
 ): Inputs {
-  // Terminal phases short-circuit all I/O — decide() will return terminal
-  // from the phase check alone, and probing gh/git on a completed pipeline
-  // is wasted work (and unsafe under a stub gh/git in tests).
-  if (TERMINAL_PHASES.has(state.phase)) {
+  // Terminal phases — and the no-in-flight-work pending phases — short-circuit
+  // all I/O: decide() returns terminal from the phase check alone, so probing
+  // gh/git on a completed (or pre-worktree) pipeline is wasted work (and unsafe
+  // under a stub gh/git in tests).
+  if (
+    TERMINAL_PHASE_SET.has(state.phase) ||
+    NO_INFLIGHT_WORK_PHASES.has(state.phase)
+  ) {
     return {
       slug,
       state,

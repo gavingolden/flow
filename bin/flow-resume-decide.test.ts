@@ -8,16 +8,21 @@ import {
   hasPrReviewCommit,
   parseArgs,
   run,
-  type CiState,
+  NO_INFLIGHT_WORK_PHASES,
+  TERMINAL_PHASE_SET,
   type DecisionResult,
   type GhRunner,
   type GitRunner,
   type HeadCommit,
   type Inputs,
-  type PrInfo,
   type WorktreeInfo,
 } from "./flow-resume-decide";
-import { writeState, type PipelineState } from "./lib/state";
+import {
+  writeState,
+  type PipelineState,
+  PENDING_PHASES,
+  TERMINAL_PHASES,
+} from "./lib/state";
 
 // ---------------------------------------------------------------------------
 // makeInputs(): default Inputs that lands at the auto-merge gate.
@@ -77,6 +82,49 @@ describe("decide() — pre-tree edge cases", () => {
     const r = decide(makeInputs({ state: baseState({ phase: "cancelled" }) }));
     expect(r.resumeAt).toBe("terminal");
     expect(r.reason).toContain("cancelled");
+  });
+
+  it("returns terminal (NOT step-2) when phase is 'triaged-no-change' with no worktree — the reported bug", () => {
+    // A no-change investigation already produced its answer and ended at
+    // triaged-no-change with no worktree/plan/PR. Resuming it must re-surface
+    // completion, not fall through to Row 2 and build a worktree.
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "triaged-no-change", worktree: undefined }),
+        worktree: { kind: "absent-from-state" },
+      }),
+    );
+    expect(r.resumeAt).toBe("terminal");
+    expect(r.resumeAt).not.toBe("step-2");
+    expect(r.reason).toBe("no-change-investigation-complete");
+  });
+
+  it("returns terminal (NOT step-2) when phase is 'triage-pending-clarification' with no worktree", () => {
+    // A pipeline awaiting the user's triage-clarification reply has no
+    // worktree; a --resume can't re-ask in-context and must not build.
+    const r = decide(
+      makeInputs({
+        state: baseState({
+          phase: "triage-pending-clarification",
+          worktree: undefined,
+        }),
+        worktree: { kind: "absent-from-state" },
+      }),
+    );
+    expect(r.resumeAt).toBe("terminal");
+    expect(r.resumeAt).not.toBe("step-2");
+    expect(r.reason).toBe("awaiting-triage-clarification");
+  });
+
+  it("returns terminal when state.phase is 'needs-human' (canonical-set parity)", () => {
+    // The prior local TERMINAL_PHASES literal omitted needs-human, so a crashed
+    // escalation fell through the row tree. Sourcing from canonical lib/state
+    // makes it resolve terminal like the other terminal phases.
+    const r = decide(
+      makeInputs({ state: baseState({ phase: "needs-human" }) }),
+    );
+    expect(r.resumeAt).toBe("terminal");
+    expect(r.reason).toContain("needs-human");
   });
 
   it("escalates with worktree-missing-on-resume when path is set but dir is gone", () => {
@@ -169,6 +217,18 @@ describe("decide() — row 4 (approval)", () => {
   it("resumes at step-4 when phase is 'plan-pending-review'", () => {
     const r = decide(
       makeInputs({ state: baseState({ phase: "plan-pending-review" }) }),
+    );
+    expect(r.resumeAt).toBe("step-4");
+  });
+
+  it("resumes at step-4 when phase is 'approval-pending-clarification' (no-regression — has in-flight work)", () => {
+    // approval-pending-clarification occurs AFTER the worktree + plan exist, so
+    // it has in-flight work and must keep falling through to its Row 4 routing
+    // — it is deliberately NOT in NO_INFLIGHT_WORK_PHASES.
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "approval-pending-clarification" }),
+      }),
     );
     expect(r.resumeAt).toBe("step-4");
   });
@@ -351,6 +411,35 @@ describe("decide() — row 10 (merge)", () => {
     );
     expect(r.resumeAt).toBe("terminal");
     expect(r.reason).toBe("pr-merged-worktree-cleaned-up");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canonical phase-set parity (anti-drift guard) — the divergence this fix closed
+// ---------------------------------------------------------------------------
+
+describe("canonical phase-set parity", () => {
+  it("TERMINAL_PHASE_SET equals the canonical lib/state TERMINAL_PHASES (no drift)", () => {
+    // The bug was a second, hand-maintained copy that drifted (omitted
+    // needs-human). Sourcing from canonical and asserting equality here means
+    // a future canonical change can't silently desync the resume reader.
+    expect([...TERMINAL_PHASE_SET].sort()).toEqual([...TERMINAL_PHASES].sort());
+  });
+
+  it("every NO_INFLIGHT_WORK_PHASES member is a canonical PENDING_PHASES member", () => {
+    for (const phase of NO_INFLIGHT_WORK_PHASES) {
+      expect(PENDING_PHASES as readonly string[]).toContain(phase);
+    }
+  });
+
+  it("NO_INFLIGHT_WORK_PHASES excludes the pending phases that DO have in-flight work", () => {
+    for (const phase of [
+      "plan-pending-review",
+      "approval-pending-clarification",
+      "ci-wait-pending",
+    ]) {
+      expect(NO_INFLIGHT_WORK_PHASES.has(phase)).toBe(false);
+    }
   });
 });
 
@@ -553,6 +642,25 @@ describe("run() integration", () => {
     expect(exit).toBe(0);
     const result = JSON.parse(writes.join("")) as DecisionResult;
     expect(result.resumeAt).toBe("terminal");
+  });
+
+  it("exits 0 with terminal JSON when state.phase is 'triaged-no-change' and no worktree (the reported bug, end-to-end)", () => {
+    // The live repro: state {phase: triaged-no-change, no worktree/plan/pr}.
+    // Must return terminal, NOT step-2, and must not probe gh/git at all
+    // (the vi.fn() stubs would throw on an unexpected shape if called).
+    seedState("delta", { phase: "triaged-no-change", worktree: undefined });
+    const gh = vi.fn();
+    const git = vi.fn();
+    const { writes, restore } = captureStdout();
+    const exit = run(["delta"], { stateDir, gh, git });
+    restore();
+    expect(exit).toBe(0);
+    const result = JSON.parse(writes.join("")) as DecisionResult;
+    expect(result.resumeAt).toBe("terminal");
+    expect(result.resumeAt).not.toBe("step-2");
+    expect(result.reason).toBe("no-change-investigation-complete");
+    expect(gh).not.toHaveBeenCalled();
+    expect(git).not.toHaveBeenCalled();
   });
 
   it("exits 2 with usage error on bad CLI args", () => {

@@ -109,8 +109,18 @@ met:
 The first row whose "done" condition is **false** is where the
 supervisor resumes. If every row is done, the pipeline is in a
 terminal state — render the terminal block via `flow-gate-summary
---status <merged|gated|cancelled> ...` (the same helper every gate-
-emission site uses) and end.
+--status <merged|gated|needs-human|cancelled> ...` (the same helper
+every gate-emission site uses) and end.
+
+Two phase classes are decided **before** the row walk, not by it.
+`flow-resume-decide` sources its terminal-phase set from the canonical
+`TERMINAL_PHASES` in `bin/lib/state.ts` (so `needs-human` resolves
+`terminal` like `merged`/`gated`/`cancelled`, rather than drifting
+through the tree), and short-circuits the two no-in-flight-work pending
+phases — `triaged-no-change` and `triage-pending-clarification` — to
+`terminal` as well. Those two carry no worktree/plan/PR, so without the
+short-circuit they would reach row 2 (`worktree not yet created`) and
+spin up a worktree + plan + build, contradicting the recorded triage.
 
 ### Edge cases
 
@@ -134,6 +144,12 @@ emission site uses) and end.
 - **PR `CLOSED` without merge.** The user closed the PR while the
   session was crashed. Escalate `NEEDS HUMAN: pr-closed-without-
 merge`; do not resume. Let the user decide reopen vs. abandon.
+- **No-change / pending-clarification triage with no worktree
+  (`triaged-no-change` / `triage-pending-clarification`).** Resolved to
+  `terminal` before the row walk (see the note above the table). Re-surface
+  that the pipeline already completed (a no-change investigation) or was
+  awaiting a clarification a resume can't re-ask, and end — do not build a
+  worktree.
 
 ### What `--resume` does NOT do
 
