@@ -129,13 +129,15 @@ describe("validateUiValidationManifest — happy paths", () => {
     expect(validateUiValidationManifest(fixture).ok).toBe(true);
   });
 
-  it("accepts an empty viewports array", () => {
+  it("rejects an explicit empty viewports array (omit the key for the default set)", () => {
     const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
       string,
       unknown
     >;
     fixture.viewports = [];
-    expect(validateUiValidationManifest(fixture).ok).toBe(true);
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("non-empty");
   });
 });
 

@@ -298,8 +298,14 @@ function computeViewportFindings(
       consoleErrors.push(`[${vp.name}] ${e}`);
     for (const r of filtered.failedRequests)
       failedRequests.push(`[${vp.name}] ${r}`);
-    for (const s of filtered.missingSelectors)
-      missingSelectors.push(`[${vp.name}] ${s}`);
+    // Only a viewport that actually captured a snapshot participates in the
+    // missing-selector check; mirrors the withSnapshot guard on the
+    // breakpoint axis below so a no-snapshot capture (filterCapture coerces
+    // undefined snapshotText to "") never spuriously flags every selector.
+    if (vp.snapshotText !== undefined) {
+      for (const s of filtered.missingSelectors)
+        missingSelectors.push(`[${vp.name}] ${s}`);
+    }
 
     // (a) Off-center constrained column: asymmetric left/right gaps beyond a
     // small absolute floor plus a relative band, so intentional sidebars and

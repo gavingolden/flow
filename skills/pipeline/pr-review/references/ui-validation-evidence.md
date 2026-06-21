@@ -68,8 +68,9 @@ per visual item:
    cookies/storage. Then, **per route, loop over `meta.viewports`** (the
    `flow-ui-validate` ready envelope carries the declared set or the built-in
    default `xs 320 / mobile 390 / tablet 768 / desktop 1280 / wide 1440`):
-   `resize_page` to each viewport `width` (tall fixed height so above-the-fold
-   cropping never hides overflow), run the **same per-route drive loop as the
+   `resize_page` to each viewport `width` × its `height` when declared, else a
+   tall default (2000px), so above-the-fold cropping never hides overflow, run
+   the **same per-route drive loop as the
    gate-time pass** (the canonical
    `navigate_page` → `wait_for` → `take_snapshot` → console/network sequence
    documented once in

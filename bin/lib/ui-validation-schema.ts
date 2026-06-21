@@ -205,6 +205,14 @@ export function validateUiValidationManifest(
     if (!Array.isArray(parsed.viewports)) {
       return err("'viewports' must be an array when present");
     }
+    // An explicit empty array is a zero-capture footgun: the drive would
+    // render no viewports, strictly worse than omitting the key (which
+    // applies the built-in default set). Require non-empty when present.
+    if (parsed.viewports.length === 0) {
+      return err(
+        "'viewports' must be non-empty when present (omit the key to get the built-in default set)",
+      );
+    }
     for (let i = 0; i < parsed.viewports.length; i++) {
       const v = validateViewport(parsed.viewports[i], i);
       if (!v.ok) return v;

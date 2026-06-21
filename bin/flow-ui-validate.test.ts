@@ -769,6 +769,109 @@ describe("ASSEMBLE — per-viewport geometry assertions (multi-viewport)", () =>
     expect(route.consoleErrors).toEqual(["[tablet] Uncaught TypeError"]);
   });
 
+  it("a viewport with no snapshotText does NOT spuriously flag declared selectors as missing", () => {
+    // Regression guard: filterCapture coerces an undefined snapshotText to "",
+    // so without the withSnapshot guard the missing-selector loop would report
+    // every declared expectSelector as missing for a no-snapshot viewport.
+    const c = drive(["--captures", "cap.json"], {
+      [MANIFEST_PATH]: MANIFEST_WITH_SELECTOR,
+      "cap.json": captures([
+        {
+          path: "/",
+          consoleErrors: [],
+          failedRequests: [],
+          snapshotText: "",
+          viewports: [
+            {
+              // captured console/network but NO snapshot — snapshotText omitted
+              name: "mobile",
+              width: 390,
+              rootGap: { left: 8, right: 8 },
+              scrollWidth: 390,
+              clientWidth: 390,
+            },
+            {
+              name: "desktop",
+              width: 1280,
+              snapshotText: "<main> present",
+              rootGap: { left: 100, right: 100 },
+              scrollWidth: 1280,
+              clientWidth: 1280,
+            },
+          ],
+        },
+      ]),
+    });
+    const e = envelope(c);
+    const route = (e.routes as Array<Record<string, unknown>>)[0];
+    // 'main' is present at desktop and the no-snapshot viewport is skipped on
+    // both axes, so nothing should flag as missing or breakpoint-mismatched.
+    expect(route.missingSelectors).toEqual([]);
+    expect(route.geometryIssues).toEqual([]);
+    expect(e.ok).toBe(true);
+  });
+
+  it("off-center boundary at width 1440: asymmetry exactly 72 does NOT flag, 73 flags (strict > on max(16, 0.05*width))", () => {
+    // At 1440, tolerance = max(16, 0.05*1440) = 72. The strict `>` means
+    // exactly 72 must pass; 73 must flag. Pins the comparator direction so a
+    // `>`→`>=` regression is caught.
+    const atAsymmetry = (asym: number) =>
+      drive(["--captures", "cap.json"], {
+        [MANIFEST_PATH]: MANIFEST_WITH_SELECTOR,
+        "cap.json": captures([
+          {
+            path: "/",
+            consoleErrors: [],
+            failedRequests: [],
+            snapshotText: "",
+            viewports: [
+              {
+                name: "wide",
+                width: 1440,
+                snapshotText: "<main>",
+                rootGap: { left: 0, right: asym },
+                scrollWidth: 1440,
+                clientWidth: 1440,
+              },
+            ],
+          },
+        ]),
+      });
+    expect(envelope(atAsymmetry(72)).ok).toBe(true);
+    expect(envelope(atAsymmetry(73)).ok).toBe(false);
+  });
+
+  it("16px floor branch at narrow width 200: asymmetry 12 does NOT flag, 17 flags (floor wins over relative 10)", () => {
+    // At width 200, 0.05*200 = 10, so the absolute 16px floor dominates
+    // (tolerance = max(16, 10) = 16). Asymmetry 12 is over the relative band
+    // but under the floor → must NOT flag; 17 is over the floor → must flag.
+    // Exercises the floor branch so a floor-drop/lowering regression is caught.
+    const atAsymmetry = (asym: number) =>
+      drive(["--captures", "cap.json"], {
+        [MANIFEST_PATH]: MANIFEST_WITH_SELECTOR,
+        "cap.json": captures([
+          {
+            path: "/",
+            consoleErrors: [],
+            failedRequests: [],
+            snapshotText: "",
+            viewports: [
+              {
+                name: "narrow",
+                width: 200,
+                snapshotText: "<main>",
+                rootGap: { left: 0, right: asym },
+                scrollWidth: 200,
+                clientWidth: 200,
+              },
+            ],
+          },
+        ]),
+      });
+    expect(envelope(atAsymmetry(12)).ok).toBe(true);
+    expect(envelope(atAsymmetry(17)).ok).toBe(false);
+  });
+
   it("an empty viewports[] falls through the legacy single-capture path", () => {
     const c = drive(["--captures", "cap.json"], {
       [MANIFEST_PATH]: VALID_MANIFEST,
