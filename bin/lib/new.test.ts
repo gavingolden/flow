@@ -298,6 +298,27 @@ describe("runNewCli --resume (multi-slug)", () => {
     stdoutWrite.mockRestore();
   });
 
+  it("dedupes a repeated slug — `--resume x x` resumes `x` once via the single-slug path", () => {
+    seedState("x");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const stdoutWrite = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    const code = runNewCli(["--resume", "x", "x"], { stateDir });
+
+    expect(code).toBe(0);
+    // dedup at new.ts:91-92 collapses the repeat to length 1, so it routes
+    // through the single-slug short-circuit: one respawn, no >=2 preview,
+    // and the confirm prompt (readSync) is never consulted.
+    expect(tmuxMock.respawnWindow).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.respawnWindow.mock.calls[0]![0]).toBe("x");
+    expect(readSyncMock).not.toHaveBeenCalled();
+    expect(logs.join("\n")).not.toMatch(/will resume/);
+    stdoutWrite.mockRestore();
+  });
+
   it("--yes bypasses the preview entirely (readSync is never consulted)", () => {
     seedState("x");
     seedState("y");

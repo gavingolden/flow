@@ -56,7 +56,13 @@ _flow() {
                     # repeating slug list (`flow new --resume x y z`); complete
                     # each via _flow_slugs. Otherwise the rest is a free-text
                     # description (no completion). Mirrors `done`'s `*::` rest.
-                    if (( ${words[(I)--resume]} )); then
+                    #
+                    # `(i)` gives the FIRST-match index (or ${#words}+1 when
+                    # absent), so --resume only counts when it precedes a POSIX
+                    # `--` sentinel: `flow new -- fix --resume crash` treats the
+                    # later `--resume` as free-text description, not the flag.
+                    local resume_i=${words[(i)--resume]} dd_i=${words[(i)--]}
+                    if (( resume_i <= ${#words} && resume_i < dd_i )); then
                         _arguments \
                             '--resume[resume one or more crashed pipelines]' \
                             '(--yes -y)'{--yes,-y}'[skip the multi-resume confirmation]' \

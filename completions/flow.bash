@@ -76,9 +76,12 @@ _flow() {
             # When --resume appeared earlier in the line, every trailing
             # non-flag token is a slug (`flow new --resume x y z`). Complete
             # slugs cur-based (like `done`) so the SECOND+ slug completes too,
-            # not just the first after `prev == --resume`.
+            # not just the first after `prev == --resume`. Stop the scan at a
+            # POSIX `--` sentinel so `flow new -- fix --resume crash` treats the
+            # later `--resume` as free-text description, not the resume flag.
             local has_resume="" j
             for ((j=1; j < cword; j++)); do
+                if [ "${words[j]}" = "--" ]; then break; fi
                 if [ "${words[j]}" = "--resume" ]; then has_resume=1; break; fi
             done
             if [ -n "$has_resume" ] && [[ "$cur" != -* ]]; then
@@ -86,8 +89,16 @@ _flow() {
                 COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
                 return
             fi
-            # shellcheck disable=SC2207
-            COMPREPLY=( $(compgen -W "--resume --no-auto-merge --effort --yes -y" -- "$cur") )
+            # --yes/-y only bypasses the multi-resume preview, so advertise it
+            # (mirroring zsh) only once --resume is on the line; a fresh
+            # `flow new <description>` keeps the pre-existing option list.
+            if [ -n "$has_resume" ]; then
+                # shellcheck disable=SC2207
+                COMPREPLY=( $(compgen -W "--resume --yes -y" -- "$cur") )
+            else
+                # shellcheck disable=SC2207
+                COMPREPLY=( $(compgen -W "--resume --no-auto-merge --effort" -- "$cur") )
+            fi
             ;;
         ls)
             # shellcheck disable=SC2207
