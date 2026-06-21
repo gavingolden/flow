@@ -16,6 +16,26 @@ On a `ran:true` ready envelope, read `meta.env` from the envelope and inject it 
 
 **Shared-profile lock (parallel pipelines).** chrome-devtools-mcp backs every browser with a single default on-disk Chrome profile (`~/.cache/chrome-devtools-mcp/chrome-profile`), so two pipelines that both reach this pass under one un-isolated MCP registration contend for it — the second to launch errors with `The browser is already running for ~/.cache/chrome-devtools-mcp/chrome-profile. Use --isolated to run multiple browser instances`. On detecting the lock, drive `flow-ui-validate --browser-busy` — a loud-but-clean `ran:false` / `skipped_reason: browser-profile-busy` skip that degrades exactly like an absent MCP, never a hard failure. The cross-process fix is operator-side: register the chrome-devtools MCP with `--isolated` in `~/.claude.json` so each server process gets its own auto-cleaned throwaway profile. The per-call `isolatedContext` above is same-server defense-in-depth only — it isolates pages within one MCP server but does NOT resolve the cross-process on-disk-profile lock.
 
+## Teardown (servers and browser, symmetric)
+
+Tearing the launched server(s) down on completion is only half the cleanup —
+the pass also opened a per-pipeline isolated page (`new_page` with an
+`isolatedContext`), and that page/context must be torn down too, or the
+chrome-devtools MCP Chrome is left running on the user's machine, holding its
+profile lock and orphaning a browser window. Mirror the server teardown: on
+completion **and on every error / early-exit path** (a launch failure, a
+captures-assembly error, a fix-loop bail-out), close the per-pipeline isolated
+page you opened — `close_page` on that page, disposing the `isolatedContext` —
+in the same breath as bringing the launched server(s) down. Close **only** the
+page/context THIS pipeline opened (keyed on the pipeline slug); never close a
+sibling pipeline's page or any pre-existing page the user opened. `close_page`
+takes the numeric `pageId` your `new_page` call returned — capture that id at
+open time and pass exactly it; do NOT re-derive the page via `list_pages` at
+teardown, since the `isolatedContext` name is not a closeable handle and a
+`list_pages` scan under a shared MCP server can land on a sibling pipeline's
+page or the user's own tab. The MCP-absent and headless paths opened nothing,
+so teardown is a no-op there, never a failure.
+
 ## Fix-loop routing
 
 A `ran:true` result with `ok:false` (a console error, a failed request, or a missing `expectSelectors` element) is a verify failure routed through the same fix loop as any failed `flow-pre-commit` check. Prefer a durable Playwright/vitest spec for any deterministic guard worth keeping forever; reserve the MCP pass for the live + visual-evidence checks.

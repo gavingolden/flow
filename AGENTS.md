@@ -30,9 +30,8 @@ Read it once at the start of a session.
 The redesign from a Node orchestrator to a tmux-driven supervisor is
 complete: `src/`, the per-repo `flow install`, and the orchestrator-
 only skills (`flow-add`, `flow-approve`, `flow-revise`, `flow-watch`,
-`flow-status`) are deleted. The wrapper at `bin/flow` is Bun; it
-dispatches verbs natively (`new`, `ls`, `attach`, `done`, `setup`,
-`migrate`) with no passthrough fallback.
+`flow-status`) are deleted. The wrapper at `bin/flow` is Bun and
+dispatches verbs natively with no passthrough fallback.
 
 ## Code conventions
 
@@ -443,6 +442,8 @@ auto-detect > built-in); `checks` run as argv (no shell).
   `~/.flow/state/<slug>.json` are the state store; if the queue ever
   outgrows that, swap in Beads via an adapter rather than building
   bespoke storage.
+- Don't leave spawned resources running. See
+  `skills/pipeline/flow-pipeline/SKILL.md` "Resource cleanup".
 - Don't auto-commit or auto-push outside an explicit user instruction —
   this default always holds on `main` (or any base branch). **On a
   feature/PR branch, a user invoking a code-editing skill

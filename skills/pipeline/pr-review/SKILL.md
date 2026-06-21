@@ -1134,7 +1134,9 @@ bucket, never validated into a tick. The a11y `take_snapshot` is the primary evi
 via 8c.i's unchanged `flow-inject-evidence`), the screenshot supplementary and
 referenced by path. The full runnable-bucket procedure, the captures contract,
 the **Screenshot save-path cascade**, and the env-injected launch / clean
-teardown / self-improving-manifest persist-back behavior live in
+teardown (the launched server(s) AND the per-pipeline isolated browser
+page/context this pass opened, on completion and on every error / early-exit) /
+self-improving-manifest persist-back behavior live in
 [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
 When the `chrome-devtools` MCP is **absent or contended** — the guarded
 `ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns nothing
