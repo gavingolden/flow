@@ -832,8 +832,8 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * and once cleared Claude Code's 40k per-session performance warning with
    * little headroom (PR #218). #219 added this guard so the budget is
    * enforced on every PR via `npm run verify` rather than relying on a
-   * one-time PR-body checkbox. The budget is 36_000, not the 40_000
-   * warning threshold: it locks in the headroom won by offloading the eight
+   * one-time PR-body checkbox. The budget stays below the 40_000
+   * warning threshold: it locks in the headroom won by offloading the nine
    * exemption contract bodies to references/exemption-contracts.md (#220)
    * instead of letting the file silently regrow back toward 40k. It was
    * raised from 34_000 to fund one new first-class Output-style rule
@@ -859,6 +859,100 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
         `budget — the budget keeps AGENTS.md clear of Claude Code's 40k ` +
         `per-session performance warning.`,
     ).toBeLessThan(CHAR_BUDGET);
+  });
+});
+
+describe("Compact Instructions + verify-loop-instructions structural anchors", () => {
+  // The `## Compact Instructions` compaction-steering section and the new
+  // verify-loop-instructions.md spawn-instructions file are load-bearing
+  // governance the PR's one-shot Test-Steps greps cover but no durable lint
+  // does. These anchors are the durable guard so a later edit deleting the
+  // KEEP/DROP list, dropping the heading from either file, or removing the
+  // instructions file goes red on `npm run verify` — same regression class
+  // the cross-doc `persist-back` and `task-tool-exemption-preamble.md`
+  // existence guards above protect against.
+
+  function compactSection(content: string): string {
+    const start = content.indexOf("\n## Compact Instructions");
+    if (start === -1) return "";
+    const rest = content.slice(start + 1);
+    const next = rest.search(/\n## /);
+    return next === -1 ? rest : rest.slice(0, next);
+  }
+
+  it("AGENTS.md documents the Compact Instructions section with KEEP/DROP lists", () => {
+    const section = compactSection(agentsContent);
+    expect(
+      section.length,
+      "AGENTS.md must carry a top-level `## Compact Instructions` section " +
+        "steering Claude Code compaction.",
+    ).toBeGreaterThan(0);
+    for (const keep of [
+      "phase",
+      "PR number",
+      "worktree",
+      "plan.md",
+      "scout.md",
+      "NEEDS HUMAN",
+    ]) {
+      expect(
+        section.includes(keep),
+        `AGENTS.md ## Compact Instructions KEEP list must name '${keep}'.`,
+      ).toBe(true);
+    }
+    for (const drop of ["failure", "CI poll"]) {
+      expect(
+        section.includes(drop),
+        `AGENTS.md ## Compact Instructions DROP list must name '${drop}'.`,
+      ).toBe(true);
+    }
+  });
+
+  it("templates/AGENTS.md.template carries the Compact Instructions section", () => {
+    expect(
+      compactSection(agentsTemplateContent).length,
+      "templates/AGENTS.md.template must carry a `## Compact Instructions` " +
+        "section so consumer repos get the same compaction steering.",
+    ).toBeGreaterThan(0);
+  });
+
+  it("references/verify-loop-instructions.md exists and carries its contract anchors", () => {
+    const verifyLoopPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "references",
+      "verify-loop-instructions.md",
+    );
+    expect(
+      fs.existsSync(verifyLoopPath),
+      "skills/pipeline/flow-pipeline/references/verify-loop-instructions.md " +
+        "must exist — it is the spawn-instructions file the step-6 " +
+        "Verify-Retry-Loop subagent reads, referenced by name from SKILL.md, " +
+        "AGENTS.md, and exemption-contracts.md.",
+    ).toBe(true);
+    const content = fs.readFileSync(verifyLoopPath, "utf8");
+    expect(
+      content.length,
+      "verify-loop-instructions.md must be non-empty.",
+    ).toBeGreaterThan(0);
+    expect(
+      content.includes("verify-loop-result.json"),
+      "verify-loop-instructions.md must name the `verify-loop-result.json` artifact.",
+    ).toBe(true);
+    expect(
+      content.includes("verify_status"),
+      "verify-loop-instructions.md must document the `verify_status` artifact field.",
+    ).toBe(true);
+    expect(
+      /never spawn[^.]*`\/coder`/i.test(content) ||
+        content.includes("never spawn `/coder`"),
+      "verify-loop-instructions.md must document the load-bearing inline-fix " +
+        "invariant (the subagent applies /verify fixes inline and never spawns " +
+        "/coder — the one-level Task cap forbids a nested Task).",
+    ).toBe(true);
   });
 });
 

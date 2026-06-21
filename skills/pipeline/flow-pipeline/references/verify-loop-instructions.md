@@ -173,9 +173,11 @@ The artifact MUST conform to this JSON schema:
 proactively. An empty array is permitted only when you genuinely
 encountered none; silence is not the default.
 
-If the artifact is missing keys or fails to parse, the wrapper surfaces
-the failure to the supervisor (`NEEDS HUMAN: verify-loop-missing-artifact`).
-Validate your JSON before exiting.
+If the artifact is missing or empty, the wrapper's `test -s` existence
+check fails and it surfaces `NEEDS HUMAN: verify-loop-missing-artifact` to
+the supervisor (the wrapper checks existence/non-emptiness, not schema, so
+a malformed-but-non-empty artifact is your responsibility) — validate your
+JSON before exiting.
 
 ## 6. Return a brief summary
 
