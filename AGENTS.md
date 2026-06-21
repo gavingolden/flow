@@ -101,7 +101,7 @@ token-savings impact, highest first.
   routes non-feature tensions to the approval checkpoint), and (b) proceed
   with the most-likely-correct interpretation toward the stated goal, not
   the literal interpretation that fails it. The
-  eight Task-tool exemptions and other narrow-and-named contracts cap the
+  nine Task-tool exemptions and other narrow-and-named contracts cap the
   scope you can take on without authorisation; this rule governs
   *interpretation* inside an authorised scope, not scope expansion past it.
   PR #170 is the canonical
@@ -254,8 +254,8 @@ is one Claude Code chat session, sub-skills (`/product-planning`,
 `/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses, **with eight narrowly-named exceptions**
-— see the eight `**Task-tool exemption: ...**` bullets under
+`claude -p ...` subprocesses, **with nine narrowly-named exceptions**
+— see the nine `**Task-tool exemption: ...**` bullets under
 `## Don'ts` below, preceded by a single shared-rationale preamble.
 This sidesteps two limits at once:
 
@@ -266,6 +266,26 @@ This sidesteps two limits at once:
 If you find yourself adding logic that *needs* a separate LLM session,
 redesign so the LLM lives in a sub-skill that loads in-process or a
 helper script that doesn't need an LLM at all.
+
+## Compact Instructions
+
+The supervisor is one long-running Claude Code session whose single context
+window the whole pipeline shares, so when the harness compacts the conversation
+— automatically near the context limit, or on a manual `/compact` — the
+load-bearing pipeline state must survive the summary. Claude Code reads a
+"Compact Instructions" section from `CLAUDE.md` / `AGENTS.md` to decide what to
+preserve during compaction (flow's `CLAUDE.md` is `@AGENTS.md`, so this section
+is included), and it applies to both the automatic pass and a manual `/compact`.
+See code.claude.com/docs/en/how-claude-code-works.
+
+- **KEEP**: current pipeline phase, PR number, worktree path, the
+  `.flow-tmp/plan.md` and `.flow-tmp/scout.md` artifact paths, current pipeline
+  step, and any `NEEDS HUMAN: <reason>`. These are the supervisor's resume
+  anchors — lose them and it cannot tell what it has already done.
+- **DROP**: verify failure-log excerpts, raw tool outputs, and CI poll progress.
+  These are high-volume and reconstructable on demand (`state.json`, the PR, and
+  a fresh `gh` / `flow-pre-commit` call re-derive them), so summarising them away
+  costs nothing.
 
 ## Git workflow
 
@@ -421,13 +441,14 @@ auto-detect > built-in); `checks` run as argv (no shell).
 - Don't bypass the helper scripts. The supervisor must always call
   `flow-new-worktree` / `flow-remove-worktree` / `flow-state-update`
   rather than reimplementing their behaviour with raw `git` / `gh` calls.
-- Don't spawn sub-agents from the supervisor. See above. The eight
+- Don't spawn sub-agents from the supervisor. See above. The nine
   named exceptions are `/pr-review`'s Multi-Agent Review,
   `/product-planning`'s Discovery, `/new-feature`'s Scout,
   `/pr-review`'s Fix-Applier, `/flow-pipeline` step 10's
   Merge-Conflict Resolver, `/coder`'s Edit-Applier, `/pr-review`
-  Step 1.5's Gatekeeper, and `/pr-review` Step 3.5's
-  Consolidator-Validator subagents — all eight covered by
+  Step 1.5's Gatekeeper, `/pr-review` Step 3.5's
+  Consolidator-Validator, and `/flow-pipeline` step 6's
+  Verify-Retry-Loop subagents — all nine covered by
   "Task-tool exemption" bullets below; no other skill or step may
   call Task.
 - Don't add features beyond the task's stated scope.
@@ -486,10 +507,10 @@ auto-detect > built-in); `checks` run as argv (no shell).
     authorisation; opt out per-pipeline with `flow new --no-auto-merge`
     (the supervisor stops at the gated state regardless of the gate
     verdict).
-  - **Shared rationale for the eight Task-tool exemptions below.**
+  - **Shared rationale for the nine Task-tool exemptions below.**
     `/flow-pipeline`'s "Hard rules" forbid the supervisor from calling
-    the `Task` / `Agent` tool, with eight named exceptions. The same
-    rationale covers all eight, so it is stated here once: (a) the
+    the `Task` / `Agent` tool, with nine named exceptions. The same
+    rationale covers all nine, so it is stated here once: (a) the
     supervisor is itself a top-level Claude Code session, so the
     one-level sub-agent cap doesn't apply to *its* Task calls; (b) each
     subagent is one-shot (returns an artifact + brief summary, then
@@ -528,7 +549,7 @@ auto-detect > built-in); `checks` run as argv (no shell).
     step 3 takes its wider-scope path — or the `/flow-pipeline`
     supervisor's interactive code-change redirect path fires — writing
     `.flow-tmp/coder-result.json`; full contract in
-    `skills/pipeline/coder/SKILL.md`. These are the **only eight**
+    `skills/pipeline/coder/SKILL.md`. These are the **only nine**
     authorised Task-tool fan-out sites from `/flow-pipeline`; no other
     skill or step may call Task.
   - **Task-tool exemption: `/flow-pipeline` → `/pr-review` Independent
@@ -539,7 +560,14 @@ auto-detect > built-in); `checks` run as argv (no shell).
     Consolidator-Validator Subagent.** `/pr-review` Step 3.5's one
     consolidator-validator agent (default Sonnet, no model override),
     writing `.flow-tmp/consolidator-result.json`.
-  - **Task-tool spawn sites must load Task first.** Each of the eight
+  - **Task-tool exemption: `/flow-pipeline` → Verify-Retry-Loop
+    Subagent.** Step 6's one verify-retry-loop agent owning the
+    3-outer-attempt `/verify` loop (the `flow-pre-commit` failure-JSON
+    re-paste, the Layer-3 `.flow/pre-commit.json` config-authoring branch,
+    the UI-smoke pass) so the re-pasted failure JSON never accumulates in
+    the supervisor's own context across the three attempts; writing
+    `.flow-tmp/verify-loop-result.json`.
+  - **Task-tool spawn sites must load Task first.** Each of the nine
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias
     `Agent`); if neither alias is surfaced top-level, an unguarded
@@ -547,8 +575,8 @@ auto-detect > built-in); `checks` run as argv (no shell).
     missing schema, escalate
     `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` rather than
     falling back inline. `bin/skill-md-lint.test.ts` enforces the
-    "Load the Task tool before spawning" paragraph at all eight sites.
-    A sibling guard, not a ninth exemption.
+    "Load the Task tool before spawning" paragraph at all nine sites.
+    A sibling guard, not a tenth exemption.
   - **AskUserQuestion exemption: `/flow-pipeline` candidate-issues
     form (two firing locations).** The multi-select form that picks
     which orthogonal candidates to file post-merge. It is ONE named

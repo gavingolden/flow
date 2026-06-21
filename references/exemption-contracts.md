@@ -2,7 +2,7 @@
 
 Per-exemption contract bodies offloaded from `AGENTS.md` `## Don'ts` (PR
 addressing #220) to keep that file under its char budget. Each section
-below carries the unique contract for one of the eight named Task-tool
+below carries the unique contract for one of the nine named Task-tool
 exemptions: spawn site / triggering step, artifact path, typed artifact
 fields, and any model override.
 
@@ -14,7 +14,7 @@ This file is one half of a bidirectional contract. The other anchors are:
   `**Task-tool exemption #N: ...**` blocks the AGENTS.md bullets are
   symmetric with (enforced by `bin/skill-md-lint.test.ts`).
 
-The **shared rationale** for all eight (why a top-level supervisor may
+The **shared rationale** for all nine (why a top-level supervisor may
 call Task at these sites) stays in `AGENTS.md` `## Don'ts` alongside the
 openers — it is not duplicated here.
 
@@ -119,3 +119,21 @@ Artifact: `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
 `anti_patterns_found`, `summary`); the wrapper reads it once at Step 4
 and reuses the parsed object across Steps 4–7. Also documented in
 `skills/pipeline/pr-review/references/consolidator-instructions.md`.
+
+## Verify-Retry-Loop Subagent
+
+`/flow-pipeline` step 6 (`Local verify`) spawns one verify-retry-loop agent via
+the Task tool to own the 3-outer-attempt `/verify` loop in an isolated context:
+each retry re-invokes `/verify` and re-pastes the prior attempt's
+`flow-pre-commit --json` `failure` object, and the loop also owns the Layer-3
+`.flow/pre-commit.json` config-authoring branch (which commits to the feature
+branch) and the UI-smoke pass. Artifact:
+`<worktree>/.flow-tmp/verify-loop-result.json` (typed fields `verify_status`
+(`pass` | `exhausted`), `attempts`, `config_authored`, `ui_smoke`,
+`final_failure_excerpt?`, `rejected_alternatives`, `anti_patterns_found`,
+`summary`). The supervisor reads it once and branches: `pass` continues to step
+7; `exhausted` escalates `verify-exhausted` and writes the `> [!CAUTION]` PR-body
+block from `final_failure_excerpt`. A committing subagent is consistent with the
+Fix-Applier (#4) and Merge-Conflict Resolver (#5) precedents. The subagent's full
+instructions are at
+`skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`.
