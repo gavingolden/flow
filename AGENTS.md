@@ -443,6 +443,7 @@ auto-detect > built-in); `checks` run as argv (no shell).
   `~/.flow/state/<slug>.json` are the state store; if the queue ever
   outgrows that, swap in Beads via an adapter rather than building
   bespoke storage.
+- Don't leave spawned resources running. See `flow-pipeline/SKILL.md`.
 - Don't auto-commit or auto-push outside an explicit user instruction —
   this default always holds on `main` (or any base branch). **On a
   feature/PR branch, a user invoking a code-editing skill

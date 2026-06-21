@@ -86,6 +86,22 @@ Fix-Applier subagent surface, and the MCP calls are harness-level tool calls in
 that context. See `references/manual-test-rubric.md` "Caveat: browser-validation
 flakiness".
 
+## Teardown (servers and browser, symmetric)
+
+Step 0's "Tear the launched server(s) down on completion" is only half the
+cleanup — step 1 also opened a per-pipeline isolated page (`new_page` with an
+`isolatedContext`), and that page/context must be torn down too, or the
+chrome-devtools MCP Chrome is left running on the user's machine, holding its
+profile lock and orphaning a browser window. Mirror the server teardown: once
+the browser items are judged and evidence injected — **and on every error /
+early-exit path** (a launch failure, an MCP-call error, a bail-out mid-bucket)
+— close the per-pipeline isolated page you opened with `close_page`, disposing
+the `isolatedContext`, in the same breath as bringing the launched server(s)
+down. Close **only** the page/context THIS pipeline opened (keyed on the
+pipeline slug); never close a sibling pipeline's page or a pre-existing page the
+user opened. The MCP-absent and browser-busy paths opened nothing, so teardown
+is a no-op there, never a failure.
+
 ## Captures contract
 
 `failedRequests` are request URLs (URL-filterable via the manifest's

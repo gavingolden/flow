@@ -228,6 +228,26 @@ may add a `jq empty .flow/ui-validation.json` check to its
 `.flow/pre-commit.json` flow-config scope to lint the manifest's JSON on
 commit.
 
+### Clean up spawned resources
+
+**Tear down every resource you spawn before you finish — never leave one
+running on the user's machine.** This covers dev servers / launch
+subprocesses, chrome-devtools MCP pages/contexts, headless browsers
+(Playwright et al.), and any background process. Browser teardown is
+**symmetric with server teardown**: a UI-validation pass that brings up a
+dev server and opens a per-pipeline isolated browser page (`new_page` +
+`isolatedContext`) must tear **both** down — `close_page` on the page it
+opened, disposing the `isolatedContext`, in the same breath as stopping the
+server — on the completion path **and on every error / early-exit path**.
+Registering the `chrome-devtools` MCP with `--isolated` (above) gives each
+session its own auto-cleaned throwaway Chrome profile, but the agent still
+explicitly closes the page/context it opened; the two are complementary.
+Scope the teardown strictly to what you spawned — never close a page or
+profile belonging to a concurrent agent run or to the user's own browser.
+The motivating incident: an automated visual pass left the chrome-devtools
+MCP Chrome running, holding its profile lock and orphaning a browser window,
+which blocked the MCP for the rest of the run.
+
 ### Command Execution
 
 Prefer absolute paths over `cd <path> &&` to maintain a consistent working directory.
