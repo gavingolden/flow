@@ -52,11 +52,28 @@ _flow() {
                         '--no-hooks[skip Stop-hook merge into ~/.claude/settings.json]'
                     ;;
                 new)
-                    _arguments \
-                        '--resume[resume a crashed pipeline]:pipeline:_flow_slugs' \
-                        '--no-auto-merge[stop at gated regardless of rubric]' \
-                        '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
-                        '*::description:'
+                    # When --resume appears, the trailing positionals are a
+                    # repeating slug list (`flow new --resume x y z`); complete
+                    # each via _flow_slugs. Otherwise the rest is a free-text
+                    # description (no completion). Mirrors `done`'s `*::` rest.
+                    #
+                    # `(i)` gives the FIRST-match index (or ${#words}+1 when
+                    # absent), so --resume only counts when it precedes a POSIX
+                    # `--` sentinel: `flow new -- fix --resume crash` treats the
+                    # later `--resume` as free-text description, not the flag.
+                    local resume_i=${words[(i)--resume]} dd_i=${words[(i)--]}
+                    if (( resume_i <= ${#words} && resume_i < dd_i )); then
+                        _arguments \
+                            '--resume[resume one or more crashed pipelines]' \
+                            '(--yes -y)'{--yes,-y}'[skip the multi-resume confirmation]' \
+                            '*::pipeline:_flow_slugs'
+                    else
+                        _arguments \
+                            '--resume[resume a crashed pipeline]' \
+                            '--no-auto-merge[stop at gated regardless of rubric]' \
+                            '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
+                            '*::description:'
+                    fi
                     ;;
                 ls)
                     _arguments \

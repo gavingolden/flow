@@ -45,6 +45,21 @@ describe("runAttachCli (--help / -h short-circuit)", () => {
   }
 });
 
+describe("runAttachCli (multi-slug guard)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("errors with the single-window constraint and exits 1 without attaching", () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const code = runAttachCli(["a", "b"]);
+    expect(code).toBe(1);
+    expect(err).toHaveBeenCalled();
+    expect(err.mock.calls[0][0]).toMatch(/single window/);
+    expect(tmuxMock.execAttach).not.toHaveBeenCalled();
+    expect(tmuxMock.sessionExists).not.toHaveBeenCalled();
+    err.mockRestore();
+  });
+});
+
 describe("runAttach (no-arg branch)", () => {
   beforeEach(() => vi.clearAllMocks());
 

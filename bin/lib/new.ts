@@ -80,18 +80,43 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   }
   const resumeIdx = args.indexOf("--resume");
   if (resumeIdx >= 0) {
-    const rest = [...args.slice(0, resumeIdx), ...args.slice(resumeIdx + 1)];
-    if (rest.length === 0) {
+    // The resume branch returns before the later --yes/-y parse, so detect the
+    // bypass flag here for the multi-slug preview. Strip --yes/-y and --resume
+    // from the positional list; the remainder is the de-duplicated slug list.
+    const yes = args.includes("--yes") || args.includes("-y");
+    const slugs = [
+      ...args.slice(0, resumeIdx),
+      ...args.slice(resumeIdx + 1),
+    ].filter((a) => a !== "--yes" && a !== "-y" && !a.startsWith("-"));
+    const seen = new Set<string>();
+    const deduped = slugs.filter((s) => !seen.has(s) && seen.add(s));
+    if (deduped.length === 0) {
       console.error("flow new --resume: <name> is required.");
-      console.error("usage: flow new --resume <name>");
+      console.error("usage: flow new --resume <name> [<name> ...]");
       return 1;
     }
-    if (rest.length > 1) {
-      console.error("flow new --resume: takes a single <name> argument.");
-      console.error(`  got: ${rest.join(" ")}`);
-      return 1;
+    // Single-slug resume routes straight through the UNCHANGED single-slug
+    // path — no preview, no confirm — so its output stays byte-identical.
+    if (deduped.length === 1) {
+      return runNew(deduped[0], { ...options, resume: true });
     }
-    return runNew(rest[0], { ...options, resume: true });
+    // Two or more slugs each spawn a Claude Code session: preview the count +
+    // names and confirm once (unless --yes) before launching anything.
+    if (!yes) {
+      console.log(`will resume ${deduped.length} pipeline(s):`);
+      for (const slug of deduped) console.log(`  ${slug}`);
+      if (!confirmResume("proceed?")) {
+        console.log(dim("flow new --resume: aborted — nothing resumed"));
+        return 0;
+      }
+    }
+    // Sequential launch (never concurrent) so tmux window creation stays
+    // deterministic; per-slug validation/refusal is inherited from runResume.
+    let failed = 0;
+    for (const slug of deduped) {
+      if (runNew(slug, { ...options, resume: true }) !== 0) failed += 1;
+    }
+    return failed > 0 ? 1 : 0;
   }
   const noAutoMerge = args.includes("--no-auto-merge");
   const waitForCopilot = args.includes("--wait-for-copilot");
@@ -375,6 +400,23 @@ function resumeCommand(
   // decision tree in references/failure-recovery.md section (b).
   const prompt = `Use the /flow-pipeline skill in --resume mode for: ${slug}`;
   return launchArgv(worktree, prompt, effort);
+}
+
+// Duplicated from done.ts's confirm() rather than extracted to a shared
+// bin/lib/confirm.ts: two consumers with distinct gate semantics (destructive
+// done-confirm vs. session-spawn resume preview) don't yet justify a shared
+// module (No-premature-abstraction). If a third consumer appears, extract then.
+function confirmResume(prompt: string): boolean {
+  process.stdout.write(`${prompt} [y/N] `);
+  const buf = Buffer.alloc(16);
+  let len = 0;
+  try {
+    len = fs.readSync(0, buf, 0, buf.length, null);
+  } catch {
+    return false;
+  }
+  const answer = buf.subarray(0, len).toString("utf8").trim().toLowerCase();
+  return answer === "y" || answer === "yes";
 }
 
 function resolveRepoRoot(cwd: string): string | null {

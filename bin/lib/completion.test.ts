@@ -149,4 +149,18 @@ describe("completion scripts stay in sync with VERBS", () => {
     expect(script.startsWith("#compdef flow")).toBe(true);
     expect(script).toContain("compdef _flow flow");
   });
+
+  it("zsh `new --resume` completes a repeating slug list, not a single value", () => {
+    // Pins the multi-slug --resume intent: the resume path must use the
+    // repeating `*::pipeline:_flow_slugs` rest-spec (mirroring `done`), not
+    // the old single-value `--resume:pipeline:_flow_slugs` optarg.
+    const script = fs.readFileSync(
+      path.join(FLOW_SOURCE, "completions", "flow.zsh"),
+      "utf8",
+    );
+    expect(script).toContain("'*::pipeline:_flow_slugs'");
+    expect(script).not.toContain(
+      "'--resume[resume a crashed pipeline]:pipeline:_flow_slugs'",
+    );
+  });
 });

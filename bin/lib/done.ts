@@ -57,7 +57,82 @@ export function runDoneCli(args: string[]): number {
   const orphans = args.includes("--orphans");
   const yes = args.includes("--yes") || args.includes("-y");
   const positional = args.filter((a) => !a.startsWith("-"));
+  // A sweep flag keeps today's predicate-driven behaviour regardless of how
+  // many positional slugs were typed. With no sweep flag, exactly one slug
+  // routes through the unchanged single-slug runDone (preserving the
+  // `closed: flow:<name>` contract line); two or more route through the
+  // multi-slug sweep below.
+  if (!merged && !orphans) {
+    const slugs = dedupe(positional);
+    if (slugs.length > 1) return runDoneMulti(slugs, { yes });
+  }
   return runDone(positional[0], { merged, orphans, yes });
+}
+
+function dedupe(slugs: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const s of slugs) {
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+  }
+  return out;
+}
+
+/**
+ * Multi-slug `flow done a b c` — resolve each explicit slug to the same row
+ * shape the --merged/--orphans sweeps build, then feed the EXISTING sweep()
+ * (count+names preview, single confirm(), per-slug kill/delete/turn-track,
+ * --yes bypass). Slugs with neither a window nor a state file are accumulated
+ * as failures, warned about, and force a non-zero exit while the resolvable
+ * slugs still close.
+ */
+function runDoneMulti(slugs: string[], options: DoneOptions): number {
+  const rows: PipelineState[] = [];
+  const missing: string[] = [];
+  for (const slug of slugs) {
+    const state = readState(slug);
+    if (state) {
+      rows.push(state);
+    } else if (windowExists(slug)) {
+      // Window exists but no state file (the window-only path the single-slug
+      // runDone warns about). Synthesize a minimal row so sweep() kills the
+      // window; deleteState/deleteTurnTracking are no-ops without a state file.
+      rows.push({ slug, phase: "unknown", repo: "", updatedAt: "" });
+    } else {
+      missing.push(slug);
+    }
+  }
+
+  // Surface unresolvable slugs up front so they're visible alongside the
+  // sweep preview before the user confirms.
+  for (const slug of missing) {
+    console.error(`flow done: no window or state for '${slug}'.`);
+  }
+
+  if (rows.length === 0) {
+    // Every requested slug was unresolvable: nothing to confirm, nothing to
+    // close. The missing warnings above already fired; exit non-zero.
+    return 1;
+  }
+
+  // A declined confirm inside sweep() aborts the whole batch (logs "aborted",
+  // returns 0). Treat that as a clean abort regardless of the missing slugs —
+  // the user closed nothing, so it isn't a partial failure. We detect it by
+  // observing whether any state was actually deleted via a wrapping flag.
+  let proceeded = false;
+  const code = sweep(
+    rows,
+    options,
+    (s) => `  ${s.slug} (${s.phase})`,
+    () => {
+      proceeded = true;
+    },
+  );
+  if (code !== 0) return code;
+  if (!proceeded) return 0; // declined → clean abort
+  return missing.length > 0 ? 1 : 0;
 }
 
 export function runDone(
@@ -164,6 +239,7 @@ function sweep(
   states: PipelineState[],
   options: DoneOptions,
   format: (s: PipelineState) => string,
+  onProceed?: () => void,
 ): number {
   console.log(`will close ${states.length} pipeline(s):`);
   for (const s of states) console.log(format(s));
@@ -174,6 +250,7 @@ function sweep(
       return 0;
     }
   }
+  onProceed?.();
 
   const windows = listWindows();
   for (const s of states) {

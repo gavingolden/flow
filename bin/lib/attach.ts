@@ -23,7 +23,17 @@ export function runAttachCli(args: string[]): number {
     printVerbHelp("attach");
     return 0;
   }
-  return runAttach(args[0]);
+  // A tmux client attaches to exactly one window; a slug list has no coherent
+  // attach semantics. Reject >1 positional slug with a clear error instead of
+  // today's silent drop of args[1..].
+  const positional = args.filter((a) => !a.startsWith("-"));
+  if (positional.length > 1) {
+    console.error(
+      `flow attach: attaches to a single window; got ${positional.length} — attach them one at a time.`,
+    );
+    return 1;
+  }
+  return runAttach(positional[0]);
 }
 
 export function runAttach(name?: string): number {
