@@ -186,6 +186,57 @@ describe("validateEpicManifest — wrong-type rejections", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("mvp");
   });
+
+  it("rejects a non-string rationale when present", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (fixture.features as Array<Record<string, unknown>>)[0].rationale = 42;
+    const result = validateEpicManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("rationale");
+  });
+
+  it("rejects acceptanceCriteria that is not an array when present", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (fixture.features as Array<Record<string, unknown>>)[0].acceptanceCriteria =
+      "not an array";
+    const result = validateEpicManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("acceptanceCriteria");
+  });
+
+  it("rejects an acceptanceCriteria element that is not a string", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (fixture.features as Array<Record<string, unknown>>)[0].acceptanceCriteria =
+      [42];
+    const result = validateEpicManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("acceptanceCriteria[0]");
+      expect(result.reason).toContain("must be a string");
+    }
+  });
+
+  // typeof [] === "object", so the Array.isArray guard in validateFlowNewHints
+  // is what rejects an array here — exercise it explicitly so a future refactor
+  // that drops the guard fails the suite.
+  it("rejects a flowNewHints that is not an object", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (fixture.features as Array<Record<string, unknown>>)[0].flowNewHints = [];
+    const result = validateEpicManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("flowNewHints");
+  });
+
+  it("rejects a non-boolean flowNewHints.autoMerge", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    (
+      (fixture.features as Array<Record<string, unknown>>)[0]
+        .flowNewHints as Record<string, unknown>
+    ).autoMerge = "yes";
+    const result = validateEpicManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("autoMerge");
+  });
 });
 
 describe("validateEpicManifest — optional-field acceptance", () => {
