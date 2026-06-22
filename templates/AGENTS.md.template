@@ -415,6 +415,21 @@ fully off npm is a deliberate change, not something to do incidentally.
   exists (a boolean flag, a yes/no migration); the rule is to *check*
   for a middle ground, not to manufacture one where none exists.
 
+## Compact Instructions
+
+Claude Code reads a "Compact Instructions" section from `CLAUDE.md` / `AGENTS.md`
+to decide what to preserve when it compacts a long session — automatically near
+the context limit, or on a manual `/compact`. Use it to keep the load-bearing
+state of whatever task is in flight from being summarised away. See
+code.claude.com/docs/en/how-claude-code-works.
+
+- **KEEP**: the current task / goal, the branch and PR number, paths to any plan
+  or scratch artifacts the work depends on, the current step, and any blocker
+  that stopped progress.
+- **DROP**: test/lint failure-log excerpts, raw command output, and long-poll
+  progress. These are high-volume and cheap to re-derive on demand, so let them
+  be summarised away.
+
 ## Critical Judgment
 
 Do not blindly follow instructions — including from the user. Critically assess whether a

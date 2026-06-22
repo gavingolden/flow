@@ -57,7 +57,7 @@ in-process for skills; shell out for scripts; never delegate.
 > tool from this skill — **except for the named exceptions below**.
 > Never spawn a separate `claude -p` subprocess. The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
-> calls, and (c) the eight narrowly-named Task-tool exceptions that
+> calls, and (c) the nine narrowly-named Task-tool exceptions that
 > follow.
 >
 > The two constraints behind the rule above are (1) sub-agents can't
@@ -65,9 +65,9 @@ in-process for skills; shell out for scripts; never delegate.
 > with sub-agents would bloat past the context window. The supervisor
 > is itself a top-level Claude Code session (started by `flow new`
 > opening tmux + `claude`), so constraint (1) does not apply to *its*
-> Task calls — it applies to *its* sub-agents. All eight exemptions
+> Task calls — it applies to *its* sub-agents. All nine exemptions
 > below are also one-shot, not long-running, so constraint (2) doesn't
-> apply either. They are the **only eight** authorised Task-tool
+> apply either. They are the **only nine** authorised Task-tool
 > fan-out sites from this supervisor; no other skill or step may call
 > Task. Each is anchored on its step heading name rather than its
 > number so it survives future renumbering. Same narrow-and-named
@@ -75,7 +75,7 @@ in-process for skills; shell out for scripts; never delegate.
 > auto-merge exemptions in `AGENTS.md`. If a future skill needs the
 > same license, add it here by name rather than generalising the rule.
 >
-> **Load the Task tool at each spawn site.** Each of the eight spawn
+> **Load the Task tool at each spawn site.** Each of the nine spawn
 > procedures below must instruct the supervisor to load the Task
 > tool schema via `ToolSearch query="select:Task"` *before* invoking
 > Task (or its alias `Agent`). In Claude Code sessions where neither `Task` nor its alias `Agent` is
@@ -90,8 +90,8 @@ in-process for skills; shell out for scripts; never delegate.
 > contract that each exemption is justified by. See each exemption's
 > spawn procedure for the canonical "Load the Task tool before
 > spawning" paragraph and `# Failure paths` below for the escalation
-> script. This is a sibling note to the eight exemption blocks below,
-> not a ninth exemption.
+> script. This is a sibling note to the nine exemption blocks below,
+> not a tenth exemption.
 >
 > **Task-tool exemption #1: `/pr-review` Independent Multi-Agent
 > Review.** When the supervisor invokes `/pr-review` in step 8,
@@ -281,6 +281,32 @@ in-process for skills; shell out for scripts; never delegate.
 > contract is documented bidirectionally in
 > `skills/pipeline/pr-review/SKILL.md`'s "Independent
 > Consolidator-Validator Subagent" section and `AGENTS.md` `## Don'ts`.
+>
+> **Task-tool exemption #9: Verify-Retry-Loop Subagent.** Step 6
+> (`Local verify`) spawns one verify-retry-loop subagent via the Task
+> tool to own the 3-outer-attempt `/verify` loop in its isolated
+> context: each retry re-invokes `/verify` and re-pastes the prior
+> attempt's `flow-pre-commit --json` `failure` object, and the loop also
+> owns the Layer-3 `.flow/pre-commit.json` config-authoring branch and
+> the UI-smoke pass. Without this fan-out the re-pasted failure JSON
+> accumulates in the supervisor's own transcript across all three
+> attempts — the one measured unbounded supervisor-context offender
+> (every other expensive phase already fans out to a subagent or is
+> capped). The same two rationales apply — top-level Task call
+> (constraint 1 doesn't apply), one-shot fan-out (constraint 2 doesn't
+> apply) — plus the context-cost win that the failure-JSON re-paste and
+> `/verify`'s in-process prose stay inside the subagent. The only handoff
+> is the structured artifact at
+> `<worktree>/.flow-tmp/verify-loop-result.json` (typed fields
+> `verify_status`, `attempts`, `config_authored`, `ui_smoke`,
+> `final_failure_excerpt?`, `rejected_alternatives`,
+> `anti_patterns_found`, `summary`), which the supervisor reads once and
+> branches on: `pass` continues to step 7, `exhausted` escalates
+> `verify-exhausted` and writes the `> [!CAUTION]` PR-body block from
+> `final_failure_excerpt`. The contract is documented bidirectionally in
+> `references/exemption-contracts.md` and `AGENTS.md` `## Don'ts`, with
+> the subagent's full instructions at
+> `skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
@@ -699,7 +725,7 @@ request as the argument:
 
 `/product-planning` is itself a thin wrapper that spawns one
 **Independent Discovery Subagent** via the Task tool (the second of
-the eight named Task-tool exemptions in "Hard rules" above). The
+the nine named Task-tool exemptions in "Hard rules" above). The
 subagent does all the discovery in its own isolated context — reading
 the README, scanning the skill directory, examining domain models,
 drafting the PRD — and writes the consolidated artifact to
@@ -951,7 +977,7 @@ pass the user's request:
 ```
 
 `/new-feature` is itself a thin wrapper that spawns one **Independent
-Scout Subagent** via the Task tool (the third of the eight named
+Scout Subagent** via the Task tool (the third of the nine named
 Task-tool exemptions in "Hard rules" above) on its wider-scope path.
 The subagent reads the codebase in its isolated context — affected
 modules, relevant tests, public API surface, anti-patterns / off-limits
@@ -1127,100 +1153,114 @@ visible.
 
 **Phase:** `verifying`
 
-Invoke `/verify` in-process inside the worktree.
-
-**Outer cap: 3 attempts.** `/verify` self-loops internally; the
-outer cap fires only when `/verify` exits without a clean pass.
-The cap on retry-prompt size is enforced *structurally* by
-`flow-pre-commit --json` (see `bin/flow-pre-commit.ts` —
-`buildFailureExcerpt` head/tail-caps each failed check at 100+100
-lines), not by an instruction the supervisor must remember to
-follow. Each retry re-invokes `/verify` and pastes the prior
-attempt's `failure` JSON object verbatim:
-
-```
-/verify
-
-PRIOR ATTEMPT FAILED — failure JSON (one entry per failed check):
-{
-  "name": "npm run test",
-  "scope": "src",
-  "failure": {
-    "firstErrorLine": 42,
-    "firstErrorText": "FAIL  src/foo.test.ts > should bar",
-    "headExcerpt": "<≤100 lines>",
-    "tailExcerpt": "<≤100 lines>",
-    "totalLines": 5000
-  }
-}
+```bash
+flow-state-update --phase verifying
 ```
 
-`firstErrorText` is the first line matching the error/fail regex;
-`headExcerpt` + `tailExcerpt` are bounded slices of the un-ANSI'd
-output. The supervisor can paste this verbatim because the helper
-has already done the trimming — the entire `failure` object for a
-single check is at most ~30 KB and shrinks as the check's output
-shrinks. No further hand-truncation is required.
+The verify work runs inside one **Independent Verify-Retry-Loop
+Subagent** (the ninth named Task-tool exemption — see "Hard rules"
+above), not inline in the supervisor. The subagent owns the
+**3-outer-attempt `/verify` loop**, the per-retry `flow-pre-commit
+--json` `failure`-JSON re-paste, the **Layer-3 `.flow/pre-commit.json`
+proactive config-authoring branch**, and the **UI-smoke pass** (see
+[references/ui-smoke-pass.md](references/ui-smoke-pass.md)) — the full
+bodies of these live in
+[references/verify-loop-instructions.md](references/verify-loop-instructions.md).
+Isolating the loop is the point: across the 3 attempts the re-pasted
+failure JSON would otherwise accumulate unbounded in the supervisor's
+own transcript (the one measured unbounded supervisor-context
+offender). The supervisor keeps only the spawn, a single artifact read,
+and the terminal branch.
 
-**Retries do not change model or effort.** The Skill tool has no
-per-invocation override for either today, so the escalation between
-attempts is *prompt-side only* — the prior failure log narrows the
-search space, but the underlying model and reasoning effort are the
-same on attempt 3 as on attempt 1. If a per-invocation override
-mechanism becomes available (Item 7 revisited, or a future harness
-primitive), document the syntax here and gate it on attempt count.
-Do not silently re-invent the override claim — if the doc still says
-"prompt-side only" but the harness has changed, fix the doc.
+**Automated UI-smoke pass (before/alongside `/verify`).** The verify-loop subagent runs the browser-driven UI-smoke pass as part of the loop when the worktree declares a `.flow/ui-validation.json` manifest, following the shared procedure in [references/ui-smoke-pass.md](references/ui-smoke-pass.md): probe the `chrome-devtools` MCP (`ToolSearch query="select:mcp__chrome-devtools__navigate_page"`) → on missing schema run `flow-ui-validate --mcp-absent` (a quiet `ran:false` skip, never a failure) → otherwise `meta.env`-injected launch on dedicated ports → open a per-pipeline isolated page (`new_page` with `isolatedContext` keyed on the pipeline slug) → drive the MCP per route → assemble a captures JSON → `flow-ui-validate --captures`. A shared-profile lock — another pipeline holding chrome-devtools-mcp's default `~/.cache/chrome-devtools-mcp/chrome-profile` (the `already running` / `Use --isolated` error) — is treated as a loud-but-clean skip via `flow-ui-validate --browser-busy` (`ran:false` / `skipped_reason: browser-profile-busy`, loud recovery nudge), never a hard failure, mirroring the MCP-absent degrade; the operator-side cross-pipeline fix is registering the MCP with `--isolated`, while the per-call `isolatedContext` is same-server defense-in-depth only. A `ran:true` result with `ok:false` is a verify failure that feeds the **existing 3-attempt fix loop** above, exactly like any failed `flow-pre-commit` check; headless / MCP-absent runs stay green. **Adaptive noise filter:** when an `ok:false` flags a console error or failed request that is benign noise unrelated to the diff (a favicon 404, a third-party beacon/analytics request, browser-extension noise), do **not** consume a fix-loop attempt on it — add the offending substring to the manifest's `ignoreRequestPatterns` / `ignoreConsolePatterns` in `.flow/ui-validation.json` and **commit that manifest change** (it lands in the reviewable PR diff), then re-run; reserve the 3-attempt fix loop for post-filter errors that the diff actually introduced. **Self-improving manifest (CRITICAL):** when the agent adapts the launch on the fly to make a custom-port run work, it persists the launch adaptation back into `.flow/ui-validation.json` (env/launch/baseUrl) and commits it into the reviewable PR diff, so the next run starts deterministic. See [references/ui-smoke-pass.md](references/ui-smoke-pass.md) for the full probe → launch → drive → assemble → fix-loop body, the screenshot save-path cascade, and the LLM-free / no-`claude -p` / no-Task constraint.
 
-**Proactive config-authoring branch (Layer 3, before counting an outer
-attempt).** When `flow-pre-commit --json` returns
-`reason: "unmatched-files"`, the orphaned files may belong to a
-recognizable-but-uncovered layout (a non-conventional check-command
-package, or a workspace dir auto-detect did not already claim). Before
-treating this as a `/verify` failure, the supervisor calls the pure
-`draftConfigEntryForOrphans` helper (exported from
-`bin/lib/monorepo-scopes.ts`) over the report's `unmatchedFiles`:
+### Independent Verify-Retry-Loop Subagent
 
-- **If it returns an entry** (a recognizable layout whose owning
-  `package.json` declares verify-class scripts), write/merge it into the
-  repo-relative `.flow/pre-commit.json` (top-level array of
-  `{ name, prefixes, checks }` entries — append, do not clobber existing
-  entries), commit it to the feature branch via the existing
-  skill-commits-on-feature-branch path so it lands in the reviewable PR
-  diff, and **re-run verify** — this does NOT consume an outer attempt.
-- **If it returns `null`** (a genuine orphan: no `package.json` owner, no
-  stack marker, no config), fall through to the loud
-  `unmatched-files` failure / verify-exhausted escalation below.
+**Load the Task tool before spawning** — i.e. before the Task call below. See [../pr-review/references/task-tool-exemption-preamble.md](../pr-review/references/task-tool-exemption-preamble.md) for the full rationale. On missing schema: escalate `NEEDS HUMAN: task-tool-unavailable: flow-pipeline-verify-loop` and exit (do not fall back to in-line execution).
 
-The helper is LLM-free and pure (no `claude -p` / Task sub-call) — it
-drafts the entry's `checks` from the stack table + Layer-1 declared-script
-probe. This is the **third** of `flow-pre-commit`'s three command-
-resolution layers: (1) the package's own declared verify scripts, (2) a
-stack-default table keyed on a marker file (`package.json` → node,
-`go.mod` → go), (3) this flow-drafted committed entry. **Silent-write
-boundary:** zero-config auto-detect (layers 1–2) runs silently and writes
-nothing; only Layer-3 config authoring writes a file, and it is always
-committed-into-the-PR (visible, reviewable), never silently to disk
-outside the diff. Proactive authoring fires only here, inside
-`/flow-pipeline` on a feature branch — a human running `flow-pre-commit`
-at a terminal gets the loud `unmatched-files` failure, not a silent write.
-
-After three failed outer attempts, escalate `NEEDS HUMAN:
-verify-exhausted`. Surface the final failure log on the PR body's
-`## Test Steps` section as a `> [!CAUTION]` block (idempotent —
-edit-in-place, do not stack):
+Resolve the inputs the subagent needs, then make exactly **one** Task
+call:
 
 ```bash
+ARTIFACT_PATH="$WORKTREE/.flow-tmp/verify-loop-result.json"
+INSTRUCTIONS_PATH="$SKILL_DIR/references/verify-loop-instructions.md"
 mkdir -p "$WORKTREE/.flow-tmp"
-gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
-# upsert caution block under ## Test Steps, then
-gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
+rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior verify cycle
 ```
 
-**Automated UI-smoke pass (before/alongside `/verify`).** When the worktree declares a `.flow/ui-validation.json` manifest, run the browser-driven UI-smoke pass as part of this step, following the shared procedure in [references/ui-smoke-pass.md](references/ui-smoke-pass.md): probe the `chrome-devtools` MCP (`ToolSearch query="select:mcp__chrome-devtools__navigate_page"`) → on missing schema run `flow-ui-validate --mcp-absent` (a quiet `ran:false` skip, never a failure) → otherwise `meta.env`-injected launch on dedicated ports → open a per-pipeline isolated page (`new_page` with `isolatedContext` keyed on the pipeline slug) → drive the MCP per route → assemble a captures JSON → `flow-ui-validate --captures`. A shared-profile lock — another pipeline holding chrome-devtools-mcp's default `~/.cache/chrome-devtools-mcp/chrome-profile` (the `already running` / `Use --isolated` error) — is treated as a loud-but-clean skip via `flow-ui-validate --browser-busy` (`ran:false` / `skipped_reason: browser-profile-busy`, loud recovery nudge), never a hard failure, mirroring the MCP-absent degrade; the operator-side cross-pipeline fix is registering the MCP with `--isolated`, while the per-call `isolatedContext` is same-server defense-in-depth only. A `ran:true` result with `ok:false` is a verify failure that feeds the **existing 3-attempt fix loop** above, exactly like any failed `flow-pre-commit` check; headless / MCP-absent runs stay green. **Adaptive noise filter:** when an `ok:false` flags a console error or failed request that is benign noise unrelated to the diff (a favicon 404, a third-party beacon/analytics request, browser-extension noise), do **not** consume a fix-loop attempt on it — add the offending substring to the manifest's `ignoreRequestPatterns` / `ignoreConsolePatterns` in `.flow/ui-validation.json` and **commit that manifest change** (it lands in the reviewable PR diff), then re-run; reserve the 3-attempt fix loop for post-filter errors that the diff actually introduced. **Self-improving manifest (CRITICAL):** when the agent adapts the launch on the fly to make a custom-port run work, it persists the launch adaptation back into `.flow/ui-validation.json` (env/launch/baseUrl) and commits it into the reviewable PR diff, so the next run starts deterministic. See [references/ui-smoke-pass.md](references/ui-smoke-pass.md) for the full probe → launch → drive → assemble → fix-loop body, the screenshot save-path cascade, and the LLM-free / no-`claude -p` / no-Task constraint.
+Spawn-prompt template (fill the `{{...}}` placeholders before passing to
+the Task tool):
 
-**End condition:** `/verify` exits clean (an outer attempt 1, 2, or
-3 succeeds). Continue to step 7.
+```
+You are the Independent Verify-Retry-Loop Subagent for /flow-pipeline
+step 6. You run in an isolated context and return an artifact on disk
+plus a brief both-sides summary.
+
+Read the full instructions at:
+  {{INSTRUCTIONS_PATH}}
+
+PR number:
+  {{PR}}
+
+Working directory (cd here before running anything):
+  {{WORKTREE}}
+
+Plan path (read for PR intent context):
+  {{WORKTREE}}/.flow-tmp/plan.md
+
+Write the artifact to (absolute path):
+  {{ARTIFACT_PATH}}
+
+Follow the verify-loop-instructions.md steps in order. You are one-shot
+— do not ask the user clarifying questions, and do NOT spawn /coder or
+any nested Task (apply fixes inline; your context is the isolation
+/coder would provide). Stay within 3 outer /verify attempts.
+
+Return a 3–5-sentence summary surfacing both sides — at least one
+positive (verdict + attempts used + any Layer-3/UI-smoke action) AND at
+least one negative (top `rejected_alternatives` / `anti_patterns_found`
+entry, or the failing check on exhaustion). Do not paste the artifact or
+the /verify transcript back; the artifact on disk is the durable record.
+```
+
+Make the Task call with `subagent_type: general-purpose` and the filled
+prompt. After it returns:
+
+1. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
+   `NEEDS HUMAN: verify-loop-missing-artifact` and end (do not re-spawn
+   — exactly one verify-loop fan-out per step-6 entry).
+2. Read the artifact once and branch on `.verify_status`:
+
+```bash
+VERIFY_STATUS=$(jq -r '.verify_status' "$ARTIFACT_PATH")
+```
+
+- **`pass`** → the loop exited clean (an outer attempt 1, 2, or 3
+  succeeded). Continue to step 7.
+- **`exhausted`** → after three failed outer attempts, escalate
+  `NEEDS HUMAN: verify-exhausted`. Surface the artifact's
+  `final_failure_excerpt` on the PR body's `## Test Steps` section as a
+  `> [!CAUTION]` block (idempotent — edit-in-place, do not stack), then
+  follow the standard `# Failure paths` escalation:
+
+  ```bash
+  mkdir -p "$WORKTREE/.flow-tmp"
+  jq -r '.final_failure_excerpt // empty' "$ARTIFACT_PATH" > "$WORKTREE/.flow-tmp/verify-caution.txt"
+  gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
+  # upsert the > [!CAUTION] block (built from verify-caution.txt) under
+  # ## Test Steps, then
+  gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
+  ```
+
+**Re-entry / resume.** Phase stays `verifying` and the resume `step-6`
+row re-enters here and re-spawns the subagent (the `/verify` loop
+observes the worktree fresh, so a re-spawn is idempotent). The subagent
+applies fixes **inline** — it never spawns `/coder` (the one-level
+sub-agent cap forbids a nested Task call), so the per-edit diff bytes
+stay inside the subagent just as `/coder` would have kept them.
+
+**End condition:** the artifact reports `verify_status: "pass"`.
+Continue to step 7.
 
 ## Step 7 — CI + Copilot wait
 
@@ -1410,7 +1450,7 @@ Invoke `/pr-review` in-process with the PR number:
 When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are present, `/pr-review` Step 8c runs the subjective visual-appearance pass against the browser-validation capability (opening each page in a per-pipeline `isolatedContext`): it drives each enumerated visual-appearance item, judges it via the `ui-ux` skill, captures an a11y snapshot as primary evidence (injected via `flow-inject-evidence`) plus a screenshot referenced by path under `.flow-tmp/ui-evidence/`, and ticks the box. This adds no new Task-tool exemption — Step 8c runs inside the already-exempt Fix-Applier surface.
 
 `/pr-review` itself spawns one **Fix-Applier Subagent** via the Task
-tool (the fourth of the eight named Task-tool exemptions in "Hard
+tool (the fourth of the nine named Task-tool exemptions in "Hard
 rules" above) to handle the per-finding address loop, the pre-commit
 run, the commit + push, and the `/verify` re-run — all inside the
 subagent's isolated context. The subagent writes a structured
@@ -1420,7 +1460,7 @@ remaining steps. The supervisor never sees the per-finding fix
 prose, only `/pr-review`'s brief return summary.
 
 `/pr-review` also spawns one **Independent Gatekeeper Subagent** via
-the Task tool (the seventh of the eight named Task-tool exemptions in
+the Task tool (the seventh of the nine named Task-tool exemptions in
 "Hard rules" above) at its Step 1.5, before any other Task-tool
 fan-out fires. This short-circuit uses a `model: "haiku"` cost-routing
 override to skip closed/merged/trivial/no-new-commits PRs cheaply
@@ -2185,7 +2225,7 @@ Branch on `.resumeAt`:
 | `step-4` | Re-enter step 4 (approval) — **but first check for the non-feature candidate-issues overflow marker** (see the note below the table). Absent the marker: re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/new-feature`. |
 | `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow setup --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
-| `step-6` | Re-enter step 6 (verify). Re-invoke `/verify`. |
+| `step-6` | Re-enter step 6 (verify). Re-spawn the Verify-Retry-Loop subagent (phase stays `verifying`; the subagent re-runs the `/verify` loop observing the worktree fresh, so a re-spawn is idempotent). |
 | `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-backgrounded pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, the backgrounded `flow-ci-wait` already reached a terminal decision — read the persisted verdict and branch on `.decision` without re-running the loop. Only when the file is absent or unparseable does the supervisor re-launch the backgrounded `flow-ci-wait` (the poll loop restarts, observing CI state fresh from GitHub). |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/pr-review <PR>`. |
 | `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — which re-runs `flow-pipeline-summary ... --echo-prose ...` and re-echoes the recap verbatim per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection — then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition) and run `flow-remove-worktree --delete-branch`, write `phase: merged`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
@@ -2404,7 +2444,7 @@ worktree + PR intact.
 
 ## Task-tool unavailable (no retries)
 
-Fires when any of the eight spawn procedures' load step
+Fires when any of the nine spawn procedures' load step
 (`ToolSearch query="select:Task"`) returns a response that does not
 contain *either* a `<function>{"name": "Task", ...}</function>` *or* a
 `<function>{"name": "Agent", ...}</function>` line — i.e. the harness
@@ -2426,7 +2466,7 @@ flow-notify --status needs-human --reason "task-tool-unavailable: <exemption-nam
 The helper parses the `:`-suffix and appends ` (spawn site:
 <exemption-name>)` to `NEXT_ACTION_BY_REASON["task-tool-unavailable"]`
 so the rendered NEXT ACTION line names the exact spawn site that lost
-its Task tool — without this, all eight exemption sites would collapse
+its Task tool — without this, all nine exemption sites would collapse
 to the same generic remediation string. The sentinel line is byte-exact
 `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
 
@@ -2435,7 +2475,7 @@ to the same generic remediation string. The sentinel line is byte-exact
 `pr-review-fix-applier`, `pr-review-consolidator-validator`,
 `product-planning-discovery`,
 `new-feature-scout`, `coder-edit-applier`,
-`flow-pipeline-merge-resolver`.
+`flow-pipeline-merge-resolver`, `flow-pipeline-verify-loop`.
 
 No retry is appropriate because the deferred-tool surfacing is
 environmental — user remediation is to re-run in a session where
@@ -2545,7 +2585,7 @@ After each phase transition:
 - `flow ls` (run from any terminal) shows the right phase **and PR
   number** for this pipeline's window.
 - The supervisor never invoked the `Task` / `Agent` tool, **except**
-  via the eight named exceptions in "Hard rules" above:
+  via the nine named exceptions in "Hard rules" above:
   `/pr-review`'s "Independent Multi-Agent Review",
   `/product-planning`'s "Independent Discovery Subagent",
   `/new-feature`'s "Independent Scout Subagent",
@@ -2553,7 +2593,8 @@ After each phase transition:
   step 10's "Merge-Conflict Resolver Subagent",
   `/coder`'s "Independent Edit-Applier Subagent",
   `/pr-review`'s "Independent Gatekeeper Subagent",
-  and `/pr-review`'s "Independent Consolidator-Validator Subagent".
+  `/pr-review`'s "Independent Consolidator-Validator Subagent",
+  and step 6's "Verify-Retry-Loop Subagent".
   No other skill or step may call Task.
 - The supervisor never spawned a `claude -p` subprocess.
 
