@@ -60,6 +60,7 @@ Work the relevant strand and pull in only the reference you need (progressive di
 - Layout, hierarchy, spacing, surfaces, typography, color → `references/visual-design.md`.
 - States, feedback, forms, navigation, error/empty/loading → `references/interaction-ux.md`.
 - Keyboard, focus, contrast, semantics, ARIA, reduced motion → `references/accessibility.md`.
+- **Responsive layout** — does the layout hold across widths, not just at one? → `references/visual-design.md` (constrained content width + centering) and `references/accessibility.md` (Reflow). Judge against named authorities, never breakpoint utility classes: **Refactoring UI** says cap content/line width with a `max-width` and center constrained columns — a column that loses its centering and jams against one edge on a wide monitor (or stretches full-bleed across it) is a defect, not a neutral default. **WCAG 1.4.10 Reflow** requires no loss of content or functionality and no horizontal scrolling at a 320px CSS width (equivalent to 400% zoom) — verify the narrowest width reflows rather than truncating or overflowing. **Material / Apple HIG** put comfortable touch targets at roughly 44–48px on touch viewports (advisory judgment, not a hard mechanical gate). State each as a portable principle; the Tailwind breakpoint mechanics that render it (`sm:`/`md:`/`lg:`) live in `tailwind-shadcn` section 10's responsive prose, which this dimension cross-references rather than duplicates.
 
 Each principle there names its source inline; the framework that renders it stays with the stack skill.
 
@@ -90,6 +91,7 @@ Beyond those: one radius / one shadow / one spacing value repeated everywhere; h
 - The pre-submit critique ran and at least one non-default choice can be named.
 - Interaction states (loading, empty, error) exist where data can be absent or fail.
 - Accessibility holds to the WCAG AA spot-check: keyboard-operable, visible focus, AA contrast, semantic structure, meaning not carried by color alone.
+- Responsive layout holds across widths, not just one: constrained columns stay centered and capped (no full-bleed on wide monitors), and the narrowest width reflows with no horizontal scroll or lost content (WCAG 1.4.10). A "review with /ui-ux" inherently spans viewports — judge the layout at narrow and wide, not at a single default width.
 
 # Constraints
 

@@ -4,6 +4,7 @@
   "_comment_env": "`env` is a flat string→string map injected ONCE into the parent launch process for NON-SECRET launch config only — public URLs, CORS origins. Secrets stay as NAMES in `credentialEnvVars`, resolved from the shell env at run time; never inline a credential VALUE here. Because `env` is injected once into the parent, it carries only overrides that are the SAME across processes (here: VITE_API_URL pointing the frontend at the custom backend port, and CORS_ALLOWED_ORIGINS widened to admit the custom frontend origin). Per-process-DIFFERING vars — each process's own PORT — go INLINE in the `launch` command per sub-command (see PORT=5273 on dev:frontend and PORT=8090 on dev:backend above), since a single flat `env` value can't express two different ports.",
   "_comment_maintained": "The agent maintains this file: when it adapts the launch on the fly to make a custom-port run work (tweaks the command, adds/changes an env var, fixes baseUrl), it persists the launch adaptation back into the consumer's `.flow/ui-validation.json` and commits it into the reviewable PR diff, so the next run starts deterministic. Treat the manifest as a deterministic cache of non-secret facts the agent maintains, not a frozen contract.",
   "_comment_ignore": "ignoreRequestPatterns / ignoreConsolePatterns are optional substring lists (NOT regex) that suppress benign browser noise before a route's ok is computed. The canonical case is the favicon 404 the browser auto-requests: it emits both a /favicon.ico failed network request (URL-filterable here via ignoreRequestPatterns) and a generic 'Failed to load resource' console error. Resource-load failures are URL-filterable through ignoreRequestPatterns; genuine JS console errors are suppressed through ignoreConsolePatterns. Absent => no filtering (current behavior).",
+  "_comment_viewports": "viewports is an OPTIONAL array of { name, width, height? } widths every route is rendered and measured at; `height` is optional (when given, the driver resizes to width x height; otherwise it falls back to a tall default so above-the-fold cropping never hides overflow). OMIT the field entirely to apply the built-in default shown below (xs 320, mobile 390, tablet 768, desktop 1280, wide 1440); 320 satisfies WCAG 1.4.10 Reflow mechanically and 1280/1440 catch wide-monitor centering regressions. When the key IS present the array MUST be non-empty (minimum 1) — an empty [] is rejected, since it would capture zero viewports rather than fall back to the default. Each viewport runs the same drive (resize -> navigate -> snapshot -> console/network -> screenshot) plus three mechanical geometry assertions (off-center constrained column, horizontal overflow, missing-element-at-breakpoint). Shrink (minimum 1) this array to reduce capture cost; a route without a non-empty viewports[] capture stays on the legacy single-viewport path.",
   "launch": "concurrently \"PORT=5273 VITE_PORT=5273 npm run dev:frontend\" \"PORT=8090 npm run dev:backend\"",
   "baseUrl": "http://localhost:5273",
   "loginUrl": "/login",
@@ -21,5 +22,12 @@
   ],
   "disableAnimations": true,
   "ignoreRequestPatterns": ["/favicon.ico"],
-  "ignoreConsolePatterns": []
+  "ignoreConsolePatterns": [],
+  "viewports": [
+    { "name": "xs", "width": 320 },
+    { "name": "mobile", "width": 390 },
+    { "name": "tablet", "width": 768 },
+    { "name": "desktop", "width": 1280 },
+    { "name": "wide", "width": 1440 }
+  ]
 }

@@ -28,7 +28,10 @@
 import * as fs from "node:fs";
 
 import { validateUiValidationManifest } from "./lib/ui-validation-schema";
-import type { UiValidationManifest } from "./lib/ui-validation-schema";
+import type {
+  UiValidationManifest,
+  Viewport,
+} from "./lib/ui-validation-schema";
 
 // --- Types -----------------------------------------------------------------
 
@@ -45,6 +48,13 @@ export type RouteFindings = {
   consoleErrors: string[];
   failedRequests: string[];
   missingSelectors: string[];
+  /**
+   * Per-viewport geometry failures (off-center constrained column, horizontal
+   * overflow, missing-element-at-breakpoint), each naming the offending
+   * viewport. Present (possibly empty) only on the per-viewport path; absent on
+   * the legacy single-capture path.
+   */
+  geometryIssues?: string[];
 };
 
 export type ReadyRoute = {
@@ -65,6 +75,25 @@ export type UiValidateEnvelope = {
   meta?: Record<string, unknown>;
 };
 
+/**
+ * Per-(route × viewport) capture the driving skill writes after resizing the
+ * page, driving the MCP, and reading geometry via `evaluate_script`. The
+ * geometry fields (`rootGap` / `scrollWidth` / `clientWidth`) are raw NUMBERS
+ * the skill measured — this helper applies pure-TypeScript tolerance/equality
+ * checks to them and never drives the MCP or reads the DOM itself.
+ */
+export type ViewportCapture = {
+  name: string;
+  width: number;
+  snapshotText?: string;
+  consoleErrors?: string[];
+  failedRequests?: string[];
+  screenshotPath?: string;
+  rootGap?: { left: number; right: number };
+  scrollWidth?: number;
+  clientWidth?: number;
+};
+
 export type Captures = {
   launchOk: boolean;
   loginOk: boolean;
@@ -74,6 +103,7 @@ export type Captures = {
     failedRequests: string[];
     snapshotText: string;
     screenshotPath?: string;
+    viewports?: ViewportCapture[];
   }>;
 };
 
@@ -94,6 +124,18 @@ export type Deps = {
 };
 
 const DEFAULT_MANIFEST = ".flow/ui-validation.json";
+
+// The widths every route is rendered at when the manifest declares no
+// `viewports`. 320 satisfies WCAG 1.4.10 Reflow mechanically; 390 is
+// iPhone-class; 768 tablet; 1280/1440 cover the wide-monitor centering class
+// the /account regression exposed.
+export const DEFAULT_VIEWPORTS: Viewport[] = [
+  { name: "xs", width: 320 },
+  { name: "mobile", width: 390 },
+  { name: "tablet", width: 768 },
+  { name: "desktop", width: 1280 },
+  { name: "wide", width: 1440 },
+];
 
 export const HELP_TEXT = `flow-ui-validate — LLM-free core of browser-driven UI validation
 
@@ -191,28 +233,157 @@ function parseChangedFiles(raw: string): string[] {
 
 // --- Per-route findings (ASSEMBLE) -----------------------------------------
 
+/**
+ * Filter benign-noise substrings out of a single capture's console/request
+ * lists and compute its missing-selector list. Shared by both the legacy
+ * single-capture path and the per-viewport fold. Substring (not regex)
+ * filters: an entry is suppressed when ANY pattern is a substring of it.
+ * Absent patterns => no filtering (the benign favicon 404 is the canonical
+ * case, cleared via ignoreRequestPatterns: ["/favicon.ico"]). Filter BEFORE
+ * computing ok so suppressed noise never fails a route.
+ */
+function filterCapture(
+  manifest: UiValidationManifest,
+  path: string,
+  consoleRaw: string[] | undefined,
+  failedRaw: string[] | undefined,
+  snapshotRaw: string | undefined,
+): {
+  consoleErrors: string[];
+  failedRequests: string[];
+  missingSelectors: string[];
+} {
+  const ignoreConsolePatterns = manifest.ignoreConsolePatterns ?? [];
+  const ignoreRequestPatterns = manifest.ignoreRequestPatterns ?? [];
+  const consoleErrors = (consoleRaw ?? []).filter(
+    (e) => !ignoreConsolePatterns.some((p) => e.includes(p)),
+  );
+  const failedRequests = (failedRaw ?? []).filter(
+    (r) => !ignoreRequestPatterns.some((p) => r.includes(p)),
+  );
+  const manifestRoute = manifest.routes.find((r) => r.path === path);
+  const expectSelectors = manifestRoute?.expectSelectors ?? [];
+  const snapshotText = snapshotRaw ?? "";
+  const missingSelectors = expectSelectors.filter(
+    (sel) => !snapshotText.includes(sel),
+  );
+  return { consoleErrors, failedRequests, missingSelectors };
+}
+
+/**
+ * Per-viewport fold: compute console/request/missing-selector findings from
+ * each viewport's own fields PLUS the three mechanical geometry assertions,
+ * naming the offending viewport(s). Pure TypeScript over captured numbers —
+ * no MCP, no DOM read.
+ */
+function computeViewportFindings(
+  manifest: UiValidationManifest,
+  capture: Captures["routes"][number],
+  viewports: ViewportCapture[],
+): RouteFindings {
+  const consoleErrors: string[] = [];
+  const failedRequests: string[] = [];
+  const missingSelectors: string[] = [];
+  const geometryIssues: string[] = [];
+
+  for (const vp of viewports) {
+    const filtered = filterCapture(
+      manifest,
+      capture.path,
+      vp.consoleErrors,
+      vp.failedRequests,
+      vp.snapshotText,
+    );
+    for (const e of filtered.consoleErrors)
+      consoleErrors.push(`[${vp.name}] ${e}`);
+    for (const r of filtered.failedRequests)
+      failedRequests.push(`[${vp.name}] ${r}`);
+    // Only a viewport that actually captured a snapshot participates in the
+    // missing-selector check; mirrors the withSnapshot guard on the
+    // breakpoint axis below so a no-snapshot capture (filterCapture coerces
+    // undefined snapshotText to "") never spuriously flags every selector.
+    if (vp.snapshotText !== undefined) {
+      for (const s of filtered.missingSelectors)
+        missingSelectors.push(`[${vp.name}] ${s}`);
+    }
+
+    // (a) Off-center constrained column: asymmetric left/right gaps beyond a
+    // small absolute floor plus a relative band, so intentional sidebars and
+    // sub-pixel rounding don't false-positive.
+    if (vp.rootGap) {
+      const tolerance = Math.max(16, 0.05 * vp.width);
+      if (Math.abs(vp.rootGap.left - vp.rootGap.right) > tolerance) {
+        geometryIssues.push(
+          `[${vp.name}] off-center constrained column: rootGap left=${vp.rootGap.left} right=${vp.rootGap.right} (tolerance ${tolerance})`,
+        );
+      }
+    }
+
+    // (b) Horizontal overflow at this viewport.
+    if (
+      typeof vp.scrollWidth === "number" &&
+      typeof vp.clientWidth === "number" &&
+      vp.scrollWidth > vp.clientWidth
+    ) {
+      geometryIssues.push(
+        `[${vp.name}] horizontal overflow: scrollWidth=${vp.scrollWidth} > clientWidth=${vp.clientWidth}`,
+      );
+    }
+  }
+
+  // (c) Missing-element-at-breakpoint: a route-declared selector present in
+  // SOME viewports' snapshotText but absent in another's. Only viewports that
+  // actually captured a snapshot participate, so a viewport with no snapshot
+  // never spuriously triggers the breakpoint mismatch.
+  const manifestRoute = manifest.routes.find((r) => r.path === capture.path);
+  const expectSelectors = manifestRoute?.expectSelectors ?? [];
+  const withSnapshot = viewports.filter((vp) => vp.snapshotText !== undefined);
+  for (const sel of expectSelectors) {
+    const present = withSnapshot.filter((vp) =>
+      (vp.snapshotText ?? "").includes(sel),
+    );
+    if (present.length > 0 && present.length < withSnapshot.length) {
+      const absent = withSnapshot
+        .filter((vp) => !(vp.snapshotText ?? "").includes(sel))
+        .map((vp) => vp.name);
+      geometryIssues.push(
+        `missing-at-breakpoint: '${sel}' present at some viewports but absent at ${absent.join(", ")}`,
+      );
+    }
+  }
+
+  const ok =
+    consoleErrors.length === 0 &&
+    failedRequests.length === 0 &&
+    missingSelectors.length === 0 &&
+    geometryIssues.length === 0;
+  return {
+    path: capture.path,
+    ok,
+    consoleErrors,
+    failedRequests,
+    missingSelectors,
+    geometryIssues,
+  };
+}
+
 export function computeRouteFindings(
   manifest: UiValidationManifest,
   capture: Captures["routes"][number],
 ): RouteFindings {
-  // Substring (not regex) noise filters: an entry is suppressed when ANY
-  // pattern is a substring of it. Absent patterns => no filtering (the
-  // benign favicon 404 is the canonical case, cleared via
-  // ignoreRequestPatterns: ["/favicon.ico"]). Filter BEFORE computing ok
-  // and report the FILTERED lists so suppressed noise never fails a route.
-  const ignoreConsolePatterns = manifest.ignoreConsolePatterns ?? [];
-  const ignoreRequestPatterns = manifest.ignoreRequestPatterns ?? [];
-  const consoleErrors = (capture.consoleErrors ?? []).filter(
-    (e) => !ignoreConsolePatterns.some((p) => e.includes(p)),
-  );
-  const failedRequests = (capture.failedRequests ?? []).filter(
-    (r) => !ignoreRequestPatterns.some((p) => r.includes(p)),
-  );
-  const manifestRoute = manifest.routes.find((r) => r.path === capture.path);
-  const expectSelectors = manifestRoute?.expectSelectors ?? [];
-  const snapshotText = capture.snapshotText ?? "";
-  const missingSelectors = expectSelectors.filter(
-    (sel) => !snapshotText.includes(sel),
+  // DUAL PATH: a route carrying a non-empty viewports[] gets the per-viewport
+  // fold + geometry assertions; a route without it falls through the EXACT
+  // legacy route-level computation unchanged.
+  if (capture.viewports && capture.viewports.length > 0) {
+    return computeViewportFindings(manifest, capture, capture.viewports);
+  }
+
+  const { consoleErrors, failedRequests, missingSelectors } = filterCapture(
+    manifest,
+    capture.path,
+    capture.consoleErrors,
+    capture.failedRequests,
+    capture.snapshotText,
   );
   const ok =
     consoleErrors.length === 0 &&
@@ -371,8 +542,13 @@ export function run(argv: string[], deps: Deps = {}): number {
     const routeFindings = captures.routes.map((c) =>
       computeRouteFindings(manifest, c),
     );
+    // Aggregate the route-level screenshot AND every per-viewport screenshot so
+    // a per-viewport pass surfaces one evidence path per captured viewport.
     const evidencePaths = captures.routes
-      .map((c) => c.screenshotPath)
+      .flatMap((c) => [
+        c.screenshotPath,
+        ...(c.viewports ?? []).map((vp) => vp.screenshotPath),
+      ])
       .filter((p): p is string => typeof p === "string" && p.length > 0);
     return emit({
       ran: true,
@@ -399,6 +575,7 @@ export function run(argv: string[], deps: Deps = {}): number {
       loginUrl: manifest.loginUrl ?? null,
       disableAnimations: manifest.disableAnimations ?? false,
       env: manifest.env ?? {},
+      viewports: manifest.viewports ?? DEFAULT_VIEWPORTS,
     },
   });
 }

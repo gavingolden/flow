@@ -65,14 +65,27 @@ per visual item:
    — `new_page` with `isolatedContext` set to the pipeline slug (read from
    `@flow-slug` / `~/.flow/state/<slug>.json` / the worktree basename) so
    concurrent pipelines sharing one chrome-devtools MCP server do not share
-   cookies/storage — then `navigate_page` to the route →
-   `wait_for` an explicit selector → `take_snapshot` (the a11y snapshot — the
-   **primary** evidence) → `take_screenshot` (the **secondary** artifact,
-   referenced by path, never embedded — `gh` takes no inline binary). Honor
-   `disableAnimations` via `prefers-reduced-motion` emulation.
-2. Judge the snapshot + screenshot against the `ui-ux` skill's authorities
-   (Nielsen, WCAG/POUR, Refactoring UI) via `/ui-ux`'s "evaluate from a
-   snapshot/screenshot" entry point.
+   cookies/storage. Then, **per route, loop over `meta.viewports`** (the
+   `flow-ui-validate` ready envelope carries the declared set or the built-in
+   default `xs 320 / mobile 390 / tablet 768 / desktop 1280 / wide 1440`):
+   `resize_page` to each viewport `width` × its `height` when declared, else a
+   tall default (2000px), so above-the-fold cropping never hides overflow, run
+   the **same per-route drive loop as the
+   gate-time pass** (the canonical
+   `navigate_page` → `wait_for` → `take_snapshot` → console/network sequence
+   documented once in
+   [../../flow-pipeline/references/ui-smoke-pass.md](../../flow-pipeline/references/ui-smoke-pass.md)),
+   read geometry via `evaluate_script` (`scrollWidth`/`clientWidth` and the
+   page-root constrained container's `rootGap`), and `take_screenshot` (the
+   **secondary** artifact, referenced by path, never embedded — `gh` takes no
+   inline binary; the a11y `take_snapshot` per viewport is the **primary**
+   evidence). Honor `disableAnimations` via `prefers-reduced-motion` emulation.
+   Write each route's `viewports[]` capture array so the helper computes the
+   per-viewport geometry assertions.
+2. Judge the snapshot + screenshot **at each captured viewport** against the
+   `ui-ux` skill's authorities (Nielsen, WCAG/POUR, Refactoring UI) via
+   `/ui-ux`'s "evaluate from a snapshot/screenshot" entry point, applying the
+   `## UI traits to verify` rubric below per viewport.
 3. On a pass, inject the a11y snapshot as the primary `<details>` block and tick
    the box via the **unchanged** `flow-inject-evidence` interface (Step 8c.i),
    the screenshot referenced by its saved path inside the block (`--output-file`
@@ -148,9 +161,46 @@ succeed for pipeline-launched sessions. The cascade stays as defense-in-depth
 `--add-dir`'s workspace root for its screenshot sandbox) still degrades
 cleanly:
 
-1. PREFERRED — `.flow-tmp/ui-evidence/<n>.png` under the worktree (the
-   worktree is registered as a workspace root via `flow new`'s injected
-   `claude --add-dir`).
+1. PREFERRED — `.flow-tmp/ui-evidence/<n>-<viewport>.png` under the worktree
+   (the worktree is registered as a workspace root via `flow new`'s injected
+   `claude --add-dir`). The filename includes the viewport name (e.g.
+   `0-wide.png`, `0-mobile.png`) so per-viewport screenshots don't collide.
 2. On denial, FALL BACK to session-cwd `.flow-tmp/ui-evidence/`.
 3. Else SKIP with a loud note — the a11y snapshot is the gate, the screenshot
    supplementary, never blocking.
+
+## UI traits to verify
+
+The canonical per-viewport responsive rubric. Both browser passes — the
+gate-time pass in
+[../../flow-pipeline/references/ui-smoke-pass.md](../../flow-pipeline/references/ui-smoke-pass.md)
+and this review-time pass — point at this single block so the two cannot drift.
+It is applied **per captured viewport, not a standalone skippable list**: walk
+every trait at every viewport class the capture covers. The mechanical
+geometry assertions (off-center, overflow, missing-at-breakpoint) are computed
+by `flow-ui-validate` and gate automatically; the remaining traits are
+judgment applied via `/ui-ux`.
+
+1. **Narrow-width centering** (narrow viewports — xs 320, mobile 390): a
+   constrained column reads centered, not jammed against one edge; content
+   doesn't collapse into an unreadable single-column smear.
+2. **Wide-screen centering / max-width / no full-bleed** (wide viewports —
+   desktop 1280, wide 1440): a constrained column keeps its `max-width` and
+   stays centered rather than stretching full-bleed across a huge monitor.
+   This is the `/account`-regression class — flagged mechanically by the
+   off-center `rootGap` assertion.
+3. **Horizontal overflow** (every viewport, narrow most at risk): no
+   two-dimensional scroll; `scrollWidth` must not exceed `clientWidth`.
+   Flagged mechanically.
+4. **Touch-target size** (narrow/touch viewports — **advisory, judgment, not a
+   hard mechanical gate**): interactive targets are comfortably tappable
+   (~44–48px per Material / Apple HIG); enumerate by eye, do not gate on a
+   helper-computed number.
+5. **Text reflow** (narrow viewports, anchored at 320px per WCAG 1.4.10):
+   text wraps and reflows without truncation or clipping; no content or
+   functionality is lost at the narrowest width.
+6. **Breakpoint integrity** (across viewports): an element declared for a
+   route is present where it should be and not silently dropped at a
+   breakpoint. Flagged mechanically by the missing-element-at-breakpoint
+   assertion when a declared selector is present at one viewport and absent at
+   another.

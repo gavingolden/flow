@@ -111,6 +111,34 @@ describe("validateUiValidationManifest — happy paths", () => {
     fixture.ignoreRequestPatterns = ["/favicon.ico"];
     expect(validateUiValidationManifest(fixture).ok).toBe(true);
   });
+
+  it("accepts a manifest with no viewports (backward-compatible)", () => {
+    // MINIMAL_MANIFEST has no viewports — the default is applied downstream.
+    expect(validateUiValidationManifest(MINIMAL_MANIFEST).ok).toBe(true);
+  });
+
+  it("accepts a well-formed viewports array (name + width, optional height)", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.viewports = [
+      { name: "xs", width: 320 },
+      { name: "desktop", width: 1280, height: 1600 },
+    ];
+    expect(validateUiValidationManifest(fixture).ok).toBe(true);
+  });
+
+  it("rejects an explicit empty viewports array (omit the key for the default set)", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.viewports = [];
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("non-empty");
+  });
 });
 
 describe("validateUiValidationManifest — wrong-shape rejections", () => {
@@ -231,6 +259,62 @@ describe("validateUiValidationManifest — wrong-shape rejections", () => {
     const result = validateUiValidationManifest(fixture);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toContain("ignoreRequestPatterns");
+  });
+
+  it("rejects viewports when not an array", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.viewports = { name: "xs", width: 320 };
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("viewports");
+  });
+
+  it("rejects a viewport entry that is not an object", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.viewports = ["xs"];
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("viewports[0]");
+  });
+
+  it("rejects a viewport with an empty/missing name", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.viewports = [{ width: 320 }];
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("name");
+  });
+
+  it("rejects a viewport with a missing width", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.viewports = [{ name: "xs" }];
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("width");
+  });
+
+  it("rejects a viewport with a non-numeric width", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.viewports = [{ name: "xs", width: "320" }];
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("width");
+  });
+
+  it("rejects a viewport with a non-positive width", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.viewports = [{ name: "xs", width: 0 }];
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("width");
+  });
+
+  it("rejects a viewport with a non-positive height", () => {
+    const fixture = structuredClone(FULL_MANIFEST) as Record<string, unknown>;
+    fixture.viewports = [{ name: "xs", width: 320, height: -1 }];
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("height");
   });
 });
 

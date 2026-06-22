@@ -1130,14 +1130,16 @@ When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are
 present, **enumerated visual-appearance items become a runnable bucket** rather
 than not-runnable — but a `SUBJECTIVE: `-prefixed item is excluded from browser
 validation: it is irreducibly-aesthetic judgment one notch beyond the enumerated
-bucket, never validated into a tick. The a11y `take_snapshot` is the primary evidence (injected
-via 8c.i's unchanged `flow-inject-evidence`), the screenshot supplementary and
-referenced by path. The full runnable-bucket procedure, the captures contract,
-the **Screenshot save-path cascade**, and the env-injected launch / clean
-teardown (the launched server(s) AND the per-pipeline isolated browser
-page/context this pass opened, on completion and on every error / early-exit) /
-self-improving-manifest persist-back behavior live in
-[references/ui-validation-evidence.md](references/ui-validation-evidence.md).
+bucket, never validated into a tick. Each route is captured **per viewport** (loop over the
+envelope's `meta.viewports` — declared set or built-in default), applying the per-viewport
+**`## UI traits to verify`** rubric to each while `flow-ui-validate` gates the mechanical
+geometry assertions automatically. The a11y `take_snapshot` is the primary evidence (injected
+via 8c.i's unchanged `flow-inject-evidence`), the screenshot supplementary and referenced by
+path. The full runnable-bucket procedure, the per-viewport capture loop, the captures
+contract, the **Screenshot save-path cascade**, the **`## UI traits to verify`** rubric, and
+the env-injected launch / clean teardown (the launched server(s) AND the per-pipeline isolated
+browser page/context this pass opened, on completion and on every error / early-exit) /
+self-improving-manifest persist-back behavior live in [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
 When the `chrome-devtools` MCP is **absent or contended** — the guarded
 `ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns nothing
 (absent), or an attempted MCP call fails because its single Chrome profile is
