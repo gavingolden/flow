@@ -8,6 +8,9 @@ import * as path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  deleteBranchWithForceFallback,
+  isDeregisteredFailure,
+  isNotFullyMergedFailure,
   isRemovalPhaseFailure,
   parseWorktreeListOutput,
   removeWorktreeWithFallback,
@@ -155,6 +158,30 @@ describe(isRemovalPhaseFailure, () => {
   });
 });
 
+describe(isDeregisteredFailure, () => {
+  it("matches git's already-deregistered 'is not a working tree' error", () => {
+    expect(
+      isDeregisteredFailure("fatal: '/code/repo-feat' is not a working tree"),
+    ).toBe(true);
+  });
+
+  it("does NOT match the clean-check refusal", () => {
+    expect(
+      isDeregisteredFailure(
+        "'/code/repo-feat' contains modified or untracked files, use --force to delete it",
+      ),
+    ).toBe(false);
+  });
+
+  it("does NOT match a deletion-phase failure", () => {
+    expect(
+      isDeregisteredFailure(
+        "error: failed to delete '/code/repo-feat': Directory not empty",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe(removeWorktreeWithFallback, () => {
   type Call = { args: string[]; cwd?: string };
 
@@ -283,6 +310,166 @@ describe(removeWorktreeWithFallback, () => {
     expect(rmrfCalls).toEqual([]);
     expect(prunes(gitCalls)).toHaveLength(0);
     expect(warnCalls).toEqual([]);
+  });
+
+  it("already-deregistered (not a working tree): rm -rf + prune, NO retry, returns so branch deletion proceeds", () => {
+    const { deps, gitCalls, rmrfCalls, warnCalls } = makeDeps((args) => {
+      if (args[1] === "remove") {
+        throw new Error("fatal: '/wt' is not a working tree");
+      }
+      return ""; // prune succeeds
+    });
+
+    expect(() =>
+      removeWorktreeWithFallback("/wt", "/primary", deps),
+    ).not.toThrow();
+
+    // The key difference from the deletion-phase class: this error fires
+    // before git's clean-check, so there is nothing to retry.
+    expect(removes(gitCalls)).toHaveLength(1);
+    expect(rmrfCalls).toEqual(["/wt"]);
+    expect(prunes(gitCalls)).toEqual([
+      { args: ["worktree", "prune"], cwd: "/primary" },
+    ]);
+    expect(warnCalls).toHaveLength(1);
+    expect(warnCalls[0]).toMatch(/not a working tree|already deregistered/);
+  });
+
+  it("already-deregistered with a prune failure: swallowed, still returns", () => {
+    const { deps, rmrfCalls, gitCalls, warnCalls } = makeDeps((args) => {
+      if (args[1] === "remove") {
+        throw new Error("fatal: '/wt' is not a working tree");
+      }
+      if (args[1] === "prune") {
+        throw new Error("fatal: could not lock .git/worktrees: File exists");
+      }
+      return "";
+    });
+
+    expect(() =>
+      removeWorktreeWithFallback("/wt", "/primary", deps),
+    ).not.toThrow();
+
+    expect(rmrfCalls).toEqual(["/wt"]);
+    expect(prunes(gitCalls)).toHaveLength(1);
+    expect(warnCalls).toHaveLength(2);
+    expect(warnCalls[1]).toMatch(/prune failed/);
+  });
+});
+
+// --- isNotFullyMergedFailure ------------------------------------------------
+
+describe(isNotFullyMergedFailure, () => {
+  it("matches git's squash-merge refusal", () => {
+    expect(
+      isNotFullyMergedFailure("error: the branch 'feat' is not fully merged."),
+    ).toBe(true);
+  });
+
+  it("does NOT match an unrelated branch -d failure", () => {
+    expect(isNotFullyMergedFailure("error: branch 'feat' not found.")).toBe(
+      false,
+    );
+  });
+});
+
+// --- deleteBranchWithForceFallback ------------------------------------------
+
+describe(deleteBranchWithForceFallback, () => {
+  type Call = { args: string[]; cwd?: string };
+
+  function makeGit(impl: (args: string[], cwd?: string) => string): {
+    git: (args: string[], cwd?: string) => string;
+    calls: Call[];
+  } {
+    const calls: Call[] = [];
+    const git = (args: string[], cwd?: string) => {
+      calls.push({ args, cwd });
+      return impl(args, cwd);
+    };
+    return { git, calls };
+  }
+
+  const dCalls = (calls: Call[]) =>
+    calls.filter((c) => c.args[0] === "branch" && c.args[1] === "-d");
+  const forceCalls = (calls: Call[]) =>
+    calls.filter((c) => c.args[0] === "branch" && c.args[1] === "-D");
+
+  it("git branch -d succeeds: status deleted, no -D", () => {
+    const { git, calls } = makeGit(() => "");
+    const result = deleteBranchWithForceFallback("feat", "/primary", true, git);
+
+    expect(result.status).toBe("deleted");
+    expect(dCalls(calls)).toHaveLength(1);
+    expect(forceCalls(calls)).toHaveLength(0);
+  });
+
+  it("not fully merged + allowForceFallback: retries with git branch -D, status force-deleted", () => {
+    const { git, calls } = makeGit((args) => {
+      if (args[1] === "-d") {
+        throw new Error("error: the branch 'feat' is not fully merged.");
+      }
+      return "";
+    });
+    const result = deleteBranchWithForceFallback("feat", "/primary", true, git);
+
+    expect(result.status).toBe("force-deleted");
+    expect(dCalls(calls)).toHaveLength(1);
+    expect(forceCalls(calls)).toHaveLength(1);
+    expect(forceCalls(calls)[0]).toEqual({
+      args: ["branch", "-D", "feat"],
+      cwd: "/primary",
+    });
+  });
+
+  it("not fully merged but allowForceFallback=false: no -D, status failed", () => {
+    const { git, calls } = makeGit((args) => {
+      if (args[1] === "-d") {
+        throw new Error("error: the branch 'feat' is not fully merged.");
+      }
+      return "";
+    });
+    const result = deleteBranchWithForceFallback(
+      "feat",
+      "/primary",
+      false,
+      git,
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result).toMatchObject({
+      message: expect.stringMatching(/not fully merged/),
+    });
+    expect(forceCalls(calls)).toHaveLength(0);
+  });
+
+  it("a different -d failure does NOT escalate to -D even with allowForceFallback (warn-only preserved)", () => {
+    const { git, calls } = makeGit((args) => {
+      if (args[1] === "-d") {
+        throw new Error("error: branch 'feat' not found.");
+      }
+      return "";
+    });
+    const result = deleteBranchWithForceFallback("feat", "/primary", true, git);
+
+    expect(result.status).toBe("failed");
+    expect(forceCalls(calls)).toHaveLength(0);
+  });
+
+  it("not fully merged + force, but -D also fails: status failed", () => {
+    const { git, calls } = makeGit((args) => {
+      if (args[1] === "-d") {
+        throw new Error("error: the branch 'feat' is not fully merged.");
+      }
+      if (args[1] === "-D") {
+        throw new Error("error: Cannot delete branch");
+      }
+      return "";
+    });
+    const result = deleteBranchWithForceFallback("feat", "/primary", true, git);
+
+    expect(result.status).toBe("failed");
+    expect(forceCalls(calls)).toHaveLength(1);
   });
 });
 
@@ -720,5 +907,28 @@ describe("flow-remove-worktree (integration: auto-delete merged branches)", () =
       "Branch 'flag-feat' deleted.",
     );
     expect(r.stdout, `stdout: ${r.stdout}`).not.toMatch(/fully merged into/);
+  });
+
+  it("--delete-branch force-deletes a not-fully-merged (squash-merge-like) branch", async () => {
+    const create = await runNewWorktree(["squash-feat"], fx.repoDir);
+    expect(create.exitCode, `flow-new-worktree stderr: ${create.stderr}`).toBe(
+      0,
+    );
+    const wtDir = path.join(path.dirname(fx.repoDir), "repo-squash-feat");
+
+    // Commit on the per-task branch but DO NOT push/merge into origin/main, so
+    // its tip is unreachable from origin/main and `git branch -d` would refuse
+    // with 'not fully merged' — the squash-merge case the force-fallback handles.
+    fs.writeFileSync(path.join(wtDir, "squash.txt"), "squashed work\n");
+    mustGit(["add", "."], wtDir);
+    mustGit(["commit", "-m", "feat: squashed"], wtDir);
+
+    const r = await runHelper(["squash-feat", "--delete-branch"], fx.repoDir);
+    expect(r.exitCode, `stderr: ${r.stderr}\nstdout: ${r.stdout}`).toBe(0);
+    expect(fs.existsSync(wtDir)).toBe(false);
+
+    const branches = mustGit(["branch", "--list"], fx.repoDir);
+    expect(branches).not.toContain("squash-feat");
+    expect(r.stdout, `stdout: ${r.stdout}`).toMatch(/force-deleted/);
   });
 });
