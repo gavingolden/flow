@@ -26,6 +26,7 @@ _flow() {
             verbs=(
                 'setup:install skills, agents, helpers globally'
                 'new:start a new pipeline'
+                'epic:design or run an epic'
                 'ls:list active pipelines'
                 'attach:attach to a pipeline window'
                 'a:alias for attach'
@@ -74,6 +75,16 @@ _flow() {
                             '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
                             '*::description:'
                     fi
+                    ;;
+                epic)
+                    local -a sub
+                    sub=(
+                        'create:design an epic'
+                        'run:run an epic (deferred)'
+                        'status:epic status (deferred)'
+                        'ls:list epics (deferred)'
+                    )
+                    _describe 'subcommand' sub
                     ;;
                 ls)
                     _arguments \

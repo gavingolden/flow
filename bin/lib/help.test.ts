@@ -73,6 +73,7 @@ describe("HELP_TEXT", () => {
   // through bin/flow's runHelpVerb, so they don't need their own entries.
   const REQUIRED_VERBS = [
     "new",
+    "epic",
     "ls",
     "attach",
     "done",
@@ -224,6 +225,7 @@ describe("runHelpVerb", () => {
 
   it.each([
     "new",
+    "epic",
     "ls",
     "attach",
     "done",

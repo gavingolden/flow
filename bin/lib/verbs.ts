@@ -8,6 +8,7 @@
 export const VERBS = [
   "setup",
   "new",
+  "epic",
   "ls",
   "attach",
   "a",
