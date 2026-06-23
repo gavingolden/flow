@@ -554,6 +554,39 @@ describe("gate-stage echo-verbatim recap wiring lint", () => {
   });
 });
 
+describe("tab-delimited @tsv read must set IFS=$'\\t'", () => {
+  // Guards against the PR #333 recap-garbling regression: a `read` that
+  // parses a `jq ... @tsv` line splits on the default IFS (space, tab,
+  // newline) unless prefixed with `IFS=$'\t'`, so a space-bearing PR title
+  // spills across the following variable(s). Every documented `read -r`
+  // whose process-substitution body emits `@tsv` must carry the
+  // `IFS=$'\t'` command-prefix so the split is tab-only. The regex matches
+  // a `read -r` and the `@tsv` on the same logical line (the table rows are
+  // single long lines; the fenced blocks keep read+jq on one line), with an
+  // optional leading IFS-prefix capture group.
+  const tsvReadRe = /(IFS=\$'\\t'\s+)?read\s+-r\b[^\n]*?<\s*<\([^\n]*?@tsv/g;
+
+  it("prefixes every @tsv-sourced read with IFS=$'\\t' (no bare split)", () => {
+    const matches = [...content.matchAll(tsvReadRe)];
+    expect(
+      matches.length,
+      "expected at least the five documented recap reads sourcing a jq @tsv " +
+        "stream; if this dropped to zero the anchor is matching nothing and " +
+        "must be repaired.",
+    ).toBeGreaterThanOrEqual(5);
+    const bare = matches
+      .filter((m) => m[1] === undefined)
+      .map((m) => m[0].slice(0, 60));
+    expect(
+      bare,
+      "every `read -r ... < <(jq ... @tsv ...)` in flow-pipeline SKILL.md must " +
+        "be prefixed with `IFS=$'\\t'` so the recap line splits on the tab " +
+        "only — an un-prefixed read garbles space-bearing PR titles across " +
+        "the PR_TITLE/PR_BRANCH variables (PR #333 regression).",
+    ).toEqual([]);
+  });
+});
+
 describe("pr-review deferral-tracker lint", () => {
   it("the wrapper SKILL.md names flow-create-issue and no ROADMAP.md fallback", () => {
     expect(
