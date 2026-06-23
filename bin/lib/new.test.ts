@@ -791,6 +791,11 @@ describe("runFresh — verify-before-persist (orphaned-window regression)", () =
     expect(code).not.toBe(0);
     expect(fs.existsSync(path.join(stateDir, "csv-export.json"))).toBe(false);
     expect(errors.join("\n")).toMatch(/claude exited immediately after launch/);
+    // Upper bound: a permanent failure stops at exactly WINDOW_CREATE_MAX_ATTEMPTS
+    // (3), not 1 (retry silently removed) and not unbounded. STORY 2 only pins
+    // the >=2 lower bound; this closes the bounded-not-infinite claim (Test Step
+    // #2) so removing or unbounding the retry budget turns this test red.
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(3);
   });
 
   it("STORY 2 (bounded retry self-heal): a single transient failure retries and succeeds with exactly one state write", () => {

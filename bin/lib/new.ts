@@ -29,6 +29,7 @@ import {
   EFFORT_LEVELS,
   type EffortLevel,
 } from "./state";
+import { sleepSync } from "./sleep";
 import { dim } from "./color";
 
 /**
@@ -40,14 +41,6 @@ import { dim } from "./color";
  */
 const WINDOW_CREATE_MAX_ATTEMPTS = 3;
 const WINDOW_CREATE_RETRY_MS = 150;
-
-function createRetrySleepSync(ms: number): void {
-  // Spawn-free sync sleep (Atomics.wait), matching tmux.ts/lock.ts. runFresh
-  // and runResume are synchronous (return a number), so no await/Bun.sleep.
-  const sab = new SharedArrayBuffer(4);
-  const view = new Int32Array(sab);
-  Atomics.wait(view, 0, 0, ms);
-}
 
 /**
  * Runs `launch` (a verified create or respawn) up to WINDOW_CREATE_MAX_ATTEMPTS
@@ -63,7 +56,7 @@ function launchWithRetry(
 ): { ok: boolean; stderr: string } {
   let last = { ok: false, stderr: "" };
   for (let attempt = 0; attempt < WINDOW_CREATE_MAX_ATTEMPTS; attempt++) {
-    if (attempt > 0 && retryMs > 0) createRetrySleepSync(retryMs);
+    if (attempt > 0 && retryMs > 0) sleepSync(retryMs);
     last = launch();
     if (last.ok) return last;
   }

@@ -14,6 +14,7 @@
 
 import * as path from "node:path";
 import { shortPhase } from "./state";
+import { sleepSync } from "./sleep";
 
 export const FLOW_SESSION = "flow";
 const FLOW_SLUG_OPTION = "@flow-slug";
@@ -201,26 +202,36 @@ export function createWindow(
 }
 
 /**
- * Liveness-poll budget for `createWindowVerified`. `claude` launched in a
- * fresh pane can pass the create call (tmux forks the shell, exit 0) yet die
- * milliseconds later (bad install, missing binary), so we re-probe the pane a
- * few times and require it alive at the END of the budget — a single early
- * "alive" reading is not enough to catch the alive-then-dies race. NOTE: the
- * total ~600ms budget (5 × 120ms) is a first cut; it MUST be validated against
- * a real `claude` cold-launch — too short and a slow-starting healthy claude is
- * killed as a false orphan. Tune both constants if dogfooding shows otherwise.
+ * Liveness-poll budget shared by `createWindowVerified` and
+ * `respawnWindowVerified`. `claude` launched in a fresh pane can pass the
+ * create/respawn call (tmux forks the shell, exit 0) yet die milliseconds later
+ * (bad install, missing binary), so we re-probe the pane a few times and require
+ * it alive at the END of the budget — a single early "alive" reading is not
+ * enough to catch the alive-then-dies race. NOTE: the budget is ~480ms (5
+ * probes, 4 × 120ms sleeps — the first probe runs before any sleep) and is a
+ * first cut; it MUST be validated against a real `claude` cold-launch — too
+ * short and a slow-starting healthy claude is killed as a false orphan. Tune
+ * both constants if dogfooding shows otherwise.
  */
 const LIVENESS_POLL_ATTEMPTS = 5;
 const LIVENESS_POLL_INTERVAL_MS = 120;
 
-function livenessSleepSync(ms: number): void {
-  // Atomics.wait on a SharedArrayBuffer view is a spawn-free sync sleep, the
-  // same idiom lock.ts uses for its poll backoff. createWindowVerified is a
-  // synchronous fn (its callers runFresh/runResume return a number, not a
-  // Promise), so setTimeout / Bun.sleep / await are not options here.
-  const sab = new SharedArrayBuffer(4);
-  const view = new Int32Array(sab);
-  Atomics.wait(view, 0, 0, ms);
+/**
+ * Bounded liveness poll: probe `isAlive` up to `LIVENESS_POLL_ATTEMPTS` times,
+ * sleeping `LIVENESS_POLL_INTERVAL_MS` between probes (never before the first),
+ * and return the FINAL probe's verdict. Returning the last reading — not an
+ * early break on the first `true` — is what catches the alive-then-dies race.
+ */
+function pollUntilAlive(
+  isAlive: () => boolean,
+  sleep: (ms: number) => void,
+): boolean {
+  let alive = false;
+  for (let attempt = 0; attempt < LIVENESS_POLL_ATTEMPTS; attempt++) {
+    if (attempt > 0) sleep(LIVENESS_POLL_INTERVAL_MS);
+    alive = isAlive();
+  }
+  return alive;
 }
 
 export type CreateWindowVerifiedDeps = {
@@ -244,18 +255,37 @@ export type CreateWindowVerifiedDeps = {
   /** Window-kill seam (defaults to `killWindow`) for the not-alive cleanup. */
   kill?: (slug: string, session?: string) => boolean;
   /**
-   * Inter-probe delay seam (ms → void). Defaults to the spawn-free
-   * `livenessSleepSync`; unit tests inject a no-op so the bounded poll runs
-   * instantly instead of consuming the real ~480ms budget.
+   * Inter-probe delay seam (ms → void). Defaults to the spawn-free `sleepSync`;
+   * unit tests inject a no-op so the bounded poll runs instantly instead of
+   * consuming the real ~480ms budget.
    */
   sleep?: (ms: number) => void;
 };
 
+export type RespawnWindowVerifiedDeps = {
+  /**
+   * Window-respawn seam. Defaults to the real `respawnWindow`, which shells out
+   * via the module-private `tmux` spawn, so a unit test stubs the respawn result
+   * here rather than standing up a tmux server. The create path's analogous
+   * `create` seam.
+   */
+  respawn?: (
+    slug: string,
+    cwd: string,
+    command: string[],
+    session?: string,
+  ) => { ok: boolean; stderr: string };
+  /** Liveness probe seam — same contract as `CreateWindowVerifiedDeps.isAlive`. */
+  isAlive?: (slug: string, session?: string) => boolean;
+  /** Inter-probe delay seam — same contract as `CreateWindowVerifiedDeps.sleep`. */
+  sleep?: (ms: number) => void;
+};
+
 /**
- * Creates the window via `createWindow`, then runs a bounded liveness poll to
- * confirm the launched process actually stayed up. tmux's `new-window` exit
- * code only proves the shell forked — a `claude` that exits immediately leaves
- * a half-created window that the caller would otherwise persist state for (the
+ * Creates the window via `createWindow`, then runs `pollUntilAlive` to confirm
+ * the launched process actually stayed up. tmux's `new-window` exit code only
+ * proves the shell forked — a `claude` that exits immediately leaves a
+ * half-created window that the caller would otherwise persist state for (the
  * intermittent `flow new` orphan). On not-alive-at-end we kill the half-created
  * window and return `{ ok: false }` so the caller never writes state for it.
  */
@@ -269,19 +299,12 @@ export function createWindowVerified(
   const create = deps.create ?? createWindow;
   const isAlive = deps.isAlive ?? isPaneAlive;
   const kill = deps.kill ?? killWindow;
-  const sleep = deps.sleep ?? livenessSleepSync;
+  const sleep = deps.sleep ?? sleepSync;
 
   const created = create(slug, cwd, command, session);
   if (!created.ok) return created;
 
-  // Require the pane to be alive at the END of the budget. Probe between
-  // sleeps; the last probe is the verdict so an alive-then-dies launch fails.
-  let alive = false;
-  for (let attempt = 0; attempt < LIVENESS_POLL_ATTEMPTS; attempt++) {
-    if (attempt > 0) sleep(LIVENESS_POLL_INTERVAL_MS);
-    alive = isAlive(slug, session);
-  }
-  if (!alive) {
+  if (!pollUntilAlive(() => isAlive(slug, session), sleep)) {
     kill(slug, session);
     return {
       ok: false,
@@ -304,19 +327,17 @@ export function respawnWindowVerified(
   slug: string,
   cwd: string,
   command: string[],
-  deps: CreateWindowVerifiedDeps = {},
+  deps: RespawnWindowVerifiedDeps = {},
   session = FLOW_SESSION,
 ): { ok: boolean; stderr: string } {
+  const respawn = deps.respawn ?? respawnWindow;
   const isAlive = deps.isAlive ?? isPaneAlive;
-  const sleep = deps.sleep ?? livenessSleepSync;
-  const respawned = respawnWindow(slug, cwd, command, session);
+  const sleep = deps.sleep ?? sleepSync;
+
+  const respawned = respawn(slug, cwd, command, session);
   if (!respawned.ok) return respawned;
-  let alive = false;
-  for (let attempt = 0; attempt < LIVENESS_POLL_ATTEMPTS; attempt++) {
-    if (attempt > 0) sleep(LIVENESS_POLL_INTERVAL_MS);
-    alive = isAlive(slug, session);
-  }
-  if (!alive) {
+
+  if (!pollUntilAlive(() => isAlive(slug, session), sleep)) {
     return {
       ok: false,
       stderr:
