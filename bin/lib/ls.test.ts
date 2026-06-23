@@ -401,6 +401,45 @@ describe("runLs empty state (Story 5 cross-verb voice)", () => {
   });
 });
 
+describe("runLs — orphan recovery footnote", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("surfaces `flow new --resume <slug>` below the table for an orphan ('(no window)') row", async () => {
+    // State for `ghost` but no matching tmux window → buildRows annotates it
+    // `(no window)`. The recovery footnote must print its restart command.
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "ghost", repo: "/repo" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+
+    expect(code).toBe(0);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("flow new --resume ghost");
+  });
+
+  it("prints no recovery footnote when every pipeline has a live window", async () => {
+    // Non-orphan output must be unchanged — no `flow new --resume` line leaks.
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "csv-export", repo: "/repo" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "csv-export" }),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+
+    expect(code).toBe(0);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).not.toMatch(/flow new --resume/);
+  });
+});
+
 describe("runLs — update notice seam", () => {
   beforeEach(() => {
     vi.spyOn(stateModule, "listStates").mockReturnValue([]);

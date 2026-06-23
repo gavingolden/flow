@@ -22,14 +22,17 @@ vi.mock("node:fs", async () => {
 const tmuxMock = vi.hoisted(() => ({
   windowExists: vi.fn<(name: string) => boolean>(() => false),
   isPaneAlive: vi.fn<(name: string) => boolean>(() => false),
-  createWindow: vi.fn<
+  // new.ts now launches windows through the liveness-verified wrappers, so the
+  // mock drives those (not the bare createWindow/respawnWindow). They default
+  // to ok so the happy paths still pass without per-test setup.
+  createWindowVerified: vi.fn<
     (
       name: string,
       cwd: string,
       command: string[],
     ) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
-  respawnWindow: vi.fn<
+  respawnWindowVerified: vi.fn<
     (
       name: string,
       cwd: string,
@@ -61,8 +64,12 @@ beforeEach(() => {
   });
   tmuxMock.windowExists.mockReset().mockReturnValue(false);
   tmuxMock.isPaneAlive.mockReset().mockReturnValue(false);
-  tmuxMock.createWindow.mockReset().mockReturnValue({ ok: true, stderr: "" });
-  tmuxMock.respawnWindow.mockReset().mockReturnValue({ ok: true, stderr: "" });
+  tmuxMock.createWindowVerified
+    .mockReset()
+    .mockReturnValue({ ok: true, stderr: "" });
+  tmuxMock.respawnWindowVerified
+    .mockReset()
+    .mockReturnValue({ ok: true, stderr: "" });
   readSyncMock.mockReset().mockReturnValue(0);
 });
 
@@ -150,8 +157,8 @@ describe("runNew --resume", () => {
     expect(code).toBe(1);
     expect(errors.join("\n")).toMatch(/is still running/);
     expect(errors.join("\n")).toMatch(/flow attach alive-one/);
-    expect(tmuxMock.respawnWindow).not.toHaveBeenCalled();
-    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("respawns the existing window when state exists and pane is dead", () => {
@@ -160,9 +167,9 @@ describe("runNew --resume", () => {
     tmuxMock.isPaneAlive.mockReturnValue(false);
     const code = runNew("crashed", { resume: true, stateDir });
     expect(code).toBe(0);
-    expect(tmuxMock.respawnWindow).toHaveBeenCalledTimes(1);
-    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
-    const [, cwd, command] = tmuxMock.respawnWindow.mock.calls[0]!;
+    expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    const [, cwd, command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(cwd).toBe(repoDir);
     // Contract: the prompt prefix is what the supervisor parses to detect
     // resume mode. SKILL.md hard-codes the literal string; if this assertion
@@ -186,8 +193,8 @@ describe("runNew --resume", () => {
     tmuxMock.windowExists.mockReturnValue(false);
     const code = runNew("tmux-bounced", { resume: true, stateDir });
     expect(code).toBe(0);
-    expect(tmuxMock.createWindow).toHaveBeenCalledTimes(1);
-    expect(tmuxMock.respawnWindow).not.toHaveBeenCalled();
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
   });
 
   it("does not rewrite state.json on entry (the supervisor's first transition does)", () => {
@@ -202,16 +209,16 @@ describe("runNew --resume", () => {
     expect(after).toBe(before);
   });
 
-  it("surfaces the tmux failure when respawn returns non-ok", () => {
+  it("surfaces the tmux failure when the verified respawn returns non-ok", () => {
     seedState("respawn-fail");
     tmuxMock.windowExists.mockReturnValue(true);
-    tmuxMock.respawnWindow.mockReturnValue({
+    tmuxMock.respawnWindowVerified.mockReturnValue({
       ok: false,
       stderr: "can't find session: flow",
     });
     const code = runNew("respawn-fail", { resume: true, stateDir });
     expect(code).toBe(1);
-    expect(errors.join("\n")).toMatch(/tmux failed to respawn/);
+    expect(errors.join("\n")).toMatch(/claude exited immediately after launch/);
     expect(errors.join("\n")).toContain("can't find session: flow");
   });
 });
@@ -226,8 +233,8 @@ describe("runNewCli --resume (multi-slug)", () => {
     const code = runNewCli(["--resume", "x", "y", "--yes"], { stateDir });
 
     expect(code).toBe(0);
-    expect(tmuxMock.respawnWindow).toHaveBeenCalledTimes(2);
-    const launched = tmuxMock.respawnWindow.mock.calls.map(
+    expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(2);
+    const launched = tmuxMock.respawnWindowVerified.mock.calls.map(
       ([name, , command]) => ({ name, prompt: command[command.length - 1] }),
     );
     expect(launched).toContainEqual({
@@ -254,7 +261,9 @@ describe("runNewCli --resume (multi-slug)", () => {
     });
 
     expect(code).toBe(1);
-    const resumed = tmuxMock.respawnWindow.mock.calls.map(([name]) => name);
+    const resumed = tmuxMock.respawnWindowVerified.mock.calls.map(
+      ([name]) => name,
+    );
     expect(resumed).toContain("x");
     expect(resumed).toContain("y");
     expect(resumed).not.toContain("alive");
@@ -274,8 +283,8 @@ describe("runNewCli --resume (multi-slug)", () => {
     const code = runNewCli(["--resume", "x", "y"], { stateDir });
 
     expect(code).toBe(0);
-    expect(tmuxMock.respawnWindow).not.toHaveBeenCalled();
-    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
     expect(logs.join("\n")).toMatch(/will resume 2 pipeline\(s\)/);
     expect(logs.join("\n")).toMatch(/aborted — nothing resumed/);
     stdoutWrite.mockRestore();
@@ -294,7 +303,7 @@ describe("runNewCli --resume (multi-slug)", () => {
     const code = runNewCli(["--resume", "x", "y"], { stateDir });
 
     expect(code).toBe(0);
-    expect(tmuxMock.respawnWindow).toHaveBeenCalledTimes(2);
+    expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(2);
     stdoutWrite.mockRestore();
   });
 
@@ -312,8 +321,8 @@ describe("runNewCli --resume (multi-slug)", () => {
     // dedup at new.ts:91-92 collapses the repeat to length 1, so it routes
     // through the single-slug short-circuit: one respawn, no >=2 preview,
     // and the confirm prompt (readSync) is never consulted.
-    expect(tmuxMock.respawnWindow).toHaveBeenCalledTimes(1);
-    expect(tmuxMock.respawnWindow.mock.calls[0]![0]).toBe("x");
+    expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.respawnWindowVerified.mock.calls[0]![0]).toBe("x");
     expect(readSyncMock).not.toHaveBeenCalled();
     expect(logs.join("\n")).not.toMatch(/will resume/);
     stdoutWrite.mockRestore();
@@ -436,7 +445,7 @@ describe("runNew (fresh)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     const code = runNew("CSV export", { stateDir, cwd: repoDir });
     expect(code).toBe(0);
-    const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     // runFresh resolves the repo via `git rev-parse --show-toplevel`, which
     // returns the canonical realpath (macOS /var → /private/var), so derive
     // the expected worktree from the resolved path, not the raw temp dir.
@@ -489,8 +498,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
 
     it(`does not invoke tmux for '${flag}'`, () => {
       runNewCli([flag], { stateDir });
-      expect(tmuxMock.createWindow).not.toHaveBeenCalled();
-      expect(tmuxMock.respawnWindow).not.toHaveBeenCalled();
+      expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+      expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
       expect(tmuxMock.windowExists).not.toHaveBeenCalled();
     });
   }
@@ -499,7 +508,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     const code = runNewCli(["--no-auto-merge", "--help"], { stateDir });
     expect(code).toBe(0);
     expect(fs.readdirSync(stateDir)).toEqual([]);
-    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("short-circuits even when --help follows --resume", () => {
@@ -591,7 +600,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       cwd: repoDir,
     });
     expect(code).toBe(0);
-    const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
       "claude",
       "--add-dir",
@@ -613,7 +622,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       cwd: repoDir,
     });
     expect(code).toBe(0);
-    const [, , command] = tmuxMock.createWindow.mock.calls[0]!;
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
       "claude",
       "--add-dir",
@@ -635,7 +644,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     });
     expect(code).toBe(1);
     expect(fs.readdirSync(stateDir)).toEqual([]);
-    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
     expect(errors.join("\n")).toMatch(/low, medium, high, xhigh, max/);
   });
 
@@ -647,7 +656,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     });
     expect(code).toBe(1);
     expect(fs.readdirSync(stateDir)).toEqual([]);
-    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("runNewCli --effort followed by another flag returns non-zero and triggers no side-effect", () => {
@@ -660,7 +669,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     });
     expect(code).toBe(1);
     expect(fs.readdirSync(stateDir)).toEqual([]);
-    expect(tmuxMock.createWindow).not.toHaveBeenCalled();
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("runNewCli --effort high strips the flag and its value token from the slug", () => {
@@ -690,7 +699,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     tmuxMock.isPaneAlive.mockReturnValue(false);
     const code = runNew("saved-effort", { resume: true, stateDir });
     expect(code).toBe(0);
-    const [, , command] = tmuxMock.respawnWindow.mock.calls[0]!;
+    const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
       "claude",
       "--add-dir",
@@ -723,7 +732,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     tmuxMock.isPaneAlive.mockReturnValue(false);
     const code = runNew("suffixed-slug", { resume: true, stateDir });
     expect(code).toBe(0);
-    const [, , command] = tmuxMock.respawnWindow.mock.calls[0]!;
+    const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
       "claude",
       "--add-dir",
@@ -754,5 +763,87 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(files[0].endsWith(".json")).toBe(true);
     // Sanity-check no help text leaked to logs (would indicate intercept).
     expect(logs.join("\n")).not.toMatch(/^flow new — start a new pipeline/m);
+  });
+});
+
+describe("runFresh — verify-before-persist (orphaned-window regression)", () => {
+  // Models the intermittent `flow new` bug: tmux's `new-window` returns ok
+  // (the shell forked), but the launched `claude` dies immediately so the pane
+  // is not alive. createWindowVerified detects this and returns { ok: false }
+  // after killing the half-created window; runFresh must then write NO state.
+  // Pre-fix, runFresh trusted createWindow's ok and persisted state for the
+  // dead window — these tests are RED against that shape and GREEN after the
+  // verify-before-persist gate. (Driven via the createWindowVerified mock —
+  // no real tmux server, no real claude.)
+
+  it("STORY 1 (immediate-death): runFresh writes no state and exits non-zero when the pane is dead", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      ok: false,
+      stderr: "pane not alive after launch",
+    });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+    });
+    expect(code).not.toBe(0);
+    expect(fs.existsSync(path.join(stateDir, "csv-export.json"))).toBe(false);
+    expect(errors.join("\n")).toMatch(/claude exited immediately after launch/);
+  });
+
+  it("STORY 2 (bounded retry self-heal): a single transient failure retries and succeeds with exactly one state write", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    // Fail attempt 1, succeed attempt 2. The retry must be BOUNDED — exactly
+    // two calls, not an unbounded spin — and persist state exactly once.
+    tmuxMock.createWindowVerified
+      .mockReturnValueOnce({ ok: false, stderr: "transient" })
+      .mockReturnValueOnce({ ok: true, stderr: "" });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(2);
+    const stateFiles = fs
+      .readdirSync(stateDir)
+      .filter((f) => f.endsWith(".json"));
+    expect(stateFiles).toEqual(["csv-export.json"]);
+  });
+
+  it("STORY 3 (repro harness): N>=20 runs against the pane-dead model persist zero orphaned state files", () => {
+    // RED against pre-fix code (which trusted createWindow's ok and orphaned a
+    // state file every iteration → orphanCount === N); GREEN after the
+    // verify-before-persist gate. An orphan := state persisted while the
+    // launch never produced a live window (createWindowVerified ok:false,
+    // which also kills any half-created window, so no surviving window either).
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      ok: false,
+      stderr: "pane not alive after launch",
+    });
+    const N = 20;
+    let orphanCount = 0;
+    for (let i = 0; i < N; i++) {
+      const iterDir = fs.mkdtempSync(
+        path.join(os.tmpdir(), `flow-orphan-${i}-`),
+      );
+      const code = runNew(`pipeline number ${i}`, {
+        stateDir: iterDir,
+        cwd: repoDir,
+        command: ["true"], // fast-exiting injected command
+        retrySleepMs: 0, // keep the N-iteration loop fast + deterministic
+      });
+      expect(code).not.toBe(0);
+      const persisted = fs
+        .readdirSync(iterDir)
+        .filter((f) => f.endsWith(".json"));
+      if (persisted.length > 0) orphanCount += 1;
+      fs.rmSync(iterDir, { recursive: true, force: true });
+    }
+    expect(orphanCount).toBe(0);
   });
 });

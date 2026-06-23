@@ -200,6 +200,132 @@ export function createWindow(
   return seedWindowOptions(windowId, slug, cwd);
 }
 
+/**
+ * Liveness-poll budget for `createWindowVerified`. `claude` launched in a
+ * fresh pane can pass the create call (tmux forks the shell, exit 0) yet die
+ * milliseconds later (bad install, missing binary), so we re-probe the pane a
+ * few times and require it alive at the END of the budget — a single early
+ * "alive" reading is not enough to catch the alive-then-dies race. NOTE: the
+ * total ~600ms budget (5 × 120ms) is a first cut; it MUST be validated against
+ * a real `claude` cold-launch — too short and a slow-starting healthy claude is
+ * killed as a false orphan. Tune both constants if dogfooding shows otherwise.
+ */
+const LIVENESS_POLL_ATTEMPTS = 5;
+const LIVENESS_POLL_INTERVAL_MS = 120;
+
+function livenessSleepSync(ms: number): void {
+  // Atomics.wait on a SharedArrayBuffer view is a spawn-free sync sleep, the
+  // same idiom lock.ts uses for its poll backoff. createWindowVerified is a
+  // synchronous fn (its callers runFresh/runResume return a number, not a
+  // Promise), so setTimeout / Bun.sleep / await are not options here.
+  const sab = new SharedArrayBuffer(4);
+  const view = new Int32Array(sab);
+  Atomics.wait(view, 0, 0, ms);
+}
+
+export type CreateWindowVerifiedDeps = {
+  /**
+   * Window-create seam. Defaults to the real `createWindow`. Injectable
+   * because `createWindow` shells out via the module-private `tmux` spawn
+   * (no spawn seam of its own, and the edit must not mutate it), so a unit
+   * test stubs the create result here rather than standing up a tmux server.
+   */
+  create?: (
+    slug: string,
+    cwd: string,
+    command: string[],
+    session?: string,
+  ) => { ok: boolean; stderr: string };
+  /**
+   * Liveness probe seam. Defaults to the real `isPaneAlive`, which shells out
+   * to tmux unconditionally and so is not unit-testable; tests inject a stub.
+   */
+  isAlive?: (slug: string, session?: string) => boolean;
+  /** Window-kill seam (defaults to `killWindow`) for the not-alive cleanup. */
+  kill?: (slug: string, session?: string) => boolean;
+  /**
+   * Inter-probe delay seam (ms → void). Defaults to the spawn-free
+   * `livenessSleepSync`; unit tests inject a no-op so the bounded poll runs
+   * instantly instead of consuming the real ~480ms budget.
+   */
+  sleep?: (ms: number) => void;
+};
+
+/**
+ * Creates the window via `createWindow`, then runs a bounded liveness poll to
+ * confirm the launched process actually stayed up. tmux's `new-window` exit
+ * code only proves the shell forked — a `claude` that exits immediately leaves
+ * a half-created window that the caller would otherwise persist state for (the
+ * intermittent `flow new` orphan). On not-alive-at-end we kill the half-created
+ * window and return `{ ok: false }` so the caller never writes state for it.
+ */
+export function createWindowVerified(
+  slug: string,
+  cwd: string,
+  command: string[],
+  deps: CreateWindowVerifiedDeps = {},
+  session = FLOW_SESSION,
+): { ok: boolean; stderr: string } {
+  const create = deps.create ?? createWindow;
+  const isAlive = deps.isAlive ?? isPaneAlive;
+  const kill = deps.kill ?? killWindow;
+  const sleep = deps.sleep ?? livenessSleepSync;
+
+  const created = create(slug, cwd, command, session);
+  if (!created.ok) return created;
+
+  // Require the pane to be alive at the END of the budget. Probe between
+  // sleeps; the last probe is the verdict so an alive-then-dies launch fails.
+  let alive = false;
+  for (let attempt = 0; attempt < LIVENESS_POLL_ATTEMPTS; attempt++) {
+    if (attempt > 0) sleep(LIVENESS_POLL_INTERVAL_MS);
+    alive = isAlive(slug, session);
+  }
+  if (!alive) {
+    kill(slug, session);
+    return {
+      ok: false,
+      stderr:
+        "tmux window created but its process exited immediately (pane not alive after launch)",
+    };
+  }
+  return { ok: true, stderr: "" };
+}
+
+/**
+ * `respawnWindow` + the same bounded liveness poll as `createWindowVerified`.
+ * `respawn-window`'s exit code only proves tmux relaunched the pane; a claude
+ * that dies on launch would otherwise let `flow new --resume` report a false
+ * "resumed" success over a dead window. Unlike the create path we do NOT kill
+ * the window on failure — it pre-existed the resume and the user may want to
+ * inspect its scrollback; we only report `{ ok: false }`.
+ */
+export function respawnWindowVerified(
+  slug: string,
+  cwd: string,
+  command: string[],
+  deps: CreateWindowVerifiedDeps = {},
+  session = FLOW_SESSION,
+): { ok: boolean; stderr: string } {
+  const isAlive = deps.isAlive ?? isPaneAlive;
+  const sleep = deps.sleep ?? livenessSleepSync;
+  const respawned = respawnWindow(slug, cwd, command, session);
+  if (!respawned.ok) return respawned;
+  let alive = false;
+  for (let attempt = 0; attempt < LIVENESS_POLL_ATTEMPTS; attempt++) {
+    if (attempt > 0) sleep(LIVENESS_POLL_INTERVAL_MS);
+    alive = isAlive(slug, session);
+  }
+  if (!alive) {
+    return {
+      ok: false,
+      stderr:
+        "tmux window respawned but its process exited immediately (pane not alive after launch)",
+    };
+  }
+  return { ok: true, stderr: "" };
+}
+
 /** Builds the `set-option -w` argv for a window-scoped user option. */
 export function buildSetOptionArgs(
   windowId: string,

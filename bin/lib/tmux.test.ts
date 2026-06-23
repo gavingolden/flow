@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildNewSessionArgs,
   buildNewWindowArgs,
   buildRenameArgs,
   buildSetOptionArgs,
+  createWindowVerified,
   findWindowBySlug,
   parseAliveStatus,
   parseWindowList,
@@ -224,6 +225,92 @@ describe(seedWindowOptions, () => {
     const result = seedWindowOptions("@7", "csv-export", REPO_ROOT, spawnTmux);
     expect(result).toEqual({ ok: true, stderr: "" });
     expect(calls).toHaveLength(4);
+  });
+});
+
+describe(createWindowVerified, () => {
+  // The create call shells out via the module-private `tmux` spawn — fakeSpawn
+  // can't reach it and the fix must not mutate createWindow — so the create
+  // result is driven through the `create` deps seam. The alive-probe is stubbed
+  // (the real isPaneAlive shells out unconditionally; exercising it is the
+  // anti-pattern this seam exists to avoid). `sleep` is a no-op so the bounded
+  // poll runs instantly. The new-window/new-session argv shape stays covered by
+  // the buildNewWindowArgs / buildNewSessionArgs tests above.
+  const noopSleep = () => undefined;
+
+  it("Case A: create ok but the pane reports dead → returns ok:false AND kills the half-created window", () => {
+    const kill = vi.fn(() => true);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => false, // dead at the end of the budget
+        kill,
+        sleep: noopSleep,
+      },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toMatch(/pane not alive/);
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(kill).toHaveBeenCalledWith("csv-export", "flow");
+  });
+
+  it("Case B: create ok and the pane reports alive → returns ok:true and never kills", () => {
+    const kill = vi.fn(() => true);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill,
+        sleep: noopSleep,
+      },
+    );
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("propagates a failed create verbatim without probing or killing", () => {
+    const isAlive = vi.fn(() => true);
+    const kill = vi.fn(() => true);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        create: () => ({ ok: false, stderr: "index 0 in use" }),
+        isAlive,
+        kill,
+        sleep: noopSleep,
+      },
+    );
+    expect(result).toEqual({ ok: false, stderr: "index 0 in use" });
+    expect(isAlive).not.toHaveBeenCalled();
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("catches the alive-then-dies race: alive on the first probe but dead at the end → ok:false", () => {
+    // The pane is alive early then exits mid-budget. Only the FINAL probe is the
+    // verdict, so the launch must be rejected (and the window killed).
+    const kill = vi.fn(() => true);
+    let probe = 0;
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => probe++ < 2, // true, true, then false for the rest
+        kill,
+        sleep: noopSleep,
+      },
+    );
+    expect(result.ok).toBe(false);
+    expect(kill).toHaveBeenCalledTimes(1);
   });
 });
 
