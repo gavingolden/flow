@@ -81,6 +81,21 @@ export function isRemovalPhaseFailure(message: string): boolean {
   );
 }
 
+/**
+ * True for the error class `git worktree remove` raises when git has already
+ * DEREGISTERED the worktree (it is gone from `git worktree list`) but the
+ * directory + branch still exist on disk: `fatal: '<path>' is not a working
+ * tree`. This fails immediately, before git's clean-check, so there is nothing
+ * to retry — a re-run fails identically. Distinct from {@link isRemovalPhaseFailure}
+ * (a post-clean-check deletion failure) and from the clean-check refusal
+ * ('contains modified or untracked files, use --force'), neither of which
+ * contains the `not a working tree` token; keeping it a separate predicate
+ * keeps all three classes independently testable.
+ */
+export function isDeregisteredFailure(message: string): boolean {
+  return message.toLowerCase().includes("not a working tree");
+}
+
 /** Injectable dependencies for {@link removeWorktreeWithFallback} (tests stub these). */
 export type RemoveWorktreeDeps = {
   /** Runs a git command; throws on non-zero exit (real impl: {@link git}). */
@@ -103,7 +118,9 @@ export type RemoveWorktreeDeps = {
  * runs before the rm-rf fallback to absorb a transient open-handle race.
  *
  * Returns normally on success (the caller proceeds to branch deletion);
- * re-throws any non-deletion-phase failure unchanged (no auto-`--force`).
+ * re-throws any non-deletion-phase failure unchanged (no auto-`--force`). The
+ * already-deregistered class (see {@link isDeregisteredFailure}) is also handled
+ * — rm -rf + advisory prune, no retry — alongside the deletion-phase class.
  */
 export function removeWorktreeWithFallback(
   worktreeDir: string,
@@ -115,6 +132,31 @@ export function removeWorktreeWithFallback(
     return;
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
+
+    // Already-deregistered class: git dropped this worktree from its admin
+    // list but the directory still exists, so `git worktree remove` failed
+    // immediately with `'<path>' is not a working tree` — before any
+    // clean-check, and with nothing to retry. Finish the cleanup the caller
+    // expected: rm -rf the leftover directory, prune the stale admin entry
+    // (advisory — a prune failure must NOT abort before branch deletion),
+    // then return so the caller proceeds to delete the branch.
+    if (isDeregisteredFailure(msg)) {
+      deps.warn(
+        `git worktree remove reported '${worktreeDir}' is not a working tree (already deregistered); forcing rm -rf + git worktree prune.`,
+      );
+      deps.rmrf(worktreeDir);
+      try {
+        deps.git(["worktree", "prune"], primaryDir);
+      } catch (pruneErr: unknown) {
+        const pruneMsg =
+          pruneErr instanceof Error ? pruneErr.message : String(pruneErr);
+        deps.warn(
+          `git worktree prune failed after rm -rf (continuing): ${pruneMsg}`,
+        );
+      }
+      return;
+    }
+
     // A genuine clean-check refusal (uncommitted tracked work) is NOT a
     // deletion-phase failure — re-throw without forcing.
     if (!isRemovalPhaseFailure(msg)) throw e;
@@ -149,6 +191,59 @@ export function removeWorktreeWithFallback(
         `git worktree prune failed after rm -rf (continuing): ${pruneMsg}`,
       );
     }
+  }
+}
+
+/**
+ * True for `git branch -d`'s refusal of a branch whose commits are absent from
+ * the base's history — `error: the branch '<name>' is not fully merged`. A
+ * squash-merge always produces this (the squashed commit is a new object, so
+ * the branch tip is never an ancestor of base), which is why a squash-merged
+ * branch is left behind by a plain `-d`.
+ */
+export function isNotFullyMergedFailure(message: string): boolean {
+  return message.toLowerCase().includes("not fully merged");
+}
+
+/** Discriminated result of {@link deleteBranchWithForceFallback}. */
+export type BranchDeleteResult =
+  | { status: "deleted" }
+  | { status: "force-deleted" }
+  | { status: "failed"; message: string };
+
+/**
+ * Deletes `branchName` via the safe `git branch -d`. When `-d` refuses with
+ * 'not fully merged' (the squash-merge case) AND `allowForceFallback` is set —
+ * i.e. the caller passed an explicit `--delete-branch`, an unambiguous
+ * instruction to delete the branch regardless of merge state — retry once with
+ * the force form `git branch -D`. Any OTHER `-d` failure, or the auto-delete
+ * path (where positive merge evidence already vouched for the branch, so a
+ * refusal is unexpected and must stay warn-only), does NOT escalate to `-D`.
+ * `git` is injected so the fallback is unit-testable via the same seam as
+ * {@link removeWorktreeWithFallback}; all logging stays in the caller.
+ */
+export function deleteBranchWithForceFallback(
+  branchName: string,
+  primaryDir: string,
+  allowForceFallback: boolean,
+  git: (args: string[], cwd?: string) => string,
+): BranchDeleteResult {
+  try {
+    git(["branch", "-d", branchName], primaryDir);
+    return { status: "deleted" };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (allowForceFallback && isNotFullyMergedFailure(msg)) {
+      try {
+        git(["branch", "-D", branchName], primaryDir);
+        return { status: "force-deleted" };
+      } catch (forceErr: unknown) {
+        const forceMsg =
+          forceErr instanceof Error ? forceErr.message : String(forceErr);
+        return { status: "failed", message: forceMsg };
+      }
+    }
+    return { status: "failed", message: msg };
   }
 }
 
@@ -440,8 +535,17 @@ function main(): void {
       );
     } else {
       console.log(`🌿 Deleting branch '${info.branchName}'...`);
-      try {
-        git(["branch", "-d", info.branchName], info.primaryDir);
+      // Force-fallback (-d → -D) only on an explicit --delete-branch: that flag
+      // is an instruction to delete the branch regardless of merge state, and a
+      // squash-merged branch can never satisfy `-d`. The auto-delete path keeps
+      // warn-only — its merge probe already vouched for the branch.
+      const result = deleteBranchWithForceFallback(
+        info.branchName,
+        info.primaryDir,
+        deleteBranch,
+        git,
+      );
+      if (result.status === "deleted") {
         if (autoDelete && !deleteBranch && baseBranch) {
           log.success(
             `Branch '${info.branchName}' deleted (fully merged into origin/${baseBranch}).`,
@@ -449,9 +553,12 @@ function main(): void {
         } else {
           log.success(`Branch '${info.branchName}' deleted.`);
         }
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        log.warn(`Could not delete branch: ${msg}`);
+      } else if (result.status === "force-deleted") {
+        log.success(
+          `Branch '${info.branchName}' force-deleted (was not fully merged — likely squash-merged).`,
+        );
+      } else {
+        log.warn(`Could not delete branch: ${result.message}`);
         log.info(
           `You may need to force-delete with: git branch -D ${info.branchName}`,
         );
