@@ -225,6 +225,7 @@ describe("runHelpVerb", () => {
 
   it.each([
     "new",
+    "epic",
     "ls",
     "attach",
     "done",

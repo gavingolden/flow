@@ -41,19 +41,29 @@ describe("runEpicCli — verb-level help", () => {
 });
 
 describe("runEpicCli create", () => {
-  it("['create','--help'] returns 0, emits create help, no side effect", () => {
+  it("['create','--help'] returns 0, emits the create-specific help, no side effect", () => {
     const code = runEpicCli(["create", "--help"]);
     expect(code).toBe(0);
     expect(logs.length).toBeGreaterThan(0);
+    const joined = logs.join("\n");
+    // Must reach runCreate's create-specific help, NOT the verb-level help.
+    // The create help names `flow epic create`; the verb help (printVerbHelp)
+    // additionally lists the run/status/ls subcommands, so the absence of
+    // `run <id>` discriminates create-help from verb-help.
+    expect(joined).toContain("flow epic create");
+    expect(joined).not.toContain("run <id>");
     // create --help must NOT mint/resolve a slug. The create-help body mentions
     // `.flow/epics/<slug>` in prose, so assert the side-effect "resolved"
     // notice line is absent rather than the documentational path substring.
-    expect(logs.join("\n")).not.toMatch(/resolved epic directory/i);
+    expect(joined).not.toMatch(/resolved epic directory/i);
   });
 
   it("['create','add a watchlist feature'] resolves the slug + dir + F4/F5 notice", () => {
     const code = runEpicCli(["create", "add a watchlist feature"]);
     expect(code).toBe(0);
+    // The resolved dir is the load-bearing first line F5 consumes — pin it
+    // exactly (own line, no prefix) so a reorder/prefix regression goes red.
+    expect(logs[0]).toBe(".flow/epics/add-watchlist-feature");
     const joined = logs.join("\n");
     expect(joined).toContain("add-watchlist-feature");
     expect(joined).toContain(".flow/epics/add-watchlist-feature");

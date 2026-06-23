@@ -7,14 +7,20 @@
  * deferred — those subcommands surface a loud deferred message and exit 2.
  */
 
-import { argsContainHelp, printVerbHelp } from "./help";
+import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import { slugify } from "./slug";
 import { epicDirRelative } from "./epic-manifest-schema";
 
 export function runEpicCli(args: string[]): number {
-  // STEP 1: verb-level help guard FIRST, before any side effect — mirrors
-  // bin/lib/new.ts's runNewCli --help short-circuit.
-  if (argsContainHelp(args)) {
+  // STEP 1: verb-level help guard FIRST, before any side effect. Unlike
+  // new.ts (which has no subcommands and so scans the whole args array), this
+  // verb dispatches on a subcommand, so the verb-level guard must fire ONLY
+  // when the help flag is in the verb position (`flow epic --help`). Using
+  // argsContainHelp(args) here would also match a subcommand-level flag like
+  // `flow epic create --help` and wrongly print the verb help — instead, let
+  // that fall through to the switch so runCreate's own argsContainHelp(rest)
+  // serves the create-specific help.
+  if (isHelpFlag(args[0])) {
     printVerbHelp("epic");
     return 0;
   }
