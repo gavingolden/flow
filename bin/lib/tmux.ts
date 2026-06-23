@@ -12,6 +12,9 @@
  * the option set fall back to name-matching.
  */
 
+import * as path from "node:path";
+import { shortPhase } from "./state";
+
 export const FLOW_SESSION = "flow";
 const FLOW_SLUG_OPTION = "@flow-slug";
 /**
@@ -23,6 +26,23 @@ const FLOW_SLUG_OPTION = "@flow-slug";
  * Hyphenated to match `@flow-slug`.
  */
 export const FLOW_PHASE_OPTION = "@flow-phase";
+/**
+ * Window option holding the basename of the pipeline's root repo (the repo
+ * resolved at `flow new`, matching the REPO column in `flow ls`). Same
+ * additive/opt-in/publish-only contract as `@flow-phase`: flow sets it on its
+ * own windows so a status-bar format can bind `#{@flow-repo}` into a compact
+ * `[repo phase]` badge, never writing the user's tmux config. Best-effort — a
+ * non-zero `set-option` exit is swallowed and never blocks window creation.
+ */
+export const FLOW_REPO_OPTION = "@flow-repo";
+/**
+ * Window option mirroring the current phase in compact form — the
+ * `shortPhase()` abbreviation of `@flow-phase` (see `PHASE_SHORT` in `./state`,
+ * the single source of truth). Same additive/opt-in/publish-only/best-effort
+ * contract as `@flow-phase`, which keeps emitting the raw phase string
+ * unchanged; `@flow-phase-short` is strictly additive.
+ */
+export const FLOW_PHASE_SHORT_OPTION = "@flow-phase-short";
 /**
  * The phase seeded at window creation, before the first
  * `flow-state-update --phase` lands. Must match the initial phase `flow new`
@@ -177,7 +197,7 @@ export function createWindow(
       stderr: `tmux ${args[0]} succeeded but printed no window id`,
     };
   }
-  return seedWindowOptions(windowId, slug);
+  return seedWindowOptions(windowId, slug, cwd);
 }
 
 /** Builds the `set-option -w` argv for a window-scoped user option. */
@@ -191,15 +211,18 @@ export function buildSetOptionArgs(
 
 /**
  * Seeds a freshly created window's user options: `@flow-slug` (the canonical
- * identifier, load-bearing for every later lookup — its failure fails creation)
- * and `@flow-phase` (the additive phase mirror seeded to `starting` — a failure
- * here is swallowed and never blocks creation, since state.json is the source
- * of truth and `@flow-phase` is only a status-bar convenience). The windowId is
- * already in hand from `createWindow`, so no extra `listWindows` round-trip.
+ * identifier, load-bearing for every later lookup — its failure fails creation),
+ * plus three additive, best-effort mirrors whose failures are swallowed and
+ * never block creation (state.json stays the source of truth): `@flow-repo`
+ * (the repo basename, from `repoRoot`), `@flow-phase` (the raw phase mirror
+ * seeded to `starting`), and `@flow-phase-short` (its compact abbreviation).
+ * The windowId is already in hand from `createWindow`, so no extra
+ * `listWindows` round-trip.
  */
 export function seedWindowOptions(
   windowId: string,
   slug: string,
+  repoRoot: string,
   spawnFn: (args: string[]) => SpawnResult = tmux,
 ): { ok: boolean; stderr: string } {
   const slugSet = spawnFn(buildSetOptionArgs(windowId, FLOW_SLUG_OPTION, slug));
@@ -209,7 +232,19 @@ export function seedWindowOptions(
       stderr: `set-option ${FLOW_SLUG_OPTION} failed: ${slugSet.stderr}`,
     };
   }
+  // Additive, best-effort mirrors — only @flow-slug above is load-bearing, so a
+  // non-zero exit on any of these is swallowed and never fails creation.
+  spawnFn(
+    buildSetOptionArgs(windowId, FLOW_REPO_OPTION, path.basename(repoRoot)),
+  );
   spawnFn(buildSetOptionArgs(windowId, FLOW_PHASE_OPTION, INITIAL_PHASE));
+  spawnFn(
+    buildSetOptionArgs(
+      windowId,
+      FLOW_PHASE_SHORT_OPTION,
+      shortPhase(INITIAL_PHASE),
+    ),
+  );
   return { ok: true, stderr: "" };
 }
 
@@ -220,12 +255,13 @@ export type SetWindowPhaseDeps = {
 };
 
 /**
- * Mirrors `phase` onto the window's `@flow-phase` user option, resolving the
- * target window by `@flow-slug` (not display name) so a renamed window still
- * receives the update. Best-effort: a missing window or a non-zero
- * `set-option` exit is a soft failure returned as `{ ok: false }`, never a
- * throw — callers (notably `flow-state-update`) ignore the result so a tmux
- * hiccup can never block a state write.
+ * Mirrors `phase` onto the window's `@flow-phase` user option (and its compact
+ * `@flow-phase-short` abbreviation), resolving the target window by `@flow-slug`
+ * (not display name) so a renamed window still receives the update. Best-effort:
+ * a missing window or a non-zero `set-option` exit is a soft failure returned as
+ * `{ ok: false }`, never a throw — callers (notably `flow-state-update`) ignore
+ * the result so a tmux hiccup can never block a state write. The raw `@flow-phase`
+ * set drives the returned `ok`; the additive `@flow-phase-short` set is swallowed.
  */
 export function setWindowPhase(
   slug: string,
@@ -242,6 +278,11 @@ export function setWindowPhase(
     };
   }
   const r = spawn(buildSetOptionArgs(window.id, FLOW_PHASE_OPTION, phase));
+  // Additive best-effort mirror — swallowed so it can't change the soft-fail
+  // contract above (callers gate on the raw @flow-phase set only).
+  spawn(
+    buildSetOptionArgs(window.id, FLOW_PHASE_SHORT_OPTION, shortPhase(phase)),
+  );
   return { ok: r.exitCode === 0, stderr: r.stderr };
 }
 

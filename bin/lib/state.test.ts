@@ -9,9 +9,11 @@ import {
   isPipelinePhase,
   listStates,
   PENDING_PHASES,
+  PHASE_SHORT,
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
   readState,
+  shortPhase,
   STEP_PHASES,
   TERMINAL_PHASES,
   writeState,
@@ -578,5 +580,62 @@ describe("phase constants", () => {
     for (const p of TERMINAL_PHASES) expect(isLegitimateEndPhase(p)).toBe(true);
     for (const p of PENDING_PHASES) expect(isLegitimateEndPhase(p)).toBe(true);
     for (const p of STEP_PHASES) expect(isLegitimateEndPhase(p)).toBe(false);
+  });
+});
+
+describe("shortPhase", () => {
+  // The canonical abbreviation for every pipeline phase, restated here
+  // independently of PHASE_SHORT so a typo in the source map is caught rather
+  // than silently mirrored. This is the published `@flow-phase-short` vocabulary.
+  const EXPECTED: Record<string, string> = {
+    starting: "start",
+    triaging: "triage",
+    "worktree-create": "wktree",
+    planning: "plan",
+    implementing: "impl",
+    "installing-skills": "skills",
+    verifying: "verify",
+    "ci-wait": "ci",
+    reviewing: "review",
+    gating: "gate",
+    merging: "merge",
+    "plan-pending-review": "plan?",
+    "triaged-no-change": "no-chg",
+    "triage-pending-clarification": "triage?",
+    "approval-pending-clarification": "appr?",
+    "ci-wait-pending": "ci?",
+    merged: "merged",
+    gated: "gated",
+    "needs-human": "human",
+    cancelled: "cancel",
+  };
+
+  it.each(PIPELINE_PHASES)("maps %s to its canonical abbreviation", (phase) => {
+    expect(shortPhase(phase)).toBe(EXPECTED[phase]);
+  });
+
+  it("falls through to the raw string for an unknown/future phase", () => {
+    expect(shortPhase("future-phase")).toBe("future-phase");
+    expect(shortPhase("")).toBe("");
+  });
+
+  it("has an explicit PHASE_SHORT entry for every pipeline phase (drift-guard)", () => {
+    // A phase added to PIPELINE_PHASES without an abbreviation must fail CI
+    // here (alongside the compile-time Record<PipelinePhase, string>
+    // completeness check), so @flow-phase-short never silently falls through
+    // to a raw string for a known phase.
+    for (const phase of PIPELINE_PHASES) {
+      expect(
+        Object.prototype.hasOwnProperty.call(PHASE_SHORT, phase),
+        `PHASE_SHORT missing entry for '${phase}'`,
+      ).toBe(true);
+    }
+  });
+
+  it("has no PHASE_SHORT entries beyond PIPELINE_PHASES (no stale abbreviations)", () => {
+    const known = new Set<string>(PIPELINE_PHASES);
+    for (const key of Object.keys(PHASE_SHORT)) {
+      expect(known.has(key), `PHASE_SHORT has stale entry '${key}'`).toBe(true);
+    }
   });
 });

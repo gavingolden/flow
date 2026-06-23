@@ -142,25 +142,31 @@ describe(buildSetOptionArgs, () => {
 });
 
 describe(seedWindowOptions, () => {
-  it("sets @flow-slug then seeds @flow-phase=starting on the new window", () => {
+  // The repo root threaded in from createWindow's `cwd`; @flow-repo is its
+  // basename, distinct from the slug to prove the two are independent.
+  const REPO_ROOT = "/Users/x/code/econ-data";
+
+  it("sets @flow-slug then seeds @flow-repo / @flow-phase / @flow-phase-short", () => {
     const { calls, spawnTmux } = fakeSpawn();
-    const result = seedWindowOptions("@7", "csv-export", spawnTmux);
+    const result = seedWindowOptions("@7", "csv-export", REPO_ROOT, spawnTmux);
     expect(result).toEqual({ ok: true, stderr: "" });
     expect(calls).toEqual([
       ["set-option", "-w", "-t", "@7", "@flow-slug", "csv-export"],
+      ["set-option", "-w", "-t", "@7", "@flow-repo", "econ-data"],
       ["set-option", "-w", "-t", "@7", "@flow-phase", "starting"],
+      ["set-option", "-w", "-t", "@7", "@flow-phase-short", "start"],
     ]);
   });
 
   it("fails creation when the @flow-slug set fails (identity is load-bearing)", () => {
     // Slug set fails — the option is the canonical lookup key, so creation
-    // must fail and the @flow-phase seed must not even be attempted.
+    // must fail and the additive mirrors must not even be attempted.
     const calls: string[][] = [];
     const spawnTmux = (args: string[]): SpawnResult => {
       calls.push(args);
       return { stdout: "", stderr: "boom", exitCode: 1 };
     };
-    const result = seedWindowOptions("@7", "csv-export", spawnTmux);
+    const result = seedWindowOptions("@7", "csv-export", REPO_ROOT, spawnTmux);
     expect(result.ok).toBe(false);
     expect(result.stderr).toContain("@flow-slug");
     expect(calls).toEqual([
@@ -169,21 +175,55 @@ describe(seedWindowOptions, () => {
   });
 
   it("still succeeds when only the @flow-phase seed fails (best-effort mirror)", () => {
-    // Slug set succeeds, phase seed fails — creation must still report ok,
-    // since @flow-phase is an additive convenience, not load-bearing.
+    // Slug set succeeds, raw-phase seed fails — creation must still report ok,
+    // since @flow-phase is an additive convenience, not load-bearing. The
+    // @flow-phase-short element ("@flow-phase-short") is not an exact match for
+    // "@flow-phase", so only the raw set is forced to fail here.
     const calls: string[][] = [];
     const spawnTmux = (args: string[]): SpawnResult => {
       calls.push(args);
-      const isPhase = args.includes("@flow-phase");
+      const isRawPhase = args.includes("@flow-phase");
       return {
         stdout: "",
-        stderr: isPhase ? "boom" : "",
-        exitCode: isPhase ? 1 : 0,
+        stderr: isRawPhase ? "boom" : "",
+        exitCode: isRawPhase ? 1 : 0,
       };
     };
-    const result = seedWindowOptions("@7", "csv-export", spawnTmux);
+    const result = seedWindowOptions("@7", "csv-export", REPO_ROOT, spawnTmux);
     expect(result).toEqual({ ok: true, stderr: "" });
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(4);
+  });
+
+  it("still succeeds when only the @flow-repo set fails (best-effort mirror)", () => {
+    const calls: string[][] = [];
+    const spawnTmux = (args: string[]): SpawnResult => {
+      calls.push(args);
+      const isRepo = args.includes("@flow-repo");
+      return {
+        stdout: "",
+        stderr: isRepo ? "boom" : "",
+        exitCode: isRepo ? 1 : 0,
+      };
+    };
+    const result = seedWindowOptions("@7", "csv-export", REPO_ROOT, spawnTmux);
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(calls).toHaveLength(4);
+  });
+
+  it("still succeeds when only the @flow-phase-short set fails (best-effort mirror)", () => {
+    const calls: string[][] = [];
+    const spawnTmux = (args: string[]): SpawnResult => {
+      calls.push(args);
+      const isShort = args.includes("@flow-phase-short");
+      return {
+        stdout: "",
+        stderr: isShort ? "boom" : "",
+        exitCode: isShort ? 1 : 0,
+      };
+    };
+    const result = seedWindowOptions("@7", "csv-export", REPO_ROOT, spawnTmux);
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(calls).toHaveLength(4);
   });
 });
 
@@ -192,9 +232,10 @@ describe(setWindowPhase, () => {
     { id: "@2", name: "renamed by user", slug: "csv-export", activity: 0 },
   ];
 
-  it("resolves the window by @flow-slug and sets @flow-phase on its id (rename-safe)", () => {
+  it("resolves the window by @flow-slug and sets @flow-phase + @flow-phase-short on its id (rename-safe)", () => {
     // Display name diverges from the slug — the helper must target @2 via the
-    // @flow-slug match, not the name.
+    // @flow-slug match, not the name. Both the raw phase and its abbreviation
+    // are mirrored (shortPhase("reviewing") === "review").
     const { calls, spawnTmux } = fakeSpawn();
     const result = setWindowPhase("csv-export", "reviewing", {
       spawnTmux,
@@ -203,6 +244,31 @@ describe(setWindowPhase, () => {
     expect(result).toEqual({ ok: true, stderr: "" });
     expect(calls).toEqual([
       ["set-option", "-w", "-t", "@2", "@flow-phase", "reviewing"],
+      ["set-option", "-w", "-t", "@2", "@flow-phase-short", "review"],
+    ]);
+  });
+
+  it("preserves ok:true when only the @flow-phase-short mirror fails (best-effort)", () => {
+    // The raw @flow-phase set drives the return; a non-zero exit on the
+    // additive @flow-phase-short mirror is swallowed and never flips ok.
+    const calls: string[][] = [];
+    const spawnTmux = (args: string[]): SpawnResult => {
+      calls.push(args);
+      const isShort = args.includes("@flow-phase-short");
+      return {
+        stdout: "",
+        stderr: isShort ? "nope" : "",
+        exitCode: isShort ? 1 : 0,
+      };
+    };
+    const result = setWindowPhase("csv-export", "reviewing", {
+      spawnTmux,
+      listWindowsFn: () => windows,
+    });
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(calls).toEqual([
+      ["set-option", "-w", "-t", "@2", "@flow-phase", "reviewing"],
+      ["set-option", "-w", "-t", "@2", "@flow-phase-short", "review"],
     ]);
   });
 

@@ -144,6 +144,49 @@ export function isLegitimateEndPhase(value: string): boolean {
   );
 }
 
+/**
+ * Compact, single-source-of-truth abbreviations for each pipeline phase,
+ * published onto flow's own windows as the `@flow-phase-short` tmux option
+ * (see `bin/lib/tmux.ts`) so a user's status-bar format can render a compact
+ * `[repo phase]` badge without restating flow's phase vocabulary in their own
+ * config. Typed `Record<PipelinePhase, string>` so adding a phase to
+ * `PIPELINE_PHASES` without an abbreviation fails `typecheck:scripts`; the
+ * runtime drift-guard in `state.test.ts` asserts the same on the test side.
+ */
+export const PHASE_SHORT: Record<PipelinePhase, string> = {
+  starting: "start",
+  triaging: "triage",
+  "worktree-create": "wktree",
+  planning: "plan",
+  implementing: "impl",
+  "installing-skills": "skills",
+  verifying: "verify",
+  "ci-wait": "ci",
+  reviewing: "review",
+  gating: "gate",
+  merging: "merge",
+  "plan-pending-review": "plan?",
+  "triaged-no-change": "no-chg",
+  "triage-pending-clarification": "triage?",
+  "approval-pending-clarification": "appr?",
+  "ci-wait-pending": "ci?",
+  merged: "merged",
+  gated: "gated",
+  "needs-human": "human",
+  cancelled: "cancel",
+};
+
+/**
+ * Maps a phase to its compact abbreviation, falling through to the raw phase
+ * string for any unknown/future phase. The fall-through keeps the published
+ * `@flow-phase-short` option best-effort: a phase added without an entry
+ * (caught by typecheck + the drift-guard test) still renders its raw string
+ * rather than blank.
+ */
+export function shortPhase(phase: string): string {
+  return (PHASE_SHORT as Record<string, string | undefined>)[phase] ?? phase;
+}
+
 export function statePath(slug: string, dir = FLOW_STATE_DIR): string {
   return path.join(dir, `${slug}.json`);
 }
