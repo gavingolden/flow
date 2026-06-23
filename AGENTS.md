@@ -211,11 +211,11 @@ token-savings impact, highest first.
 Source for shipped helper binaries lives in **`bin/`**. The user-callable
 helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-state-update`,
-`flow-notify`, `flow-stop-guard`, `flow-ui-validate`, `flow-delegate` — live there with `.ts`
+`flow-notify`, `flow-stop-guard`, `flow-ui-validate`, `flow-delegate`, `flow-delegate-fanout` — live there with `.ts`
 extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow setup`
 symlinks each into `~/.local/bin/<name>` (extensionless on PATH).
 `flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import,
-NOT in the allowlist below.
+NOT in the allowlist below. `flow-delegate-fanout` is the generic concurrent manifest runner that powers the `flow-research` skill (roadmap F1); wiring `flow-research` into `/product-planning` discovery is deferred to issue #338.
 
 The three schema validators `flow-pr-review-result-schema`,
 `flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked
