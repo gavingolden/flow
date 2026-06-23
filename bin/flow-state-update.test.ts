@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyUpdate,
@@ -45,7 +46,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag (empty argv)", () => {
     expect(parseArgs([])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id is required",
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin is required",
     });
   });
 
@@ -61,7 +62,7 @@ describe("parseArgs", () => {
   it("requires at least one update flag", () => {
     expect(parseArgs(["foo"])).toEqual({
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id is required",
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin is required",
     });
   });
 
@@ -126,6 +127,32 @@ describe("parseArgs", () => {
   it("rejects --session-id without a value", () => {
     expect(parseArgs(["foo", "--session-id"])).toEqual({
       error: "--session-id requires a value",
+    });
+  });
+
+  it("parses --answer into Args", () => {
+    expect(parseArgs(["foo", "--answer", "X works by Y."])).toEqual({
+      slug: "foo",
+      answer: "X works by Y.",
+    });
+  });
+
+  it("rejects --answer without a value", () => {
+    expect(parseArgs(["foo", "--answer"])).toEqual({
+      error: "--answer requires a value",
+    });
+  });
+
+  it("parses --answer-stdin as a boolean flag (no inline value)", () => {
+    expect(parseArgs(["foo", "--answer-stdin"])).toEqual({
+      slug: "foo",
+      answerStdin: true,
+    });
+  });
+
+  it("rejects combining --answer and --answer-stdin (mutually exclusive)", () => {
+    expect(parseArgs(["foo", "--answer", "X", "--answer-stdin"])).toEqual({
+      error: "cannot combine --answer and --answer-stdin",
     });
   });
 
@@ -306,6 +333,40 @@ describe("runUpdate", () => {
     expect(got?.phase).toBe("gating");
   });
 
+  it("persists answer via --answer alongside --phase without clobbering pr/worktree/sessionId/phaseLog", () => {
+    seed("csv-export", {
+      pr: 142,
+      worktree: "/tmp/wt",
+      sessionId: "session-xyz",
+      phaseLog: [{ phase: "planning", at: "2026-01-01" }],
+    });
+    expect(
+      runUpdate(
+        ["csv-export", "--phase", "triaged-no-change", "--answer", "X works."],
+        dir,
+      ),
+    ).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.answer).toBe("X works.");
+    expect(got?.phase).toBe("triaged-no-change");
+    expect(got?.pr).toBe(142);
+    expect(got?.worktree).toBe("/tmp/wt");
+    expect(got?.sessionId).toBe("session-xyz");
+    // phaseLog gains the new entry; the seeded one is preserved.
+    expect(got?.phaseLog?.map((e) => e.phase)).toEqual([
+      "planning",
+      "triaged-no-change",
+    ]);
+  });
+
+  it("preserves answer across a later update that omits --answer", () => {
+    seed("csv-export", { answer: "X works." });
+    expect(runUpdate(["csv-export", "--phase", "gating"], dir)).toBe(0);
+    const got = readState("csv-export", dir);
+    expect(got?.answer).toBe("X works.");
+    expect(got?.phase).toBe("gating");
+  });
+
   it("preserves autoMerge across phase-only updates", () => {
     seed("csv-export", { autoMerge: false });
     expect(runUpdate(["csv-export", "--phase", "gating"], dir)).toBe(0);
@@ -456,6 +517,99 @@ describe("runUpdate", () => {
     expect(code).toBe(3);
     expect(published).toEqual([]);
     fx.cleanup();
+  });
+});
+
+// --- --answer-stdin end-to-end (real binary, stdin transport) --------------
+
+// The stdin path can only be exercised through the real process: applyUpdate
+// reads the resolved Args, but the fd-0 read happens in runUpdate's main path.
+// Spawn `bun bin/flow-state-update.ts` with a tmp HOME so the binary's
+// FLOW_STATE_DIR (derived from $HOME) points at a throwaway state dir, seed a
+// state file there, pipe the answer on stdin, and read the field back.
+describe("--answer-stdin (spawned binary)", () => {
+  let home!: string;
+  let stateDir!: string;
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(here, "..");
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "flow-stdin-home-"));
+    stateDir = path.join(home, ".flow", "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  function seedState(slug: string): void {
+    fs.writeFileSync(
+      path.join(stateDir, `${slug}.json`),
+      JSON.stringify({
+        slug,
+        phase: "triaging",
+        repo: "/tmp/repo",
+        updatedAt: "2026-04-30T12:00:00Z",
+      }),
+    );
+  }
+
+  function run(slug: string, args: string[], stdin: string) {
+    return spawnSync("bun", ["bin/flow-state-update.ts", slug, ...args], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      input: stdin,
+      env: { ...process.env, HOME: home },
+    });
+  }
+
+  function readAnswer(slug: string): unknown {
+    return JSON.parse(
+      fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
+    ).answer;
+  }
+
+  it("persists a plain answer piped on stdin verbatim", () => {
+    seedState("plain");
+    const r = run(
+      "plain",
+      ["--phase", "triaged-no-change", "--answer-stdin"],
+      "X works by Y.\n",
+    );
+    expect(r.status).toBe(0);
+    // The single trailing newline a heredoc appends is stripped.
+    expect(readAnswer("plain")).toBe("X works by Y.");
+  });
+
+  it("round-trips shell metacharacters and a leading --- byte-for-byte", () => {
+    seedState("meta");
+    // Exactly the content the double-quoted-arg form mangled: backticks,
+    // $VAR, $(...), and a leading `---` (markdown hr / parseArgs leading-`--`).
+    const answer =
+      "---\n" +
+      "Run `echo $HOME` to print it.\n" +
+      "Cost is $(date) at the `$PATH` boundary.\n" +
+      "Trailing prose line.";
+    const r = run(
+      "meta",
+      ["--phase", "triaged-no-change", "--answer-stdin"],
+      answer + "\n",
+    );
+    expect(r.status).toBe(0);
+    // Verbatim: no expansion, no substitution, leading `---` preserved.
+    expect(readAnswer("meta")).toBe(answer);
+  });
+
+  it("rejects combining --answer and --answer-stdin with exit 2", () => {
+    seedState("excl");
+    const r = run(
+      "excl",
+      ["--answer", "inline", "--answer-stdin"],
+      "from stdin\n",
+    );
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("cannot combine --answer and --answer-stdin");
   });
 });
 

@@ -629,9 +629,23 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
 **End conditions:**
 
 - **No-change** → answer the user's question in chat directly,
-  then write `flow-state-update --phase triaged-no-change`
-  before ending the turn. The phase write is what `flow-stop-guard`
-  reads to recognise the legitimate stop. Do NOT proceed to step 2.
+  then write the phase and persist the answer via a quoted heredoc on
+  stdin before ending the turn:
+
+  ```bash
+  flow-state-update --phase triaged-no-change --answer-stdin <<'EOF'
+  <the answer just given to the user>
+  EOF
+  ```
+
+  The phase write is what `flow-stop-guard`
+  reads to recognise the legitimate stop; the quoted-heredoc + `--answer-stdin`
+  stdin transport persists the answer verbatim — immune to shell expansion
+  and to argv parsing of a leading `--`, so a markdown answer with backticks,
+  `$(...)`, or a leading `---` round-trips byte-for-byte (the prior
+  `--answer "<text>"` double-quoted-arg form mangled those). The answer is
+  persisted for re-surfacing on resume, since a no-change pipeline has
+  no worktree to store it under. Do NOT proceed to step 2.
 - **Change** → continue to step 2. The **slug** was already finalized
   by `flow new`'s aggressive slugify (`bin/lib/slug.ts`: stop-word
   filter + 5-token cap + `task-<hash8>` fallback) and is the basename
@@ -2199,6 +2213,7 @@ RESUME_AT=$(printf '%s' "$RESULT" | jq -r '.resumeAt')
 REASON=$(printf '%s' "$RESULT" | jq -r '.reason')
 WORKTREE=$(printf '%s' "$RESULT" | jq -r '.context.worktree // empty')
 PR=$(printf '%s' "$RESULT" | jq -r '.context.pr // empty')
+ANSWER=$(printf '%s' "$RESULT" | jq -r '.context.answer // empty')
 ```
 
 The helper reads `~/.flow/state/<slug>.json`, probes the worktree +
@@ -2229,7 +2244,7 @@ Branch on `.resumeAt`:
 | `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-backgrounded pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, the backgrounded `flow-ci-wait` already reached a terminal decision — read the persisted verdict and branch on `.decision` without re-running the loop. Only when the file is absent or unparseable does the supervisor re-launch the backgrounded `flow-ci-wait` (the poll loop restarts, observing CI state fresh from GitHub). |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/pr-review <PR>`. |
 | `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — which re-runs `flow-pipeline-summary ... --echo-prose ...` and re-echoes the recap verbatim per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection — then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition) and run `flow-remove-worktree --delete-branch`, write `phase: merged`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
-| `terminal` | Already in a terminal state. Re-run the corresponding gate render (the same helpers every gate-emission site uses) and end without re-running anything else. On `merged`/`gated` the render re-runs `flow-pipeline-summary ... --echo-prose ...` above `flow-gate-summary --status <merged\|gated> ...`, so the echo recap re-surfaces on resume re-entry — extract the `<!-- flow-echo-recap:start -->`…`<!-- flow-echo-recap:end -->` block and echo it VERBATIM per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection (re-orientation is exactly the resume use case). `cancelled` has no PR, so `--echo-prose` is a no-op there. `needs-human` re-renders the escalation via `flow-gate-summary --status needs-human ...`. The two no-in-flight-work pending phases short-circuit here pre-tree (reasons `no-change-investigation-complete` for `triaged-no-change`, `awaiting-triage-clarification` for `triage-pending-clarification`): they carry no PR/worktree and have no gate-summary status, so print a one-line note that the pipeline already completed (a no-change investigation, or one awaiting a clarification a resume can't re-ask) and end — do NOT build a worktree. |
+| `terminal` | Already in a terminal state. Re-run the corresponding gate render (the same helpers every gate-emission site uses) and end without re-running anything else. On `merged`/`gated` the render re-runs `flow-pipeline-summary ... --echo-prose ...` above `flow-gate-summary --status <merged\|gated> ...`, so the echo recap re-surfaces on resume re-entry — extract the `<!-- flow-echo-recap:start -->`…`<!-- flow-echo-recap:end -->` block and echo it VERBATIM per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection (re-orientation is exactly the resume use case). `cancelled` has no PR, so `--echo-prose` is a no-op there. `needs-human` re-renders the escalation via `flow-gate-summary --status needs-human ...`. The two no-in-flight-work pending phases short-circuit here pre-tree (reasons `no-change-investigation-complete` for `triaged-no-change`, `awaiting-triage-clarification` for `triage-pending-clarification`): they carry no PR/worktree and have no gate-summary status, so print a one-line note that the pipeline already completed (a no-change investigation, or one awaiting a clarification a resume can't re-ask) and end — do NOT build a worktree. On the `triaged-no-change` path, when `$ANSWER` is non-empty, re-print the saved `$ANSWER` (as markdown) so the user re-reads the original answer instead of the generic terminal note; fall back to the generic note when `$ANSWER` is empty. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |
 
@@ -2287,7 +2302,10 @@ unaffected.
   `triage-pending-clarification`).** `flow-resume-decide` short-circuits
   these to `terminal` pre-tree (reasons `no-change-investigation-complete` /
   `awaiting-triage-clarification`) — they carry no worktree, plan, or PR, so
-  there is nothing to resume and no gate-summary status applies. Print a
+  there is nothing to resume and no gate-summary status applies. On
+  `triaged-no-change`, re-print the saved `$ANSWER` (from `.context.answer`,
+  extracted alongside the other `RESULT`/`jq` fields above) as markdown when
+  it is non-empty, so the user re-reads the original answer; otherwise print a
   one-line note that the pipeline already completed (a no-change
   investigation, or one awaiting a clarification a resume can't re-ask) and
   end. Do **not** fall through to step 2 and build a worktree — that was the

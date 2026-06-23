@@ -30,7 +30,8 @@
  *       "prState"?: "OPEN"|"MERGED"|"CLOSED",
  *       "planExists"?: boolean,
  *       "headCommitSubject"?: string,
- *       "hasSkillAdditions"?: boolean
+ *       "hasSkillAdditions"?: boolean,
+ *       "answer"?: string
  *     }
  *   }
  *
@@ -77,6 +78,7 @@ export type DecisionContext = {
   planExists?: boolean;
   headCommitSubject?: string;
   hasSkillAdditions?: boolean;
+  answer?: string;
 };
 
 export type DecisionResult = {
@@ -209,6 +211,11 @@ export function decide(inputs: Inputs): DecisionResult {
   };
   if (inputs.worktree.kind !== "absent-from-state") {
     ctx.worktree = inputs.worktree.path;
+  }
+  // The no-change branch of step 1 persists its chat answer here; surface it
+  // on ctx so the triaged-no-change terminal verdict carries it for re-print.
+  if (inputs.state.answer !== undefined) {
+    ctx.answer = inputs.state.answer;
   }
 
   // Edge 1.3-1.5: terminal phases — pipeline already ended.

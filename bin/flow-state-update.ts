@@ -10,10 +10,17 @@
  * Usage:
  *   flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]
  *                              [--worktree <path>] [--auto-merge | --no-auto-merge]
- *                              [--session-id <value>]
+ *                              [--session-id <value>] [--answer <text> | --answer-stdin]
  *
  * `--phase-outcome <text>` records a short outcome string on the phaseLog
  * entry appended by the same `--phase` write (no-op without `--phase`).
+ *
+ * `--answer <text>` persists a short/controlled answer string through argv;
+ * `--answer-stdin` reads the entire answer from stdin instead, so free-form
+ * markdown (containing `$`, backticks, `$(...)`, or a leading `--`) survives
+ * verbatim — immune to shell expansion and to argv parsing of a leading `--`.
+ * This is the `--body` / `--body-file` split: the two answer flags are
+ * mutually exclusive.
  *
  * - At least one update flag is required.
  * - The slug is optional when invoked from inside a flow tmux pane: it
@@ -52,6 +59,9 @@ type Args = {
   worktree?: string;
   autoMerge?: boolean;
   sessionId?: string;
+  answer?: string;
+  /** true when `--answer-stdin` was passed; runUpdate reads the answer from stdin. */
+  answerStdin?: boolean;
   phaseOutcome?: string;
 };
 
@@ -127,6 +137,10 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       out.autoMerge = flag === "--auto-merge";
       continue;
     }
+    if (flag === "--answer-stdin") {
+      out.answerStdin = true;
+      continue;
+    }
     const value = rest[i + 1];
     if (value === undefined || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -152,6 +166,9 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       case "--session-id":
         out.sessionId = value;
         break;
+      case "--answer":
+        out.answer = value;
+        break;
       case "--phase-outcome":
         out.phaseOutcome = value;
         break;
@@ -160,16 +177,21 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     }
     i++;
   }
+  if (out.answer !== undefined && out.answerStdin) {
+    return { error: "cannot combine --answer and --answer-stdin" };
+  }
   if (
     out.phase === undefined &&
     out.pr === undefined &&
     out.worktree === undefined &&
     out.autoMerge === undefined &&
-    out.sessionId === undefined
+    out.sessionId === undefined &&
+    out.answer === undefined &&
+    !out.answerStdin
   ) {
     return {
       error:
-        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id is required",
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin is required",
     };
   }
   return out;
@@ -204,6 +226,7 @@ export function applyUpdate(
     worktree: args.worktree ?? existing.worktree,
     autoMerge: args.autoMerge ?? existing.autoMerge,
     sessionId: args.sessionId ?? existing.sessionId,
+    answer: args.answer ?? existing.answer,
     phaseLog,
     updatedAt: nowIso(),
   };
@@ -236,9 +259,19 @@ export function runUpdate(
     console.error(
       "usage: flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]\n" +
         "                                 [--worktree <path>] [--auto-merge | --no-auto-merge]\n" +
-        "                                 [--session-id <value>]",
+        "                                 [--session-id <value>] [--answer <text> | --answer-stdin]",
     );
     return 2;
+  }
+
+  // Read the free-form answer from stdin only when --answer-stdin is present, so
+  // a value that would be mangled through argv (shell `$`/backtick/`$(...)`
+  // expansion, a leading `--`) round-trips verbatim. Guarded so we never block
+  // on stdin when the flag is absent. Strip exactly one trailing newline (a
+  // quoted heredoc appends one); preserve all other whitespace.
+  if (parsed.answerStdin) {
+    const raw = fs.readFileSync(0, "utf8");
+    parsed.answer = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
   }
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
   const slug = parsed.slug ?? resolveSlug();
