@@ -469,6 +469,9 @@ describe(deleteBranchWithForceFallback, () => {
     const result = deleteBranchWithForceFallback("feat", "/primary", true, git);
 
     expect(result.status).toBe("failed");
+    expect(result).toMatchObject({
+      message: expect.stringMatching(/Cannot delete branch/),
+    });
     expect(forceCalls(calls)).toHaveLength(1);
   });
 });
