@@ -603,10 +603,22 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
 **End conditions:**
 
 - **No-change** → answer the user's question in chat directly,
-  then write `flow-state-update --phase triaged-no-change --answer "<the answer just given to the user>"`
-  before ending the turn. The phase write is what `flow-stop-guard`
-  reads to recognise the legitimate stop; the `--answer` text persists
-  the answer for re-surfacing on resume, since a no-change pipeline has
+  then write the phase and persist the answer via a quoted heredoc on
+  stdin before ending the turn:
+
+  ```bash
+  flow-state-update --phase triaged-no-change --answer-stdin <<'EOF'
+  <the answer just given to the user>
+  EOF
+  ```
+
+  The phase write is what `flow-stop-guard`
+  reads to recognise the legitimate stop; the quoted-heredoc + `--answer-stdin`
+  stdin transport persists the answer verbatim — immune to shell expansion
+  and to argv parsing of a leading `--`, so a markdown answer with backticks,
+  `$(...)`, or a leading `---` round-trips byte-for-byte (the prior
+  `--answer "<text>"` double-quoted-arg form mangled those). The answer is
+  persisted for re-surfacing on resume, since a no-change pipeline has
   no worktree to store it under. Do NOT proceed to step 2.
 - **Change** → continue to step 2. The **slug** was already finalized
   by `flow new`'s aggressive slugify (`bin/lib/slug.ts`: stop-word
