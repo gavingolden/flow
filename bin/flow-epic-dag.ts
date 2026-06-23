@@ -93,8 +93,11 @@ export function findSelfDependencies(features: Feature[]): DagViolation[] {
  * Kahn's algorithm: repeatedly remove in-degree-0 nodes. Returns the
  * topological order when the graph is acyclic, or null when a cycle remains.
  * Internal — the only public acyclicity signal is `detectCycle`/`validateDag`.
- * Assumes a clean id space (unique ids, resolvable edges); `validateDag` runs
- * the id-space checks first so this is never fed a dangling or duplicate edge.
+ * `validateDag` calls `detectCycle` unconditionally (no id-space gating), so
+ * this IS fed dirty id spaces; rather than being protected from them it is
+ * robust to them — orphan and self edges are skipped below and duplicate ids
+ * collapse in the Maps, so a dirty id space never crashes or is misreported
+ * here (it is reported separately by the id-space checks).
  */
 function topoSort(features: Feature[]): string[] | null {
   const inDegree = new Map<string, number>();
@@ -108,6 +111,10 @@ function topoSort(features: Feature[]): string[] | null {
       // Skip orphan edges (dep not a known node): they cannot form a cycle and
       // are reported separately, so they must not corrupt the in-degree count.
       if (!dependents.has(dep)) continue;
+      // Skip self-edges (a -> a): same rationale — they are reported separately
+      // as `self-dependency`, and counting one would strand the node out of the
+      // ready queue and make Kahn's residue mislabel a self-loop as a `cycle`.
+      if (dep === f.id) continue;
       inDegree.set(f.id, (inDegree.get(f.id) ?? 0) + 1);
       dependents.get(dep)!.push(f.id);
     }
@@ -146,6 +153,7 @@ export function detectCycle(features: Feature[]): string[] | null {
     stack.push(id);
     for (const dep of byId.get(id)?.dependsOn ?? []) {
       if (!byId.has(dep)) continue; // orphan edges are reported separately
+      if (dep === id) continue; // self-edges are reported separately as self-dependency
       if (state.get(dep) === "visiting") {
         return [...stack.slice(stack.indexOf(dep)), dep];
       }

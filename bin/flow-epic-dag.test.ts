@@ -212,6 +212,16 @@ describe("validateDag — self-dependency is rejected", () => {
     expect(violation!.offendingIds).toContain("a");
   });
 
+  it("reports EXACTLY one self-dependency violation, never a spurious cycle", () => {
+    // A pure self-loop a -> a must surface as a single self-dependency, not be
+    // double-reported as both self-dependency AND a 1-node `cycle: a -> a`.
+    const result = validateDag(selfDep);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.violations).toHaveLength(1);
+    expect(kinds(result.violations)).toEqual(new Set(["self-dependency"]));
+  });
+
   it("findSelfDependencies flags the self-referential feature", () => {
     const found = findSelfDependencies(selfDep);
     expect(found).toHaveLength(1);
