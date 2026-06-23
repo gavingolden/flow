@@ -45,6 +45,7 @@ Usage:
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session)
   flow new --resume <name> [<name> ...] resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
+  flow epic <create|run|status|ls>      design or run an epic (skeleton)
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
   flow done <name> [<name> ...]         close one or more pipeline windows
@@ -83,6 +84,22 @@ Options:
                         resumes sequentially, and with >=2 names previews the list and
                         confirms once (each name spawns a Claude Code session)
   --yes, -y             skip the multi-resume confirmation preview`,
+
+  epic: `flow epic — design or run an epic (skeleton)
+
+Usage:
+  flow epic create "<prompt>"
+  flow epic run <id>
+  flow epic status <id>
+  flow epic ls
+
+Subcommands:
+  create "<prompt>"     design an epic — mint an id and resolve .flow/epics/<slug>
+                        (the designer logic that writes the design + manifest is
+                        deferred to a later feature)
+  run <id>              run an epic (deferred — orchestrator phase)
+  status <id>           epic status (deferred for the skeleton)
+  ls                    list epics (deferred for the skeleton)`,
 
   ls: `flow ls — list active pipelines
 

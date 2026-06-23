@@ -36,7 +36,7 @@ _flow() {
         cword=$COMP_CWORD
     fi
 
-    local verbs="setup new ls attach a done migrate completion version help --version -v --help -h"
+    local verbs="setup new epic ls attach a done migrate completion version help --version -v --help -h"
 
     # Find the verb (first non-flag token after `flow`).
     local verb="" i
@@ -99,6 +99,10 @@ _flow() {
                 # shellcheck disable=SC2207
                 COMPREPLY=( $(compgen -W "--resume --no-auto-merge --effort" -- "$cur") )
             fi
+            ;;
+        epic)
+            # shellcheck disable=SC2207
+            COMPREPLY=( $(compgen -W "create run status ls" -- "$cur") )
             ;;
         ls)
             # shellcheck disable=SC2207
