@@ -160,15 +160,23 @@ export function parseFanoutArgs(
   };
 }
 
-// Each entry's artifact lands under <dir-of-aggregate-out>/artifacts/<task>.md
-// so per-entry artifacts never collide; a manifest entry's own `out` overrides.
+// Each entry's artifact lands under
+// <dir-of-aggregate-out>/artifacts/<index>-<task>.md. The 0-based manifest
+// index prefix is load-bearing: the `task` sanitizer is lossy (it collapses
+// every run of non-`[A-Za-z0-9._-]` chars to a single `-`), so distinct tasks
+// differing only in punctuation/whitespace ("climate impact" / "climate/impact"
+// / "climate:impact") would otherwise sanitize to the SAME filename and, since
+// runPool dispatches them concurrently with the same `--out`, silently
+// overwrite each other. The index makes the default path collision-free; a
+// manifest entry's own `out` still overrides (and is NOT index-prefixed).
 export function entryOutPath(
   entry: ManifestEntry,
   aggregateOut: string,
+  index: number,
 ): string {
   if (entry.out) return entry.out;
   const safeTask = entry.task.replace(/[^A-Za-z0-9._-]+/g, "-");
-  return join(dirname(aggregateOut), "artifacts", `${safeTask}.md`);
+  return join(dirname(aggregateOut), "artifacts", `${index}-${safeTask}.md`);
 }
 
 // Translate a manifest entry into the flow-delegate argv (the binary the
@@ -336,9 +344,9 @@ export async function run(
   const dispatched = entries.slice(0, parsed.maxCalls);
   const overBudget = entries.slice(parsed.maxCalls);
 
-  const jobs = dispatched.map((entry) => ({
+  const jobs = dispatched.map((entry, index) => ({
     entry,
-    outPath: entryOutPath(entry, outPath),
+    outPath: entryOutPath(entry, outPath, index),
   }));
   const dispatchedResults = await runPool(deps, jobs, parsed.concurrency);
 

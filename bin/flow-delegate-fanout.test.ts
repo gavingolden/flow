@@ -109,22 +109,50 @@ describe("entryToDelegateArgv", () => {
 });
 
 describe("entryOutPath", () => {
-  it("derives <dir-of-aggregate>/artifacts/<sanitized-task>.md", () => {
+  it("derives <dir-of-aggregate>/artifacts/<index>-<sanitized-task>.md", () => {
     expect(
       entryOutPath(
         { task: "angle 1/contrarian", prompt: "x" },
         "/run/agg.json",
+        0,
       ),
-    ).toBe(path.join("/run", "artifacts", "angle-1-contrarian.md"));
+    ).toBe(path.join("/run", "artifacts", "0-angle-1-contrarian.md"));
   });
 
-  it("lets a manifest entry's own out override", () => {
+  it("lets a manifest entry's own out override (not index-prefixed)", () => {
     expect(
       entryOutPath(
         { task: "t", prompt: "x", out: "/custom/o.md" },
         "/run/agg.json",
+        3,
       ),
     ).toBe("/custom/o.md");
+  });
+
+  it("gives two tasks with colliding sanitized names DISTINCT out paths", () => {
+    // The task sanitizer is lossy: "climate impact", "climate/impact", and
+    // "climate:impact" all collapse to "climate-impact". Without the index
+    // prefix these three concurrent entries would share one --out and silently
+    // overwrite each other; the 0-based index prefix keeps them distinct.
+    const a = entryOutPath(
+      { task: "climate impact", prompt: "x" },
+      "/r/a.json",
+      0,
+    );
+    const b = entryOutPath(
+      { task: "climate/impact", prompt: "x" },
+      "/r/a.json",
+      1,
+    );
+    const c = entryOutPath(
+      { task: "climate:impact", prompt: "x" },
+      "/r/a.json",
+      2,
+    );
+    expect(new Set([a, b, c]).size).toBe(3);
+    expect(a).toBe(path.join("/r", "artifacts", "0-climate-impact.md"));
+    expect(b).toBe(path.join("/r", "artifacts", "1-climate-impact.md"));
+    expect(c).toBe(path.join("/r", "artifacts", "2-climate-impact.md"));
   });
 });
 

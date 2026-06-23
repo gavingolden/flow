@@ -221,8 +221,10 @@ imply parity with the agy path.
 
 - **No nested LLM.** Claude orchestrates only; the fan-out is `agy`
   subprocesses via the `flow-delegate` binary. NO Claude fan-out tool anywhere
-  in this procedure — this is the load-bearing `AGENTS.md` constraint and is
-  enforced by a structural lint on this file.
+  in this procedure — this is the load-bearing `AGENTS.md` constraint, enforced
+  by a structural lint (`bin/flow-research-skill-lint.test.ts`) asserting this
+  file carries no Claude sub-agent fan-out tokens (the lint's regex pins the
+  exact spawn-call and agent-type identifiers).
 - **Caps are generous-and-tunable, never silently lossy.** Synthesis top-N
   claims (~40), supporting-quote length (~75 words), `flow-delegate-fanout`
   `--max-calls` budget (default 40), `--concurrency` (default 4) — every cap
