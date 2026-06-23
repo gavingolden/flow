@@ -92,10 +92,30 @@ export async function runLs(opts: LsOptions = {}): Promise<number> {
   }
 
   printTable(rows, opts);
+  printOrphanRecovery(rows);
   if (opts.cost && opts.detail) printDetail(rows);
   warnUnknownModels(rows);
   emitUpdateNotice(opts);
   return 0;
+}
+
+/**
+ * Prints a post-table recovery footnote for orphaned pipelines — state files
+ * whose tmux window is gone (`(no window)`), typically a crashed `flow new`
+ * whose window never stayed up. Each gets its one-command restart line. Kept
+ * BELOW the table (not inlined into the NAME cell) because printTable derives
+ * column widths from cell lengths, so a long `flow new --resume <slug>` string
+ * in the cell would widen the whole table for every row. No-op when no orphan
+ * rows exist, so healthy output is unchanged.
+ */
+function printOrphanRecovery(rows: Row[]): void {
+  const orphans = rows.filter((r) => r.annotation === "(no window)");
+  if (orphans.length === 0) return;
+  console.log("");
+  console.log(dim("orphaned pipelines (no tmux window) — resume with:"));
+  for (const row of orphans) {
+    console.log(dim(`  flow new --resume ${row.name}`));
+  }
 }
 
 /** Print the staleness notice to STDERR so stdout stays a clean table. */

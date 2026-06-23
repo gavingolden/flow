@@ -1,13 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildNewSessionArgs,
   buildNewWindowArgs,
   buildRenameArgs,
   buildSetOptionArgs,
+  createWindowVerified,
   findWindowBySlug,
   parseAliveStatus,
   parseWindowList,
   resolveSlugFromPane,
+  respawnWindowVerified,
   seedWindowOptions,
   setWindowPhase,
   type SpawnResult,
@@ -224,6 +226,175 @@ describe(seedWindowOptions, () => {
     const result = seedWindowOptions("@7", "csv-export", REPO_ROOT, spawnTmux);
     expect(result).toEqual({ ok: true, stderr: "" });
     expect(calls).toHaveLength(4);
+  });
+});
+
+describe(createWindowVerified, () => {
+  // The create call shells out via the module-private `tmux` spawn — fakeSpawn
+  // can't reach it and the fix must not mutate createWindow — so the create
+  // result is driven through the `create` deps seam. The alive-probe is stubbed
+  // (the real isPaneAlive shells out unconditionally; exercising it is the
+  // anti-pattern this seam exists to avoid). `sleep` is a no-op so the bounded
+  // poll runs instantly. The new-window/new-session argv shape stays covered by
+  // the buildNewWindowArgs / buildNewSessionArgs tests above.
+  const noopSleep = () => undefined;
+
+  it("Case A: create ok but the pane reports dead → returns ok:false AND kills the half-created window", () => {
+    const kill = vi.fn(() => true);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => false, // dead at the end of the budget
+        kill,
+        sleep: noopSleep,
+      },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toMatch(/pane not alive/);
+    expect(kill).toHaveBeenCalledTimes(1);
+    expect(kill).toHaveBeenCalledWith("csv-export", "flow");
+  });
+
+  it("Case B: create ok and the pane reports alive → returns ok:true and never kills", () => {
+    const kill = vi.fn(() => true);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill,
+        sleep: noopSleep,
+      },
+    );
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("propagates a failed create verbatim without probing or killing", () => {
+    const isAlive = vi.fn(() => true);
+    const kill = vi.fn(() => true);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        create: () => ({ ok: false, stderr: "index 0 in use" }),
+        isAlive,
+        kill,
+        sleep: noopSleep,
+      },
+    );
+    expect(result).toEqual({ ok: false, stderr: "index 0 in use" });
+    expect(isAlive).not.toHaveBeenCalled();
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("catches the alive-then-dies race: alive on the first probe but dead at the end → ok:false", () => {
+    // The pane is alive early then exits mid-budget. Only the FINAL probe is the
+    // verdict, so the launch must be rejected (and the window killed).
+    const kill = vi.fn(() => true);
+    let probe = 0;
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => probe++ < 2, // true, true, then false for the rest
+        kill,
+        sleep: noopSleep,
+      },
+    );
+    expect(result.ok).toBe(false);
+    expect(kill).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe(respawnWindowVerified, () => {
+  // Mirrors the createWindowVerified block via the `respawn` deps seam (the
+  // resume-path analogue of `create`). The single behavioral DIFFERENCE between
+  // the two launchers — respawn does NOT kill the window on a dead pane, because
+  // it pre-existed the resume and the user may want its scrollback — is what the
+  // first two cases pin. The real isPaneAlive is never exercised (it shells out
+  // unconditionally), and `sleep` is a no-op so the bounded poll runs instantly.
+  const noopSleep = () => undefined;
+
+  it("respawn ok and the pane reports alive → returns ok:true", () => {
+    const result = respawnWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        respawn: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        sleep: noopSleep,
+      },
+    );
+    expect(result).toEqual({ ok: true, stderr: "" });
+  });
+
+  it("respawn ok but the pane reports dead → ok:false AND does NOT kill the window (the create-vs-respawn asymmetry)", () => {
+    // The single behavioral difference from createWindowVerified: a dead pane on
+    // resume yields ok:false but leaves the (pre-existing) window intact. A kill
+    // spy is threaded through a cast so that even a future re-addition of a kill
+    // seam to this path would trip this assertion — locking the asymmetry in.
+    const kill = vi.fn(() => true);
+    const result = respawnWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        respawn: () => ({ ok: true, stderr: "" }),
+        isAlive: () => false, // dead at the end of the budget
+        sleep: noopSleep,
+        kill,
+      } as Parameters<typeof respawnWindowVerified>[3],
+    );
+    expect(result.ok).toBe(false);
+    expect(result.stderr).toMatch(/pane not alive/);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("propagates a failed respawn verbatim without probing the pane", () => {
+    const isAlive = vi.fn(() => true);
+    const result = respawnWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        respawn: () => ({
+          ok: false,
+          stderr: "window not found for slug 'csv-export'",
+        }),
+        isAlive,
+        sleep: noopSleep,
+      },
+    );
+    expect(result).toEqual({
+      ok: false,
+      stderr: "window not found for slug 'csv-export'",
+    });
+    expect(isAlive).not.toHaveBeenCalled();
+  });
+
+  it("catches the alive-then-dies race: alive on the first probe but dead at the end → ok:false", () => {
+    let probe = 0;
+    const result = respawnWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      {
+        respawn: () => ({ ok: true, stderr: "" }),
+        isAlive: () => probe++ < 2, // true, true, then false for the rest
+        sleep: noopSleep,
+      },
+    );
+    expect(result.ok).toBe(false);
   });
 });
 

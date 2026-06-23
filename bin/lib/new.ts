@@ -16,8 +16,8 @@ import { argsContainHelp, printVerbHelp } from "./help";
 import { slugify } from "./slug";
 import { toDirSuffix } from "./worktree-slot";
 import {
-  createWindow,
-  respawnWindow,
+  createWindowVerified,
+  respawnWindowVerified,
   windowExists,
   isPaneAlive,
   FLOW_SESSION,
@@ -29,7 +29,39 @@ import {
   EFFORT_LEVELS,
   type EffortLevel,
 } from "./state";
+import { sleepSync } from "./sleep";
 import { dim } from "./color";
+
+/**
+ * Bounded retry budget for the verified window create. A single transient
+ * launch failure (e.g. a momentary tmux/claude hiccup) should self-heal, but
+ * the loop must terminate — an unbounded retry would hang `flow new` forever
+ * against a genuinely broken `claude` install. Three attempts trades a brief
+ * stall for self-healing without masking a persistent failure.
+ */
+const WINDOW_CREATE_MAX_ATTEMPTS = 3;
+const WINDOW_CREATE_RETRY_MS = 150;
+
+/**
+ * Runs `launch` (a verified create or respawn) up to WINDOW_CREATE_MAX_ATTEMPTS
+ * times with a short backoff between tries, returning the first `ok` result or
+ * the last failure. Bounded so a genuinely broken `claude` can't hang the CLI;
+ * a single transient launch failure self-heals on the next attempt. The verified
+ * launcher already cleans up its own half-created window per attempt, so an
+ * exhausted retry leaves nothing behind.
+ */
+function launchWithRetry(
+  launch: () => { ok: boolean; stderr: string },
+  retryMs: number = WINDOW_CREATE_RETRY_MS,
+): { ok: boolean; stderr: string } {
+  let last = { ok: false, stderr: "" };
+  for (let attempt = 0; attempt < WINDOW_CREATE_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0 && retryMs > 0) sleepSync(retryMs);
+    last = launch();
+    if (last.ok) return last;
+  }
+  return last;
+}
 
 export type NewOptions = {
   /** Override the cwd for the new window (default: process.cwd()). */
@@ -58,6 +90,12 @@ export type NewOptions = {
    * absent (no `--effort` flag passed to claude).
    */
   effort?: EffortLevel;
+  /**
+   * Backoff (ms) between bounded window-create retries. Test seam only —
+   * production uses the WINDOW_CREATE_RETRY_MS default; the orphan-repro
+   * harness passes 0 so its N>=20 loop doesn't accrue real sleep time.
+   */
+  retrySleepMs?: number;
 };
 
 export function runNew(input: string, options: NewOptions = {}): number {
@@ -236,9 +274,22 @@ function runFresh(description: string, options: NewOptions): number {
   const worktree = deriveWorktreePath(repo, slug);
   const command =
     options.command ?? defaultCommand(description, worktree, options.effort);
-  const result = createWindow(slug, repo, command);
+  // Verify the window's process actually stayed up before persisting state.
+  // A bare `createWindow` only proves tmux forked the shell; a claude that
+  // exits on launch would otherwise leave an orphaned state file (the
+  // intermittent `flow new` bug). createWindowVerified kills its own
+  // half-created window on failure, so an exhausted retry leaves nothing behind.
+  const result = launchWithRetry(
+    () => createWindowVerified(slug, repo, command),
+    options.retrySleepMs,
+  );
   if (!result.ok) {
-    console.error(`flow new: tmux failed to create the window.`);
+    console.error(
+      "flow new: claude exited immediately after launch — the tmux window did not stay up.",
+    );
+    console.error(
+      "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
+    );
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 1;
   }
@@ -310,19 +361,33 @@ function runResume(name: string, options: NewOptions): number {
     return 1;
   }
 
+  // The repo non-null guard above already returned; bind it so the launch
+  // closure below keeps the narrowing (TS drops it across the arrow body).
+  const repo = state.repo;
   // Prefer the actual worktree path recorded at create-time; fall back to the
   // deterministic derivation when state predates the worktree write (or when
   // the pipeline crashed before step 2). Either way the resumed session
   // re-pre-authorizes the worktree as an MCP workspace root.
-  const worktree = state.worktree ?? deriveWorktreePath(state.repo, slug);
+  const worktree = state.worktree ?? deriveWorktreePath(repo, slug);
   const command =
     options.command ?? resumeCommand(slug, worktree, state.effort);
-  const result = exists
-    ? respawnWindow(slug, state.repo, command)
-    : createWindow(slug, state.repo, command);
+  // Verify the relaunched process stays up, same as the fresh path — a bare
+  // respawn/create exit code only proves tmux forked the shell. Without this,
+  // `--resume` reports a false "resumed" success over a window whose claude
+  // died on launch. Bounded retry so a transient hiccup self-heals.
+  const result = launchWithRetry(
+    () =>
+      exists
+        ? respawnWindowVerified(slug, repo, command)
+        : createWindowVerified(slug, repo, command),
+    options.retrySleepMs,
+  );
   if (!result.ok) {
     console.error(
-      `flow new --resume: tmux failed to ${exists ? "respawn" : "create"} the window.`,
+      "flow new --resume: claude exited immediately after launch — the tmux window did not stay up.",
+    );
+    console.error(
+      "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
     );
     if (result.stderr) console.error(`  ${result.stderr}`);
     return 1;

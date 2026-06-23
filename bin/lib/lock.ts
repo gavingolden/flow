@@ -15,6 +15,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { sleepSync } from "./sleep";
 
 export type LockOptions = {
   /** Total time to wait for the lock before throwing. Default 30000 (30s). */
@@ -173,13 +174,4 @@ function isProcessAlive(pid: number): boolean {
     if (code === "EPERM") return true;
     throw e;
   }
-}
-
-function sleepSync(ms: number): void {
-  // Bun and Node both expose Atomics.wait on a SharedArrayBuffer view as
-  // a sync sleep with no spawn. spawnSync sleep would also work but adds
-  // a process-fork tax per poll iteration.
-  const sab = new SharedArrayBuffer(4);
-  const view = new Int32Array(sab);
-  Atomics.wait(view, 0, 0, ms);
 }
