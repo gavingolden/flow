@@ -3201,3 +3201,40 @@ describe("browser-driven UI-validation structural anchors", () => {
     ).toBe(true);
   });
 });
+
+describe("product-planning MODE: epic routing anchor", () => {
+  // The `MODE: epic` → epic-discovery-instructions.md branch in
+  // product-planning/SKILL.md is the one piece of executable wiring the
+  // epic-designer F4 PR added, otherwise covered only by one-shot PR-body
+  // greps that never run again. This durable anchor goes red on `npm run
+  // verify` if the mode branch or its sibling file reference is dropped from
+  // the spawn template — the same regression class the discovery-instructions
+  // anchors above guard. Standalone block so it doesn't disturb the
+  // "exactly 9 Task-tool exemptions" assertion.
+  const PRODUCT_PLANNING_SKILL_MD_PATH = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "product-planning",
+    "SKILL.md",
+  );
+  const productPlanningContent = fs.readFileSync(
+    PRODUCT_PLANNING_SKILL_MD_PATH,
+    "utf8",
+  );
+
+  it("SKILL.md carries the MODE: epic branch and names epic-discovery-instructions.md", () => {
+    expect(
+      productPlanningContent.includes("MODE: epic"),
+      "product-planning/SKILL.md must reference 'MODE: epic' — the spawn " +
+        "template's epic-grain routing branch. Dropping it un-wires the " +
+        "epic designer from /product-planning's single discovery spawn site.",
+    ).toBe(true);
+    expect(
+      productPlanningContent.includes("epic-discovery-instructions.md"),
+      "product-planning/SKILL.md must reference 'epic-discovery-instructions.md' " +
+        "— the epic-grain sibling INSTRUCTIONS_PATH the MODE: epic branch resolves to.",
+    ).toBe(true);
+  });
+});

@@ -1,0 +1,19 @@
+{
+  "epicId": "cyclic-fixture",
+  "prompt": "TEST FIXTURE — a deliberately cyclic epic manifest. Shape-valid (passes flow-epic-manifest-schema) but contains a dependency cycle a -> b -> a so flow-epic-dag rejects it. Used by bin/epic-designer-example.test.ts to prove F4's reliance on the DAG gate; NOT a real epic.",
+  "createdAt": "2026-06-23T00:00:00Z",
+  "features": [
+    {
+      "id": "a",
+      "title": "Feature A (cycle member)",
+      "description": "Deliberately depends on b to form the cycle a -> b -> a.",
+      "dependsOn": ["b"]
+    },
+    {
+      "id": "b",
+      "title": "Feature B (cycle member)",
+      "description": "Deliberately depends on a to form the cycle a -> b -> a.",
+      "dependsOn": ["a"]
+    }
+  ]
+}

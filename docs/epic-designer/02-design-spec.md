@@ -44,6 +44,8 @@ The designer does not re-implement discovery (it calls `/product-planning`), doe
 
 **Decision: a HYBRID — one bounded round of _material_ clarifying questions, then autonomous, then the single approval checkpoint.** This is the named middle ground between the two poles, and `01` Area 4 makes it the evidence-backed choice rather than a fence-sit.
 
+> **F4 implementation note (relocation to F5):** F4 ships the designer as a ONE-SHOT `/product-planning` discovery subagent, which structurally cannot fire `AskUserQuestion` (the Task tool returns one result and exits; discovery never asks the user). The materiality-gated clarification round below is therefore **relocated to F5's `flow epic create` caller** — a fresh epic supervisor that fires `AskUserQuestion` as its own authorized form and THEN spawns the one-shot designer on the already-clarified prompt. The HYBRID recommendation stands at the `flow epic create` level (clarify-then-autonomous-then-checkpoint); only the _firing site_ of the round moves from the designer to its caller.
+
 The three poles and why the middle wins:
 
 - **(i) One-shot autonomous** (flow's current discovery): make defensible assumptions, surface them as Open Questions, stop. _Pro:_ matches flow's one-shot subagent contract exactly; zero added interaction. _Con:_ an epic is higher-ambiguity than a single feature — and `01` shows the two most analogous tools (GitHub Spec Kit, AWS Kiro [V2]) both **reject** pure one-shot for ambiguous specs, while CMU's underspecification study [V2] finds unspecified-critical-requirements is the _dominant_ LLM failure mode (underspecified prompts regress 2× across model changes).
