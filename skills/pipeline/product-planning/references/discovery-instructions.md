@@ -44,19 +44,19 @@ This is read-only background — these reads stay in your context and don't prop
 
 ## 1.5. Optional web-grounded research pre-check
 
-This step is **off by default** and runs at most once. It lets a pipeline gather current, web-grounded, adversarially-verified evidence **before** planning, so a plan whose viability turns on an external factual question is grounded on real evidence rather than your training cutoff. It runs **only when both** gates pass: (1) a Bash call to the config reader returns `research.discovery: true`, AND (2) `agy` is available. When either gate fails, skip the entire step — including the relevance Claude call — and proceed to step 2 (Scope Check) with discovery exactly as it is today.
+This step is **off by default** and runs at most once. It lets a pipeline gather current, web-grounded, adversarially-verified evidence **before** planning, so a plan whose viability turns on an external factual question is grounded on real evidence rather than your training cutoff. It runs **only when both** gates pass: (1) a `jq` read of the global `~/.flow/config.json` returns `research.discovery: true`, AND (2) `agy` is available. When either gate fails, skip the entire step — including the relevance Claude call — and proceed to step 2 (Scope Check) with discovery exactly as it is today.
 
 **HARD INVARIANT (read first).** This research is a **Bash fan-out** driven by **in-process `/flow-research`** (loaded via the Skill tool), which in turn shells `flow-delegate-fanout` (a Bash subprocess). It is **NOT a nested sub-agent spawn** — you, the discovery sub-agent, are the one orchestrating "Claude" for `/flow-research`, and you spawn **no** nested Task. The single supervisor→discovery Task call is unchanged and the nine-exemption count in `flow-pipeline/SKILL.md` is preserved. If you find yourself reaching for the Task/Agent tool here, stop — that is the one thing this step forbids.
 
 Procedure:
 
-**(a) Read the opt-in, then probe agy availability FIRST.** Read the config opt-in via the internal reader:
+**(a) Read the opt-in, then probe agy availability FIRST.** Read the global config opt-in directly with `jq`. The discovery sub-agent runs in the _target repo's_ worktree — which is NOT flow's own repo on a consumer pipeline — so it must read the always-present global `~/.flow/config.json` rather than importing flow's internal `bin/lib` (which is not on PATH in a consumer worktree):
 
 ```bash
-bun -e 'import("./bin/lib/research-config").then(m => console.log(JSON.stringify(m.readResearchConfig())))'
+jq -e '(.research | type == "object") and (.research.discovery == true)' ~/.flow/config.json >/dev/null 2>&1 && RESEARCH_ON=true || RESEARCH_ON=false
 ```
 
-If `discovery` is not `true`, skip this whole step. Otherwise probe agy availability with a cheap one-call `flow-delegate` and branch on the **`ran` field of the returned envelope (NOT the exit code** — `flow-delegate` exits 0 on both success and a graceful skip). If the probe envelope is `ran: false` (e.g. `skipReason: agy-not-found` / `agy-not-authenticated`), agy is unavailable: **skip the relevance/question Claude step entirely** (spend zero extra Claude tokens on a gate you cannot act on) and proceed to step 2 unchanged. Only when agy is available do you run (b).
+This is tolerant by construction: a missing file, malformed JSON, an absent or non-object `research`, or a non-`true` `research.discovery` all yield `RESEARCH_ON=false` — only a strict boolean `true` enables. If `RESEARCH_ON` is not `true`, skip this whole step. Otherwise probe agy availability with a cheap one-call `flow-delegate` and branch on the **`ran` field of the returned envelope (NOT the exit code** — `flow-delegate` exits 0 on both success and a graceful skip). If the probe envelope is `ran: false` (e.g. `skipReason: agy-not-found` / `agy-not-authenticated`), agy is unavailable: **skip the relevance/question Claude step entirely** (spend zero extra Claude tokens on a gate you cannot act on) and proceed to step 2 unchanged. Only when agy is available do you run (b).
 
 **(b) Cheap relevance + sharp-question pre-check (one Claude step).** Decide whether THIS feature turns on a researchable external question. Use this concrete checklist — it is enumerable, not vibes:
 

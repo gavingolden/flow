@@ -289,8 +289,10 @@ best practice for X" question) and skips a pure-internal change (CSS tweak, rena
 refactor); when uncertain it does not research. When `agy` is absent or logged out
 it **gracefully skips** (a no-op — planning proceeds unchanged, never hard-fails),
 the same opt-in-by-presence model as `flow-delegate` itself. Each pass is **bounded**
-(`--max-calls 12`, ~9-min worst case) so the synchronous run stays cheap. Off by
-default; absent or malformed config behaves exactly as today.
+(`--max-calls 12 --concurrency 4` plus a 3-minute per-entry timeout, ~9-min worst
+case — the per-entry timeout is load-bearing; `--max-calls 12` alone is ~15 min at
+agy's 5-minute default) so the synchronous run stays cheap. Off by default; absent
+or malformed config behaves exactly as today.
 
 ### Command Execution
 
