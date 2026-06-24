@@ -77,9 +77,17 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 
 1. Resolve the working directory absolutely. If the caller passed a `WORKTREE`
    value (typical when invoked from `/flow-pipeline`), use it. Otherwise use
-   `pwd`. Define:
-   - `PLAN_PATH = <workdir>/.flow-tmp/plan.md`
-   - `DRAFT_PATH = <workdir>/.flow-tmp/pr-description-draft.md`
+   `pwd`. Then define the output paths **by `MODE`** — feature mode and epic
+   mode emit different artifacts, so the spawn template and the post-spawn
+   existence check (step 4) follow the same `MODE` branch:
+   - Default (no `MODE`, or `MODE: feature`) — two `.flow-tmp/` artifacts:
+     - `PLAN_PATH = <workdir>/.flow-tmp/plan.md`
+     - `DRAFT_PATH = <workdir>/.flow-tmp/pr-description-draft.md`
+   - `MODE: epic` — two epic artifacts under the caller-provided epic-output
+     directory (`EPIC_DIR = <workdir>/.flow/epics/<slug>/`, resolved by the
+     `MODE: epic` caller — F5's `flow epic create`, out of scope here):
+     - `DESIGN_PATH = <EPIC_DIR>/design.md`
+     - `MANIFEST_PATH = <EPIC_DIR>/manifest.json`
 2. Resolve the skill base directory absolutely. The Skill tool prints the
    "Base directory for this skill" at the top of this SKILL.md when loaded
    — capture it as `SKILL_DIR`. Then derive `INSTRUCTIONS_PATH` by `MODE`:
@@ -119,9 +127,14 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    wrapper — the supervisor (or downstream caller) reads that file
    directly when it needs the full plan, and reading it twice in the
    same supervisor session erodes the context-cost win. The wrapper's
-   only post-spawn job is a cheap existence check
-   (`test -s "$PLAN_PATH" && test -s "$DRAFT_PATH"`); on missing artifact,
-   surface the failure to the caller per the Constraints below.
+   only post-spawn job is a cheap existence check on the **mode's own**
+   artifacts; on missing artifact, surface the failure to the caller per the
+   Constraints below:
+   - Default / `MODE: feature`: `test -s "$PLAN_PATH" && test -s "$DRAFT_PATH"`.
+   - `MODE: epic`: `test -s "$DESIGN_PATH" && test -s "$MANIFEST_PATH"` — an
+     epic-mode run emits `design.md` + `manifest.json`, **not** `plan.md` /
+     `pr-description-draft.md`, so checking for the feature artifacts would
+     spuriously fail every epic run.
 5. Suggest the next handoff. If the caller is `/flow-pipeline`, the
    supervisor takes over (it knows what to do based on intent). Otherwise,
    suggest `/new-feature <verbatim user description>` for feature-level work,
@@ -129,7 +142,11 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 
 ## Spawn prompt template
 
-Fill in the five `{{...}}` placeholders before passing to the Task tool:
+Fill in the `{{...}}` placeholders before passing to the Task tool. The
+`{{OUTPUT_PATHS}}` block is **mode-dependent** — substitute the feature-mode
+text by default, the epic-mode text under `MODE: epic` (both shown after the
+template). The other placeholders (`{{INSTRUCTIONS_PATH}}`,
+`{{USER_DESCRIPTION}}`, `{{WORKTREE}}`, `{{SKILL_DIR}}`) are mode-independent:
 
 ```
 You are the Independent Discovery Subagent for `/product-planning`. You run
@@ -148,11 +165,7 @@ Skill base directory (resolve sibling templates and references against
 this absolute path — they do not exist relative to {{WORKTREE}}):
   {{SKILL_DIR}}
 
-Write the consolidated plan to (absolute path):
-  {{PLAN_PATH}}
-
-Write the PR description draft to (absolute path):
-  {{DRAFT_PATH}}
+{{OUTPUT_PATHS}}
 
 Follow the {{INSTRUCTIONS_PATH}} steps in order (the feature-grain
 discovery-instructions.md by default; under `MODE: epic` this resolves to
@@ -168,6 +181,34 @@ Return a one-paragraph summary (3–5 sentences) — the problem statement in
 one line, the number of tasks, and the top one or two assumptions the user
 should pay attention to. Do not paste the PRD or task list back; the
 artifacts on disk are the record.
+```
+
+### `{{OUTPUT_PATHS}}` — feature mode (default / no `MODE` / `MODE: feature`)
+
+Substitute this block verbatim for `{{OUTPUT_PATHS}}` on the default path —
+the feature-grain contract is unchanged:
+
+```
+Write the consolidated plan to (absolute path):
+  {{PLAN_PATH}}
+
+Write the PR description draft to (absolute path):
+  {{DRAFT_PATH}}
+```
+
+### `{{OUTPUT_PATHS}}` — epic mode (`MODE: epic`)
+
+Substitute this block for `{{OUTPUT_PATHS}}` when the caller passed
+`MODE: epic`. An epic-mode run emits the two epic artifacts under the
+caller-provided epic-output directory and writes **no** `plan.md` /
+`pr-description-draft.md`:
+
+```
+Write the six-section epic design to (absolute path):
+  {{DESIGN_PATH}}
+
+Write the typed epic manifest to (absolute path):
+  {{MANIFEST_PATH}}
 ```
 
 # Constraints
@@ -191,9 +232,13 @@ artifacts on disk are the record.
 # Verification
 
 - Exactly one Task-tool call was made with `subagent_type: general-purpose`.
-- `.flow-tmp/plan.md` exists at the resolved absolute path with the three
-  expected sections (`# PRD`, `# Task breakdown`, `# PR description draft`).
-- `.flow-tmp/pr-description-draft.md` exists at the resolved absolute path.
+- **Feature mode (default):** `.flow-tmp/plan.md` exists at the resolved
+  absolute path with the three expected sections (`# PRD`, `# Task breakdown`,
+  `# PR description draft`), and `.flow-tmp/pr-description-draft.md` exists at
+  the resolved absolute path.
+- **Epic mode (`MODE: epic`):** `design.md` and `manifest.json` exist under
+  the resolved epic-output directory (no `plan.md` / `pr-description-draft.md`
+  is produced); the existence check targets those two files instead.
 - The wrapper's chat output is the subagent's 3–5 sentence summary plus a
   next-handoff suggestion — never the full PRD and never the result of a
   fresh `Read` on `.flow-tmp/plan.md`.

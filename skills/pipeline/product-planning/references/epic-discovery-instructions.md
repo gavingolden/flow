@@ -15,10 +15,29 @@ self-validates both against the two committed checkers, and halts. It does
 not launch, schedule, watch, or merge anything — that is the deferred
 orchestrator's job (out of scope).
 
-For the canonical exemplar of a finished design, read the committed worked
-example at `.flow/epics/build-the-epic-designer/` (its `design.md` +
-`manifest.json` are a real epic decomposed by this method, and they pass
-both validators).
+The wrapper passes you these inputs in its spawn prompt:
+
+- The verbatim epic prompt.
+- The absolute worktree path (`WORKTREE`, your working directory).
+- The absolute skill base directory (`SKILL_DIR`). Resolve every sibling
+  reference path under it — e.g. `<SKILL_DIR>/references/architecture-patterns.md`,
+  `<SKILL_DIR>/references/example-prd.md`. Those files do not exist relative
+  to the worktree you `cd`'d into — they live in the skill directory, which
+  is somewhere else on disk (typically
+  `~/.claude/skills/product-planning/` or
+  `<flow-checkout>/skills/pipeline/product-planning/`).
+- The epic-output directory (the `.flow/epics/<slug>/` path under `WORKTREE`
+  where `design.md` + `manifest.json` are written).
+
+For the canonical exemplar of a finished design: **in flow's own repo**, the
+committed worked example at `.flow/epics/build-the-epic-designer/` (its
+`design.md` + `manifest.json` are a real epic decomposed by this method, and
+they pass both validators) is the canonical exemplar. It is **not** distributed
+to consumer repos (`flow setup` ships only `skills/` + `bin/`), so when you run
+in a consumer `WORKTREE` that path won't exist — treat it as **optional: read
+it if present, skip it if absent**, mirroring the `if exists` guard this file
+uses for the `example-prd.md` reference below. The six-section shape required of
+your own output is fully specified in §5a regardless.
 
 ## 1. Load Project Context
 

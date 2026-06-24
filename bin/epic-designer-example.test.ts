@@ -58,6 +58,52 @@ describe("committed design.md — the six-section review surface", () => {
   it.each(SIX_HEADINGS)("contains the heading %s", (heading) => {
     expect(design).toContain(heading);
   });
+
+  // Beyond bare headings: a headings-only design.md (all six `## N.` lines,
+  // empty bodies) would pass the grep above. These minimal content assertions
+  // pin the load-bearing artifacts §4d/§4a require so the six-heading grep
+  // can't go green on an empty shell.
+  it("renders the §5 dependency DAG as an inline Mermaid fence", () => {
+    expect(design).toContain("```mermaid");
+  });
+
+  it("expresses at least one EARS acceptance criterion (THE SYSTEM SHALL)", () => {
+    expect(design).toContain("SHALL");
+  });
+});
+
+describe("committed design.md ↔ manifest.json — methodology consistency invariant", () => {
+  // epic-discovery-instructions.md §5b mandates the two artifacts stay "100%
+  // consistent … same ids, titles, and edges", and the §6 Verification bullet
+  // restates it — but the schema validator only checks manifest shape and
+  // flow-epic-dag only checks graph well-formedness, so absent this the two
+  // committed files could silently drift (a renamed id or a DAG edge present
+  // in one but not the other) with the whole suite still green.
+  const design = readFileSync(COMMITTED_DESIGN, "utf8");
+  const manifest = JSON.parse(readFileSync(COMMITTED_MANIFEST, "utf8")) as {
+    features: { id: string; dependsOn: string[] }[];
+  };
+  const ids = manifest.features.map((f) => f.id);
+
+  it("every manifest feature id appears verbatim in design.md", () => {
+    for (const id of ids) {
+      expect(design, `manifest id '${id}' missing from design.md`).toContain(
+        id,
+      );
+    }
+  });
+
+  it("every dependsOn edge references a feature id that exists in the manifest", () => {
+    const idSet = new Set(ids);
+    for (const f of manifest.features) {
+      for (const dep of f.dependsOn) {
+        expect(
+          idSet.has(dep),
+          `feature '${f.id}' dependsOn '${dep}', which is not a manifest feature id`,
+        ).toBe(true);
+      }
+    }
+  });
 });
 
 describe("committed manifest.json — passes both validators", () => {
