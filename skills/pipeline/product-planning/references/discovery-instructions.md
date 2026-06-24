@@ -42,6 +42,49 @@ Before forming an opinion, load background context so your scoping is informed:
 
 This is read-only background — these reads stay in your context and don't propagate.
 
+## 1.5. Optional web-grounded research pre-check
+
+This step is **off by default** and runs at most once. It lets a pipeline gather current, web-grounded, adversarially-verified evidence **before** planning, so a plan whose viability turns on an external factual question is grounded on real evidence rather than your training cutoff. It runs **only when both** gates pass: (1) a Bash call to the config reader returns `research.discovery: true`, AND (2) `agy` is available. When either gate fails, skip the entire step — including the relevance Claude call — and proceed to step 2 (Scope Check) with discovery exactly as it is today.
+
+**HARD INVARIANT (read first).** This research is a **Bash fan-out** driven by **in-process `/flow-research`** (loaded via the Skill tool), which in turn shells `flow-delegate-fanout` (a Bash subprocess). It is **NOT a nested sub-agent spawn** — you, the discovery sub-agent, are the one orchestrating "Claude" for `/flow-research`, and you spawn **no** nested Task. The single supervisor→discovery Task call is unchanged and the nine-exemption count in `flow-pipeline/SKILL.md` is preserved. If you find yourself reaching for the Task/Agent tool here, stop — that is the one thing this step forbids.
+
+Procedure:
+
+**(a) Read the opt-in, then probe agy availability FIRST.** Read the config opt-in via the internal reader:
+
+```bash
+bun -e 'import("./bin/lib/research-config").then(m => console.log(JSON.stringify(m.readResearchConfig())))'
+```
+
+If `discovery` is not `true`, skip this whole step. Otherwise probe agy availability with a cheap one-call `flow-delegate` and branch on the **`ran` field of the returned envelope (NOT the exit code** — `flow-delegate` exits 0 on both success and a graceful skip). If the probe envelope is `ran: false` (e.g. `skipReason: agy-not-found` / `agy-not-authenticated`), agy is unavailable: **skip the relevance/question Claude step entirely** (spend zero extra Claude tokens on a gate you cannot act on) and proceed to step 2 unchanged. Only when agy is available do you run (b).
+
+**(b) Cheap relevance + sharp-question pre-check (one Claude step).** Decide whether THIS feature turns on a researchable external question. Use this concrete checklist — it is enumerable, not vibes:
+
+- **Researchable** (the feature's viability turns on an external/factual question with an authoritative answer). Worked examples:
+  - _Integrating or adopting an external API / spec / standard_ — e.g. "add CSV export" hinges on whether RFC 4180 quote-escaping is required for the fields we emit; "integrate the Stripe refund API" hinges on the current request shape and idempotency-key rules.
+  - _A security or correctness question with an authoritative answer_ — e.g. "is the OAuth refresh-token rotation flow we're about to copy still the recommended pattern?"; "what's the safe argon2 work-factor for our threat model?"
+  - _A "current best practice for X" question_ — e.g. "what's the current recommended way to debounce a SvelteKit form action?"; "what's the current rate limit on the GitHub Search API we're about to call?"
+- **NOT researchable** (a pure-internal change fully determined by existing code/patterns). Worked examples:
+  - _A CSS / layout tweak_ — e.g. "fix the button alignment on the settings page"; "tighten the card padding".
+  - _A rename_ — e.g. "rename `fetchUser` to `loadUser` across the repo".
+  - _A pure-internal refactor_ — e.g. "extract this 40-line block into a helper"; "collapse these two near-identical functions".
+  - _Wiring two existing modules_ — e.g. "call the existing `exportCsv` from the new toolbar button"; "pass the already-computed total into the existing renderer".
+- **Safe-by-default tie-breaker (load-bearing).** When you cannot **confidently** place the feature in the researchable bucket, **default to NOT researching.** The failure modes are **asymmetric**: a false positive costs ~15 min of latency + agy quota + user annoyance; a false negative costs ~nothing — it is exactly today's no-research behavior. This mirrors `/flow-research`'s own "default to refuted if uncertain" discipline. Do not research a borderline case to be safe — the safe default is to skip.
+
+If the verdict is **not researchable**, take no fan-out — proceed to step 2 unchanged. If **researchable**, form a **sharp, codebase-grounded research question** (NOT the verbatim feature description — only something that knows this codebase can ask the right question; e.g. not "add CSV export" but "does RFC 4180 require quoting/escaping for the `,`- and newline-bearing fields the portfolio export emits, and which line terminator do mainstream spreadsheet importers expect?").
+
+**(c) Run the bounded research via in-process `/flow-research`.** Load `/flow-research` **in-process via the Skill tool** with the sharp question, and instruct it to run a **tightened budget**: `--max-calls 12 --concurrency 4` AND a **3-minute per-entry timeout** — set `timeout: "3m"` on **each manifest entry** `/flow-research` builds for `flow-delegate-fanout` (the per-call timeout is a per-manifest-entry field, NOT a fan-out flag; passing `--timeout` to `flow-delegate-fanout` would error with `unknown flag`). `/flow-research` fans the gathering/refutation out via `flow-delegate-fanout` (Bash) and writes its cited `report.md` under `.flow-tmp/research/<run-id>/`.
+
+_Runtime-ceiling rationale (why the bound is a HARD REQUIREMENT, not a tuning knob)._ You are a **one-shot Task sub-agent with no yield/resume** — the supervisor awaits a single invocation and your whole research run executes synchronously inside it. `/flow-research`'s "background the fan-out, persist to `--out`, a resumed turn reads the result file" pattern is the **supervisor's** safety net and does **NOT** apply to you (a sub-agent gets no resumed turns). So the synchronous run **must** stay well under the observed-safe ~10-min sub-agent wall-clock: `ceil(12 / 4) = 3` waves × a 3-min per-call cap = **9-min worst case** (typically ~4.5 min). `--max-calls 12` alone is insufficient — at agy's 5-min default timeout the worst case is 15 min (3 waves × 5m), over the ceiling — so the per-entry `timeout: "3m"` cap is the **load-bearing co-requirement**.
+
+**(d) Fold a bounded, confidence-labeled findings summary into your prior context.** Read `report.md` and fold a **bounded** summary of its confidence-ranked findings into your discovery reasoning, and — where load-bearing — surface a short **"Research findings (prior context)"** note in `plan.md`. Constraints on what enters the plan:
+
+- **Each finding carries its confidence label (high/medium/low) INTACT.** Never flatten the gathered confidence ranking into false certainty.
+- **Refuted, contested, or low-confidence claims become RISKS or open questions — NEVER firm plan assumptions or decisions.** This is the uncertainty-laundering guard: a gathered-but-shaky claim must not become a load-bearing decision.
+- **Never paste raw per-source artifacts or full-length quotes into `plan.md`.** Only the bounded summary; `/flow-research` already bounds its own synthesis (top-N ranked claims, capped quotes).
+
+**(e) Graceful skip / not-researchable → unchanged discovery.** If the fan-out's aggregate is `allSkipped: true` (or the probe was `ran: false`), or the relevance verdict was "not researchable", take no research-derived prior context and proceed to step 2 exactly as discovery behaves today — research availability never blocks planning, and both `plan.md` and `pr-description-draft.md` are still written normally. Branch the skip on the `allSkipped` / `ran` field, **never** the exit code.
+
 ## 2. Scope Check
 
 After loading context, decide whether the idea warrants a full PRD. Not every feature

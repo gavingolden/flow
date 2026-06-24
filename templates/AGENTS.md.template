@@ -276,6 +276,22 @@ extra workspace dirs, and `--task` names the artifact
 for the full per-flag contract. It is a standalone leaf helper — flow does not
 auto-invoke it from any pipeline step.
 
+**Optional `research.discovery` opt-in (planning research pre-check).** Setting
+`{ "research": { "discovery": true } }` in `~/.flow/config.json` lets a pipeline
+OPTIONALLY run deep, web-grounded, agy-delegated research **before planning**,
+feeding a cited report into discovery as prior context (with confidence labels).
+It is **config-only** — there is no `flow new` flag — and the schema is an object
+(`research: { discovery: boolean }`, default `false`) so budget/model fields can
+be added later without a break. The pass is **relevance-gated and safe-by-default**:
+it fires only on a genuinely-researchable feature (integrating an external
+API/spec, a security/correctness question with an authoritative answer, a "current
+best practice for X" question) and skips a pure-internal change (CSS tweak, rename,
+refactor); when uncertain it does not research. When `agy` is absent or logged out
+it **gracefully skips** (a no-op — planning proceeds unchanged, never hard-fails),
+the same opt-in-by-presence model as `flow-delegate` itself. Each pass is **bounded**
+(`--max-calls 12`, ~9-min worst case) so the synchronous run stays cheap. Off by
+default; absent or malformed config behaves exactly as today.
+
 ### Command Execution
 
 Prefer absolute paths over `cd <path> &&` to maintain a consistent working directory.
