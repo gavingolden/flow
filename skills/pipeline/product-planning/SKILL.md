@@ -82,8 +82,17 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    - `DRAFT_PATH = <workdir>/.flow-tmp/pr-description-draft.md`
 2. Resolve the skill base directory absolutely. The Skill tool prints the
    "Base directory for this skill" at the top of this SKILL.md when loaded
-   — capture it as `SKILL_DIR`. Then derive:
-   - `INSTRUCTIONS_PATH = <SKILL_DIR>/references/discovery-instructions.md`
+   — capture it as `SKILL_DIR`. Then derive `INSTRUCTIONS_PATH` by `MODE`:
+   - Default (no `MODE`, or `MODE: feature`):
+     `INSTRUCTIONS_PATH = <SKILL_DIR>/references/discovery-instructions.md`
+   - `MODE: epic` (epic-grain decomposition — one node = one PR-sized
+     feature, emitting `design.md` + `manifest.json` under
+     `.flow/epics/<slug>/`):
+     `INSTRUCTIONS_PATH = <SKILL_DIR>/references/epic-discovery-instructions.md`
+
+   This is a file-path switch through the SAME single discovery spawn site —
+   same machinery, same one Task call. It is not a new fan-out site or a new
+   Task-tool exemption.
 
    The subagent reads sibling templates and references via absolute paths
    under `SKILL_DIR` (`templates/prd-template.md`,
@@ -145,11 +154,15 @@ Write the consolidated plan to (absolute path):
 Write the PR description draft to (absolute path):
   {{DRAFT_PATH}}
 
-Follow the discovery-instructions.md steps in order. You are one-shot — do
-not ask the user clarifying questions. When the user description leaves
-something unspecified, make a defensible assumption based on the codebase and
-project conventions, and surface every assumption you made in the PRD's "Open
-Questions" section.
+Follow the {{INSTRUCTIONS_PATH}} steps in order (the feature-grain
+discovery-instructions.md by default; under `MODE: epic` this resolves to
+epic-discovery-instructions.md, whose epic-grain steps emit `design.md` +
+`manifest.json` under `.flow/epics/<slug>/` and self-validate them). You are
+one-shot — do not ask the user clarifying questions. When the user
+description leaves something unspecified, make a defensible assumption based
+on the codebase and project conventions, and surface every assumption you
+made in the PRD's "Open Questions" section (or, under `MODE: epic`, the
+`design.md` "Open Questions" section).
 
 Return a one-paragraph summary (3–5 sentences) — the problem statement in
 one line, the number of tasks, and the top one or two assumptions the user
