@@ -217,6 +217,142 @@ const LIVENESS_POLL_ATTEMPTS = 5;
 const LIVENESS_POLL_INTERVAL_MS = 120;
 
 /**
+ * Ready + consumption poll budgets. The seed is delivered by send-keys only
+ * after `claude`'s interactive TUI is confirmed READY (drawn), and success is
+ * gated on confirmed CONSUMPTION (the pane advanced past the empty input box
+ * into an active supervisor turn). These windows are deliberately longer than
+ * the ~480ms liveness budget so a slow cold-start is not killed as a false
+ * orphan AND a multi-second death (Mode 3) is still caught — we keep polling
+ * across the whole budget and require alive-at-the-end. Validated against a live
+ * Claude Code v2.1.191 cold-launch dogfood: claude rendered its banner within a
+ * few seconds and produced a ⏺ tool-call bullet within ~2-3s of submit, so the
+ * ~18s budgets carry a generous margin. Re-validate if a future TUI changes
+ * cold-start or first-tool-call timing.
+ */
+const READY_POLL_ATTEMPTS = 60; // ~18s to first TUI render on a cold launch
+const READY_POLL_INTERVAL_MS = 300;
+const CONSUME_POLL_ATTEMPTS = 60; // ~18s from submit to the first ⏺/✻ (early-exit on match)
+const CONSUME_POLL_INTERVAL_MS = 300;
+
+/**
+ * Substrings indicating Claude Code's interactive TUI has drawn its fresh
+ * welcome screen and is ready for input. Validated against a live Claude Code
+ * v2.1.191 cold-launch (`tmux capture-pane`): the launch banner header
+ * ("Claude Code v<ver>"), the personalized greeting ("Welcome back"), the
+ * rotating input placeholder (`Try "`), plus the compact-state shortcut hint
+ * ("? for shortcuts") as a fallback for a session that already dismissed the
+ * banner. Matched case-insensitively.
+ */
+const READY_MARKERS = [
+  "claude code v",
+  "welcome back",
+  'try "',
+  "for shortcuts",
+];
+
+/**
+ * Substrings indicating the seed was SUBMITTED and a supervisor turn is underway
+ * or completed — i.e. the pane advanced past the empty welcome screen. Validated
+ * against live Claude Code v2.1.191: the response/tool-call bullet ("⏺", which the
+ * flow supervisor produces within ~2-3s via its first Skill/Bash tool call) and
+ * the thinking/completion glyph ("✻", as in "✻ Cooked for 2s"). Chosen because
+ * NEITHER appears on the idle welcome screen, so a never-consumed pane can never
+ * falsely latch consumed (fail-closed — a false negative just retries; a
+ * false-positive would re-introduce the Mode-1 bug). NOTE: this claude version
+ * shows no "esc to interrupt" hint in the captured footer during streaming, so
+ * that marker is deliberately NOT used. Matched case-insensitively. Re-validate
+ * if a future Claude Code TUI changes these glyphs.
+ */
+const CONSUMPTION_MARKERS = ["⏺", "✻"];
+
+/**
+ * The two fresh-welcome signatures that vanish the instant any prompt is
+ * submitted and never return for the session: the launch banner header and the
+ * rotating input placeholder. parsePaneConsumed's transition fallback treats a
+ * non-empty pane with BOTH gone as consumed — a robust backstop for the case
+ * where a long initial streaming phase scrolls the "⏺" bullet off before the
+ * "✻" completion glyph appears. Requiring BOTH absent keeps it fail-closed: an
+ * idle pane (even one whose banner a user config suppressed) still shows the
+ * placeholder, and an idle pane with a non-"Try \"" placeholder still shows the
+ * banner header.
+ */
+const WELCOME_BANNER_HEADER = "claude code v";
+const IDLE_INPUT_PLACEHOLDER = 'try "';
+
+/**
+ * True when the captured pane text shows Claude's interactive TUI has drawn and
+ * is ready for input. Pure + exported so it is unit-tested with fixture captures
+ * (mirrors parseAliveStatus); the real capture-pane goes through the readPane seam.
+ * An already-consumed pane (positional auto-ran) also counts as ready.
+ */
+export function parsePaneReady(captured: string): boolean {
+  const text = captured.trim().toLowerCase();
+  if (!text) return false;
+  return (
+    READY_MARKERS.some((m) => text.includes(m)) || parsePaneConsumed(captured)
+  );
+}
+
+/**
+ * True when the captured pane text shows the seed was consumed (an active/processed
+ * supervisor turn — the pane advanced past the empty input box). Pure + exported
+ * for fixture-based unit testing.
+ */
+export function parsePaneConsumed(captured: string): boolean {
+  const text = captured.trim().toLowerCase();
+  if (!text) return false;
+  // Fast path: a positive active/finished-turn glyph (not on the idle welcome screen).
+  if (CONSUMPTION_MARKERS.some((m) => text.includes(m))) return true;
+  // Transition fallback: BOTH fresh-welcome signatures are gone → the session
+  // advanced past the welcome screen (the seed was consumed). Fail-closed: an
+  // idle never-consumed pane always still shows at least one of them.
+  return (
+    !text.includes(WELCOME_BANNER_HEADER) &&
+    !text.includes(IDLE_INPUT_PLACEHOLDER)
+  );
+}
+
+/**
+ * Builds a `send-keys` argv. `literal: true` uses `-l --` so the text is taken
+ * verbatim (no key-name interpretation, no shell) — keeps the seed path
+ * shell-free through Bun.spawnSync's array form. `literal: false` is for key
+ * names like "Enter"/"C-m" (the submit keystroke), issued as a SEPARATE call so
+ * a newline in the seed can never pre-submit.
+ */
+export function buildSendKeysArgs(
+  paneId: string,
+  keysOrText: string,
+  literal: boolean,
+): string[] {
+  return literal
+    ? ["send-keys", "-t", paneId, "-l", "--", keysOrText]
+    : ["send-keys", "-t", paneId, keysOrText];
+}
+
+/** Default readPane seam: capture the slug's first pane's rendered text. */
+function capturePaneBySlug(slug: string, session = FLOW_SESSION): string {
+  const window = findWindowBySlug(listWindows(session), slug);
+  if (!window) return "";
+  const r = tmux(["capture-pane", "-p", "-t", window.id]);
+  return r.exitCode === 0 ? r.stdout : "";
+}
+
+/** Default sendKeys seam: resolve the pane by slug, send keys/text to it. */
+function sendKeysBySlug(
+  slug: string,
+  keysOrText: string,
+  literal: boolean,
+  session = FLOW_SESSION,
+): { ok: boolean; stderr: string } {
+  const window = findWindowBySlug(listWindows(session), slug);
+  if (!window) {
+    return { ok: false, stderr: `window not found for slug '${slug}'` };
+  }
+  const r = tmux(buildSendKeysArgs(window.id, keysOrText, literal));
+  return { ok: r.exitCode === 0, stderr: r.stderr };
+}
+
+/**
  * Bounded liveness poll: probe `isAlive` up to `LIVENESS_POLL_ATTEMPTS` times,
  * sleeping `LIVENESS_POLL_INTERVAL_MS` between probes (never before the first),
  * and return the FINAL probe's verdict. Returning the last reading — not an
@@ -232,6 +368,49 @@ function pollUntilAlive(
     alive = isAlive();
   }
   return alive;
+}
+
+/**
+ * Polls until the pane is alive AND its TUI is ready (drawn). Sleeps between
+ * probes (never before the first). Short-circuits the readPane call when the
+ * pane is not alive (so a dead-pane test never invokes the readPane seam).
+ * Returns the FINAL probe's verdict — an early "ready" then a death still fails.
+ */
+function pollUntilReady(
+  isAlive: () => boolean,
+  readPane: () => string,
+  sleep: (ms: number) => void,
+): boolean {
+  let ready = false;
+  for (let attempt = 0; attempt < READY_POLL_ATTEMPTS; attempt++) {
+    if (attempt > 0) sleep(READY_POLL_INTERVAL_MS);
+    ready = isAlive() ? parsePaneReady(readPane()) : false;
+  }
+  return ready;
+}
+
+/**
+ * Polls until the seed is confirmed consumed AND the pane is still alive at the
+ * end. Consumption is LATCHED (monotonic positive evidence — once a turn is
+ * observed it cannot un-happen), while liveness is read every probe and the
+ * FINAL reading is the verdict, so a consume-then-die (Mode 3) yields false.
+ * A never-consumed pane (Mode 1) also yields false.
+ */
+function pollUntilConsumed(
+  isAlive: () => boolean,
+  readPane: () => string,
+  sleep: (ms: number) => void,
+): boolean {
+  let everConsumed = false;
+  let aliveAtEnd = false;
+  for (let attempt = 0; attempt < CONSUME_POLL_ATTEMPTS; attempt++) {
+    if (attempt > 0) sleep(CONSUME_POLL_INTERVAL_MS);
+    aliveAtEnd = isAlive();
+    if (aliveAtEnd && !everConsumed && parsePaneConsumed(readPane())) {
+      everConsumed = true;
+    }
+  }
+  return everConsumed && aliveAtEnd;
 }
 
 export type CreateWindowVerifiedDeps = {
@@ -260,6 +439,24 @@ export type CreateWindowVerifiedDeps = {
    * consuming the real ~480ms budget.
    */
   sleep?: (ms: number) => void;
+  /**
+   * Pane-capture seam (capture-pane). Defaults to the real capturePaneBySlug,
+   * which shells out via the module-private tmux spawn; tests inject a stub that
+   * returns fixture pane text so the ready/consumption polls never touch tmux.
+   */
+  readPane?: (slug: string, session?: string) => string;
+  /**
+   * send-keys seam. Defaults to the real sendKeysBySlug. `literal` selects
+   * `-l --` literal text vs a key name (e.g. "Enter"). Tests inject a spy to
+   * assert delivery happens only after ready and that text + Enter are separate
+   * calls.
+   */
+  sendKeys?: (
+    slug: string,
+    keysOrText: string,
+    literal: boolean,
+    session?: string,
+  ) => { ok: boolean; stderr: string };
 };
 
 export type RespawnWindowVerifiedDeps = {
@@ -279,20 +476,34 @@ export type RespawnWindowVerifiedDeps = {
   isAlive?: (slug: string, session?: string) => boolean;
   /** Inter-probe delay seam — same contract as `CreateWindowVerifiedDeps.sleep`. */
   sleep?: (ms: number) => void;
+  /** Pane-capture seam — same contract as `CreateWindowVerifiedDeps.readPane`. */
+  readPane?: (slug: string, session?: string) => string;
+  /** send-keys seam — same contract as `CreateWindowVerifiedDeps.sendKeys`. */
+  sendKeys?: (
+    slug: string,
+    keysOrText: string,
+    literal: boolean,
+    session?: string,
+  ) => { ok: boolean; stderr: string };
 };
 
 /**
- * Creates the window via `createWindow`, then runs `pollUntilAlive` to confirm
- * the launched process actually stayed up. tmux's `new-window` exit code only
- * proves the shell forked — a `claude` that exits immediately leaves a
- * half-created window that the caller would otherwise persist state for (the
- * intermittent `flow new` orphan). On not-alive-at-end we kill the half-created
- * window and return `{ ok: false }` so the caller never writes state for it.
+ * Creates the window via `createWindow`, waits for `claude`'s TUI to draw, then
+ * OWNS seed delivery: it sends `seed` via send-keys (literal text + a separate
+ * Enter) and gates success on confirmed *consumption* — the pane advancing past
+ * the empty input box into an active supervisor turn. tmux's `new-window` exit
+ * code only proves the shell forked, and a bare liveness probe passes a `claude`
+ * idle at an empty input box (Mode 1), so this verifies the seed actually ran,
+ * not just that a process is up. On ANY verification failure (never ready, seed
+ * never consumed, consumed-then-died) we kill the half-created window and return
+ * `{ ok: false }` so the caller never writes state for it. The double-submit
+ * guard skips send-keys when the positional prompt already auto-ran the seed.
  */
 export function createWindowVerified(
   slug: string,
   cwd: string,
   command: string[],
+  seed: string,
   deps: CreateWindowVerifiedDeps = {},
   session = FLOW_SESSION,
 ): { ok: boolean; stderr: string } {
@@ -300,48 +511,121 @@ export function createWindowVerified(
   const isAlive = deps.isAlive ?? isPaneAlive;
   const kill = deps.kill ?? killWindow;
   const sleep = deps.sleep ?? sleepSync;
+  const readPane = deps.readPane ?? capturePaneBySlug;
+  const sendKeys = deps.sendKeys ?? sendKeysBySlug;
 
   const created = create(slug, cwd, command, session);
   if (!created.ok) return created;
 
-  if (!pollUntilAlive(() => isAlive(slug, session), sleep)) {
+  // Phase 1 — wait for claude to come up AND draw its TUI. Catches an immediate
+  // or early death (never alive) and a pane that never renders.
+  if (
+    !pollUntilReady(
+      () => isAlive(slug, session),
+      () => readPane(slug, session),
+      sleep,
+    )
+  ) {
     kill(slug, session);
     return {
       ok: false,
       stderr:
-        "tmux window created but its process exited immediately (pane not alive after launch)",
+        "tmux window created but claude never became ready (pane not alive / TUI not drawn after launch)",
+    };
+  }
+
+  // Phase 2 — deliver the seed via send-keys UNLESS the positional prompt
+  // already auto-ran it (double-submit guard). Literal text, then a SEPARATE
+  // Enter — keeps the path shell-free and a newline in the seed can't pre-submit.
+  if (!parsePaneConsumed(readPane(slug, session))) {
+    sendKeys(slug, seed, true, session);
+    sendKeys(slug, "Enter", false, session);
+  }
+
+  // Phase 3 — confirm the seed was consumed (supervisor turn underway) AND the
+  // pane is still alive. Catches Mode 1 (seed never consumed) and Mode 3
+  // (consumed then died within seconds).
+  if (
+    !pollUntilConsumed(
+      () => isAlive(slug, session),
+      () => readPane(slug, session),
+      sleep,
+    )
+  ) {
+    kill(slug, session);
+    return {
+      ok: false,
+      stderr:
+        "tmux window created but the seed prompt was never consumed (supervisor did not start)",
     };
   }
   return { ok: true, stderr: "" };
 }
 
 /**
- * `respawnWindow` + the same bounded liveness poll as `createWindowVerified`.
- * `respawn-window`'s exit code only proves tmux relaunched the pane; a claude
- * that dies on launch would otherwise let `flow new --resume` report a false
- * "resumed" success over a dead window. Unlike the create path we do NOT kill
- * the window on failure — it pre-existed the resume and the user may want to
- * inspect its scrollback; we only report `{ ok: false }`.
+ * `respawnWindow` + the same ready→send→consume flow as `createWindowVerified`:
+ * it waits for claude's TUI to draw, OWNS seed delivery (send-keys literal text
+ * + a separate Enter, guarded against a double-submit), and gates success on
+ * confirmed *consumption*, not mere liveness. `respawn-window`'s exit code only
+ * proves tmux relaunched the pane, and a `claude` idle at an empty input box
+ * (Mode 1) passes a liveness probe, so this verifies the resume seed actually
+ * ran. Unlike the create path we NEVER kill the window on any verification
+ * failure — it pre-existed the resume and the user may want to inspect its
+ * scrollback; we only report `{ ok: false }`.
  */
 export function respawnWindowVerified(
   slug: string,
   cwd: string,
   command: string[],
+  seed: string,
   deps: RespawnWindowVerifiedDeps = {},
   session = FLOW_SESSION,
 ): { ok: boolean; stderr: string } {
   const respawn = deps.respawn ?? respawnWindow;
   const isAlive = deps.isAlive ?? isPaneAlive;
   const sleep = deps.sleep ?? sleepSync;
+  const readPane = deps.readPane ?? capturePaneBySlug;
+  const sendKeys = deps.sendKeys ?? sendKeysBySlug;
 
   const respawned = respawn(slug, cwd, command, session);
   if (!respawned.ok) return respawned;
 
-  if (!pollUntilAlive(() => isAlive(slug, session), sleep)) {
+  // Phase 1 — wait for the relaunched claude to come up AND draw its TUI.
+  if (
+    !pollUntilReady(
+      () => isAlive(slug, session),
+      () => readPane(slug, session),
+      sleep,
+    )
+  ) {
     return {
       ok: false,
       stderr:
-        "tmux window respawned but its process exited immediately (pane not alive after launch)",
+        "tmux window respawned but claude never became ready (pane not alive / TUI not drawn after launch)",
+    };
+  }
+
+  // Phase 2 — deliver the resume seed via send-keys UNLESS the positional prompt
+  // already auto-ran it (double-submit guard). Literal text, then a SEPARATE
+  // Enter — keeps the path shell-free.
+  if (!parsePaneConsumed(readPane(slug, session))) {
+    sendKeys(slug, seed, true, session);
+    sendKeys(slug, "Enter", false, session);
+  }
+
+  // Phase 3 — confirm the resume seed was consumed AND the pane is still alive.
+  // NO kill on failure: the window pre-existed the resume.
+  if (
+    !pollUntilConsumed(
+      () => isAlive(slug, session),
+      () => readPane(slug, session),
+      sleep,
+    )
+  ) {
+    return {
+      ok: false,
+      stderr:
+        "tmux window respawned but the seed prompt was never consumed (supervisor did not start)",
     };
   }
   return { ok: true, stderr: "" };

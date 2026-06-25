@@ -276,6 +276,29 @@ extra workspace dirs, and `--task` names the artifact
 for the full per-flag contract. It is a standalone leaf helper — flow does not
 auto-invoke it from any pipeline step.
 
+**Optional `research.discovery` opt-in (planning research pre-check).** Setting
+`{ "research": { "discovery": true } }` in `~/.flow/config.json` lets a pipeline
+OPTIONALLY run deep, web-grounded, agy-delegated research **before planning**,
+feeding a cited report into discovery as prior context (with confidence labels).
+It is **config-only** — there is no `flow new` flag — and the schema is an object
+(`research: { discovery: boolean, maxCalls?: number, model?: string, refuteModel?: string, timeout?: string }`,
+`discovery` default `false`). The pass is **relevance-gated and safe-by-default**:
+it fires only on a genuinely-researchable feature (integrating an external
+API/spec, a security/correctness question with an authoritative answer, a "current
+best practice for X" question) and skips a pure-internal change (CSS tweak, rename,
+refactor); when uncertain it does not research. When `agy` is absent or logged out
+it **gracefully skips** (a no-op — planning proceeds unchanged, never hard-fails),
+the same opt-in-by-presence model as `flow-delegate` itself.
+
+Four optional **budget keys** tune the bounded pass; each defaults to its v1 value when absent:
+
+- `research.maxCalls` (number, default `12`) — the `flow-delegate-fanout --max-calls` cap on total agy calls.
+- `research.timeout` (string, default `"3m"`) — the per-manifest-entry agy timeout, applied to every entry.
+- `research.model` (string, default `"Gemini 3.1 Pro (High)"`) — the **gather** model variant.
+- `research.refuteModel` (string, default `"Claude Opus 4.6 (Thinking)"`) — the adversarial **refute** model variant. It must stay a _different_ variant from `research.model`; if you set both equal, flow warns and falls back the refute to a pinned alternate (`"Claude Opus 4.6 (Thinking)"` / `"GPT-OSS 120B (Medium)"`) that differs.
+
+Each key is **tolerant by construction**: an absent key silently takes its default; a key that is **present but the wrong JSON type triggers a loud `stderr` warning and falls back to the default** — never a throw, never an aborted pass, so a config typo degrades to a warning rather than blocking planning. `--concurrency` is **not** operator-tunable (pinned at `4`; it is load-bearing in the runtime-ceiling arithmetic). The pass stays **bounded** — the synchronous worst case is `ceil(maxCalls / 4)` waves × the per-entry timeout, ~9-min at the defaults (`3` waves × `3m`). **Runtime-ceiling caveat:** raising `maxCalls` and `timeout` together can push that product past the observed-safe ~10-min one-shot sub-agent wall-clock, so keep it under ~10 min when tuning. Off by default; absent or malformed config behaves exactly as today.
+
 ### Command Execution
 
 Prefer absolute paths over `cd <path> &&` to maintain a consistent working directory.
