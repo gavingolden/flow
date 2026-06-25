@@ -272,15 +272,18 @@ function runFresh(description: string, options: NewOptions): number {
   }
 
   const worktree = deriveWorktreePath(repo, slug);
+  const seed = flowPipelineSeed(description);
   const command =
     options.command ?? defaultCommand(description, worktree, options.effort);
-  // Verify the window's process actually stayed up before persisting state.
-  // A bare `createWindow` only proves tmux forked the shell; a claude that
-  // exits on launch would otherwise leave an orphaned state file (the
-  // intermittent `flow new` bug). createWindowVerified kills its own
-  // half-created window on failure, so an exhausted retry leaves nothing behind.
+  // Verify the window's process actually stayed up AND consumed the seed before
+  // persisting state. A bare `createWindow` only proves tmux forked the shell,
+  // and a `claude` idle at an empty input box passes a liveness probe, so a
+  // dead-on-arrival pipeline would otherwise leave an orphaned state file (the
+  // intermittent `flow new` bug). createWindowVerified owns seed delivery and
+  // kills its own half-created window on failure, so an exhausted retry leaves
+  // nothing behind.
   const result = launchWithRetry(
-    () => createWindowVerified(slug, repo, command),
+    () => createWindowVerified(slug, repo, command, seed),
     options.retrySleepMs,
   );
   if (!result.ok) {
@@ -291,6 +294,19 @@ function runFresh(description: string, options: NewOptions): number {
       "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
     );
     if (result.stderr) console.error(`  ${result.stderr}`);
+    return 1;
+  }
+
+  // Mode-2 backstop: the verified launch confirmed a live, seeded window, but a
+  // window can still vanish between that check and the state write (a racing
+  // kill, a tmux bounce). Never persist state for a window that is already gone.
+  if (!windowExists(slug)) {
+    console.error(
+      "flow new: the tmux window vanished after launch — not writing state.",
+    );
+    console.error(
+      "  retry `flow new`; if it persists, check tmux/claude health.",
+    );
     return 1;
   }
 
@@ -369,17 +385,20 @@ function runResume(name: string, options: NewOptions): number {
   // the pipeline crashed before step 2). Either way the resumed session
   // re-pre-authorizes the worktree as an MCP workspace root.
   const worktree = state.worktree ?? deriveWorktreePath(repo, slug);
+  const seed = flowPipelineResumeSeed(slug);
   const command =
     options.command ?? resumeCommand(slug, worktree, state.effort);
-  // Verify the relaunched process stays up, same as the fresh path — a bare
-  // respawn/create exit code only proves tmux forked the shell. Without this,
-  // `--resume` reports a false "resumed" success over a window whose claude
-  // died on launch. Bounded retry so a transient hiccup self-heals.
+  // Verify the relaunched process stays up AND consumes the resume seed, same as
+  // the fresh path — a bare respawn/create exit code only proves tmux forked the
+  // shell, and a claude idle at an empty input box passes a liveness probe.
+  // Without this, `--resume` reports a false "resumed" success over a window
+  // whose claude died on launch or never picked up the seed. The verified
+  // launcher owns seed delivery. Bounded retry so a transient hiccup self-heals.
   const result = launchWithRetry(
     () =>
       exists
-        ? respawnWindowVerified(slug, repo, command)
-        : createWindowVerified(slug, repo, command),
+        ? respawnWindowVerified(slug, repo, command, seed)
+        : createWindowVerified(slug, repo, command, seed),
     options.retrySleepMs,
   );
   if (!result.ok) {
@@ -444,6 +463,18 @@ function launchArgv(
   return effort ? [...base, "--effort", effort, prompt] : [...base, prompt];
 }
 
+// The seed text is defined ONCE here and reused for both the hybrid positional
+// argv (the zero-cost fallback for claude versions that auto-run a positional
+// prompt) AND the send-keys delivery the verified launcher now owns, so the two
+// can never drift.
+function flowPipelineSeed(description: string): string {
+  return `Use the /flow-pipeline skill for: ${description}`;
+}
+
+function flowPipelineResumeSeed(slug: string): string {
+  return `Use the /flow-pipeline skill in --resume mode for: ${slug}`;
+}
+
 function defaultCommand(
   description: string,
   worktree: string,
@@ -452,8 +483,7 @@ function defaultCommand(
   // The supervisor skill is invoked by the chat session itself, not by
   // passing the slash command on the CLI. We launch claude with an initial
   // prompt that tells the user (and the LLM, once active) what to do.
-  const prompt = `Use the /flow-pipeline skill for: ${description}`;
-  return launchArgv(worktree, prompt, effort);
+  return launchArgv(worktree, flowPipelineSeed(description), effort);
 }
 
 function resumeCommand(
@@ -463,8 +493,7 @@ function resumeCommand(
 ): string[] {
   // The supervisor parses this prefix to detect resume mode and walk the
   // decision tree in references/failure-recovery.md section (b).
-  const prompt = `Use the /flow-pipeline skill in --resume mode for: ${slug}`;
-  return launchArgv(worktree, prompt, effort);
+  return launchArgv(worktree, flowPipelineResumeSeed(slug), effort);
 }
 
 // Duplicated from done.ts's confirm() rather than extracted to a shared
