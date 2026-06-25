@@ -26,9 +26,14 @@
  * Usage:
  *   flow-delegate-fanout --manifest <json-file>
  *                        [--concurrency <K>] [--max-calls <B>] [--out <path>]
+ *                        [--default-entry-timeout <duration>]
  *
  *   Manifest is a JSON array of entries:
  *     { task, model, prompt | promptFile, timeout?, addDirs?, out? }
+ *
+ *   --default-entry-timeout is a fanout-level backstop: any entry that omits
+ *   its own `timeout` is dispatched with this value, so a manifest that forgets
+ *   a per-entry cap still gets one. A per-entry `timeout` always wins.
  *
  * stdout is always the single aggregate JSON envelope:
  *   { entries: [{ task, model, ran, artifactPath?, skipReason?, durationMs? }],
@@ -64,6 +69,7 @@ export type FanoutArgs = {
   concurrency: number;
   maxCalls: number;
   out: string;
+  defaultEntryTimeout?: string;
 };
 
 export type EntryResult = {
@@ -136,6 +142,9 @@ export function parseFanoutArgs(
       case "--out":
         out.out = value;
         break;
+      case "--default-entry-timeout":
+        out.defaultEntryTimeout = value;
+        break;
       default:
         return { error: `unknown flag: ${flag}` };
     }
@@ -157,6 +166,7 @@ export function parseFanoutArgs(
     concurrency,
     maxCalls,
     out: out.out ?? DEFAULT_OUT,
+    defaultEntryTimeout: out.defaultEntryTimeout,
   };
 }
 
@@ -310,7 +320,7 @@ export async function run(
   if ("error" in parsed) {
     deps.progress(`flow-delegate-fanout: ${parsed.error}\n`);
     deps.progress(
-      "usage: flow-delegate-fanout --manifest <json-file> [--concurrency <K>] [--max-calls <B>] [--out <path>]\n",
+      "usage: flow-delegate-fanout --manifest <json-file> [--concurrency <K>] [--max-calls <B>] [--out <path>] [--default-entry-timeout <duration>]\n",
     );
     return 2;
   }
@@ -344,10 +354,17 @@ export async function run(
   const dispatched = entries.slice(0, parsed.maxCalls);
   const overBudget = entries.slice(parsed.maxCalls);
 
-  const jobs = dispatched.map((entry, index) => ({
-    entry,
-    outPath: entryOutPath(entry, outPath, index),
-  }));
+  // A per-entry `timeout` always wins; the fanout-level --default-entry-timeout
+  // is the backstop for an entry that omits one. entryToDelegateArgv is left
+  // unchanged — it just sees an entry whose timeout may have been filled in.
+  const jobs = dispatched.map((entry, index) => {
+    const timeout = entry.timeout ?? parsed.defaultEntryTimeout;
+    const effective = timeout ? { ...entry, timeout } : entry;
+    return {
+      entry: effective,
+      outPath: entryOutPath(effective, outPath, index),
+    };
+  });
   const dispatchedResults = await runPool(deps, jobs, parsed.concurrency);
 
   const budgetResults: EntryResult[] = overBudget.map((entry) => ({
