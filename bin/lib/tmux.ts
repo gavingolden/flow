@@ -240,20 +240,20 @@ const CONSUME_POLL_INTERVAL_MS = 200;
 const READY_MARKERS = ["for shortcuts", "welcome to claude"];
 
 /**
- * Substrings indicating the seed was SUBMITTED and a supervisor turn is underway
- * — i.e. the pane advanced past the empty input box. These are active-turn
- * markers (only present while/after Claude processes a turn), chosen because they
- * distinguish a SUBMITTED prompt from text merely sitting un-submitted in the
- * input box (which would reintroduce the Mode-1 false positive). FIRST CUT
+ * Substring indicating the seed was SUBMITTED and a supervisor turn is underway
+ * — i.e. the pane advanced past the empty input box. The marker MUST be present
+ * ONLY during an active turn and NEVER on an idle/empty input box, because
+ * `parsePaneConsumed` backs BOTH the success gate (`pollUntilConsumed`) AND the
+ * pre-send double-submit guard: a marker that can match the idle TUI would fail
+ * OPEN — a never-consumed pane would falsely latch consumed, re-introducing the
+ * Mode-1 false-success this module exists to kill. "to interrupt" is the
+ * interrupt hint Claude renders only while processing a turn; it cannot appear
+ * on a drawn-but-idle input box, so it preserves the fail-closed guarantee (a
+ * false-negative merely retries; a false-positive would be the bug). FIRST CUT
  * (Claude Code v2.1.x) — validate live; see CONSUME_POLL_* caveat. Matched
  * case-insensitively.
  */
-const CONSUMPTION_MARKERS = [
-  "esc to interrupt",
-  "to interrupt",
-  "thinking",
-  "tokens",
-];
+const CONSUMPTION_MARKERS = ["to interrupt"];
 
 /**
  * True when the captured pane text shows Claude's interactive TUI has drawn and

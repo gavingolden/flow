@@ -231,13 +231,21 @@ describe(parsePaneConsumed, () => {
     expect(parsePaneConsumed("")).toBe(false);
   });
 
-  it("returns true for an active-turn marker ('esc to interrupt'), case-insensitively", () => {
+  it("returns true for the active-turn marker ('esc to interrupt'), case-insensitively", () => {
     expect(parsePaneConsumed("ESC to interrupt")).toBe(true);
-    expect(parsePaneConsumed("✻ Thinking…")).toBe(true);
+    // "to interrupt" subsumes "esc to interrupt" under includes(), so the bare
+    // interrupt hint (no "esc" prefix) must also count as consumed.
+    expect(parsePaneConsumed("Press ctrl+c to interrupt")).toBe(true);
   });
 
-  it("returns false for a ready-but-not-consumed pane (empty input box)", () => {
+  it("returns false for a ready-but-not-consumed idle pane (empty input box)", () => {
+    // The marker must never match an idle TUI footer — a token/usage counter
+    // ("thinking"/"tokens") would fail OPEN (false-success on a never-started
+    // supervisor), the exact Mode-1 bug this module exists to kill.
     expect(parsePaneConsumed("  ? for shortcuts")).toBe(false);
+    expect(parsePaneConsumed("✻ Thinking… (esc to clear) · 12.3k tokens")).toBe(
+      false,
+    );
   });
 });
 
