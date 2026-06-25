@@ -47,7 +47,6 @@
 import { readState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugFromPane } from "./lib/tmux";
-import { epicDirRelative } from "./lib/epic-manifest-schema";
 import {
   probeWorktree,
   probePr,
@@ -59,8 +58,6 @@ import {
   type GhRunner,
   type GitRunner,
 } from "./lib/resume-probes";
-import * as fs from "node:fs";
-import * as path from "node:path";
 
 // --- Types -----------------------------------------------------------------
 
@@ -225,29 +222,6 @@ export type Deps = {
   stateDir?: string;
   resolveSlug?: () => string | null;
 };
-
-/**
- * Reads <worktree>/<EPIC_DIR>/{design.md,manifest.json} and returns true iff
- * BOTH exist and are non-empty. The epic analogue of probePlan — the design
- * artifacts are the epic's on-disk "is the decomposition written?" signal.
- * Currently informational (decide() routes on phase + worktree + PR), exported
- * so the supervisor / tests can assert artifact presence on resume.
- */
-export function probeDesignArtifacts(
-  worktreePath: string,
-  slug: string,
-): boolean {
-  const epicDir = path.join(worktreePath, epicDirRelative(slug));
-  for (const name of ["design.md", "manifest.json"]) {
-    try {
-      const stat = fs.statSync(path.join(epicDir, name));
-      if (!stat.isFile() || stat.size === 0) return false;
-    } catch {
-      return false;
-    }
-  }
-  return true;
-}
 
 export function parseArgs(
   argv: string[],

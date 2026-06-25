@@ -206,6 +206,21 @@ PR → review checkpoint), and writes initial epic state under
     return 2;
   }
 
+  // Mode-2 backstop (mirrors new.ts runFresh): the verified launch confirmed a
+  // live, seeded window, but a window can still vanish between that check and the
+  // state write (a racing kill, a tmux bounce). Never persist epic state for a
+  // window that is already gone — otherwise `flow epic create` leaves the same
+  // orphaned `phase: "starting"` state file the verified-launch half guards against.
+  if (!windowExists(slug)) {
+    console.error(
+      "flow epic create: the tmux window vanished after launch — not writing state.",
+    );
+    console.error(
+      "  retry `flow epic create`; if it persists, check tmux/claude health.",
+    );
+    return 2;
+  }
+
   // Write the initial epic state. The /epic-create supervisor overwrites
   // worktree + phase + pr at each transition.
   const existing = readState(slug, options.stateDir);

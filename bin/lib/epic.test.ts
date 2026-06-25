@@ -64,6 +64,17 @@ beforeEach(() => {
     .mockReturnValue({ ok: true, stderr: "" });
 });
 
+// runCreate probes windowExists twice now: the up-front "already exists" guard
+// (false = proceed) and the pre-persist Mode-2 re-check (true = window still
+// present). Default both for a happy fresh launch. Resume tests are unaffected
+// (runEpicResume calls windowExists once) and keep the beforeEach default.
+function freshWindowOk(): void {
+  tmuxMock.windowExists
+    .mockReset()
+    .mockReturnValueOnce(false)
+    .mockReturnValue(true);
+}
+
 afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
   fs.rmSync(repoDir, { recursive: true, force: true });
@@ -104,6 +115,7 @@ describe("runEpicCli create — help short-circuit (no side effect)", () => {
 describe("runEpicCli create — window spawn (fresh)", () => {
   it("spawns a window + writes epic 'starting' state with the literal EPIC_DIR seed", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
     const code = runEpicCli(["create", "add a watchlist feature"], {
       stateDir,
       cwd: repoDir,
@@ -138,6 +150,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
 
   it("does NOT merge or launch any feature window (no respawn on a fresh create)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
     const code = runEpicCli(["create", "design the thing"], {
       stateDir,
       cwd: repoDir,
@@ -173,6 +186,27 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(code).toBe(2);
     expect(fs.readdirSync(stateDir)).toEqual([]);
     expect(errors.join("\n")).toMatch(/claude exited immediately after launch/);
+  });
+
+  it("MODE 2 (window vanished after verify): a missing window at the pre-persist re-check writes no state and exits non-zero", () => {
+    // Mirrors new.test.ts's Mode-2 case: the launcher reports ok (a live, seeded
+    // window), but the window vanishes before the state write (racing kill / tmux
+    // bounce). The pre-persist windowExists re-check catches it: guard #1 false →
+    // proceed; re-check #2 false → vanished. No state, exit 2, the vanished error.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({ ok: true, stderr: "" });
+    tmuxMock.windowExists
+      .mockReset()
+      .mockReturnValueOnce(false)
+      .mockReturnValueOnce(false);
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(2);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(errors.join("\n")).toMatch(/vanished after launch/);
   });
 });
 
