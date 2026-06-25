@@ -88,6 +88,15 @@ describe("parseFanoutArgs", () => {
       parseFanoutArgs(["--manifest", "m.json", "--default-entry-timeout"]),
     ).toEqual({ error: "--default-entry-timeout requires a value" });
   });
+
+  it("rejects an empty-string --default-entry-timeout value", () => {
+    // An empty string would survive the run() truthy gate as a falsy no-op,
+    // silently disabling the very ceiling the flag exists to HARD-enforce.
+    // Reject it at the parser the same way a missing value is rejected.
+    expect(
+      parseFanoutArgs(["--manifest", "m.json", "--default-entry-timeout", ""]),
+    ).toEqual({ error: "--default-entry-timeout requires a value" });
+  });
 });
 
 describe("entryToDelegateArgv", () => {

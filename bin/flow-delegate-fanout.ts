@@ -126,7 +126,7 @@ export function parseFanoutArgs(
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = argv[i + 1];
-    if (value === undefined || value.startsWith("--")) {
+    if (value === undefined || value === "" || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
     }
     switch (flag) {
