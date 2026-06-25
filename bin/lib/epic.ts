@@ -185,12 +185,14 @@ PR → review checkpoint), and writes initial epic state under
   // resolved LITERAL EPIC_DIR in the seed prompt so the spawned window (cwd'd
   // in a consumer worktree without bin/lib) consumes the literal, never an import.
   const epicDir = epicDirRelative(slug);
+  const seed = epicCreateSeed(prompt, epicDir);
   const command = options.command ?? createCommand(prompt, worktree, epicDir);
-  // Verify the window's process stayed up before persisting state (the
-  // intermittent `flow new` orphan bug). createWindowVerified kills its own
-  // half-created window on failure, so an exhausted retry leaves nothing behind.
+  // Verify the window's process stayed up AND consumed the seed before
+  // persisting state (the intermittent `flow new` orphan bug). createWindowVerified
+  // owns seed delivery and kills its own half-created window on failure, so an
+  // exhausted retry leaves nothing behind.
   const result = launchWithRetry(
-    () => createWindowVerified(slug, repo, command),
+    () => createWindowVerified(slug, repo, command, seed),
     options.retrySleepMs,
   );
   if (!result.ok) {
@@ -275,12 +277,13 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // R1: recompute the literal EPIC_DIR CLI-side on resume too, so the resumed
   // window never re-derives the path nor imports bin/lib.
   const epicDir = epicDirRelative(slug);
+  const seed = epicResumeSeed(slug, epicDir);
   const command = options.command ?? resumeCommand(slug, worktree, epicDir);
   const result = launchWithRetry(
     () =>
       exists
-        ? respawnWindowVerified(slug, repo, command)
-        : createWindowVerified(slug, repo, command),
+        ? respawnWindowVerified(slug, repo, command, seed)
+        : createWindowVerified(slug, repo, command, seed),
     options.retrySleepMs,
   );
   if (!result.ok) {
@@ -311,16 +314,29 @@ function launchArgv(worktree: string, prompt: string): string[] {
   return ["claude", "--add-dir", worktree, prompt];
 }
 
+// The seed text is defined ONCE in these helpers and reused for both the
+// positional argv (the zero-cost fallback for claude builds that auto-run a
+// positional prompt) AND the send-keys delivery createWindowVerified now owns
+// (#355), so the two can never drift — mirrors new.ts's flowPipelineSeed. The
+// literal EPIC_DIR is embedded (R1) so the /epic-create supervisor + the MODE:
+// epic designer consume it directly rather than re-deriving the path via a
+// bin/lib import they can't reach in a consumer worktree.
+function epicCreateSeed(prompt: string, epicDir: string): string {
+  return `Use the /epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}`;
+}
+
+function epicResumeSeed(slug: string, epicDir: string): string {
+  // The supervisor parses this prefix to detect resume mode and walk its
+  // `# Resume mode` decision via flow-epic-resume-decide.
+  return `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
+}
+
 function createCommand(
   prompt: string,
   worktree: string,
   epicDir: string,
 ): string[] {
-  // The /epic-create supervisor parses this prompt. The literal EPIC_DIR is
-  // embedded (R1) so the supervisor + the MODE: epic designer consume it
-  // directly rather than re-deriving the path via a bin/lib import.
-  const prompt2 = `Use the /epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}`;
-  return launchArgv(worktree, prompt2);
+  return launchArgv(worktree, epicCreateSeed(prompt, epicDir));
 }
 
 function resumeCommand(
@@ -328,11 +344,7 @@ function resumeCommand(
   worktree: string,
   epicDir: string,
 ): string[] {
-  // The supervisor parses this prefix to detect resume mode and walk its
-  // `# Resume mode` decision via flow-epic-resume-decide. EPIC_DIR is embedded
-  // exactly as the fresh seed prompt does (R1).
-  const prompt = `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
-  return launchArgv(worktree, prompt);
+  return launchArgv(worktree, epicResumeSeed(slug, epicDir));
 }
 
 function resolveRepoRoot(cwd: string): string | null {
