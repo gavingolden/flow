@@ -71,7 +71,7 @@ renumbering). Outside the supervisor context (e.g. invoked directly from a
 user session), the Task tool is unrestricted, so the spawn runs identically.
 Either path: one subagent, returns artifacts on disk + a brief summary.
 
-**Optional web-grounded research pre-check (config-gated).** When `~/.flow/config.json` has `research.discovery: true` and `agy` is available, the discovery subagent may OPTIONALLY run a relevance-gated, web-grounded research pass before planning — see `references/discovery-instructions.md` "Step 1.5". That research is a **wrapper/subagent Bash fan-out** (the subagent loads `/flow-research` in-process, which shells `flow-delegate-fanout`), **NOT a Task spawn**. The single discovery Task call below and the nine-exemption invariant in `flow-pipeline/SKILL.md` are therefore unchanged — no new exemption is added.
+**Optional web-grounded research pre-check (config-gated).** When `~/.flow/config.json` has `research.discovery: true` and `agy` is available, the discovery subagent may OPTIONALLY run a relevance-gated, web-grounded research pass before planning — see `references/discovery-instructions.md` "Step 1.5". That research is a **subagent-driven Bash fan-out** (the subagent drives `flow-delegate-fanout` directly via Bash — a spawned sub-agent has no `Skill` tool, so it cannot load `/flow-research` in-process; it follows that skill's procedure, which it reads), **NOT a Task spawn**. The single discovery Task call below and the nine-exemption invariant in `flow-pipeline/SKILL.md` are therefore unchanged — no new exemption is added.
 
 # Spawn procedure
 

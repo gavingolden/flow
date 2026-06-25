@@ -25,8 +25,10 @@ gathering and refutation run as `agy` subprocesses, fanned out concurrently by
 
 This is roadmap item **F1** for `flow-delegate`. Wiring it into
 `/product-planning` discovery (roadmap **F2** / issue #338) is **now done**:
-the discovery sub-agent may load this skill in-process to gather web-grounded
-evidence before planning. That F2 use is a **Bash fan-out**
+the discovery sub-agent gathers web-grounded evidence before planning by driving
+`flow-delegate-fanout` **directly via Bash** — a spawned Task sub-agent does **not**
+have the `Skill` tool, so it cannot load this skill in-process; it `Read`s this
+skill's procedure and runs the fan-out itself. That F2 use is a **Bash fan-out**
 (`flow-delegate-fanout`), **not a nested Task** — the discovery sub-agent
 itself is this pipeline's orchestrating "Claude", so the no-nested-LLM
 invariant and the nine-exemption count are preserved (no new exemption). The
