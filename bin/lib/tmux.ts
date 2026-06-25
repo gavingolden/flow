@@ -223,37 +223,61 @@ const LIVENESS_POLL_INTERVAL_MS = 120;
  * into an active supervisor turn). These windows are deliberately longer than
  * the ~480ms liveness budget so a slow cold-start is not killed as a false
  * orphan AND a multi-second death (Mode 3) is still caught — we keep polling
- * across the whole budget and require alive-at-the-end. FIRST CUT: like the
- * LIVENESS_* budget, these MUST be validated against a real `claude`
- * cold-launch and tuned if dogfooding shows otherwise.
+ * across the whole budget and require alive-at-the-end. Validated against a live
+ * Claude Code v2.1.191 cold-launch dogfood: claude rendered its banner within a
+ * few seconds and produced a ⏺ tool-call bullet within ~2-3s of submit, so the
+ * ~18s budgets carry a generous margin. Re-validate if a future TUI changes
+ * cold-start or first-tool-call timing.
  */
-const READY_POLL_ATTEMPTS = 40; // ~8s to first TUI render
-const READY_POLL_INTERVAL_MS = 200;
-const CONSUME_POLL_ATTEMPTS = 40; // ~8s from submit to an observable active turn
-const CONSUME_POLL_INTERVAL_MS = 200;
+const READY_POLL_ATTEMPTS = 60; // ~18s to first TUI render on a cold launch
+const READY_POLL_INTERVAL_MS = 300;
+const CONSUME_POLL_ATTEMPTS = 60; // ~18s from submit to the first ⏺/✻ (early-exit on match)
+const CONSUME_POLL_INTERVAL_MS = 300;
 
 /**
- * Substrings indicating Claude Code's interactive TUI has finished its initial
- * render and is ready to accept input. FIRST CUT (Claude Code v2.1.x) — validate
- * against a live cold-launch; see READY_POLL_* caveat. Matched case-insensitively.
+ * Substrings indicating Claude Code's interactive TUI has drawn its fresh
+ * welcome screen and is ready for input. Validated against a live Claude Code
+ * v2.1.191 cold-launch (`tmux capture-pane`): the launch banner header
+ * ("Claude Code v<ver>"), the personalized greeting ("Welcome back"), the
+ * rotating input placeholder (`Try "`), plus the compact-state shortcut hint
+ * ("? for shortcuts") as a fallback for a session that already dismissed the
+ * banner. Matched case-insensitively.
  */
-const READY_MARKERS = ["for shortcuts", "welcome to claude"];
+const READY_MARKERS = [
+  "claude code v",
+  "welcome back",
+  'try "',
+  "for shortcuts",
+];
 
 /**
- * Substring indicating the seed was SUBMITTED and a supervisor turn is underway
- * — i.e. the pane advanced past the empty input box. The marker MUST be present
- * ONLY during an active turn and NEVER on an idle/empty input box, because
- * `parsePaneConsumed` backs BOTH the success gate (`pollUntilConsumed`) AND the
- * pre-send double-submit guard: a marker that can match the idle TUI would fail
- * OPEN — a never-consumed pane would falsely latch consumed, re-introducing the
- * Mode-1 false-success this module exists to kill. "to interrupt" is the
- * interrupt hint Claude renders only while processing a turn; it cannot appear
- * on a drawn-but-idle input box, so it preserves the fail-closed guarantee (a
- * false-negative merely retries; a false-positive would be the bug). FIRST CUT
- * (Claude Code v2.1.x) — validate live; see CONSUME_POLL_* caveat. Matched
- * case-insensitively.
+ * Substrings indicating the seed was SUBMITTED and a supervisor turn is underway
+ * or completed — i.e. the pane advanced past the empty welcome screen. Validated
+ * against live Claude Code v2.1.191: the response/tool-call bullet ("⏺", which the
+ * flow supervisor produces within ~2-3s via its first Skill/Bash tool call) and
+ * the thinking/completion glyph ("✻", as in "✻ Cooked for 2s"). Chosen because
+ * NEITHER appears on the idle welcome screen, so a never-consumed pane can never
+ * falsely latch consumed (fail-closed — a false negative just retries; a
+ * false-positive would re-introduce the Mode-1 bug). NOTE: this claude version
+ * shows no "esc to interrupt" hint in the captured footer during streaming, so
+ * that marker is deliberately NOT used. Matched case-insensitively. Re-validate
+ * if a future Claude Code TUI changes these glyphs.
  */
-const CONSUMPTION_MARKERS = ["to interrupt"];
+const CONSUMPTION_MARKERS = ["⏺", "✻"];
+
+/**
+ * The two fresh-welcome signatures that vanish the instant any prompt is
+ * submitted and never return for the session: the launch banner header and the
+ * rotating input placeholder. parsePaneConsumed's transition fallback treats a
+ * non-empty pane with BOTH gone as consumed — a robust backstop for the case
+ * where a long initial streaming phase scrolls the "⏺" bullet off before the
+ * "✻" completion glyph appears. Requiring BOTH absent keeps it fail-closed: an
+ * idle pane (even one whose banner a user config suppressed) still shows the
+ * placeholder, and an idle pane with a non-"Try \"" placeholder still shows the
+ * banner header.
+ */
+const WELCOME_BANNER_HEADER = "claude code v";
+const IDLE_INPUT_PLACEHOLDER = 'try "';
 
 /**
  * True when the captured pane text shows Claude's interactive TUI has drawn and
@@ -277,7 +301,15 @@ export function parsePaneReady(captured: string): boolean {
 export function parsePaneConsumed(captured: string): boolean {
   const text = captured.trim().toLowerCase();
   if (!text) return false;
-  return CONSUMPTION_MARKERS.some((m) => text.includes(m));
+  // Fast path: a positive active/finished-turn glyph (not on the idle welcome screen).
+  if (CONSUMPTION_MARKERS.some((m) => text.includes(m))) return true;
+  // Transition fallback: BOTH fresh-welcome signatures are gone → the session
+  // advanced past the welcome screen (the seed was consumed). Fail-closed: an
+  // idle never-consumed pane always still shows at least one of them.
+  return (
+    !text.includes(WELCOME_BANNER_HEADER) &&
+    !text.includes(IDLE_INPUT_PLACEHOLDER)
+  );
 }
 
 /**

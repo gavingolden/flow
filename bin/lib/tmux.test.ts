@@ -19,10 +19,22 @@ import {
   type TmuxWindow,
 } from "./tmux";
 
-/** A ready-but-not-yet-consumed pane capture (TUI drawn, empty input box). */
-const READY_CAPTURE = "  ? for shortcuts";
-/** A consumed pane capture (an active supervisor turn is underway). */
-const CONSUMED_CAPTURE = "esc to interrupt";
+/**
+ * A ready-but-not-yet-consumed pane capture: a representative idle welcome
+ * screen from a live Claude Code v2.1.191 cold-launch. Contains the banner
+ * header ("Claude Code v") and the input placeholder ('Try "'), so
+ * parsePaneReady→true and parsePaneConsumed→false (both welcome signatures
+ * present → the transition fallback does not fire).
+ */
+const READY_CAPTURE =
+  '╭─── Claude Code v2.1.191 ───╮  Welcome back Gavin!  ❯ Try "how does X work?"  ⏵⏵ auto mode on (shift+tab to cycle)';
+/**
+ * A consumed pane capture: a representative active-turn capture. Contains the
+ * response/tool-call bullet ("⏺") and the thinking/completion glyph ("✻"), so
+ * parsePaneConsumed→true.
+ */
+const CONSUMED_CAPTURE =
+  "⏺ Bash(flow-state-update --phase triaging)  ✻ Cooked for 2s  ❯ ";
 
 /**
  * A two-phase readPane + matching sendKeys spy modelling the real lifecycle:
@@ -212,17 +224,25 @@ describe(parsePaneReady, () => {
     expect(parsePaneReady("   \n  ")).toBe(false);
   });
 
-  it("returns true for a drawn TUI ('? for shortcuts'), case-insensitively", () => {
+  it("returns true for the idle welcome screen, case-insensitively", () => {
+    expect(parsePaneReady(READY_CAPTURE)).toBe(true);
+    // Banner header, greeting, and the shortcut-hint fallback each suffice.
+    expect(parsePaneReady("  Claude Code V2.1.191")).toBe(true);
+    expect(parsePaneReady("Welcome Back Gavin!")).toBe(true);
     expect(parsePaneReady("  ? for Shortcuts")).toBe(true);
-    expect(parsePaneReady("Welcome to Claude Code")).toBe(true);
   });
 
   it("treats a consumed pane as ready (positional auto-ran)", () => {
-    expect(parsePaneReady("esc to interrupt")).toBe(true);
+    expect(parsePaneReady(CONSUMED_CAPTURE)).toBe(true);
   });
 
-  it("returns false for a banner with no input box and no active turn", () => {
-    expect(parsePaneReady("loading...")).toBe(false);
+  it("returns false only for an empty pane (a non-empty pane is ready or consumed)", () => {
+    // Under the fail-closed transition model every non-empty pane is either
+    // showing a welcome signature (ready) or has advanced past it (consumed,
+    // which implies ready), so emptiness is the sole not-ready state.
+    expect(parsePaneReady("")).toBe(false);
+    // A mid-draw banner still carries the header signature → ready.
+    expect(parsePaneReady("╭─── Claude Code v2.1.191")).toBe(true);
   });
 });
 
@@ -231,21 +251,33 @@ describe(parsePaneConsumed, () => {
     expect(parsePaneConsumed("")).toBe(false);
   });
 
-  it("returns true for the active-turn marker ('esc to interrupt'), case-insensitively", () => {
-    expect(parsePaneConsumed("ESC to interrupt")).toBe(true);
-    // "to interrupt" subsumes "esc to interrupt" under includes(), so the bare
-    // interrupt hint (no "esc" prefix) must also count as consumed.
-    expect(parsePaneConsumed("Press ctrl+c to interrupt")).toBe(true);
+  it("returns true on the ⏺/✻ active-turn glyphs (the fast path)", () => {
+    expect(parsePaneConsumed(CONSUMED_CAPTURE)).toBe(true);
+    // Either glyph alone suffices.
+    expect(parsePaneConsumed("⏺ Hi")).toBe(true);
+    expect(parsePaneConsumed("✻ Sautéed for 4s")).toBe(true);
   });
 
-  it("returns false for a ready-but-not-consumed idle pane (empty input box)", () => {
-    // The marker must never match an idle TUI footer — a token/usage counter
-    // ("thinking"/"tokens") would fail OPEN (false-success on a never-started
-    // supervisor), the exact Mode-1 bug this module exists to kill.
-    expect(parsePaneConsumed("  ? for shortcuts")).toBe(false);
-    expect(parsePaneConsumed("✻ Thinking… (esc to clear) · 12.3k tokens")).toBe(
-      false,
-    );
+  it("returns false for the idle welcome screen (fail-closed, no false latch)", () => {
+    // The idle welcome screen has neither glyph AND still shows both welcome
+    // signatures (banner header + 'Try "' placeholder), so the transition
+    // fallback does not fire — a never-started supervisor must never read as
+    // consumed (the Mode-1 bug this module exists to kill).
+    expect(parsePaneConsumed(READY_CAPTURE)).toBe(false);
+  });
+
+  it("transition fallback: both welcome signatures gone (no ⏺/✻) → consumed", () => {
+    // A long initial streaming phase can scroll the ⏺ bullet off the top before
+    // the ✻ completion glyph appears. With the banner header and the 'Try "'
+    // placeholder both gone, the pane has provably advanced past the welcome
+    // screen → consumed.
+    expect(parsePaneConsumed("some streamed response text\n❯ ")).toBe(true);
+  });
+
+  it("fail-closed: banner header still present (non-'Try \"' placeholder) → not consumed", () => {
+    // An idle pane whose rotating placeholder is not 'Try "' still shows the
+    // banner header, so the fallback's BOTH-absent requirement is not met.
+    expect(parsePaneConsumed("╭─ Claude Code v2.1.191 ─╮\n❯ ")).toBe(false);
   });
 });
 
