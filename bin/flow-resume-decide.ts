@@ -48,10 +48,37 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import { readState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugFromPane } from "./lib/tmux";
+import {
+  probeWorktree,
+  probePr,
+  probeBranch,
+  probeHeadCommit,
+  defaultGh,
+  defaultGit,
+  type WorktreeInfo,
+  type PrInfo,
+  type HeadCommit,
+  type GhRunner,
+  type GitRunner,
+} from "./lib/resume-probes";
+
+// Re-export the shared probe surface so existing importers of these symbols
+// from `./flow-resume-decide` (notably bin/flow-resume-decide.test.ts) keep
+// working byte-equivalently after the Q7 lift into lib/resume-probes.ts.
+export {
+  probeWorktree,
+  probePr,
+  probeBranch,
+  probeHeadCommit,
+  type WorktreeInfo,
+  type PrInfo,
+  type HeadCommit,
+  type GhRunner,
+  type GitRunner,
+};
 
 // --- Types -----------------------------------------------------------------
 
@@ -87,26 +114,10 @@ export type DecisionResult = {
   context: DecisionContext;
 };
 
-export type WorktreeInfo =
-  | { kind: "absent-from-state" }
-  | { kind: "missing-on-disk"; path: string }
-  | { kind: "present"; path: string };
-
-export type PrInfo =
-  | { kind: "none" }
-  | {
-      kind: "found";
-      state: "OPEN" | "MERGED" | "CLOSED";
-      number: number;
-      url: string;
-    };
-
 export type CiState =
   | { kind: "all-terminal" }
   | { kind: "pending" }
   | { kind: "no-checks-reported" };
-
-export type HeadCommit = { subject: string; body: string };
 
 export type Inputs = {
   slug: string;
@@ -390,28 +401,12 @@ export function hasPrReviewCommit(commit: HeadCommit | null): boolean {
 }
 
 // --- I/O wiring -----------------------------------------------------------
-
-type CmdResult = { stdout: string; stderr: string; exitCode: number };
-export type GhRunner = (argv: string[]) => CmdResult;
-export type GitRunner = (argv: string[], cwd: string) => CmdResult;
-
-const defaultGh: GhRunner = (argv) => {
-  const r = spawnSync("gh", argv, { encoding: "utf8" });
-  return {
-    stdout: r.stdout ?? "",
-    stderr: r.stderr ?? "",
-    exitCode: r.status ?? -1,
-  };
-};
-
-const defaultGit: GitRunner = (argv, cwd) => {
-  const r = spawnSync("git", argv, { cwd, encoding: "utf8" });
-  return {
-    stdout: r.stdout ?? "",
-    stderr: r.stderr ?? "",
-    exitCode: r.status ?? -1,
-  };
-};
+//
+// The skill-agnostic probes (probeWorktree / probePr / probeBranch /
+// probeHeadCommit) + the GhRunner/GitRunner types + defaultGh/defaultGit live
+// in ./lib/resume-probes (shared with flow-epic-resume-decide.ts) and are
+// re-exported at the top of this file. Only the feature-specific probes below
+// (probePlan / resolveDefaultBranch / probeSkillAdditions / probeCi) stay here.
 
 export type Deps = {
   gh?: GhRunner;
@@ -419,24 +414,6 @@ export type Deps = {
   stateDir?: string;
   resolveSlug?: () => string | null;
 };
-
-/** Probes the worktree path's status. Used by the runner to build Inputs.worktree. */
-export function probeWorktree(
-  stateWorktree: string | undefined,
-  git: GitRunner,
-): WorktreeInfo {
-  if (!stateWorktree) return { kind: "absent-from-state" };
-  if (!fs.existsSync(stateWorktree)) {
-    return { kind: "missing-on-disk", path: stateWorktree };
-  }
-  const r = git(["rev-parse", "--is-inside-work-tree"], stateWorktree);
-  if (r.exitCode !== 0 || r.stdout.trim() !== "true") {
-    // Directory exists but isn't a git checkout — treat as missing-on-disk
-    // for safety; the supervisor escalates either way.
-    return { kind: "missing-on-disk", path: stateWorktree };
-  }
-  return { kind: "present", path: stateWorktree };
-}
 
 /** Reads <worktree>/.flow-tmp/plan.md and returns true iff present + non-empty. */
 export function probePlan(worktreePath: string): boolean {
@@ -481,69 +458,6 @@ export function probeSkillAdditions(
     if (/^(skills|agents)\//.test(line)) return true;
   }
   return false;
-}
-
-/** Reads the HEAD commit's subject + body via `git log -1 --pretty=%B`. */
-export function probeHeadCommit(
-  worktreePath: string,
-  git: GitRunner,
-): HeadCommit | null {
-  const r = git(["log", "-1", "--pretty=%B"], worktreePath);
-  if (r.exitCode !== 0) return null;
-  const lines = r.stdout.replace(/\n+$/, "").split("\n");
-  const subject = lines[0] ?? "";
-  const body = lines.slice(1).join("\n").replace(/^\n+/, "");
-  return { subject, body };
-}
-
-/**
- * Looks up the current branch's PR via `gh pr view <branch>`. Maps gh's
- * "no PRs found" stderr to {kind: "none"}; treats anything else as not-found
- * (the resume tree should not crash on transient gh errors).
- */
-export function probePr(branch: string, gh: GhRunner): PrInfo {
-  const r = gh(["pr", "view", branch, "--json", "number,state,url"]);
-  if (r.exitCode !== 0) {
-    if (/no pull requests? found|no pull request associated/i.test(r.stderr)) {
-      return { kind: "none" };
-    }
-    return { kind: "none" };
-  }
-  try {
-    const parsed = JSON.parse(r.stdout) as {
-      number?: number;
-      state?: string;
-      url?: string;
-    };
-    if (
-      typeof parsed.number !== "number" ||
-      typeof parsed.url !== "string" ||
-      (parsed.state !== "OPEN" &&
-        parsed.state !== "MERGED" &&
-        parsed.state !== "CLOSED")
-    ) {
-      return { kind: "none" };
-    }
-    return {
-      kind: "found",
-      number: parsed.number,
-      state: parsed.state,
-      url: parsed.url,
-    };
-  } catch {
-    return { kind: "none" };
-  }
-}
-
-/** Computes the worktree's current branch (used for `gh pr view <branch>`). */
-export function probeBranch(
-  worktreePath: string,
-  git: GitRunner,
-): string | null {
-  const r = git(["branch", "--show-current"], worktreePath);
-  if (r.exitCode !== 0) return null;
-  const branch = r.stdout.trim();
-  return branch.length > 0 ? branch : null;
 }
 
 /** Polls `gh pr checks <pr> --json name,state` and classifies the result. */

@@ -107,6 +107,9 @@ export const TERMINAL_PHASES = [
   "gated",
   "needs-human",
   "cancelled",
+  // Epic-designer (`/epic-create`) approve-terminal. `cancelled` above is
+  // reused for the epic cancel path (no separate epic-cancelled phase).
+  "epic-approved",
 ] as const;
 
 export const PENDING_PHASES = [
@@ -115,6 +118,9 @@ export const PENDING_PHASES = [
   "triage-pending-clarification",
   "approval-pending-clarification",
   "ci-wait-pending",
+  // Epic-designer review checkpoint (the open design PR). `flow-stop-guard`
+  // must permit ending the turn here, so it is a pending phase.
+  "epic-design-pending-review",
 ] as const;
 
 export const STEP_PHASES = [
@@ -129,6 +135,13 @@ export const STEP_PHASES = [
   "reviewing",
   "gating",
   "merging",
+  // Epic-designer (`/epic-create`) step phases. These are NOT /flow-pipeline
+  // steps and have no `## Step N` heading in flow-pipeline/SKILL.md — the
+  // NEXT_STEP_BY_PHASE cross-doc lint scopes them out via a startsWith("epic-")
+  // filter.
+  "epic-designing",
+  "epic-validating",
+  "epic-pr-open",
 ] as const;
 
 export const PIPELINE_PHASES = [
@@ -182,6 +195,11 @@ export const PHASE_SHORT: Record<PipelinePhase, string> = {
   gated: "gated",
   "needs-human": "human",
   cancelled: "cancel",
+  "epic-designing": "e-dsgn",
+  "epic-validating": "e-val",
+  "epic-pr-open": "e-pr",
+  "epic-design-pending-review": "e-rvw?",
+  "epic-approved": "e-ok",
 };
 
 /**

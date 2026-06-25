@@ -204,10 +204,10 @@ caller-provided epic-output directory and writes **no** `plan.md` /
 `pr-description-draft.md`:
 
 ```
-Write the six-section epic design to (absolute path):
+Write the six-section epic design (design.md) to (absolute path):
   {{DESIGN_PATH}}
 
-Write the typed epic manifest to (absolute path):
+Write the typed epic manifest (manifest.json) to (absolute path):
   {{MANIFEST_PATH}}
 ```
 
@@ -224,10 +224,12 @@ Write the typed epic manifest to (absolute path):
   (e.g. `/flow-pipeline` retries by re-invoking `/product-planning`, which
   counts as a fresh invocation with its own one-shot Task call). The wrapper
   itself never retries — that would be a second Task call.
-- NEVER read `.flow-tmp/plan.md` from the wrapper. Forward the subagent's
-  summary, do an existence + non-empty check on both artifact paths, and
-  return. The supervisor (or other caller) reads the full plan when it
-  needs to; reading it here would duplicate that read in the same context.
+- NEVER read the mode's own artifacts from the wrapper (feature mode:
+  `.flow-tmp/plan.md`; `MODE: epic`: `design.md` / `manifest.json`). Forward
+  the subagent's summary, do an existence + non-empty check on both artifact
+  paths, and return. The supervisor (or other caller) reads the full
+  plan/design when it needs to; reading it here would duplicate that read in
+  the same context.
 
 # Verification
 
