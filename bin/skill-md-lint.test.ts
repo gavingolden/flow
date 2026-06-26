@@ -2147,12 +2147,18 @@ describe("pr-review include-by-reference structure", () => {
     // gain a one-clause exclusion, and Step 11b's Testability prose folds
     // in the missing-SUBJECTIVE-step finding. The new ceiling reflects the
     // new contract's scope, not a regrowth of previously-trimmed prose.
+    //
+    // Bumped 1880 → 1885 to absorb the UI-wiring behavioral assertion nudge
+    // added to Step 11b's Testability prose: the new paragraph flags
+    // import-presence-grep-only Test Steps on wiring changes as Testability:
+    // Fail (shallow) and cross-references the rubric. The ceiling reflects
+    // the new contract's scope, not unrelated bloat.
     expect(
       lineCount,
       `pr-review/SKILL.md line count must stay under the post-SUBJECTIVE ` +
-        `budget of 1880 lines. Material regrowth past this ceiling would ` +
+        `budget of 1885 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1880);
+    ).toBeLessThan(1885);
   });
 
   it("skills/pipeline/pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {

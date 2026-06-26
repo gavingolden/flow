@@ -42,6 +42,12 @@ Apply the **automation test** to every entry in the proposed manual section:
 > exit condition — all without subjective human judgment? If yes, it's a test, not a
 > manual step.
 
+### Guard-strength check
+
+A complementary axis to (a)–(c) above — ask it after confirming a check is automatable: **(d) could this check fail under a plausible regression OTHER than reverting this exact diff?** A check that only asserts import presence (`grep -q 'NewComponent' App.svelte`) passes whether or not the component is mounted, rendered, or wired to a route — the only scenario that makes it fail is reverting the file to its state before the import was added. A check that renders the component and asserts a visible element fails when mounting breaks, when the component throws, or when a required prop is missing.
+
+If (d) is no — the only failing scenario is reverting this exact diff — the check is a change-detector, not a guard. It may pass (a)–(c) yet still be too shallow to catch a real regression. Flag it and recommend a behavioral assertion instead (see **UI wiring behavioral assertion** in the Shallow smells section).
+
 **Probe-then-attempt before falling back to manual.** When you are unsure whether a local dependency a step needs — Docker, a local Supabase stack, a dev server — is already running, do NOT pre-label the step manual. Probe for it first (a health check, a port check, `docker ps`, `supabase status`), then attempt to start it (`npm run dev`, `supabase start`, `docker compose up -d`) and run the step. Only fall back to leaving the item manual after a genuine attempt to satisfy the precondition fails for a reason outside the agent's control (a credential you cannot mint, a service you cannot reach, a port you cannot bind). A step whose only blocker is "the local stack wasn't up yet" is runnable — bring the stack up and run it.
 
 ### Safely automatable (move to a test, do not leave manual)
@@ -330,10 +336,10 @@ to follow a link. The auto-merge gate (`bin/flow-gate-decide.ts`) strips HTML co
 before counting unchecked `- [ ]` items, so the marker is invisible to the gate count
 and never affects auto-merge vs. gated routing.
 
-**This file wins on drift.** The marker text is a one-time inline copy of the test;
+**This file wins on drift.** The marker text is a one-time inline copy of the (a)–(c) automatability test;
 the canonical contract is the "Automate first" section above. If the marker ever
 diverges from this rubric, the rubric is authoritative — fix the marker template at
-its three authoring sites, not the rubric.
+its three authoring sites, not the rubric. The marker covers the three-question automatability axes only; (d) guard-strength is a complementary check documented in the adjacent **Guard-strength check** section.
 
 ## The scaffold
 
@@ -493,6 +499,13 @@ If any of these appear, the test plan probably needs tightening:
 - One step bundling several distinct facet behaviors (e.g. a single `/search` line covering
   name anchoring, wildcards, and set-prefix resolution) — split it into one check per facet
   per "Coverage breadth" above
+- A change-detector or tautological check: an assertion that can only fail by reverting this exact diff, not by a regression in behavior. The canonical example is a presence-grep (`grep -q 'NewComponent' App.svelte`) on a UI wiring change — it passes whether or not the component actually renders or is reachable. Encouraged strong shapes: a Testing Library render test, a Playwright/vitest spec, or a chrome-devtools MCP snapshot check.
+
+### UI wiring behavioral assertion
+
+A Test Step that verifies a UI wiring change — mounting a new component, wiring a new route, registering a new handler — solely by asserting import presence (`grep -q 'NewComponent' App.svelte`) is under-tested. The grep passes whether or not the component actually renders, mounts, or is reachable by a user. The check must reach behavior: a Testing Library `render` test asserting a visible element, a Playwright spec navigating to the route, or a chrome-devtools MCP snapshot confirming the component mounts without error.
+
+Proportionality carve-out: trivial copy or padding tweaks are exempt — the include-vs-exempt test from **A non-trivial UI appearance change must author a subjective approval step** above applies here too. See **Guard-strength check** in the Automate first section for the formal (d) axis this rule instantiates.
 
 ## Proportionality
 

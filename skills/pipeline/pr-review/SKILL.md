@@ -1435,6 +1435,8 @@ judgment guided by the rubric's include-vs-exempt test. This folds into the Test
 criterion above; no new fail subtype. Defer to `references/manual-test-rubric.md`
 ("Subjective checks").
 
+A UI wiring change (mounting a new component, wiring a new route, registering a new handler) whose Test Steps are verified solely by import-presence greps (`grep -q 'NewComponent' App.svelte`) — with no component or browser behavioral assertion (Testing Library render test, Playwright spec, chrome-devtools MCP check) — is under-tested; flag as Testability: Fail (shallow). Trivial copy or padding tweaks are exempt. See `references/manual-test-rubric.md` ("UI wiring behavioral assertion") for the rule.
+
 **Format note (advisory, not a rubric criterion):** "Test Steps" should be a markdown
 checklist (`- [ ]` items) so reviewers can tick steps off as they verify and the
 auto-merge gate can count unchecked items. If the section is otherwise good but uses
