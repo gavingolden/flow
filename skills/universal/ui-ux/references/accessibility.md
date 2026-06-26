@@ -32,6 +32,7 @@ Every pointer-actuable target must meet a minimum interactive area. Two threshol
 **Dense data-table and inline exceptions:** Rows in a data table, links inline within prose, and tightly-packed toolbar controls may fall below 44px when content density is the feature. Even in these contexts the WCAG 2.5.8 AA floor still applies — check that vertical or horizontal spacing between interactive elements satisfies the 24px spacing exception rather than assuming exemption.
 
 **Defect vs. acceptable trade-off:**
+
 - Below 24px with no applicable exception: **AA defect** — must be fixed.
 - 24–43px: AA-compliant, below the comfort target — classify as a **comfort gap** and flag as a usability risk on touch viewports (higher mis-tap rate, ergonomic burden). Name the trade-off explicitly and justify it in context; do not silently accept it.
 - 44px and above: passes all thresholds — no finding.
