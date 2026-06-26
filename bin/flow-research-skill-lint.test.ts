@@ -103,4 +103,28 @@ describe("flow-research SKILL.md no-nested-LLM lint", () => {
       ).toBe(true);
     }
   });
+
+  it("pins the default-ON jq predicate direction (== false, never == true)", () => {
+    // The config gate inverts the F2 default-OFF idiom: it reads
+    // `(.research.deepResearchFallback) == false` so an absent/malformed key
+    // defaults the standalone Tier-2 fallback ON. The token-presence test
+    // above guards a silent DROP of the gate but NOT its direction. A future
+    // edit that copies the F2 `== true` idiom would invert the contract
+    // (absent key → OFF, defeating default-ON) yet pass every other test.
+    // Anchor on the predicate direction so an accidental `== true` copy goes
+    // red on `npm run verify`.
+    expect(
+      content,
+      "skills/universal/flow-research/SKILL.md must keep the default-ON config " +
+        "gate predicate `(.research.deepResearchFallback) == false` — the F2 " +
+        "default-OFF idiom is inverted here on purpose.",
+    ).toMatch(/\.research\.deepResearchFallback\)\s*==\s*false/);
+    expect(
+      content,
+      "skills/universal/flow-research/SKILL.md must NOT use a " +
+        "`deepResearchFallback) == true` / `deepResearchFallback == true` " +
+        "predicate — that is the inverted F2 default-OFF form and would silently " +
+        "flip the standalone Tier-2 fallback's default-ON contract.",
+    ).not.toMatch(/deepResearchFallback\)?\s*==\s*true/);
+  });
 });

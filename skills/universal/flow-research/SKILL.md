@@ -203,8 +203,26 @@ a one-shot Bash subprocess on Claude credits, and surface its cited report body
 **verbatim**:
 
 ```bash
-claude -p "/deep-research <question>" --output-format text --permission-mode bypassPermissions
+# Capture the question literally — a single-quoted heredoc performs NO shell
+# expansion on its body, so $(...) / backticks / ${...} in a user-supplied
+# question are treated as literal text, not executed. Double-quoting the
+# variable on reference does NOT re-parse its value for command substitution.
+# This matters most here because the invocation runs under
+# `--permission-mode bypassPermissions` (unattended, no prompt to catch an
+# injected command), making naive interpolation a command-injection vector.
+QUESTION=$(cat <<'QEOF'
+<question>
+QEOF
+)
+claude -p "/deep-research $QUESTION" --output-format text --permission-mode bypassPermissions
 ```
+
+> **Never** interpolate `<question>` directly into the double-quoted prompt
+> string (`claude -p "/deep-research <question>" …`): double quotes still
+> expand `$(...)`, backticks, and `${...}`, so a question carrying shell
+> metacharacters would execute on the host — and under `bypassPermissions`
+> there is no prompt to catch it. The single-quoted-heredoc capture above is
+> the safe form.
 
 Label the result plainly as a **Claude-credits fallback** that **spent the
 credits agy was meant to save** — it is NOT parity with the agy path (no Ultra
