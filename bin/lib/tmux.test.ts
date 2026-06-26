@@ -444,10 +444,11 @@ describe(createWindowVerified, () => {
   });
 
   it("catches the alive-then-dies race: alive on the first probe but dead at the end → ok:false", () => {
-    // The pane is alive early then exits mid-budget. The ready poll runs first
-    // and its FINAL probe sees isAlive false → pollUntilReady returns false →
-    // kill + ok:false. Only the final reading is the verdict, so the launch is
-    // rejected and the window killed.
+    // The pane is alive for the first 2 probes then dies. pollUntilReady
+    // requires READY_TAIL_PROBES (3) consecutive alive probes after seeing
+    // ready, so the death on probe 2 resets tailCount before it reaches 3 —
+    // all remaining probes see dead, and pollUntilReady returns false →
+    // kill + ok:false.
     const kill = vi.fn(() => true);
     let probe = 0;
     const result = createWindowVerified(
