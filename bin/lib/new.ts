@@ -25,6 +25,7 @@ import {
 import {
   readState,
   writeState,
+  deleteState,
   nowIso,
   EFFORT_LEVELS,
   type EffortLevel,
@@ -275,18 +276,60 @@ function runFresh(description: string, options: NewOptions): number {
   const seed = flowPipelineSeed(description);
   const command =
     options.command ?? defaultCommand(description, worktree, options.effort);
-  // Verify the window's process actually stayed up AND consumed the seed before
-  // persisting state. A bare `createWindow` only proves tmux forked the shell,
-  // and a `claude` idle at an empty input box passes a liveness probe, so a
-  // dead-on-arrival pipeline would otherwise leave an orphaned state file (the
-  // intermittent `flow new` bug). createWindowVerified owns seed delivery and
-  // kills its own half-created window on failure, so an exhausted retry leaves
-  // nothing behind.
-  const result = launchWithRetry(
-    () => createWindowVerified(slug, repo, command, seed),
-    options.retrySleepMs,
-  );
+
+  // Persist-then-verify-then-delete-on-failure: write state(phase=starting)
+  // BEFORE the verified launch so the supervisor has a file to advance (its
+  // first `flow-state-update` exits non-zero with no state file) and the
+  // `consumed` predicate below has a baseline to compare against. The no-orphan
+  // guarantee is preserved by deleting this file on EVERY launch-failure exit
+  // (launch !ok, Mode-2 vanish) rather than by the old write-after-verify order.
+  // Pre-existing state for the same slug shouldn't happen because windowExists()
+  // blocked above; if it does (e.g. external tmux reset), this write supersedes.
+  const existing = readState(slug, options.stateDir);
+
+  // Re-establish the `starting` baseline at the START of EVERY launch attempt
+  // (inside the retry closure), not once before the loop. `launchWithRetry`
+  // reuses one closure across attempts, and `createWindowVerified` kills its
+  // window on failure, so an attempt that advanced the phase (e.g. to
+  // `triaging`) then died would otherwise leave state non-`starting` — making
+  // the next attempt's `consumed()` short-circuit true over a brand-new idle
+  // window (the double-submit guard skips the seed send and `pollUntilConsumed`
+  // latches on its first probe), a false-success orphan. Rewriting `starting`
+  // per attempt scopes consumption to THAT attempt. A retry only fires after a
+  // killed/dead window, so no live supervisor races this rewrite.
+  const launch = () => {
+    writeState(
+      {
+        slug,
+        phase: "starting",
+        repo,
+        worktree: existing?.worktree,
+        autoMerge: options.noAutoMerge ? false : undefined,
+        waitForCopilot: options.waitForCopilot ? true : undefined,
+        copilotReview: options.copilotReview,
+        effort: options.effort,
+        updatedAt: nowIso(),
+      },
+      options.stateDir,
+    );
+    // Verify the window's process actually stayed up AND consumed the seed (the
+    // supervisor advanced state.json past `starting`) before keeping that
+    // state. A bare `createWindow` only proves tmux forked the shell, and a
+    // `claude` idle at an empty input box passes a liveness probe, so a
+    // dead-on-arrival pipeline would otherwise leave an orphaned state file (the
+    // intermittent `flow new` bug). createWindowVerified owns seed delivery and
+    // kills its own half-created window on failure, so an exhausted retry leaves
+    // no window behind; the delete-on-failure below removes the up-front state.
+    return createWindowVerified(slug, repo, command, seed, {
+      consumed: () => {
+        const s = readState(slug, options.stateDir);
+        return s != null && s.phase !== "starting";
+      },
+    });
+  };
+  const result = launchWithRetry(launch, options.retrySleepMs);
   if (!result.ok) {
+    deleteState(slug, options.stateDir);
     console.error(
       "flow new: claude exited immediately after launch — the tmux window did not stay up.",
     );
@@ -298,9 +341,11 @@ function runFresh(description: string, options: NewOptions): number {
   }
 
   // Mode-2 backstop: the verified launch confirmed a live, seeded window, but a
-  // window can still vanish between that check and the state write (a racing
-  // kill, a tmux bounce). Never persist state for a window that is already gone.
+  // window can still vanish between that check and now (a racing kill, a tmux
+  // bounce). Never keep state for a window that is already gone — delete the
+  // up-front file so no orphaned `phase=starting` pipeline survives.
   if (!windowExists(slug)) {
+    deleteState(slug, options.stateDir);
     console.error(
       "flow new: the tmux window vanished after launch — not writing state.",
     );
@@ -310,26 +355,8 @@ function runFresh(description: string, options: NewOptions): number {
     return 1;
   }
 
-  // Write the initial state file. The supervisor (PR 2) overwrites
-  // worktree + phase + pr at each transition. Pre-existing state for the
-  // same slug shouldn't happen because windowExists() blocked above; if it
-  // does (e.g. external tmux reset), the new write supersedes.
-  const existing = readState(slug, options.stateDir);
-  writeState(
-    {
-      slug,
-      phase: "starting",
-      repo,
-      worktree: existing?.worktree,
-      autoMerge: options.noAutoMerge ? false : undefined,
-      waitForCopilot: options.waitForCopilot ? true : undefined,
-      copilotReview: options.copilotReview,
-      effort: options.effort,
-      updatedAt: nowIso(),
-    },
-    options.stateDir,
-  );
-
+  // State was written up front and survived verification; the supervisor (PR 2)
+  // overwrites worktree + phase + pr at each transition from here.
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
   console.log(dim(`flow new: created — attach with \`flow attach ${slug}\``));
@@ -394,13 +421,27 @@ function runResume(name: string, options: NewOptions): number {
   // Without this, `--resume` reports a false "resumed" success over a window
   // whose claude died on launch or never picked up the seed. The verified
   // launcher owns seed delivery. Bounded retry so a transient hiccup self-heals.
-  const result = launchWithRetry(
-    () =>
-      exists
-        ? respawnWindowVerified(slug, repo, command, seed)
-        : createWindowVerified(slug, repo, command, seed),
-    options.retrySleepMs,
-  );
+  //
+  // Resume consumption baseline: on resume the phase is already past `starting`,
+  // so consumption is "the resumed supervisor's first `flow-state-update` bumped
+  // `updatedAt` past this pre-respawn value", not a phase change. Re-read the
+  // baseline at the START of each attempt (inside the closure), not once before
+  // the loop: `launchWithRetry` reuses the closure, so an attempt that bumped
+  // `updatedAt` then died would otherwise satisfy the NEXT attempt's predicate
+  // immediately — skipping the resume-seed re-send and short-circuiting
+  // `pollUntilConsumed` to a false success. runResume never writes or deletes
+  // state, so this read is non-mutating; the window pre-existed the resume.
+  const launch = () => {
+    const baseline = readState(slug, options.stateDir)?.updatedAt;
+    const consumed = () => {
+      const s = readState(slug, options.stateDir);
+      return s != null && s.updatedAt !== baseline;
+    };
+    return exists
+      ? respawnWindowVerified(slug, repo, command, seed, { consumed })
+      : createWindowVerified(slug, repo, command, seed, { consumed });
+  };
+  const result = launchWithRetry(launch, options.retrySleepMs);
   if (!result.ok) {
     console.error(
       "flow new --resume: claude exited immediately after launch — the tmux window did not stay up.",

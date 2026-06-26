@@ -39,7 +39,7 @@ import {
   isPaneAlive,
   FLOW_SESSION,
 } from "./tmux";
-import { readState, writeState, nowIso } from "./state";
+import { readState, writeState, deleteState, nowIso } from "./state";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 
@@ -187,15 +187,49 @@ PR → review checkpoint), and writes initial epic state under
   const epicDir = epicDirRelative(slug);
   const seed = epicCreateSeed(prompt, epicDir);
   const command = options.command ?? createCommand(prompt, worktree, epicDir);
-  // Verify the window's process stayed up AND consumed the seed before
-  // persisting state (the intermittent `flow new` orphan bug). createWindowVerified
-  // owns seed delivery and kills its own half-created window on failure, so an
-  // exhausted retry leaves nothing behind.
-  const result = launchWithRetry(
-    () => createWindowVerified(slug, repo, command, seed),
-    options.retrySleepMs,
-  );
+
+  // Persist-then-verify-then-delete-on-failure (mirrors new.ts runFresh): write
+  // epic state(phase=starting) BEFORE the verified launch so the /epic-create
+  // supervisor has a file to advance and the `consumed` predicate has a
+  // baseline. The no-orphan guarantee is preserved by deleting this file on
+  // EVERY launch-failure exit (launch !ok, Mode-2 vanish).
+  const existing = readState(slug, options.stateDir);
+
+  // Re-establish the `starting` baseline at the START of EVERY launch attempt
+  // (inside the retry closure), not once before the loop — mirrors new.ts
+  // runFresh. `launchWithRetry` reuses one closure across attempts and
+  // createWindowVerified kills its window on failure, so an attempt that
+  // advanced the phase then died would otherwise leave state non-`starting`,
+  // making the next attempt's `consumed()` short-circuit true over a brand-new
+  // idle window (false-success orphan). Rewriting `starting` per attempt scopes
+  // consumption to THAT attempt; a retry only fires after a killed/dead window,
+  // so no live supervisor races this rewrite.
+  const launch = () => {
+    writeState(
+      {
+        slug,
+        phase: "starting",
+        repo,
+        worktree: existing?.worktree,
+        updatedAt: nowIso(),
+      },
+      options.stateDir,
+    );
+    // Verify the window's process stayed up AND consumed the seed (the
+    // supervisor advanced epic state.json past `starting`) before keeping that
+    // state (the intermittent `flow new` orphan bug). createWindowVerified owns
+    // seed delivery and kills its own half-created window on failure; the
+    // delete-on-failure below removes the up-front state file.
+    return createWindowVerified(slug, repo, command, seed, {
+      consumed: () => {
+        const s = readState(slug, options.stateDir);
+        return s != null && s.phase !== "starting";
+      },
+    });
+  };
+  const result = launchWithRetry(launch, options.retrySleepMs);
   if (!result.ok) {
+    deleteState(slug, options.stateDir);
     console.error(
       "flow epic create: claude exited immediately after launch — the tmux window did not stay up.",
     );
@@ -207,11 +241,12 @@ PR → review checkpoint), and writes initial epic state under
   }
 
   // Mode-2 backstop (mirrors new.ts runFresh): the verified launch confirmed a
-  // live, seeded window, but a window can still vanish between that check and the
-  // state write (a racing kill, a tmux bounce). Never persist epic state for a
-  // window that is already gone — otherwise `flow epic create` leaves the same
-  // orphaned `phase: "starting"` state file the verified-launch half guards against.
+  // live, seeded window, but a window can still vanish between that check and now
+  // (a racing kill, a tmux bounce). Never keep epic state for a window that is
+  // already gone — delete the up-front file so no orphaned `phase: "starting"`
+  // state survives.
   if (!windowExists(slug)) {
+    deleteState(slug, options.stateDir);
     console.error(
       "flow epic create: the tmux window vanished after launch — not writing state.",
     );
@@ -221,20 +256,8 @@ PR → review checkpoint), and writes initial epic state under
     return 2;
   }
 
-  // Write the initial epic state. The /epic-create supervisor overwrites
-  // worktree + phase + pr at each transition.
-  const existing = readState(slug, options.stateDir);
-  writeState(
-    {
-      slug,
-      phase: "starting",
-      repo,
-      worktree: existing?.worktree,
-      updatedAt: nowIso(),
-    },
-    options.stateDir,
-  );
-
+  // State was written up front and survived verification; the /epic-create
+  // supervisor overwrites worktree + phase + pr at each transition from here.
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
   console.log(
@@ -294,13 +317,26 @@ function runEpicResume(name: string, options: EpicOptions): number {
   const epicDir = epicDirRelative(slug);
   const seed = epicResumeSeed(slug, epicDir);
   const command = options.command ?? resumeCommand(slug, worktree, epicDir);
-  const result = launchWithRetry(
-    () =>
-      exists
-        ? respawnWindowVerified(slug, repo, command, seed)
-        : createWindowVerified(slug, repo, command, seed),
-    options.retrySleepMs,
-  );
+  // Resume consumption baseline (mirrors new.ts runResume): on resume the phase
+  // is already past `starting` (`epic-designing`), so consumption is "the
+  // resumed supervisor bumped `updatedAt` past this pre-respawn value". Re-read
+  // the baseline at the START of each attempt (inside the closure), not once
+  // before the loop: `launchWithRetry` reuses the closure, so an attempt that
+  // bumped `updatedAt` then died would otherwise satisfy the next attempt's
+  // predicate immediately (false-success orphan). This path never writes or
+  // deletes state — the window pre-existed the resume — so the read is
+  // non-mutating.
+  const launch = () => {
+    const baseline = readState(slug, options.stateDir)?.updatedAt;
+    const consumed = () => {
+      const s = readState(slug, options.stateDir);
+      return s != null && s.updatedAt !== baseline;
+    };
+    return exists
+      ? respawnWindowVerified(slug, repo, command, seed, { consumed })
+      : createWindowVerified(slug, repo, command, seed, { consumed });
+  };
+  const result = launchWithRetry(launch, options.retrySleepMs);
   if (!result.ok) {
     console.error(
       "flow epic create --resume: claude exited immediately after launch — the tmux window did not stay up.",
