@@ -459,7 +459,13 @@ function launchArgv(
   prompt: string,
   effort?: EffortLevel,
 ): string[] {
-  const base = ["claude", "--add-dir", worktree];
+  // `env FLOW_PIPELINE=1` prefix: there is no env object on this launch path
+  // (the spawned claude inherits the parent env via tmux new-window), so the
+  // marker is injected as an argv prefix. It lets leaf skills like
+  // `/flow-research` detect they are running inside the supervisor and suppress
+  // their standalone-only `claude -p` fallback tier — the no-nested-LLM
+  // boundary the supervisor must never cross.
+  const base = ["env", "FLOW_PIPELINE=1", "claude", "--add-dir", worktree];
   return effort ? [...base, "--effort", effort, prompt] : [...base, prompt];
 }
 

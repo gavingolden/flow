@@ -189,6 +189,8 @@ describe("runNew --resume", () => {
     // resume mode. SKILL.md hard-codes the literal string; if this assertion
     // ever fails, update both ends in lockstep.
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "crashed"),
@@ -475,6 +477,8 @@ describe("runNew (fresh)", () => {
     // returns the canonical realpath (macOS /var → /private/var), so derive
     // the expected worktree from the resolved path, not the raw temp dir.
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
@@ -486,6 +490,8 @@ describe("runNew (fresh)", () => {
     // The 4th arg is the seed delivered via send-keys — defined once in new.ts
     // and identical to the positional prompt in the argv above.
     expect(seed).toBe("Use the /flow-pipeline skill for: CSV export");
+    // The supervisor marker lets leaf skills detect they run inside the pipeline.
+    expect(command).toContain("FLOW_PIPELINE=1");
   });
 });
 
@@ -634,6 +640,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
@@ -657,6 +665,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
@@ -735,6 +745,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(code).toBe(0);
     const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-effort"),
@@ -768,6 +780,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(code).toBe(0);
     const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
       "claude",
       "--add-dir",
       recordedWorktree,

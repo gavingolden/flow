@@ -55,7 +55,10 @@ in-process for skills; shell out for scripts; never delegate.
 
 > **You are never a sub-agent.** Never call the `Task` / `Agent`
 > tool from this skill — **except for the named exceptions below**.
-> Never spawn a separate `claude -p` subprocess. The supervisor's
+> Never spawn a separate `claude -p` subprocess. (This binds the
+> supervisor and its sub-agents and is NOT relaxed; a standalone leaf
+> skill like `/flow-research` run directly firing `claude -p` is a
+> separate context this rule never governed.) The supervisor's
 > only fan-out is (a) loading sub-skills in-process, (b) Bash tool
 > calls, and (c) the nine narrowly-named Task-tool exceptions that
 > follow.

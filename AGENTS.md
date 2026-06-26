@@ -249,42 +249,41 @@ exception inline.
 
 ## Supervisor and sub-skills: in-process only
 
-This is the load-bearing constraint for `/flow-pipeline`: the supervisor
-is one Claude Code chat session, sub-skills (`/product-planning`,
+The load-bearing constraint for `/flow-pipeline`: the supervisor is one
+Claude Code chat session, sub-skills (`/product-planning`,
 `/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill`
 tool, and helper scripts under `bin/` are Bash tool calls. The
 supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses, **with nine narrowly-named exceptions**
-— see the nine `**Task-tool exemption: ...**` bullets under
-`## Don'ts` below, preceded by a single shared-rationale preamble.
-This sidesteps two limits at once:
+`claude -p ...` subprocesses, **with nine narrowly-named exceptions** —
+the `**Task-tool exemption: ...**` bullets under `## Don'ts` below, with
+a shared-rationale preamble. This binds the supervisor and its
+sub-agents; a standalone leaf skill (`/flow-research` run directly)
+firing `claude -p` is a context it never governed, and `flow-research`'s
+`FLOW_PIPELINE` guard gates it off when nested (see its SKILL.md). This
+sidesteps two limits: sub-agents can't spawn sub-agents (one-level cap),
+and a long-running supervisor with sub-agents would bloat the context
+window.
 
-1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
-2. A long-running supervisor with sub-agents would bloat past the
-   context window.
-
-If you find yourself adding logic that *needs* a separate LLM session,
-redesign so the LLM lives in a sub-skill that loads in-process or a
-helper script that doesn't need an LLM at all.
+If you add logic that *needs* a separate LLM session, redesign so the
+LLM lives in an in-process sub-skill or a non-LLM helper script.
 
 ## Compact Instructions
 
 The supervisor is one long-running Claude Code session whose single context
 window the whole pipeline shares, so when the harness compacts the conversation
-— automatically near the context limit, or on a manual `/compact` — the
-load-bearing pipeline state must survive the summary. Claude Code reads a
-"Compact Instructions" section from `CLAUDE.md` / `AGENTS.md` to decide what to
-preserve during compaction (flow's `CLAUDE.md` is `@AGENTS.md`, so this section
-is included). See code.claude.com/docs/en/how-claude-code-works.
+— automatically near the limit, or on a manual `/compact` — load-bearing
+pipeline state must survive. Claude Code reads a "Compact Instructions"
+section from `CLAUDE.md` / `AGENTS.md` to decide what to preserve
+(flow's `CLAUDE.md` is `@AGENTS.md`, so this is included). See
+code.claude.com/docs/en/how-claude-code-works.
 
 - **KEEP**: current pipeline phase, PR number, worktree path, the
   `.flow-tmp/plan.md` and `.flow-tmp/scout.md` artifact paths, current pipeline
-  step, and any `NEEDS HUMAN: <reason>`. These are the supervisor's resume
-  anchors — lose them and it cannot tell what it has already done.
+  step, and any `NEEDS HUMAN: <reason>` — the supervisor's resume anchors;
+  lose them and it cannot tell what it has done.
 - **DROP**: verify failure-log excerpts, raw tool outputs, and CI poll progress.
-  These are high-volume and reconstructable on demand (`state.json`, the PR, and
-  a fresh `gh` / `flow-pre-commit` call re-derive them), so summarising them away
-  costs nothing.
+  These are high-volume and reconstructable (`state.json`, the PR, and a fresh
+  `gh` / `flow-pre-commit` re-derive them).
 
 ## Git workflow
 
