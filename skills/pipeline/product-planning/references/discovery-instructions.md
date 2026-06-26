@@ -118,7 +118,20 @@ The four resolved variables — `RESEARCH_MAX_CALLS` (from `research.maxCalls`, 
 
 If the verdict is **not researchable**, take no fan-out — proceed to step 2 unchanged. If **researchable**, form a **sharp, codebase-grounded research question** (NOT the verbatim feature description — only something that knows this codebase can ask the right question; e.g. not "add CSV export" but "does RFC 4180 require quoting/escaping for the `,`- and newline-bearing fields the portfolio export emits, and which line terminator do mainstream spreadsheet importers expect?").
 
-**(c) Run the bounded research by driving `flow-delegate-fanout` directly (Bash).** You **cannot** load `/flow-research` via the Skill tool — a spawned sub-agent does not have it (see the HARD INVARIANT). Instead, `Read` the `/flow-research` procedure for the recipe — it is on disk globally at `~/.claude/skills/universal/flow-research/SKILL.md` (the byte-exact model-variant pins, the gather→refute→synthesize shape, the cap discipline) — and run the fan-out yourself:
+**(c) Run the bounded research by driving `flow-delegate-fanout` directly (Bash).** You **cannot** load `/flow-research` via the Skill tool — a spawned sub-agent does not have it (see the HARD INVARIANT). Instead, `Read` the `/flow-research` procedure for the recipe — it is on disk globally at `~/.claude/skills/universal/flow-research/SKILL.md` (the byte-exact model-variant pins, the gather→refute→synthesize shape, the cap discipline) — and run the fan-out yourself.
+
+**Cache-read first (before building the manifest).** A prior identical run may already have synthesized this exact question, so check the host-wide research cache before paying for a fresh fan-out. Run it by **bare PATH name** via Bash — exactly like the `jq` and `flow-delegate-fanout` invocations above, NOT a `bin/lib` import (Step 1.5 runs in the consumer/target worktree where flow's `bin/lib` is absent):
+
+```bash
+flow-research-cache get --question "<the sharp question from 1.5(b)>" && CACHE_HIT=true || CACHE_HIT=false
+```
+
+The cache key is the **normalized** sharp question (lowercase / trim / collapse-whitespace → SHA-256), so a same-scope redirect or a crash-resume forms the same question → same key → **hit**, while a scope-changing redirect forms a NEW question → new key → **miss** → re-research. The cache is host-wide at `~/.flow/research-cache/` with a default 48h TTL.
+
+- **On exit 0 (hit):** the cached synthesis is printed to stdout. Reuse it as the research prior context and **SKIP the entire fan-out below AND the 1.5(d) synthesis** — fold the cached synthesis directly into your plan per the (d) constraints (confidence labels intact, refuted claims → risks, no raw artifacts).
+- **On any NON-ZERO exit (miss / stale / corrupt — exit 3, or even a 2 from a wiring bug):** treat it as a **graceful miss** and run the fan-out live exactly as below. The `get` must NEVER error the discovery run — branch on the cache miss and proceed.
+
+When you take the live path (cache miss), build the manifest and run the fan-out:
 
 1. Build a small manifest JSON file: a GATHER entry on the resolved gather model `$RESEARCH_MODEL` (default `"Gemini 3.1 Pro (High)"`; agy has native Google web search — instruct it to return cited source URLs) asking your sharp question, plus an adversarial REFUTE entry on the resolved `$RESEARCH_REFUTE_MODEL` (default `"Claude Opus 4.6 (Thinking)"`; the cross-model guard in (a) keeps it a **different** variant from gather — the pinned alternates are `"Claude Opus 4.6 (Thinking)"` and `"GPT-OSS 120B (Medium)"`) that checks the gathered claim. Each entry's shape is `{ "task": "...", "model": "...", "prompt": "...", "timeout": "..." }` — **set every entry's `model` to the resolved gather/refute variant and every entry's `timeout` to the resolved `$RESEARCH_TIMEOUT` (default `"3m"`)** (see the rationale below).
 2. Run: `flow-delegate-fanout --manifest <file> --max-calls "$RESEARCH_MAX_CALLS" --concurrency 4 --out <out.json> --default-entry-timeout "$RESEARCH_TIMEOUT"` (`$RESEARCH_MAX_CALLS` defaults to `12`; `$RESEARCH_TIMEOUT` defaults to `3m`; `--concurrency` stays pinned at `4`).
@@ -133,6 +146,14 @@ _Runtime-ceiling rationale._ You are a **one-shot Task sub-agent with no yield/r
 - **Each finding carries its confidence label (high/medium/low) INTACT.** Never flatten the gathered confidence ranking into false certainty.
 - **Refuted, contested, or low-confidence claims become RISKS or open questions — NEVER firm plan assumptions or decisions.** This is the uncertainty-laundering guard: a gathered-but-shaky claim must not become a load-bearing decision.
 - **Never paste raw per-source artifacts or full-length quotes into `plan.md`.** Only the bounded summary — bound your own synthesis (top-N ranked claims, capped quotes, no raw pages), exactly as the `/flow-research` procedure you read prescribes.
+
+**Cache-write (after the synthesis is produced).** Persist the bounded synthesis so the next identical re-run (same-scope redirect / crash-resume) hits and skips the fan-out. Write the synthesis to a file and store it by **bare PATH name** under the SAME normalized sharp question used for the read in (c):
+
+```bash
+flow-research-cache put --question "<the same sharp question from 1.5(b)>" --synthesis-file <synthesis-file>
+```
+
+(or pipe the synthesis via `--synthesis -`). This is a no-op on the cache-hit path — you only reach (d) on a miss. The `put` is best-effort: a write failure must not error discovery.
 
 **(e) Graceful skip / not-researchable → unchanged discovery.** If the relevance verdict was "not researchable", or the fan-out's aggregate is `allSkipped: true` (agy unavailable), take no research-derived prior context and proceed to step 2 exactly as discovery behaves today — research availability never blocks planning, and both `plan.md` and `pr-description-draft.md` are still written normally. Branch the agy skip on the fan-out's `allSkipped` field, **never** the exit code.
 
