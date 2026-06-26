@@ -11,6 +11,7 @@
  *   flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]
  *                              [--worktree <path>] [--auto-merge | --no-auto-merge]
  *                              [--session-id <value>] [--answer <text> | --answer-stdin]
+ *                              [--slug <slug>] [--force]
  *
  * `--phase-outcome <text>` records a short outcome string on the phaseLog
  * entry appended by the same `--phase` write (no-op without `--phase`).
@@ -272,7 +273,8 @@ export function runUpdate(
     console.error(
       "usage: flow-state-update [<slug>] [--phase <phase>] [--phase-outcome <text>] [--pr <number>]\n" +
         "                                 [--worktree <path>] [--auto-merge | --no-auto-merge]\n" +
-        "                                 [--session-id <value>] [--answer <text> | --answer-stdin]",
+        "                                 [--session-id <value>] [--answer <text> | --answer-stdin]\n" +
+        "                                 [--slug <slug>] [--force]",
     );
     return 2;
   }

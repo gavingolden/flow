@@ -255,4 +255,29 @@ describe(run, () => {
     expect(exit).toBe(2);
     expect(err.join("")).toContain("@flow-slug");
   });
+
+  it("--slug drives the rename without consulting the pane resolver", () => {
+    const calls: string[][] = [];
+    let resolverCalls = 0;
+    const exit = run(["--slug", "csv-export", "My Title"], {
+      listWindows: () => [
+        w({ id: "@7", name: "renamed-display", slug: "csv-export" }),
+      ],
+      spawnTmux: (args) => {
+        calls.push(args);
+        return { exitCode: 0, stderr: "" };
+      },
+      resolveSlug: () => {
+        resolverCalls++;
+        return "other-pipeline";
+      },
+      writeOut: () => {},
+      writeErr: () => {},
+    });
+    expect(exit).toBe(0);
+    // (a) the injected resolveSlug seam is never consulted, and
+    // (b) the rename targets the window resolved from the --slug value.
+    expect(resolverCalls).toBe(0);
+    expect(calls).toEqual([["rename-window", "-t", "@7", "My Title"]]);
+  });
 });

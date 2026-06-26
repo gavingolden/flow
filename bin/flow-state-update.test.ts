@@ -209,6 +209,14 @@ describe("parseArgs", () => {
     expect(result.error).toContain("valid phases:");
     expect(result.error).toContain("implementing");
   });
+
+  it("parses --force as force: true alongside --phase", () => {
+    expect(parseArgs(["foo", "--phase", "triaging", "--force"])).toEqual({
+      slug: "foo",
+      phase: "triaging",
+      force: true,
+    });
+  });
 });
 
 describe("phaseError + closestPhase", () => {
@@ -461,6 +469,27 @@ describe("runUpdate", () => {
     });
     expect(code).toBe(0);
     expect(readState("csv-export", dir)?.phase).toBe("implementing");
+  });
+
+  it("locates and writes the correct state file from an explicit --slug", () => {
+    seed("csv-export");
+    seed("other-pipeline");
+    // --slug must drive the lookup without consulting the pane resolver,
+    // and must not touch the sibling pipeline's state.
+    const code = runUpdate(
+      ["--slug", "csv-export", "--phase", "implementing"],
+      dir,
+      {
+        resolveSlug: () => {
+          throw new Error(
+            "resolveSlug must not be called when --slug is given",
+          );
+        },
+      },
+    );
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("implementing");
+    expect(readState("other-pipeline", dir)?.phase).toBe("starting");
   });
 
   it("prefers an explicit slug over the pane-resolved one (back-compat)", () => {

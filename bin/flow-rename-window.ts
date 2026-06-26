@@ -32,6 +32,7 @@ const HELP_TEXT = `flow-rename-window — rename a pipeline's tmux window displa
 
 Usage:
   flow-rename-window <slug> <title>
+  flow-rename-window --slug <slug> <title>
   flow-rename-window <title>     # slug auto-resolved from $TMUX_PANE's @flow-slug
 
 The window keeps its @flow-slug user option, so 'flow attach <slug>',
@@ -75,14 +76,15 @@ export function parseArgs(argv: string[]): ParseOk | ParseHelp | ParseErr {
     };
   }
 
-  // If --slug was given AND there's a leading non-flag positional → mutual exclusion error.
+  // Two remaining positionals alongside --slug means the caller passed a slug
+  // positionally too → conflict. A lone positional with --slug is intentionally
+  // treated as the title. (The `=== 2` length check precedes the index access so
+  // remaining[0] is never read when remaining is empty.)
   if (
     slugFromFlag !== undefined &&
-    remaining.length >= 1 &&
-    !remaining[0].startsWith("--") &&
-    remaining.length === 2
+    remaining.length === 2 &&
+    !remaining[0].startsWith("--")
   ) {
-    // Two remaining positionals alongside --slug: the caller passed slug positionally too.
     return { error: "cannot combine positional <slug> with --slug" };
   }
 
@@ -132,7 +134,9 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
   }
   if ("error" in parsed) {
     writeErr(`flow-rename-window: ${parsed.error}\n`);
-    writeErr("usage: flow-rename-window [<slug>] <title>\n");
+    writeErr(
+      "usage: flow-rename-window [<slug>] <title>  |  flow-rename-window --slug <slug> <title>\n",
+    );
     return 2;
   }
 
