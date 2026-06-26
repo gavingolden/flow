@@ -142,6 +142,8 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
     "Inspect <worktree>/.flow-tmp/ for partial resolver state; resolve conflicts manually; then (cd <repo> && gh pr merge --squash <pr>)",
   "branch-mismatch":
     "Inspect git reflog and git worktree list before any further git commands; do NOT auto-recover",
+  "terminal-regression":
+    "A terminal-phase state file was about to be regressed to a non-terminal phase (likely an ambient-pane slug race from 'flow new' inside a flow window). Inspect ~/.flow/state/<slug>.json; if the victim is genuinely terminal, restore it with flow-state-update --phase <merged|gated|...> --force --slug <victim-slug>; do NOT auto-recover",
   "cross-branch-operation-attempted":
     "Inspect git worktree list and the failed command's stderr; the supervisor refused to cross worktrees; resolve manually",
   "task-tool-unavailable":

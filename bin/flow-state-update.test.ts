@@ -209,6 +209,14 @@ describe("parseArgs", () => {
     expect(result.error).toContain("valid phases:");
     expect(result.error).toContain("implementing");
   });
+
+  it("parses --force as force: true alongside --phase", () => {
+    expect(parseArgs(["foo", "--phase", "triaging", "--force"])).toEqual({
+      slug: "foo",
+      phase: "triaging",
+      force: true,
+    });
+  });
 });
 
 describe("phaseError + closestPhase", () => {
@@ -463,6 +471,27 @@ describe("runUpdate", () => {
     expect(readState("csv-export", dir)?.phase).toBe("implementing");
   });
 
+  it("locates and writes the correct state file from an explicit --slug", () => {
+    seed("csv-export");
+    seed("other-pipeline");
+    // --slug must drive the lookup without consulting the pane resolver,
+    // and must not touch the sibling pipeline's state.
+    const code = runUpdate(
+      ["--slug", "csv-export", "--phase", "implementing"],
+      dir,
+      {
+        resolveSlug: () => {
+          throw new Error(
+            "resolveSlug must not be called when --slug is given",
+          );
+        },
+      },
+    );
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("implementing");
+    expect(readState("other-pipeline", dir)?.phase).toBe("starting");
+  });
+
   it("prefers an explicit slug over the pane-resolved one (back-compat)", () => {
     seed("csv-export");
     seed("other-pipeline");
@@ -646,6 +675,89 @@ function makeWorktreeFixture(
     cleanup: () => fs.rmSync(root, { recursive: true, force: true }),
   };
 }
+
+describe("terminal-regression guard", () => {
+  it("returns 4 and refuses to regress a terminal phase to a non-terminal phase (e.g. merged→triaging)", () => {
+    seed("csv-export", { phase: "merged" });
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const code = runUpdate(["csv-export", "--phase", "triaging"], dir);
+    expect(code).toBe(4);
+    expect(errSpy.mock.calls.flat().join("\n")).toContain(
+      "refusing to regress terminal phase 'merged'",
+    );
+    expect(errSpy.mock.calls.flat().join("\n")).toContain("triaging");
+    errSpy.mockRestore();
+    // State must not have changed.
+    expect(readState("csv-export", dir)?.phase).toBe("merged");
+  });
+
+  it("allows terminal→terminal transitions (e.g. merged→needs-human)", () => {
+    seed("csv-export", { phase: "merged" });
+    const code = runUpdate(["csv-export", "--phase", "needs-human"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("needs-human");
+  });
+
+  it("allows non-terminal→non-terminal transitions normally", () => {
+    seed("csv-export", { phase: "triaging" });
+    const code = runUpdate(["csv-export", "--phase", "planning"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("planning");
+  });
+
+  it("--force bypasses the regression guard and returns 0", () => {
+    seed("csv-export", { phase: "merged" });
+    const code = runUpdate(
+      ["csv-export", "--phase", "triaging", "--force"],
+      dir,
+    );
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.phase).toBe("triaging");
+  });
+
+  it("does NOT fire the regression guard for non-phase updates (e.g. --pr only)", () => {
+    seed("csv-export", { phase: "merged" });
+    const code = runUpdate(["csv-export", "--pr", "42"], dir);
+    expect(code).toBe(0);
+    expect(readState("csv-export", dir)?.pr).toBe(42);
+    expect(readState("csv-export", dir)?.phase).toBe("merged");
+  });
+});
+
+describe("parseArgs --slug flag", () => {
+  it("--slug <slug> sets slug in the result", () => {
+    expect(parseArgs(["--slug", "csv-export", "--phase", "triaging"])).toEqual({
+      slug: "csv-export",
+      phase: "triaging",
+    });
+  });
+
+  it("--slug alone (with no other update flag) produces the missing-update-flag error", () => {
+    const result = parseArgs(["--slug", "csv-export"]);
+    expect(result).toEqual({
+      error:
+        "at least one of --phase, --pr, --worktree, --auto-merge, --no-auto-merge, --session-id, --answer, --answer-stdin is required",
+    });
+  });
+
+  it("combining positional <slug> and --slug returns an error", () => {
+    expect(
+      parseArgs(["csv-export", "--slug", "other", "--phase", "triaging"]),
+    ).toEqual({ error: "cannot combine positional <slug> with --slug" });
+  });
+
+  it("--slug without a value returns an error", () => {
+    expect(parseArgs(["--slug"])).toEqual({
+      error: "--slug requires a value",
+    });
+  });
+
+  it("--slug with value that starts with '--' returns an error (treated as missing value)", () => {
+    expect(parseArgs(["--slug", "--phase"])).toEqual({
+      error: "--slug requires a value",
+    });
+  });
+});
 
 describe(checkWorktreeBranch, () => {
   it("returns ok when the worktree path is undefined (early phases)", () => {

@@ -596,23 +596,38 @@ state.json, and the PR are the state.
 
 **Phase:** `triaging`
 
-**First action of the supervisor.** Before classifying, write the
-phase to state.json so `flow ls` immediately shows `triaging`
-instead of the stale `starting` from `flow new`:
+**First action of the supervisor.** Extract the pipeline slug from the
+first line of this seed prompt before any bash calls. The first line
+of every seed has the form `[pipeline-slug: <slug>]` — parse the
+literal `<slug>` value from it and embed it inline in the two calls
+below. The slug is a concrete string (e.g. `csv-export`), not a shell
+variable that persists across tool calls.
+
+Write the phase to state.json so `flow ls` immediately shows `triaging`
+instead of the stale `starting` from `flow new`. Pass `--slug <slug>`
+explicitly so the state write is not subject to `resolveSlugFromPane()`'s
+ambient-pane resolution, which may race against a parallel pipeline's
+window during the brief window between window creation and the first
+`@flow-slug` option set:
 
 ```bash
-flow-state-update --phase triaging
+flow-state-update --phase triaging --slug <slug>
 ```
 
 Then set a readable tmux window title so the user can scan their
 status bar at a glance instead of squinting at the slug. The slug
 stays the canonical lookup key (it's stored in tmux's `@flow-slug`
 user option, set when `flow new` created the window) — the rename
-only changes the display:
+only changes the display. Pass `--slug <slug>` here for the same
+reason as above: the explicit slug avoids the pane-resolution race:
 
 ```bash
-flow-rename-window "<short descriptive title>"
+flow-rename-window --slug <slug> "<short descriptive title>"
 ```
+
+**Only these two step-1 calls use `--slug`.** All other helpers after
+step 1 continue to use auto-resolution (`resolveSlugFromPane`) because
+by then `@flow-slug` is reliably set on the window.
 
 Pick a 20–30-character title from the user's verbatim description.
 Strip imperative verbs and articles (`make`, `add`, `the`, `a`),
@@ -2472,6 +2487,39 @@ There is no auto-recovery — branch state is load-bearing and the
 user must inspect (`git reflog`, `git worktree list`) to decide
 whether the rename was malicious, accidental, or expected. Leave the
 worktree + PR intact.
+
+## Terminal-regression escalation (no retries)
+
+When `flow-state-update` exits with status 4, a terminal→non-terminal
+phase regression was detected — the existing phase in state.json is one
+of `merged`, `gated`, `needs-human`, `cancelled`, or `epic-approved`,
+but the requested transition would move to a non-terminal phase. This
+signals an ambient-pane race that wrote to the wrong pipeline's state:
+`resolveSlugFromPane()` resolved a stale or mismatched slug and the
+write was blocked by the mechanical guard. The supervisor must NOT retry.
+Escalate immediately:
+
+```bash
+flow-gate-summary --status needs-human --reason terminal-regression \
+  --why "<expected→actual from stderr>"   # render BEFORE the terminal state transition
+flow-state-update --phase needs-human     # may itself fail; that's ok, scrollback shows the cause
+flow-notify --status needs-human --reason "terminal-regression"
+```
+
+There is no auto-recovery — the guard blocked the write precisely to
+avoid corrupting a finished pipeline's terminal state. Leave the worktree
++ PR intact for the user to inspect.
+
+If you suspect the victim pipeline's state was already corrupted by a
+prior race, the operational recovery for an already-corrupted pipeline is:
+
+```bash
+flow-state-update --phase <merged|gated|needs-human|...> --force --slug <victim-slug>
+```
+
+`--force` bypasses the regression guard; `--slug` targets the specific
+pipeline rather than relying on pane resolution. Use only after confirming
+which pipeline's state needs correction.
 
 ## Task-tool unavailable (no retries)
 

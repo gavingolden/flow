@@ -154,6 +154,8 @@ export type PipelinePhase = (typeof PIPELINE_PHASES)[number];
 
 export const PIPELINE_PHASE_SET: ReadonlySet<string> = new Set(PIPELINE_PHASES);
 
+export const TERMINAL_PHASE_SET: ReadonlySet<string> = new Set(TERMINAL_PHASES);
+
 export function isPipelinePhase(value: string): value is PipelinePhase {
   return PIPELINE_PHASE_SET.has(value);
 }

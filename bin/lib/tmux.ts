@@ -55,6 +55,7 @@ const INITIAL_PHASE = "starting";
 export type ResolveSlugDeps = {
   env?: NodeJS.ProcessEnv;
   spawnTmux?: (args: string[]) => SpawnResult;
+  listWindowsFn?: (session?: string) => TmuxWindow[];
 };
 
 /**
@@ -79,7 +80,35 @@ export function resolveSlugFromPane(deps: ResolveSlugDeps = {}): string | null {
   const r = spawn(["show-options", "-t", pane, "-v", "-w", FLOW_SLUG_OPTION]);
   if (r.exitCode !== 0) return null;
   const slug = r.stdout.trim();
-  return slug.length > 0 ? slug : null;
+  if (slug.length === 0) return null;
+
+  // Cross-check: verify the slug resolved from this pane's window option is
+  // actually owned by THIS pane's window — not a stale option from a prior
+  // pipeline whose window was reused. Detects ambient-pane races where two
+  // parallel pipelines share a tmux window id momentarily.
+  const paneWindowResult = spawn([
+    "display-message",
+    "-t",
+    pane,
+    "-p",
+    "#{window_id}",
+  ]);
+  if (paneWindowResult.exitCode !== 0) {
+    // Safe degradation: display-message unavailable → trust the slug as-is.
+    return slug;
+  }
+  const paneWindowId = paneWindowResult.stdout.trim();
+
+  const listFn = deps.listWindowsFn ?? listWindows;
+  const ownerWindow = listFn().find((w) => w.slug === slug);
+  if (ownerWindow !== undefined && ownerWindow.id !== paneWindowId) {
+    process.stderr.write(
+      `resolveSlugFromPane: warning: @flow-slug resolved to '${slug}' but that slug is owned by window ${ownerWindow.id}, not this pane's window ${paneWindowId} — returning null to avoid cross-pipeline write\n`,
+    );
+    return null;
+  }
+
+  return slug;
 }
 
 export type SpawnResult = { stdout: string; stderr: string; exitCode: number };
