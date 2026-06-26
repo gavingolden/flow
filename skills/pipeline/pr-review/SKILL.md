@@ -785,8 +785,8 @@ lenses unchanged. It NEVER hard-fails the review.
    strict-boolean-`true` rule, so the jq read is the human-readable gate, not
    the runtime authority.
 
-2. **Run the lens** via the PATH helper (reuse `$WORKTREE/.flow-tmp/diff.txt`
-   from Step 3.5, or write it with `flow-pr-diff "$PR_NUMBER"` first):
+2. **Run the lens** via the PATH helper (write `$WORKTREE/.flow-tmp/diff.txt`
+   with `flow-pr-diff "$PR_NUMBER"` if Step 3 prep hasn't; Step 3.5 reuses it):
 
    ```bash
    flow-gemini-lens --worktree "$WORKTREE" \

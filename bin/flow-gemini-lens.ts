@@ -36,13 +36,7 @@
  * assigned consolidator-side at Step 3.5.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -90,8 +84,14 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     }
     i++;
   }
+  const REQUIRED_FLAG = {
+    worktree: "--worktree",
+    diffFile: "--diff-file",
+    out: "--out",
+  } as const;
   for (const k of ["worktree", "diffFile", "out"] as const) {
-    if (out[k] === undefined) return { error: `--${k} is required` };
+    if (out[k] === undefined)
+      return { error: `${REQUIRED_FLAG[k]} is required` };
   }
   return {
     worktree: out.worktree as string,
@@ -182,9 +182,7 @@ export type Deps = {
   readFile: (path: string) => string;
   writeFile: (path: string, contents: string) => void;
   removeFile: (path: string) => void;
-  fileExists: (path: string) => boolean;
   mkdirp: (dir: string) => void;
-  now: () => number;
   writeOut: (line: string) => void;
 };
 
@@ -219,17 +217,35 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // on a fully-valid payload so the consolidator never sees a half-baked file.
   const rawPath = `${parsed.out}.agy-raw`;
   const promptPath = `${parsed.out}.prompt`;
+
+  // Pre-clean any stale --out from a prior run on this reused worktree: every
+  // path past the gate either rewrites --out (success) or leaves it absent
+  // (skip), so the consolidator never consumes a previous run's findings as
+  // the current review. removeFile is idempotent (force:true) — absent is fine.
+  deps.removeFile(parsed.out);
+
+  // Scratch files (prompt + raw agy output) are transient; clear both on every
+  // exit so they don't accumulate in the worktree's .flow-tmp/.
+  const cleanScratch = () => {
+    deps.removeFile(promptPath);
+    deps.removeFile(rawPath);
+  };
+  const skip = (skipReason: string): number => {
+    cleanScratch();
+    return emit(deps, { ran: false, skipReason });
+  };
+
   let diff = "";
   try {
     diff = deps.readFile(parsed.diffFile);
   } catch {
-    return emit(deps, { ran: false, skipReason: "gemini-diff-unreadable" });
+    return skip("gemini-diff-unreadable");
   }
   try {
     deps.mkdirp(dirname(parsed.out));
     deps.writeFile(promptPath, buildPrompt(diff));
   } catch {
-    return emit(deps, { ran: false, skipReason: "gemini-prep-failed" });
+    return skip("gemini-prep-failed");
   }
 
   const envelope = deps.runDelegate([
@@ -248,45 +264,40 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // Branch on the `ran` field (NEVER the exit code): flow-delegate exits 0
   // even on a graceful agy-absent skip.
   if (!envelope.ran) {
-    return emit(deps, {
-      ran: false,
-      skipReason: envelope.skipReason ?? "agy-skip",
-    });
+    return skip(envelope.skipReason ?? "agy-skip");
   }
 
   let raw: string;
   try {
     raw = deps.readFile(envelope.artifactPath ?? rawPath);
   } catch {
-    return emit(deps, { ran: false, skipReason: "gemini-output-unreadable" });
+    return skip("gemini-output-unreadable");
   }
 
   const objText = extractJsonObject(raw);
   if (objText === null) {
-    return emit(deps, { ran: false, skipReason: "gemini-output-unparseable" });
+    return skip("gemini-output-unparseable");
   }
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(objText);
   } catch {
-    return emit(deps, { ran: false, skipReason: "gemini-output-unparseable" });
+    return skip("gemini-output-unparseable");
   }
 
   const normalized = normalizeParsedFindings(parsedJson);
   const validation = validateAgentFindings(normalized);
   if (!validation.ok) {
-    return emit(deps, {
-      ran: false,
-      skipReason: "gemini-output-schema-invalid",
-    });
+    return skip("gemini-output-schema-invalid");
   }
 
   try {
     deps.writeFile(parsed.out, JSON.stringify(validation.value, null, 2));
   } catch {
-    return emit(deps, { ran: false, skipReason: "gemini-finalize-failed" });
+    return skip("gemini-finalize-failed");
   }
 
+  cleanScratch();
   return emit(deps, {
     ran: true,
     findingsPath: parsed.out,
@@ -316,9 +327,7 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     readFile: o?.readFile ?? ((p) => readFileSync(p, "utf8")),
     writeFile: o?.writeFile ?? ((p, c) => writeFileSync(p, c)),
     removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
-    fileExists: o?.fileExists ?? ((p) => existsSync(p)),
     mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
-    now: o?.now ?? (() => Date.now()),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
   };
 }
