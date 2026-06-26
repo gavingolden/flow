@@ -132,30 +132,48 @@ describe("getEntry / putEntry round-trip", () => {
 describe("pruneCache (GC sweep)", () => {
   const T0 = 1_700_000_000_000;
 
-  // Write a `.json` entry directly with a chosen createdAt. The key↔content
-  // match is irrelevant to pruneCache (it reads every `*.json`'s createdAt), so
-  // a plain name keeps the fixture readable.
-  function writeEntry(name: string, createdAt: number | undefined): void {
+  // Fixtures use the real `<sha256hex>.json` name shape the helper authors
+  // (derived via cacheKey) because pruneCache only ever touches files matching
+  // that shape. Each helper returns the on-disk name so assertions reference it.
+  function writeEntry(
+    seed: string,
+    createdAt: number | undefined,
+    opts: { synthesis?: unknown } = {},
+  ): string {
     mkdirSync(root, { recursive: true });
-    const obj: Record<string, unknown> = { synthesis: name };
+    const name = cacheKey(seed) + ".json";
+    const obj: Record<string, unknown> = {
+      synthesis: "synthesis" in opts ? opts.synthesis : seed,
+    };
     if (createdAt !== undefined) obj.createdAt = createdAt;
     writeFileSync(join(root, name), JSON.stringify(obj));
+    return name;
   }
 
-  // Write an orphan tmp file and set its mtime to `mtimeMs` (utimes takes
-  // seconds), so the grace-window check is deterministic against `nowMs`.
-  function writeTmp(name: string, mtimeMs: number): void {
+  // Write a conforming orphan tmp (`<key>.json.<pid>.tmp`) and set its mtime
+  // (utimes takes seconds) so the grace-window check is deterministic.
+  function writeTmp(seed: string, pid: number, mtimeMs: number): string {
     mkdirSync(root, { recursive: true });
+    const name = `${cacheKey(seed)}.json.${pid}.tmp`;
     const p = join(root, name);
     writeFileSync(p, "half-written");
     utimesSync(p, mtimeMs / 1000, mtimeMs / 1000);
+    return name;
+  }
+
+  // Verbatim file at an arbitrary name — for corrupt + non-conforming fixtures.
+  function writeRaw(name: string, body: string, mtimeMs?: number): void {
+    mkdirSync(root, { recursive: true });
+    const p = join(root, name);
+    writeFileSync(p, body);
+    if (mtimeMs !== undefined) utimesSync(p, mtimeMs / 1000, mtimeMs / 1000);
   }
 
   const files = () => readdirSync(root).sort();
 
   it("prune-by-age removes entries older than maxAgeHours and keeps fresher ones", () => {
-    writeEntry("old.json", T0); // 50h old at nowMs
-    writeEntry("fresh.json", T0 + 48 * HOUR); // 2h old
+    writeEntry("old", T0); // 50h old at nowMs
+    const fresh = writeEntry("fresh", T0 + 48 * HOUR); // 2h old
     const r = pruneCache({
       root,
       nowMs: T0 + 50 * HOUR,
@@ -163,22 +181,29 @@ describe("pruneCache (GC sweep)", () => {
       maxEntries: 1000,
     });
     expect(r.removedAge).toBe(1);
-    expect(files()).toEqual(["fresh.json"]);
+    expect(files()).toEqual([fresh]);
     expect(r.remaining).toBe(1);
   });
 
-  it("age prune uses the same boundary as the get TTL (>= threshold is reclaimed)", () => {
-    writeEntry("edge.json", T0); // exactly maxAgeHours old at nowMs
-    const r = pruneCache({ root, nowMs: T0 + 48 * HOUR, maxAgeHours: 48 });
-    expect(r.removedAge).toBe(1);
+  it("age prune brackets the get-TTL boundary — exactly-at is reclaimed, one ms under survives", () => {
+    writeEntry("edge", T0); // exactly maxAgeHours old at nowMs
+    expect(
+      pruneCache({ root, nowMs: T0 + 48 * HOUR, maxAgeHours: 48 }).removedAge,
+    ).toBe(1);
     expect(files()).toEqual([]);
+    // One ms before the boundary the entry is still fresh and must survive,
+    // mirroring getEntry's `<`-not-`<=` exact-edge contract.
+    const justUnder = writeEntry("just-under", T0);
+    const r = pruneCache({ root, nowMs: T0 + 48 * HOUR - 1, maxAgeHours: 48 });
+    expect(r.removedAge).toBe(0);
+    expect(files()).toEqual([justUnder]);
   });
 
   it("prune-by-count evicts the oldest-by-createdAt first down to maxEntries", () => {
-    writeEntry("a.json", T0 + 0 * HOUR);
-    writeEntry("b.json", T0 + 1 * HOUR);
-    writeEntry("c.json", T0 + 2 * HOUR);
-    writeEntry("d.json", T0 + 3 * HOUR);
+    writeEntry("a", T0 + 0 * HOUR);
+    writeEntry("b", T0 + 1 * HOUR);
+    const c = writeEntry("c", T0 + 2 * HOUR);
+    const d = writeEntry("d", T0 + 3 * HOUR);
     const r = pruneCache({
       root,
       nowMs: T0 + 4 * HOUR,
@@ -188,13 +213,13 @@ describe("pruneCache (GC sweep)", () => {
     expect(r.removedCount).toBe(2);
     expect(r.removedAge).toBe(0);
     // The two oldest (a, b) are evicted; the two newest survive.
-    expect(files()).toEqual(["c.json", "d.json"]);
+    expect(files()).toEqual([c, d].sort());
     expect(r.remaining).toBe(2);
   });
 
   it("no-op when under both limits — nothing removed, file set unchanged", () => {
-    writeEntry("a.json", T0 + 1 * HOUR);
-    writeEntry("b.json", T0 + 2 * HOUR);
+    writeEntry("a", T0 + 1 * HOUR);
+    writeEntry("b", T0 + 2 * HOUR);
     const before = files();
     const r = pruneCache({
       root,
@@ -213,22 +238,24 @@ describe("pruneCache (GC sweep)", () => {
   });
 
   it("orphan-tmp cleanup removes tmp files past the grace window, keeps fresh ones", () => {
-    writeTmp("stale.json.123.tmp", T0); // 2h old at nowMs
-    writeTmp("fresh.json.456.tmp", T0 + 90 * 60_000); // 30min old
+    writeTmp("stale", 123, T0); // 2h old at nowMs
+    const freshTmp = writeTmp("fresh", 456, T0 + 90 * 60_000); // 30min old
     const r = pruneCache({
       root,
       nowMs: T0 + 2 * HOUR,
       tmpMaxAgeHours: 1,
     });
     expect(r.removedTmp).toBe(1);
-    expect(files()).toEqual(["fresh.json.456.tmp"]);
+    expect(files()).toEqual([freshTmp]);
   });
 
-  it("corrupt-entry tolerance — malformed/missing-timestamp entries are removed without throwing, valid entries still obey age/count", () => {
-    writeEntry("valid.json", T0 + 3 * HOUR);
-    writeEntry("missing-ts.json", undefined); // no createdAt
-    mkdirSync(root, { recursive: true });
-    writeFileSync(join(root, "garbage.json"), "not json {{{");
+  it("corrupt-entry tolerance — malformed/missing-timestamp/non-string-synthesis entries are removed without throwing; valid entries obey age/count", () => {
+    const valid = writeEntry("valid", T0 + 3 * HOUR);
+    writeEntry("missing-ts", undefined); // no createdAt
+    // Valid createdAt but a non-string synthesis: getEntry treats this as a
+    // permanent miss, so the sweep must reclaim it too (mirrors the get check).
+    writeEntry("bad-synthesis", T0 + 3 * HOUR, { synthesis: 42 });
+    writeRaw(cacheKey("garbage") + ".json", "not json {{{");
     let r!: ReturnType<typeof pruneCache>;
     expect(() => {
       r = pruneCache({
@@ -238,16 +265,39 @@ describe("pruneCache (GC sweep)", () => {
         maxAgeHours: 100,
       });
     }).not.toThrow();
-    expect(r.removedCorrupt).toBe(2);
-    expect(files()).toEqual(["valid.json"]);
+    expect(r.removedCorrupt).toBe(3);
+    expect(files()).toEqual([valid]);
     expect(r.remaining).toBe(1);
   });
 
+  it("only touches the helper's own <sha256hex> name shape — unrelated files are left alone", () => {
+    const keep = writeEntry("keep-me", T0); // fresh, valid, conforming
+    const orphan = writeTmp("real-orphan", 9, T0); // conforming, 50h old
+    writeRaw("notes.json", "not json {{{"); // unrelated .json (not 64-hex)
+    writeRaw("README.txt", "hello"); // unrelated, not .json/.tmp
+    writeRaw("scratch.tmp", "x", T0); // unrelated .tmp (not the helper's shape)
+    const r = pruneCache({
+      root,
+      nowMs: T0 + 50 * HOUR,
+      maxAgeHours: 1000,
+      tmpMaxAgeHours: 1,
+    });
+    // Only the conforming orphan tmp is reaped; the unrelated files survive and
+    // are never counted as corrupt.
+    expect(r.removedCorrupt).toBe(0);
+    expect(r.removedTmp).toBe(1);
+    expect(r.removedAge).toBe(0);
+    expect(files()).toEqual(
+      ["README.txt", "notes.json", "scratch.tmp", keep].sort(),
+    );
+    expect(files()).not.toContain(orphan);
+  });
+
   it("dry-run reports would-remove counts but mutates nothing", () => {
-    writeEntry("a.json", T0 + 0 * HOUR);
-    writeEntry("b.json", T0 + 1 * HOUR);
-    writeEntry("c.json", T0 + 2 * HOUR);
-    writeTmp("orphan.json.9.tmp", T0);
+    writeEntry("a", T0 + 0 * HOUR);
+    writeEntry("b", T0 + 1 * HOUR);
+    writeEntry("c", T0 + 2 * HOUR);
+    writeTmp("orphan", 9, T0);
     const before = files();
     const r = pruneCache({
       root,
@@ -282,17 +332,18 @@ describe("pruneCache (GC sweep)", () => {
 describe("on-put sweep (opt-in)", () => {
   const T0 = 1_700_000_000_000;
 
-  function seedEntry(name: string, createdAt: number): void {
+  // Conforming `<sha256hex>.json` seed so the sweep recognises it as an entry.
+  function seedEntry(seed: string, createdAt: number): void {
     mkdirSync(root, { recursive: true });
     writeFileSync(
-      join(root, name),
-      JSON.stringify({ createdAt, synthesis: name }),
+      join(root, cacheKey(seed) + ".json"),
+      JSON.stringify({ createdAt, synthesis: seed }),
     );
   }
 
   it("fires when FLOW_RESEARCH_CACHE_SWEEP_ON_PUT is truthy and bounds the cache to maxEntries", () => {
-    seedEntry("old-a.json", T0);
-    seedEntry("old-b.json", T0 + 1 * HOUR);
+    seedEntry("old-a", T0);
+    seedEntry("old-b", T0 + 1 * HOUR);
     const q = "the freshly put question";
     putEntry(q, "new-body", {
       root,
@@ -311,8 +362,8 @@ describe("on-put sweep (opt-in)", () => {
   });
 
   it("does not sweep by default (env unset) — pre-existing entries are left untouched", () => {
-    seedEntry("old-a.json", T0);
-    seedEntry("old-b.json", T0 + 1 * HOUR);
+    seedEntry("old-a", T0);
+    seedEntry("old-b", T0 + 1 * HOUR);
     const q = "the un-swept question";
     putEntry(q, "new-body", {
       root,
@@ -325,7 +376,9 @@ describe("on-put sweep (opt-in)", () => {
 
   it("is best-effort — a put still succeeds (and the new entry is readable) with the sweep enabled alongside a corrupt entry", () => {
     mkdirSync(root, { recursive: true });
-    writeFileSync(join(root, "corrupt.json"), "not json {{{");
+    // A conforming-but-corrupt sibling entry, so the sweep recognises and
+    // reaps it — proving the sweep ran without failing the put.
+    writeFileSync(join(root, cacheKey("corrupt") + ".json"), "not json {{{");
     const q = "best-effort question";
     expect(() =>
       putEntry(q, "survives", {
@@ -514,6 +567,36 @@ describe("CLI (spawned binary, env-var seam)", () => {
     it("prune on an empty/uncreated cache dir exits 0 (best-effort)", () => {
       // FLOW_RESEARCH_CACHE_DIR points at a fresh mkdtemp dir with no entries.
       expect(cli(["prune"]).status).toBe(0);
+    });
+
+    it("FLOW_RESEARCH_CACHE_MAX_ENTRIES env bounds the count when no flag is given (env path)", () => {
+      expect(cli(["put", "--question", "q1", "--synthesis", "a"]).status).toBe(
+        0,
+      );
+      expect(cli(["put", "--question", "q2", "--synthesis", "b"]).status).toBe(
+        0,
+      );
+      // No --max-entries flag → runPrune resolves the cap from process.env.
+      const prune = cli(["prune"], undefined, {
+        FLOW_RESEARCH_CACHE_MAX_ENTRIES: "1",
+      });
+      expect(prune.status).toBe(0);
+      expect(readdirSync(root)).toHaveLength(1);
+    });
+
+    it("--max-entries flag wins over the env override (flag > env)", () => {
+      expect(cli(["put", "--question", "q1", "--synthesis", "a"]).status).toBe(
+        0,
+      );
+      expect(cli(["put", "--question", "q2", "--synthesis", "b"]).status).toBe(
+        0,
+      );
+      // env says cap 1, flag says cap 5 → flag wins → nothing removed.
+      const prune = cli(["prune", "--max-entries", "5"], undefined, {
+        FLOW_RESEARCH_CACHE_MAX_ENTRIES: "1",
+      });
+      expect(prune.status).toBe(0);
+      expect(readdirSync(root)).toHaveLength(2);
     });
   });
 });

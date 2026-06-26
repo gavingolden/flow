@@ -57,6 +57,14 @@ const DEFAULT_MAX_ENTRIES = 500;
 const DEFAULT_MAX_AGE_HOURS = DEFAULT_TTL_HOURS;
 const DEFAULT_TMP_MAX_AGE_HOURS = 1;
 
+// prune only ever touches files matching the exact names this helper authors —
+// a `<sha256hex>.json` entry or a `<sha256hex>.json.<pid>.tmp` write-temp. This
+// bounds the blast radius if FLOW_RESEARCH_CACHE_DIR is pointed at a shared
+// directory: an unrelated `.json`/`.tmp` file is left untouched rather than
+// reaped as "corrupt" or "orphan".
+const ENTRY_NAME_RE = /^[0-9a-f]{64}\.json$/;
+const TMP_NAME_RE = /^[0-9a-f]{64}\.json\.\d+\.tmp$/;
+
 // --- Pure helpers (imported by the test) ---
 
 export function normalizeQuestion(q: string): string {
@@ -229,8 +237,11 @@ export function pruneCache(
 
     // Orphan tmp (`<key>.json.<pid>.tmp`): delete only outside the grace window
     // so a concurrent `put` about to renameSync its tmp is never raced. Checked
-    // before the `.json` branch because the tmp name also contains `.json`.
+    // before the entry branch because the tmp name also ends in a `.json`
+    // segment. Only this helper's own write-temp shape is eligible — an
+    // unrelated `.tmp` is left alone.
     if (name.endsWith(".tmp")) {
+      if (!TMP_NAME_RE.test(name)) continue;
       let mtimeMs: number;
       try {
         mtimeMs = statSync(full).mtimeMs;
@@ -243,7 +254,9 @@ export function pruneCache(
       continue;
     }
 
-    if (!name.endsWith(".json")) continue; // ignore unrelated files
+    // Only the `<sha256hex>.json` entries this helper authors are eligible —
+    // any other file (including an unrelated `.json`) is left untouched.
+    if (!ENTRY_NAME_RE.test(name)) continue;
 
     let createdAt: number | undefined;
     try {
@@ -251,7 +264,14 @@ export function pruneCache(
         string,
         unknown
       >;
-      if (typeof obj.createdAt === "number" && Number.isFinite(obj.createdAt)) {
+      // Mirror getEntry's validity check exactly (createdAt finite number AND
+      // synthesis a string): an entry get would treat as a permanent miss is
+      // dead weight the sweep should reclaim, not keep.
+      if (
+        typeof obj.createdAt === "number" &&
+        Number.isFinite(obj.createdAt) &&
+        typeof obj.synthesis === "string"
+      ) {
         createdAt = obj.createdAt;
       }
     } catch {
