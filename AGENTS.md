@@ -170,22 +170,18 @@ the `**Task-tool exemption: ...**` bullets under `## Don'ts` below, with
 a shared-rationale preamble. This binds the supervisor and its
 sub-agents; a standalone leaf skill (`/flow-research` run directly)
 firing `claude -p` is a context it never governed, and `flow-research`'s
-`FLOW_PIPELINE` guard gates it off when nested (see its SKILL.md). This
-sidesteps two limits: sub-agents can't spawn sub-agents (one-level cap),
-and a long-running supervisor with sub-agents would bloat the context
-window.
+`FLOW_PIPELINE` guard gates it off when nested (see SKILL.md). This
+sidesteps two limits: the one-level sub-agent cap, and context bloat from
+a long-running supervisor with sub-agents.
 
-If you add logic that *needs* a separate LLM session, redesign so the
-LLM lives in an in-process sub-skill or a non-LLM helper script.
+Logic needing a separate LLM session belongs in an in-process sub-skill
+or a non-LLM helper, not here.
 
 ## Compact Instructions
 
-The supervisor is one long-running Claude Code session whose single context
-window the whole pipeline shares, so when the harness compacts the conversation
-— automatically near the limit, or on a manual `/compact` — load-bearing
-pipeline state must survive. Claude Code reads a "Compact Instructions"
-section from `CLAUDE.md` / `AGENTS.md` to decide what to preserve
-(flow's `CLAUDE.md` is `@AGENTS.md`, so this is included). See
+When the harness compacts the conversation (near the context limit, or on `/compact`), load-bearing pipeline state must survive. Claude Code reads
+the "Compact Instructions" section from `CLAUDE.md` / `AGENTS.md` to decide
+what to preserve (flow's `CLAUDE.md` is `@AGENTS.md`). See
 code.claude.com/docs/en/how-claude-code-works.
 
 - **KEEP**: current pipeline phase, PR number, worktree path, the
