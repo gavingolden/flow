@@ -202,21 +202,6 @@ export function createWindow(
 }
 
 /**
- * Liveness-poll budget shared by `createWindowVerified` and
- * `respawnWindowVerified`. `claude` launched in a fresh pane can pass the
- * create/respawn call (tmux forks the shell, exit 0) yet die milliseconds later
- * (bad install, missing binary), so we re-probe the pane a few times and require
- * it alive at the END of the budget — a single early "alive" reading is not
- * enough to catch the alive-then-dies race. NOTE: the budget is ~480ms (5
- * probes, 4 × 120ms sleeps — the first probe runs before any sleep) and is a
- * first cut; it MUST be validated against a real `claude` cold-launch — too
- * short and a slow-starting healthy claude is killed as a false orphan. Tune
- * both constants if dogfooding shows otherwise.
- */
-const LIVENESS_POLL_ATTEMPTS = 5;
-const LIVENESS_POLL_INTERVAL_MS = 120;
-
-/**
  * Ready + consumption poll budgets. The seed is delivered by send-keys only
  * after `claude`'s interactive TUI is confirmed READY (drawn), and success is
  * gated on confirmed CONSUMPTION (the pane advanced past the empty input box
@@ -229,10 +214,22 @@ const LIVENESS_POLL_INTERVAL_MS = 120;
  * ~18s budgets carry a generous margin. Re-validate if a future TUI changes
  * cold-start or first-tool-call timing.
  */
-const READY_POLL_ATTEMPTS = 60; // ~18s to first TUI render on a cold launch
+const READY_POLL_ATTEMPTS = 60; // ~18s max budget to first TUI render on a cold launch
 const READY_POLL_INTERVAL_MS = 300;
-const CONSUME_POLL_ATTEMPTS = 60; // ~18s from submit to the first ⏺/✻ (early-exit on match)
+const CONSUME_POLL_ATTEMPTS = 60; // ~18s max budget from submit to the first ⏺/✻
 const CONSUME_POLL_INTERVAL_MS = 300;
+/**
+ * Confirmation tail: number of consecutive alive probes required AFTER the
+ * ready/consumed condition is first met before returning early. The tail is
+ * what catches the alive-then-dies race — if the pane dies during those N
+ * probes we reset and keep polling. N=3 (3 × 300ms = 900ms) is chosen so
+ * the existing "alive for exactly 2 probes then dies" regression test still
+ * fails (tailCount reaches 2 < 3, the death is detected, returns false) while
+ * a healthy cold-start exits early after just a handful of probes instead of
+ * burning the full ~18s budget.
+ */
+const READY_TAIL_PROBES = 3;
+const CONSUME_TAIL_PROBES = 3;
 
 /**
  * Substrings indicating Claude Code's interactive TUI has drawn its fresh
@@ -353,28 +350,13 @@ function sendKeysBySlug(
 }
 
 /**
- * Bounded liveness poll: probe `isAlive` up to `LIVENESS_POLL_ATTEMPTS` times,
- * sleeping `LIVENESS_POLL_INTERVAL_MS` between probes (never before the first),
- * and return the FINAL probe's verdict. Returning the last reading — not an
- * early break on the first `true` — is what catches the alive-then-dies race.
- */
-function pollUntilAlive(
-  isAlive: () => boolean,
-  sleep: (ms: number) => void,
-): boolean {
-  let alive = false;
-  for (let attempt = 0; attempt < LIVENESS_POLL_ATTEMPTS; attempt++) {
-    if (attempt > 0) sleep(LIVENESS_POLL_INTERVAL_MS);
-    alive = isAlive();
-  }
-  return alive;
-}
-
-/**
  * Polls until the pane is alive AND its TUI is ready (drawn). Sleeps between
  * probes (never before the first). Short-circuits the readPane call when the
  * pane is not alive (so a dead-pane test never invokes the readPane seam).
- * Returns the FINAL probe's verdict — an early "ready" then a death still fails.
+ * Once ready is first observed, requires READY_TAIL_PROBES more consecutive
+ * alive probes before returning true — this catches the alive-then-dies race
+ * without burning the full ~18s budget. A death during the tail resets the
+ * tail count (and the ready latch) so the polling resumes from scratch.
  */
 function pollUntilReady(
   isAlive: () => boolean,
@@ -382,19 +364,30 @@ function pollUntilReady(
   sleep: (ms: number) => void,
 ): boolean {
   let ready = false;
+  let tailCount = 0;
   for (let attempt = 0; attempt < READY_POLL_ATTEMPTS; attempt++) {
     if (attempt > 0) sleep(READY_POLL_INTERVAL_MS);
-    ready = isAlive() ? parsePaneReady(readPane()) : false;
+    if (!isAlive()) {
+      ready = false;
+      tailCount = 0;
+      continue;
+    }
+    if (!ready) ready = parsePaneReady(readPane());
+    if (ready) {
+      if (++tailCount >= READY_TAIL_PROBES) return true;
+    }
   }
   return ready;
 }
 
 /**
- * Polls until the seed is confirmed consumed AND the pane is still alive at the
- * end. Consumption is LATCHED (monotonic positive evidence — once a turn is
- * observed it cannot un-happen), while liveness is read every probe and the
- * FINAL reading is the verdict, so a consume-then-die (Mode 3) yields false.
- * A never-consumed pane (Mode 1) also yields false.
+ * Polls until the seed is confirmed consumed AND the pane is still alive.
+ * Consumption is LATCHED (monotonic positive evidence — once a turn is
+ * observed it cannot un-happen). Once consumed, requires CONSUME_TAIL_PROBES
+ * more consecutive alive probes before returning true — early exit that still
+ * catches the consume-then-die (Mode 3) race. A death detected mid-tail
+ * returns false immediately (fail-fast: a dead pane can't recover). A
+ * never-consumed pane (Mode 1) exhausts the budget and returns false.
  */
 function pollUntilConsumed(
   isAlive: () => boolean,
@@ -403,13 +396,23 @@ function pollUntilConsumed(
 ): boolean {
   let everConsumed = false;
   let aliveAtEnd = false;
+  let tailCount = 0;
   for (let attempt = 0; attempt < CONSUME_POLL_ATTEMPTS; attempt++) {
     if (attempt > 0) sleep(CONSUME_POLL_INTERVAL_MS);
     aliveAtEnd = isAlive();
-    if (aliveAtEnd && !everConsumed && parsePaneConsumed(readPane())) {
+    if (!aliveAtEnd) {
+      // Fail fast on a consume-then-die (Mode 3): a dead pane can't recover.
+      if (everConsumed) return false;
+      continue;
+    }
+    if (!everConsumed && parsePaneConsumed(readPane())) {
       everConsumed = true;
     }
+    if (everConsumed) {
+      if (++tailCount >= CONSUME_TAIL_PROBES) return true;
+    }
   }
+  // Budget exhausted: consumed near the end (tail incomplete) or never consumed.
   return everConsumed && aliveAtEnd;
 }
 
