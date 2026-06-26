@@ -42,6 +42,7 @@ import { spawnSync } from "node:child_process";
 import {
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
+  TERMINAL_PHASE_SET,
   readState,
   writeState,
   nowIso,
@@ -63,6 +64,8 @@ type Args = {
   /** true when `--answer-stdin` was passed; runUpdate reads the answer from stdin. */
   answerStdin?: boolean;
   phaseOutcome?: string;
+  /** When true, bypass the terminal-phase regression guard. */
+  force?: boolean;
 };
 
 /**
@@ -141,6 +144,10 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       out.answerStdin = true;
       continue;
     }
+    if (flag === "--force") {
+      out.force = true;
+      continue;
+    }
     const value = rest[i + 1];
     if (value === undefined || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -171,6 +178,12 @@ export function parseArgs(argv: string[]): Args | { error: string } {
         break;
       case "--phase-outcome":
         out.phaseOutcome = value;
+        break;
+      case "--slug":
+        if (out.slug !== undefined) {
+          return { error: "cannot combine positional <slug> with --slug" };
+        }
+        out.slug = value;
         break;
       default:
         return { error: `unknown flag: ${flag}` };
@@ -289,6 +302,23 @@ export function runUpdate(
         "  did you forget to run `flow new`? state files live at ~/.flow/state/<slug>.json.",
     );
     return 1;
+  }
+
+  // Terminal-phase regression guard: refuse to move an already-terminal
+  // pipeline back to a non-terminal phase unless --force is passed. A
+  // terminal→non-terminal write is almost always an ambient-pane race that
+  // resolved the slug to the wrong pipeline. Exit 4 (distinct from exit 3
+  // used by branch-mismatch) so the supervisor can escalate differently.
+  if (
+    parsed.phase !== undefined &&
+    !parsed.force &&
+    TERMINAL_PHASE_SET.has(existing.phase) &&
+    !TERMINAL_PHASE_SET.has(parsed.phase)
+  ) {
+    console.error(
+      `flow-state-update: refusing to regress terminal phase '${existing.phase}' → '${parsed.phase}' for slug '${slug}'. If intentional, delete the state file first or use --force.`,
+    );
+    return 4;
   }
 
   // The branch guard is the supervisor's mechanical defense against the

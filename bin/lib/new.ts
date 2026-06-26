@@ -468,11 +468,12 @@ function launchArgv(
 // prompt) AND the send-keys delivery the verified launcher now owns, so the two
 // can never drift.
 function flowPipelineSeed(description: string): string {
-  return `Use the /flow-pipeline skill for: ${description}`;
+  const slug = slugify(description);
+  return `[pipeline-slug: ${slug}]\nUse the /flow-pipeline skill for: ${description}`;
 }
 
 function flowPipelineResumeSeed(slug: string): string {
-  return `Use the /flow-pipeline skill in --resume mode for: ${slug}`;
+  return `[pipeline-slug: ${slug}]\nUse the /flow-pipeline skill in --resume mode for: ${slug}`;
 }
 
 function defaultCommand(

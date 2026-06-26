@@ -48,21 +48,64 @@ export function parseArgs(argv: string[]): ParseOk | ParseHelp | ParseErr {
     if (a === "--help" || a === "-h") return { kind: "help" };
     if (a === "--") break;
   }
-  if (argv.length === 0) {
+
+  // Extract --slug <value> upfront so the remaining positional logic is unchanged.
+  let slugFromFlag: string | undefined;
+  const slugIdx = argv.indexOf("--slug");
+  let remaining: string[];
+  if (slugIdx >= 0) {
+    const value = argv[slugIdx + 1];
+    if (value === undefined || value.startsWith("--")) {
+      return { error: "--slug requires a value" };
+    }
+    slugFromFlag = value;
+    // Build remaining argv without --slug and its value token.
+    remaining = [...argv.slice(0, slugIdx), ...argv.slice(slugIdx + 2)];
+  } else {
+    remaining = argv;
+  }
+
+  if (remaining.length === 0 && slugFromFlag === undefined) {
     return { error: "<title> is required" };
   }
-  if (argv.length > 2) {
+  if (remaining.length > 2) {
     return {
       error:
         'too many positional arguments — quote the title (e.g. flow-rename-window slug "my title")',
     };
   }
-  if (argv.length === 1) {
-    const [title] = argv;
+
+  // If --slug was given AND there's a leading non-flag positional → mutual exclusion error.
+  if (
+    slugFromFlag !== undefined &&
+    remaining.length >= 1 &&
+    !remaining[0].startsWith("--") &&
+    remaining.length === 2
+  ) {
+    // Two remaining positionals alongside --slug: the caller passed slug positionally too.
+    return { error: "cannot combine positional <slug> with --slug" };
+  }
+
+  if (slugFromFlag !== undefined) {
+    // --slug was provided: remaining is just [title] (possibly empty).
+    if (remaining.length === 0) {
+      return { error: "<title> is required" };
+    }
+    const [title] = remaining;
+    if (!title.trim()) return { error: "<title> must not be empty" };
+    return { slug: slugFromFlag, title };
+  }
+
+  // No --slug: fall back to the original positional logic.
+  if (remaining.length === 0) {
+    return { error: "<title> is required" };
+  }
+  if (remaining.length === 1) {
+    const [title] = remaining;
     if (!title.trim()) return { error: "<title> must not be empty" };
     return { title };
   }
-  const [slug, title] = argv;
+  const [slug, title] = remaining;
   if (!slug.trim()) return { error: "<slug> must not be empty" };
   if (!title.trim()) return { error: "<title> must not be empty" };
   return { slug, title };

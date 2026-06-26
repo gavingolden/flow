@@ -65,6 +65,39 @@ describe(parseArgs, () => {
   });
 });
 
+describe("parseArgs --slug flag", () => {
+  it("['--slug', 'my-slug', 'My Title'] → { slug: 'my-slug', title: 'My Title' }", () => {
+    expect(parseArgs(["--slug", "my-slug", "My Title"])).toEqual({
+      slug: "my-slug",
+      title: "My Title",
+    });
+  });
+
+  it("['--slug'] alone → error '--slug requires a value'", () => {
+    expect(parseArgs(["--slug"])).toEqual({
+      error: "--slug requires a value",
+    });
+  });
+
+  it("['--slug', '--other', 'x'] → error '--slug requires a value' (value starts with --)", () => {
+    expect(parseArgs(["--slug", "--other", "x"])).toEqual({
+      error: "--slug requires a value",
+    });
+  });
+
+  it("['my-slug', '--slug', 'other', 'My Title'] → error combining positional and --slug", () => {
+    expect(parseArgs(["my-slug", "--slug", "other", "My Title"])).toEqual({
+      error: "cannot combine positional <slug> with --slug",
+    });
+  });
+
+  it("['--slug', 'my-slug'] alone (no title) → error about missing title", () => {
+    expect(parseArgs(["--slug", "my-slug"])).toEqual({
+      error: "<title> is required",
+    });
+  });
+});
+
 describe(run, () => {
   function harness(
     windows: TmuxWindow[],
