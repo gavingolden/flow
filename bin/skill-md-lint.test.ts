@@ -2155,7 +2155,7 @@ describe("pr-review include-by-reference structure", () => {
     // the new contract's scope, not unrelated bloat.
     expect(
       lineCount,
-      `pr-review/SKILL.md line count must stay under the post-SUBJECTIVE ` +
+      `pr-review/SKILL.md line count must stay under the post-UI-wiring-nudge ` +
         `budget of 1885 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
     ).toBeLessThan(1885);
@@ -2651,6 +2651,57 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
         "visual manual step is flagged for an integration test. Dropping the " +
         "reference silently orphans the cue. Renaming the section name must " +
         "update all four consumer sites and this lint in the same commit " +
+        "(AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md contains the Guard-strength check section and its load-bearing axis-d question", () => {
+    expect(
+      manualTestRubricContent.includes("Guard-strength check"),
+      "manual-test-rubric.md must contain the 'Guard-strength check' section — " +
+        "the (d) axis that complements the (a)–(c) automatability test: a check " +
+        "that only fails by reverting the exact diff is a change-detector, not a " +
+        "guard. Renaming or removing the section must update this lint in the same " +
+        "commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      manualTestRubricContent.includes(
+        "could this check fail under a plausible regression",
+      ),
+      "manual-test-rubric.md must contain the phrase 'could this check fail " +
+        "under a plausible regression' — the load-bearing question of the (d) " +
+        "guard-strength axis that distinguishes a real guard from a change-detector. " +
+        "A rename here breaks the conceptual link between the Guard-strength check " +
+        "section and the Shallow smells change-detector bullet.",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md contains the UI wiring behavioral assertion section and change-detector term", () => {
+    expect(
+      manualTestRubricContent.includes("UI wiring behavioral assertion"),
+      "manual-test-rubric.md must contain the 'UI wiring behavioral assertion' " +
+        "section heading — the cross-reference target from pr-review/SKILL.md " +
+        "Step 11b. Renaming it must update the Step 11b nudge paragraph and this " +
+        "lint in the same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      manualTestRubricContent.includes("change-detector"),
+      "manual-test-rubric.md must contain the term 'change-detector' — the " +
+        "load-bearing concept name for a check that can only fail by reverting the " +
+        "exact diff rather than catching a real regression. It appears in both the " +
+        "Guard-strength check section and the Shallow smells list.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md Step 11b references the rubric's 'UI wiring behavioral assertion' section", () => {
+    expect(
+      prReviewContent.includes("UI wiring behavioral assertion"),
+      "pr-review/SKILL.md Step 11b must reference the rubric's 'UI wiring " +
+        "behavioral assertion' section — the cross-file-deference contract: the " +
+        "rule that import-presence-grep-only Test Steps on wiring changes are " +
+        "under-tested is anchored once in manual-test-rubric.md and deferred to " +
+        "by name in Step 11b. Dropping the reference silently orphans the nudge. " +
+        "Renaming the section name must update this lint in the same commit " +
         "(AGENTS.md anchored-phrase rule).",
     ).toBe(true);
   });
