@@ -211,18 +211,22 @@ export function createWindow(
  * `starting` (its first `flow-state-update --phase triaging`). That state-file
  * transition is version-independent — no `capture-pane` text scraping — so a
  * future Claude Code TUI change can no longer brick the verb (the version
- * coupling PR #355 flagged). These windows are deliberately longer than the
- * ~480ms liveness budget so a slow cold-start is not killed as a false orphan
- * AND a multi-second death (Mode 3) is still caught — we keep polling across the
- * whole budget and require alive-at-the-end. The consume budget is longer than
- * the readiness budget because the phase-advance signal lands LATER than a first
- * glyph would: the supervisor must cold-start, load `/flow-pipeline`, rename the
- * window, then make its first bash call. ~60s carries a margin over a realistic
- * cold start; re-validate against a live dogfood if cold-start timing changes.
+ * coupling PR #355 flagged). These budgets are deliberately long so a slow
+ * cold-start is not killed as a false orphan AND a multi-second death (Mode 3)
+ * is still caught. On the NEVER-consumed path we keep polling across the whole
+ * budget and require alive-at-the-end; on the happy path `pollUntilConsumed`
+ * early-exits once consumption latches (running only the short CONSUME_TAIL_PROBES
+ * confirmation tail), so the large consume budget is a timeout ceiling, not a
+ * fixed per-launch runtime. The consume budget is longer
+ * than the readiness budget because the phase-advance signal lands LATER than a
+ * first glyph would: the supervisor must cold-start, load `/flow-pipeline`,
+ * rename the window, then make its first bash call. ~60s carries a margin over a
+ * realistic cold start; re-validate against a live dogfood if cold-start timing
+ * changes.
  */
 const READY_POLL_ATTEMPTS = 60; // ~18s to a non-empty pane on a cold launch
 const READY_POLL_INTERVAL_MS = 300;
-const CONSUME_POLL_ATTEMPTS = 200; // ~60s from submit to the phase advancing past `starting`
+const CONSUME_POLL_ATTEMPTS = 200; // ~60s ceiling from submit to the phase advancing past `starting`
 const CONSUME_POLL_INTERVAL_MS = 300;
 /**
  * Confirmation tail: number of consecutive alive probes required AFTER the
@@ -232,7 +236,10 @@ const CONSUME_POLL_INTERVAL_MS = 300;
  * the existing "alive for exactly 2 probes then dies" regression test still
  * fails (tailCount reaches 2 < 3, the death is detected, returns false) while
  * a healthy cold-start exits early after just a handful of probes instead of
- * burning the full ~18s budget.
+ * burning the full budget. This is the single early-exit mechanism — once
+ * consumption latches, `pollUntilConsumed` runs only this short tail rather
+ * than holding the full ~60s ceiling, so the budget is a never-consumed
+ * timeout, not a fixed per-launch runtime.
  */
 const READY_TAIL_PROBES = 3;
 const CONSUME_TAIL_PROBES = 3;
@@ -330,11 +337,11 @@ function pollUntilReady(
  * still alive. Consumption is LATCHED (monotonic positive evidence — once the
  * phase has advanced it cannot un-advance). Once consumed, requires
  * CONSUME_TAIL_PROBES more consecutive alive probes before returning true — an
- * early exit that still catches the consume-then-die (Mode 3) race. A death
+ * early exit that still catches the consume-then-die (Mode 3) race, so a healthy
+ * launch returns in seconds rather than blocking the whole ~60s budget. A death
  * detected mid-tail returns false immediately (fail-fast: a dead pane can't
  * recover). A never-consumed pane (Mode 1) exhausts the budget and returns
  * false. The `attempts` budget is injectable so unit tests run a tiny budget
- * instantly.
  */
 function pollUntilConsumed(
   isAlive: () => boolean,

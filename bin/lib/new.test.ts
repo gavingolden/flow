@@ -313,6 +313,59 @@ describe("runNew --resume", () => {
     );
     expect(after).toBe(before);
   });
+
+  it("BLOCKING regression: a resume attempt that bumps updatedAt then dies must not poison the next retry's consumed()", () => {
+    // Within-retry false-success repro on the resume path (issue #82, new.ts
+    // runResume): consumption is keyed on `updatedAt` moving off a baseline. A
+    // single baseline captured before the retry loop means an attempt that
+    // bumped `updatedAt` then died makes the next attempt's consumed()
+    // short-circuit true. The fix re-reads the baseline at the START of each
+    // attempt so consumed() reads false at every launch until THAT attempt's
+    // resumed supervisor bumps it.
+    const baseline = new Date(Date.now() - 10_000).toISOString();
+    writeState(
+      {
+        slug: "resumed",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: baseline,
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const consumedAtLaunch: boolean[] = [];
+    tmuxMock.respawnWindowVerified
+      .mockReset()
+      .mockImplementationOnce((_name, _cwd, _command, _seed, deps) => {
+        consumedAtLaunch.push(deps!.consumed!());
+        // The resumed supervisor bumps updatedAt (advances) then the pane dies.
+        writeState(
+          {
+            slug: "resumed",
+            phase: "verifying",
+            repo: repoDir,
+            updatedAt: new Date().toISOString(),
+          },
+          stateDir,
+        );
+        return {
+          ok: false,
+          stderr:
+            "the seed prompt was never consumed (supervisor did not start)",
+        };
+      })
+      .mockImplementationOnce((_name, _cwd, _command, _seed, deps) => {
+        consumedAtLaunch.push(deps!.consumed!());
+        return { ok: true, stderr: "" };
+      });
+    const code = runNew("resumed", { resume: true, stateDir, retrySleepMs: 0 });
+    expect(code).toBe(0);
+    expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(2);
+    // Both attempts read a fresh per-attempt baseline → false at launch; pre-fix
+    // attempt 2 read true off the once-captured baseline.
+    expect(consumedAtLaunch).toEqual([false, false]);
+  });
 });
 
 describe("runNewCli --resume (multi-slug)", () => {
@@ -1114,5 +1167,62 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
       .readdirSync(stateDir)
       .filter((f) => f.endsWith(".json"));
     expect(stateFiles).toEqual(["csv-export.json"]);
+  });
+
+  it("BLOCKING regression: an attempt that advances the phase then dies must not poison the next retry's consumed()", () => {
+    // Within-retry Mode-3 false-success repro (issue #82, new.ts runFresh): the
+    // `consumed` predicate compares phase to the literal `starting`, but the
+    // up-front state write fires ONCE and the closure is reused across attempts.
+    // So if attempt 1's supervisor advances the phase past `starting` and THEN
+    // the pane dies, a single up-front baseline would make attempt 2's
+    // consumed() short-circuit true over a brand-new idle window — the seed is
+    // skipped and pollUntilConsumed latches immediately, a false-success orphan.
+    // The fix re-establishes the `starting` baseline at the START of EACH
+    // attempt, so consumed() reads false at every launch until THAT attempt's
+    // supervisor advances. Driven entirely through the createWindowVerified seam
+    // (no real tmux/claude/fs server) — only the injected predicate + state file.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const consumedAtLaunch: boolean[] = [];
+    tmuxMock.createWindowVerified
+      .mockReset()
+      .mockImplementationOnce((name, _cwd, _command, _seed, deps) => {
+        // Sample the predicate at launch (still `starting` → false), then model
+        // the supervisor advancing the phase, then the pane dying (ok:false).
+        consumedAtLaunch.push(deps!.consumed!());
+        writeState(
+          {
+            slug: name,
+            phase: "triaging",
+            repo: repoDir,
+            updatedAt: new Date().toISOString(),
+          },
+          stateDir,
+        );
+        return {
+          ok: false,
+          stderr:
+            "the seed prompt was never consumed (supervisor did not start)",
+        };
+      })
+      .mockImplementationOnce((_name, _cwd, _command, _seed, deps) => {
+        // Attempt 2: with the per-attempt baseline reset, consumed() must read
+        // false here despite attempt 1 leaving phase=triaging. Pre-fix it read
+        // true (stale phase) → the launcher would falsely "succeed" without a
+        // genuine attempt-2 consumption.
+        consumedAtLaunch.push(deps!.consumed!());
+        return { ok: true, stderr: "" };
+      });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(2);
+    // Both attempts saw `starting` at launch — the retry was NOT poisoned by the
+    // prior attempt's phase advance.
+    expect(consumedAtLaunch).toEqual([false, false]);
   });
 });

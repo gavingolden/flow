@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import {
   buildNewSessionArgs,
@@ -575,6 +577,41 @@ describe(createWindowVerified, () => {
     expect(result.ok).toBe(false);
     expect(kill).toHaveBeenCalledTimes(1);
   });
+
+  it("happy path early-exits shortly after consumption latches instead of running the full consume budget", () => {
+    // pollUntilConsumed must NOT block for the whole budget on success: once
+    // consumed() latches it breaks into a short alive-confirm window. With a
+    // large consumeAttempts budget and a pane that consumes on the first probe,
+    // the liveness probe count must stay far below the budget — pre-fix the loop
+    // ran the full `consumeAttempts` even on the happy path (issue #80).
+    const { sendKeys, consumed } = makeConsumedSeam();
+    let aliveProbes = 0;
+    const isAlive = () => {
+      aliveProbes++;
+      return true;
+    };
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive,
+        kill: vi.fn(() => true),
+        sleep: noopSleep,
+        readPane: () => READY_CAPTURE,
+        consumed,
+        sendKeys,
+        readyAttempts: 1,
+        consumeAttempts: 500,
+      },
+    );
+    expect(result).toEqual({ ok: true, stderr: "" });
+    // 1 ready probe + 1 latch probe + a short alive-confirm window — a handful,
+    // not the injected 500-attempt budget.
+    expect(aliveProbes).toBeLessThan(20);
+  });
 });
 
 describe(respawnWindowVerified, () => {
@@ -993,4 +1030,34 @@ describe(resolveSlugFromPane, () => {
       ["show-options", "-t", "%42", "-v", "-w", "@flow-slug"],
     ]);
   });
+});
+
+describe("retired TUI-string detection surface", () => {
+  // Standing CI guard for the whole point of this refactor (issue #85): the
+  // version-coupled detection symbols — and the `v2.1.191` Claude Code version
+  // literal they were pinned to — were deleted, but their deletion is otherwise
+  // unguarded; a future change could silently reintroduce one and resurrect the
+  // exact version coupling this PR removed. Read the source and assert each
+  // stays absent, converting the PR's manual grep (Test Step #4) into a
+  // deterministic regression test that fails CI on reintroduction.
+  const RETIRED_SYMBOLS = [
+    "parsePaneConsumed",
+    "parsePaneReady",
+    "CONSUMPTION_MARKERS",
+    "READY_MARKERS",
+    "WELCOME_BANNER_HEADER",
+    "IDLE_INPUT_PLACEHOLDER",
+    "v2.1.191",
+  ];
+  const tmuxSource = fs.readFileSync(
+    fileURLToPath(new URL("./tmux.ts", import.meta.url)),
+    "utf8",
+  );
+
+  it.each(RETIRED_SYMBOLS)(
+    "does not reintroduce the retired symbol '%s' in tmux.ts",
+    (symbol) => {
+      expect(tmuxSource).not.toContain(symbol);
+    },
+  );
 });
