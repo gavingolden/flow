@@ -32,6 +32,7 @@ import {
 } from "./state";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
+import { installBaseBranchGuard } from "./base-branch-guard";
 
 /**
  * Bounded retry budget for the verified window create. A single transient
@@ -270,6 +271,20 @@ function runFresh(description: string, options: NewOptions): number {
     );
     console.error("  or pick a different description.");
     return 1;
+  }
+
+  // Mechanical base-branch guard: install the env-gated pre-commit hook on the
+  // main repo (best-effort, idempotent) so a future supervisor bug cannot land
+  // pipeline work directly on the base branch. The hook is inert outside a flow
+  // session, and a guard-install hiccup must never abort the launch.
+  try {
+    installBaseBranchGuard(repo);
+  } catch (err) {
+    console.error(
+      dim(
+        `flow new: could not install base-branch guard: ${err instanceof Error ? err.message : String(err)}`,
+      ),
+    );
   }
 
   const worktree = deriveWorktreePath(repo, slug);
