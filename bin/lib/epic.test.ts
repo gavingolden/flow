@@ -17,11 +17,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const tmuxMock = vi.hoisted(() => ({
   windowExists: vi.fn<(name: string) => boolean>(() => false),
   isPaneAlive: vi.fn<(name: string) => boolean>(() => false),
+  // The 4th arg is the seed (send-keys delivery); the 5th is the deps object
+  // carrying the injected `consumed` state-file-poll predicate.
   createWindowVerified: vi.fn<
     (
       name: string,
       cwd: string,
       command: string[],
+      seed?: string,
+      deps?: { consumed?: () => boolean },
     ) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
   respawnWindowVerified: vi.fn<
@@ -29,6 +33,8 @@ const tmuxMock = vi.hoisted(() => ({
       name: string,
       cwd: string,
       command: string[],
+      seed?: string,
+      deps?: { consumed?: () => boolean },
     ) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
   FLOW_SESSION: "flow",
@@ -188,6 +194,79 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(errors.join("\n")).toMatch(/claude exited immediately after launch/);
   });
 
+  it("writes epic state(phase=starting) BEFORE the verified launch (supervisor needs a file to advance)", () => {
+    // Mirrors new.test.ts: the inverted persist gate writes state up front so the
+    // /epic-create supervisor has a file to advance past `starting`.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let phaseAtLaunch: string | null = null;
+    tmuxMock.createWindowVerified.mockImplementation((name) => {
+      try {
+        phaseAtLaunch = JSON.parse(
+          fs.readFileSync(path.join(stateDir, `${name}.json`), "utf8"),
+        ).phase;
+      } catch {
+        phaseAtLaunch = null;
+      }
+      return { ok: true, stderr: "" };
+    });
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    expect(phaseAtLaunch).toBe("starting");
+  });
+
+  it("fresh consume-timeout deletes the up-front epic state (no orphan under the inverted gate)", () => {
+    // createWindowVerified ok:false (consume timed out) must delete the state
+    // file runCreate wrote up front, so no orphaned `phase: starting` survives.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      ok: false,
+      stderr: "the seed prompt was never consumed (supervisor did not start)",
+    });
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(2);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+  });
+
+  it("wires a fresh consumed predicate that flips true once the phase advances past starting", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let consumedFn: (() => boolean) | undefined;
+    let launchedSlug: string | undefined;
+    tmuxMock.createWindowVerified.mockImplementation(
+      (name, _cwd, _command, _seed, deps) => {
+        launchedSlug = name;
+        consumedFn = deps?.consumed;
+        return { ok: true, stderr: "" };
+      },
+    );
+    const code = runEpicCli(["create", "add a watchlist feature"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    expect(consumedFn).toBeDefined();
+    expect(launchedSlug).toBeDefined();
+    expect(consumedFn!()).toBe(false);
+    writeState(
+      {
+        slug: launchedSlug!,
+        phase: "epic-designing",
+        repo: fs.realpathSync(repoDir),
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+
   it("MODE 2 (window vanished after verify): a missing window at the pre-persist re-check writes no state and exits non-zero", () => {
     // Mirrors new.test.ts's Mode-2 case: the launcher reports ok (a live, seeded
     // window), but the window vanishes before the state write (racing kill / tmux
@@ -291,6 +370,73 @@ describe("runEpicCli create --resume", () => {
     const code = runEpicCli(["create", "--resume", "Not A Slug"], { stateDir });
     expect(code).toBe(2);
     expect(errors.join("\n")).toMatch(/not a valid epic slug/);
+  });
+
+  it("wires a resume consumed predicate that gates on updatedAt advancing from epic-designing", () => {
+    // On resume the phase is already `epic-designing`, so consumption keys on
+    // `updatedAt` moving off the pre-respawn baseline, mirroring new.ts runResume.
+    const baseline = new Date(Date.now() - 10_000).toISOString();
+    writeState(
+      {
+        slug: "resumed-epic",
+        phase: "epic-designing",
+        repo: repoDir,
+        updatedAt: baseline,
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.respawnWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { ok: true, stderr: "" };
+      },
+    );
+    const code = runEpicCli(["create", "--resume", "resumed-epic"], {
+      stateDir,
+    });
+    expect(code).toBe(0);
+    expect(consumedFn).toBeDefined();
+    expect(consumedFn!()).toBe(false);
+    writeState(
+      {
+        slug: "resumed-epic",
+        phase: "epic-designing",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+
+  it("resume launcher timeout leaves epic state byte-unchanged and never deletes it (symmetry)", () => {
+    seedEpicState("resume-timeout-epic");
+    const before = fs.readFileSync(
+      path.join(stateDir, "resume-timeout-epic.json"),
+      "utf8",
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    tmuxMock.respawnWindowVerified.mockReturnValue({
+      ok: false,
+      stderr: "the seed prompt was never consumed (supervisor did not start)",
+    });
+    const code = runEpicCli(["create", "--resume", "resume-timeout-epic"], {
+      stateDir,
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(2);
+    expect(fs.existsSync(path.join(stateDir, "resume-timeout-epic.json"))).toBe(
+      true,
+    );
+    const after = fs.readFileSync(
+      path.join(stateDir, "resume-timeout-epic.json"),
+      "utf8",
+    );
+    expect(after).toBe(before);
   });
 });
 

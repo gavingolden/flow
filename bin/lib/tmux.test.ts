@@ -8,8 +8,7 @@ import {
   createWindowVerified,
   findWindowBySlug,
   parseAliveStatus,
-  parsePaneConsumed,
-  parsePaneReady,
+  parsePaneNonEmpty,
   parseWindowList,
   resolveSlugFromPane,
   respawnWindowVerified,
@@ -20,40 +19,31 @@ import {
 } from "./tmux";
 
 /**
- * A ready-but-not-yet-consumed pane capture: a representative idle welcome
- * screen from a live Claude Code v2.1.191 cold-launch. Contains the banner
- * header ("Claude Code v") and the input placeholder ('Try "'), so
- * parsePaneReady→true and parsePaneConsumed→false (both welcome signatures
- * present → the transition fallback does not fire).
+ * A representative non-empty pane capture used for the string-free readiness
+ * gate (parsePaneNonEmpty → true). It is just "claude has drawn something" — the
+ * launcher no longer matches any TUI substring, so the exact contents are
+ * irrelevant beyond being non-whitespace.
  */
-const READY_CAPTURE =
-  '╭─── Claude Code v2.1.191 ───╮  Welcome back Gavin!  ❯ Try "how does X work?"  ⏵⏵ auto mode on (shift+tab to cycle)';
-/**
- * A consumed pane capture: a representative active-turn capture. Contains the
- * response/tool-call bullet ("⏺") and the thinking/completion glyph ("✻"), so
- * parsePaneConsumed→true.
- */
-const CONSUMED_CAPTURE =
-  "⏺ Bash(flow-state-update --phase triaging)  ✻ Cooked for 2s  ❯ ";
+const READY_CAPTURE = "❯ a rendered claude pane";
 
 /**
- * A two-phase readPane + matching sendKeys spy modelling the real lifecycle:
- * the pane reads ready-but-not-consumed until the seed is SUBMITTED (the Enter
- * send-keys call flips the latch), after which it reads consumed. This is
- * independent of the private poll-budget constants — consumption appears exactly
- * when the launcher submits, never before — so the double-submit guard and the
- * separate-text-then-Enter ordering are exercised faithfully.
+ * A `consumed` predicate + matching sendKeys spy modelling the real lifecycle:
+ * `consumed()` reads false until the seed is SUBMITTED (the Enter send-keys call
+ * flips the latch), after which it reads true. This is independent of the
+ * private poll-budget constants — consumption (the state-file phase advancing)
+ * appears exactly when the launcher submits, never before — so the double-submit
+ * guard and the separate-text-then-Enter ordering are exercised faithfully.
  */
-function makeSeedSeams() {
+function makeConsumedSeam() {
   let submitted = false;
-  const readPane = () => (submitted ? CONSUMED_CAPTURE : READY_CAPTURE);
   const sendKeys = vi.fn((_slug: string, keys: string, literal: boolean) => {
     // The literal seed text comes first, then a separate non-literal "Enter"
-    // that submits — only the Enter advances the pane to a consumed state.
+    // that submits — only the Enter advances the state-file phase (consumed).
     if (!literal && keys === "Enter") submitted = true;
     return { ok: true, stderr: "" };
   });
-  return { readPane, sendKeys };
+  const consumed = () => submitted;
+  return { sendKeys, consumed };
 }
 
 /** A capturing fake `tmux` spawn: records every argv, returns the queued result. */
@@ -218,66 +208,19 @@ describe(buildSendKeysArgs, () => {
   });
 });
 
-describe(parsePaneReady, () => {
-  it("returns false for an empty / whitespace capture", () => {
-    expect(parsePaneReady("")).toBe(false);
-    expect(parsePaneReady("   \n  ")).toBe(false);
+describe(parsePaneNonEmpty, () => {
+  it("returns false for an empty or whitespace-only capture", () => {
+    expect(parsePaneNonEmpty("")).toBe(false);
+    expect(parsePaneNonEmpty("   \n\t  ")).toBe(false);
   });
 
-  it("returns true for the idle welcome screen, case-insensitively", () => {
-    expect(parsePaneReady(READY_CAPTURE)).toBe(true);
-    // Banner header, greeting, and the shortcut-hint fallback each suffice.
-    expect(parsePaneReady("  Claude Code V2.1.191")).toBe(true);
-    expect(parsePaneReady("Welcome Back Gavin!")).toBe(true);
-    expect(parsePaneReady("  ? for Shortcuts")).toBe(true);
-  });
-
-  it("treats a consumed pane as ready (positional auto-ran)", () => {
-    expect(parsePaneReady(CONSUMED_CAPTURE)).toBe(true);
-  });
-
-  it("returns false only for an empty pane (a non-empty pane is ready or consumed)", () => {
-    // Under the fail-closed transition model every non-empty pane is either
-    // showing a welcome signature (ready) or has advanced past it (consumed,
-    // which implies ready), so emptiness is the sole not-ready state.
-    expect(parsePaneReady("")).toBe(false);
-    // A mid-draw banner still carries the header signature → ready.
-    expect(parsePaneReady("╭─── Claude Code v2.1.191")).toBe(true);
-  });
-});
-
-describe(parsePaneConsumed, () => {
-  it("returns false for an empty capture", () => {
-    expect(parsePaneConsumed("")).toBe(false);
-  });
-
-  it("returns true on the ⏺/✻ active-turn glyphs (the fast path)", () => {
-    expect(parsePaneConsumed(CONSUMED_CAPTURE)).toBe(true);
-    // Either glyph alone suffices.
-    expect(parsePaneConsumed("⏺ Hi")).toBe(true);
-    expect(parsePaneConsumed("✻ Sautéed for 4s")).toBe(true);
-  });
-
-  it("returns false for the idle welcome screen (fail-closed, no false latch)", () => {
-    // The idle welcome screen has neither glyph AND still shows both welcome
-    // signatures (banner header + 'Try "' placeholder), so the transition
-    // fallback does not fire — a never-started supervisor must never read as
-    // consumed (the Mode-1 bug this module exists to kill).
-    expect(parsePaneConsumed(READY_CAPTURE)).toBe(false);
-  });
-
-  it("transition fallback: both welcome signatures gone (no ⏺/✻) → consumed", () => {
-    // A long initial streaming phase can scroll the ⏺ bullet off the top before
-    // the ✻ completion glyph appears. With the banner header and the 'Try "'
-    // placeholder both gone, the pane has provably advanced past the welcome
-    // screen → consumed.
-    expect(parsePaneConsumed("some streamed response text\n❯ ")).toBe(true);
-  });
-
-  it("fail-closed: banner header still present (non-'Try \"' placeholder) → not consumed", () => {
-    // An idle pane whose rotating placeholder is not 'Try "' still shows the
-    // banner header, so the fallback's BOTH-absent requirement is not met.
-    expect(parsePaneConsumed("╭─ Claude Code v2.1.191 ─╮\n❯ ")).toBe(false);
+  it("returns true for any non-whitespace content (string-free liveness, no TUI match)", () => {
+    // Readiness is "the pane rendered SOMETHING" — deliberately version-
+    // independent, matching no Claude Code TUI substring. A bare glyph, a
+    // rendered banner, or an active-turn line all count equally.
+    expect(parsePaneNonEmpty("x")).toBe(true);
+    expect(parsePaneNonEmpty(READY_CAPTURE)).toBe(true);
+    expect(parsePaneNonEmpty("  ⏺ Bash(flow-state-update)  ")).toBe(true);
   });
 });
 
@@ -373,16 +316,19 @@ describe(createWindowVerified, () => {
   // result is driven through the `create` deps seam. The alive-probe, readPane,
   // and sendKeys are stubbed (the real impls shell out unconditionally;
   // exercising them is the anti-pattern these seams exist to avoid). `sleep` is a
-  // no-op so the bounded polls run instantly. createWindowVerified now takes a
-  // `seed` as its 4th positional arg (deps moves to 5th) and owns seed delivery.
-  // The new-window/new-session argv shape stays covered by the buildNewWindowArgs
-  // / buildNewSessionArgs tests above.
+  // no-op and a tiny `readyAttempts`/`consumeAttempts` budget is injected so the
+  // bounded polls run instantly. createWindowVerified takes a `seed` 4th
+  // positional arg (deps 5th) and owns seed delivery; `consumed()` is the
+  // version-independent (state-file-poll) consumption signal that replaced the
+  // retired TUI-string scan. The new-window/new-session argv shape stays covered
+  // by the buildNewWindowArgs / buildNewSessionArgs tests above.
   const noopSleep = () => undefined;
   const SEED = "Use the /flow-pipeline skill for: csv export";
+  const budget = { readyAttempts: 3, consumeAttempts: 3 };
 
   it("Case A: create ok but the pane never becomes ready → returns ok:false AND kills the half-created window", () => {
     // DEAD case: isAlive false short-circuits pollUntilReady before readPane, so
-    // no readPane/sendKeys seam is needed beyond the seed arg.
+    // no readPane/consumed seam is reached.
     const kill = vi.fn(() => true);
     const result = createWindowVerified(
       "csv-export",
@@ -394,6 +340,8 @@ describe(createWindowVerified, () => {
         isAlive: () => false, // dead at the end of the budget
         kill,
         sleep: noopSleep,
+        consumed: () => false,
+        ...budget,
       },
     );
     expect(result.ok).toBe(false);
@@ -402,9 +350,9 @@ describe(createWindowVerified, () => {
     expect(kill).toHaveBeenCalledWith("csv-export", "flow");
   });
 
-  it("Case B: create ok, pane ready, seed delivered + consumed → returns ok:true and never kills", () => {
+  it("Case B: create ok, pane ready (non-empty), seed delivered + consumed → returns ok:true and never kills", () => {
     const kill = vi.fn(() => true);
-    const { readPane, sendKeys } = makeSeedSeams();
+    const { sendKeys, consumed } = makeConsumedSeam();
     const result = createWindowVerified(
       "csv-export",
       "/repo",
@@ -415,8 +363,10 @@ describe(createWindowVerified, () => {
         isAlive: () => true,
         kill,
         sleep: noopSleep,
-        readPane,
+        readPane: () => READY_CAPTURE,
+        consumed,
         sendKeys,
+        ...budget,
       },
     );
     expect(result).toEqual({ ok: true, stderr: "" });
@@ -426,6 +376,7 @@ describe(createWindowVerified, () => {
   it("propagates a failed create verbatim without probing or killing", () => {
     const isAlive = vi.fn(() => true);
     const kill = vi.fn(() => true);
+    const consumed = vi.fn(() => false);
     const result = createWindowVerified(
       "csv-export",
       "/repo",
@@ -436,10 +387,13 @@ describe(createWindowVerified, () => {
         isAlive,
         kill,
         sleep: noopSleep,
+        consumed,
+        ...budget,
       },
     );
     expect(result).toEqual({ ok: false, stderr: "index 0 in use" });
     expect(isAlive).not.toHaveBeenCalled();
+    expect(consumed).not.toHaveBeenCalled();
     expect(kill).not.toHaveBeenCalled();
   });
 
@@ -462,6 +416,8 @@ describe(createWindowVerified, () => {
         kill,
         sleep: noopSleep,
         readPane: () => READY_CAPTURE,
+        consumed: () => false,
+        ...budget,
       },
     );
     expect(result.ok).toBe(false);
@@ -469,10 +425,10 @@ describe(createWindowVerified, () => {
   });
 
   it("sends the seed only after ready, with text and Enter as two SEPARATE ordered calls", () => {
-    // readPane returns ready-but-not-consumed during the ready poll, then a
-    // consumed string once the seed is submitted — so send-keys fires (the
-    // double-submit guard sees a not-yet-consumed pane) exactly twice, in order.
-    const { readPane, sendKeys } = makeSeedSeams();
+    // consumed() reads false during the ready poll + the double-submit guard,
+    // then true once the seed is submitted — so send-keys fires exactly twice,
+    // in order, pinning the single literal-text-then-separate-Enter path.
+    const { sendKeys, consumed } = makeConsumedSeam();
     const kill = vi.fn(() => true);
     const result = createWindowVerified(
       "csv-export",
@@ -484,8 +440,10 @@ describe(createWindowVerified, () => {
         isAlive: () => true,
         kill,
         sleep: noopSleep,
-        readPane,
+        readPane: () => READY_CAPTURE,
+        consumed,
         sendKeys,
+        ...budget,
       },
     );
     expect(result).toEqual({ ok: true, stderr: "" });
@@ -500,10 +458,10 @@ describe(createWindowVerified, () => {
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it("double-submit guard: an already-consumed pane at ready-time skips send-keys (positional auto-ran)", () => {
-    // readPane reports a consumed pane from the start (the positional prompt
-    // auto-ran the seed), so the guard skips both send-keys calls but the
-    // consumption poll still confirms success.
+  it("double-submit guard: consumed() already true at ready-time skips send-keys (positional auto-ran)", () => {
+    // The positional prompt auto-ran the seed, so the supervisor already advanced
+    // the state-file phase: consumed() is true from the start. The guard skips
+    // both send-keys calls but the consumption poll still confirms success.
     const sendKeys = vi.fn(() => ({ ok: true, stderr: "" }));
     const result = createWindowVerified(
       "csv-export",
@@ -515,8 +473,10 @@ describe(createWindowVerified, () => {
         isAlive: () => true,
         kill: vi.fn(() => true),
         sleep: noopSleep,
-        readPane: () => CONSUMED_CAPTURE,
+        readPane: () => READY_CAPTURE,
+        consumed: () => true,
         sendKeys,
+        ...budget,
       },
     );
     expect(result).toEqual({ ok: true, stderr: "" });
@@ -524,8 +484,9 @@ describe(createWindowVerified, () => {
   });
 
   it("consumption never reached (Mode 1) → ok:false AND kills the window", () => {
-    // The pane is ready and stays alive but never advances past the empty input
-    // box: pollUntilConsumed never latches → ok:false, and the create path kills.
+    // The pane is ready and stays alive but the supervisor never advances the
+    // phase past `starting`: consumed() stays false → pollUntilConsumed never
+    // latches → ok:false, and the create path kills.
     const kill = vi.fn(() => true);
     const result = createWindowVerified(
       "csv-export",
@@ -538,7 +499,9 @@ describe(createWindowVerified, () => {
         kill,
         sleep: noopSleep,
         readPane: () => READY_CAPTURE, // ready but never consumed
+        consumed: () => false,
         sendKeys: vi.fn(() => ({ ok: true, stderr: "" })),
+        ...budget,
       },
     );
     expect(result.ok).toBe(false);
@@ -580,28 +543,18 @@ describe(createWindowVerified, () => {
   });
 
   it("consume-then-die (Mode 3) → ok:false AND kills the window", () => {
-    // The pane becomes ready, the seed is delivered + consumed, then claude dies
-    // before the end of the consume budget. Consumption LATCHES (monotonic) but
-    // the FINAL liveness reading is false, so the verdict is false and the create
-    // path kills. Modelled without the private poll-budget constants: the pane
-    // reads READY until Enter submits (so the ready poll passes via the
-    // READY_MARKERS and the seed IS delivered) then CONSUMED; `isAlive` reports
-    // dead from the moment the pane has gone consumed (post-submit) — i.e. it
-    // stays alive through the whole ready poll and dies right at consume-time.
+    // The pane becomes ready, the seed is delivered + consumed (phase advanced),
+    // then claude dies before the end of the consume budget. Consumption LATCHES
+    // (monotonic) but the FINAL liveness reading is false, so the verdict is
+    // false and the create path kills. consumed() flips true on submit; isAlive
+    // stays true through the whole ready poll + guard, then reports dead after
+    // exactly the first consume probe (everConsumed=true, aliveAtEnd=false).
     const kill = vi.fn(() => true);
-    let submitted = false;
-    const readPane = () => (submitted ? CONSUMED_CAPTURE : READY_CAPTURE);
-    const sendKeys = vi.fn((_slug: string, keys: string, literal: boolean) => {
-      if (!literal && keys === "Enter") submitted = true;
-      return { ok: true, stderr: "" };
-    });
-    // Alive through the entire ready poll, then alive for exactly the FIRST
-    // consume probe (so consumption LATCHES) and dead thereafter — the genuine
-    // consume-then-die shape: everConsumed=true but aliveAtEnd=false → false.
-    let aliveAfterSubmit = 1;
+    const { sendKeys, consumed } = makeConsumedSeam();
+    let aliveAfterConsumed = 1;
     const isAlive = () => {
-      if (!submitted) return true;
-      return aliveAfterSubmit-- > 0;
+      if (!consumed()) return true;
+      return aliveAfterConsumed-- > 0;
     };
     const result = createWindowVerified(
       "csv-export",
@@ -613,8 +566,10 @@ describe(createWindowVerified, () => {
         isAlive,
         kill,
         sleep: noopSleep,
-        readPane,
+        readPane: () => READY_CAPTURE,
+        consumed,
         sendKeys,
+        ...budget,
       },
     );
     expect(result.ok).toBe(false);
@@ -629,13 +584,16 @@ describe(respawnWindowVerified, () => {
   // failure, because it pre-existed the resume and the user may want its
   // scrollback — is pinned via a cast-threaded kill spy. The real isPaneAlive /
   // capture-pane / send-keys are never exercised (they shell out
-  // unconditionally), and `sleep` is a no-op so the bounded polls run instantly.
-  // respawnWindowVerified now takes a `seed` 4th positional arg (deps → 5th).
+  // unconditionally), `sleep` is a no-op, and a tiny `readyAttempts`/
+  // `consumeAttempts` budget runs the bounded polls instantly. respawnWindowVerified
+  // takes a `seed` 4th positional arg (deps → 5th) and gates on the same
+  // version-independent `consumed()` state-file-poll signal as the create path.
   const noopSleep = () => undefined;
   const SEED = "Use the /flow-pipeline skill in --resume mode for: csv-export";
+  const budget = { readyAttempts: 3, consumeAttempts: 3 };
 
   it("respawn ok, pane ready, seed delivered + consumed → returns ok:true", () => {
-    const { readPane, sendKeys } = makeSeedSeams();
+    const { sendKeys, consumed } = makeConsumedSeam();
     const result = respawnWindowVerified(
       "csv-export",
       "/repo",
@@ -645,8 +603,10 @@ describe(respawnWindowVerified, () => {
         respawn: () => ({ ok: true, stderr: "" }),
         isAlive: () => true,
         sleep: noopSleep,
-        readPane,
+        readPane: () => READY_CAPTURE,
+        consumed,
         sendKeys,
+        ...budget,
       },
     );
     expect(result).toEqual({ ok: true, stderr: "" });
@@ -667,6 +627,8 @@ describe(respawnWindowVerified, () => {
         respawn: () => ({ ok: true, stderr: "" }),
         isAlive: () => false, // dead at the end of the budget
         sleep: noopSleep,
+        consumed: () => false,
+        ...budget,
         kill,
       } as Parameters<typeof respawnWindowVerified>[4],
     );
@@ -677,6 +639,7 @@ describe(respawnWindowVerified, () => {
 
   it("propagates a failed respawn verbatim without probing the pane", () => {
     const isAlive = vi.fn(() => true);
+    const consumed = vi.fn(() => false);
     const result = respawnWindowVerified(
       "csv-export",
       "/repo",
@@ -689,6 +652,8 @@ describe(respawnWindowVerified, () => {
         }),
         isAlive,
         sleep: noopSleep,
+        consumed,
+        ...budget,
       },
     );
     expect(result).toEqual({
@@ -696,6 +661,7 @@ describe(respawnWindowVerified, () => {
       stderr: "window not found for slug 'csv-export'",
     });
     expect(isAlive).not.toHaveBeenCalled();
+    expect(consumed).not.toHaveBeenCalled();
   });
 
   it("catches the alive-then-dies race: alive on the first probe but dead at the end → ok:false", () => {
@@ -710,15 +676,38 @@ describe(respawnWindowVerified, () => {
         isAlive: () => probe++ < 2, // true, true, then false for the rest
         sleep: noopSleep,
         readPane: () => READY_CAPTURE,
+        consumed: () => false,
+        ...budget,
       },
     );
     expect(result.ok).toBe(false);
   });
 
+  it("double-submit guard: consumed() already true at ready-time skips send-keys (positional auto-ran)", () => {
+    const sendKeys = vi.fn(() => ({ ok: true, stderr: "" }));
+    const result = respawnWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        respawn: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        sleep: noopSleep,
+        readPane: () => READY_CAPTURE,
+        consumed: () => true,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(sendKeys).toHaveBeenCalledTimes(0);
+  });
+
   it("consumption never reached (Mode 1) → ok:false and does NOT kill the window", () => {
-    // Ready and alive throughout, but the pane never advances past the empty
-    // input box → pollUntilConsumed never latches → ok:false. The respawn path
-    // never kills (cast-threaded kill spy locks the asymmetry).
+    // Ready and alive throughout, but the supervisor never advances the phase →
+    // consumed() stays false → pollUntilConsumed never latches → ok:false. The
+    // respawn path never kills (cast-threaded kill spy locks the asymmetry).
     const kill = vi.fn(() => true);
     const result = respawnWindowVerified(
       "csv-export",
@@ -730,7 +719,9 @@ describe(respawnWindowVerified, () => {
         isAlive: () => true,
         sleep: noopSleep,
         readPane: () => READY_CAPTURE, // ready but never consumed
+        consumed: () => false,
         sendKeys: vi.fn(() => ({ ok: true, stderr: "" })),
+        ...budget,
         kill,
       } as Parameters<typeof respawnWindowVerified>[4],
     );

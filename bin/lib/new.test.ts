@@ -24,13 +24,15 @@ const tmuxMock = vi.hoisted(() => ({
   isPaneAlive: vi.fn<(name: string) => boolean>(() => false),
   // new.ts now launches windows through the liveness-verified wrappers, so the
   // mock drives those (not the bare createWindow/respawnWindow). They default
-  // to ok so the happy paths still pass without per-test setup.
+  // to ok so the happy paths still pass without per-test setup. The 5th arg is
+  // the deps object carrying the injected `consumed` state-file-poll predicate.
   createWindowVerified: vi.fn<
     (
       name: string,
       cwd: string,
       command: string[],
       seed: string,
+      deps?: { consumed?: () => boolean },
     ) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
   respawnWindowVerified: vi.fn<
@@ -39,6 +41,7 @@ const tmuxMock = vi.hoisted(() => ({
       cwd: string,
       command: string[],
       seed: string,
+      deps?: { consumed?: () => boolean },
     ) => { ok: boolean; stderr: string }
   >(() => ({ ok: true, stderr: "" })),
   FLOW_SESSION: "flow",
@@ -238,6 +241,77 @@ describe("runNew --resume", () => {
     expect(code).toBe(1);
     expect(errors.join("\n")).toMatch(/claude exited immediately after launch/);
     expect(errors.join("\n")).toContain("can't find session: flow");
+  });
+
+  it("wires a resume consumed predicate that gates on updatedAt advancing past the baseline", () => {
+    // On resume the phase is already past `starting`, so consumption is keyed on
+    // `updatedAt` moving off the pre-respawn value, not on a phase change.
+    const baseline = new Date(Date.now() - 10_000).toISOString();
+    writeState(
+      {
+        slug: "resumed",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: baseline,
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.respawnWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { ok: true, stderr: "" };
+      },
+    );
+    const code = runNew("resumed", { resume: true, stateDir });
+    expect(code).toBe(0);
+    expect(consumedFn).toBeDefined();
+    // updatedAt still equals the baseline → not yet consumed.
+    expect(consumedFn!()).toBe(false);
+    // The resumed supervisor bumps updatedAt → the predicate flips true.
+    writeState(
+      {
+        slug: "resumed",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+
+  it("resume launcher timeout leaves state byte-unchanged and never deletes it (symmetry)", () => {
+    // A respawn that never consumes returns ok:false → exit 1, but runResume must
+    // NOT kill the window (mocked launcher) and must NOT rewrite or delete state:
+    // the window pre-existed the resume.
+    seedState("resume-timeout");
+    const before = fs.readFileSync(
+      path.join(stateDir, "resume-timeout.json"),
+      "utf8",
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    tmuxMock.respawnWindowVerified.mockReturnValue({
+      ok: false,
+      stderr: "the seed prompt was never consumed (supervisor did not start)",
+    });
+    const code = runNew("resume-timeout", {
+      resume: true,
+      stateDir,
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(1);
+    expect(fs.existsSync(path.join(stateDir, "resume-timeout.json"))).toBe(
+      true,
+    );
+    const after = fs.readFileSync(
+      path.join(stateDir, "resume-timeout.json"),
+      "utf8",
+    );
+    expect(after).toBe(before);
   });
 });
 
@@ -801,15 +875,97 @@ describe("runNewCli (--help / -h short-circuit)", () => {
   });
 });
 
-describe("runFresh — verify-before-persist (orphaned-window regression)", () => {
-  // Models the intermittent `flow new` bug: tmux's `new-window` returns ok
-  // (the shell forked), but the launched `claude` dies immediately so the pane
-  // is not alive. createWindowVerified detects this and returns { ok: false }
-  // after killing the half-created window; runFresh must then write NO state.
-  // Pre-fix, runFresh trusted createWindow's ok and persisted state for the
-  // dead window — these tests are RED against that shape and GREEN after the
-  // verify-before-persist gate. (Driven via the createWindowVerified mock —
-  // no real tmux server, no real claude.)
+describe("runFresh — persist-then-delete-on-failure (orphaned-window regression)", () => {
+  // Models the intermittent `flow new` bug under the INVERTED persist gate:
+  // runFresh now writes state(phase=starting) UP FRONT (the supervisor needs a
+  // file to advance), then deletes it on every launch-failure exit. tmux's
+  // `new-window` returns ok (the shell forked) but the launched `claude` dies
+  // immediately / never advances the state phase, so createWindowVerified returns
+  // { ok: false } after killing the half-created window; runFresh must then
+  // DELETE the up-front state so NO orphaned `phase=starting` file survives. The
+  // no-orphan guarantee that used to come from write-after-verify now comes from
+  // delete-on-failure. (Driven via the createWindowVerified mock — no real tmux
+  // server, no real claude.)
+
+  it("writes state(phase=starting) BEFORE the verified launch so the supervisor has a file to advance", () => {
+    // Pins the inverted ordering: at the instant createWindowVerified is invoked
+    // the state file already exists at phase `starting` (pre-fix it was written
+    // only AFTER a successful verify, so the supervisor would have nothing to
+    // advance and `flow-state-update` would exit non-zero).
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let phaseAtLaunch: string | null = null;
+    tmuxMock.createWindowVerified.mockImplementation((name) => {
+      try {
+        phaseAtLaunch = JSON.parse(
+          fs.readFileSync(path.join(stateDir, `${name}.json`), "utf8"),
+        ).phase;
+      } catch {
+        phaseAtLaunch = null;
+      }
+      return { ok: true, stderr: "" };
+    });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(phaseAtLaunch).toBe("starting");
+  });
+
+  it("wires a fresh consumed predicate that flips true once the phase advances past starting", () => {
+    // The injected predicate is the version-independent consumption signal: false
+    // while phase === "starting", true once the supervisor advances it.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.createWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { ok: true, stderr: "" };
+      },
+    );
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(consumedFn).toBeDefined();
+    // At launch the up-front state is at `starting` → not yet consumed.
+    expect(consumedFn!()).toBe(false);
+    // The supervisor advances the phase → the predicate flips true.
+    writeState(
+      {
+        slug: "csv-export",
+        phase: "triaging",
+        repo: fs.realpathSync(repoDir),
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+
+  it("fresh consume-timeout deletes the up-front state (no orphan under the inverted gate)", () => {
+    // The launcher wrote nothing itself; runFresh wrote state(starting) up front.
+    // A consume timeout (createWindowVerified ok:false) must DELETE that file so
+    // no orphaned `phase=starting` pipeline survives.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      ok: false,
+      stderr: "the seed prompt was never consumed (supervisor did not start)",
+    });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+    });
+    expect(code).not.toBe(0);
+    expect(fs.existsSync(path.join(stateDir, "csv-export.json"))).toBe(false);
+  });
 
   it("STORY 1 (immediate-death): runFresh writes no state and exits non-zero when the pane is dead", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
