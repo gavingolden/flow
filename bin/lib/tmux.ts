@@ -403,7 +403,6 @@ function pollUntilConsumed(
     if (!aliveAtEnd) {
       // Fail fast on a consume-then-die (Mode 3): a dead pane can't recover.
       if (everConsumed) return false;
-      tailCount = 0;
       continue;
     }
     if (!everConsumed && parsePaneConsumed(readPane())) {
