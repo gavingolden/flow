@@ -8,7 +8,7 @@ A stack-neutral quality gate to run _before_ declaring UI work done. It is a 30�
 
 **Interaction** (Nielsen-heuristic spot-check). Does every action get visible feedback (status visibility)? Is there a clear exit / undo from every flow (user control)? Do empty, loading, and error states exist and say something useful (error recovery)? Are inputs labelled and errors placed next to their field? See `interaction-ux.md` for the full ten.
 
-**Accessibility** (WCAG POUR / AA spot-check). Is everything keyboard-operable with a visible focus order (Operable)? Does text meet AA contrast, and does meaning survive without color (Perceivable)? Is the structure semantic — real headings, landmarks, accessible names on interactive elements (Robust)? See `accessibility.md`.
+**Accessibility** (WCAG POUR / AA spot-check). Is everything keyboard-operable with a visible focus order (Operable)? Does text meet AA contrast, and does meaning survive without color (Perceivable)? Is the structure semantic — real headings, landmarks, accessible names on interactive elements (Robust)? Do interactive targets meet the 24px AA floor (WCAG 2.5.8), and do standalone controls reach the 44px comfort target — or is the trade-off named (Operable)? See `accessibility.md`.
 
 **Distinctiveness** (the convergent-default check). Name one specific, non-default choice you made on this screen. If you can't — if another AI given the same prompt would produce the same output — the work is AI slop and the design isn't done. This is the anti-default stance from `visual-design.md`, applied as a gate.
 

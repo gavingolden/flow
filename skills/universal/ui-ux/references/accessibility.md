@@ -19,6 +19,23 @@ The interface must be fully operable by everyone, not only by mouse or touch.
 - Focus is always visible, and focus order follows a logical reading sequence. Manage focus deliberately when content appears or disappears: move focus into a newly opened dialog, return it sensibly on close (APG keyboard-interaction patterns).
 - No keyboard traps. The user can move focus away from any component with the keyboard alone.
 
+### Touch-target size (WCAG 2.5.8 / 2.5.5)
+
+Every pointer-actuable target must meet a minimum interactive area. Two thresholds apply at different conformance levels.
+
+**AA floor — WCAG 2.5.8 (Target Size Minimum):** The total interactive area (bounding box, including padding) must be at least 24×24 CSS px. The main exception: if a 24px-diameter circle centered on the target does not intersect any neighboring target, the spacing itself satisfies the criterion. Additional narrow exemptions exist for inline-in-text links, user-agent-default controls, and essential-presentation constraints — but do not treat any small button as automatically exempt without checking which exemption applies.
+
+**Comfort target — WCAG 2.5.5 (Target Size Enhanced, AAA) / Apple HIG / Material Design:** For standalone interactive controls — buttons, icon buttons, toggles, checkboxes — aim for at least 44×44 CSS px. Apple HIG specifies 44pt; Material Design 3 recommends a 48dp minimum touch target. These authorities converge near this range because human thumb contact area does not vary with display density. A target at or above 44px passes all three standards.
+
+**How to measure:** Count the total pointer-actuable region, including padding — not the visible glyph or label. A 16px icon with 12px padding on each side produces a 40×40px target: it passes the 24px AA floor but falls short of the 44px comfort target. Use the browser's computed box model (devtools → element → Computed) to measure the interactive dimensions, not the rendered visual size.
+
+**Dense data-table and inline exceptions:** Rows in a data table, links inline within prose, and tightly-packed toolbar controls may fall below 44px when content density is the feature. Even in these contexts the WCAG 2.5.8 AA floor still applies — check that vertical or horizontal spacing between interactive elements satisfies the 24px spacing exception rather than assuming exemption.
+
+**Defect vs. acceptable trade-off:**
+- Below 24px with no applicable exception: **AA defect** — must be fixed.
+- 24–43px: AA-compliant, below the comfort target — classify as a **comfort gap** and flag as a usability risk on touch viewports (higher mis-tap rate, ergonomic burden). Name the trade-off explicitly and justify it in context; do not silently accept it.
+- 44px and above: passes all thresholds — no finding.
+
 ## Understandable (WCAG POUR)
 
 Information and operation must be predictable and clear.
