@@ -195,11 +195,11 @@ describe("runNew --resume", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "crashed"),
-      "Use the /flow-pipeline skill in --resume mode for: crashed",
+      "[pipeline-slug: crashed]\nUse the /flow-pipeline skill in --resume mode for: crashed",
     ]);
     // The 4th arg is the resume seed delivered via send-keys.
     expect(seed).toBe(
-      "Use the /flow-pipeline skill in --resume mode for: crashed",
+      "[pipeline-slug: crashed]\nUse the /flow-pipeline skill in --resume mode for: crashed",
     );
     expect(logs[0]).toBe("flow:crashed");
     // Cross-verb voice: the second line uses the stable `flow new:` prose
@@ -384,11 +384,13 @@ describe("runNewCli --resume (multi-slug)", () => {
     );
     expect(launched).toContainEqual({
       name: "x",
-      prompt: "Use the /flow-pipeline skill in --resume mode for: x",
+      prompt:
+        "[pipeline-slug: x]\nUse the /flow-pipeline skill in --resume mode for: x",
     });
     expect(launched).toContainEqual({
       name: "y",
-      prompt: "Use the /flow-pipeline skill in --resume mode for: y",
+      prompt:
+        "[pipeline-slug: y]\nUse the /flow-pipeline skill in --resume mode for: y",
     });
   });
 
@@ -605,14 +607,16 @@ describe("runNew (fresh)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
-      "Use the /flow-pipeline skill for: CSV export",
+      "[pipeline-slug: csv-export]\nUse the /flow-pipeline skill for: CSV export",
     ]);
     // The flag pair must precede the prompt so claude parses --add-dir as an
     // option, not as part of the prompt text.
     expect(command.indexOf("--add-dir")).toBeLessThan(command.length - 1);
     // The 4th arg is the seed delivered via send-keys — defined once in new.ts
     // and identical to the positional prompt in the argv above.
-    expect(seed).toBe("Use the /flow-pipeline skill for: CSV export");
+    expect(seed).toBe(
+      "[pipeline-slug: csv-export]\nUse the /flow-pipeline skill for: CSV export",
+    );
   });
 });
 
@@ -766,7 +770,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--effort",
       "high",
-      "Use the /flow-pipeline skill for: do thing",
+      "[pipeline-slug: do-thing]\nUse the /flow-pipeline skill for: do thing",
     ]);
     const raw = JSON.parse(
       fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
@@ -787,7 +791,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
-      "Use the /flow-pipeline skill for: do thing",
+      "[pipeline-slug: do-thing]\nUse the /flow-pipeline skill for: do thing",
     ]);
     expect(command).not.toContain("--effort");
     const raw = JSON.parse(
@@ -867,7 +871,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       deriveWorktreePath(repoDir, "saved-effort"),
       "--effort",
       "max",
-      "Use the /flow-pipeline skill in --resume mode for: saved-effort",
+      "[pipeline-slug: saved-effort]\nUse the /flow-pipeline skill in --resume mode for: saved-effort",
     ]);
   });
 
@@ -898,7 +902,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       "claude",
       "--add-dir",
       recordedWorktree,
-      "Use the /flow-pipeline skill in --resume mode for: suffixed-slug",
+      "[pipeline-slug: suffixed-slug]\nUse the /flow-pipeline skill in --resume mode for: suffixed-slug",
     ]);
     // Falls back to the derived bare-slug path only when no worktree recorded.
     expect(command).not.toContain(deriveWorktreePath(repoDir, "suffixed-slug"));

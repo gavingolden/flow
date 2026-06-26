@@ -1198,6 +1198,77 @@ describe("flow-pr-agent-lens routing map ↔ pr-review/SKILL.md agent table", ()
   });
 });
 
+describe("cross-model (Gemini) lens doc symmetry", () => {
+  /**
+   * The Gemini cross-model lens is a flow-delegate Bash fan-out (NOT a Task,
+   * NOT a seventh agent-table row — it has no static-analysis lens, so it is
+   * deliberately absent from AGENT_LENS_MAP and the six-row table above). It
+   * is documented as a separate Step 3 sub-step + Step 3.5 consolidator
+   * input. This lint guards against the two halves drifting: the Step 3
+   * spawn/note and the Step 3.5 consolidator input list must both name
+   * `agent-output-gemini.json`, and the consolidator-instructions §2 input
+   * list must too. A separately-anchored guard — it does NOT touch the
+   * six-row `.toBe(6)` lint or the nine-exemption-count lints.
+   */
+  const GEMINI_ARTIFACT = "agent-output-gemini.json";
+
+  const consolidatorInstructionsPath = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "pr-review",
+    "references",
+    "consolidator-instructions.md",
+  );
+  const consolidatorContent = fs.readFileSync(
+    consolidatorInstructionsPath,
+    "utf8",
+  );
+
+  // Split pr-review/SKILL.md at the Step 3.5 heading so we can assert the
+  // artifact appears on BOTH sides (Step 3 sub-step AND Step 3.5 input list).
+  const step35Marker = "## 3.5. Independent Consolidator-Validator";
+  const step35Idx = prReviewContent.indexOf(step35Marker);
+
+  it("pr-review/SKILL.md Step 3.5 marker is present (split anchor)", () => {
+    expect(
+      step35Idx,
+      "Expected the '## 3.5. Independent Consolidator-Validator' heading in " +
+        "pr-review/SKILL.md to split Step 3 from Step 3.5.",
+    ).toBeGreaterThan(0);
+  });
+
+  it("pr-review/SKILL.md Step 3 (before 3.5) names agent-output-gemini.json", () => {
+    const step3 = prReviewContent.slice(0, step35Idx);
+    expect(
+      step3.includes(GEMINI_ARTIFACT),
+      "pr-review/SKILL.md Step 3 must document the cross-model Gemini lens " +
+        `naming '${GEMINI_ARTIFACT}'. If you removed the Step 3 sub-step, the lens drifted ` +
+        "out of the spawn half of the contract.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md Step 3.5 (consolidator input) names agent-output-gemini.json", () => {
+    const step35 = prReviewContent.slice(step35Idx);
+    expect(
+      step35.includes(GEMINI_ARTIFACT),
+      "pr-review/SKILL.md Step 3.5 consolidator input list must name " +
+        `'${GEMINI_ARTIFACT}' as the optional seventh (tolerated-absent) input. ` +
+        "Drift here means the lens is spawned at Step 3 but never consumed.",
+    ).toBe(true);
+  });
+
+  it("consolidator-instructions.md §2 input list names agent-output-gemini.json", () => {
+    expect(
+      consolidatorContent.includes(GEMINI_ARTIFACT),
+      "references/consolidator-instructions.md §2 Inputs must name " +
+        `'${GEMINI_ARTIFACT}' as the optional seventh input so the consolidator ` +
+        "subagent's instructions stay in sync with pr-review/SKILL.md.",
+    ).toBe(true);
+  });
+});
+
 describe("Fix-Applier artifact JSON schema drift (pr-review/SKILL.md ↔ references/fix-applier-instructions.md)", () => {
   const REQUIRED_KEYS = [
     "commits",
@@ -2148,17 +2219,21 @@ describe("pr-review include-by-reference structure", () => {
     // in the missing-SUBJECTIVE-step finding. The new ceiling reflects the
     // new contract's scope, not a regrowth of previously-trimmed prose.
     //
-    // Bumped 1880 → 1885 to absorb the UI-wiring behavioral assertion nudge
-    // added to Step 11b's Testability prose: the new paragraph flags
-    // import-presence-grep-only Test Steps on wiring changes as Testability:
-    // Fail (shallow) and cross-references the rubric. The ceiling reflects
-    // the new contract's scope, not unrelated bloat.
+    // Bumped 1880 → 1945 to absorb two independent additions that landed
+    // concurrently: (a) the F5 cross-model (Gemini) lens (issue #339) — Step 3
+    // gains a "Cross-model (Gemini) lens" sub-step (the gate recipe, the
+    // `flow-gemini-lens` call, and the `{ran}` branch) and Step 3.5's
+    // consolidator input list gains the optional seventh tolerated-absent
+    // `agent-output-gemini.json` path (the lens is a Bash fan-out, not a Task,
+    // so it adds no exemption block); and (b) the Step 11b Testability nudge
+    // flagging import-presence-grep-only Test Steps on wiring changes as
+    // Testability: Fail (shallow). Both are new-contract prose, not regrowth.
     expect(
       lineCount,
-      `pr-review/SKILL.md line count must stay under the post-UI-wiring-nudge ` +
-        `budget of 1885 lines. Material regrowth past this ceiling would ` +
+      `pr-review/SKILL.md line count must stay under the post-Gemini-lens ` +
+        `budget of 1945 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1885);
+    ).toBeLessThan(1945);
   });
 
   it("skills/pipeline/pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {

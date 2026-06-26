@@ -417,13 +417,13 @@ auto-detect > built-in); `checks` run as argv (no shell).
   - **Task-tool spawn sites must load Task first.** Each of the nine
     sites above must load the Task schema via
     `ToolSearch query="select:Task"` before invoking Task (or its alias
-    `Agent`); if neither alias is surfaced top-level, an unguarded
-    invocation silently falls through to in-line execution — so on
-    missing schema, escalate
+    `Agent`); if neither alias is surfaced top-level, escalate
     `NEEDS HUMAN: task-tool-unavailable: <exemption-name>` rather than
     falling back inline. `bin/skill-md-lint.test.ts` enforces the
     "Load the Task tool before spawning" paragraph at all nine sites.
     A sibling guard, not a tenth exemption.
+  - **The `/pr-review` Gemini lens is a Bash fan-out, not a tenth
+    exemption** — it spawns no Task, so the nine count is unchanged.
   - **AskUserQuestion exemption: `/flow-pipeline` candidate-issues
     form (two firing locations).** The multi-select form that picks
     which orthogonal candidates to file post-merge. It is ONE named
