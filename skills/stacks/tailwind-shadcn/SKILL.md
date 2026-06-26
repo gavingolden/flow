@@ -213,6 +213,7 @@ toast.error("Failed to save", { description: error.message });
 - **ARIA interactive widgets:** When using interactive ARIA roles (`role="separator"`,
   `role="slider"`), include `tabindex="0"` and keyboard event handlers. Add `svelte-ignore`
   comments in Svelte to suppress false-positive a11y lint warnings on these elements.
+- **Touch-target size:** Standalone interactive controls (buttons, icon buttons, toggles) should reach a 44px minimum touch area — use `min-h-11 min-w-11` (2.75rem = 44px) to guarantee the comfort target without overriding the visual size. Icon-only buttons (`size="icon"` in shadcn, default 36px) are below the comfort target; add `min-h-11 min-w-11` or use `size="default"` (40px) and pad to taste. For the conformance tiers (AA 24px floor vs. AAA/HIG/Material 44px comfort target), the data-table spacing exception, and the defect-vs-trade-off classification, see `universal/ui-ux` `references/accessibility.md` — Touch-target size. The judgment lives there; what follows is purely the Tailwind mechanic.
 
 ## 10. Responsive Design
 
