@@ -16,8 +16,9 @@ The Consolidator-Validator's job:
 
 - Read the six per-agent JSON outputs (one each from bug-detection,
   security, pattern-consistency, performance, supply-chain,
-  test-coverage), validate each against the per-agent schema, and merge
-  them into a single findings array.
+  test-coverage), plus the OPTIONAL seventh cross-model Gemini lens
+  (`agent-output-gemini.json`, tolerated-absent), validate each against
+  the per-agent schema, and merge them into a single findings array.
 - Apply the confidence threshold (>=80 for non-praise; praise findings
   pass through unfiltered) and dedup by `(file, line ± 2 lines window,
 issue-class)`.
@@ -51,6 +52,15 @@ The wrapper passes you these inputs in its spawn prompt:
   - `$WORKTREE/.flow-tmp/agent-output-performance.json`
   - `$WORKTREE/.flow-tmp/agent-output-supply-chain.json`
   - `$WORKTREE/.flow-tmp/agent-output-test-coverage.json`
+- One OPTIONAL seventh path — the cross-model Gemini lens:
+  - `$WORKTREE/.flow-tmp/agent-output-gemini.json` — **tolerated-absent**.
+    Present and valid only when the `review.gemini` opt-in is enabled AND
+    the lens ran successfully (`/pr-review` Step 3 "Cross-model (Gemini)
+    lens"). When the file is missing (lens disabled or gracefully skipped)
+    you proceed with the six Claude outputs and DO NOT escalate
+    `consolidator-missing-artifact` — that escalation is scoped to the six
+    MANDATORY Claude lenses only. When present, merge it identically to a
+    Claude lens.
 - The static-analysis JSON path at
   `$WORKTREE/.flow-tmp/static-analysis.json` (for context only — you
   don't re-derive from it; the agents already absorbed it).
@@ -94,6 +104,18 @@ Exit-1 outcomes are split by source:
   `consolidator-schema-failure` recipe in
   [references/escalation-recipes.md](escalation-recipes.md), then exit.
 
+The optional seventh path `$WORKTREE/.flow-tmp/agent-output-gemini.json` is
+read **only if present** (`test -s` succeeds). Its absence is NOT a
+`consolidator-missing-artifact` escalation — that escalation stays scoped to
+the six MANDATORY Claude lenses above; the Gemini lens is opt-in and
+gracefully skipped, so a missing file is the common (default-off) case and
+you simply proceed with the six. If the Gemini file IS present but fails
+`flow-agent-finding-schema --validate`, treat it like a six-lens schema
+failure is NOT correct here — instead **drop the optional lens silently**
+(the upstream `flow-gemini-lens` helper finalizes the file only on a valid
+payload, so a present-but-invalid file is an unexpected edge; skip it and
+proceed with the six rather than escalating, since the lens is non-mandatory).
+
 Escalation writes overwrite any prior `pr-review-result.json` with
 `status: "clean"` — escalation always wins over a prior clean status.
 But the read-before-overwrite guard from
@@ -111,7 +133,12 @@ Read each per-agent output, tag each finding with its source agent
 (`agent_source: "bug-detection"`, etc.), assign each a stable
 `finding_id` of the form `<agent>:<file>:<line>:<label>` (or
 `<agent>:<file>:<line>:<label>:<idx>` if dedup-by-id is needed within
-one agent's output). Concatenate into a single in-memory array.
+one agent's output). Concatenate into a single in-memory array. When the
+optional Gemini lens file is present and valid, tag its findings
+`agent_source: "gemini"` and merge them into the same array — dedup,
+threshold, praise-specificity, and the second-opinion pass treat a Gemini
+finding **identically** to a Claude finding (no special-casing). When the
+Gemini file is absent, proceed silently with the six Claude sources.
 
 ### (c) Filter and dedup
 

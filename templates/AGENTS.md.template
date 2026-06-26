@@ -294,6 +294,30 @@ case — the per-entry timeout is load-bearing; `--max-calls 12` alone is ~15 mi
 agy's 5-minute default) so the synchronous run stays cheap. Off by default; absent
 or malformed config behaves exactly as today.
 
+**Optional `review.gemini` opt-in (cross-model PR reviewer).** Setting
+`{ "review": { "gemini": true } }` in `~/.flow/config.json` adds ONE additional
+cross-model reviewer (Gemini, via agy on your Google AI Ultra quota) to
+`/pr-review`'s multi-agent review, alongside the existing six Claude review
+agents. `/pr-review`'s six agents all run on the same Claude model family and
+share that family's blind spots; a genuinely different model catches issues no
+role-specialized Claude lens does, at no Claude-credit cost. It is **config-only**
+(no `flow new` flag), the schema is an object (`review: { gemini: boolean }`,
+default `false`) so per-lens-focus knobs can be added later without a break, and
+the gate is read tolerantly:
+
+```bash
+jq -e '(.review | type == "object") and (.review.gemini == true)' ~/.flow/config.json
+```
+
+(strict boolean `true` enables; absent/malformed/non-`true` disables). The lens
+is **purely additive and safe-by-default**: it requires an authenticated agy /
+Google AI Ultra session and **gracefully skips** when `agy` is absent or logged
+out (the six Claude lenses run unchanged — it never hard-fails the review), the
+same opt-in-by-presence model as `flow-delegate` itself. Malformed or
+non-conformant Gemini output is dropped with a recorded skip reason rather than
+breaking the review. Off by default; absent or malformed config behaves exactly
+as today.
+
 ### Command Execution
 
 Prefer absolute paths over `cd <path> &&` to maintain a consistent working directory.

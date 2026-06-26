@@ -307,6 +307,19 @@ in-process for skills; shell out for scripts; never delegate.
 > `references/exemption-contracts.md` and `AGENTS.md` `## Don'ts`, with
 > the subagent's full instructions at
 > `skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`.
+>
+> **The `/pr-review` Gemini cross-model lens is a Bash fan-out, not a
+> tenth exemption.** When the supervisor invokes `/pr-review` in step 8
+> and the consumer has opted into `review.gemini`, `/pr-review` Step 3
+> runs ONE additional cross-model reviewer (Gemini) via `flow-delegate`
+> (agy) as a Bash subprocess (`flow-gemini-lens`), ALONGSIDE exemption
+> #1's six-agent Multi-Agent Review Task fan-out. It spawns no Task, so
+> the nine-exemption count above is unchanged — this is a sibling note in
+> the same F2 "not a tenth exemption" shape as the "Load the Task tool at
+> each spawn site" guard above, NOT a `#10` exemption block. The lens is
+> config-gated, default off, and a graceful skip on any failure (it never
+> hard-fails the review). Documented bidirectionally in `AGENTS.md`
+> `## Don'ts` and `skills/pipeline/pr-review/SKILL.md` Step 3.
 
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,

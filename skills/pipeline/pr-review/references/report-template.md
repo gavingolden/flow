@@ -9,6 +9,7 @@ Use this format for the structured report at the end of every PR review.
 
 - **PR size**: +<additions> -<deletions> across <N> files
 - **Agents**: 6 ran, <M> findings above 80 confidence, <P> praise observations
+- **Cross-model (Gemini) lens**: ran (<N> findings) / skipped (<skipReason>) — reflects the `flow-gemini-lens` `{ran}` result (off by default; only "ran" when `review.gemini` is enabled and `agy` is available)
 - **Blocking issues**: <count>
 - **Inline review comments addressed**: <count> (or "none" when the PR had none)
 

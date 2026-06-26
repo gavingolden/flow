@@ -578,6 +578,10 @@ auto-detect > built-in); `checks` run as argv (no shell).
     falling back inline. `bin/skill-md-lint.test.ts` enforces the
     "Load the Task tool before spawning" paragraph at all nine sites.
     A sibling guard, not a tenth exemption.
+  - **The `/pr-review` Gemini cross-model lens is a Bash fan-out, not a
+    tenth exemption.** `/pr-review` Step 3's optional `review.gemini`-gated
+    Gemini lens runs via `flow-delegate` (agy) alongside exemption #1's
+    six-agent Task fan-out; it spawns no Task, so the nine count is unchanged.
   - **AskUserQuestion exemption: `/flow-pipeline` candidate-issues
     form (two firing locations).** The multi-select form that picks
     which orthogonal candidates to file post-merge. It is ONE named
