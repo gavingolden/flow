@@ -1,0 +1,13 @@
+{
+  "findings": [
+    {
+      "file": "src/foo.ts",
+      "line": 42,
+      "label": "issue",
+      "decoration": "blocking",
+      "confidence": 92,
+      "subject": "off-by-one in the loop bound",
+      "body": "The loop overshoots by one; use `< n` instead of `<= n`."
+    }
+  ]
+}

@@ -1,0 +1,454 @@
+import { describe, expect, it, vi } from "vitest";
+import { validateAgentFindings } from "./lib/agent-finding-schema";
+import {
+  extractJsonObject,
+  isGeminiLensEnabled,
+  parseArgs,
+  run,
+  type DelegateEnvelope,
+  type Deps,
+} from "./flow-gemini-lens";
+
+const VALID_FINDING = {
+  file: "src/foo.ts",
+  line: 42,
+  label: "issue",
+  decoration: "blocking",
+  confidence: 92,
+  subject: "off-by-one in the loop bound",
+  body: "The loop overshoots by one; use `< n` instead of `<= n`.",
+};
+
+describe("isGeminiLensEnabled (config gate)", () => {
+  it.each([
+    ["absent file (empty read)", "", false],
+    ["malformed JSON", "{not json", false],
+    ["missing review key", JSON.stringify({ other: 1 }), false],
+    [
+      "review present but gemini missing",
+      JSON.stringify({ review: { foo: 1 } }),
+      false,
+    ],
+    [
+      "gemini as 'true' string",
+      JSON.stringify({ review: { gemini: "true" } }),
+      false,
+    ],
+    ["gemini false", JSON.stringify({ review: { gemini: false } }), false],
+    ["review not an object", JSON.stringify({ review: true }), false],
+    ["gemini true", JSON.stringify({ review: { gemini: true } }), true],
+  ])("enables only on strict boolean true: %s", (_name, raw, expected) => {
+    expect(isGeminiLensEnabled(raw as string)).toBe(expected);
+  });
+
+  it("never throws on garbage input", () => {
+    expect(() => isGeminiLensEnabled("\x00\x01")).not.toThrow();
+    expect(isGeminiLensEnabled("[]")).toBe(false);
+  });
+});
+
+describe("extractJsonObject", () => {
+  it("returns the object verbatim when there is no wrapper", () => {
+    expect(extractJsonObject('{"findings":[]}')).toBe('{"findings":[]}');
+  });
+
+  it("recovers an object wrapped in leading/trailing prose", () => {
+    const wrapped = 'Here are my findings:\n{"findings":[]}\nDone.';
+    expect(extractJsonObject(wrapped)).toBe('{"findings":[]}');
+  });
+
+  it("recovers an object inside a ```json fence", () => {
+    const fenced = '```json\n{"findings":[]}\n```';
+    expect(extractJsonObject(fenced)).toBe('{"findings":[]}');
+  });
+
+  it("returns null when there is no brace pair", () => {
+    expect(extractJsonObject("no json here at all")).toBeNull();
+    expect(extractJsonObject("")).toBeNull();
+    expect(extractJsonObject("} only a close brace {")).toBeNull();
+  });
+
+  // Pins the load-bearing lastIndexOf("}") (vs a first-`}` indexOf): a payload
+  // with nested braces must be recovered whole, not truncated at the inner `}`.
+  // A naive indexOf rewrite passes the empty-body cases above but fails here.
+  it("recovers a non-empty payload with nested braces (lastIndexOf, not indexOf)", () => {
+    const nested = '{"findings":[{"file":"x"}]}';
+    expect(extractJsonObject(nested)).toBe(nested);
+    const wrapped = 'My review:\n{"findings":[{"file":"x","line":1}]}\nEnd.';
+    expect(extractJsonObject(wrapped)).toBe(
+      '{"findings":[{"file":"x","line":1}]}',
+    );
+  });
+});
+
+describe("parseArgs", () => {
+  it("requires --worktree, --diff-file, --out", () => {
+    expect(parseArgs([])).toEqual({ error: "--worktree is required" });
+    expect(parseArgs(["--worktree", "/wt", "--diff-file", "/d.txt"])).toEqual({
+      error: "--out is required",
+    });
+  });
+
+  it("names the hyphenated flag (--diff-file, not the camelCase key) when missing", () => {
+    expect(parseArgs(["--worktree", "/wt", "--out", "/o.json"])).toEqual({
+      error: "--diff-file is required",
+    });
+  });
+
+  it("rejects a value-flag with no value", () => {
+    expect(parseArgs(["--worktree"])).toEqual({
+      error: "--worktree requires a value",
+    });
+  });
+
+  it("parses a full arg set with defaults", () => {
+    const args = parseArgs([
+      "--worktree",
+      "/wt",
+      "--diff-file",
+      "/d.txt",
+      "--out",
+      "/wt/.flow-tmp/agent-output-gemini.json",
+    ]);
+    expect(args).toMatchObject({
+      worktree: "/wt",
+      diffFile: "/d.txt",
+      out: "/wt/.flow-tmp/agent-output-gemini.json",
+      task: "gemini-review",
+    });
+  });
+});
+
+const ENABLED = JSON.stringify({ review: { gemini: true } });
+
+function makeDeps(overrides: Partial<Deps> = {}): Deps & {
+  calls: {
+    delegate: string[][];
+    writes: Array<{ path: string; contents: string }>;
+    removed: string[];
+    out: string[];
+  };
+  files: Map<string, string>;
+} {
+  const files = new Map<string, string>();
+  const calls = {
+    delegate: [] as string[][],
+    writes: [] as Array<{ path: string; contents: string }>,
+    removed: [] as string[],
+    out: [] as string[],
+  };
+  const base: Deps = {
+    readConfig: () => ENABLED,
+    runDelegate: (argv) => {
+      calls.delegate.push(argv);
+      // Default: a conformant agy run that wrote a valid raw artifact.
+      const rawPathIdx = argv.indexOf("--out") + 1;
+      const rawPath = argv[rawPathIdx]!;
+      files.set(rawPath, JSON.stringify({ findings: [VALID_FINDING] }));
+      return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+    },
+    readFile: (p) => {
+      if (!files.has(p)) throw new Error(`ENOENT: ${p}`);
+      return files.get(p)!;
+    },
+    writeFile: (p, c) => {
+      calls.writes.push({ path: p, contents: c });
+      files.set(p, c);
+    },
+    removeFile: (p) => {
+      calls.removed.push(p);
+      files.delete(p);
+    },
+    mkdirp: () => {},
+    writeOut: (line) => calls.out.push(line),
+  };
+  // Seed the diff file the helper reads.
+  files.set("/d.txt", "diff --git a/src/foo.ts ...");
+  return Object.assign(base, overrides, { calls, files });
+}
+
+const BASE_ARGV = [
+  "--worktree",
+  "/wt",
+  "--diff-file",
+  "/d.txt",
+  "--out",
+  "/wt/.flow-tmp/agent-output-gemini.json",
+];
+const OUT = "/wt/.flow-tmp/agent-output-gemini.json";
+
+const envelope = (deps: { calls: { out: string[] } }) =>
+  JSON.parse(deps.calls.out[0] as string);
+
+describe("run — gate", () => {
+  it("skips with gemini-lens-disabled when the config gate is off", () => {
+    const deps = makeDeps({ readConfig: () => JSON.stringify({}) });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "gemini-lens-disabled",
+    });
+    expect(deps.calls.delegate).toHaveLength(0);
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("treats an unreadable config (throw) as disabled, not a crash", () => {
+    const deps = makeDeps({
+      readConfig: () => {
+        throw new Error("EACCES");
+      },
+    });
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(envelope(deps).skipReason).toBe("gemini-lens-disabled");
+  });
+});
+
+describe("run — flow-delegate ran:false skip (branch on ran, not exit code)", () => {
+  it("skips on {ran:false} and propagates skipReason, finalizing nothing", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        return { ran: false, skipReason: "agy-not-found" };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "agy-not-found",
+    });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("falls back to a generic skipReason when none is provided", () => {
+    const deps = makeDeps({
+      runDelegate: () => ({ ran: false }),
+    });
+    run(BASE_ARGV, deps);
+    expect(envelope(deps)).toEqual({ ran: false, skipReason: "agy-skip" });
+  });
+});
+
+describe("run — conformant output", () => {
+  it("finalizes a schema-valid agent-output-gemini.json and reports ran:true", () => {
+    const deps = makeDeps();
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    const env = envelope(deps);
+    expect(env).toMatchObject({
+      ran: true,
+      findingsPath: OUT,
+      findingCount: 1,
+    });
+    // The finalized file passes the shared schema.
+    const finalized = JSON.parse(deps.files.get(OUT)!);
+    expect(validateAgentFindings(finalized).ok).toBe(true);
+  });
+
+  it("recovers a prose-wrapped / fenced conformant payload via extractJsonObject", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(
+          rawPath,
+          "```json\n" +
+            JSON.stringify({ findings: [VALID_FINDING] }) +
+            "\n```\nThat is my review.",
+        );
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({ ran: true, findingCount: 1 });
+    expect(validateAgentFindings(JSON.parse(deps.files.get(OUT)!)).ok).toBe(
+      true,
+    );
+  });
+
+  it("finalizes an empty {findings:[]} as valid (Gemini found nothing)", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, JSON.stringify({ findings: [] }));
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({ ran: true, findingCount: 0 });
+  });
+});
+
+describe("run — malformed payloads drop the lens, never throw, leave no valid file", () => {
+  it.each([
+    [
+      "non-JSON prose",
+      "I reviewed the diff and found nothing.",
+      "gemini-output-unparseable",
+    ],
+    [
+      "JSON array, not {findings}",
+      JSON.stringify([VALID_FINDING]),
+      "gemini-output-schema-invalid",
+    ],
+    [
+      "JSON object without findings",
+      JSON.stringify({ foo: 1 }),
+      "gemini-output-schema-invalid",
+    ],
+    [
+      "findings with an unrecoverable bad label",
+      JSON.stringify({ findings: [{ ...VALID_FINDING, label: "xyzzy" }] }),
+      "gemini-output-schema-invalid",
+    ],
+    [
+      "findings missing a required field",
+      JSON.stringify({ findings: [{ subject: "no file/line" }] }),
+      "gemini-output-schema-invalid",
+    ],
+  ])("drops %s with skipReason %s", (_name, raw, expectedReason) => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, raw as string);
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(envelope(deps)).toEqual({ ran: false, skipReason: expectedReason });
+    // CRITICAL: no consolidator-valid agent-output-gemini.json left behind.
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("passes bad-but-coercible findings that normalizeParsedFindings recovers", () => {
+    // A finding keyed `title` instead of `subject` is coerced, not dropped.
+    const coercible = {
+      file: "src/foo.ts",
+      line: 7,
+      label: "issue",
+      decoration: "(blocking)",
+      confidence: 90,
+      title: "coercible: title->subject and paren-stripped decoration",
+      body: "details",
+    };
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        deps.files.set(rawPath, JSON.stringify({ findings: [coercible] }));
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({ ran: true, findingCount: 1 });
+    expect(validateAgentFindings(JSON.parse(deps.files.get(OUT)!)).ok).toBe(
+      true,
+    );
+  });
+});
+
+describe("run — IO-throw catch branches each map to a graceful skip, never throw, leave no valid file", () => {
+  it("gemini-diff-unreadable when the diff readFile throws", () => {
+    const deps = makeDeps({
+      readFile: (p) => {
+        if (p === "/d.txt") throw new Error("EIO");
+        throw new Error(`ENOENT: ${p}`);
+      },
+    });
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "gemini-diff-unreadable",
+    });
+    expect(deps.files.has(OUT)).toBe(false);
+    expect(deps.calls.delegate).toHaveLength(0);
+  });
+
+  it("gemini-prep-failed when writing the prompt scratch file throws", () => {
+    const deps = makeDeps({
+      writeFile: (p) => {
+        throw new Error(`EACCES: ${p}`);
+      },
+    });
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "gemini-prep-failed",
+    });
+    expect(deps.files.has(OUT)).toBe(false);
+    expect(deps.calls.delegate).toHaveLength(0);
+  });
+
+  it("gemini-output-unreadable when the raw agy artifact readFile throws", () => {
+    const deps = makeDeps({
+      readFile: (p) => {
+        if (p === "/d.txt") return deps.files.get(p)!;
+        throw new Error(`EIO: ${p}`);
+      },
+    });
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "gemini-output-unreadable",
+    });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  // The one drop path that ATTEMPTS the --out write and fails partway — exactly
+  // where a half-written consolidator-valid file could leak. Assert none does.
+  it("gemini-finalize-failed when the --out write throws, leaving no file", () => {
+    const deps = makeDeps({
+      writeFile: (p, c) => {
+        if (p === OUT) throw new Error("ENOSPC");
+        deps.calls.writes.push({ path: p, contents: c });
+        deps.files.set(p, c);
+      },
+    });
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "gemini-finalize-failed",
+    });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+});
+
+describe("run — cross-run staleness: a prior --out is cleared before any skip can leak it", () => {
+  it("removes a seeded stale --out so a second-run malformed skip leaves no file", () => {
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        // Run 2 returns prose (malformed) → drops the lens.
+        deps.files.set(rawPath, "I reviewed the diff and found nothing.");
+        return { ran: true, artifactPath: rawPath };
+      },
+    });
+    // Seed a schema-valid file from a hypothetical prior run.
+    deps.files.set(OUT, JSON.stringify({ findings: [VALID_FINDING] }, null, 2));
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "gemini-output-unparseable",
+    });
+    // CRITICAL: the stale run-1 file is gone — the consolidator can't consume it.
+    expect(deps.files.has(OUT)).toBe(false);
+    expect(deps.calls.removed).toContain(OUT);
+  });
+
+  it("cleans up both scratch files (.prompt, .agy-raw) on a conformant success", () => {
+    const deps = makeDeps();
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toMatchObject({ ran: true });
+    expect(deps.files.has(`${OUT}.prompt`)).toBe(false);
+    expect(deps.files.has(`${OUT}.agy-raw`)).toBe(false);
+  });
+});
+
+describe("run — usage errors", () => {
+  it("returns 2 on a missing required flag", () => {
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(run(["--worktree", "/wt"], makeDeps())).toBe(2);
+    errSpy.mockRestore();
+  });
+});

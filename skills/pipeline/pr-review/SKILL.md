@@ -757,6 +757,62 @@ Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `l
 
 Wait for all 6 agents to complete before proceeding.
 
+### Cross-model (Gemini) lens (optional, config-gated)
+
+This sub-step is a **`flow-delegate` (agy) Bash fan-out, NOT a Task**. It runs
+ALONGSIDE the six-agent Task fan-out above and adds **no new Task-tool
+exemption** — exemption #1 (the six Claude agents) is unchanged; the
+nine-exemption count stays nine. It adds ONE additional reviewer on a
+genuinely different model family (Gemini, on the user's idle Google AI Ultra
+quota) so the review catches issues the six same-family Claude lenses share a
+blind spot on, at no Claude-credit cost. It produces `agent-output-gemini.json`
+in the same `{findings: [...]}` shape (tagged `agent_source: gemini`
+consolidator-side at Step 3.5), so the Consolidator merges it with no
+special-casing. It is purely additive: any failure (lens disabled, `agy`
+absent/logged out, unparseable/non-conformant output) is a **graceful skip** —
+record the `skipReason` for the Step 12 report and proceed with the six Claude
+lenses unchanged. It NEVER hard-fails the review.
+
+1. **Gate** (default off, mirroring the F2 `research.discovery` precedent):
+   run the lens only when this succeeds (exit 0) — an absent/malformed config
+   or any non-`true` value skips it:
+
+   ```bash
+   jq -e '(.review | type == "object") and (.review.gemini == true)' ~/.flow/config.json
+   ```
+
+   The `flow-gemini-lens` helper re-gates internally on the same
+   strict-boolean-`true` rule, so the jq read is the human-readable gate, not
+   the runtime authority.
+
+2. **Run the lens** via the PATH helper (write `$WORKTREE/.flow-tmp/diff.txt`
+   with `flow-pr-diff "$PR_NUMBER"` if Step 3 prep hasn't; Step 3.5 reuses it):
+
+   ```bash
+   flow-gemini-lens --worktree "$WORKTREE" \
+     --diff-file "$WORKTREE/.flow-tmp/diff.txt" \
+     --out "$WORKTREE/.flow-tmp/agent-output-gemini.json"
+   ```
+
+   The helper re-gates, runs ONE bounded `flow-delegate --model "Gemini 3.1
+   Pro (High)"` call (flow-delegate's default 5m timeout, worktree as
+   `--add-dir`), parses the agy output defensively (tolerating a prose wrapper
+   or ```json fence), validates it against the shared agent-finding schema,
+   and finalizes `agent-output-gemini.json` **only on success**.
+
+3. **Branch on the helper's `{ran}` JSON** (the one-line stdout envelope),
+   NEVER on the exit code (the helper exits 0 on every graceful path):
+   - `ran: true` → `agent-output-gemini.json` is schema-valid; it becomes the
+     SEVENTH input to the Step 3.5 Consolidator.
+   - `ran: false` → record `skipReason` and proceed. No
+     `agent-output-gemini.json` is left on disk; the consolidator tolerates its
+     absence (it is NOT one of the six mandatory lenses, so its absence does
+     NOT escalate `consolidator-missing-artifact`).
+
+Do NOT add a seventh row to the six-agent table above — the Gemini lens
+reviews the whole diff with no static-analysis lens, so it is deliberately
+absent from `AGENT_LENS_MAP`. This sub-step IS the lens's documentation.
+
 ## 3.5. Independent Consolidator-Validator
 
 Spawn the **Independent Consolidator-Validator Subagent** (see
@@ -793,7 +849,12 @@ general-purpose`. The prompt cites
 instructions and passes `$WORKTREE`, `$SKILL_DIR`, the six per-agent
 paths at `$WORKTREE/.flow-tmp/agent-output-<lens>.json` (lenses:
 `bug-detection`, `security`, `pattern-consistency`, `performance`,
-`supply-chain`, `test-coverage`), the static-analysis path at
+`supply-chain`, `test-coverage`), the optional seventh
+`$WORKTREE/.flow-tmp/agent-output-gemini.json` (the cross-model Gemini
+lens — **tolerated-absent**: when missing, the consolidator proceeds with
+the six Claude outputs and does NOT escalate `consolidator-missing-artifact`;
+that escalation stays scoped to the six mandatory Claude lenses), the
+static-analysis path at
 `$WORKTREE/.flow-tmp/static-analysis.json`, `$DIFF_PATH`,
 `$PR_METADATA_PATH`, and `$ARTIFACT_PATH`. `DIFF_PATH` and
 `PR_METADATA_PATH` feed the consolidator's second-opinion

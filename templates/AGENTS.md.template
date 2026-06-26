@@ -299,6 +299,30 @@ Four optional **budget keys** tune the bounded pass; each defaults to its v1 val
 
 Each key is **tolerant by construction**: an absent key silently takes its default; a key that is **present but the wrong JSON type triggers a loud `stderr` warning and falls back to the default** — never a throw, never an aborted pass, so a config typo degrades to a warning rather than blocking planning. `--concurrency` is **not** operator-tunable (pinned at `4`; it is load-bearing in the runtime-ceiling arithmetic). The pass stays **bounded** — the synchronous worst case is `ceil(maxCalls / 4)` waves × the per-entry timeout, ~9-min at the defaults (`3` waves × `3m`). **Runtime-ceiling caveat:** raising `maxCalls` and `timeout` together can push that product past the observed-safe ~10-min one-shot sub-agent wall-clock, so keep it under ~10 min when tuning. Off by default; absent or malformed config behaves exactly as today.
 
+**Optional `review.gemini` opt-in (cross-model PR reviewer).** Setting
+`{ "review": { "gemini": true } }` in `~/.flow/config.json` adds ONE additional
+cross-model reviewer (Gemini, via agy on your Google AI Ultra quota) to
+`/pr-review`'s multi-agent review, alongside the existing six Claude review
+agents. `/pr-review`'s six agents all run on the same Claude model family and
+share that family's blind spots; a genuinely different model catches issues no
+role-specialized Claude lens does, at no Claude-credit cost. It is **config-only**
+(no `flow new` flag), the schema is an object (`review: { gemini: boolean }`,
+default `false`) so per-lens-focus knobs can be added later without a break, and
+the gate is read tolerantly:
+
+```bash
+jq -e '(.review | type == "object") and (.review.gemini == true)' ~/.flow/config.json
+```
+
+(strict boolean `true` enables; absent/malformed/non-`true` disables). The lens
+is **purely additive and safe-by-default**: it requires an authenticated agy /
+Google AI Ultra session and **gracefully skips** when `agy` is absent or logged
+out (the six Claude lenses run unchanged — it never hard-fails the review), the
+same opt-in-by-presence model as `flow-delegate` itself. Malformed or
+non-conformant Gemini output is dropped with a recorded skip reason rather than
+breaking the review. Off by default; absent or malformed config behaves exactly
+as today.
+
 ### Command Execution
 
 Prefer absolute paths over `cd <path> &&` to maintain a consistent working directory.
