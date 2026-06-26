@@ -12,13 +12,33 @@
  * Usage:
  *   flow-research-cache get --question <q> [--ttl-hours <N>]
  *   flow-research-cache put --question <q> (--synthesis-file <path> | --synthesis - | --synthesis <literal>)
+ *   flow-research-cache prune [--max-entries <N>] [--max-age-hours <H>] [--tmp-max-age-hours <H>] [--dry-run]
  *
- * Exit codes: 0 — get hit (synthesis on stdout) / put ok; 2 — bad args;
- *             3 — get miss (no fresh valid entry; nothing on stdout).
+ * `prune` is an opt-in GC sweep — SEPARATE from the per-`get` TTL miss, which
+ * only treats stale entries as misses and never deletes them. It reclaims:
+ * stale entries (older than --max-age-hours), over-cap entries (oldest-by-
+ * createdAt first, down to --max-entries), corrupt/unparseable entries, and
+ * orphan `*.tmp` files left by a crashed mid-write (only those older than the
+ * grace window, so a concurrent in-flight `put` is never raced). Always exits 0
+ * (best-effort, never throws). Env: FLOW_RESEARCH_CACHE_MAX_ENTRIES,
+ * FLOW_RESEARCH_CACHE_MAX_AGE_HOURS, FLOW_RESEARCH_CACHE_TMP_MAX_AGE_HOURS
+ * (flag > env > default). Setting FLOW_RESEARCH_CACHE_SWEEP_ON_PUT to a truthy
+ * value runs a best-effort prune after each successful `put` (off by default).
+ *
+ * Exit codes: 0 — get hit (synthesis on stdout) / put ok / prune done; 2 — bad
+ *             args; 3 — get miss (no fresh valid entry; nothing on stdout).
  */
 
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -28,6 +48,14 @@ const EXIT_MISS = 3;
 
 const DEFAULT_TTL_HOURS = 48;
 const MS_PER_HOUR = 3600_000;
+
+// Prune defaults. --max-age-hours defaults to the same 48h as the get TTL so
+// age-pruning reclaims exactly the entries `get` already treats as stale; the
+// knob stays separate so the two can diverge. The tmp grace window is short
+// (1h) — long enough to never race a live `put`'s write-then-rename.
+const DEFAULT_MAX_ENTRIES = 500;
+const DEFAULT_MAX_AGE_HOURS = DEFAULT_TTL_HOURS;
+const DEFAULT_TMP_MAX_AGE_HOURS = 1;
 
 // --- Pure helpers (imported by the test) ---
 
@@ -84,9 +112,10 @@ export function getEntry(
 export function putEntry(
   question: string,
   synthesis: string,
-  opts: { root?: string; nowMs?: number } = {},
+  opts: { root?: string; nowMs?: number; env?: NodeJS.ProcessEnv } = {},
 ): void {
   const root = opts.root ?? cacheRoot();
+  const env = opts.env ?? process.env;
   const createdAt = opts.nowMs ?? Date.now();
   mkdirSync(root, { recursive: true });
   const dest = entryPath(question, { root });
@@ -102,22 +131,192 @@ export function putEntry(
   const tmp = dest + "." + process.pid + ".tmp";
   writeFileSync(tmp, payload);
   renameSync(tmp, dest);
+
+  // Opt-in on-put sweep: when FLOW_RESEARCH_CACHE_SWEEP_ON_PUT is truthy, bound
+  // the cache without a daemon. Best-effort — a sweep failure must never fail
+  // the write that just succeeded (pruneCache is already non-throwing; the
+  // try/catch is belt-and-suspenders). Off by default: an unset env var leaves
+  // the put hot path free of surprise deletions.
+  if (isTruthy(env.FLOW_RESEARCH_CACHE_SWEEP_ON_PUT)) {
+    try {
+      pruneCache({
+        root,
+        nowMs: createdAt,
+        maxEntries: positiveFloat(env.FLOW_RESEARCH_CACHE_MAX_ENTRIES),
+        maxAgeHours: positiveFloat(env.FLOW_RESEARCH_CACHE_MAX_AGE_HOURS),
+        tmpMaxAgeHours: positiveFloat(
+          env.FLOW_RESEARCH_CACHE_TMP_MAX_AGE_HOURS,
+        ),
+      });
+    } catch {
+      // swallow — the put already succeeded.
+    }
+  }
+}
+
+// --- GC sweep (prune) — additive; the get/put TTL-miss contract is untouched ---
+
+export type PruneResult = {
+  removedTmp: number;
+  removedCorrupt: number;
+  removedAge: number;
+  removedCount: number;
+  remaining: number;
+  dryRun: boolean;
+};
+
+/**
+ * Reclaim space from the cache dir. Pure aside from the `unlinkSync`s it
+ * performs (suppressed under `dryRun`). NEVER throws — every IO op is wrapped,
+ * mirroring `getEntry`'s never-throw discipline, so a corrupt cache or an
+ * unreadable file can't error a sweep. Order: orphan-tmp → corrupt → age →
+ * over-count. An undefined limit falls back to its default (the on-put sweep
+ * relies on this to pass through env-resolved-or-undefined values directly).
+ */
+export function pruneCache(
+  opts: {
+    root?: string;
+    nowMs?: number;
+    maxEntries?: number;
+    maxAgeHours?: number;
+    tmpMaxAgeHours?: number;
+    dryRun?: boolean;
+  } = {},
+): PruneResult {
+  const root = opts.root ?? cacheRoot();
+  const nowMs = opts.nowMs ?? Date.now();
+  const maxEntries = opts.maxEntries ?? DEFAULT_MAX_ENTRIES;
+  const maxAgeHours = opts.maxAgeHours ?? DEFAULT_MAX_AGE_HOURS;
+  const tmpMaxAgeHours = opts.tmpMaxAgeHours ?? DEFAULT_TMP_MAX_AGE_HOURS;
+  const dryRun = opts.dryRun ?? false;
+
+  const result: PruneResult = {
+    removedTmp: 0,
+    removedCorrupt: 0,
+    removedAge: 0,
+    removedCount: 0,
+    remaining: 0,
+    dryRun,
+  };
+
+  let names: string[];
+  try {
+    names = readdirSync(root);
+  } catch {
+    // Missing or unreadable dir: nothing to prune. Not an error — the cache
+    // simply hasn't been created yet, or this host can't read it.
+    return result;
+  }
+
+  // Under dryRun, report what WOULD be removed without touching disk. A real
+  // unlink that fails (race, perms) is not counted, so the tallies always
+  // reflect files actually gone.
+  const remove = (p: string): boolean => {
+    if (dryRun) return true;
+    try {
+      unlinkSync(p);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // Fresh, valid entries surviving the age pass — candidates for the count cap.
+  const valid: { p: string; createdAt: number }[] = [];
+
+  for (const name of names) {
+    const full = path.join(root, name);
+
+    // Orphan tmp (`<key>.json.<pid>.tmp`): delete only outside the grace window
+    // so a concurrent `put` about to renameSync its tmp is never raced. Checked
+    // before the `.json` branch because the tmp name also contains `.json`.
+    if (name.endsWith(".tmp")) {
+      let mtimeMs: number;
+      try {
+        mtimeMs = statSync(full).mtimeMs;
+      } catch {
+        continue;
+      }
+      if (nowMs - mtimeMs >= tmpMaxAgeHours * MS_PER_HOUR) {
+        if (remove(full)) result.removedTmp++;
+      }
+      continue;
+    }
+
+    if (!name.endsWith(".json")) continue; // ignore unrelated files
+
+    let createdAt: number | undefined;
+    try {
+      const obj = JSON.parse(readFileSync(full, "utf8")) as Record<
+        string,
+        unknown
+      >;
+      if (typeof obj.createdAt === "number" && Number.isFinite(obj.createdAt)) {
+        createdAt = obj.createdAt;
+      }
+    } catch {
+      createdAt = undefined;
+    }
+
+    // Corrupt / unparseable / missing-timestamp entry: a permanent `get` miss
+    // with zero value (atomic rename guarantees a valid writer never produces
+    // one). Remove it.
+    if (createdAt === undefined) {
+      if (remove(full)) result.removedCorrupt++;
+      continue;
+    }
+
+    // Age prune: `>=` matches the get TTL's boundary (an entry exactly at the
+    // threshold is a miss there, so it is reclaimable here).
+    if (nowMs - createdAt >= maxAgeHours * MS_PER_HOUR) {
+      if (remove(full)) result.removedAge++;
+      continue;
+    }
+
+    valid.push({ p: full, createdAt });
+  }
+
+  // Count cap: evict oldest-by-createdAt first (a FIFO-by-creation LRU
+  // approximation — `get` is read-only, so no access-time is recorded).
+  if (valid.length > maxEntries) {
+    valid.sort((a, b) => a.createdAt - b.createdAt);
+    const overflow = valid.length - maxEntries;
+    for (let i = 0; i < overflow; i++) {
+      if (remove(valid[i].p)) result.removedCount++;
+    }
+    result.remaining = valid.length - result.removedCount;
+  } else {
+    result.remaining = valid.length;
+  }
+
+  return result;
 }
 
 // --- Subcommand runners ---
 
-/** Parse `--flag value` pairs into a map; returns an error string on a bare flag. */
+/**
+ * Parse `--flag value` pairs into a map; returns an error string on a bare flag.
+ * Names in `booleanFlags` are valueless toggles (recorded as `"true"`) and do
+ * NOT consume the next token — `get`/`put` pass no boolean flags, so their
+ * strict key-value parsing is unchanged.
+ */
 function parseFlags(
   argv: string[],
+  booleanFlags: ReadonlySet<string> = new Set(),
 ): Record<string, string> | { error: string } {
   const out: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     if (!flag.startsWith("--"))
       return { error: `unexpected argument: ${flag}` };
+    const name = flag.slice(2);
+    if (booleanFlags.has(name)) {
+      out[name] = "true";
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined) return { error: `${flag} requires a value` };
-    out[flag.slice(2)] = value;
+    out[name] = value;
     i++;
   }
   return out;
@@ -170,9 +369,50 @@ export function runPut(argv: string[]): number {
   return EXIT_OK;
 }
 
+export function runPrune(argv: string[]): number {
+  const flags = parseFlags(argv, new Set(["dry-run"]));
+  if ("error" in flags) return argError(flags.error);
+
+  // flag > env > default, mirroring runGet's --ttl-hours resolution.
+  const maxEntries =
+    positiveFloat(flags["max-entries"]) ??
+    positiveFloat(process.env.FLOW_RESEARCH_CACHE_MAX_ENTRIES) ??
+    DEFAULT_MAX_ENTRIES;
+  const maxAgeHours =
+    positiveFloat(flags["max-age-hours"]) ??
+    positiveFloat(process.env.FLOW_RESEARCH_CACHE_MAX_AGE_HOURS) ??
+    DEFAULT_MAX_AGE_HOURS;
+  const tmpMaxAgeHours =
+    positiveFloat(flags["tmp-max-age-hours"]) ??
+    positiveFloat(process.env.FLOW_RESEARCH_CACHE_TMP_MAX_AGE_HOURS) ??
+    DEFAULT_TMP_MAX_AGE_HOURS;
+  const dryRun = flags["dry-run"] === "true";
+
+  const r = pruneCache({
+    root: cacheRoot(),
+    maxEntries,
+    maxAgeHours,
+    tmpMaxAgeHours,
+    dryRun,
+  });
+  const verb = dryRun ? "would remove" : "removed";
+  process.stderr.write(
+    `flow-research-cache prune: ${verb} ${r.removedAge} stale, ` +
+      `${r.removedCount} over-cap, ${r.removedCorrupt} corrupt, ` +
+      `${r.removedTmp} orphan-tmp; ${r.remaining} remaining\n`,
+  );
+  return EXIT_OK;
+}
+
 function positiveFloat(raw: string | undefined): number | undefined {
   const n = Number.parseFloat(raw ?? "");
   return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function isTruthy(raw: string | undefined): boolean {
+  if (!raw) return false;
+  const s = raw.toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
 }
 
 function argError(message: string): number {
@@ -189,10 +429,13 @@ export function run(argv: string[]): number {
       return runGet(rest);
     case "put":
       return runPut(rest);
+    case "prune":
+      return runPrune(rest);
     default:
       console.error(
         "usage: flow-research-cache get --question <q> [--ttl-hours <N>]\n" +
-          "       flow-research-cache put --question <q> (--synthesis-file <path> | --synthesis - | --synthesis <literal>)",
+          "       flow-research-cache put --question <q> (--synthesis-file <path> | --synthesis - | --synthesis <literal>)\n" +
+          "       flow-research-cache prune [--max-entries <N>] [--max-age-hours <H>] [--tmp-max-age-hours <H>] [--dry-run]",
       );
       return EXIT_ARGS;
   }
