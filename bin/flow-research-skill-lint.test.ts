@@ -54,4 +54,77 @@ describe("flow-research SKILL.md no-nested-LLM lint", () => {
         "the same commit.",
     ).toBe(true);
   });
+
+  it("guards every `claude -p` mention with a context-boundary token in its section", () => {
+    // The Tier-2 leaf subprocess (`claude -p /deep-research`) is permitted ONLY
+    // in a standalone context — never inside the /flow-pipeline supervisor or
+    // the #354 discovery sub-agent. The boundary is enforced at runtime by the
+    // CLAUDE_CODE_CHILD_SESSION / FLOW_PIPELINE guard. This lint pins the doc to
+    // that contract: any `claude -p` mention must be co-located (same `## `
+    // section) with at least one guard token, so an UNGUARDED `claude -p` —
+    // documenting a Tier-2 invocation without its standalone-only guard — goes
+    // red here instead of silently shipping a no-nested-LLM-boundary breach.
+    const GUARD_TOKENS = ["CLAUDE_CODE_CHILD_SESSION", "FLOW_PIPELINE"];
+    // Split on `## ` section headings; each chunk is one section's body. A
+    // `claude -p` in a section with no guard token is a violation.
+    const sections = content.split(/^## /m);
+    const unguarded = sections.filter(
+      (section) =>
+        section.includes("claude -p") &&
+        !GUARD_TOKENS.some((token) => section.includes(token)),
+    );
+    expect(
+      unguarded,
+      "Every `claude -p` mention in skills/universal/flow-research/SKILL.md must " +
+        "appear in the same `## ` section as a context-boundary guard token " +
+        `(${GUARD_TOKENS.join(" / ")}) — the Tier-2 leaf subprocess is ` +
+        "standalone-only and forbidden inside the supervisor / discovery " +
+        "sub-agent. Found " +
+        unguarded.length +
+        " section(s) with an unguarded `claude -p`.",
+    ).toEqual([]);
+  });
+
+  it("retains the three-tier fallback tokens (a silent drop goes red)", () => {
+    // A regression that removes the Tier-2 fallback must fail loudly rather than
+    // quietly reverting to the tier-3-only shape. Anchor on the load-bearing
+    // tokens the prose must keep.
+    for (const token of [
+      "/deep-research",
+      "CLAUDE_CODE_CHILD_SESSION",
+      "FLOW_PIPELINE",
+      "research.deepResearchFallback",
+    ]) {
+      expect(
+        content.includes(token),
+        `skills/universal/flow-research/SKILL.md must mention '${token}' — it is ` +
+          "load-bearing for the three-tier agy-absent fallback (Section 6). A " +
+          "silent drop would erase the Tier-2 path or its guard/config gate.",
+      ).toBe(true);
+    }
+  });
+
+  it("pins the default-ON jq predicate direction (== false, never == true)", () => {
+    // The config gate inverts the F2 default-OFF idiom: it reads
+    // `(.research.deepResearchFallback) == false` so an absent/malformed key
+    // defaults the standalone Tier-2 fallback ON. The token-presence test
+    // above guards a silent DROP of the gate but NOT its direction. A future
+    // edit that copies the F2 `== true` idiom would invert the contract
+    // (absent key → OFF, defeating default-ON) yet pass every other test.
+    // Anchor on the predicate direction so an accidental `== true` copy goes
+    // red on `npm run verify`.
+    expect(
+      content,
+      "skills/universal/flow-research/SKILL.md must keep the default-ON config " +
+        "gate predicate `(.research.deepResearchFallback) == false` — the F2 " +
+        "default-OFF idiom is inverted here on purpose.",
+    ).toMatch(/\.research\.deepResearchFallback\)\s*==\s*false/);
+    expect(
+      content,
+      "skills/universal/flow-research/SKILL.md must NOT use a " +
+        "`deepResearchFallback) == true` / `deepResearchFallback == true` " +
+        "predicate — that is the inverted F2 default-OFF form and would silently " +
+        "flip the standalone Tier-2 fallback's default-ON contract.",
+    ).not.toMatch(/deepResearchFallback\)?\s*==\s*true/);
+  });
 });

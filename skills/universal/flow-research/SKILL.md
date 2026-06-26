@@ -188,17 +188,110 @@ half-researched report as a complete research result. A budget-truncated run is
 detectable from the aggregate's `calls` counts and the per-entry
 `skipReason:"budget-exhausted"`.
 
-## 6. Graceful agy-absent fallback (honestly degraded)
+## 6. Graceful agy-absent fallback (honestly degraded, three-tier)
 
-If the first fan-out's aggregate has `allSkipped:true` (or the first
-`flow-delegate` envelope is `ran:false` with `agy-not-found` /
-`agy-not-authenticated`), `agy` is unavailable. Fall back to Claude's own
-`WebSearch` / `WebFetch`, and state plainly in a one-line notice that this
-fallback is **degraded** and **sequential** — Claude doing the research itself,
-materially weaker than the parallel agy path (no cross-model adversarial
-signal, no cost arbitrage). In the #338 supervisor context the supervisor
-cannot fan out at all, so there the fallback is strictly sequential. Do not
-imply parity with the agy path.
+When agy is available, **Tier 1** is always preferred: the agy fan-out via
+steps 1–5 above — the Ultra-quota cost-arbitrage path (cross-model adversarial
+signal, no Claude credits spent). The two tiers below are the degradation chain
+that fires only when the first fan-out's aggregate has `allSkipped:true` (or the
+first `flow-delegate` envelope is `ran:false` with `agy-not-found` /
+`agy-not-authenticated`) — i.e. `agy` is unavailable.
+
+### Tier 2 — `claude -p /deep-research` (stronger fallback, STANDALONE-ONLY)
+
+When agy is absent **and ALL of the guard conditions below hold**, run Claude's
+own deep-research workflow (decompose → search → fetch → verify → synthesize) as
+a one-shot Bash subprocess on Claude credits, and surface its cited report body
+**verbatim**:
+
+```bash
+# Capture the question literally — a single-quoted heredoc performs NO shell
+# expansion on its body, so $(...) / backticks / ${...} in a user-supplied
+# question are treated as literal text, not executed. Double-quoting the
+# variable on reference does NOT re-parse its value for command substitution.
+# This matters most here because the invocation runs under
+# `--permission-mode bypassPermissions` (unattended, no prompt to catch an
+# injected command), making naive interpolation a command-injection vector.
+QUESTION=$(cat <<'QEOF'
+<question>
+QEOF
+)
+claude -p "/deep-research $QUESTION" --output-format text --permission-mode bypassPermissions
+```
+
+> **Never** interpolate `<question>` directly into the double-quoted prompt
+> string (`claude -p "/deep-research <question>" …`): double quotes still
+> expand `$(...)`, backticks, and `${...}`, so a question carrying shell
+> metacharacters would execute on the host — and under `bypassPermissions`
+> there is no prompt to catch it. The single-quoted-heredoc capture above is
+> the safe form.
+
+Label the result plainly as a **Claude-credits fallback** that **spent the
+credits agy was meant to save** — it is NOT parity with the agy path (no Ultra
+cost-arbitrage; it is a single Claude session doing the research, not a
+cross-model fan-out). It is, however, materially stronger than the Tier-3
+sequential degrade because it runs the full decompose/verify/synthesize loop.
+
+Tier 2 fires **only when ALL three hold**:
+
+- **(a) Context-boundary guard** (standalone leaf invocation — never inside the
+  `/flow-pipeline` supervisor or the #354 discovery sub-agent):
+
+  ```bash
+  [ -z "$CLAUDE_CODE_CHILD_SESSION" ] && [ -z "$FLOW_PIPELINE" ]
+  ```
+
+  **Detection mechanism + its known limitation, inline:** `CLAUDE_CODE_CHILD_SESSION`
+  is set in spawned Claude sub-agents, so it reliably guards the #354 discovery
+  sub-agent (a spawned sub-agent firing `claude -p` would be a nested LLM, which
+  is forbidden). But `CLAUDE_CODE_CHILD_SESSION` **cannot** distinguish the
+  `/flow-pipeline` supervisor — itself a top-level tmux `claude`, where the var
+  is unset — from a genuine standalone run. That is why the supervisor now
+  exports a belt-and-suspenders `FLOW_PIPELINE=1` marker (an `env FLOW_PIPELINE=1`
+  argv prefix on its launch command); the guard checks BOTH so a Tier-2
+  subprocess never fires inside the supervisor.
+
+- **(b) Config gate ON — DEFAULT ON** via a tolerant `jq -e` read of the global
+  `~/.flow/config.json` key `research.deepResearchFallback`. A sub-agent / skill
+  cannot import flow's `bin/lib` (it is not on PATH in a consumer worktree — see
+  the F2 idiom at
+  `skills/pipeline/product-planning/references/discovery-instructions.md:53-59`),
+  so read the always-present global config via `jq`. **This INVERTS the F2
+  default-OFF `== true` predicate — do NOT copy `== true`.** Absent file,
+  malformed JSON, an absent/non-object `research`, or a missing
+  `deepResearchFallback` key all mean ON; only an explicit boolean `false`
+  disables:
+
+  ```bash
+  jq -e '(.research.deepResearchFallback) == false' ~/.flow/config.json >/dev/null 2>&1 \
+    && DEEP_RESEARCH_FALLBACK=off || DEEP_RESEARCH_FALLBACK=on
+  ```
+
+  The `jq -e` exits 0 (truthy) ONLY when the key is explicitly `false`, so the
+  `||` branch (default ON) covers every tolerant case — missing file, parse
+  error, absent/non-object `research`, or absent key.
+
+- **(c) The `claude` binary is on PATH** (`command -v claude`).
+
+When all three hold, run the subprocess, surface the report verbatim, and set
+the report's degraded/partial-run flag to name **tier-2 (`claude -p
+/deep-research`)** as the producer.
+
+### Tier 3 — sequential WebSearch / WebFetch (last resort)
+
+This is the **only** tier available in a guarded / nested context (when guard
+(a) is false — inside the supervisor or the #354 discovery sub-agent — or when
+gate (b) is off or `claude` is off PATH). Fall back to Claude's own `WebSearch` /
+`WebFetch`, and state plainly in a one-line notice that this fallback is
+**degraded** and **sequential** — Claude doing the research itself, materially
+weaker than the parallel agy path (no cross-model adversarial signal, no cost
+arbitrage). In the #338 / #354 supervisor + discovery-sub-agent context the
+caller cannot fan out at all, so there the fallback is strictly sequential. Do
+not imply parity with the agy path. Set the report's degraded/partial-run flag to
+name **tier-3 (sequential WebSearch)** as the producer.
+
+Every fallback report's degraded/partial-run flag MUST name **which tier**
+produced it (tier-2 `claude -p` vs tier-3 sequential).
 
 # Anti-Patterns
 
@@ -206,6 +299,15 @@ imply parity with the agy path.
   model call is a `flow-delegate` / `flow-delegate-fanout` Bash call. Spawning
   a Claude sub-agent here would violate the load-bearing no-nested-LLM rule and
   cannot run inside the `/flow-pipeline` supervisor at all.
+- **Conflating a sub-agent with the Tier-2 leaf subprocess.** Two distinct
+  cases: (i) a nested Claude _sub-agent_ (a `Task` / `Agent` spawn) is **always**
+  banned, with **no carve-out** — that ban is what the structural lint enforces;
+  (ii) the Tier-2 `claude -p /deep-research` Bash subprocess is **permitted but
+  ONLY in a standalone context**. It is **forbidden** inside the `/flow-pipeline`
+  supervisor or the #354 discovery sub-agent — there the context-boundary guard
+  (`CLAUDE_CODE_CHILD_SESSION` / `FLOW_PIPELINE`) makes it skip straight to
+  Tier 3. An unguarded `claude -p` (one not co-located with the guard tokens) is
+  the anti-pattern; the lint goes red on it.
 - **A single-model "self-check".** Refuting a Gemini-gathered claim on Gemini
   is one model checking itself, not an adversarial signal. The refute step MUST
   run on a different variant.
@@ -227,18 +329,30 @@ imply parity with the agy path.
   transparency block, caveats, and open questions; it is both returned in chat
   and written to `.flow-tmp/research/<run-id>/report.md`.
 - Any cap-truncation, budget-exhaustion, or agy-absent fallback is FLAGGED in
-  the report (degraded/partial-run section), never silent.
+  the report (degraded/partial-run section), never silent — and the flag names
+  WHICH tier produced a fallback report (tier-2 `claude -p` vs tier-3 sequential).
 - No nested Claude sub-agent was spawned; the fan-out ran via
   `flow-delegate-fanout`.
+- Any `claude -p` mention is **guard-co-located** — it appears in the same
+  section as the context-boundary guard tokens (`CLAUDE_CODE_CHILD_SESSION` /
+  `FLOW_PIPELINE`), so the Tier-2 leaf subprocess can never fire inside the
+  supervisor or the discovery sub-agent (mirrors the "No nested Claude
+  sub-agent was spawned" line above; enforced by the structural lint).
 
 # Constraints
 
-- **No nested LLM.** Claude orchestrates only; the fan-out is `agy`
-  subprocesses via the `flow-delegate` binary. NO Claude fan-out tool anywhere
-  in this procedure — this is the load-bearing `AGENTS.md` constraint, enforced
-  by a structural lint (`bin/flow-research-skill-lint.test.ts`) asserting this
-  file carries no Claude sub-agent fan-out tokens (the lint's regex pins the
-  exact spawn-call and agent-type identifiers).
+- **No nested LLM sub-agent.** Claude orchestrates only; the fan-out is `agy`
+  subprocesses via the `flow-delegate` binary. NO Claude fan-out tool (the
+  `Task` / `Agent` spawn and its agent-type field) anywhere in this procedure —
+  this is the load-bearing `AGENTS.md` constraint, enforced by a structural lint
+  (`bin/flow-research-skill-lint.test.ts`) asserting this file carries no Claude
+  sub-agent fan-out tokens (the lint's regex pins the exact spawn-call and
+  agent-type identifiers). The **Tier-2 `claude -p` leaf subprocess** (Section 6)
+  is the single named exception and is NOT a sub-agent: it is a standalone-only
+  Bash subprocess, permitted only when the context-boundary guard
+  (`CLAUDE_CODE_CHILD_SESSION` / `FLOW_PIPELINE`) confirms this is not the
+  supervisor or the discovery sub-agent. Every `claude -p` mention must be
+  guard-co-located; the same lint goes red on an unguarded one.
 - **Caps are generous-and-tunable, never silently lossy.** Synthesis top-N
   claims (~40), supporting-quote length (~75 words), `flow-delegate-fanout`
   `--max-calls` budget (default 40), `--concurrency` (default 4) — every cap

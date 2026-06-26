@@ -56,8 +56,11 @@ in the findings at its gathered confidence.
 Populate ONLY when the run hit the agy-absent fallback or budget / quota
 exhaustion. Name explicitly:
 
-- Whether the run used the **degraded, sequential Claude-only fallback** (agy
-  absent / logged out) rather than the parallel agy path.
+- Whether the run used a degraded fallback (agy absent / logged out) rather than
+  the parallel agy path, and **WHICH degradation tier** produced it: **tier-2**
+  (`claude -p /deep-research` — the full decompose/verify/synthesize loop on
+  Claude credits) or **tier-3** (the sequential WebSearch / WebFetch Claude-only
+  fallback). Name the tier explicitly so the reader knows which path ran.
 - Which sub-questions went **un-gathered** and which claims went
   **un-refuted** because the per-run `--max-calls` budget was exhausted or an
   `agy-error` skip hit mid-run.
