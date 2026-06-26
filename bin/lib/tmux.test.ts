@@ -444,10 +444,11 @@ describe(createWindowVerified, () => {
   });
 
   it("catches the alive-then-dies race: alive on the first probe but dead at the end → ok:false", () => {
-    // The pane is alive early then exits mid-budget. The ready poll runs first
-    // and its FINAL probe sees isAlive false → pollUntilReady returns false →
-    // kill + ok:false. Only the final reading is the verdict, so the launch is
-    // rejected and the window killed.
+    // The pane is alive for the first 2 probes then dies. pollUntilReady
+    // requires READY_TAIL_PROBES (3) consecutive alive probes after seeing
+    // ready, so the death on probe 2 resets tailCount before it reaches 3 —
+    // all remaining probes see dead, and pollUntilReady returns false →
+    // kill + ok:false.
     const kill = vi.fn(() => true);
     let probe = 0;
     const result = createWindowVerified(
@@ -543,6 +544,39 @@ describe(createWindowVerified, () => {
     expect(result.ok).toBe(false);
     expect(result.stderr).toMatch(/never consumed/);
     expect(kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("budget-exhausted with tail incomplete (everConsumed=true, aliveAtEnd=true) → ok:true", () => {
+    // Exercises the `return everConsumed && aliveAtEnd` fallback at the end of
+    // pollUntilConsumed. Consumption is first observed on attempt 58 (0-indexed)
+    // of the 60-attempt budget — only 2 tail probes fit before the budget exhausts
+    // (CONSUME_TAIL_PROBES = 3 requires 3). The fallback yields true because
+    // everConsumed=true and aliveAtEnd=true.
+    const kill = vi.fn(() => true);
+    let callCount = 0;
+    // readPane is called: once in Phase 1 (ready latch on the first probe), once
+    // for the double-submit guard, then once per Phase 3 attempt until consumption
+    // latches. Consumption latches on the 61st total call (Phase 3 attempt 58),
+    // leaving only 1 tail probe before the 60-attempt budget exhausts.
+    const readPane = () =>
+      ++callCount >= 61 ? CONSUMED_CAPTURE : READY_CAPTURE;
+    const sendKeys = vi.fn(() => ({ ok: true, stderr: "" }));
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill,
+        sleep: noopSleep,
+        readPane,
+        sendKeys,
+      },
+    );
+    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(kill).not.toHaveBeenCalled();
   });
 
   it("consume-then-die (Mode 3) → ok:false AND kills the window", () => {
@@ -702,6 +736,44 @@ describe(respawnWindowVerified, () => {
     );
     expect(result.ok).toBe(false);
     expect(result.stderr).toMatch(/never consumed/);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("consume-then-die (Mode 3) → ok:false and does NOT kill the window", () => {
+    // The pane becomes ready, the seed is delivered + consumed, then claude dies
+    // before the end of the consume budget. Consumption LATCHES (monotonic) but
+    // the FINAL liveness reading is false, so the verdict is false. Unlike the
+    // create path, the window is NOT killed — it pre-existed the resume
+    // (cast-threaded kill spy locks the no-kill invariant).
+    const kill = vi.fn(() => true);
+    let submitted = false;
+    const readPane = () => (submitted ? CONSUMED_CAPTURE : READY_CAPTURE);
+    const sendKeys = vi.fn((_slug: string, keys: string, literal: boolean) => {
+      if (!literal && keys === "Enter") submitted = true;
+      return { ok: true, stderr: "" };
+    });
+    // Alive through the entire ready poll, then alive for exactly the FIRST
+    // consume probe (so consumption LATCHES) and dead thereafter.
+    let aliveAfterSubmit = 1;
+    const isAlive = () => {
+      if (!submitted) return true;
+      return aliveAfterSubmit-- > 0;
+    };
+    const result = respawnWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        respawn: () => ({ ok: true, stderr: "" }),
+        isAlive,
+        sleep: noopSleep,
+        readPane,
+        sendKeys,
+        kill,
+      } as Parameters<typeof respawnWindowVerified>[4],
+    );
+    expect(result.ok).toBe(false);
     expect(kill).not.toHaveBeenCalled();
   });
 });
