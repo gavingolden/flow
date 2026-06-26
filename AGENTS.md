@@ -215,7 +215,8 @@ helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow setup`
 symlinks each into `~/.local/bin/<name>` (extensionless on PATH).
 `flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import,
-NOT in the allowlist below. `flow-delegate-fanout` is the generic concurrent manifest runner that powers the `flow-research` skill (roadmap F1); wiring `flow-research` into `/product-planning` discovery is deferred to issue #338.
+NOT in the allowlist below. `flow-delegate-fanout` is the manifest runner
+powering `flow-research`.
 
 The three schema validators `flow-pr-review-result-schema`,
 `flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked
@@ -274,8 +275,7 @@ window the whole pipeline shares, so when the harness compacts the conversation
 load-bearing pipeline state must survive the summary. Claude Code reads a
 "Compact Instructions" section from `CLAUDE.md` / `AGENTS.md` to decide what to
 preserve during compaction (flow's `CLAUDE.md` is `@AGENTS.md`, so this section
-is included), and it applies to both the automatic pass and a manual `/compact`.
-See code.claude.com/docs/en/how-claude-code-works.
+is included). See code.claude.com/docs/en/how-claude-code-works.
 
 - **KEEP**: current pipeline phase, PR number, worktree path, the
   `.flow-tmp/plan.md` and `.flow-tmp/scout.md` artifact paths, current pipeline
@@ -329,14 +329,13 @@ See code.claude.com/docs/en/how-claude-code-works.
   `extensions.worktreeConfig` + a worktree-scoped `core.hooksPath` so
   it never fires for the user's primary repo) that appends
   `Claude-Code-Session-Id: <id>` to **every individual commit** made
-  in the worktree when `CLAUDE_CODE_SESSION_ID` is set; it is
-  idempotent and inert when the env var is unset. gh's default
+  in the worktree when `CLAUDE_CODE_SESSION_ID` is set. gh's default
   squash concatenation of the branch's commit messages then carries the
   trailer into the squash-merge commit — `/flow-pipeline` step 10 runs a
   bare `gh pr merge --squash` with zero `--body` manipulation. The
-  optional `sessionId` string field in `~/.flow/state/<slug>.json` is
-  still written by `flow-open-pr` at PR-open time for the HTML-comment
-  marker path, but step 10 no longer reads it.
+  optional `sessionId` field in `~/.flow/state/<slug>.json` is still
+  written by `flow-open-pr` for the HTML-comment marker path, but
+  step 10 no longer reads it.
 
 Pass multi-line messages through a heredoc:
 
@@ -454,11 +453,9 @@ auto-detect > built-in); `checks` run as argv (no shell).
 - Don't propagate unverified factual claims. The trigger categories,
   per-category verification recipes, and anti-patterns live in
   `## Output style` under 'Verify factual claims before emitting
-  them.' Latent values that were correct at a past read silently rot
-  — line numbers shift, SHAs advance, exemption counts grow, CLI
-  flags get renamed — and the aggregate erodes the textual evidence
-  the rest of the pipeline (auto-merge gate, multi-agent review,
-  fix-applier) relies on.
+  them.' Latent values rot (line numbers shift, SHAs advance, CLI
+  flags get renamed), eroding the textual evidence the rest of the
+  pipeline (auto-merge gate, multi-agent review, fix-applier) relies on.
 - Don't introduce a database. Markdown plan files plus
   `~/.flow/state/<slug>.json` are the state store; if the queue ever
   outgrows that, swap in Beads via an adapter rather than building
@@ -625,3 +622,9 @@ auto-detect > built-in); `checks` run as argv (no shell).
     `skills/pipeline/flow-pipeline/SKILL.md`,
     `skills/pipeline/pr-review/SKILL.md` Step 6, and
     `bin/flow-create-issue.ts`.
+  - **`/epic-create` is a separate sanctioned supervisor session.**
+    `flow epic create` spawns a fresh top-level `/epic-create` session, so
+    `/flow-pipeline`'s exactly-9 and two-form rules are unaffected by its two
+    named surfaces (distinct openers, in `skills/pipeline/epic-create/SKILL.md`):
+    **Task-tool fan-out: `/epic-create` → /product-planning MODE: epic designer.**
+    and **AskUserQuestion form: `/epic-create` clarification round.**

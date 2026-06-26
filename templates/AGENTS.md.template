@@ -281,18 +281,23 @@ auto-invoke it from any pipeline step.
 OPTIONALLY run deep, web-grounded, agy-delegated research **before planning**,
 feeding a cited report into discovery as prior context (with confidence labels).
 It is **config-only** — there is no `flow new` flag — and the schema is an object
-(`research: { discovery: boolean }`, default `false`) so budget/model fields can
-be added later without a break. The pass is **relevance-gated and safe-by-default**:
+(`research: { discovery: boolean, maxCalls?: number, model?: string, refuteModel?: string, timeout?: string }`,
+`discovery` default `false`). The pass is **relevance-gated and safe-by-default**:
 it fires only on a genuinely-researchable feature (integrating an external
 API/spec, a security/correctness question with an authoritative answer, a "current
 best practice for X" question) and skips a pure-internal change (CSS tweak, rename,
 refactor); when uncertain it does not research. When `agy` is absent or logged out
 it **gracefully skips** (a no-op — planning proceeds unchanged, never hard-fails),
-the same opt-in-by-presence model as `flow-delegate` itself. Each pass is **bounded**
-(`--max-calls 12 --concurrency 4` plus a 3-minute per-entry timeout, ~9-min worst
-case — the per-entry timeout is load-bearing; `--max-calls 12` alone is ~15 min at
-agy's 5-minute default) so the synchronous run stays cheap. Off by default; absent
-or malformed config behaves exactly as today.
+the same opt-in-by-presence model as `flow-delegate` itself.
+
+Four optional **budget keys** tune the bounded pass; each defaults to its v1 value when absent:
+
+- `research.maxCalls` (number, default `12`) — the `flow-delegate-fanout --max-calls` cap on total agy calls.
+- `research.timeout` (string, default `"3m"`) — the per-manifest-entry agy timeout, applied to every entry.
+- `research.model` (string, default `"Gemini 3.1 Pro (High)"`) — the **gather** model variant.
+- `research.refuteModel` (string, default `"Claude Opus 4.6 (Thinking)"`) — the adversarial **refute** model variant. It must stay a _different_ variant from `research.model`; if you set both equal, flow warns and falls back the refute to a pinned alternate (`"Claude Opus 4.6 (Thinking)"` / `"GPT-OSS 120B (Medium)"`) that differs.
+
+Each key is **tolerant by construction**: an absent key silently takes its default; a key that is **present but the wrong JSON type triggers a loud `stderr` warning and falls back to the default** — never a throw, never an aborted pass, so a config typo degrades to a warning rather than blocking planning. `--concurrency` is **not** operator-tunable (pinned at `4`; it is load-bearing in the runtime-ceiling arithmetic). The pass stays **bounded** — the synchronous worst case is `ceil(maxCalls / 4)` waves × the per-entry timeout, ~9-min at the defaults (`3` waves × `3m`). **Runtime-ceiling caveat:** raising `maxCalls` and `timeout` together can push that product past the observed-safe ~10-min one-shot sub-agent wall-clock, so keep it under ~10 min when tuning. Off by default; absent or malformed config behaves exactly as today.
 
 **Optional `review.gemini` opt-in (cross-model PR reviewer).** Setting
 `{ "review": { "gemini": true } }` in `~/.flow/config.json` adds ONE additional

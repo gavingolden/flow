@@ -71,6 +71,32 @@ describe("parseFanoutArgs", () => {
       out: "/tmp/agg.json",
     });
   });
+
+  it("accepts --default-entry-timeout and surfaces the value", () => {
+    expect(
+      parseFanoutArgs([
+        "--manifest",
+        "m.json",
+        "--default-entry-timeout",
+        "3m",
+      ]),
+    ).toMatchObject({ manifest: "m.json", defaultEntryTimeout: "3m" });
+  });
+
+  it("rejects --default-entry-timeout with no value", () => {
+    expect(
+      parseFanoutArgs(["--manifest", "m.json", "--default-entry-timeout"]),
+    ).toEqual({ error: "--default-entry-timeout requires a value" });
+  });
+
+  it("rejects an empty-string --default-entry-timeout value", () => {
+    // An empty string would survive the run() truthy gate as a falsy no-op,
+    // silently disabling the very ceiling the flag exists to HARD-enforce.
+    // Reject it at the parser the same way a missing value is rejected.
+    expect(
+      parseFanoutArgs(["--manifest", "m.json", "--default-entry-timeout", ""]),
+    ).toEqual({ error: "--default-entry-timeout requires a value" });
+  });
 });
 
 describe("entryToDelegateArgv", () => {
@@ -370,6 +396,50 @@ describe("run — budget", () => {
     expect(exhausted.every((e: { ran: boolean }) => e.ran === false)).toBe(
       true,
     );
+  });
+});
+
+describe("run — --default-entry-timeout backstop", () => {
+  // runDelegate receives the entry AFTER the default has been folded in, so the
+  // seam to assert on is each dispatched entry's effective `timeout`.
+  const captureTimeouts = (entries: ManifestEntry[], argv: string[]) => {
+    const seen: Array<string | undefined> = [];
+    const deps = makeDeps({
+      readFile: () => manifestOf(entries),
+      runDelegate: async (entry) => {
+        seen.push(entry.timeout);
+        return { ran: true, task: entry.task, artifactPath: "/x.md" };
+      },
+    });
+    return { deps, seen, done: run(["--manifest", "m.json", ...argv], deps) };
+  };
+
+  it("applies the default to a no-timeout entry", async () => {
+    const { seen, done } = captureTimeouts(
+      [{ task: "a", prompt: "x" }],
+      ["--default-entry-timeout", "3m"],
+    );
+    await expect(done).resolves.toBe(0);
+    expect(seen).toEqual(["3m"]);
+  });
+
+  it("lets a per-entry timeout override the default", async () => {
+    const { seen, done } = captureTimeouts(
+      [{ task: "a", prompt: "x", timeout: "10m" }],
+      ["--default-entry-timeout", "3m"],
+    );
+    await expect(done).resolves.toBe(0);
+    expect(seen).toEqual(["10m"]);
+  });
+
+  it("injects no timeout when --default-entry-timeout is absent", async () => {
+    const { seen, done } = captureTimeouts([{ task: "a", prompt: "x" }], []);
+    await expect(done).resolves.toBe(0);
+    expect(seen).toEqual([undefined]);
+    // and the built delegate argv carries no --timeout
+    expect(
+      entryToDelegateArgv({ task: "a", prompt: "x" }, "/o/a.md"),
+    ).not.toContain("--timeout");
   });
 });
 
