@@ -35,89 +35,19 @@ dispatches verbs natively with no passthrough fallback.
 
 ## Code conventions
 
-- **Runtime:** Bun for everything under `bin/`. `package.json`
-  declares `engines.node >= 20` so `npm install` and `npm run test`
-  (vitest) still work, but no shipped code is Node-specific.
+- **Runtime:** Bun for everything under `bin/`. `package.json` declares `engines.node >= 20` so `npm install` and `npm run test` (vitest) still work, but no shipped code is Node-specific.
 - **Style:** small, single-purpose modules. Target < 200 lines/file.
-- **Comments:** default to none. Add one only when the *why* is non-obvious
-  (a constraint, a workaround, a subtle invariant). Don't restate what the
-  code does.
-- **Errors:** validate at boundaries (CLI args, subprocess output, parsed
-  YAML). Trust internal callers. No defensive checks for things that can't
-  happen.
-- **No premature abstractions.** A phase is just a function. Don't introduce
-  a `Phase` class hierarchy until two phases share enough behaviour to
-  justify it.
+- **Comments:** default to none. Add one only when the *why* is non-obvious (a constraint, a workaround, a subtle invariant). Don't restate what the code does.
+- **Errors:** validate at boundaries (CLI args, subprocess output, parsed YAML). Trust internal callers. No defensive checks for things that can't happen.
+- **No premature abstractions.** A phase is just a function. Don't introduce a `Phase` class hierarchy until two phases share enough behaviour to justify it.
 - **No backwards-compat shims.** flow has no users yet. Refactor freely.
 
 ## Output style
 
-Response guidelines for any agent working in this repo. The first
-entry is an accuracy rule (a precondition for every other rule that
-emits prose, citations, or recipes); the rest are ordered by
-token-savings impact, highest first.
+Response guidelines for any agent working in this repo. The first entry is an accuracy rule (a precondition for every other rule that emits prose, citations, or recipes); the rest are ordered by token-savings impact, highest first.
 
-- **Verify factual claims before emitting them.** Always try to verify
-  factual claims proactively via an API request, doc fetch, or
-  filesystem check before propagating them into edits, PR bodies, or
-  scripts — especially values that have been latent/unvalidated for a
-  while. Concrete trigger categories: SHAs, file paths, line numbers,
-  URLs, issue/PR numbers, version strings, env-var names, API surface
-  shapes (function names, exported symbols, flag names), dates,
-  exemption counts, deprecated CLI flags. Anti-patterns to call out
-  explicitly: paraphrasing `AGENTS.md` from memory in a commit Why-section,
-  copy-pasting a prior PR body section without re-checking its citations,
-  citing line numbers from a stale `Read`, claiming an exemption count that
-  has since changed, hardcoding a SHA from earlier in the session without
-  re-running `git rev-parse`, quoting a CLI flag from memory after the
-  `--help` shape may have changed. Per-category
-  verification recipes — line number: `Read` the file at the exact path
-  before citing; SHA: `git rev-parse <ref>`; URL: `curl -sI` or follow
-  the link; PR number + state: `gh pr view <n> --json title,state,mergedAt`;
-  issue number + state: `gh issue view <n> --json title,state` (the
-  PR variant verifies PRs only — a plain issue lookup against `gh pr view`
-  fails or surfaces the wrong record); count: `grep -cE '<anchored-pattern>'
-  <file>` (never unanchored substring); CLI flag: `<verb> --help`; file
-  existence: `test -f <path>`; exported symbol: `grep -n '<symbol>'
-  <module>`; version: `<verb> --version` or `jq -r .version package.json`;
-  env-var name: `grep -n '<NAME>' .env.example`
-  (the example file is the canonical source-of-truth check);
-  date: `git log --format='%ad' --date=short -1 <ref>` for a commit or
-  tag, `gh api repos/{owner}/{repo}/issues/<n> --jq .created_at` for an
-  issue or PR creation date. Prefer authoritative sources: official vendor
-  docs (Anthropic, Google) and peer-reviewed research outrank random blogs
-  (Medium.com) — especially on AI topics — so weight credibility by source
-  and confirm against the official source. When unsure, verify.
-- **Treat user prompts as evidence of intent, not exhaustive specifications.**
-  User prompts may contain mistakes, incompleteness, unintended scope
-  restriction, and misweighted goals. When a prompt names prescribed
-  methods (a numbered list, an explicit enumeration of moves) AND a
-  stated quantitative target (`<800 lines`, `30% faster`, `≤ 100ms`),
-  your job is to (a) identify tensions — prescribed-methods-vs-stated-target,
-  under-specification, conflicting constraints — and surface them in the
-  artifacts downstream consumers read (the PRD's `## Prompt interpretation`
-  section; the `/new-feature` Critical Analysis row; `/flow-pipeline` Step 3
-  routes non-feature tensions to the approval checkpoint), and (b) proceed
-  with the most-likely-correct interpretation toward the stated goal, not
-  the literal interpretation that fails it. The
-  nine Task-tool exemptions and other narrow-and-named contracts cap the
-  scope you can take on without authorisation; this rule governs
-  *interpretation* inside an authorised scope, not scope expansion past it.
-  PR #170 is the canonical
-  precedent: the user named four prescribed trims AND a `<800 lines`
-  target; the agent landed all four (`-71 lines`, finishing at 1337 —
-  537 above target) and reported success because the methods landed,
-  never surfacing that they couldn't reach the target. Anti-patterns:
-  (a) reading prescribed moves as exhaustive when the target needs more —
-  surface the gap and name additional safe steps in the plan; (b) treating
-  an aspirational target as wishful when methods fall short — it is evidence
-  the user wants the methods to reach it; (c) asking for clarification when
-  work-without-stopping is in effect — instead surface the tension in
-  artifacts (the PRD's Open Questions, the Critical Analysis row) so the
-  user can redirect at the next checkpoint. The structural lint
-  for this rule lives at `bin/skill-md-lint.test.ts` and anchors on the
-  exact phrase **Treat user prompts as evidence of intent, not exhaustive
-  specifications.** — renames must update the lint in the same commit.
+- **Verify factual claims before emitting them.** Always try to verify factual claims proactively via an API request, doc fetch, or filesystem check before propagating them into edits, PR bodies, or scripts — especially values that have been latent/unvalidated for a while. Concrete trigger categories: SHAs, file paths, line numbers, URLs, issue/PR numbers, version strings, env-var names, API surface shapes (function names, exported symbols, flag names), dates, exemption counts, deprecated CLI flags. Anti-patterns to call out explicitly: paraphrasing `AGENTS.md` from memory in a commit Why-section, copy-pasting a prior PR body section without re-checking its citations, citing line numbers from a stale `Read`, claiming an exemption count that has since changed, hardcoding a SHA from earlier in the session without re-running `git rev-parse`, quoting a CLI flag from memory after the `--help` shape may have changed. Per-category verification recipes — line number: `Read` the file at the exact path before citing; SHA: `git rev-parse <ref>`; URL: `curl -sI` or follow the link; PR number + state: `gh pr view <n> --json title,state,mergedAt`; issue number + state: `gh issue view <n> --json title,state` (the PR variant verifies PRs only — a plain issue lookup against `gh pr view` fails or surfaces the wrong record); count: `grep -cE '<anchored-pattern>' <file>` (never unanchored substring); CLI flag: `<verb> --help`; file existence: `test -f <path>`; exported symbol: `grep -n '<symbol>' <module>`; version: `<verb> --version` or `jq -r .version package.json`; env-var name: `grep -n '<NAME>' .env.example` (the example file is the canonical source-of-truth check); date: `git log --format='%ad' --date=short -1 <ref>` for a commit or tag, `gh api repos/{owner}/{repo}/issues/<n> --jq .created_at` for an issue or PR creation date. Prefer authoritative sources: official vendor docs (Anthropic, Google) and peer-reviewed research outrank random blogs (Medium.com) — especially on AI topics — so weight credibility by source and confirm against the official source. When unsure, verify.
+- **Treat user prompts as evidence of intent, not exhaustive specifications.** User prompts may contain mistakes, incompleteness, unintended scope restriction, and misweighted goals. When a prompt names prescribed methods (a numbered list, an explicit enumeration of moves) AND a stated quantitative target (`<800 lines`, `30% faster`, `≤ 100ms`), your job is to (a) identify tensions — prescribed-methods-vs-stated-target, under-specification, conflicting constraints — and surface them in the artifacts downstream consumers read (the PRD's `## Prompt interpretation` section; the `/new-feature` Critical Analysis row; `/flow-pipeline` Step 3 routes non-feature tensions to the approval checkpoint), and (b) proceed with the most-likely-correct interpretation toward the stated goal, not the literal interpretation that fails it. The nine Task-tool exemptions and other narrow-and-named contracts cap the scope you can take on without authorisation; this rule governs *interpretation* inside an authorised scope, not scope expansion past it. PR #170 is the canonical precedent: the user named four prescribed trims AND a `<800 lines` target; the agent landed all four (`-71 lines`, finishing at 1337 — 537 above target) and reported success because the methods landed, never surfacing that they couldn't reach the target. Anti-patterns: (a) reading prescribed moves as exhaustive when the target needs more — surface the gap and name additional safe steps in the plan; (b) treating an aspirational target as wishful when methods fall short — it is evidence the user wants the methods to reach it; (c) asking for clarification when work-without-stopping is in effect — instead surface the tension in artifacts (the PRD's Open Questions, the Critical Analysis row) so the user can redirect at the next checkpoint. The structural lint for this rule lives at `bin/skill-md-lint.test.ts` and anchors on the exact phrase **Treat user prompts as evidence of intent, not exhaustive specifications.** — renames must update the lint in the same commit.
 - **Consider the middle ground when a request is framed as a binary choice.**
   When a prompt poses an either/or — "should it work like A or B?",
   "store it in the URL or the database?", "fast or simple?" — the two
@@ -211,19 +141,10 @@ token-savings impact, highest first.
 Source for shipped helper binaries lives in **`bin/`**. The user-callable
 helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-state-update`,
-`flow-notify`, `flow-stop-guard`, `flow-ui-validate`, `flow-delegate`, `flow-delegate-fanout` — live there with `.ts`
-extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow setup`
-symlinks each into `~/.local/bin/<name>` (extensionless on PATH).
-`flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import,
-NOT in the allowlist below. `flow-delegate-fanout` is the manifest runner
-powering `flow-research`.
+`flow-notify`, `flow-stop-guard`, `flow-ui-validate`, `flow-delegate`, `flow-delegate-fanout`, `flow-research-cache` — live there with `.ts`
+extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow setup` symlinks each into `~/.local/bin/<name>` (extensionless on PATH). `flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import, NOT in the allowlist below. `flow-delegate-fanout` is the manifest runner powering `flow-research`.
 
-The three schema validators `flow-pr-review-result-schema`,
-`flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked
-onto PATH by `flow setup` — but sourced from `bin/lib/*-schema.ts` via an
-explicit-allowlist `discoverValidators` (distinct from `discoverHelpers`'
-auto-pickup of every `bin/*.ts`), so pipeline skills invoke them by bare name
-regardless of cwd.
+The three schema validators `flow-pr-review-result-schema`, `flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked onto PATH by `flow setup` — but sourced from `bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators` (distinct from `discoverHelpers`' auto-pickup of every `bin/*.ts`), so pipeline skills invoke them by bare name regardless of cwd.
 
 The `flow` wrapper itself is also Bun, at `bin/flow`. It dispatches every
 verb natively — there is no passthrough or legacy entry point.
@@ -231,111 +152,37 @@ verb natively — there is no passthrough or legacy entry point.
 Conventions for any script under `bin/`:
 
 - `#!/usr/bin/env bun` shebang and `chmod +x`.
-- Use `import.meta.main` (Bun's symlink-aware "is this the entry
-  point?" check) to gate the `main()` call. Do **not** compare
-  `import.meta.url` to `process.argv[1]` — that comparison breaks
-  when the script is invoked through a symlink.
-- Tests live next door as `<name>.test.ts` and run via vitest
-  (`npm run test`). They're flow-internal: `flow setup` skips
-  `*.test.ts` files when symlinking, since consumers don't need them
-  on PATH.
-- Source ≠ install target by design (`bin/` in flow's repo vs
-  `~/.local/bin/` on the user's machine). Don't move scripts back to
-  the install directory.
+- Use `import.meta.main` (Bun's symlink-aware "is this the entry point?" check) to gate the `main()` call. Do **not** compare `import.meta.url` to `process.argv[1]` — that comparison breaks when the script is invoked through a symlink.
+- Tests live next door as `<name>.test.ts` and run via vitest (`npm run test`). They're flow-internal: `flow setup` skips `*.test.ts` files when symlinking, since consumers don't need them on PATH.
+- Source ≠ install target by design (`bin/` in flow's repo vs `~/.local/bin/` on the user's machine). Don't move scripts back to the install directory.
 
-When adding a new script, default to Bun. If you need to deviate (e.g.
-a Node-only dependency), confirm with the user first and document the
-exception inline.
+When adding a new script, default to Bun. If you need to deviate (e.g. a Node-only dependency), confirm with the user first and document the exception inline.
 
 ## Supervisor and sub-skills: in-process only
 
-This is the load-bearing constraint for `/flow-pipeline`: the supervisor
-is one Claude Code chat session, sub-skills (`/product-planning`,
-`/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill`
-tool, and helper scripts under `bin/` are Bash tool calls. The
-supervisor never spawns the `Task` / `Agent` tool and never invokes
-`claude -p ...` subprocesses, **with nine narrowly-named exceptions**
-— see the nine `**Task-tool exemption: ...**` bullets under
-`## Don'ts` below, preceded by a single shared-rationale preamble.
-This sidesteps two limits at once:
+This is the load-bearing constraint for `/flow-pipeline`: the supervisor is one Claude Code chat session, sub-skills (`/product-planning`, `/new-feature`, `/verify`, `/pr-review`) load in-process via the `Skill` tool, and helper scripts under `bin/` are Bash tool calls. The supervisor never spawns the `Task` / `Agent` tool and never invokes `claude -p ...` subprocesses, **with nine narrowly-named exceptions** — see the nine `**Task-tool exemption: ...**` bullets under `## Don'ts` below, preceded by a single shared-rationale preamble. This sidesteps two limits at once:
 
 1. Claude Code sub-agents can't spawn sub-agents (one-level cap).
-2. A long-running supervisor with sub-agents would bloat past the
-   context window.
+2. A long-running supervisor with sub-agents would bloat past the context window.
 
-If you find yourself adding logic that *needs* a separate LLM session,
-redesign so the LLM lives in a sub-skill that loads in-process or a
-helper script that doesn't need an LLM at all.
+If you find yourself adding logic that *needs* a separate LLM session, redesign so the LLM lives in a sub-skill that loads in-process or a helper script that doesn't need an LLM at all.
 
 ## Compact Instructions
 
-The supervisor is one long-running Claude Code session whose single context
-window the whole pipeline shares, so when the harness compacts the conversation
-— automatically near the context limit, or on a manual `/compact` — the
-load-bearing pipeline state must survive the summary. Claude Code reads a
-"Compact Instructions" section from `CLAUDE.md` / `AGENTS.md` to decide what to
-preserve during compaction (flow's `CLAUDE.md` is `@AGENTS.md`, so this section
-is included). See code.claude.com/docs/en/how-claude-code-works.
+The supervisor is one long-running Claude Code session whose single context window the whole pipeline shares, so when the harness compacts the conversation — automatically near the context limit, or on a manual `/compact` — the load-bearing pipeline state must survive the summary. Claude Code reads a "Compact Instructions" section from `CLAUDE.md` / `AGENTS.md` to decide what to preserve (flow's `CLAUDE.md` is `@AGENTS.md`, so this section is included). See code.claude.com/docs/en/how-claude-code-works.
 
-- **KEEP**: current pipeline phase, PR number, worktree path, the
-  `.flow-tmp/plan.md` and `.flow-tmp/scout.md` artifact paths, current pipeline
-  step, and any `NEEDS HUMAN: <reason>`. These are the supervisor's resume
-  anchors — lose them and it cannot tell what it has already done.
-- **DROP**: verify failure-log excerpts, raw tool outputs, and CI poll progress.
-  These are high-volume and reconstructable on demand (`state.json`, the PR, and
-  a fresh `gh` / `flow-pre-commit` call re-derive them), so summarising them away
-  costs nothing.
+- **KEEP**: current pipeline phase, PR number, worktree path, the `.flow-tmp/plan.md` and `.flow-tmp/scout.md` artifact paths, current pipeline step, and any `NEEDS HUMAN: <reason>`. These are the supervisor's resume anchors — lose them and it cannot tell what it has already done.
+- **DROP**: verify failure-log excerpts, raw tool outputs, and CI poll progress. These are high-volume and reconstructable on demand (`state.json`, the PR, and a fresh `gh` / `flow-pre-commit` call re-derive them), so summarising them away costs nothing.
 
 ## Git workflow
 
-- **Branches:** short, descriptive. The supervisor uses
-  `flow-new-worktree` to create per-pipeline branches deterministically
-  from the slug; humans can use `<type>/<topic>` for non-supervisor work.
-- **Commits:** conventional commits (`feat:`, `fix:`, `chore:`, `docs:`,
-  `refactor:`, `test:`). Imperative summary ≤ 50 chars. Body explains
-  *why* — motivation, non-obvious choices, what was tried and didn't work.
-  Trivial changes (typo, dep bump) may omit the body.
-- **PRs:** Why / What / Key decisions / User-facing changes / Test Steps,
-  in that order. The Why must read as a problem statement, not a feature spec. The
-  Test Steps section is also the auto-merge gate signal — zero unchecked `- [ ]`
-  items ⇒ auto-merge, one or more unchecked items ⇒ gated. See
-  `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md` for the contract.
+- **Branches:** short, descriptive. The supervisor uses `flow-new-worktree` to create per-pipeline branches deterministically from the slug; humans can use `<type>/<topic>` for non-supervisor work.
+- **Commits:** conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `test:`). Imperative summary ≤ 50 chars. Body explains *why* — motivation, non-obvious choices, what was tried and didn't work. Trivial changes (typo, dep bump) may omit the body.
+- **PRs:** Why / What / Key decisions / User-facing changes / Test Steps, in that order. The Why must read as a problem statement, not a feature spec. The Test Steps section is also the auto-merge gate signal — zero unchecked `- [ ]` items ⇒ auto-merge, one or more unchecked items ⇒ gated. See `skills/pipeline/flow-pipeline/references/auto-merge-rubric.md` for the contract.
 - **Never amend pushed commits.** Make a new commit instead.
 - **Never force-push** without explicit user request.
-- **Inline intent annotations:** review-time-scoped per-hunk rationale
-  authored by `/new-feature` Step 5b as inline review comments on the
-  PR diff (`**why:** <1-2 sentences>` + `<!-- flow-intent-v1 -->`
-  integrity suffix, prefix disjoint from `/pr-review`'s Conventional
-  Comments vocabulary). They don't appear in `git log` / `git blame`
-  after merge — durable rationale still belongs in commit-body
-  Why-sections and the PR body's `## Why`. See
-  `skills/pipeline/new-feature/SKILL.md` Step 5b for the trigger contract
-  (rules a/b/c, per-file dedup, ≤8/PR cap, overflow bullet) and
-  `skills/pipeline/pr-review/SKILL.md` Step 3 for how `/pr-review`
-  consumes them as `{{EXISTING_INTENT_COMMENTS}}` context.
-- **Session marker + trailer:** every PR `flow-open-pr` freshly creates
-  inside a Claude Code harness ends with a single-line, self-describing
-  HTML-comment marker — `<!-- flow: this PR was created by Claude Code
-  session <id> - transcript at ~/.claude/projects/<encoded-cwd>/<id>.jsonl
-  on the originating machine -->` — sourced from the `CLAUDE_CODE_SESSION_ID`
-  env var. It is best-effort and same-machine-only; absent the env
-  var the PR opens with no marker. Because the marker is an HTML comment it is invisible
-  in GitHub's rendered view and stripped by the auto-merge gate before
-  it counts unchecked `- [ ]` items. The marker is lost from `git
-  history` on squash-merge, so the same session ID also reaches `git
-  log` / `git blame` as a `Claude-Code-Session-Id:` trailer — but via a
-  per-commit git hook, not step 10. `flow-new-worktree` installs a
-  worktree-scoped `prepare-commit-msg` hook (scoped via
-  `extensions.worktreeConfig` + a worktree-scoped `core.hooksPath` so
-  it never fires for the user's primary repo) that appends
-  `Claude-Code-Session-Id: <id>` to **every individual commit** made
-  in the worktree when `CLAUDE_CODE_SESSION_ID` is set. gh's default
-  squash concatenation of the branch's commit messages then carries the
-  trailer into the squash-merge commit — `/flow-pipeline` step 10 runs a
-  bare `gh pr merge --squash` with zero `--body` manipulation. The
-  optional `sessionId` field in `~/.flow/state/<slug>.json` is still
-  written by `flow-open-pr` for the HTML-comment marker path, but
-  step 10 no longer reads it.
+- **Inline intent annotations:** review-time-scoped per-hunk rationale authored by `/new-feature` Step 5b as inline review comments on the PR diff (`**why:** <1-2 sentences>` + `<!-- flow-intent-v1 -->` integrity suffix, prefix disjoint from `/pr-review`'s Conventional Comments vocabulary). They don't appear in `git log` / `git blame` after merge — durable rationale still belongs in commit-body Why-sections and the PR body's `## Why`. See `skills/pipeline/new-feature/SKILL.md` Step 5b for the trigger contract (rules a/b/c, per-file dedup, ≤8/PR cap, overflow bullet) and `skills/pipeline/pr-review/SKILL.md` Step 3 for how `/pr-review` consumes them as `{{EXISTING_INTENT_COMMENTS}}` context.
+- **Session marker + trailer:** every PR `flow-open-pr` freshly creates inside a Claude Code harness ends with a single-line, self-describing HTML-comment marker — `<!-- flow: this PR was created by Claude Code session <id> - transcript at ~/.claude/projects/<encoded-cwd>/<id>.jsonl on the originating machine -->` — sourced from the `CLAUDE_CODE_SESSION_ID` env var. It is best-effort and same-machine-only; absent the env var the PR opens with no marker. Because the marker is an HTML comment it is invisible in GitHub's rendered view and stripped by the auto-merge gate before it counts unchecked `- [ ]` items. The marker is lost from `git history` on squash-merge, so the same session ID also reaches `git log` / `git blame` as a `Claude-Code-Session-Id:` trailer — but via a per-commit git hook, not step 10. `flow-new-worktree` installs a worktree-scoped `prepare-commit-msg` hook (scoped via `extensions.worktreeConfig` + a worktree-scoped `core.hooksPath` so it never fires for the user's primary repo) that appends `Claude-Code-Session-Id: <id>` to **every individual commit** made in the worktree when `CLAUDE_CODE_SESSION_ID` is set. gh's default squash concatenation of the branch's commit messages then carries the trailer into the squash-merge commit — `/flow-pipeline` step 10 runs a bare `gh pr merge --squash` with zero `--body` manipulation. The optional `sessionId` field in `~/.flow/state/<slug>.json` is still written by `flow-open-pr` for the HTML-comment marker path, but step 10 no longer reads it.
 
 Pass multi-line messages through a heredoc:
 
@@ -411,6 +258,8 @@ checks with an undefined npm script; a zero-check non-empty diff signals
 `reason: "no-checks-defined"`.)
 
 **Host-wide test-concurrency cap.** `flow-pre-commit` caps concurrent local test runs host-wide at `K = max(1, ceil(os.availableParallelism()/9))` (2 on 18 cores) via a counting semaphore in `~/.flow/test-sem/`, so parallel pipelines stop oversubscribing cores. Only the test check is throttled; other checks run unthrottled. Override `K` via `FLOW_TEST_CONCURRENCY` (integer ≥ 1). On acquire timeout the test runs anyway.
+
+**Host-wide research cache.** `flow-research-cache` caches the F2 discovery synthesis at `~/.flow/research-cache/` (host-wide; survives worktree removal), keyed on a SHA-256 of the normalized question; 48h TTL (`--ttl-hours`/`FLOW_RESEARCH_CACHE_TTL_HOURS`, dir `FLOW_RESEARCH_CACHE_DIR`); miss/stale/corrupt → exit 3 → live run, never errors. Full get/put contract in `discovery-instructions.md`.
 
 **Zero-config monorepo auto-detect + three-layer command resolution.**
 Before root-fallback claims orphans, a SEPARATE pass over the unclaimed
