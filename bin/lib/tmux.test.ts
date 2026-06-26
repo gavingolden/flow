@@ -513,19 +513,19 @@ describe(createWindowVerified, () => {
 
   it("budget-exhausted with tail incomplete (everConsumed=true, aliveAtEnd=true) → ok:true", () => {
     // Exercises the `return everConsumed && aliveAtEnd` fallback at the end of
-    // pollUntilConsumed. Consumption is first observed on attempt 58 (0-indexed)
-    // of the 60-attempt budget — only 2 tail probes fit before the budget exhausts
-    // (CONSUME_TAIL_PROBES = 3 requires 3). The fallback yields true because
-    // everConsumed=true and aliveAtEnd=true.
+    // pollUntilConsumed. With a 3-attempt consume budget and consumption first
+    // observed on attempt index 1, only 2 tail probes fit before the budget
+    // exhausts (CONSUME_TAIL_PROBES = 3 requires 3), so the early `return true`
+    // never fires — the fallback yields true because everConsumed=true and
+    // aliveAtEnd=true.
     const kill = vi.fn(() => true);
-    let callCount = 0;
-    // readPane is called: once in Phase 1 (ready latch on the first probe), once
-    // for the double-submit guard, then once per Phase 3 attempt until consumption
-    // latches. Consumption latches on the 61st total call (Phase 3 attempt 58),
-    // leaving only 1 tail probe before the 60-attempt budget exhausts.
-    const readPane = () =>
-      ++callCount >= 61 ? CONSUMED_CAPTURE : READY_CAPTURE;
     const sendKeys = vi.fn(() => ({ ok: true, stderr: "" }));
+    // consumed() is read once at the double-submit guard (false → seed is sent)
+    // and once per consume attempt until it latches: false on guard + attempt 0,
+    // true from attempt 1 on, so consumption latches with only 2 tail probes left
+    // in the 3-attempt budget.
+    let consumeProbe = 0;
+    const consumed = () => consumeProbe++ >= 2;
     const result = createWindowVerified(
       "csv-export",
       "/repo",
@@ -536,8 +536,10 @@ describe(createWindowVerified, () => {
         isAlive: () => true,
         kill,
         sleep: noopSleep,
-        readPane,
+        readPane: () => READY_CAPTURE,
+        consumed,
         sendKeys,
+        ...budget,
       },
     );
     expect(result).toEqual({ ok: true, stderr: "" });
@@ -774,18 +776,13 @@ describe(respawnWindowVerified, () => {
     // create path, the window is NOT killed — it pre-existed the resume
     // (cast-threaded kill spy locks the no-kill invariant).
     const kill = vi.fn(() => true);
-    let submitted = false;
-    const readPane = () => (submitted ? CONSUMED_CAPTURE : READY_CAPTURE);
-    const sendKeys = vi.fn((_slug: string, keys: string, literal: boolean) => {
-      if (!literal && keys === "Enter") submitted = true;
-      return { ok: true, stderr: "" };
-    });
+    const { sendKeys, consumed } = makeConsumedSeam();
     // Alive through the entire ready poll, then alive for exactly the FIRST
     // consume probe (so consumption LATCHES) and dead thereafter.
-    let aliveAfterSubmit = 1;
+    let aliveAfterConsumed = 1;
     const isAlive = () => {
-      if (!submitted) return true;
-      return aliveAfterSubmit-- > 0;
+      if (!consumed()) return true;
+      return aliveAfterConsumed-- > 0;
     };
     const result = respawnWindowVerified(
       "csv-export",
@@ -796,8 +793,10 @@ describe(respawnWindowVerified, () => {
         respawn: () => ({ ok: true, stderr: "" }),
         isAlive,
         sleep: noopSleep,
-        readPane,
+        readPane: () => READY_CAPTURE,
+        consumed,
         sendKeys,
+        ...budget,
         kill,
       } as Parameters<typeof respawnWindowVerified>[4],
     );
