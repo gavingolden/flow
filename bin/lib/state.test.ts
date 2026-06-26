@@ -593,6 +593,22 @@ describe("phase constants", () => {
     expect(PENDING_PHASES).toContain("ci-wait-pending");
   });
 
+  it("includes the full epic-designer phase lifecycle", () => {
+    // /epic-create's lifecycle: starting → epic-designing → epic-validating →
+    // epic-pr-open → epic-design-pending-review → {epic-approved | cancelled}.
+    // The three epic step phases live in STEP_PHASES; the review checkpoint is
+    // a pending phase (so flow-stop-guard permits ending the turn there);
+    // epic-approved is terminal (cancelled is reused for the cancel path).
+    for (const p of ["epic-designing", "epic-validating", "epic-pr-open"]) {
+      expect(STEP_PHASES as readonly string[]).toContain(p);
+    }
+    expect(PENDING_PHASES).toContain("epic-design-pending-review");
+    expect(TERMINAL_PHASES).toContain("epic-approved");
+    expect(isLegitimateEndPhase("epic-design-pending-review")).toBe(true);
+    expect(isLegitimateEndPhase("epic-approved")).toBe(true);
+    expect(isPipelinePhase("epic-designing")).toBe(true);
+  });
+
   it("ci-wait-pending is a pending phase, disjoint from STEP and TERMINAL", () => {
     // The yielded counterpart to the active `ci-wait` step phase: the
     // supervisor legitimately ends its turn at ci-wait-pending while
@@ -647,6 +663,11 @@ describe("shortPhase", () => {
     gated: "gated",
     "needs-human": "human",
     cancelled: "cancel",
+    "epic-designing": "e-dsgn",
+    "epic-validating": "e-val",
+    "epic-pr-open": "e-pr",
+    "epic-design-pending-review": "e-rvw?",
+    "epic-approved": "e-ok",
   };
 
   it.each(PIPELINE_PHASES)("maps %s to its canonical abbreviation", (phase) => {

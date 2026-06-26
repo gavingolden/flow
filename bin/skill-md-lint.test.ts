@@ -2175,7 +2175,16 @@ describe("pr-review include-by-reference structure", () => {
 });
 
 describe("flow-pipeline SKILL.md ↔ flow-stop-guard NEXT_STEP_BY_PHASE cross-doc lint", () => {
-  it.each(STEP_PHASES.map((phase) => [phase]))(
+  // The `epic-*` step phases (epic-designing / epic-validating / epic-pr-open)
+  // are `/epic-create` steps, NOT /flow-pipeline steps, so they have no
+  // `## Step N` heading in flow-pipeline/SKILL.md to map to. Scope this
+  // cross-doc lint to the /flow-pipeline step phases only; the epic phases are
+  // exercised by the standalone `/epic-create` supervisor literal lint below.
+  it.each(
+    STEP_PHASES.filter((phase) => !phase.startsWith("epic-")).map((phase) => [
+      phase,
+    ]),
+  )(
     "every `step N(.M)?` reference in NEXT_STEP_BY_PHASE['%s'] maps to a `## Step N — ` heading in SKILL.md",
     (phase) => {
       const label = NEXT_STEP_BY_PHASE[phase];
@@ -3235,6 +3244,143 @@ describe("product-planning MODE: epic routing anchor", () => {
       productPlanningContent.includes("epic-discovery-instructions.md"),
       "product-planning/SKILL.md must reference 'epic-discovery-instructions.md' " +
         "— the epic-grain sibling INSTRUCTIONS_PATH the MODE: epic branch resolves to.",
+    ).toBe(true);
+  });
+
+  // PR #353 follow-up (i): keep the epic-mode artifact names coherent across
+  // the spawn template's epic {{OUTPUT_PATHS}} Write-block AND the post-spawn
+  // epic existence-check, so a future edit can't fix one branch and miss the
+  // other. `design.md` and `manifest.json` must each appear in BOTH regions.
+  it("design.md and manifest.json each appear in BOTH the epic Write-block AND the epic existence-check", () => {
+    const writeBlock =
+      productPlanningContent
+        .split("### `{{OUTPUT_PATHS}}` — epic mode")[1]
+        ?.split(/^# /m)[0] ?? "";
+    expect(
+      writeBlock.length,
+      "product-planning/SKILL.md must contain the `### {{OUTPUT_PATHS}} — epic " +
+        "mode` Write-block section.",
+    ).toBeGreaterThan(0);
+
+    const existenceCheck =
+      productPlanningContent
+        .split("**Epic mode (`MODE: epic`):**")[1]
+        ?.split(/\n- /)[0] ?? "";
+    expect(
+      existenceCheck.length,
+      "product-planning/SKILL.md must contain the `**Epic mode (MODE: epic):**` " +
+        "Verification existence-check bullet.",
+    ).toBeGreaterThan(0);
+
+    for (const [region, label] of [
+      [writeBlock, "epic {{OUTPUT_PATHS}} Write-block"],
+      [existenceCheck, "epic existence-check"],
+    ] as const) {
+      for (const artifact of ["design.md", "manifest.json"]) {
+        expect(
+          region.includes(artifact),
+          `The ${label} in product-planning/SKILL.md must name '${artifact}'. ` +
+            `Both epic artifacts must appear in BOTH the Write-block and the ` +
+            `existence-check (PR #353 follow-up i) so the two stay coherent.`,
+        ).toBe(true);
+      }
+    }
+  });
+});
+
+describe("/epic-create supervisor SKILL.md literal anchors", () => {
+  // Durable structural guards for the /epic-create supervisor (Task 3). These
+  // go red on `npm run verify` if any load-bearing literal — the checkpoint
+  // phase, both bare-name validators, the MODE: epic Task spawn, the named
+  // AskUserQuestion form, the ToolSearch select:Task escalate-on-miss
+  // paragraph, flow-open-pr, approve/redirect/cancel, the no-merge HALT, the R1
+  // no-bin/lib constraint, OR the resume-mode literals — is dropped from the
+  // skill. STANDALONE block so it does NOT disturb the "exactly 9 Task-tool
+  // exemptions" / two-AskUserQuestion-forms assertions (which are
+  // /flow-pipeline-anchored and must stay green).
+  const EPIC_CREATE_SKILL_MD_PATH = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "epic-create",
+    "SKILL.md",
+  );
+  const epicCreateContent = fs.readFileSync(EPIC_CREATE_SKILL_MD_PATH, "utf8");
+
+  const REQUIRED_LITERALS: Array<[string, string]> = [
+    ["epic-design-pending-review", "the review checkpoint phase"],
+    ["flow-epic-manifest-schema --validate", "the bare-name schema validator"],
+    ["flow-epic-dag --validate", "the bare-name DAG validator"],
+    ["MODE: epic", "the designer fan-out mode flag"],
+    ["AskUserQuestion", "the materiality-gated clarification form"],
+    ['ToolSearch query="select:Task"', "the Task-schema load preamble"],
+    [
+      "task-tool-unavailable: epic-create-designer",
+      "the escalate-on-Task-miss NEEDS HUMAN tag",
+    ],
+    ["flow-open-pr", "the idempotent design-PR open"],
+    ["flow-new-worktree", "the per-pipeline worktree creation"],
+    ["flow-remove-worktree", "the cancel-path worktree cleanup"],
+    ["never import", "the R1 no-bin/lib-import constraint"],
+    // Resume-mode literals
+    [
+      "Use the /epic-create skill in --resume mode for:",
+      "the resume seed-prompt prefix",
+    ],
+    ["flow-epic-resume-decide", "the bare-name epic resume decider"],
+    ["RESUMING AT", "the resume re-entry print"],
+  ];
+
+  it.each(REQUIRED_LITERALS)(
+    "epic-create/SKILL.md contains the load-bearing literal %j (%s)",
+    (literal) => {
+      expect(
+        epicCreateContent.includes(literal),
+        `skills/pipeline/epic-create/SKILL.md must contain '${literal}'. ` +
+          `Dropping it breaks the /epic-create supervisor's contract (the F5 ` +
+          `acceptance lints this literal); restore it or update this anchor in ` +
+          `lockstep.`,
+      ).toBe(true);
+    },
+  );
+
+  it("names the approve / redirect / cancel checkpoint classifications", () => {
+    for (const verb of ["approve", "redirect", "cancel"]) {
+      expect(
+        epicCreateContent.toLowerCase().includes(verb),
+        `epic-create/SKILL.md must classify '${verb}' at the ` +
+          `epic-design-pending-review checkpoint.`,
+      ).toBe(true);
+    }
+  });
+
+  it("carries the no-merge / no-launch HALT contract (F5 opens but never merges)", () => {
+    // F5 opens the design PR but never merges it; the supervisor must never
+    // compute a frontier, flow-new a feature, or gh pr merge. Anchor on the
+    // HALT-section heading plus the never-merge prohibition so removing the
+    // guard fails the lint.
+    expect(
+      /never\s+merge/i.test(epicCreateContent),
+      "epic-create/SKILL.md must state the supervisor NEVER merges the design " +
+        "PR (F5 opens but never merges; approve leaves the PR open).",
+    ).toBe(true);
+    expect(
+      epicCreateContent.includes("HALT"),
+      "epic-create/SKILL.md must carry the HALT contract section.",
+    ).toBe(true);
+  });
+
+  it("carries the don't-replay-approval and don't-re-open-PR resume safeguards", () => {
+    expect(
+      /replay an approval/i.test(epicCreateContent),
+      "epic-create/SKILL.md resume mode must state it does NOT replay an " +
+        "approval given to a now-dead session.",
+    ).toBe(true);
+    expect(
+      /re-open/i.test(epicCreateContent),
+      "epic-create/SKILL.md resume mode must state it does NOT re-open an " +
+        "already-open design PR (lean on flow-open-pr's up-front probe).",
     ).toBe(true);
   });
 });
