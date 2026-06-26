@@ -57,6 +57,21 @@ describe("getEntry / putEntry round-trip", () => {
     });
   });
 
+  it("stale-expiry exact edge — an entry exactly at the TTL boundary is a miss (pins < not <=)", () => {
+    const q = "boundary question";
+    const t0 = 1_700_000_000_000;
+    putEntry(q, "edge-synth", { root, nowMs: t0 });
+    // age === ttlHours * MS_PER_HOUR exactly: the comparison is `<`, so the
+    // edge falls on the miss side. A flip to `<=` would silently make it a hit.
+    expect(getEntry(q, { root, nowMs: t0 + 48 * HOUR, ttlHours: 48 })).toEqual({
+      hit: false,
+    });
+    // One ms before the edge is still a hit — brackets the boundary tightly.
+    expect(
+      getEntry(q, { root, nowMs: t0 + 48 * HOUR - 1, ttlHours: 48 }),
+    ).toEqual({ hit: true, synthesis: "edge-synth" });
+  });
+
   it("corrupt-entry — malformed JSON and missing/garbage timestamp both miss without throwing", () => {
     const q = "a researchable question";
     const p = entryPath(q, { root });
@@ -105,12 +120,16 @@ describe("CLI (spawned binary, env-var seam)", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const repoRoot = join(here, "..");
 
-  function cli(args: string[], input?: string) {
+  function cli(
+    args: string[],
+    input?: string,
+    extraEnv: Record<string, string> = {},
+  ) {
     return spawnSync("bun", ["bin/flow-research-cache.ts", ...args], {
       cwd: repoRoot,
       encoding: "utf8",
       input,
-      env: { ...process.env, FLOW_RESEARCH_CACHE_DIR: root },
+      env: { ...process.env, FLOW_RESEARCH_CACHE_DIR: root, ...extraEnv },
     });
   }
 
@@ -127,5 +146,114 @@ describe("CLI (spawned binary, env-var seam)", () => {
     const get = cli(["get", "--question", "definitely-not-cached"]);
     expect(get.status).toBe(3);
     expect(get.stdout).toBe("");
+  });
+
+  // Bad-args (exit 2) must stay distinct from miss (exit 3): the Step 1.5 wiring
+  // treats ANY non-zero `get` as a graceful miss, but the helper's own contract
+  // pins 2 for operator/wiring errors vs 3 for a clean cache miss.
+  it("get with no --question exits 2 (bad args, not the miss code 3)", () => {
+    const get = cli(["get"]);
+    expect(get.status).toBe(2);
+    expect(get.status).not.toBe(3);
+  });
+
+  it("unknown subcommand exits 2", () => {
+    expect(cli(["bogus"]).status).toBe(2);
+  });
+
+  it("put with no synthesis source exits 2", () => {
+    expect(cli(["put", "--question", "q"]).status).toBe(2);
+  });
+
+  describe("--ttl-hours flag / env precedence (flag > env > default)", () => {
+    it("--ttl-hours flag ages out a just-written entry (flag wired)", () => {
+      expect(cli(["put", "--question", "q", "--synthesis", "x"]).status).toBe(
+        0,
+      );
+      // A near-zero TTL (1e-12h ≈ 3.6e-6ms) makes any non-zero-age entry stale,
+      // so the separately-spawned `get` always misses. Proves the flag reaches
+      // getEntry's ttlHours without depending on inter-spawn wall-clock timing.
+      expect(
+        cli(["get", "--question", "q", "--ttl-hours", "1e-12"]).status,
+      ).toBe(3);
+      // Without the tiny TTL the same entry is a fresh hit under the 48h default.
+      const hit = cli(["get", "--question", "q"]);
+      expect(hit.status).toBe(0);
+      expect(hit.stdout).toBe("x");
+    });
+
+    it("FLOW_RESEARCH_CACHE_TTL_HOURS env ages out an entry (env wired)", () => {
+      expect(cli(["put", "--question", "q", "--synthesis", "x"]).status).toBe(
+        0,
+      );
+      expect(
+        cli(["get", "--question", "q"], undefined, {
+          FLOW_RESEARCH_CACHE_TTL_HOURS: "1e-12",
+        }).status,
+      ).toBe(3);
+    });
+
+    it("--ttl-hours flag wins over the env override (flag > env)", () => {
+      expect(cli(["put", "--question", "q", "--synthesis", "x"]).status).toBe(
+        0,
+      );
+      // env says expire-immediately, flag says 48h → flag wins → fresh hit.
+      const get = cli(
+        ["get", "--question", "q", "--ttl-hours", "48"],
+        undefined,
+        {
+          FLOW_RESEARCH_CACHE_TTL_HOURS: "0.0001",
+        },
+      );
+      expect(get.status).toBe(0);
+      expect(get.stdout).toBe("x");
+    });
+
+    it("a non-positive --ttl-hours falls through to the env override", () => {
+      expect(cli(["put", "--question", "q", "--synthesis", "x"]).status).toBe(
+        0,
+      );
+      // --ttl-hours -5 is rejected by positiveFloat → falls through to env's
+      // expire-immediately value → miss. Proves the precedence fall-through.
+      expect(
+        cli(["get", "--question", "q", "--ttl-hours", "-5"], undefined, {
+          FLOW_RESEARCH_CACHE_TTL_HOURS: "1e-12",
+        }).status,
+      ).toBe(3);
+    });
+  });
+
+  describe("put input modes", () => {
+    it("put --synthesis <literal> round-trips the literal value", () => {
+      expect(
+        cli(["put", "--question", "lit", "--synthesis", "literal-body"]).status,
+      ).toBe(0);
+      const get = cli(["get", "--question", "lit"]);
+      expect(get.status).toBe(0);
+      expect(get.stdout).toBe("literal-body");
+    });
+
+    it("put --synthesis-file round-trips file contents", () => {
+      const f = join(root, "syn.txt");
+      writeFileSync(f, "file-body");
+      expect(
+        cli(["put", "--question", "fromfile", "--synthesis-file", f]).status,
+      ).toBe(0);
+      const get = cli(["get", "--question", "fromfile"]);
+      expect(get.status).toBe(0);
+      expect(get.stdout).toBe("file-body");
+    });
+
+    it("put --synthesis-file with a missing path exits 2", () => {
+      expect(
+        cli([
+          "put",
+          "--question",
+          "q",
+          "--synthesis-file",
+          join(root, "does-not-exist"),
+        ]).status,
+      ).toBe(2);
+    });
   });
 });

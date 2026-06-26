@@ -123,13 +123,13 @@ If the verdict is **not researchable**, take no fan-out — proceed to step 2 un
 **Cache-read first (before building the manifest).** A prior identical run may already have synthesized this exact question, so check the host-wide research cache before paying for a fresh fan-out. Run it by **bare PATH name** via Bash — exactly like the `jq` and `flow-delegate-fanout` invocations above, NOT a `bin/lib` import (Step 1.5 runs in the consumer/target worktree where flow's `bin/lib` is absent):
 
 ```bash
-flow-research-cache get --question "<the sharp question from 1.5(b)>" && CACHE_HIT=true || CACHE_HIT=false
+CACHED_SYNTHESIS=$(flow-research-cache get --question "<the sharp question from 1.5(b)>" 2>/dev/null) && CACHE_HIT=true || CACHE_HIT=false
 ```
 
 The cache key is the **normalized** sharp question (lowercase / trim / collapse-whitespace → SHA-256), so a same-scope redirect or a crash-resume forms the same question → same key → **hit**, while a scope-changing redirect forms a NEW question → new key → **miss** → re-research. The cache is host-wide at `~/.flow/research-cache/` with a default 48h TTL.
 
-- **On exit 0 (hit):** the cached synthesis is printed to stdout. Reuse it as the research prior context and **SKIP the entire fan-out below AND the 1.5(d) synthesis** — fold the cached synthesis directly into your plan per the (d) constraints (confidence labels intact, refuted claims → risks, no raw artifacts).
-- **On any NON-ZERO exit (miss / stale / corrupt — exit 3, or even a 2 from a wiring bug):** treat it as a **graceful miss** and run the fan-out live exactly as below. The `get` must NEVER error the discovery run — branch on the cache miss and proceed.
+- **On exit 0 (hit):** the cached synthesis is now captured in `$CACHED_SYNTHESIS` (printed to stdout by the `get`). Reuse `$CACHED_SYNTHESIS` as the research prior context and **SKIP the entire fan-out below AND the 1.5(d) synthesis** — fold it directly into your plan per the (d) constraints (confidence labels intact, refuted claims → risks, no raw artifacts).
+- **On any NON-ZERO exit (miss / stale / corrupt — exit 3, or even a 2 from a wiring bug):** `$CACHED_SYNTHESIS` is empty; treat it as a **graceful miss** and run the fan-out live exactly as below. The `get` must NEVER error the discovery run — branch on the cache miss and proceed.
 
 When you take the live path (cache miss), build the manifest and run the fan-out:
 
