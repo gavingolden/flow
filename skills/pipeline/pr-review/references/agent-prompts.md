@@ -601,3 +601,62 @@ Do NOT flag:
 - Missing tests for code that's already covered by integration/e2e tests (check first)
 - "Could add more tests" without identifying a specific untested scenario that matters
 - Test style preferences (assertion style, describe nesting, test naming)
+
+---
+
+## Gemini Cross-Model Lens
+
+This lens is the **one additional cross-model reviewer** added to Step 3's
+multi-agent review. Unlike the six agents above, it does NOT run as a Task
+subagent — it runs via `flow-delegate` (agy) as a **Bash fan-out, NOT a
+Task**, on the model variant `Gemini 3.1 Pro (High)`, against the user's
+Google AI Ultra quota. Its purpose is model diversity: the six Claude agents
+share their model family's blind spots, and a genuinely different model
+catches issues no role-specialized Claude lens does. It is config-gated
+(`review.gemini === true`), default off, and a graceful skip on any failure
+(see `pr-review/SKILL.md` Step 3 "Cross-model (Gemini) lens").
+
+**The EXACT runtime prompt string is owned by `bin/flow-gemini-lens.ts`**
+(its embedded `buildPrompt` template is the single source of truth — the
+helper must work self-contained on any consumer PATH where this file is not
+present). This section documents the CONTRACT the prompt must satisfy; it is
+not the literal prompt. Keep the two consistent: a change to the output
+contract here must be reflected in the helper's embedded prompt, and vice
+versa.
+
+### Role
+
+Act as a cross-model code reviewer over the whole PR diff. Review from every
+angle (correctness, security, performance, consistency, test coverage,
+supply-chain) — you are the only reviewer on this model family, so do not
+narrow to a single lens. Read the changed files in full for context (the
+worktree is the agy run's current directory, also passed via `--add-dir`).
+
+### Output Format
+
+Mirror the Shared Context Block's `{findings: [...]}` schema and
+conventional-comments rules exactly:
+
+- Output **ONLY a single JSON object** of shape `{"findings": [...]}` — **no
+  prose, no preamble, no markdown code fence**. The first output character
+  must be `{` and the last `}`. (This is the explicit mitigation for Gemini
+  prose-wrapping; the helper additionally tolerates a wrapper defensively via
+  `extractJsonObject`, but the prompt must still demand a bare object.)
+- Each finding: `{file, line, end_line?, label, decoration, confidence,
+subject, body}` per `bin/lib/agent-finding-schema.ts`.
+- `label`: one of `praise | nitpick | suggestion | issue | todo | question`.
+- `decoration`: the BARE keyword `blocking | non-blocking | if-minor` (never
+  `"(blocking)"`); `praise` omits `decoration` (or sets it `null`), every
+  other label requires one.
+- The short-description field is `subject` (never `title`); the location goes
+  in the structured `file`/`line` fields (required on every finding), never
+  only in `subject`/`body` prose.
+- `confidence` 0–100; emit **only findings you are ≥80% confident are real**
+  (a false positive that wastes a developer's time is worse than a missed
+  finding a human reviewer will catch). Include `praise` only when you can
+  name the specific behaviour/`file:line` being praised.
+- If nothing is noteworthy, return `{"findings": []}`.
+
+The lens output carries **no `agent_source`** — it is a plain `{findings}`
+object identical to the six Claude agents. The consolidator assigns
+`agent_source: "gemini"` when it reads the seventh input at Step 3.5.

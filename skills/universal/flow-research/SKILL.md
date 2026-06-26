@@ -39,6 +39,8 @@ yield/resume and its synchronous run must stay under the observed-safe
 ~10-min ceiling. This skill's own research procedure (Instructions, report
 template, fan-out logic) is unchanged by that wiring.
 
+The F2 discovery pre-check's synthesis is cached host-wide at `~/.flow/research-cache/` keyed on the normalized sharp question (see `flow-research-cache` / `discovery-instructions.md` Step 1.5), so an identical same-scope redirect or crash-resume reuses it instead of re-running the fan-out.
+
 # When to Use
 
 - The user asks for deep research, a multi-source fact-check, or an
