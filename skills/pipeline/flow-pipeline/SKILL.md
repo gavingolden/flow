@@ -631,9 +631,10 @@ expert-specified / trivial / time-critical requests — state the goal in
 one line and move on. Infer-and-proceed is the default, weighted heavily
 toward proceeding: flow PRs are gated and revertible, so the "offer
 both" move — proceed on the most-likely goal and surface the considered
-alternative in the PRD for the `plan-pending-review` gate — beats
-stopping to ask. Route non-blocking goal ambiguity to that gate, not to
-a kickoff question.
+alternative in the PRD and the PR `## Why` (gated at
+`plan-pending-review` for feature intent) — beats stopping to ask. Route
+non-blocking goal ambiguity to those always-present artifacts, not to a
+kickoff question.
 
 **The one question (rare).** Ask exactly one focused goal-framing
 question ONLY when no defensible one-line goal can be stated even after
