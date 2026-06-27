@@ -95,18 +95,61 @@ describe("installBaseBranchGuard", () => {
     expect(errors.join("\n")).toMatch(/existing pre-commit hook present/);
   });
 
-  it("skips when the repo configures core.hooksPath", () => {
+  // When core.hooksPath points at a custom dir, git resolves it transparently
+  // (`git rev-parse --git-path hooks` honors it), so the guard installs INTO
+  // that dir — the disciplined repos that bother to configure a hooks dir are
+  // exactly the ones the guard most needs to protect.
+  it("installs into the configured core.hooksPath dir when it has no pre-commit", () => {
     const customHooks = path.join(repoDir, "my-hooks");
     fs.mkdirSync(customHooks, { recursive: true });
     execFileSync("git", ["config", "core.hooksPath", customHooks], {
       cwd: repoDir,
     });
+    const customHook = path.join(customHooks, "pre-commit");
 
     const result = installBaseBranchGuard(repoDir);
-    expect(result).toEqual({ installed: false, reason: "hooks-path" });
-    // No pre-commit written into the default hooks dir.
+    expect(result).toEqual({ installed: true, reason: "installed" });
+    // Written into the CUSTOM dir, not the default .git/hooks.
+    expect(fs.existsSync(customHook)).toBe(true);
+    expect(fs.readFileSync(customHook, "utf8")).toBe(BASE_BRANCH_GUARD_HOOK);
+    expect(fs.statSync(customHook).mode & 0o111).not.toBe(0);
     expect(fs.existsSync(hookPath())).toBe(false);
-    expect(errors.join("\n")).toMatch(/configures core\.hooksPath/);
+  });
+
+  // Non-clobber holds in the custom dir exactly as it does in the default dir:
+  // a pre-existing pre-commit is the user's own hook, so we warn and skip.
+  it("skips + warns when the configured core.hooksPath dir already has a different pre-commit", () => {
+    const customHooks = path.join(repoDir, "my-hooks");
+    fs.mkdirSync(customHooks, { recursive: true });
+    execFileSync("git", ["config", "core.hooksPath", customHooks], {
+      cwd: repoDir,
+    });
+    const customHook = path.join(customHooks, "pre-commit");
+    const sentinel = "#!/bin/sh\n# user's own hook in the custom dir\nexit 0\n";
+    fs.writeFileSync(customHook, sentinel, "utf8");
+
+    const result = installBaseBranchGuard(repoDir);
+    expect(result).toEqual({ installed: false, reason: "exists" });
+    // The user's hook is left byte-identical.
+    expect(fs.readFileSync(customHook, "utf8")).toBe(sentinel);
+    expect(errors.join("\n")).toMatch(/existing pre-commit hook present/);
+  });
+
+  it("is idempotent over its own hook in the configured core.hooksPath dir", () => {
+    const customHooks = path.join(repoDir, "my-hooks");
+    fs.mkdirSync(customHooks, { recursive: true });
+    execFileSync("git", ["config", "core.hooksPath", customHooks], {
+      cwd: repoDir,
+    });
+    const customHook = path.join(customHooks, "pre-commit");
+
+    expect(installBaseBranchGuard(repoDir)).toEqual({
+      installed: true,
+      reason: "installed",
+    });
+    const second = installBaseBranchGuard(repoDir);
+    expect(second).toEqual({ installed: true, reason: "idempotent" });
+    expect(fs.readFileSync(customHook, "utf8")).toBe(BASE_BRANCH_GUARD_HOOK);
   });
 
   it("is idempotent — a second install over our own hook is a no-op", () => {
@@ -121,9 +164,8 @@ describe("installBaseBranchGuard", () => {
   });
 
   it("falls back to <repo>/.git/hooks when git can't resolve the hooks path", () => {
-    // A plain non-git directory: `git config core.hooksPath` and
-    // `git rev-parse --git-path hooks` both fail, so configuredHooksPath returns
-    // "" (no early return) and resolveHooksDir's catch fires, defaulting to
+    // A plain non-git directory: `git rev-parse --git-path hooks` fails, so
+    // resolveHooksDir's catch fires, defaulting to
     // path.join(repoDir, ".git", "hooks"). This locks in the worktree/custom-
     // git-dir robustness invariant the happy-path tests never reach (they all
     // resolve via a real git repo). Driven through the public installer so no

@@ -1,6 +1,5 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawnSync } from "node:child_process";
 import { git } from "./git";
 import { dim } from "./color";
 
@@ -71,16 +70,8 @@ export function baseBranchGuardDecision(input: {
 
 export type BaseBranchGuardInstall = {
   installed: boolean;
-  reason: "installed" | "exists" | "hooks-path" | "idempotent";
+  reason: "installed" | "exists" | "idempotent";
 };
-
-/** Effective `core.hooksPath` (any config scope), or "" when unset. */
-function configuredHooksPath(repoDir: string): string {
-  const r = spawnSync("git", ["-C", repoDir, "config", "core.hooksPath"], {
-    encoding: "utf8",
-  });
-  return r.status === 0 ? (r.stdout ?? "").trim() : "";
-}
 
 /** Absolute hooks dir, robust to worktrees/custom git-dirs. */
 function resolveHooksDir(repoDir: string): string {
@@ -94,23 +85,16 @@ function resolveHooksDir(repoDir: string): string {
 
 /**
  * Idempotently installs the base-branch guard as the repo's `pre-commit` hook.
- * Skips (never clobbers) when the repo already manages its hooks: a configured
- * `core.hooksPath` means another tool owns the hooks dir, and a pre-existing
- * `pre-commit` is the user's own hook — we warn and leave both untouched. A
- * re-install over our own identical hook is a silent no-op.
+ * Installs into the *effective* hooks dir — the default `.git/hooks` or a
+ * `core.hooksPath`-configured custom dir (git resolves `core.hooksPath`
+ * transparently via `git rev-parse --git-path hooks`, so `resolveHooksDir`
+ * already returns the right target for both). Never clobbers a pre-existing
+ * `pre-commit` in that dir — it is the user's own hook, so we warn and leave it
+ * untouched. A re-install over our own identical hook is a silent no-op.
  */
 export function installBaseBranchGuard(
   repoDir: string,
 ): BaseBranchGuardInstall {
-  if (configuredHooksPath(repoDir)) {
-    console.error(
-      dim(
-        "flow new: base-branch guard not installed — repo configures core.hooksPath",
-      ),
-    );
-    return { installed: false, reason: "hooks-path" };
-  }
-
   const hooksDir = resolveHooksDir(repoDir);
   const hookPath = path.join(hooksDir, "pre-commit");
 
