@@ -117,15 +117,28 @@ collides with discovery's bare-question keyspace, then read the host-wide cache 
 **bare PATH name** via Bash:
 
 ```bash
-Q="flow-research-direct:: <final refined post-clarification question>"
+# Capture the question literally — a single-quoted heredoc performs NO shell
+# expansion on its body, so $(...) / backticks / ${...} in a user-supplied
+# question are treated as literal text, not executed (mirrors the Section 6
+# Tier-2 capture; the read is data, not code). Compose the namespaced key ONCE
+# here as $Q and reuse the SAME $Q for the Step 4 put so the get/put keys can
+# never drift apart.
+QUESTION=$(cat <<'QEOF'
+<final refined post-clarification question>
+QEOF
+)
+Q="flow-research-direct:: $QUESTION"
 CACHED=$(flow-research-cache get --question "$Q" 2>/dev/null) && HIT=true || HIT=false
 ```
 
 - **On exit 0 (HIT):** `$CACHED` holds the cached synthesis (printed to stdout by
-  `get`). Reuse it — write it to `.flow-tmp/research/<run-id>/report.md` and return
-  it in chat with an honest `(reused from research cache, synthesized within 48h)`
-  note — and **SKIP the gather (Step 2), refute (Step 3), and synthesize (Step 4)
-  steps entirely.**
+  `get`). Reuse it — first `mkdir -p .flow-tmp/research/<run-id>/` (the skipped live
+  gather path normally creates this directory, so the hit branch must create it
+  itself before writing), reusing the `<run-id>` already picked in the Instructions
+  preamble above; then write `$CACHED` to `.flow-tmp/research/<run-id>/report.md` and
+  return it in chat with an honest `(reused from research cache, synthesized within
+48h)` note — and
+  **SKIP the gather (Step 2), refute (Step 3), and synthesize (Step 4) steps entirely.**
 - **Graceful-miss contract:** any non-zero `get` exit (miss / stale / corrupt /
   helper-absent) → fall through to the live fan-out, never error the run. `$CACHED`
   is empty; branch on the miss and proceed to Step 2.
@@ -214,12 +227,18 @@ fan-out. Pass **no** `--ttl-hours` (it inherits the 48h default):
 
 ```bash
 flow-research-cache put \
-  --question "flow-research-direct:: <final refined post-clarification question>" \
-  --synthesis-file .flow-tmp/research/<run-id>/report.md
+  --question "$Q" \
+  --synthesis-file .flow-tmp/research/<run-id>/report.md 2>/dev/null || true
 ```
 
-This `put` is **best-effort** — a write failure must never error the run. It also
-fires on the opt-out path in Step 1.5 (**skip get, still put**).
+Reuse the **same `$Q`** namespaced key composed in Step 1.5 — do NOT re-type the
+question (a re-typed prefix/whitespace tweak would drift the put key off the get key
+and silently drop the hit rate). If this Bash invocation no longer has `$Q` in scope,
+re-capture it with the identical single-quoted-heredoc shape from Step 1.5. The
+trailing `2>/dev/null || true` makes the `put` **best-effort** — a write failure (an
+unreadable synthesis file → exit 2, the helper off PATH → exit 127) must never
+surface a non-zero exit or error the run. It also fires on the opt-out path in
+Step 1.5 (**skip get, still put**).
 
 ## 5. Partial-exhaustion rule
 

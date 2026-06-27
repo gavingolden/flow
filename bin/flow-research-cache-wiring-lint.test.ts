@@ -124,6 +124,21 @@ describe("flow-research cache-wiring lint", () => {
     ).toBeGreaterThan(synthesizeIdx);
   });
 
+  it("pins the cache-HIT short-circuit — a hit SKIPS the gather/refute/synthesize fan-out", () => {
+    // The feature's whole purpose: on a hit the procedure must NOT re-run the
+    // expensive gather→refute→synthesize fan-out. Every other wiring mechanic is
+    // frozen above, but a regression that dropped this skip wording would keep the
+    // lint green while neutering the cache (it would still get/put but redundantly
+    // re-pay the fan-out). Pin the byte-exact hit-branch skip phrase.
+    expect(
+      content.includes(
+        "SKIP the gather (Step 2), refute (Step 3), and synthesize (Step 4) steps entirely",
+      ),
+      `${FILE_LABEL} must state that a cache HIT SKIPS the gather/refute/synthesize ` +
+        `fan-out — without this short-circuit the cache reuses nothing.`,
+    ).toBe(true);
+  });
+
   it("keeps the keyspaces isolated by construction — discovery never carries the direct prefix", () => {
     expect(
       discovery.includes(NAMESPACE_PREFIX),
