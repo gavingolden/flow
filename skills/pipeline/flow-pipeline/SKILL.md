@@ -617,6 +617,23 @@ window during the brief window between window creation and the first
 flow-state-update --phase triaging --slug <slug>
 ```
 
+**No-state-file guard (never work inline on the base branch).** If this
+first `flow-state-update --phase triaging` exits non-zero with a `no state
+file` error *while the pane resolves `@flow-slug` from `$TMUX_PANE`* — i.e.
+the supervisor is genuinely inside a `flow new`-created window — this is the
+`flow new` state-write race (the parent's `phase: starting` write has not
+landed yet), **not** a direct/manual invocation. The supervisor must **not**
+fall through to classifying or implementing inline on the base branch.
+Retry `flow-state-update --phase triaging --slug <slug>` a bounded ~3 times
+with a short backoff; if it still fails, escalate `NEEDS HUMAN:
+state-file-missing-on-start` and end the turn. The escalation may itself be
+unable to write `phase: needs-human` (there is no state file to update), so
+the supervisor prints the `NEEDS HUMAN: state-file-missing-on-start` line and
+ends — `flow-stop-guard` already no-ops when state.json is missing, so the
+turn-end is permitted. (`flow new` now writes `phase: starting` before it
+delivers the seed, so this guard is defense-in-depth against a residual
+slow-filesystem window or a future regression, not the common path.)
+
 Then set a readable tmux window title so the user can scan their
 status bar at a glance instead of squinting at the slug. The slug
 stays the canonical lookup key (it's stored in tmux's `@flow-slug`
