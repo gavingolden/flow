@@ -120,9 +120,11 @@ collides with discovery's bare-question keyspace, then read the host-wide cache 
 # Capture the question literally — a single-quoted heredoc performs NO shell
 # expansion on its body, so $(...) / backticks / ${...} in a user-supplied
 # question are treated as literal text, not executed (mirrors the Section 6
-# Tier-2 capture; the read is data, not code). Compose the namespaced key ONCE
-# here as $Q and reuse the SAME $Q for the Step 4 put so the get/put keys can
-# never drift apart.
+# Tier-2 capture; the read is data, not code). When composing the body, ensure
+# the refined question contains no standalone line equal to the QEOF delimiter —
+# such a line would close the heredoc early and let following lines execute.
+# Compose the namespaced key ONCE here as $Q and reuse the SAME $Q for the
+# Step 4 put so the get/put keys can never drift apart.
 QUESTION=$(cat <<'QEOF'
 <final refined post-clarification question>
 QEOF

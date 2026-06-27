@@ -5,7 +5,7 @@
  * crash-resume reuses it instead of re-running the agy fan-out. Backs BOTH the F2
  * discovery pre-check (`/product-planning` Step 1.5, keyed on the bare question) and
  * direct `/flow-research` invocations (keyed under a namespaced prefix, so the two
- * keyspaces never collide). Self-contained on purpose — Step 1.5 runs in the
+ * keyspaces stay isolated by construction). Self-contained on purpose — Step 1.5 runs in the
  * consumer/target worktree where flow's bin/lib is absent, so this is invoked by
  * BARE PATH name and imports nothing from bin/lib (root from homedir()).
  * Key = SHA-256 of the normalized question (lowercase/trim/collapse-whitespace);

@@ -139,6 +139,34 @@ describe("flow-research cache-wiring lint", () => {
     ).toBe(true);
   });
 
+  it("pins the best-effort put guard — a write failure must never error the run", () => {
+    // Symmetric to the get-side graceful-miss contract pinned above: the put runs
+    // AFTER the entire gather/refute/synthesize fan-out, so a future edit that
+    // dropped the `2>/dev/null || true` guard (unreadable synthesis file → exit 2,
+    // helper off PATH → exit 127) would error the run after all the expensive work
+    // had already completed, and this lint would stay green. Pin the guard + prose.
+    expect(
+      content.includes("|| true"),
+      `${FILE_LABEL} must guard the cache 'put' with '|| true' so a write failure is best-effort.`,
+    ).toBe(true);
+    expect(
+      content.includes("surface a non-zero exit or error the run"),
+      `${FILE_LABEL} must state the best-effort put must never surface a non-zero exit or error the run.`,
+    ).toBe(true);
+  });
+
+  it("pins the cache-HIT mkdir precondition — the hit branch creates the run dir before writing report.md", () => {
+    // On a HIT the skipped live-gather path never runs, so the hit branch must
+    // `mkdir -p .flow-tmp/research/<run-id>/` itself before writing $CACHED to
+    // report.md. A future edit dropping the mkdir would leave the lint green while
+    // the hit path errors writing into a non-existent directory — breaking the
+    // exact path this feature exists to serve. Pin the precondition.
+    expect(
+      content.includes("mkdir -p .flow-tmp/research/"),
+      `${FILE_LABEL} must 'mkdir -p .flow-tmp/research/<run-id>/' on the cache-HIT branch before writing report.md.`,
+    ).toBe(true);
+  });
+
   it("keeps the keyspaces isolated by construction — discovery never carries the direct prefix", () => {
     expect(
       discovery.includes(NAMESPACE_PREFIX),
