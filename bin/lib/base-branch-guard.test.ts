@@ -116,6 +116,26 @@ describe("installBaseBranchGuard", () => {
     expect(fs.existsSync(hookPath())).toBe(false);
   });
 
+  // The three custom-dir specs above all configure an ABSOLUTE core.hooksPath,
+  // so they only exercise resolveHooksDir's `path.isAbsolute(p) ? p` arm. This
+  // PR's actual motivating scenario is a *relative* hooks dir — econ-data sets
+  // `core.hooksPath = .githooks` — which routes through the other arm,
+  // `path.join(repoDir, p)`. Skipping the pre-create also pins
+  // `mkdirSync(..., {recursive:true})` creating a not-yet-existing custom dir.
+  it("installs into a RELATIVE core.hooksPath dir (econ-data's .githooks case)", () => {
+    execFileSync("git", ["config", "core.hooksPath", ".githooks"], {
+      cwd: repoDir,
+    });
+    const customHook = path.join(repoDir, ".githooks", "pre-commit");
+
+    const result = installBaseBranchGuard(repoDir);
+    expect(result).toEqual({ installed: true, reason: "installed" });
+    expect(fs.existsSync(customHook)).toBe(true);
+    expect(fs.readFileSync(customHook, "utf8")).toBe(BASE_BRANCH_GUARD_HOOK);
+    expect(fs.statSync(customHook).mode & 0o111).not.toBe(0);
+    expect(fs.existsSync(hookPath())).toBe(false);
+  });
+
   // Non-clobber holds in the custom dir exactly as it does in the default dir:
   // a pre-existing pre-commit is the user's own hook, so we warn and skip.
   it("skips + warns when the configured core.hooksPath dir already has a different pre-commit", () => {
