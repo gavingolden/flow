@@ -119,6 +119,30 @@ describe("installBaseBranchGuard", () => {
     expect(fs.readFileSync(hookPath(), "utf8")).toBe(contentAfterFirst);
     expect(fs.readFileSync(hookPath(), "utf8")).toBe(BASE_BRANCH_GUARD_HOOK);
   });
+
+  it("falls back to <repo>/.git/hooks when git can't resolve the hooks path", () => {
+    // A plain non-git directory: `git config core.hooksPath` and
+    // `git rev-parse --git-path hooks` both fail, so configuredHooksPath returns
+    // "" (no early return) and resolveHooksDir's catch fires, defaulting to
+    // path.join(repoDir, ".git", "hooks"). This locks in the worktree/custom-
+    // git-dir robustness invariant the happy-path tests never reach (they all
+    // resolve via a real git repo). Driven through the public installer so no
+    // internal export is needed.
+    const nonGitDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-bbg-nongit-"),
+    );
+    try {
+      const result = installBaseBranchGuard(nonGitDir);
+      expect(result).toEqual({ installed: true, reason: "installed" });
+      const fallbackHook = path.join(nonGitDir, ".git", "hooks", "pre-commit");
+      expect(fs.existsSync(fallbackHook)).toBe(true);
+      expect(fs.readFileSync(fallbackHook, "utf8")).toBe(
+        BASE_BRANCH_GUARD_HOOK,
+      );
+    } finally {
+      fs.rmSync(nonGitDir, { recursive: true, force: true });
+    }
+  });
 });
 
 // Exercises the emitted sh hook through a REAL `git commit`. The hook's only
@@ -221,5 +245,62 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
       "d.txt",
     );
     expect(r.ok).toBe(true);
+  });
+
+  // The production default-branch arm: real repos resolve the default via
+  // `git symbolic-ref refs/remotes/origin/HEAD` and strip the `origin/` prefix.
+  // Every other case here is a no-remote `git init -b main` repo with no
+  // origin/HEAD, so they only ever hit the local main/master fallback — leaving
+  // the symbolic-ref resolution + `${default_branch#origin/}` strip (the path
+  // that actually runs for real users) uncovered. Point origin/HEAD at a
+  // NON-`main` branch to exercise both and prove the guard keys off origin/HEAD,
+  // not a hardcoded `main`.
+  it("refuses on the origin/HEAD-resolved default branch (non-`main`) and allows elsewhere", () => {
+    const seed = (file: string) => {
+      fs.writeFileSync(path.join(repoDir, file), "seed\n", "utf8");
+      execFileSync("git", ["add", file], { cwd: repoDir });
+      // --no-verify: setup commits predate the assertion and bypass the guard.
+      execFileSync("git", ["commit", "--no-verify", "-m", `seed ${file}`], {
+        cwd: repoDir,
+      });
+    };
+    // Born on `main` (the beforeEach init branch), then branch `trunk` off it so
+    // both are real, checkout-able branches.
+    seed("main-seed.txt");
+    execFileSync("git", ["checkout", "-b", "trunk"], { cwd: repoDir });
+    seed("trunk-seed.txt");
+    // Wire origin/HEAD → origin/trunk exactly as `git remote set-head` would
+    // after a fetch, without standing up a real remote.
+    execFileSync(
+      "git",
+      ["update-ref", "refs/remotes/origin/trunk", "refs/heads/trunk"],
+      { cwd: repoDir },
+    );
+    execFileSync(
+      "git",
+      ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"],
+      { cwd: repoDir },
+    );
+
+    writeTmuxShim("csv-export");
+    const sessionEnv = {
+      ...baseEnv(),
+      CLAUDE_CODE_SESSION_ID: "sess-1",
+      TMUX_PANE: "%1",
+    };
+
+    // HEAD is `trunk` (the origin/HEAD-resolved default) → refused, and the
+    // message names the resolved default, proving the `#origin/` strip ran.
+    execFileSync("git", ["checkout", "trunk"], { cwd: repoDir });
+    const onTrunk = tryCommit(sessionEnv, "on-trunk.txt");
+    expect(onTrunk.ok).toBe(false);
+    expect(onTrunk.stderr).toMatch(
+      /refusing to commit on the base branch 'trunk'/,
+    );
+
+    // `main` is NOT the resolved default here → allowed.
+    execFileSync("git", ["checkout", "main"], { cwd: repoDir });
+    const onMain = tryCommit(sessionEnv, "on-main.txt");
+    expect(onMain.ok).toBe(true);
   });
 });
