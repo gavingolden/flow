@@ -401,6 +401,21 @@ describe("flow-pipeline SKILL.md structural lint", () => {
         "sweep can read the candidate-issue list.",
     ).toBeGreaterThan(sweepIdx);
   });
+
+  it("step 1 documents the goal-framing sub-step (ladder up to the ultimate goal)", () => {
+    // The triage goal-framing sub-step is the skill-side entry point for the
+    // AGENTS.md `## Output style` rule **Understand the ultimate goal behind the
+    // request, not just the literal ask.** — step 1 ladders up from the surface
+    // request to the inferred ultimate goal before the worktree exists. Anchor on
+    // the sub-heading text (a single includes-check, not a brittle regex count) so
+    // the sub-step can't be silently dropped.
+    expect(
+      content.includes("Goal-framing: ladder up to the ultimate goal"),
+      "flow-pipeline SKILL.md step 1 must include the 'Goal-framing: ladder up " +
+        "to the ultimate goal' sub-step so the triage altitude pass stays " +
+        "anchored in the doc (AGENTS.md `## Output style` ultimate-goal rule).",
+    ).toBe(true);
+  });
 });
 
 describe("pipeline-snapshot wiring lint", () => {
@@ -880,9 +895,15 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * the 9th Task-tool exemption opener (Verify-Retry-Loop Subagent), whose
    * full body is offloaded to references/exemption-contracts.md per the
    * offload-then-trim playbook so only the lean opener costs bytes here.
+   * Raised again from 38_000 to 39_000 to fund one more deliberate addition:
+   * the new `## Output style` principle **Understand the ultimate goal behind
+   * the request, not just the literal ask.**, whose full technique is offloaded
+   * to skills/pipeline/product-planning/references/discovery-playbook.md so only
+   * the lean anchored summary costs bytes here — a deliberate addition, not
+   * silent regrowth.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 38_000;
+    const CHAR_BUDGET = 39_000;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -1659,6 +1680,31 @@ describe("AGENTS.md Output style anchors", () => {
       matches?.length ?? 0,
       "AGENTS.md must contain the rule anchor phrase " +
         "'- **Treat every request as production-bound, not a hobby project.**' " +
+        "exactly once at the start of a list item in `## Output style`. " +
+        "Found " +
+        (matches?.length ?? 0) +
+        " match(es).",
+    ).toBe(1);
+  });
+
+  it("AGENTS.md contains the ultimate-goal rule anchor phrase exactly once", () => {
+    // The bolded anchor phrase **Understand the ultimate goal behind the
+    // request, not just the literal ask.** is the stable lint hook for the rule
+    // documented at AGENTS.md `## Output style`. It governs request *altitude*
+    // (ladder up from the proposed solution to the goal it serves); the full
+    // technique lives at
+    // skills/pipeline/product-planning/references/discovery-playbook.md (Ladder
+    // Up), and the skill-side entry point — skills/pipeline/flow-pipeline/SKILL.md
+    // step 1's goal-framing sub-step + discovery-instructions.md's caller-supplied
+    // ultimate-goal prior — reuses it. Renaming the rule's anchor phrase requires
+    // updating this assertion in the same commit.
+    const matches = agentsContent.match(
+      /^- \*\*Understand the ultimate goal behind the request, not just the literal ask\.\*\*/gm,
+    );
+    expect(
+      matches?.length ?? 0,
+      "AGENTS.md must contain the rule anchor phrase " +
+        "'- **Understand the ultimate goal behind the request, not just the literal ask.**' " +
         "exactly once at the start of a list item in `## Output style`. " +
         "Found " +
         (matches?.length ?? 0) +

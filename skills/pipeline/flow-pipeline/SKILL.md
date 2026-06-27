@@ -613,6 +613,41 @@ Fire `flow-rename-window` exactly **once** in this step. If the user
 later runs `tmux ,` to rename to something else, do **not** re-rename
 in subsequent steps — the user's choice wins.
 
+#### Goal-framing: ladder up to the ultimate goal
+
+Before classifying, ladder up from the surface request to the
+underlying problem / friction / efficiency-gain it serves — what the
+user ultimately wants fixed, unblocked, or sped up — using the Ladder
+Up technique in
+`skills/pipeline/product-planning/references/discovery-playbook.md`
+(reference it; don't duplicate it here). Infer the **ultimate goal**
+and state it in **one line** in chat, then carry it in your context
+through to step 3.
+
+This is the triage-side entry point for the AGENTS.md `## Output style`
+rule **Understand the ultimate goal behind the request, not just the
+literal ask.**, and it is **conditional**: do NOT ladder up
+expert-specified / trivial / time-critical requests — state the goal in
+one line and move on. Infer-and-proceed is the default, weighted heavily
+toward proceeding: flow PRs are gated and revertible, so the "offer
+both" move — proceed on the most-likely goal and surface the considered
+alternative in the PRD for the `plan-pending-review` gate — beats
+stopping to ask. Route non-blocking goal ambiguity to that gate, not to
+a kickoff question.
+
+**The one question (rare).** Ask exactly one focused goal-framing
+question ONLY when no defensible one-line goal can be stated even after
+laddering up (the request admits materially-different underlying goals
+that would yield materially-different plans) AND guessing wrong would be
+costly or hard to reverse. When that bar is met, reuse the existing
+mechanism — don't invent a parallel one: write `flow-state-update
+--phase triage-pending-clarification`, ask the single question, and end
+the turn. The next turn re-enters step 1 with the reply; if it is still
+ambiguous, escalate `NEEDS HUMAN: triage-ambiguous` (as in the Ambiguous
+branch below) rather than asking twice. Never ask mid-run, and never
+interrogate with a chain of "why" — the laddering is internal reasoning,
+so emit no ceremonial goal/root-cause section.
+
 Then classify. Apply the heuristics from `flow-add` /
 `docs/phases/triage.md`:
 
@@ -736,6 +771,14 @@ request as the argument:
 ```
 /product-planning <verbatim user description>
 ```
+
+Fold the **ultimate goal** you inferred in step 1's goal-framing
+sub-step into this invocation as explicit context (append it after the
+verbatim request), so the isolated Discovery Subagent anchors the PRD
+Problem Statement on it instead of re-deriving from the surface request
+alone. Discovery still validates the supplied goal against the codebase
+and surfaces an Open Question if it disagrees rather than accepting it
+blindly — see `discovery-instructions.md` §3 ("User intent").
 
 `/product-planning` is itself a thin wrapper that spawns one
 **Independent Discovery Subagent** via the Task tool (the second of

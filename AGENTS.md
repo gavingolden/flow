@@ -140,6 +140,20 @@ token-savings impact, highest first.
   exists. The structural lint for this rule
   lives at `bin/skill-md-lint.test.ts` and anchors on the exact phrase
   **Consider the middle ground when a request is framed as a binary choice.** — renames must update the lint in the same commit.
+- **Understand the ultimate goal behind the request, not just the literal ask.**
+  Find what the user ultimately wants to fix, unblock, or speed up (the XY
+  problem; "so that `<goal>`"). **Conditional:** run expert / trivial /
+  time-critical requests literally; ladder up only on ambiguous /
+  high-blast-radius ones. Default: infer the goal in one line and proceed,
+  surfacing the alternative in the PRD / PR `## Why`; ask one goal-framing
+  question at kickoff (never mid-run) only when genuinely unclear AND guessing
+  wrong is costly/irreversible. Anti-patterns: no "always ladder up"; no
+  ceremonial root-cause section; never interrogate (Five Whys stays internal).
+  Technique:
+  `skills/pipeline/product-planning/references/discovery-playbook.md` (Ladder Up);
+  don't re-author it. Same family as the two rules above; governs *altitude*. The
+  lint anchors on the exact phrase **Understand the ultimate goal behind the
+  request, not just the literal ask.** in `bin/skill-md-lint.test.ts`.
 - **Fix cheap, in-scope robustness issues now rather than deferring them.**
   When a fix is small (a handful of lines), low-risk/mechanical, AND
   directly related to code the PR touches or to a brittleness the PR
