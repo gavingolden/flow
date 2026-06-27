@@ -277,7 +277,7 @@ checks with an undefined npm script; a zero-check non-empty diff signals
 
 **Host-wide test-concurrency cap.** `flow-pre-commit` caps concurrent local test runs host-wide at `K = max(1, ceil(os.availableParallelism()/9))` (2 on 18 cores) via a counting semaphore in `~/.flow/test-sem/`, so parallel pipelines stop oversubscribing cores. Only the test check is throttled; other checks run unthrottled. Override `K` via `FLOW_TEST_CONCURRENCY` (integer ≥ 1). On acquire timeout the test runs anyway.
 
-**Host-wide research cache.** `flow-research-cache` caches the F2 synthesis at `~/.flow/research-cache/` (host-wide), keyed on a SHA-256 of the normalized question; 48h TTL (`--ttl-hours`/`FLOW_RESEARCH_CACHE_TTL_HOURS`, dir `FLOW_RESEARCH_CACHE_DIR`); miss/stale/corrupt → exit 3, never errors. Opt-in `prune` sweep (age/count + orphan-tmp), separate from the TTL miss. Full contract in `discovery-instructions.md`.
+**Host-wide research cache.** `flow-research-cache` caches synthesis at `~/.flow/research-cache/` (host-wide), SHA-256-keyed on the normalized question; F2 discovery is bare-keyed, direct `/flow-research` namespaced-prefix-keyed so the two never collide. 48h TTL (`--ttl-hours`/`FLOW_RESEARCH_CACHE_TTL_HOURS`, dir `FLOW_RESEARCH_CACHE_DIR`); miss/stale/corrupt → exit 3, never errors. Opt-in `prune` sweep (age/count + orphan-tmp), separate from the TTL miss. Full contract in `discovery-instructions.md`.
 
 **Zero-config monorepo auto-detect + three-layer command resolution.**
 Before root-fallback claims orphans, a SEPARATE pass over the unclaimed

@@ -105,6 +105,37 @@ Decompose the question into 3–6 orthogonal angles that together cover it, plus
 the likely answer is wrong). This is cheap reasoning — do it in Claude, do not
 delegate it. Write the angles down; they become the gather manifest.
 
+## 1.5. Research-cache pre-check (host-wide — before the gather fan-out)
+
+Before paying for a fresh fan-out, check whether a prior identical `/flow-research`
+run already synthesized this exact question — mirroring `/product-planning`
+discovery Step 1.5's cache pattern
+(`skills/pipeline/product-planning/references/discovery-instructions.md`). Compose
+the cache key from the **final refined (post-clarification) question** under a
+direct-invocation namespace prefix so the direct `/flow-research` keyspace never
+collides with discovery's bare-question keyspace, then read the host-wide cache by
+**bare PATH name** via Bash:
+
+```bash
+Q="flow-research-direct:: <final refined post-clarification question>"
+CACHED=$(flow-research-cache get --question "$Q" 2>/dev/null) && HIT=true || HIT=false
+```
+
+- **On exit 0 (HIT):** `$CACHED` holds the cached synthesis (printed to stdout by
+  `get`). Reuse it — write it to `.flow-tmp/research/<run-id>/report.md` and return
+  it in chat with an honest `(reused from research cache, synthesized within 48h)`
+  note — and **SKIP the gather (Step 2), refute (Step 3), and synthesize (Step 4)
+  steps entirely.**
+- **Graceful-miss contract:** any non-zero `get` exit (miss / stale / corrupt /
+  helper-absent) → fall through to the live fan-out, never error the run. `$CACHED`
+  is empty; branch on the miss and proceed to Step 2.
+
+**Natural-language opt-out.** If the user's request carries a bounded cache-bypass
+trigger — `fresh`, `no cache` / "don't use the cache", `bypass cache`,
+`re-research`, `latest` — **skip the `get`** (force a live run) but **still put**
+the freshly-synthesized report in Step 4 afterward (**skip get, still put**), so the
+refresh repopulates the cache for the next caller.
+
 ## 2. Gather (agy fan-out via `flow-delegate-fanout`)
 
 Build a gather manifest — one entry per angle — and write it to
@@ -176,6 +207,19 @@ refuting source + vote outcome), caveats, and open questions.
 **Return the cited report in chat AND write it to
 `.flow-tmp/research/<run-id>/report.md`** so a resumed turn or a downstream
 consumer can read the file.
+
+**Cache-write (best-effort, after synthesis).** Persist the synthesis under the
+**same namespaced key** from Step 1.5 so the next identical run hits and skips the
+fan-out. Pass **no** `--ttl-hours` (it inherits the 48h default):
+
+```bash
+flow-research-cache put \
+  --question "flow-research-direct:: <final refined post-clarification question>" \
+  --synthesis-file .flow-tmp/research/<run-id>/report.md
+```
+
+This `put` is **best-effort** — a write failure must never error the run. It also
+fires on the opt-out path in Step 1.5 (**skip get, still put**).
 
 ## 5. Partial-exhaustion rule
 

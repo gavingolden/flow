@@ -398,6 +398,37 @@ describe("on-put sweep (opt-in)", () => {
   });
 });
 
+describe("namespace key-isolation (direct vs discovery keyspaces)", () => {
+  // Direct `/flow-research` composes its question under this prefix; discovery keys
+  // on the BARE question. The prefix is the whole reason the two keyspaces never
+  // collide — these specs pin that isolation against the exported cacheKey.
+  const NS = "flow-research-direct:: ";
+
+  it("a namespaced question never collides with the same bare question", () => {
+    for (const q of [
+      "Does RFC 4180 require quoting embedded commas?",
+      "Is argon2id the current OWASP recommendation?",
+    ]) {
+      expect(cacheKey(NS + q)).not.toBe(cacheKey(q));
+    }
+  });
+
+  it("normalization still collapses case/whitespace WITHIN the namespaced question", () => {
+    // normalizeQuestion lowercases + collapses runs of whitespace, so a
+    // double-spaced / upper-cased namespaced question hashes the same as its
+    // canonical form — the prefix is normalized like the rest of the string.
+    expect(cacheKey("flow-research-direct::  Foo Bar")).toBe(
+      cacheKey("FLOW-RESEARCH-DIRECT:: foo bar"),
+    );
+  });
+
+  it("two different questions under the same prefix still get different keys", () => {
+    expect(cacheKey(NS + "what is the GitHub Search API rate limit?")).not.toBe(
+      cacheKey(NS + "what is the safe argon2 work factor?"),
+    );
+  });
+});
+
 describe("CLI (spawned binary, env-var seam)", () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const repoRoot = join(here, "..");
