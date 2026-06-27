@@ -303,4 +303,73 @@ describe("BASE_BRANCH_GUARD_HOOK (integration: real git commit)", () => {
     const onMain = tryCommit(sessionEnv, "on-main.txt");
     expect(onMain.ok).toBe(true);
   });
+
+  // The local `refs/heads/main` fallback arm (no origin/HEAD) only runs when the
+  // default branch is BORN: the first-commit cases above commit on an UNBORN
+  // `main`, where `show-ref --verify refs/heads/main` fails and resolution falls
+  // through to the final `else default_branch=main`. A born `main` makes that
+  // show-ref succeed, exercising the elif itself.
+  it("refuses on a born `main` via the local fallback when origin/HEAD is absent", () => {
+    fs.writeFileSync(path.join(repoDir, "seed.txt"), "seed\n", "utf8");
+    execFileSync("git", ["add", "seed.txt"], { cwd: repoDir });
+    // --no-verify: the seed commit borns `main` and bypasses the guard.
+    execFileSync("git", ["commit", "--no-verify", "-m", "seed"], {
+      cwd: repoDir,
+    });
+
+    writeTmuxShim("csv-export");
+    const r = tryCommit(
+      { ...baseEnv(), CLAUDE_CODE_SESSION_ID: "sess-1", TMUX_PANE: "%1" },
+      "after-born.txt",
+    );
+    expect(r.ok).toBe(false);
+    expect(r.stderr).toMatch(/refusing to commit on the base branch 'main'/);
+  });
+
+  // Symmetric to the born-`main` case but on a born `master` with no `main` and
+  // no origin/HEAD, exercising the `master` elif of the local fallback.
+  it("refuses on a born `master` via the local fallback when origin/HEAD is absent", () => {
+    const masterRepo = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-bbg-master-"),
+    );
+    try {
+      execFileSync("git", ["init", "-b", "master", masterRepo]);
+      execFileSync("git", ["config", "user.email", "t@example.com"], {
+        cwd: masterRepo,
+      });
+      execFileSync("git", ["config", "user.name", "Flow Test"], {
+        cwd: masterRepo,
+      });
+      installBaseBranchGuard(masterRepo);
+      fs.writeFileSync(path.join(masterRepo, "seed.txt"), "seed\n", "utf8");
+      execFileSync("git", ["add", "seed.txt"], { cwd: masterRepo });
+      execFileSync("git", ["commit", "--no-verify", "-m", "seed"], {
+        cwd: masterRepo,
+      });
+
+      writeTmuxShim("csv-export");
+      fs.writeFileSync(path.join(masterRepo, "next.txt"), "next\n", "utf8");
+      execFileSync("git", ["add", "next.txt"], { cwd: masterRepo });
+      let refused = false;
+      let stderr = "";
+      try {
+        execFileSync("git", ["commit", "-m", "next"], {
+          cwd: masterRepo,
+          encoding: "utf8",
+          env: {
+            ...baseEnv(),
+            CLAUDE_CODE_SESSION_ID: "sess-1",
+            TMUX_PANE: "%1",
+          } as NodeJS.ProcessEnv,
+        });
+      } catch (err) {
+        refused = true;
+        stderr = String((err as { stderr?: Buffer | string }).stderr ?? "");
+      }
+      expect(refused).toBe(true);
+      expect(stderr).toMatch(/refusing to commit on the base branch 'master'/);
+    } finally {
+      fs.rmSync(masterRepo, { recursive: true, force: true });
+    }
+  });
 });
