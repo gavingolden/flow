@@ -473,7 +473,11 @@ fully off npm is a deliberate change, not something to do incidentally.
   question only when the goal is genuinely unclear AND guessing wrong is costly or
   hard to reverse. No ceremony — infer in one line, don't perform a root-cause
   framework — and never interrogate the user with a chain of "why"; the laddering
-  is internal reasoning. Same family as **Consider the middle ground when a
+  is internal reasoning. The same discipline covers the broader **framing-lens
+  family** (Jobs-to-be-Done, first-principles, inversion, pre-mortem, second-order
+  effects, and internal-only Five Whys) — each a bounded internal heuristic you
+  reason with, never a performed/emitted section. Same family as
+  **Consider the middle ground when a
   request is framed as a binary choice.** above — this one governs *altitude*: up
   from the proposed solution to the goal it serves.
 

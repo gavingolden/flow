@@ -672,6 +672,15 @@ Up technique in
 and state it in **one line** in chat, then carry it in your context
 through to step 3.
 
+Laddering up is the default framing move; the same playbook carries a
+broader set of **framing lenses** — internal-only Five Whys,
+Jobs-to-be-Done, first-principles, inversion, pre-mortem, and
+second-order effects — for the case where a request is at the right
+altitude but still mis-framed. They are **conditional and internal**:
+reach for one only when framing is genuinely in doubt, keep it internal
+reasoning (never an interrogation, never an emitted/performed section),
+and skip them on expert-specified / trivial / time-critical asks.
+
 This is the triage-side entry point for the AGENTS.md `## Output style`
 rule **Understand the ultimate goal behind the request, not just the
 literal ask.**, and it is **conditional**: do NOT ladder up
