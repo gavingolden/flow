@@ -1937,6 +1937,24 @@ describe("New planning-discipline contract anchors", () => {
         "the AGENTS.md ultimate-goal rule. Dropping or renaming the heading silently " +
         "orphans those pointers; restore it or update this lint in the same commit.",
     ).toBe(true);
+    const framingLensNames = [
+      "**Five Whys**",
+      "**Jobs-to-be-Done (JTBD)**",
+      "**First-principles**",
+      "**Inversion**",
+      "**Pre-mortem**",
+      "**Second-order effects**",
+    ];
+    expect(
+      framingLensNames.every((name) => discoveryPlaybookContent.includes(name)),
+      "discovery-playbook.md must name all six bolded framing lenses — the heading " +
+        "anchor alone lets a partial within-section deletion (e.g. dropping 3 of 6 " +
+        "lens bullets while keeping the heading) pass CI, yet the cross-doc pointers " +
+        "in discovery-instructions.md, flow-pipeline/SKILL.md, and the AGENTS.md " +
+        "ultimate-goal rule reference individual lenses by name. One combined " +
+        "assertion (not a per-lens regex battery, per the plan's chosen single-anchor " +
+        "granularity); restore the lens or update this lint in the same commit.",
+    ).toBe(true);
   });
 });
 

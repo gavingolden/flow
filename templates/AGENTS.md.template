@@ -475,9 +475,8 @@ fully off npm is a deliberate change, not something to do incidentally.
   framework — and never interrogate the user with a chain of "why"; the laddering
   is internal reasoning. The same discipline covers the broader **framing-lens
   family** (Jobs-to-be-Done, first-principles, inversion, pre-mortem, second-order
-  effects, and internal-only Five Whys) documented alongside Ladder Up in
-  `skills/pipeline/product-planning/references/discovery-playbook.md`: each is a
-  bounded internal heuristic, never a performed/emitted section. Same family as
+  effects, and internal-only Five Whys) — each a bounded internal heuristic you
+  reason with, never a performed/emitted section. Same family as
   **Consider the middle ground when a
   request is framed as a binary choice.** above — this one governs *altitude*: up
   from the proposed solution to the goal it serves.

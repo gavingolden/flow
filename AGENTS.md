@@ -79,8 +79,8 @@ Response guidelines for any agent working in this repo. The first entry is an ac
   question at kickoff (never mid-run) only when genuinely unclear AND guessing
   wrong is costly/irreversible. Anti-patterns: no "always ladder up"; no
   ceremonial root-cause section; never interrogate (the framing lenses stay
-  internal — Five Whys especially). Technique + the framing-lens family:
-  `skills/pipeline/product-planning/references/discovery-playbook.md` (Ladder Up);
+  internal — Five Whys especially). Technique:
+  `skills/pipeline/product-planning/references/discovery-playbook.md` (Ladder Up + framing lenses);
   don't re-author it. Same family as the two rules above; governs *altitude*. The
   lint anchors on the exact phrase **Understand the ultimate goal behind the
   request, not just the literal ask.** in `bin/skill-md-lint.test.ts`.
