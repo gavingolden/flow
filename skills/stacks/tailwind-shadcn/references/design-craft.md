@@ -73,8 +73,9 @@ Financial data rules:
 
 ## Spacing System
 
-Portable principle: see `universal/ui-ux` `references/visual-design.md` — spatial proximity mirrors
-semantic proximity; items semantically closer are spatially closer. Tailwind scale below.
+Portable principle: see `universal/ui-ux` `references/layout.md` — spatial proximity mirrors
+semantic proximity (Gestalt grouping) and the base-unit spacing scale; items semantically closer are
+spatially closer. Tailwind scale below.
 
 Tailwind's 4px base grid. Spacing communicates content relationships:
 

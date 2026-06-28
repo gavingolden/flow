@@ -26,11 +26,11 @@ A practical move from Refactoring UI: de-emphasize secondary and tertiary conten
 
 Spacing communicates relationships. The governing principle: spatial proximity mirrors semantic proximity — items that belong together sit closer; unrelated groups sit further apart (Refactoring UI). When two groups share the same gap, ask whether they are genuinely equally related; if not, the spacing is lying about the structure.
 
-Work from a consistent spacing scale rather than ad-hoc values, so rhythm is systematic and gaps are never ambiguous (is this space a separator or an accident?). Give content breathing room by default; density is a deliberate choice for data-heavy contexts, not the baseline.
+Work from a consistent spacing scale rather than ad-hoc values, so rhythm is systematic and gaps are never ambiguous (is this space a separator or an accident?). Give content breathing room by default; density is a deliberate choice for data-heavy contexts, not the baseline. The Gestalt grouping view of this same idea — proximity as perceptual grouping — and the base-unit spacing scale itself live in `layout.md`.
 
 ## Constrained content width and centering
 
-Cap the width of text and primary content, and center the constrained column rather than letting it stretch (Refactoring UI). Line length has a comfortable ceiling — text that runs edge-to-edge across a wide monitor is hard to read, and a constrained column reads as intentional. Two failure modes are equally defects: a column that loses its centering and jams against one edge on wide viewports, and content stretched full-bleed across a huge monitor with no `max-width`. The portable rule is to give primary content a maximum width and keep it centered as the viewport grows; the framework mechanic that renders it (a container utility, a centered max-width wrapper) belongs to the stack skill. This is the visual-design half of the responsive-layout judgment dimension — its accessibility half (reflow at narrow widths) lives in `accessibility.md`.
+Constrained content width and centering is part of spatial composition — its authoritative treatment now lives in `layout.md` (Constrained content width and centering), alongside grids, the spacing system, and responsive strategy. The accessibility half of the responsive-layout judgment (reflow at narrow widths) lives in `accessibility.md`.
 
 ## Surface and depth
 
