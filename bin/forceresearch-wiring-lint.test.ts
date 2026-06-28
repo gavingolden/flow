@@ -110,6 +110,23 @@ describe("forceResearch wiring lint", () => {
     ).toBe(true);
   });
 
+  it("(g) wires the deterministic forced-research runner (flow-research-run)", () => {
+    // `flow new --research` must execute research deterministically, not rely on
+    // the discovery subagent's observed-skippable Step 1.5. Freeze both the
+    // helper's existence and the supervisor's step-3 forced-path call to it —
+    // dropping either silently un-wires forced research with every other test
+    // green.
+    const runnerPath = path.resolve(HERE, "flow-research-run.ts");
+    expect(
+      fs.existsSync(runnerPath),
+      "bin/flow-research-run.ts (the deterministic forced-research runner) must exist.",
+    ).toBe(true);
+    expect(
+      pipelineSkill.includes("flow-research-run"),
+      "flow-pipeline/SKILL.md step 3 must call `flow-research-run` on the forced path so research executes deterministically independent of the discovery subagent.",
+    ).toBe(true);
+  });
+
   it("(e) co-locates the 'RESEARCH: force-on' threading marker across all three skill files", () => {
     // The skip-note string in (c) is distinct from the marker token that
     // actually threads the force-on signal supervisor -> /product-planning ->

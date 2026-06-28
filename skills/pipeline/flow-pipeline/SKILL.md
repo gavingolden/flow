@@ -843,6 +843,40 @@ web-grounded research pre-check on (bypassing the relevance gate and the
 append nothing. The flag is set per-pipeline via
 `flow new --research "<description>"`.
 
+**Deterministic forced research (mandatory on the forced path).** The
+discovery subagent's own Step 1.5 was observed to skip the fan-out even
+when forced, so on the `forceResearch == true` path you MUST also run the
+research deterministically yourself, BEFORE invoking `/product-planning`:
+
+```bash
+flow-research-run --task "<verbatim user description>" \
+  --out "$WORKTREE/.flow-tmp/research-findings.md" \
+  --status-file "$WORKTREE/.flow-tmp/research-status.json"
+```
+
+This is a bounded (~3-min) gather+refute agy fan-out via
+`flow-delegate-fanout`; it self-degrades to a graceful skip when agy is
+unavailable (writing `research-status.json` `{ran:false,reason:"agy-unavailable"}`)
+and NEVER blocks planning. Then, when
+`$WORKTREE/.flow-tmp/research-findings.md` exists and is non-empty, fold
+its contents into the `/product-planning` invocation as prior research
+context — append it through the **same channel** as the ultimate goal and
+the `RESEARCH: force-on` marker, clearly labelled:
+
+```
+RESEARCH FINDINGS (web-grounded, pre-run by supervisor — use as prior context, do NOT re-run the fan-out):
+<contents of research-findings.md>
+```
+
+This makes `flow new --research` actually execute research deterministically
+instead of relying on the subagent's unreliable Step 1.5. The discovery
+subagent reuses these findings rather than re-running the fan-out (avoiding
+double agy spend — see `discovery-instructions.md` (a0)), and the
+`flow-research-note ensure` call below then sees `research-status.json`
+`{ran:true}` and stays silent (or emits the agy-unavailable note if agy was
+down). The non-forced (config-on) path is unchanged — it never calls
+`flow-research-run`; discovery's own Step 1.5 still owns research there.
+
 `/product-planning` is itself a thin wrapper that spawns one
 **Independent Discovery Subagent** via the Task tool (the second of
 the nine named Task-tool exemptions in "Hard rules" above). The
