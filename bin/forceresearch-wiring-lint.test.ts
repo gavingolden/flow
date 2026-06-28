@@ -93,6 +93,23 @@ describe("forceResearch wiring lint", () => {
     ).toBe(true);
   });
 
+  it("(f) wires the deterministic flow-research-note backstop in the supervisor", () => {
+    // The supervisor's step-3 `flow-research-note ensure` call is the reliable
+    // surface for the research skip-note when the discovery subagent omits its
+    // best-effort `> [!NOTE]`. Freeze both the helper's existence and the
+    // supervisor's invocation of it — dropping either silently un-wires the
+    // backstop with every other test green.
+    const helperPath = path.resolve(HERE, "flow-research-note.ts");
+    expect(
+      fs.existsSync(helperPath),
+      "bin/flow-research-note.ts (the deterministic note backstop helper) must exist.",
+    ).toBe(true);
+    expect(
+      pipelineSkill.includes("flow-research-note"),
+      "flow-pipeline/SKILL.md step 3 must call the `flow-research-note` backstop so the research skip-note is reliable independent of the discovery subagent.",
+    ).toBe(true);
+  });
+
   it("(e) co-locates the 'RESEARCH: force-on' threading marker across all three skill files", () => {
     // The skip-note string in (c) is distinct from the marker token that
     // actually threads the force-on signal supervisor -> /product-planning ->

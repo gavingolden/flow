@@ -829,16 +829,18 @@ alone. Discovery still validates the supplied goal against the codebase
 and surfaces an Open Question if it disagrees rather than accepting it
 blindly — see `discovery-instructions.md` §3 ("User intent").
 
-Also read the `forceResearch` flag from
-`~/.flow/state/<slug>.json` (`jq -r '.forceResearch // empty'`, the
-same idiom step 7 uses for `waitForCopilot`) and, when the value is the
-literal `true`, fold a `RESEARCH: force-on (flow new --research)` marker
-into the `/product-planning` invocation through the **same append
-channel** that carries the inferred ultimate goal above. `/product-planning`'s
-spawn template forwards the marker to the discovery subagent, where it
-forces discovery Step 1.5's web-grounded research pre-check on (bypassing
-the relevance gate and the `research.discovery` config opt-in). Absent or
-non-`true` ≡ not forced — append nothing. The flag is set per-pipeline via
+**Force-on threading (mandatory).** BEFORE invoking `/product-planning`,
+you MUST run `jq -r '.forceResearch // empty' ~/.flow/state/<slug>.json`
+(the same idiom step 7 uses for `waitForCopilot`). When the value is the
+literal `true`, you MUST append a `RESEARCH: force-on (flow new --research)`
+marker line to the `/product-planning` invocation through the **same append
+channel** that carries the inferred ultimate goal above. This is not
+optional: drop the marker and a `flow new --research` pipeline silently
+loses its forced research. `/product-planning`'s spawn template forwards
+the marker to the discovery subagent, where it forces discovery Step 1.5's
+web-grounded research pre-check on (bypassing the relevance gate and the
+`research.discovery` config opt-in). Absent or non-`true` ≡ not forced —
+append nothing. The flag is set per-pipeline via
 `flow new --research "<description>"`.
 
 `/product-planning` is itself a thin wrapper that spawns one
@@ -868,6 +870,23 @@ skip-note it carries: if plan.md contains a `> [!NOTE]` line about
 that one-liner in the chat summary so the user sees why no research ran
 and how to force it (`flow new --research`). Reuse this same read — do
 **not** open plan.md a second time for it.
+
+**Deterministic note backstop (mandatory, non-skippable).** The
+discovery subagent's `> [!NOTE]` is best-effort and has been observed to
+be skipped entirely, so after the plan.md read above ALWAYS run:
+
+```bash
+flow-research-note ensure --plan-file "$WORKTREE/.flow-tmp/plan.md" \
+  --forced "$(jq -r '.forceResearch // false' ~/.flow/state/<slug>.json)"
+```
+
+This self-no-ops when research actually ran, when the path was dormant,
+and when the subagent already wrote a note (it is idempotent and leaves a
+subagent-authored note untouched). When its stdout is non-empty, include
+that line **verbatim** in the 3-5 line chat summary so the user always
+sees the research skip note regardless of whether discovery wrote it.
+Always run it — it self-no-ops in every case where there is nothing to
+surface.
 
 **End conditions:**
 
