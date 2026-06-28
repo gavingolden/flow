@@ -6,13 +6,16 @@ import { fileURLToPath } from "node:url";
 /**
  * Structural lint for the `flow new --research` / `forceResearch` wiring.
  *
- * The force-research feature is a contract spread across four surfaces — the
+ * The force-research feature is a contract spread across five surfaces — the
  * `forceResearch` state field + validator, the `--research` CLI parse/strip,
- * the discovery Step 1.5 skip-note ("force with `flow new --research`"), and the
- * `flow new --help` documentation. None of the four is import-coupled to the
- * others, so a future edit could silently drop one (e.g. remove the help line,
- * or the skip-note prose) and leave the rest dangling. This lint freezes their
- * co-presence: removing any one wiring point goes red on `npm run verify`.
+ * the discovery Step 1.5 skip-note ("force with `flow new --research`"), the
+ * `flow new --help` documentation, and the `RESEARCH: force-on` marker token
+ * that threads the force-on signal supervisor -> /product-planning -> discovery
+ * across three skill files. None of the five is import-coupled to the others,
+ * so a future edit could silently drop one (e.g. remove the help line, the
+ * skip-note prose, or rename the marker in one file) and leave the rest
+ * dangling. This lint freezes their co-presence: removing any one wiring point
+ * goes red on `npm run verify`.
  */
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
