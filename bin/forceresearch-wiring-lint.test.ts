@@ -29,11 +29,29 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "discovery-instructions.md",
 );
+const PIPELINE_SKILL_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-pipeline",
+  "SKILL.md",
+);
+const PLANNING_SKILL_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "product-planning",
+  "SKILL.md",
+);
 
 const state = fs.readFileSync(STATE_TS_PATH, "utf8");
 const newTs = fs.readFileSync(NEW_TS_PATH, "utf8");
 const help = fs.readFileSync(HELP_TS_PATH, "utf8");
 const discovery = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
+const pipelineSkill = fs.readFileSync(PIPELINE_SKILL_PATH, "utf8");
+const planningSkill = fs.readFileSync(PLANNING_SKILL_PATH, "utf8");
 
 describe("forceResearch wiring lint", () => {
   it("(a) declares the forceResearch field AND its validator guard in state.ts", () => {
@@ -70,5 +88,22 @@ describe("forceResearch wiring lint", () => {
       help.includes("--research"),
       "bin/lib/help.ts must document the `--research` flag in `flow new --help`.",
     ).toBe(true);
+  });
+
+  it("(e) co-locates the 'RESEARCH: force-on' threading marker across all three skill files", () => {
+    // The skip-note string in (c) is distinct from the marker token that
+    // actually threads the force-on signal supervisor -> /product-planning ->
+    // discovery. Renaming the marker in any one file silently severs threading
+    // with every other test green — freeze its co-presence here.
+    for (const [name, src] of [
+      ["flow-pipeline/SKILL.md", pipelineSkill],
+      ["product-planning/SKILL.md", planningSkill],
+      ["discovery-instructions.md", discovery],
+    ] as const) {
+      expect(
+        src.includes("RESEARCH: force-on"),
+        `${name} must carry the 'RESEARCH: force-on' threading marker that wires the force-on signal across the discovery handoff.`,
+      ).toBe(true);
+    }
   });
 });
