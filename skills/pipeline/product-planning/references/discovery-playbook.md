@@ -53,6 +53,44 @@ anchors the conversation in shared context and surfaces pattern reuse opportunit
 - "We already have [existing capability]. Could this build on that, or is it fundamentally
   different?"
 
+## Framing lenses (bounded internal heuristics)
+
+These extend the **Ladder Up** move (the technique PR #376's `## Output style` ultimate-goal
+rule already points at) from _altitude_ to _framing_: a request can be at the right altitude
+and still be mis-framed — the wrong job assumed, an inherited constraint accepted as a given,
+a failure mode never considered, a downstream ripple unforeseen. Each lens below is a
+**bounded internal heuristic you reason with, never a section you perform**: apply it silently
+to sharpen the Problem Statement, Architecture Decisions, or Plan risks — do **not** emit a
+"Problem framing" / "JTBD" / "Five Whys" output section. Frameworks applied solo as a performed
+checklist degrade into ceremony; staying internal is the whole point. Reach for one only when
+the request's framing is genuinely in doubt — skip them on expert-specified, trivial, or
+time-critical asks.
+
+- **Five Whys** — _when a stated problem looks like a symptom:_ ask "why" a few times to reach
+  the root cause. **Internal-only** — never interrogate the user with a chain of "why", and
+  never emit a root-cause section.
+- **Jobs-to-be-Done (JTBD)** — _when the user names a feature, not the underlying job:_ ask what
+  job they would "hire" this to do (the progress they want in their situation). Internal
+  reasoning that anchors the **User intent** read; never a performed JTBD section.
+- **First-principles** — _when an inherited constraint or "the way it's done" is taken as
+  given:_ strip the request to what is necessarily true and rebuild from there. Internal
+  reasoning that informs **Necessity / Architecture**; never an emitted section.
+- **Inversion** — _when you want to stress-test the objective itself:_ flip it — what would make
+  this actively harmful, useless, or worse than doing nothing — then steer away. Internal
+  reasoning that feeds **Plan risks / Edge cases**; never an emitted section.
+- **Pre-mortem** — _when the plan is chosen and you want its failure mode:_ assume it has
+  shipped and failed, then narrate the most likely reason (prospective hindsight). Internal
+  reasoning that feeds **Plan risks**; never an emitted section.
+- **Second-order effects** — _when a change ripples past its first-order fix:_ first-order
+  solves X — ask what X then triggers or breaks downstream (other skills, pipeline steps,
+  consumer repos). Internal reasoning that feeds **Architecture / Edge cases**; never an emitted
+  section.
+
+**Inversion vs. pre-mortem** are distinct, not redundant: inversion flips the _objective_ (what
+would make this goal actively bad to pursue), while a pre-mortem assumes the _chosen plan_
+shipped and failed and asks why. Inversion interrogates the goal; the pre-mortem interrogates
+the plan.
+
 ## Red Flags to Probe
 
 These signals usually mean there's missing information. Don't let them pass without follow-up.

@@ -78,8 +78,8 @@ Response guidelines for any agent working in this repo. The first entry is an ac
   surfacing the alternative in the PRD / PR `## Why`; ask one goal-framing
   question at kickoff (never mid-run) only when genuinely unclear AND guessing
   wrong is costly/irreversible. Anti-patterns: no "always ladder up"; no
-  ceremonial root-cause section; never interrogate (Five Whys stays internal).
-  Technique:
+  ceremonial root-cause section; never interrogate (the framing lenses stay
+  internal — Five Whys especially). Technique + the framing-lens family:
   `skills/pipeline/product-planning/references/discovery-playbook.md` (Ladder Up);
   don't re-author it. Same family as the two rules above; governs *altitude*. The
   lint anchors on the exact phrase **Understand the ultimate goal behind the

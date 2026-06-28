@@ -139,6 +139,15 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "discovery-instructions.md",
 );
+const DISCOVERY_PLAYBOOK_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "product-planning",
+  "references",
+  "discovery-playbook.md",
+);
 const NEW_FEATURE_SKILL_MD_PATH = path.resolve(
   HERE,
   "..",
@@ -242,6 +251,10 @@ const gatekeeperSpawnPromptContent = fs.readFileSync(
 );
 const fixApplierSpawnPromptContent = fs.readFileSync(
   FIX_APPLIER_SPAWN_PROMPT_PATH,
+  "utf8",
+);
+const discoveryPlaybookContent = fs.readFileSync(
+  DISCOVERY_PLAYBOOK_PATH,
   "utf8",
 );
 const discoveryInstructionsContent = fs.readFileSync(
@@ -1900,6 +1913,29 @@ describe("New planning-discipline contract anchors", () => {
         "counterpart self-critique site. Severing this direction of the cross-link " +
         "orphans the discipline; restore the reference or update this lint in the same " +
         "commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
+  it("discovery-playbook.md names the framing-lens subsection", () => {
+    // The "Framing lenses (bounded internal heuristics)" subsection encodes the
+    // six named framing methodologies (Five Whys, JTBD, first-principles,
+    // inversion, pre-mortem, second-order effects) as bounded internal heuristics
+    // that extend PR #376's Ladder Up. discovery-instructions.md §3/§4, the
+    // flow-pipeline step-1 goal-framing sub-step, and the AGENTS.md ultimate-goal
+    // rule all point at it; a silent deletion would orphan those references with
+    // nothing failing in CI. One content anchor on the subsection heading (not a
+    // per-lens regex battery, per the plan's chosen lint granularity); restore the
+    // subsection or update this lint in the same commit (AGENTS.md anchored-phrase
+    // rule).
+    expect(
+      discoveryPlaybookContent.includes(
+        "## Framing lenses (bounded internal heuristics)",
+      ),
+      "discovery-playbook.md must contain the '## Framing lenses (bounded internal " +
+        "heuristics)' subsection — the home for the six named framing methodologies " +
+        "referenced by discovery-instructions.md, flow-pipeline/SKILL.md step 1, and " +
+        "the AGENTS.md ultimate-goal rule. Dropping or renaming the heading silently " +
+        "orphans those pointers; restore it or update this lint in the same commit.",
     ).toBe(true);
   });
 });
