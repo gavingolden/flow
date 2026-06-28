@@ -24,6 +24,7 @@ import {
 import { friendlyName } from "./cost-pricing";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { listStates, type PipelineState } from "./state";
+import { reapStartingOrphans } from "./reap-orphans";
 import { relativeTime } from "./time";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
 import { dim } from "./color";
@@ -80,10 +81,25 @@ export async function runLsCli(args: string[]): Promise<number> {
   return await runLs({ cost, detail });
 }
 
+/**
+ * Grace window for the lazy never-started orphan sweep: a phase=`starting`
+ * state with no live window older than this is reaped (see `reap-orphans.ts`).
+ * ~60s leaves a just-launched, still cold-starting supervisor untouched.
+ */
+const REAP_GRACE_MS = 60_000;
+
 export async function runLs(opts: LsOptions = {}): Promise<number> {
-  const states = listStates();
+  const now = Date.now();
   const windows = listWindows();
-  const rows = await buildRows(states, windows, Date.now(), opts);
+  // Lazy orphan sweep BEFORE buildRows: reap never-started orphans (phase
+  // `starting`, no live window, stale) so they are neither shown nor counted.
+  // Conservative — past-`starting` (no window) crashes keep their resume hint.
+  const allStates = listStates();
+  const reaped = new Set(
+    reapStartingOrphans(allStates, windows, now, REAP_GRACE_MS),
+  );
+  const states = allStates.filter((s) => !reaped.has(s.slug));
+  const rows = await buildRows(states, windows, now, opts);
 
   if (rows.length === 0) {
     console.log(dim("flow ls: no active pipelines"));

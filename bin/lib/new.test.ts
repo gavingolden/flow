@@ -32,18 +32,24 @@ const tmuxMock = vi.hoisted(() => ({
       cwd: string,
       command: string[],
       seed: string,
-      deps?: { consumed?: () => boolean },
-    ) => { ok: boolean; stderr: string }
-  >(() => ({ ok: true, stderr: "" })),
+      deps?: { consumed?: () => boolean; onProgress?: (ms: number) => void },
+    ) => {
+      status: "started" | "launched-not-confirmed" | "failed";
+      stderr: string;
+    }
+  >(() => ({ status: "started", stderr: "" })),
   respawnWindowVerified: vi.fn<
     (
       name: string,
       cwd: string,
       command: string[],
       seed: string,
-      deps?: { consumed?: () => boolean },
-    ) => { ok: boolean; stderr: string }
-  >(() => ({ ok: true, stderr: "" })),
+      deps?: { consumed?: () => boolean; onProgress?: (ms: number) => void },
+    ) => {
+      status: "started" | "launched-not-confirmed" | "failed";
+      stderr: string;
+    }
+  >(() => ({ status: "started", stderr: "" })),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);
@@ -53,12 +59,24 @@ import { writeState } from "./state";
 
 let stateDir!: string;
 let repoDir!: string;
+let semDir!: string;
 let errors!: string[];
 let logs!: string[];
 
 beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-"));
   repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-repo-"));
+  // Redirect the host-wide launch semaphore off the real ~/.flow so the whole
+  // suite's launches stay hermetic (new.ts honors this env override).
+  semDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-sem-"));
+  process.env.FLOW_LAUNCH_SEM_DIR = semDir;
+  // Redirect the flow-scoped --settings file off the real ~/.flow too, so any
+  // test that omits `command` (and so builds the real argv) writes to a temp.
+  process.env.FLOW_LAUNCH_SETTINGS_PATH = path.join(
+    semDir,
+    "launch-settings.json",
+  );
+  delete process.env.FLOW_LAUNCH_CONCURRENCY;
   errors = [];
   logs = [];
   vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
@@ -71,10 +89,10 @@ beforeEach(() => {
   tmuxMock.isPaneAlive.mockReset().mockReturnValue(false);
   tmuxMock.createWindowVerified
     .mockReset()
-    .mockReturnValue({ ok: true, stderr: "" });
+    .mockReturnValue({ status: "started", stderr: "" });
   tmuxMock.respawnWindowVerified
     .mockReset()
-    .mockReturnValue({ ok: true, stderr: "" });
+    .mockReturnValue({ status: "started", stderr: "" });
   readSyncMock.mockReset().mockReturnValue(0);
 });
 
@@ -108,6 +126,10 @@ function freshWindowOk(): void {
 afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
   fs.rmSync(repoDir, { recursive: true, force: true });
+  fs.rmSync(semDir, { recursive: true, force: true });
+  delete process.env.FLOW_LAUNCH_SEM_DIR;
+  delete process.env.FLOW_LAUNCH_SETTINGS_PATH;
+  delete process.env.FLOW_LAUNCH_CONCURRENCY;
   vi.restoreAllMocks();
 });
 
@@ -181,25 +203,32 @@ describe("runNew --resume", () => {
     seedState("crashed");
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(false);
-    const code = runNew("crashed", { resume: true, stateDir });
+    const settingsPath = path.join(stateDir, "launch-settings.json");
+    const code = runNew("crashed", {
+      resume: true,
+      stateDir,
+      launchSettingsPath: settingsPath,
+    });
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
     const [, cwd, command, seed] =
       tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(cwd).toBe(repoDir);
-    // Contract: the prompt prefix is what the supervisor parses to detect
-    // resume mode. SKILL.md hard-codes the literal string; if this assertion
-    // ever fails, update both ends in lockstep.
+    // The argv carries NO positional seed — just the claude flags + --settings.
+    // The seed is delivered via send-keys (the 4th arg below).
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "crashed"),
-      "[pipeline-slug: crashed]\nUse the /flow-pipeline skill in --resume mode for: crashed",
+      "--settings",
+      settingsPath,
     ]);
-    // The 4th arg is the resume seed delivered via send-keys.
+    // Contract: the resume seed prefix is what the supervisor parses to detect
+    // resume mode. SKILL.md hard-codes the literal string; if this assertion
+    // ever fails, update both ends in lockstep. Delivered via send-keys (4th arg).
     expect(seed).toBe(
       "[pipeline-slug: crashed]\nUse the /flow-pipeline skill in --resume mode for: crashed",
     );
@@ -236,10 +265,14 @@ describe("runNew --resume", () => {
     seedState("respawn-fail");
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.respawnWindowVerified.mockReturnValue({
-      ok: false,
+      status: "failed",
       stderr: "can't find session: flow",
     });
-    const code = runNew("respawn-fail", { resume: true, stateDir });
+    const code = runNew("respawn-fail", {
+      resume: true,
+      stateDir,
+      retrySleepMs: 0,
+    });
     expect(code).toBe(1);
     expect(errors.join("\n")).toMatch(/claude exited immediately after launch/);
     expect(errors.join("\n")).toContain("can't find session: flow");
@@ -264,7 +297,7 @@ describe("runNew --resume", () => {
     tmuxMock.respawnWindowVerified.mockImplementation(
       (_name, _cwd, _command, _seed, deps) => {
         consumedFn = deps?.consumed;
-        return { ok: true, stderr: "" };
+        return { status: "started", stderr: "" };
       },
     );
     const code = runNew("resumed", { resume: true, stateDir });
@@ -297,8 +330,9 @@ describe("runNew --resume", () => {
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(false);
     tmuxMock.respawnWindowVerified.mockReturnValue({
-      ok: false,
-      stderr: "the seed prompt was never consumed (supervisor did not start)",
+      status: "failed",
+      stderr:
+        "tmux window respawned but claude died before the seed was confirmed consumed (pane not alive)",
     });
     const code = runNew("resume-timeout", {
       resume: true,
@@ -316,14 +350,17 @@ describe("runNew --resume", () => {
     expect(after).toBe(before);
   });
 
-  it("BLOCKING regression: a resume attempt that bumps updatedAt then dies must not poison the next retry's consumed()", () => {
-    // Within-retry false-success repro on the resume path (issue #82, new.ts
-    // runResume): consumption is keyed on `updatedAt` moving off a baseline. A
-    // single baseline captured before the retry loop means an attempt that
-    // bumped `updatedAt` then died makes the next attempt's consumed()
-    // short-circuit true. The fix re-reads the baseline at the START of each
-    // attempt so consumed() reads false at every launch until THAT attempt's
-    // resumed supervisor bumps it.
+  it("BLOCKING regression: resume captures the updatedAt baseline ONCE before the retry loop (Task 4), and the non-destructive timeout makes that safe", () => {
+    // Story 5 / Task 4: the resume `consumed()` predicate now compares against the
+    // ORIGINAL pre-resume baseline captured ONCE before `launchWithRetry`, not a
+    // per-attempt re-read. Paired with Task 3's non-destructive timeout (a
+    // live-but-slow resume is `launched-not-confirmed`, never respawn-killed),
+    // this fixes the working-session-killed bug. ACCEPTED rare trade-off: a
+    // dead-then-retried resume whose first attempt bumped `updatedAt` reads
+    // "consumed" on the next attempt — that only means the supervisor DID start
+    // at some point, and resume-over-it is the user's intent. So attempt 1 reads
+    // false (updatedAt == baseline) and attempt 2 reads TRUE (the once-captured
+    // baseline; attempt 1's bump is now past it).
     const baseline = new Date(Date.now() - 10_000).toISOString();
     writeState(
       {
@@ -352,21 +389,21 @@ describe("runNew --resume", () => {
           stateDir,
         );
         return {
-          ok: false,
+          status: "failed",
           stderr:
-            "the seed prompt was never consumed (supervisor did not start)",
+            "tmux window respawned but claude died before the seed was confirmed consumed (pane not alive)",
         };
       })
       .mockImplementationOnce((_name, _cwd, _command, _seed, deps) => {
         consumedAtLaunch.push(deps!.consumed!());
-        return { ok: true, stderr: "" };
+        return { status: "started", stderr: "" };
       });
     const code = runNew("resumed", { resume: true, stateDir, retrySleepMs: 0 });
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(2);
-    // Both attempts read a fresh per-attempt baseline → false at launch; pre-fix
-    // attempt 2 read true off the once-captured baseline.
-    expect(consumedAtLaunch).toEqual([false, false]);
+    // Once-captured baseline: attempt 1 false, attempt 2 true (the accepted
+    // rare false-success the non-destructive timeout makes harmless).
+    expect(consumedAtLaunch).toEqual([false, true]);
   });
 });
 
@@ -381,8 +418,9 @@ describe("runNewCli --resume (multi-slug)", () => {
 
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(2);
+    // The seed is the 4th arg (send-keys delivery), no longer the argv tail.
     const launched = tmuxMock.respawnWindowVerified.mock.calls.map(
-      ([name, , command]) => ({ name, prompt: command[command.length - 1] }),
+      ([name, , , seed]) => ({ name, prompt: seed }),
     );
     expect(launched).toContainEqual({
       name: "x",
@@ -594,35 +632,197 @@ describe("runNew (fresh)", () => {
     expect(raw.waitForCopilot).toBe(true);
   });
 
-  it("launches claude with --add-dir <derived-worktree> before the prompt on a fresh start", () => {
-    // LOAD-BEARING: omit `command` so defaultCommand runs — passing
+  it("launches claude with --add-dir <derived-worktree> and --settings, NO positional seed", () => {
+    // LOAD-BEARING: omit `command` so buildLaunchCommand runs — passing
     // `command: ["true"]` would short-circuit the argv under test (issue #317).
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runNew("CSV export", { stateDir, cwd: repoDir });
+    const settingsPath = path.join(stateDir, "launch-settings.json");
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      launchSettingsPath: settingsPath,
+    });
     expect(code).toBe(0);
     const [, , command, seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
     // runFresh resolves the repo via `git rev-parse --show-toplevel`, which
     // returns the canonical realpath (macOS /var → /private/var), so derive
-    // the expected worktree from the resolved path, not the raw temp dir.
+    // the expected worktree from the resolved path, not the raw temp dir. The
+    // argv carries NO positional seed — just the flags + --settings.
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
-      "[pipeline-slug: csv-export]\nUse the /flow-pipeline skill for: CSV export",
+      "--settings",
+      settingsPath,
     ]);
-    // The flag pair must precede the prompt so claude parses --add-dir as an
-    // option, not as part of the prompt text.
-    expect(command.indexOf("--add-dir")).toBeLessThan(command.length - 1);
-    // The 4th arg is the seed delivered via send-keys — defined once in new.ts
-    // and identical to the positional prompt in the argv above.
+    // No element of the argv is the seed text (it is send-keys-only now).
+    expect(
+      command.some((a) => a.includes("Use the /flow-pipeline skill")),
+    ).toBe(false);
+    // The 4th arg is the seed delivered via send-keys.
     expect(seed).toBe(
       "[pipeline-slug: csv-export]\nUse the /flow-pipeline skill for: CSV export",
     );
     // The supervisor marker lets leaf skills detect they run inside the pipeline.
     expect(command).toContain("FLOW_PIPELINE=1");
+    // The flow-scoped settings file was written (registers the hook) and never
+    // touches the global ~/.claude/settings.json.
+    expect(fs.existsSync(settingsPath)).toBe(true);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    expect(settings.hooks).toHaveProperty("UserPromptSubmit");
+    expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toContain(
+      "flow-seed-ingested-hook",
+    );
+  });
+
+  it("fresh launched-not-confirmed: exit 0, keeps the up-front state, prints the still-starting message", () => {
+    // The pane is alive but the supervisor hasn't confirmed the seed in the short
+    // budget. Non-destructive: state is KEPT (the reaper backstops it), exit 0,
+    // and the distinct message goes to stderr while stdout line 1 stays flow:slug.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "launched-not-confirmed",
+      stderr: "",
+    });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:csv-export");
+    expect(fs.existsSync(path.join(stateDir, "csv-export.json"))).toBe(true);
+    expect(errors.join("\n")).toContain(
+      "launched; supervisor still starting — attach to verify",
+    );
+  });
+
+  it("backoff schedule: failed attempts sleep 1s then 2s via the injected sleep spy", () => {
+    // Task 2: the flat 150ms retry is replaced by an increasing 1s→2s→4s backoff.
+    // With 3 failing attempts there are 2 inter-attempt gaps → [1000, 2000]. The
+    // retrySleep seam (not retrySleepMs:0) is injected so the schedule is
+    // assertable without real sleeping.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "failed",
+      stderr: "transient",
+    });
+    const sleeps: number[] = [];
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleep: (ms) => sleeps.push(ms),
+    });
+    expect(code).not.toBe(0);
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(3);
+    expect(sleeps).toEqual([1000, 2000]);
+  });
+
+  it("marker-aware fresh consumed(): true on seedIngestedAt+alive, falls back to phase past starting", () => {
+    // Task 7: the launch-time seed-ingested marker latches consumed() even before
+    // the supervisor advances the phase; absent the marker it falls back to the
+    // phase moving off `starting`.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.createWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { status: "started", stderr: "" };
+      },
+    );
+    runNew("CSV export", { stateDir, cwd: repoDir, command: ["true"] });
+    expect(consumedFn).toBeDefined();
+    // Up-front state is `starting`, no marker → not consumed.
+    expect(consumedFn!()).toBe(false);
+    // Stamp the marker (phase still starting) → consumed via the marker.
+    writeState(
+      {
+        slug: "csv-export",
+        phase: "starting",
+        repo: fs.realpathSync(repoDir),
+        seedIngestedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+});
+
+describe("runFresh — launch concurrency semaphore (Task 8)", () => {
+  it("acquires a slot before the launch and releases it after (success path)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let slotsDuringLaunch = -1;
+    tmuxMock.createWindowVerified.mockImplementation(() => {
+      slotsDuringLaunch = fs
+        .readdirSync(semDir)
+        .filter((f) => f.startsWith("slot-")).length;
+      return { status: "started", stderr: "" };
+    });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(slotsDuringLaunch).toBe(1); // one slot held during the launch
+    // Released after: the finally in withTestSemaphore removes the won slot.
+    expect(fs.readdirSync(semDir).filter((f) => f.startsWith("slot-"))).toEqual(
+      [],
+    );
+  });
+
+  it("releases the slot on the failure path too", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "failed",
+      stderr: "dead",
+    });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+    });
+    expect(code).not.toBe(0);
+    expect(fs.readdirSync(semDir).filter((f) => f.startsWith("slot-"))).toEqual(
+      [],
+    );
+  });
+
+  it("honors FLOW_LAUNCH_CONCURRENCY and fails open when the cap is saturated", () => {
+    // cap=1 + slot-0 pre-held by THIS (live) pid → no free slot. The acquire
+    // times out fast and the launch proceeds holding NO slot (fail-open). That
+    // the launch ran with only the pre-held slot present (count 1, not 2) proves
+    // BOTH the override (cap=1, not the default 4) AND the fail-open path.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    process.env.FLOW_LAUNCH_CONCURRENCY = "1";
+    fs.writeFileSync(path.join(semDir, "slot-0"), String(process.pid));
+    let slotsDuringLaunch = -1;
+    tmuxMock.createWindowVerified.mockImplementation(() => {
+      slotsDuringLaunch = fs
+        .readdirSync(semDir)
+        .filter((f) => f.startsWith("slot-")).length;
+      return { status: "started", stderr: "" };
+    });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      launchSemTimeoutMs: 30,
+    });
+    expect(code).toBe(0); // fail-open: launch ran despite the saturated cap
+    expect(slotsDuringLaunch).toBe(1); // only the pre-held slot — held none
+    fs.rmSync(path.join(semDir, "slot-0"), { force: true });
   });
 });
 
@@ -759,14 +959,16 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw).not.toHaveProperty("copilotReview");
   });
 
-  it("runNewCli --effort high launches claude with --effort before the prompt and persists effort", () => {
-    // LOAD-BEARING: omit `command` so defaultCommand runs — passing
+  it("runNewCli --effort high launches claude with --effort then --settings, no positional seed, persists effort", () => {
+    // LOAD-BEARING: omit `command` so buildLaunchCommand runs — passing
     // `command: ["true"]` would short-circuit the argv under test.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
+    const settingsPath = path.join(stateDir, "launch-settings.json");
     const code = runNewCli(["--effort", "high", "do", "thing"], {
       stateDir,
       cwd: repoDir,
+      launchSettingsPath: settingsPath,
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -778,7 +980,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
       "--effort",
       "high",
-      "[pipeline-slug: do-thing]\nUse the /flow-pipeline skill for: do thing",
+      "--settings",
+      settingsPath,
     ]);
     const raw = JSON.parse(
       fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
@@ -789,9 +992,11 @@ describe("runNewCli (--help / -h short-circuit)", () => {
   it("runNewCli without --effort omits --effort from the launch argv and the effort key from state", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
+    const settingsPath = path.join(stateDir, "launch-settings.json");
     const code = runNewCli(["do", "thing"], {
       stateDir,
       cwd: repoDir,
+      launchSettingsPath: settingsPath,
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -801,7 +1006,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
-      "[pipeline-slug: do-thing]\nUse the /flow-pipeline skill for: do thing",
+      "--settings",
+      settingsPath,
     ]);
     expect(command).not.toContain("--effort");
     const raw = JSON.parse(
@@ -872,7 +1078,12 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     );
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(false);
-    const code = runNew("saved-effort", { resume: true, stateDir });
+    const settingsPath = path.join(stateDir, "launch-settings.json");
+    const code = runNew("saved-effort", {
+      resume: true,
+      stateDir,
+      launchSettingsPath: settingsPath,
+    });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
@@ -883,7 +1094,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       deriveWorktreePath(repoDir, "saved-effort"),
       "--effort",
       "max",
-      "[pipeline-slug: saved-effort]\nUse the /flow-pipeline skill in --resume mode for: saved-effort",
+      "--settings",
+      settingsPath,
     ]);
   });
 
@@ -907,7 +1119,12 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     );
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(false);
-    const code = runNew("suffixed-slug", { resume: true, stateDir });
+    const settingsPath = path.join(stateDir, "launch-settings.json");
+    const code = runNew("suffixed-slug", {
+      resume: true,
+      stateDir,
+      launchSettingsPath: settingsPath,
+    });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(command).toEqual([
@@ -916,7 +1133,8 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       "claude",
       "--add-dir",
       recordedWorktree,
-      "[pipeline-slug: suffixed-slug]\nUse the /flow-pipeline skill in --resume mode for: suffixed-slug",
+      "--settings",
+      settingsPath,
     ]);
     // Falls back to the derived bare-slug path only when no worktree recorded.
     expect(command).not.toContain(deriveWorktreePath(repoDir, "suffixed-slug"));
@@ -974,7 +1192,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
       } catch {
         phaseAtLaunch = null;
       }
-      return { ok: true, stderr: "" };
+      return { status: "started", stderr: "" };
     });
     const code = runNew("CSV export", {
       stateDir,
@@ -994,7 +1212,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     tmuxMock.createWindowVerified.mockImplementation(
       (_name, _cwd, _command, _seed, deps) => {
         consumedFn = deps?.consumed;
-        return { ok: true, stderr: "" };
+        return { status: "started", stderr: "" };
       },
     );
     const code = runNew("CSV export", {
@@ -1019,14 +1237,16 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     expect(consumedFn!()).toBe(true);
   });
 
-  it("fresh consume-timeout deletes the up-front state (no orphan under the inverted gate)", () => {
+  it("fresh launch 'failed' (dead pane) deletes the up-front state (no orphan under the inverted gate)", () => {
     // The launcher wrote nothing itself; runFresh wrote state(starting) up front.
-    // A consume timeout (createWindowVerified ok:false) must DELETE that file so
-    // no orphaned `phase=starting` pipeline survives.
+    // A 'failed' launch (dead pane) must DELETE that file so no orphaned
+    // `phase=starting` pipeline survives. (An ALIVE-but-slow timeout is
+    // 'launched-not-confirmed' and is NON-destructive — covered separately.)
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     tmuxMock.createWindowVerified.mockReturnValue({
-      ok: false,
-      stderr: "the seed prompt was never consumed (supervisor did not start)",
+      status: "failed",
+      stderr:
+        "tmux window created but claude died before the seed was confirmed consumed (pane not alive)",
     });
     const code = runNew("csv export", {
       stateDir,
@@ -1041,7 +1261,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
   it("STORY 1 (immediate-death): runFresh writes no state and exits non-zero when the pane is dead", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     tmuxMock.createWindowVerified.mockReturnValue({
-      ok: false,
+      status: "failed",
       stderr: "pane not alive after launch",
     });
     const code = runNew("csv export", {
@@ -1067,8 +1287,8 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     // successful attempt reaches the pre-persist Mode-2 re-check.
     freshWindowOk();
     tmuxMock.createWindowVerified
-      .mockReturnValueOnce({ ok: false, stderr: "transient" })
-      .mockReturnValueOnce({ ok: true, stderr: "" });
+      .mockReturnValueOnce({ status: "failed", stderr: "transient" })
+      .mockReturnValueOnce({ status: "started", stderr: "" });
     const code = runNew("csv export", {
       stateDir,
       cwd: repoDir,
@@ -1091,7 +1311,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     // which also kills any half-created window, so no surviving window either).
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     tmuxMock.createWindowVerified.mockReturnValue({
-      ok: false,
+      status: "failed",
       stderr: "pane not alive after launch",
     });
     const N = 20;
@@ -1124,7 +1344,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     // freshWindowOk() is NOT needed: runFresh returns before the Mode-2 re-check.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     tmuxMock.createWindowVerified.mockReturnValue({
-      ok: false,
+      status: "failed",
       stderr: "the seed prompt was never consumed (supervisor did not start)",
     });
     const code = runNew("csv export", {
@@ -1144,7 +1364,10 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     // windowExists re-check catches it: guard #1 false → proceed; re-check #2
     // false → vanished. No state, non-zero, the dedicated vanished error.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    tmuxMock.createWindowVerified.mockReturnValue({ ok: true, stderr: "" });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "started",
+      stderr: "",
+    });
     tmuxMock.windowExists
       .mockReset()
       .mockReturnValueOnce(false)
@@ -1169,10 +1392,10 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     freshWindowOk();
     tmuxMock.createWindowVerified
       .mockReturnValueOnce({
-        ok: false,
+        status: "failed",
         stderr: "the seed prompt was never consumed (supervisor did not start)",
       })
-      .mockReturnValueOnce({ ok: true, stderr: "" });
+      .mockReturnValueOnce({ status: "started", stderr: "" });
     const code = runNew("csv export", {
       stateDir,
       cwd: repoDir,
@@ -1218,7 +1441,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
           stateDir,
         );
         return {
-          ok: false,
+          status: "failed",
           stderr:
             "the seed prompt was never consumed (supervisor did not start)",
         };
@@ -1229,7 +1452,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
         // true (stale phase) → the launcher would falsely "succeed" without a
         // genuine attempt-2 consumption.
         consumedAtLaunch.push(deps!.consumed!());
-        return { ok: true, stderr: "" };
+        return { status: "started", stderr: "" };
       });
     const code = runNew("csv export", {
       stateDir,

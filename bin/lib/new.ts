@@ -12,6 +12,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { slugify } from "./slug";
 import { toDirSuffix } from "./worktree-slot";
@@ -21,6 +22,7 @@ import {
   windowExists,
   isPaneAlive,
   FLOW_SESSION,
+  type VerifiedLaunchResult,
 } from "./tmux";
 import {
   readState,
@@ -32,35 +34,60 @@ import {
 } from "./state";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
+import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
+import { FLOW_LAUNCH_SEM_DIR, FLOW_LAUNCH_SETTINGS_PATH } from "./paths";
 import { installBaseBranchGuard } from "./base-branch-guard";
 
 /**
- * Bounded retry budget for the verified window create. A single transient
+ * Bounded retry budget for the verified window launch. A single transient
  * launch failure (e.g. a momentary tmux/claude hiccup) should self-heal, but
  * the loop must terminate — an unbounded retry would hang `flow new` forever
- * against a genuinely broken `claude` install. Three attempts trades a brief
- * stall for self-healing without masking a persistent failure.
+ * against a genuinely broken `claude` install.
  */
 const WINDOW_CREATE_MAX_ATTEMPTS = 3;
-const WINDOW_CREATE_RETRY_MS = 150;
+
+/**
+ * Increasing backoff (ms) between verified-launch retries: 1s → 2s → 4s. The
+ * old flat 150ms landed all three retries inside the SAME degraded cold-start
+ * window under concurrent load, so all three failed together; an increasing
+ * schedule rides out a transient spike. Index `n-1` is the delay BEFORE
+ * attempt `n` (attempts are 0-based); clamped so a future MAX_ATTEMPTS bump
+ * never reads past the end.
+ */
+const WINDOW_CREATE_BACKOFF_MS = [1000, 2000, 4000];
+
+export function backoffMsForAttempt(attempt: number): number {
+  const idx = Math.min(
+    Math.max(0, attempt - 1),
+    WINDOW_CREATE_BACKOFF_MS.length - 1,
+  );
+  return WINDOW_CREATE_BACKOFF_MS[idx];
+}
 
 /**
  * Runs `launch` (a verified create or respawn) up to WINDOW_CREATE_MAX_ATTEMPTS
- * times with a short backoff between tries, returning the first `ok` result or
- * the last failure. Bounded so a genuinely broken `claude` can't hang the CLI;
- * a single transient launch failure self-heals on the next attempt. The verified
- * launcher already cleans up its own half-created window per attempt, so an
- * exhausted retry leaves nothing behind.
+ * times with an increasing backoff between tries, returning the first
+ * non-`failed` result (`started` / `launched-not-confirmed` are both success and
+ * short-circuit the loop) or the last failure. Only a `failed` status retries.
+ * `retrySleepMs` is the test seam: when 0 it disables real sleep entirely; when
+ * undefined the per-attempt backoff schedule applies. `sleep` is the injectable
+ * sleep fn (a spy in tests) so the schedule is assertable. The verified launcher
+ * cleans up its own half-created window on `failed`, so an exhausted retry leaves
+ * nothing behind.
  */
 function launchWithRetry(
-  launch: () => { ok: boolean; stderr: string },
-  retryMs: number = WINDOW_CREATE_RETRY_MS,
-): { ok: boolean; stderr: string } {
-  let last = { ok: false, stderr: "" };
+  launch: () => VerifiedLaunchResult,
+  retrySleepMs?: number,
+  sleep: (ms: number) => void = sleepSync,
+): VerifiedLaunchResult {
+  let last: VerifiedLaunchResult = { status: "failed", stderr: "" };
   for (let attempt = 0; attempt < WINDOW_CREATE_MAX_ATTEMPTS; attempt++) {
-    if (attempt > 0 && retryMs > 0) sleepSync(retryMs);
+    if (attempt > 0) {
+      const ms = retrySleepMs ?? backoffMsForAttempt(attempt);
+      if (ms > 0) sleep(ms);
+    }
     last = launch();
-    if (last.ok) return last;
+    if (last.status !== "failed") return last;
   }
   return last;
 }
@@ -93,11 +120,31 @@ export type NewOptions = {
    */
   effort?: EffortLevel;
   /**
-   * Backoff (ms) between bounded window-create retries. Test seam only —
-   * production uses the WINDOW_CREATE_RETRY_MS default; the orphan-repro
-   * harness passes 0 so its N>=20 loop doesn't accrue real sleep time.
+   * Backoff (ms) between bounded window-launch retries. Test seam only — when 0
+   * it disables real sleep entirely (the orphan-repro harness passes 0 so its
+   * N>=20 loop accrues no sleep); when undefined the increasing backoff schedule
+   * (WINDOW_CREATE_BACKOFF_MS) applies.
    */
   retrySleepMs?: number;
+  /**
+   * Injectable sleep fn for the retry backoff. Test seam only (a spy that
+   * asserts the 1s→2s→4s schedule without real sleeping); production uses the
+   * spawn-free `sleepSync` default.
+   */
+  retrySleep?: (ms: number) => void;
+  /**
+   * Acquire timeout (ms) for the host-wide launch-concurrency semaphore. Test
+   * seam only — production uses `withTestSemaphore`'s long default; the
+   * fail-open test passes a short value so an over-subscribed cap proceeds fast.
+   */
+  launchSemTimeoutMs?: number;
+  /**
+   * Path to the flow-scoped `claude --settings` file the launch argv references
+   * and `ensureLaunchSettings` writes. Test seam only — production uses
+   * FLOW_LAUNCH_SETTINGS_PATH; tests point it at a temp file to avoid touching
+   * the real ~/.flow and to assert the argv path.
+   */
+  launchSettingsPath?: string;
 };
 
 export function runNew(input: string, options: NewOptions = {}): number {
@@ -288,9 +335,11 @@ function runFresh(description: string, options: NewOptions): number {
   }
 
   const worktree = deriveWorktreePath(repo, slug);
+  const settingsPath = launchSettingsPathFor(options);
   const seed = flowPipelineSeed(description);
   const command =
-    options.command ?? defaultCommand(description, worktree, options.effort);
+    options.command ??
+    buildLaunchCommand(worktree, options.effort, settingsPath);
 
   // Persist-then-verify-then-delete-on-failure: write state(phase=starting)
   // BEFORE the verified launch so the supervisor has a file to advance (its
@@ -336,14 +385,24 @@ function runFresh(description: string, options: NewOptions): number {
     // kills its own half-created window on failure, so an exhausted retry leaves
     // no window behind; the delete-on-failure below removes the up-front state.
     return createWindowVerified(slug, repo, command, seed, {
+      // Marker-aware consumed(): the seed-ingested hook stamping `seedIngestedAt`
+      // confirms ingestion at launch time; absent the marker, fall back to the
+      // phase advancing past `starting`. (consumed() is only probed while the
+      // pane is alive, so "marker present" already implies a live pane.)
       consumed: () => {
         const s = readState(slug, options.stateDir);
-        return s != null && s.phase !== "starting";
+        if (s == null) return false;
+        if (s.seedIngestedAt != null) return true;
+        return s.phase !== "starting";
       },
+      onProgress: makeLaunchProgressWriter(),
     });
   };
-  const result = launchWithRetry(launch, options.retrySleepMs);
-  if (!result.ok) {
+  const result = withLaunchSlot(
+    () => launchWithRetry(launch, options.retrySleepMs, options.retrySleep),
+    options,
+  );
+  if (result.status === "failed") {
     deleteState(slug, options.stateDir);
     console.error(
       "flow new: claude exited immediately after launch — the tmux window did not stay up.",
@@ -374,7 +433,16 @@ function runFresh(description: string, options: NewOptions): number {
   // overwrites worktree + phase + pr at each transition from here.
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
-  console.log(dim(`flow new: created — attach with \`flow attach ${slug}\``));
+  if (result.status === "launched-not-confirmed") {
+    // Non-destructive timeout: the pane is alive, the supervisor just hasn't
+    // confirmed the seed within the short budget (its first phase write lands
+    // ~60s out). Leave it running; the lazy reaper backstops a true never-start.
+    console.error(
+      dim("flow new: launched; supervisor still starting — attach to verify"),
+    );
+  } else {
+    console.log(dim(`flow new: created — attach with \`flow attach ${slug}\``));
+  }
   return 0;
 }
 
@@ -427,37 +495,45 @@ function runResume(name: string, options: NewOptions): number {
   // the pipeline crashed before step 2). Either way the resumed session
   // re-pre-authorizes the worktree as an MCP workspace root.
   const worktree = state.worktree ?? deriveWorktreePath(repo, slug);
+  const settingsPath = launchSettingsPathFor(options);
   const seed = flowPipelineResumeSeed(slug);
   const command =
-    options.command ?? resumeCommand(slug, worktree, state.effort);
+    options.command ?? buildLaunchCommand(worktree, state.effort, settingsPath);
   // Verify the relaunched process stays up AND consumes the resume seed, same as
   // the fresh path — a bare respawn/create exit code only proves tmux forked the
-  // shell, and a claude idle at an empty input box passes a liveness probe.
-  // Without this, `--resume` reports a false "resumed" success over a window
-  // whose claude died on launch or never picked up the seed. The verified
-  // launcher owns seed delivery. Bounded retry so a transient hiccup self-heals.
+  // shell, and a claude idle at an empty input box passes a liveness probe. The
+  // verified launcher owns seed delivery. Bounded retry so a transient hiccup
+  // self-heals; the timeout is non-destructive (a live-but-slow resume is
+  // `launched-not-confirmed`, never respawn-killed).
   //
   // Resume consumption baseline: on resume the phase is already past `starting`,
-  // so consumption is "the resumed supervisor's first `flow-state-update` bumped
-  // `updatedAt` past this pre-respawn value", not a phase change. Re-read the
-  // baseline at the START of each attempt (inside the closure), not once before
-  // the loop: `launchWithRetry` reuses the closure, so an attempt that bumped
-  // `updatedAt` then died would otherwise satisfy the NEXT attempt's predicate
-  // immediately — skipping the resume-seed re-send and short-circuiting
-  // `pollUntilConsumed` to a false success. runResume never writes or deletes
-  // state, so this read is non-mutating; the window pre-existed the resume.
-  const launch = () => {
-    const baseline = readState(slug, options.stateDir)?.updatedAt;
-    const consumed = () => {
-      const s = readState(slug, options.stateDir);
-      return s != null && s.updatedAt !== baseline;
-    };
-    return exists
-      ? respawnWindowVerified(slug, repo, command, seed, { consumed })
-      : createWindowVerified(slug, repo, command, seed, { consumed });
+  // so consumption is "the seed-ingested marker is present OR the resumed
+  // supervisor bumped `updatedAt` past this pre-respawn value". The baseline is
+  // captured ONCE before the retry loop (not per-attempt): paired with the
+  // non-destructive timeout, a late `updatedAt` advance no longer respawn-kills a
+  // live session. ACCEPTED rare trade-off: a dead-then-retried resume whose prior
+  // dead attempt bumped `updatedAt` reads "consumed" over the fresh respawn — but
+  // that only means the supervisor DID start at some point, and resume-over-it is
+  // the user's intent. runResume never writes or deletes state, so the read is
+  // non-mutating; the window pre-existed the resume.
+  const baseline = readState(slug, options.stateDir)?.updatedAt;
+  const consumed = () => {
+    const s = readState(slug, options.stateDir);
+    if (s == null) return false;
+    if (s.seedIngestedAt != null) return true;
+    return s.updatedAt !== baseline;
   };
-  const result = launchWithRetry(launch, options.retrySleepMs);
-  if (!result.ok) {
+  const launch = () => {
+    const deps = { consumed, onProgress: makeLaunchProgressWriter() };
+    return exists
+      ? respawnWindowVerified(slug, repo, command, seed, deps)
+      : createWindowVerified(slug, repo, command, seed, deps);
+  };
+  const result = withLaunchSlot(
+    () => launchWithRetry(launch, options.retrySleepMs, options.retrySleep),
+    options,
+  );
+  if (result.status === "failed") {
     console.error(
       "flow new --resume: claude exited immediately after launch — the tmux window did not stay up.",
     );
@@ -472,7 +548,13 @@ function runResume(name: string, options: NewOptions): number {
   // first real transition is what updates state.json.
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
-  console.log(dim(`flow new: resumed — attach with \`flow attach ${slug}\``));
+  if (result.status === "launched-not-confirmed") {
+    console.error(
+      dim("flow new: launched; supervisor still starting — attach to verify"),
+    );
+  } else {
+    console.log(dim(`flow new: resumed — attach with \`flow attach ${slug}\``));
+  }
   return 0;
 }
 
@@ -512,8 +594,8 @@ export function deriveWorktreePath(repo: string, slug: string): string {
  */
 function launchArgv(
   worktree: string,
-  prompt: string,
-  effort?: EffortLevel,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
 ): string[] {
   // `env FLOW_PIPELINE=1` prefix: there is no env object on this launch path
   // (the spawned claude inherits the parent env via tmux new-window), so the
@@ -521,14 +603,61 @@ function launchArgv(
   // `/flow-research` detect they are running inside the supervisor and suppress
   // their standalone-only `claude -p` fallback tier — the no-nested-LLM
   // boundary the supervisor must never cross.
+  //
+  // No positional seed: the seed is delivered ONLY via send-keys (the verified
+  // launcher owns it), since claude does not auto-run a positional prompt — the
+  // old positional was dead weight that plausibly slowed the TUI cold-start.
+  // `--settings <flow-scoped file>` registers the UserPromptSubmit seed-ingested
+  // hook; it is ADDITIVE (the user's global settings still apply).
   const base = ["env", "FLOW_PIPELINE=1", "claude", "--add-dir", worktree];
-  return effort ? [...base, "--effort", effort, prompt] : [...base, prompt];
+  const withEffort = effort ? [...base, "--effort", effort] : base;
+  return [...withEffort, "--settings", settingsPath];
 }
 
-// The seed text is defined ONCE here and reused for both the hybrid positional
-// argv (the zero-cost fallback for claude versions that auto-run a positional
-// prompt) AND the send-keys delivery the verified launcher now owns, so the two
-// can never drift.
+/** Absolute path to the seed-ingested hook script, resolved relative to THIS
+ * module so it works from a worktree smoke test AND the global install (Bun
+ * resolves import.meta through symlinks to the canonical source file). */
+function hookScriptPath(): string {
+  const here =
+    (import.meta as { dir?: string }).dir ??
+    path.dirname(fileURLToPath(import.meta.url));
+  return path.join(here, "..", "flow-seed-ingested-hook.ts");
+}
+
+/**
+ * Idempotently writes the flow-scoped `claude --settings` file registering the
+ * UserPromptSubmit seed-ingested hook by absolute path. Writes ONLY this
+ * flow-owned file — NEVER the user's global ~/.claude/settings.json (the
+ * `--settings` flag is additive, so global settings still apply). Skips the
+ * write when the on-disk content already matches (no mtime churn).
+ */
+export function ensureLaunchSettings(
+  settingsPath: string = FLOW_LAUNCH_SETTINGS_PATH,
+): void {
+  const desired =
+    JSON.stringify(
+      {
+        hooks: {
+          UserPromptSubmit: [
+            { hooks: [{ type: "command", command: hookScriptPath() }] },
+          ],
+        },
+      },
+      null,
+      2,
+    ) + "\n";
+  try {
+    if (fs.readFileSync(settingsPath, "utf8") === desired) return;
+  } catch {
+    // absent / unreadable — fall through to write
+  }
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, desired);
+}
+
+// The seed text is defined ONCE in these helpers and delivered ONLY via
+// send-keys by the verified launcher (no positional argv copy), so there is no
+// second definition to drift from.
 function flowPipelineSeed(description: string): string {
   const slug = slugify(description);
   return `[pipeline-slug: ${slug}]\nUse the /flow-pipeline skill for: ${description}`;
@@ -538,25 +667,80 @@ function flowPipelineResumeSeed(slug: string): string {
   return `[pipeline-slug: ${slug}]\nUse the /flow-pipeline skill in --resume mode for: ${slug}`;
 }
 
-function defaultCommand(
-  description: string,
-  worktree: string,
-  effort?: EffortLevel,
-): string[] {
-  // The supervisor skill is invoked by the chat session itself, not by
-  // passing the slash command on the CLI. We launch claude with an initial
-  // prompt that tells the user (and the LLM, once active) what to do.
-  return launchArgv(worktree, flowPipelineSeed(description), effort);
+/**
+ * Resolves the flow-scoped `claude --settings` path: the explicit option, then
+ * a `FLOW_LAUNCH_SETTINGS_PATH` env override (tests redirect it off the real
+ * ~/.flow), then the default constant.
+ */
+function launchSettingsPathFor(options: NewOptions): string {
+  return (
+    options.launchSettingsPath ??
+    process.env.FLOW_LAUNCH_SETTINGS_PATH ??
+    FLOW_LAUNCH_SETTINGS_PATH
+  );
 }
 
-function resumeCommand(
-  slug: string,
+/**
+ * Builds the verified-launch argv, registering the seed-ingested hook in the
+ * flow-scoped settings file first (best-effort — a write hiccup degrades to no
+ * hook, and the lazy reaper still backstops orphan cleanup). The supervisor
+ * skill is invoked by the chat session itself; this argv just launches claude.
+ */
+function buildLaunchCommand(
   worktree: string,
-  effort?: EffortLevel,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
 ): string[] {
-  // The supervisor parses this prefix to detect resume mode and walk the
-  // decision tree in references/failure-recovery.md section (b).
-  return launchArgv(worktree, flowPipelineResumeSeed(slug), effort);
+  try {
+    ensureLaunchSettings(settingsPath);
+  } catch (err) {
+    process.stderr.write(
+      dim(
+        `flow new: could not write launch settings: ${err instanceof Error ? err.message : String(err)}\n`,
+      ),
+    );
+  }
+  return launchArgv(worktree, effort, settingsPath);
+}
+
+/**
+ * A dim/stderr progress writer for the residual launch wait, throttled to ~once
+ * per 3s so a wait is legible without spamming. NEVER writes stdout — the
+ * `flow:<slug>` first line is a machine-read contract token.
+ */
+function makeLaunchProgressWriter(): (elapsedMs: number) => void {
+  let lastBucket = 0;
+  return (elapsedMs: number) => {
+    const bucket = Math.floor(elapsedMs / 3000);
+    if (bucket <= lastBucket) return;
+    lastBucket = bucket;
+    process.stderr.write(
+      dim(
+        `flow new: waiting for supervisor to start (${Math.round(elapsedMs / 1000)}s)…\n`,
+      ),
+    );
+  };
+}
+
+/**
+ * Wraps the verified launch in the host-wide launch-concurrency semaphore so a
+ * burst of parallel `flow new` launches stops oversubscribing claude
+ * cold-starts. Fail-open (never blocks a launch): on acquire timeout the launch
+ * proceeds holding no slot. The sem dir honors a `FLOW_LAUNCH_SEM_DIR` env
+ * override (tests redirect it off the real ~/.flow); the cap is
+ * `resolveLaunchConcurrency`.
+ */
+function withLaunchSlot(
+  launch: () => VerifiedLaunchResult,
+  options: NewOptions,
+): VerifiedLaunchResult {
+  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? FLOW_LAUNCH_SEM_DIR;
+  const slots = resolveLaunchConcurrency(process.env);
+  const semOpts =
+    options.launchSemTimeoutMs !== undefined
+      ? { timeoutMs: options.launchSemTimeoutMs, pollMs: 5 }
+      : {};
+  return withTestSemaphore(semDir, slots, launch, semOpts).result;
 }
 
 // Duplicated from done.ts's confirm() rather than extracted to a shared

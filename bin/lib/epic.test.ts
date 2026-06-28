@@ -25,18 +25,24 @@ const tmuxMock = vi.hoisted(() => ({
       cwd: string,
       command: string[],
       seed?: string,
-      deps?: { consumed?: () => boolean },
-    ) => { ok: boolean; stderr: string }
-  >(() => ({ ok: true, stderr: "" })),
+      deps?: { consumed?: () => boolean; onProgress?: (ms: number) => void },
+    ) => {
+      status: "started" | "launched-not-confirmed" | "failed";
+      stderr: string;
+    }
+  >(() => ({ status: "started", stderr: "" })),
   respawnWindowVerified: vi.fn<
     (
       name: string,
       cwd: string,
       command: string[],
       seed?: string,
-      deps?: { consumed?: () => boolean },
-    ) => { ok: boolean; stderr: string }
-  >(() => ({ ok: true, stderr: "" })),
+      deps?: { consumed?: () => boolean; onProgress?: (ms: number) => void },
+    ) => {
+      status: "started" | "launched-not-confirmed" | "failed";
+      stderr: string;
+    }
+  >(() => ({ status: "started", stderr: "" })),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);
@@ -64,10 +70,10 @@ beforeEach(() => {
   tmuxMock.isPaneAlive.mockReset().mockReturnValue(false);
   tmuxMock.createWindowVerified
     .mockReset()
-    .mockReturnValue({ ok: true, stderr: "" });
+    .mockReturnValue({ status: "started", stderr: "" });
   tmuxMock.respawnWindowVerified
     .mockReset()
-    .mockReturnValue({ ok: true, stderr: "" });
+    .mockReturnValue({ status: "started", stderr: "" });
 });
 
 // runCreate probes windowExists twice now: the up-front "already exists" guard
@@ -140,18 +146,22 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(raw.phase).toBe("starting");
     expect(raw.slug).toBe("add-watchlist-feature");
 
-    // The seed prompt embeds the resolved literal EPIC_DIR (R1) so the
-    // spawned window never re-derives the path nor imports bin/lib.
-    const [, cwd, command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    // The seed (delivered via send-keys, the 4th arg — NOT a positional argv)
+    // embeds the resolved literal EPIC_DIR (R1) so the spawned window never
+    // re-derives the path nor imports bin/lib.
+    const [, cwd, command, seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(cwd).toBe(fs.realpathSync(repoDir));
-    const seed = command[command.length - 1];
     expect(seed).toContain(
       "Use the /epic-create skill for: add a watchlist feature",
     );
     expect(seed).toContain(".flow/epics/add-watchlist-feature");
-    // --add-dir <worktree> precedes the prompt (claude parses it as an option).
-    expect(command).toContain("--add-dir");
-    expect(command.indexOf("--add-dir")).toBeLessThan(command.length - 1);
+    // The argv carries --add-dir <worktree> and NO positional seed (length 3).
+    expect(command).toHaveLength(3);
+    expect(command[0]).toBe("claude");
+    expect(command[1]).toBe("--add-dir");
+    expect(command.some((a) => a.includes("Use the /epic-create skill"))).toBe(
+      false,
+    );
   });
 
   it("does NOT merge or launch any feature window (no respawn on a fresh create)", () => {
@@ -181,7 +191,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
   it("surfaces the tmux failure and writes no state when the verified create returns non-ok", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     tmuxMock.createWindowVerified.mockReturnValue({
-      ok: false,
+      status: "failed",
       stderr: "pane not alive after launch",
     });
     const code = runEpicCli(["create", "design the thing"], {
@@ -208,7 +218,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       } catch {
         phaseAtLaunch = null;
       }
-      return { ok: true, stderr: "" };
+      return { status: "started", stderr: "" };
     });
     const code = runEpicCli(["create", "design the thing"], {
       stateDir,
@@ -223,7 +233,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     // file runCreate wrote up front, so no orphaned `phase: starting` survives.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     tmuxMock.createWindowVerified.mockReturnValue({
-      ok: false,
+      status: "failed",
       stderr: "the seed prompt was never consumed (supervisor did not start)",
     });
     const code = runEpicCli(["create", "design the thing"], {
@@ -244,7 +254,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       (name, _cwd, _command, _seed, deps) => {
         launchedSlug = name;
         consumedFn = deps?.consumed;
-        return { ok: true, stderr: "" };
+        return { status: "started", stderr: "" };
       },
     );
     const code = runEpicCli(["create", "add a watchlist feature"], {
@@ -273,7 +283,10 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     // bounce). The pre-persist windowExists re-check catches it: guard #1 false →
     // proceed; re-check #2 false → vanished. No state, exit 2, the vanished error.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    tmuxMock.createWindowVerified.mockReturnValue({ ok: true, stderr: "" });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "started",
+      stderr: "",
+    });
     tmuxMock.windowExists
       .mockReset()
       .mockReturnValueOnce(false)
@@ -312,13 +325,19 @@ describe("runEpicCli create --resume", () => {
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
-    const [, cwd, command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
+    // The resume seed is the 4th arg (send-keys delivery), not the argv tail.
+    const [, cwd, command, seed] =
+      tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(cwd).toBe(repoDir);
-    const seed = command[command.length - 1];
     expect(seed).toContain(
       "Use the /epic-create skill in --resume mode for: crashed-epic",
     );
     expect(seed).toContain(".flow/epics/crashed-epic");
+    // The argv carries NO positional seed (just claude + --add-dir <worktree>).
+    expect(command).toHaveLength(3);
+    expect(command.some((a) => a.includes("Use the /epic-create skill"))).toBe(
+      false,
+    );
     expect(logs[0]).toBe("flow:crashed-epic");
   });
 
@@ -391,7 +410,7 @@ describe("runEpicCli create --resume", () => {
     tmuxMock.respawnWindowVerified.mockImplementation(
       (_name, _cwd, _command, _seed, deps) => {
         consumedFn = deps?.consumed;
-        return { ok: true, stderr: "" };
+        return { status: "started", stderr: "" };
       },
     );
     const code = runEpicCli(["create", "--resume", "resumed-epic"], {
@@ -421,7 +440,7 @@ describe("runEpicCli create --resume", () => {
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(false);
     tmuxMock.respawnWindowVerified.mockReturnValue({
-      ok: false,
+      status: "failed",
       stderr: "the seed prompt was never consumed (supervisor did not start)",
     });
     const code = runEpicCli(["create", "--resume", "resume-timeout-epic"], {

@@ -38,6 +38,7 @@ import {
   windowExists,
   isPaneAlive,
   FLOW_SESSION,
+  type VerifiedLaunchResult,
 } from "./tmux";
 import { readState, writeState, deleteState, nowIso } from "./state";
 import { sleepSync } from "./sleep";
@@ -46,20 +47,24 @@ import { dim } from "./color";
 /**
  * Bounded retry budget for the verified window create — mirrors new.ts. A
  * single transient launch failure self-heals; the loop terminates so a
- * genuinely broken `claude` can't hang the CLI.
+ * genuinely broken `claude` can't hang the CLI. (Epic intentionally keeps the
+ * flat short retry — the new.ts backoff/--settings/concurrency-cap hardening is
+ * scoped to `flow new` for now; see PR notes.)
  */
 const WINDOW_CREATE_MAX_ATTEMPTS = 3;
 const WINDOW_CREATE_RETRY_MS = 150;
 
 function launchWithRetry(
-  launch: () => { ok: boolean; stderr: string },
+  launch: () => VerifiedLaunchResult,
   retryMs: number = WINDOW_CREATE_RETRY_MS,
-): { ok: boolean; stderr: string } {
-  let last = { ok: false, stderr: "" };
+): VerifiedLaunchResult {
+  let last: VerifiedLaunchResult = { status: "failed", stderr: "" };
   for (let attempt = 0; attempt < WINDOW_CREATE_MAX_ATTEMPTS; attempt++) {
     if (attempt > 0 && retryMs > 0) sleepSync(retryMs);
     last = launch();
-    if (last.ok) return last;
+    // `started` and `launched-not-confirmed` are both success (never kill/respawn
+    // a live-but-slow pane); only `failed` (dead pane) is retryable.
+    if (last.status !== "failed") return last;
   }
   return last;
 }
@@ -186,7 +191,7 @@ PR → review checkpoint), and writes initial epic state under
   // in a consumer worktree without bin/lib) consumes the literal, never an import.
   const epicDir = epicDirRelative(slug);
   const seed = epicCreateSeed(prompt, epicDir);
-  const command = options.command ?? createCommand(prompt, worktree, epicDir);
+  const command = options.command ?? createCommand(worktree);
 
   // Persist-then-verify-then-delete-on-failure (mirrors new.ts runFresh): write
   // epic state(phase=starting) BEFORE the verified launch so the /epic-create
@@ -228,7 +233,7 @@ PR → review checkpoint), and writes initial epic state under
     });
   };
   const result = launchWithRetry(launch, options.retrySleepMs);
-  if (!result.ok) {
+  if (result.status === "failed") {
     deleteState(slug, options.stateDir);
     console.error(
       "flow epic create: claude exited immediately after launch — the tmux window did not stay up.",
@@ -316,7 +321,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // window never re-derives the path nor imports bin/lib.
   const epicDir = epicDirRelative(slug);
   const seed = epicResumeSeed(slug, epicDir);
-  const command = options.command ?? resumeCommand(slug, worktree, epicDir);
+  const command = options.command ?? resumeCommand(worktree);
   // Resume consumption baseline (mirrors new.ts runResume): on resume the phase
   // is already past `starting` (`epic-designing`), so consumption is "the
   // resumed supervisor bumped `updatedAt` past this pre-respawn value". Re-read
@@ -337,7 +342,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
       : createWindowVerified(slug, repo, command, seed, { consumed });
   };
   const result = launchWithRetry(launch, options.retrySleepMs);
-  if (!result.ok) {
+  if (result.status === "failed") {
     console.error(
       "flow epic create --resume: claude exited immediately after launch — the tmux window did not stay up.",
     );
@@ -358,20 +363,21 @@ function runEpicResume(name: string, options: EpicOptions): number {
 }
 
 /**
- * Prepend `--add-dir <worktree>` (same rationale as new.ts's launchArgv: the
- * chrome-devtools MCP workspace-root pre-authorization) and append the prompt.
+ * Just `--add-dir <worktree>` (same rationale as new.ts's launchArgv: the
+ * chrome-devtools MCP workspace-root pre-authorization). NO positional seed —
+ * the seed is delivered ONLY via send-keys by the verified launcher (claude
+ * does not auto-run a positional prompt), mirroring new.ts's launchArgv.
  */
-function launchArgv(worktree: string, prompt: string): string[] {
-  return ["claude", "--add-dir", worktree, prompt];
+function launchArgv(worktree: string): string[] {
+  return ["claude", "--add-dir", worktree];
 }
 
-// The seed text is defined ONCE in these helpers and reused for both the
-// positional argv (the zero-cost fallback for claude builds that auto-run a
-// positional prompt) AND the send-keys delivery createWindowVerified now owns
-// (#355), so the two can never drift — mirrors new.ts's flowPipelineSeed. The
-// literal EPIC_DIR is embedded (R1) so the /epic-create supervisor + the MODE:
-// epic designer consume it directly rather than re-deriving the path via a
-// bin/lib import they can't reach in a consumer worktree.
+// The seed text is defined ONCE in these helpers and delivered ONLY via
+// send-keys by the verified launcher (no positional argv copy), so there is no
+// second definition to drift from. The literal EPIC_DIR is embedded (R1) so the
+// /epic-create supervisor + the MODE: epic designer consume it directly rather
+// than re-deriving the path via a bin/lib import they can't reach in a consumer
+// worktree.
 function epicCreateSeed(prompt: string, epicDir: string): string {
   return `Use the /epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}`;
 }
@@ -382,20 +388,12 @@ function epicResumeSeed(slug: string, epicDir: string): string {
   return `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
 }
 
-function createCommand(
-  prompt: string,
-  worktree: string,
-  epicDir: string,
-): string[] {
-  return launchArgv(worktree, epicCreateSeed(prompt, epicDir));
+function createCommand(worktree: string): string[] {
+  return launchArgv(worktree);
 }
 
-function resumeCommand(
-  slug: string,
-  worktree: string,
-  epicDir: string,
-): string[] {
-  return launchArgv(worktree, epicResumeSeed(slug, epicDir));
+function resumeCommand(worktree: string): string[] {
+  return launchArgv(worktree);
 }
 
 function resolveRepoRoot(cwd: string): string | null {

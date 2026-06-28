@@ -328,7 +328,7 @@ describe(createWindowVerified, () => {
   const SEED = "Use the /flow-pipeline skill for: csv export";
   const budget = { readyAttempts: 3, consumeAttempts: 3 };
 
-  it("Case A: create ok but the pane never becomes ready → returns ok:false AND kills the half-created window", () => {
+  it("Case A: create ok but the pane never becomes ready → status 'failed' AND kills the half-created window", () => {
     // DEAD case: isAlive false short-circuits pollUntilReady before readPane, so
     // no readPane/consumed seam is reached.
     const kill = vi.fn(() => true);
@@ -346,13 +346,13 @@ describe(createWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result.ok).toBe(false);
+    expect(result.status).toBe("failed");
     expect(result.stderr).toMatch(/never became ready|pane not alive/);
     expect(kill).toHaveBeenCalledTimes(1);
     expect(kill).toHaveBeenCalledWith("csv-export", "flow");
   });
 
-  it("Case B: create ok, pane ready (non-empty), seed delivered + consumed → returns ok:true and never kills", () => {
+  it("Case B: create ok, pane ready (non-empty), seed delivered + consumed → status 'started' and never kills", () => {
     const kill = vi.fn(() => true);
     const { sendKeys, consumed } = makeConsumedSeam();
     const result = createWindowVerified(
@@ -371,11 +371,11 @@ describe(createWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(result).toEqual({ status: "started", stderr: "" });
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it("propagates a failed create verbatim without probing or killing", () => {
+  it("propagates a failed create as status 'failed' without probing or killing", () => {
     const isAlive = vi.fn(() => true);
     const kill = vi.fn(() => true);
     const consumed = vi.fn(() => false);
@@ -393,18 +393,18 @@ describe(createWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result).toEqual({ ok: false, stderr: "index 0 in use" });
+    expect(result).toEqual({ status: "failed", stderr: "index 0 in use" });
     expect(isAlive).not.toHaveBeenCalled();
     expect(consumed).not.toHaveBeenCalled();
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it("catches the alive-then-dies race: alive on the first probe but dead at the end → ok:false", () => {
+  it("catches the alive-then-dies race: alive on the first probe but dead at the end → status 'failed'", () => {
     // The pane is alive for the first 2 probes then dies. pollUntilReady
     // requires READY_TAIL_PROBES (3) consecutive alive probes after seeing
     // ready, so the death on probe 2 resets tailCount before it reaches 3 —
     // all remaining probes see dead, and pollUntilReady returns false →
-    // kill + ok:false.
+    // kill + status 'failed'.
     const kill = vi.fn(() => true);
     let probe = 0;
     const result = createWindowVerified(
@@ -422,7 +422,7 @@ describe(createWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result.ok).toBe(false);
+    expect(result.status).toBe("failed");
     expect(kill).toHaveBeenCalledTimes(1);
   });
 
@@ -448,7 +448,7 @@ describe(createWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(result).toEqual({ status: "started", stderr: "" });
     expect(sendKeys).toHaveBeenCalledTimes(2);
     expect(sendKeys.mock.calls[0]).toEqual(["csv-export", SEED, true, "flow"]);
     expect(sendKeys.mock.calls[1]).toEqual([
@@ -460,10 +460,10 @@ describe(createWindowVerified, () => {
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it("double-submit guard: consumed() already true at ready-time skips send-keys (positional auto-ran)", () => {
-    // The positional prompt auto-ran the seed, so the supervisor already advanced
-    // the state-file phase: consumed() is true from the start. The guard skips
-    // both send-keys calls but the consumption poll still confirms success.
+  it("vestigial guard: consumed() already true at ready-time skips send-keys (marker/baseline pre-satisfied)", () => {
+    // The seed-ingested marker (or resume baseline) is already satisfied, so
+    // consumed() is true from the start. The vestigial guard skips both
+    // send-keys calls but the consumption poll still confirms success.
     const sendKeys = vi.fn(() => ({ ok: true, stderr: "" }));
     const result = createWindowVerified(
       "csv-export",
@@ -481,14 +481,15 @@ describe(createWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(result).toEqual({ status: "started", stderr: "" });
     expect(sendKeys).toHaveBeenCalledTimes(0);
   });
 
-  it("consumption never reached (Mode 1) → ok:false AND kills the window", () => {
-    // The pane is ready and stays alive but the supervisor never advances the
-    // phase past `starting`: consumed() stays false → pollUntilConsumed never
-    // latches → ok:false, and the create path kills.
+  it("short-budget consume-timeout with an ALIVE pane → 'launched-not-confirmed' and NEVER kills (non-destructive)", () => {
+    // The KEY new behaviour: the pane is ready and stays alive but the supervisor
+    // never advances the phase within the short consume budget (its first phase
+    // write lands ~60s out). The timeout is NON-DESTRUCTIVE: status
+    // 'launched-not-confirmed', and the window is NEVER killed.
     const kill = vi.fn(() => true);
     const result = createWindowVerified(
       "csv-export",
@@ -506,24 +507,19 @@ describe(createWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result.ok).toBe(false);
-    expect(result.stderr).toMatch(/never consumed/);
-    expect(kill).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("launched-not-confirmed");
+    expect(kill).not.toHaveBeenCalled();
   });
 
-  it("budget-exhausted with tail incomplete (everConsumed=true, aliveAtEnd=true) → ok:true", () => {
-    // Exercises the `return everConsumed && aliveAtEnd` fallback at the end of
+  it("budget-exhausted with tail incomplete (everConsumed=true, aliveAtEnd=true) → status 'started'", () => {
+    // Exercises the `if (everConsumed) return "started"` fallback at the end of
     // pollUntilConsumed. With a 3-attempt consume budget and consumption first
     // observed on attempt index 1, only 2 tail probes fit before the budget
-    // exhausts (CONSUME_TAIL_PROBES = 3 requires 3), so the early `return true`
-    // never fires — the fallback yields true because everConsumed=true and
-    // aliveAtEnd=true.
+    // exhausts (CONSUME_TAIL_PROBES = 3 requires 3), so the early `return
+    // "started"` never fires — the fallback yields started because
+    // everConsumed=true and aliveAtEnd=true.
     const kill = vi.fn(() => true);
     const sendKeys = vi.fn(() => ({ ok: true, stderr: "" }));
-    // consumed() is read once at the double-submit guard (false → seed is sent)
-    // and once per consume attempt until it latches: false on guard + attempt 0,
-    // true from attempt 1 on, so consumption latches with only 2 tail probes left
-    // in the 3-attempt budget.
     let consumeProbe = 0;
     const consumed = () => consumeProbe++ >= 2;
     const result = createWindowVerified(
@@ -542,17 +538,15 @@ describe(createWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(result).toEqual({ status: "started", stderr: "" });
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it("consume-then-die (Mode 3) → ok:false AND kills the window", () => {
+  it("consume-then-die (Mode 3) → status 'failed' AND kills the window", () => {
     // The pane becomes ready, the seed is delivered + consumed (phase advanced),
     // then claude dies before the end of the consume budget. Consumption LATCHES
-    // (monotonic) but the FINAL liveness reading is false, so the verdict is
-    // false and the create path kills. consumed() flips true on submit; isAlive
-    // stays true through the whole ready poll + guard, then reports dead after
-    // exactly the first consume probe (everConsumed=true, aliveAtEnd=false).
+    // (monotonic) but the FINAL liveness reading is false → status 'failed' and
+    // the create path kills.
     const kill = vi.fn(() => true);
     const { sendKeys, consumed } = makeConsumedSeam();
     let aliveAfterConsumed = 1;
@@ -576,8 +570,88 @@ describe(createWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result.ok).toBe(false);
+    expect(result.status).toBe("failed");
     expect(kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("dead pane at consume-timeout (ready passed, then dead, never consumed) → status 'failed' AND kills", () => {
+    // Readiness passes (alive for the 3 tail probes), then the pane dies during
+    // the consume phase before ever consuming → !everConsumed && !aliveAtEnd →
+    // 'failed', and the create path still kills the half-created window.
+    const kill = vi.fn(() => true);
+    let probe = 0;
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => probe++ < 3, // 3 alive (readiness), then dead (consume)
+        kill,
+        sleep: noopSleep,
+        readPane: () => READY_CAPTURE,
+        consumed: () => false,
+        sendKeys: vi.fn(() => ({ ok: true, stderr: "" })),
+        ...budget,
+      },
+    );
+    expect(result.status).toBe("failed");
+    expect(kill).toHaveBeenCalledTimes(1);
+  });
+
+  it("onProgress fires once per interval across a multi-interval consume wait", () => {
+    // readyAttempts:1 means readiness returns after a single attempt (no
+    // inter-probe wait), so every onProgress call comes from the consume loop —
+    // one per interval after attempt 0, with monotonically increasing elapsedMs.
+    const onProgress = vi.fn();
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill: vi.fn(() => true),
+        sleep: noopSleep,
+        readPane: () => READY_CAPTURE,
+        consumed: () => false, // never consumed → rides the whole short budget
+        sendKeys: vi.fn(() => ({ ok: true, stderr: "" })),
+        onProgress,
+        readyAttempts: 1,
+        consumeAttempts: 4,
+      },
+    );
+    expect(result.status).toBe("launched-not-confirmed");
+    // 4 consume attempts → 3 inter-interval progress emissions (300/600/900ms).
+    expect(onProgress.mock.calls).toEqual([[300], [600], [900]]);
+  });
+
+  it("widened ready budget rides out a late draw (empty captures first, then drawn) → status 'started'", () => {
+    // The pane is alive but draws nothing for the first two probes, then renders.
+    // The wide readiness budget rides that out and readiness passes without
+    // failing the launch; consumption then latches → started.
+    const { sendKeys, consumed } = makeConsumedSeam();
+    let draws = 0;
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      SEED,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill: vi.fn(() => true),
+        sleep: noopSleep,
+        readPane: () => (draws++ < 2 ? "" : READY_CAPTURE), // late draw
+        consumed,
+        sendKeys,
+        readyAttempts: 10,
+        consumeAttempts: 5,
+      },
+    );
+    expect(result).toEqual({ status: "started", stderr: "" });
   });
 
   it("happy path early-exits shortly after consumption latches instead of running the full consume budget", () => {
@@ -609,7 +683,7 @@ describe(createWindowVerified, () => {
         consumeAttempts: 500,
       },
     );
-    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(result).toEqual({ status: "started", stderr: "" });
     // 1 ready probe + 1 latch probe + a short alive-confirm window — a handful,
     // not the injected 500-attempt budget.
     expect(aliveProbes).toBeLessThan(20);
@@ -631,7 +705,7 @@ describe(respawnWindowVerified, () => {
   const SEED = "Use the /flow-pipeline skill in --resume mode for: csv-export";
   const budget = { readyAttempts: 3, consumeAttempts: 3 };
 
-  it("respawn ok, pane ready, seed delivered + consumed → returns ok:true", () => {
+  it("respawn ok, pane ready, seed delivered + consumed → status 'started'", () => {
     const { sendKeys, consumed } = makeConsumedSeam();
     const result = respawnWindowVerified(
       "csv-export",
@@ -648,12 +722,12 @@ describe(respawnWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(result).toEqual({ status: "started", stderr: "" });
   });
 
-  it("respawn ok but the pane never becomes ready → ok:false AND does NOT kill the window (the create-vs-respawn asymmetry)", () => {
-    // The single behavioral difference from createWindowVerified: a verification
-    // failure on resume yields ok:false but leaves the (pre-existing) window
+  it("respawn ok but the pane never becomes ready → status 'failed' AND does NOT kill the window (the create-vs-respawn asymmetry)", () => {
+    // The behavioural difference from createWindowVerified: a verification
+    // failure on resume yields 'failed' but leaves the (pre-existing) window
     // intact. A kill spy is threaded through a cast so that even a future
     // re-addition of a kill seam to this path would trip this assertion.
     const kill = vi.fn(() => true);
@@ -671,12 +745,12 @@ describe(respawnWindowVerified, () => {
         kill,
       } as Parameters<typeof respawnWindowVerified>[4],
     );
-    expect(result.ok).toBe(false);
+    expect(result.status).toBe("failed");
     expect(result.stderr).toMatch(/never became ready|pane not alive/);
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it("propagates a failed respawn verbatim without probing the pane", () => {
+  it("propagates a failed respawn as status 'failed' without probing the pane", () => {
     const isAlive = vi.fn(() => true);
     const consumed = vi.fn(() => false);
     const result = respawnWindowVerified(
@@ -696,14 +770,14 @@ describe(respawnWindowVerified, () => {
       },
     );
     expect(result).toEqual({
-      ok: false,
+      status: "failed",
       stderr: "window not found for slug 'csv-export'",
     });
     expect(isAlive).not.toHaveBeenCalled();
     expect(consumed).not.toHaveBeenCalled();
   });
 
-  it("catches the alive-then-dies race: alive on the first probe but dead at the end → ok:false", () => {
+  it("catches the alive-then-dies race: alive on the first probe but dead at the end → status 'failed'", () => {
     let probe = 0;
     const result = respawnWindowVerified(
       "csv-export",
@@ -719,10 +793,10 @@ describe(respawnWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result.ok).toBe(false);
+    expect(result.status).toBe("failed");
   });
 
-  it("double-submit guard: consumed() already true at ready-time skips send-keys (positional auto-ran)", () => {
+  it("vestigial guard: consumed() already true at ready-time skips send-keys (marker/baseline pre-satisfied)", () => {
     const sendKeys = vi.fn(() => ({ ok: true, stderr: "" }));
     const result = respawnWindowVerified(
       "csv-export",
@@ -739,22 +813,23 @@ describe(respawnWindowVerified, () => {
         ...budget,
       },
     );
-    expect(result).toEqual({ ok: true, stderr: "" });
+    expect(result).toEqual({ status: "started", stderr: "" });
     expect(sendKeys).toHaveBeenCalledTimes(0);
   });
 
-  it("consumption never reached (Mode 1) → ok:false and does NOT kill the window", () => {
-    // Ready and alive throughout, but the supervisor never advances the phase →
-    // consumed() stays false → pollUntilConsumed never latches → ok:false. The
-    // respawn path never kills (cast-threaded kill spy locks the asymmetry).
+  it("short-budget consume-timeout with an ALIVE pane → 'launched-not-confirmed', respawn called exactly once, NEVER kills", () => {
+    // Story 4: ready + alive but never consumed within the short budget →
+    // non-destructive success. The respawn seam fires exactly once (no
+    // re-respawn) and the cast-threaded kill spy never fires.
     const kill = vi.fn(() => true);
+    const respawn = vi.fn(() => ({ ok: true, stderr: "" }));
     const result = respawnWindowVerified(
       "csv-export",
       "/repo",
       ["claude", "x"],
       SEED,
       {
-        respawn: () => ({ ok: true, stderr: "" }),
+        respawn,
         isAlive: () => true,
         sleep: noopSleep,
         readPane: () => READY_CAPTURE, // ready but never consumed
@@ -764,15 +839,15 @@ describe(respawnWindowVerified, () => {
         kill,
       } as Parameters<typeof respawnWindowVerified>[4],
     );
-    expect(result.ok).toBe(false);
-    expect(result.stderr).toMatch(/never consumed/);
+    expect(result.status).toBe("launched-not-confirmed");
+    expect(respawn).toHaveBeenCalledTimes(1);
     expect(kill).not.toHaveBeenCalled();
   });
 
-  it("consume-then-die (Mode 3) → ok:false and does NOT kill the window", () => {
+  it("consume-then-die (Mode 3) → status 'failed' and does NOT kill the window", () => {
     // The pane becomes ready, the seed is delivered + consumed, then claude dies
     // before the end of the consume budget. Consumption LATCHES (monotonic) but
-    // the FINAL liveness reading is false, so the verdict is false. Unlike the
+    // the FINAL liveness reading is false, so the verdict is 'failed'. Unlike the
     // create path, the window is NOT killed — it pre-existed the resume
     // (cast-threaded kill spy locks the no-kill invariant).
     const kill = vi.fn(() => true);
@@ -800,7 +875,7 @@ describe(respawnWindowVerified, () => {
         kill,
       } as Parameters<typeof respawnWindowVerified>[4],
     );
-    expect(result.ok).toBe(false);
+    expect(result.status).toBe("failed");
     expect(kill).not.toHaveBeenCalled();
   });
 });

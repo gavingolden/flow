@@ -234,41 +234,58 @@ export function createWindow(
  * Ready + consumption poll budgets. The seed is delivered by send-keys only
  * after the pane is confirmed READY — a STRING-FREE check: the pane is alive and
  * `capture-pane` is non-empty (claude has drawn *something*), with no TUI
- * substring match. Success is then gated on confirmed CONSUMPTION via the
- * injected `consumed` predicate, which `new.ts` / `epic.ts` build from the
- * `~/.flow/state/<slug>.json` signal: the supervisor advanced the phase past
- * `starting` (its first `flow-state-update --phase triaging`). That state-file
- * transition is version-independent — no `capture-pane` text scraping — so a
- * future Claude Code TUI change can no longer brick the verb (the version
- * coupling PR #355 flagged). These budgets are deliberately long so a slow
- * cold-start is not killed as a false orphan AND a multi-second death (Mode 3)
- * is still caught. On the NEVER-consumed path we keep polling across the whole
- * budget and require alive-at-the-end; on the happy path `pollUntilConsumed`
- * early-exits once consumption latches (running only the short CONSUME_TAIL_PROBES
- * confirmation tail), so the large consume budget is a timeout ceiling, not a
- * fixed per-launch runtime. The consume budget is longer
- * than the readiness budget because the phase-advance signal lands LATER than a
- * first glyph would: the supervisor must cold-start, load `/flow-pipeline`,
- * rename the window, then make its first bash call. ~60s carries a margin over a
- * realistic cold start; re-validate against a live dogfood if cold-start timing
- * changes.
+ * substring match. Readiness IS the launch-time liveness verification (it still
+ * catches a claude that died on launch), so its budget is WIDE (~30s) to ride
+ * out a slow cold-start under concurrent load without failing the launch.
+ *
+ * Consumption is then probed on a deliberately SHORT (~5s) fast-exit budget via
+ * the injected `consumed` predicate, which `new.ts` / `epic.ts` build from the
+ * `~/.flow/state/<slug>.json` signal (the seed-ingested marker, or the
+ * supervisor advancing the phase / bumping `updatedAt`). On a healthy fast
+ * supervisor consumption latches inside the short budget → `started`. When the
+ * budget elapses but the pane is still ALIVE the timeout is NON-DESTRUCTIVE →
+ * `launched-not-confirmed` (no kill, no respawn): the supervisor's first phase
+ * write intrinsically lands ~60s out, so this is the common, expected outcome,
+ * and the lazy orphan reaper (`reap-orphans.ts` via `flow ls`) is the
+ * eventual-consistency backstop. Only a genuinely DEAD pane is `failed`.
  */
-const READY_POLL_ATTEMPTS = 60; // ~18s to a non-empty pane on a cold launch
+const READY_POLL_ATTEMPTS = 100; // ~30s to a non-empty pane on a cold launch under load
 const READY_POLL_INTERVAL_MS = 300;
-const CONSUME_POLL_ATTEMPTS = 200; // ~60s ceiling from submit to the phase advancing past `starting`
+const CONSUME_POLL_ATTEMPTS = 17; // ~5s short fast-exit consume budget (non-destructive on timeout)
 const CONSUME_POLL_INTERVAL_MS = 300;
+
+/**
+ * Result of a verified launch (`createWindowVerified` / `respawnWindowVerified`).
+ * Three outcomes drive distinct caller behaviour:
+ *   - `started`                — seed confirmed consumed within the short budget,
+ *                                pane alive. The strong success.
+ *   - `launched-not-confirmed` — short budget elapsed, pane STILL ALIVE. A
+ *                                NON-DESTRUCTIVE success: never killed/respawned;
+ *                                the caller exits 0 with the "still starting"
+ *                                message and the reaper backstops cleanup.
+ *   - `failed`                 — pane dead (or create/respawn errored). The only
+ *                                outcome that triggers create's kill and counts
+ *                                as a retryable `launchWithRetry` miss.
+ */
+export type VerifiedLaunchStatus =
+  | "started"
+  | "launched-not-confirmed"
+  | "failed";
+export type VerifiedLaunchResult = {
+  status: VerifiedLaunchStatus;
+  stderr: string;
+};
 /**
  * Confirmation tail: number of consecutive alive probes required AFTER the
  * ready/consumed condition is first met before returning early. The tail is
  * what catches the alive-then-dies race — if the pane dies during those N
  * probes we reset and keep polling. N=3 (3 × 300ms = 900ms) is chosen so
  * the existing "alive for exactly 2 probes then dies" regression test still
- * fails (tailCount reaches 2 < 3, the death is detected, returns false) while
- * a healthy cold-start exits early after just a handful of probes instead of
- * burning the full budget. This is the single early-exit mechanism — once
- * consumption latches, `pollUntilConsumed` runs only this short tail rather
- * than holding the full ~60s ceiling, so the budget is a never-consumed
- * timeout, not a fixed per-launch runtime.
+ * fails (tailCount reaches 2 < 3, the death is detected) while a healthy
+ * cold-start exits early after just a handful of probes instead of burning the
+ * full budget. This is the single early-exit mechanism — once consumption
+ * latches, `pollUntilConsumed` runs only this short tail rather than holding
+ * the full (already short ~5s) consume budget.
  */
 const READY_TAIL_PROBES = 3;
 const CONSUME_TAIL_PROBES = 3;
@@ -342,11 +359,17 @@ function pollUntilReady(
   readPane: () => string,
   sleep: (ms: number) => void,
   attempts: number = READY_POLL_ATTEMPTS,
+  onProgress?: (elapsedMs: number) => void,
 ): boolean {
   let ready = false;
   let tailCount = 0;
+  let elapsedMs = 0;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) sleep(READY_POLL_INTERVAL_MS);
+    if (attempt > 0) {
+      sleep(READY_POLL_INTERVAL_MS);
+      elapsedMs += READY_POLL_INTERVAL_MS;
+      onProgress?.(elapsedMs);
+    }
     if (!isAlive()) {
       ready = false;
       tailCount = 0;
@@ -361,43 +384,57 @@ function pollUntilReady(
 }
 
 /**
- * Polls the injected `consumed` predicate until the seed is confirmed consumed
- * (the supervisor advanced the state-file phase past `starting`) AND the pane is
- * still alive. Consumption is LATCHED (monotonic positive evidence — once the
- * phase has advanced it cannot un-advance). Once consumed, requires
- * CONSUME_TAIL_PROBES more consecutive alive probes before returning true — an
- * early exit that still catches the consume-then-die (Mode 3) race, so a healthy
- * launch returns in seconds rather than blocking the whole ~60s budget. A death
- * detected mid-tail returns false immediately (fail-fast: a dead pane can't
- * recover). A never-consumed pane (Mode 1) exhausts the budget and returns
- * false. The `attempts` budget is injectable so unit tests run a tiny budget
+ * Polls the injected `consumed` predicate on the SHORT fast-exit budget and
+ * returns one of three outcomes (see `VerifiedLaunchResult`):
+ *   - `started`                — consumption latched (+ CONSUME_TAIL_PROBES
+ *                                consecutive alive probes), or latched near the
+ *                                end of the budget with the pane still alive.
+ *   - `launched-not-confirmed` — budget exhausted, never consumed, but the pane
+ *                                is STILL ALIVE. The non-destructive timeout.
+ *   - `failed`                 — the pane is DEAD (consume-then-die Mode 3, or
+ *                                ready-then-died-before-consuming): fail fast,
+ *                                the only outcome that warrants a kill.
+ * Consumption is LATCHED (monotonic positive evidence). `aliveAtEnd` tracks the
+ * last liveness reading; because a dead pane after consumption fail-fasts to
+ * `failed`, normal budget exhaustion with `everConsumed` implies the pane is
+ * alive. The `attempts` budget + `onProgress` seam are injectable so unit tests
+ * run a tiny budget instantly and assert progress emission.
  */
 function pollUntilConsumed(
   isAlive: () => boolean,
   consumed: () => boolean,
   sleep: (ms: number) => void,
   attempts: number = CONSUME_POLL_ATTEMPTS,
-): boolean {
+  onProgress?: (elapsedMs: number) => void,
+): VerifiedLaunchStatus {
   let everConsumed = false;
   let aliveAtEnd = false;
   let tailCount = 0;
+  let elapsedMs = 0;
   for (let attempt = 0; attempt < attempts; attempt++) {
-    if (attempt > 0) sleep(CONSUME_POLL_INTERVAL_MS);
+    if (attempt > 0) {
+      sleep(CONSUME_POLL_INTERVAL_MS);
+      elapsedMs += CONSUME_POLL_INTERVAL_MS;
+      onProgress?.(elapsedMs);
+    }
     aliveAtEnd = isAlive();
     if (!aliveAtEnd) {
       // Fail fast on a consume-then-die (Mode 3): a dead pane can't recover.
-      if (everConsumed) return false;
+      if (everConsumed) return "failed";
       continue;
     }
     if (!everConsumed && consumed()) {
       everConsumed = true;
     }
     if (everConsumed) {
-      if (++tailCount >= CONSUME_TAIL_PROBES) return true;
+      if (++tailCount >= CONSUME_TAIL_PROBES) return "started";
     }
   }
-  // Budget exhausted: consumed near the end (tail incomplete) or never consumed.
-  return everConsumed && aliveAtEnd;
+  // Budget exhausted. Consumed near the end (tail incomplete) + alive → started.
+  // Never consumed but alive → the non-destructive launched-not-confirmed.
+  // Dead at the end (never consumed) → failed.
+  if (everConsumed) return "started";
+  return aliveAtEnd ? "launched-not-confirmed" : "failed";
 }
 
 export type CreateWindowVerifiedDeps = {
@@ -451,6 +488,13 @@ export type CreateWindowVerifiedDeps = {
   readyAttempts?: number;
   consumeAttempts?: number;
   /**
+   * Progress seam, invoked at most once per poll interval during the readiness
+   * and consumption waits with the elapsed ms for THAT phase. `new.ts` wires a
+   * writer that emits dim stderr progress so a launch is never a silent hang;
+   * tests inject a spy. Never writes stdout (the `flow:<slug>` contract token).
+   */
+  onProgress?: (elapsedMs: number) => void;
+  /**
    * send-keys seam. Defaults to the real sendKeysBySlug. `literal` selects
    * `-l --` literal text vs a key name (e.g. "Enter"). Tests inject a spy to
    * assert delivery happens only after ready and that text + Enter are separate
@@ -488,6 +532,8 @@ export type RespawnWindowVerifiedDeps = {
   /** Injectable poll budgets — same contract as `CreateWindowVerifiedDeps`. */
   readyAttempts?: number;
   consumeAttempts?: number;
+  /** Progress seam — same contract as `CreateWindowVerifiedDeps.onProgress`. */
+  onProgress?: (elapsedMs: number) => void;
   /** send-keys seam — same contract as `CreateWindowVerifiedDeps.sendKeys`. */
   sendKeys?: (
     slug: string,
@@ -505,11 +551,12 @@ export type RespawnWindowVerifiedDeps = {
  * phase past `starting`). tmux's `new-window` exit code only proves the shell
  * forked, and a bare liveness probe passes a `claude` idle at an empty input box
  * (Mode 1), so this verifies the seed actually ran, not just that a process is
- * up. On ANY verification failure (never ready, seed never consumed,
- * consumed-then-died) we kill the half-created window and return `{ ok: false }`
- * so the caller deletes the up-front state for it. The double-submit guard skips
- * send-keys when the positional prompt already auto-ran the seed (`consumed()`
- * already true).
+ * up. Returns the 3-state `VerifiedLaunchResult`: `started` (consumed within the
+ * short budget), `launched-not-confirmed` (short budget elapsed, pane STILL
+ * ALIVE — a NON-DESTRUCTIVE success: the window is left running), or `failed`
+ * (pane dead / create errored). ONLY `failed` kills the half-created window so
+ * the caller deletes the up-front state; a `launched-not-confirmed` live pane is
+ * never killed.
  */
 export function createWindowVerified(
   slug: string,
@@ -518,7 +565,7 @@ export function createWindowVerified(
   seed: string,
   deps: CreateWindowVerifiedDeps = {},
   session = FLOW_SESSION,
-): { ok: boolean; stderr: string } {
+): VerifiedLaunchResult {
   const create = deps.create ?? createWindow;
   const isAlive = deps.isAlive ?? isPaneAlive;
   const kill = deps.kill ?? killWindow;
@@ -526,59 +573,63 @@ export function createWindowVerified(
   const readPane = deps.readPane ?? capturePaneBySlug;
   const sendKeys = deps.sendKeys ?? sendKeysBySlug;
   const consumed = deps.consumed ?? (() => false);
+  const onProgress = deps.onProgress;
   const readyAttempts = deps.readyAttempts ?? READY_POLL_ATTEMPTS;
   const consumeAttempts = deps.consumeAttempts ?? CONSUME_POLL_ATTEMPTS;
 
   const created = create(slug, cwd, command, session);
-  if (!created.ok) return created;
+  if (!created.ok) return { status: "failed", stderr: created.stderr };
 
-  // Phase 1 — wait for claude to come up AND render its pane (non-empty capture,
-  // string-free). Catches an immediate or early death (never alive) and a pane
-  // that never renders.
+  // Phase 1 — readiness IS the launch-time liveness check: wait (on the wide
+  // budget) for claude to come up AND render its pane (non-empty capture,
+  // string-free). A pane that never becomes alive / never draws is a dead
+  // launch → kill + failed.
   if (
     !pollUntilReady(
       () => isAlive(slug, session),
       () => readPane(slug, session),
       sleep,
       readyAttempts,
+      onProgress,
     )
   ) {
     kill(slug, session);
     return {
-      ok: false,
+      status: "failed",
       stderr:
         "tmux window created but claude never became ready (pane not alive / not drawn after launch)",
     };
   }
 
-  // Phase 2 — deliver the seed via send-keys UNLESS the positional prompt
-  // already auto-ran it (double-submit guard, gated on `consumed()`). Literal
-  // text, then a SEPARATE Enter — keeps the path shell-free and a newline in the
-  // seed can't pre-submit.
+  // Phase 2 — deliver the seed via send-keys. The `if (!consumed())` guard is now
+  // vestigial (the positional auto-run path is gone): it only skips a redundant
+  // send-keys when the seed-ingested marker / resume baseline is already
+  // satisfied at ready-time. Literal text, then a SEPARATE Enter — keeps the path
+  // shell-free and a newline in the seed can't pre-submit.
   if (!consumed()) {
     sendKeys(slug, seed, true, session);
     sendKeys(slug, "Enter", false, session);
   }
 
-  // Phase 3 — confirm the seed was consumed (supervisor advanced the phase past
-  // `starting`) AND the pane is still alive. Catches Mode 1 (seed never
-  // consumed) and Mode 3 (consumed then died within seconds).
-  if (
-    !pollUntilConsumed(
-      () => isAlive(slug, session),
-      consumed,
-      sleep,
-      consumeAttempts,
-    )
-  ) {
+  // Phase 3 — short, non-destructive consume probe. `started` and
+  // `launched-not-confirmed` are both success; only a DEAD pane (`failed`) is
+  // killed (Mode 3 consume-then-die, or ready-then-died-before-consuming).
+  const consumeResult = pollUntilConsumed(
+    () => isAlive(slug, session),
+    consumed,
+    sleep,
+    consumeAttempts,
+    onProgress,
+  );
+  if (consumeResult === "failed") {
     kill(slug, session);
     return {
-      ok: false,
+      status: "failed",
       stderr:
-        "tmux window created but the seed prompt was never consumed (supervisor did not start)",
+        "tmux window created but claude died before the seed was confirmed consumed (pane not alive)",
     };
   }
-  return { ok: true, stderr: "" };
+  return { status: consumeResult, stderr: "" };
 }
 
 /**
@@ -588,10 +639,11 @@ export function createWindowVerified(
  * on confirmed *consumption* (the injected `consumed` predicate flipping true),
  * not mere liveness. `respawn-window`'s exit code only proves tmux relaunched
  * the pane, and a `claude` idle at an empty input box (Mode 1) passes a liveness
- * probe, so this verifies the resume seed actually ran. Unlike the create path
- * we NEVER kill the window on any verification failure — it pre-existed the
- * resume and the user may want to inspect its scrollback; we only report
- * `{ ok: false }`.
+ * probe, so this verifies the resume seed actually ran. Returns the same
+ * 3-state `VerifiedLaunchResult` as the create path, but NEVER kills/respawns
+ * the window on ANY outcome — it pre-existed the resume and the user may want to
+ * inspect its scrollback. A `launched-not-confirmed` (alive but slow) resume is
+ * a non-destructive success; only a dead pane reports `failed`.
  */
 export function respawnWindowVerified(
   slug: string,
@@ -600,61 +652,65 @@ export function respawnWindowVerified(
   seed: string,
   deps: RespawnWindowVerifiedDeps = {},
   session = FLOW_SESSION,
-): { ok: boolean; stderr: string } {
+): VerifiedLaunchResult {
   const respawn = deps.respawn ?? respawnWindow;
   const isAlive = deps.isAlive ?? isPaneAlive;
   const sleep = deps.sleep ?? sleepSync;
   const readPane = deps.readPane ?? capturePaneBySlug;
   const sendKeys = deps.sendKeys ?? sendKeysBySlug;
   const consumed = deps.consumed ?? (() => false);
+  const onProgress = deps.onProgress;
   const readyAttempts = deps.readyAttempts ?? READY_POLL_ATTEMPTS;
   const consumeAttempts = deps.consumeAttempts ?? CONSUME_POLL_ATTEMPTS;
 
   const respawned = respawn(slug, cwd, command, session);
-  if (!respawned.ok) return respawned;
+  if (!respawned.ok) return { status: "failed", stderr: respawned.stderr };
 
   // Phase 1 — wait for the relaunched claude to come up AND render its pane
-  // (non-empty capture, string-free).
+  // (non-empty capture, string-free). Never ready → failed (NO kill on resume).
   if (
     !pollUntilReady(
       () => isAlive(slug, session),
       () => readPane(slug, session),
       sleep,
       readyAttempts,
+      onProgress,
     )
   ) {
     return {
-      ok: false,
+      status: "failed",
       stderr:
         "tmux window respawned but claude never became ready (pane not alive / not drawn after launch)",
     };
   }
 
-  // Phase 2 — deliver the resume seed via send-keys UNLESS the positional prompt
-  // already auto-ran it (double-submit guard, gated on `consumed()`). Literal
-  // text, then a SEPARATE Enter — keeps the path shell-free.
+  // Phase 2 — deliver the resume seed via send-keys. The `if (!consumed())`
+  // guard is now vestigial (positional auto-run path gone): it only skips a
+  // redundant send-keys when the resume baseline / seed-ingested marker is
+  // already satisfied at ready-time. Literal text, then a SEPARATE Enter.
   if (!consumed()) {
     sendKeys(slug, seed, true, session);
     sendKeys(slug, "Enter", false, session);
   }
 
-  // Phase 3 — confirm the resume seed was consumed AND the pane is still alive.
-  // NO kill on failure: the window pre-existed the resume.
-  if (
-    !pollUntilConsumed(
-      () => isAlive(slug, session),
-      consumed,
-      sleep,
-      consumeAttempts,
-    )
-  ) {
-    return {
-      ok: false,
-      stderr:
-        "tmux window respawned but the seed prompt was never consumed (supervisor did not start)",
-    };
-  }
-  return { ok: true, stderr: "" };
+  // Phase 3 — short, non-destructive consume probe. `started` /
+  // `launched-not-confirmed` are both success; `failed` (dead pane) is reported
+  // but the window is STILL never killed — the resume path is non-destructive.
+  const consumeResult = pollUntilConsumed(
+    () => isAlive(slug, session),
+    consumed,
+    sleep,
+    consumeAttempts,
+    onProgress,
+  );
+  return { status: consumeResult, stderr: consumeFailStderr(consumeResult) };
+}
+
+/** Stderr for the resume consume outcome — empty unless the pane died. */
+function consumeFailStderr(status: VerifiedLaunchStatus): string {
+  return status === "failed"
+    ? "tmux window respawned but claude died before the seed was confirmed consumed (pane not alive)"
+    : "";
 }
 
 /** Builds the `set-option -w` argv for a window-scoped user option. */
