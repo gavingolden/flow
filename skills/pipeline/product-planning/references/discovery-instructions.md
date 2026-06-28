@@ -226,6 +226,12 @@ Categories worth examining (use them as a checklist, not a question list):
 | **Options & exclusivity** | What other options exist beyond the literal request? Of the adjacent features, which are **complementary** (pair well, increase the request's value) and which are **mutually exclusive** — cannot coexist with the request, or conflict with each other, so the user must pick one path? Name both kinds, not just the complementary ones. |
 | **Existing patterns**     | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.                                                                                                                                                                                                                                         |
 
+**Caller-supplied ultimate goal.** When the caller (the `/flow-pipeline`
+supervisor) hands you an inferred ultimate goal alongside the request, treat it as
+a strong prior on the **User intent** signal that anchors the PRD **Problem
+Statement** — still validate it against the codebase, and if discovery disagrees,
+surface the divergence as an Open Question rather than accepting it blindly.
+
 For deeper techniques, load `<SKILL_DIR>/references/discovery-playbook.md`.
 
 ## 4. Architecture Checkpoint

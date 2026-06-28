@@ -461,6 +461,21 @@ fully off npm is a deliberate change, not something to do incidentally.
   design note) so they can redirect. The genuinely-binary case still
   exists (a boolean flag, a yes/no migration); the rule is to *check*
   for a middle ground, not to manufacture one where none exists.
+- **Understand the ultimate goal behind the request, not just the literal ask.**
+  Before assuming the literal request is the whole job, understand what the user
+  ultimately wants to fix, unblock, or speed up — the problem behind the proposed
+  solution (the XY problem; the user-story "so that `<goal>`" clause). This is
+  conditional, not unconditional: run already-goal-aligned requests — expert,
+  trivial, or time-critical — as the literal ask directly, and ladder up only on
+  ambiguous or high-blast-radius ones. By default infer the goal in one line and
+  proceed, surfacing the alternative where the user will see it (the plan, the PR
+  description, a design note) rather than asking; ask one focused goal-framing
+  question only when the goal is genuinely unclear AND guessing wrong is costly or
+  hard to reverse. No ceremony — infer in one line, don't perform a root-cause
+  framework — and never interrogate the user with a chain of "why"; the laddering
+  is internal reasoning. Same family as **Consider the middle ground when a
+  request is framed as a binary choice.** above — this one governs *altitude*: up
+  from the proposed solution to the goal it serves.
 
 ## Compact Instructions
 
