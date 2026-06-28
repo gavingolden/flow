@@ -318,6 +318,56 @@ describe("runNew --resume", () => {
     expect(consumedFn!()).toBe(true);
   });
 
+  it("resume consumed predicate ignores a STALE seedIngestedAt marker and requires a fresh re-stamp", () => {
+    // Regression: the seed-ingested hook stamps `seedIngestedAt` on the ORIGINAL
+    // fresh launch, and runResume never clears it (writeState is not called on
+    // the resume path). A bare `seedIngestedAt != null` check would short-circuit
+    // consumed() true on the first probe off the stale marker — skipping the
+    // resume-seed send-keys (the double-submit guard) and latching a false-success
+    // resume that never delivered the seed. consumed() must require the marker to
+    // DIFFER from the captured pre-resume value (a fresh re-stamp by the resumed
+    // session), so a stale marker alone does not confirm.
+    const baseline = new Date(Date.now() - 10_000).toISOString();
+    const staleMarker = new Date(Date.now() - 9_000).toISOString();
+    writeState(
+      {
+        slug: "stale-marker",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: baseline,
+        seedIngestedAt: staleMarker,
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.respawnWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { status: "started", stderr: "" };
+      },
+    );
+    const code = runNew("stale-marker", { resume: true, stateDir });
+    expect(code).toBe(0);
+    expect(consumedFn).toBeDefined();
+    // Stale marker unchanged + updatedAt unchanged → NOT consumed (the bug would
+    // return true here off the stale marker).
+    expect(consumedFn!()).toBe(false);
+    // The resumed session's hook RE-STAMPS the marker with a new timestamp → flips.
+    writeState(
+      {
+        slug: "stale-marker",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: baseline,
+        seedIngestedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+
   it("resume launcher timeout leaves state byte-unchanged and never deletes it (symmetry)", () => {
     // A respawn that never consumes returns ok:false → exit 1, but runResume must
     // NOT kill the window (mocked launcher) and must NOT rewrite or delete state:

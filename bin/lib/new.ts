@@ -507,20 +507,30 @@ function runResume(name: string, options: NewOptions): number {
   // `launched-not-confirmed`, never respawn-killed).
   //
   // Resume consumption baseline: on resume the phase is already past `starting`,
-  // so consumption is "the seed-ingested marker is present OR the resumed
-  // supervisor bumped `updatedAt` past this pre-respawn value". The baseline is
-  // captured ONCE before the retry loop (not per-attempt): paired with the
-  // non-destructive timeout, a late `updatedAt` advance no longer respawn-kills a
-  // live session. ACCEPTED rare trade-off: a dead-then-retried resume whose prior
-  // dead attempt bumped `updatedAt` reads "consumed" over the fresh respawn — but
-  // that only means the supervisor DID start at some point, and resume-over-it is
-  // the user's intent. runResume never writes or deletes state, so the read is
+  // so consumption is "the resumed session RE-STAMPED the seed-ingested marker OR
+  // the resumed supervisor bumped `updatedAt` past this pre-respawn value". BOTH
+  // baselines are captured ONCE before the retry loop (not per-attempt): paired
+  // with the non-destructive timeout, a late advance no longer respawn-kills a
+  // live session. The marker baseline is load-bearing — the original fresh launch
+  // stamped `seedIngestedAt` and `runResume` never clears it (writeState is not
+  // called here), so a bare `seedIngestedAt != null` check would short-circuit
+  // `consumed()` true on the FIRST probe off the STALE marker, skip the
+  // resume-seed send-keys (the double-submit guard), and latch a false-success
+  // resume that never delivered the seed. Requiring `seedIngestedAt` to DIFFER
+  // from the pre-resume value means only a fresh re-stamp by the resumed session
+  // counts. ACCEPTED rare trade-off: a dead-then-retried resume whose prior dead
+  // attempt bumped `updatedAt` reads "consumed" over the fresh respawn — but that
+  // only means the supervisor DID start at some point, and resume-over-it is the
+  // user's intent. runResume never writes or deletes state, so the read is
   // non-mutating; the window pre-existed the resume.
-  const baseline = readState(slug, options.stateDir)?.updatedAt;
+  const preResume = readState(slug, options.stateDir);
+  const baseline = preResume?.updatedAt;
+  const markerBaseline = preResume?.seedIngestedAt;
   const consumed = () => {
     const s = readState(slug, options.stateDir);
     if (s == null) return false;
-    if (s.seedIngestedAt != null) return true;
+    if (s.seedIngestedAt != null && s.seedIngestedAt !== markerBaseline)
+      return true;
     return s.updatedAt !== baseline;
   };
   const launch = () => {
@@ -652,7 +662,12 @@ export function ensureLaunchSettings(
     // absent / unreadable — fall through to write
   }
   fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, desired);
+  // Atomic publish: write a per-PID temp file then rename onto the target, so a
+  // concurrent `claude --settings` read during a parallel-launch burst never
+  // observes a torn (half-written) file. rename(2) is atomic on POSIX.
+  const tmp = `${settingsPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, desired);
+  fs.renameSync(tmp, settingsPath);
 }
 
 // The seed text is defined ONCE in these helpers and delivered ONLY via
