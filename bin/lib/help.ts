@@ -46,7 +46,7 @@ Usage:
                                         --effort sets the Claude Code reasoning-effort level for the claude session)
   flow new --resume <name> [<name> ...] resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
   flow epic <create|run|status|ls>      design or run an epic (skeleton)
-  flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
+  flow ls [--cost [--detail]] [--csv]   list active pipelines (cost adds $ column; detail breaks it down by model; csv emits RFC 4180 CSV)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
   flow done <name> [<name> ...]         close one or more pipeline windows
   flow done --merged                    close every merged or cancelled window
@@ -106,11 +106,13 @@ Subcommands:
 Lists each pipeline with its repository, phase, PR, and last activity.
 
 Usage:
-  flow ls [--cost [--detail]]
+  flow ls [--cost [--detail]] [--csv]
 
 Options:
   --cost                add a $ column summing supervisor-session cost
-  --detail              break the cost down by model (requires --cost)`,
+  --detail              break the cost down by model (requires --cost)
+  --csv                 emit RFC 4180 CSV to stdout (header + one row per pipeline;
+                        mutually exclusive with --detail; --cost adds a cost column)`,
 
   attach: `flow attach — attach to a pipeline window  (alias: a)
 

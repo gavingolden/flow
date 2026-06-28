@@ -36,6 +36,7 @@ import {
 export type LsOptions = {
   cost?: boolean;
   detail?: boolean;
+  csv?: boolean;
   /** Override for tests; defaults to ~/.claude/projects/. */
   projectsRoot?: string;
   /** Injectable for tests; defaults to the real read-only update check. */
@@ -54,8 +55,57 @@ export type Row = {
 };
 
 /**
+ * RFC 4180 cell serializer. Prepends an apostrophe on formula-injection
+ * prefixes (=, +, -, @, tab, CR) then wraps in double-quotes when the
+ * value contains a comma, newline, CR, or double-quote.
+ */
+export function csvCell(value: string): string {
+  if (value.length > 0 && /^[=+\-@\t\r]/.test(value)) {
+    value = "'" + value;
+  }
+  if (/[,\n\r"]/.test(value)) {
+    return '"' + value.replace(/"/g, '""') + '"';
+  }
+  return value;
+}
+
+function printCsv(rows: Row[], opts: LsOptions): void {
+  const headers = [
+    "name",
+    "repo",
+    "phase",
+    "pr",
+    "last_activity",
+    "annotation",
+    "wait_for_copilot",
+  ];
+  if (opts.cost) headers.push("cost");
+  console.log(headers.join(","));
+
+  for (const row of rows) {
+    const pr = row.pr === "—" ? "" : row.pr.replace(/^#/, "");
+    const phase = row.phase === "—" ? "" : row.phase;
+    const lastActivity = row.lastActivity === "—" ? "" : row.lastActivity;
+    const fields = [
+      csvCell(row.name),
+      csvCell(row.repo),
+      csvCell(phase),
+      csvCell(pr),
+      csvCell(lastActivity),
+      csvCell(row.annotation),
+      csvCell(String(row.waitForCopilot)),
+    ];
+    if (opts.cost) {
+      const costVal = formatCostCell(row.cost);
+      fields.push(csvCell(costVal === "—" ? "" : costVal));
+    }
+    console.log(fields.join(","));
+  }
+}
+
+/**
  * CLI shim for `bin/flow`'s `ls` verb. Intercepts --help / -h before any
- * state/tmux read, then parses --cost / --detail and dispatches to
+ * state/tmux read, then parses --cost / --detail / --csv and dispatches to
  * `runLs`. The previous inline `runLsVerb` lived in `bin/flow`.
  */
 export async function runLsCli(args: string[]): Promise<number> {
@@ -63,21 +113,26 @@ export async function runLsCli(args: string[]): Promise<number> {
     printVerbHelp("ls");
     return 0;
   }
-  const allowed = new Set(["--cost", "--detail"]);
+  const allowed = new Set(["--cost", "--detail", "--csv"]);
   for (const arg of args) {
     if (!allowed.has(arg)) {
       console.error(`flow ls: unknown option '${arg}'`);
-      console.error("usage: flow ls [--cost [--detail]]");
+      console.error("usage: flow ls [--cost [--detail]] [--csv]");
       return 2;
     }
   }
+  const csv = args.includes("--csv");
   const cost = args.includes("--cost");
   const detail = args.includes("--detail");
+  if (csv && detail) {
+    console.error("flow ls: --csv and --detail are mutually exclusive");
+    return 2;
+  }
   if (detail && !cost) {
     console.error("flow ls: --detail requires --cost");
     return 2;
   }
-  return await runLs({ cost, detail });
+  return await runLs({ cost, detail, csv });
 }
 
 export async function runLs(opts: LsOptions = {}): Promise<number> {
@@ -86,14 +141,23 @@ export async function runLs(opts: LsOptions = {}): Promise<number> {
   const rows = await buildRows(states, windows, Date.now(), opts);
 
   if (rows.length === 0) {
-    console.log(dim("flow ls: no active pipelines"));
+    if (opts.csv) {
+      printCsv([], opts);
+      console.error(dim("flow ls: no active pipelines"));
+    } else {
+      console.log(dim("flow ls: no active pipelines"));
+    }
     emitUpdateNotice(opts);
     return 0;
   }
 
-  printTable(rows, opts);
-  printOrphanRecovery(rows);
-  if (opts.cost && opts.detail) printDetail(rows);
+  if (opts.csv) {
+    printCsv(rows, opts);
+  } else {
+    printTable(rows, opts);
+    printOrphanRecovery(rows);
+    if (opts.cost && opts.detail) printDetail(rows);
+  }
   warnUnknownModels(rows);
   emitUpdateNotice(opts);
   return 0;

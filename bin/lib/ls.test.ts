@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildRows,
+  csvCell,
   formatCostCell,
   formatNameCell,
   formatRepoCell,
@@ -479,5 +480,126 @@ describe("runLs — update notice seam", () => {
     });
     expect(code).toBe(0);
     expect(err).not.toHaveBeenCalled();
+  });
+});
+
+describe("csvCell", () => {
+  it("emits clean value unquoted", () => {
+    expect(csvCell("hello")).toBe("hello");
+  });
+
+  it("double-quotes value containing comma", () => {
+    expect(csvCell("a,b")).toBe('"a,b"');
+  });
+
+  it("escapes embedded double-quote as double double-quote", () => {
+    expect(csvCell('say "hi"')).toBe('"say ""hi"""');
+  });
+
+  it("double-quotes value containing newline", () => {
+    expect(csvCell("line1\nline2")).toBe('"line1\nline2"');
+  });
+
+  it("prefixes formula-injection prefix = with apostrophe", () => {
+    expect(csvCell("=SUM(A1)")).toBe("'=SUM(A1)");
+  });
+
+  it("prefixes formula-injection prefix + with apostrophe", () => {
+    expect(csvCell("+1")).toBe("'+1");
+  });
+
+  it("prefixes formula-injection prefix - with apostrophe", () => {
+    expect(csvCell("-1")).toBe("'-1");
+  });
+
+  it("prefixes formula-injection prefix @ with apostrophe", () => {
+    expect(csvCell("@mention")).toBe("'@mention");
+  });
+});
+
+describe("runLs --csv", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("emits header-only to stdout for empty pipeline state", async () => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      csv: true,
+      checkUpdate: () => ({ status: "current" }),
+    });
+
+    expect(code).toBe(0);
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(String(log.mock.calls[0][0])).toBe(
+      "name,repo,phase,pr,last_activity,annotation,wait_for_copilot",
+    );
+  });
+
+  it("emits header + one row per pipeline for two pipelines", async () => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({
+        slug: "alpha",
+        phase: "implementing",
+        pr: 10,
+        repo: "/repo/alpha",
+      }),
+      state({ slug: "beta", phase: "reviewing", pr: 20, repo: "/repo/beta" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "alpha" }),
+      window({ name: "beta" }),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      csv: true,
+      checkUpdate: () => ({ status: "current" }),
+    });
+
+    expect(code).toBe(0);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines).toHaveLength(3); // header + 2 rows
+    expect(lines[0]).toBe(
+      "name,repo,phase,pr,last_activity,annotation,wait_for_copilot",
+    );
+    expect(lines[1]).toContain("alpha");
+    expect(lines[1]).toContain("implementing");
+    expect(lines[1]).toContain(",10,");
+    expect(lines[2]).toContain("beta");
+    expect(lines[2]).toContain("reviewing");
+    expect(lines[2]).toContain(",20,");
+  });
+
+  it("adds cost column in header and rows when --cost is set", async () => {
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "alpha", phase: "implementing", repo: "/no/jsonl" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "alpha" }),
+    ]);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({
+      csv: true,
+      cost: true,
+      checkUpdate: () => ({ status: "current" }),
+    });
+
+    expect(code).toBe(0);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines[0]).toContain(",cost");
+    // No JSONL data → cost cell is empty in CSV (formatCostCell returns "—" → "")
+    expect(lines[1]).toMatch(/,$/); // row ends with trailing comma for empty cost
+  });
+
+  it("--csv --detail CLI rejection exits 2", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const code = await runLsCli(["--csv", "--detail"]);
+    expect(code).toBe(2);
   });
 });
