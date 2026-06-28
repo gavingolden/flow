@@ -40,6 +40,15 @@ const content = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
 const FILE_LABEL =
   "skills/pipeline/product-planning/references/discovery-instructions.md";
 
+// The forced (`flow new --research`) path runs bin/flow-research-run.ts, which
+// keeps its OWN copy of the model-variant pins + cross-model diversity-guard
+// fallback ordering. That copy must stay byte-identical to the doc's frozen
+// block — otherwise the forced path and the config-on path research with
+// different models, silently. This cross-file read binds the two so a rename of
+// either copy goes red on `npm run verify`.
+const RESEARCH_RUN_PATH = path.resolve(HERE, "flow-research-run.ts");
+const researchRunContent = fs.readFileSync(RESEARCH_RUN_PATH, "utf8");
+
 describe("F2 research budget config lint", () => {
   it("wires all four optional budget keys into Step 1.5", () => {
     const keys = [
@@ -123,6 +132,26 @@ describe("F2 research budget config lint", () => {
       `${FILE_LABEL} must keep --concurrency 4 literal — it is load-bearing ` +
         `in the runtime-ceiling arithmetic and is out of scope to tune.`,
     ).toBe(true);
+  });
+
+  it("binds bin/flow-research-run.ts's model pins to the doc's frozen pins (no silent drift)", () => {
+    // Same three pins the doc freezes, including the GPT-OSS fallback the
+    // diversity guard swaps to on an Opus collision — their co-presence in the
+    // helper catches a rename of either copy that the doc-only freeze would miss.
+    const pins = [
+      "Gemini 3.1 Pro (High)",
+      "Claude Opus 4.6 (Thinking)",
+      "GPT-OSS 120B (Medium)",
+    ];
+    const missing = pins.filter((p) => !researchRunContent.includes(p));
+    expect(
+      missing,
+      `bin/flow-research-run.ts (the forced --research path) must reproduce the ` +
+        `same agy model-variant pins as ${FILE_LABEL} byte-for-byte — the forced ` +
+        `path runs this helper while the config-on path runs the doc's bash, so a ` +
+        `divergence silently researches with different models. Missing: ` +
+        `${JSON.stringify(missing)}`,
+    ).toEqual([]);
   });
 
   it("self-references this lint so the doc's freeze claim stays anchored", () => {

@@ -153,6 +153,24 @@ describe("interpretFanout", () => {
   it("treats a malformed/empty aggregate as agy-unavailable", () => {
     expect(interpretFanout({}).ran).toBe(false);
   });
+
+  it("returns agy-unavailable when the fanout explicitly reports nothing ran (anyRan:false)", () => {
+    // Isolates the `anyRan !== false` tightening: `allSkipped:false` alone would
+    // read as ran without that clause, and the `{}` case short-circuits on the
+    // first clause without exercising it. Deleting `&& aggregate.anyRan !== false`
+    // from interpretFanout must turn THIS case red.
+    expect(interpretFanout({ allSkipped: false, anyRan: false })).toEqual({
+      ran: false,
+      reason: "agy-unavailable",
+    });
+  });
+
+  it("keeps the lenient side: allSkipped:false with anyRan absent still ran", () => {
+    expect(interpretFanout({ allSkipped: false })).toEqual({
+      ran: true,
+      reason: "ran",
+    });
+  });
 });
 
 describe("boundFindings", () => {
@@ -203,6 +221,9 @@ function makeDeps(
     },
     writeFile: (p, c) => {
       files.set(p, c);
+    },
+    removeFile: (p) => {
+      files.delete(p);
     },
     mkdirp: () => {},
     writeOut: (line) => out.push(line),

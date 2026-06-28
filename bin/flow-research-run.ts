@@ -35,7 +35,7 @@
  * `ran`); 2 only on a usage error (missing required flag).
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
 
@@ -269,6 +269,7 @@ export type Deps = {
   runFanout: FanoutRunner;
   readFile: (path: string) => string;
   writeFile: (path: string, contents: string) => void;
+  removeFile: (path: string) => void;
   mkdirp: (dir: string) => void;
   writeOut: (line: string) => void;
   writeErr: (line: string) => void;
@@ -327,42 +328,62 @@ function execute(parsed: Args, deps: Deps): number {
   const manifestPath = `${parsed.out}.manifest.json`;
   const fanoutOut = `${parsed.out}.fanout.json`;
 
+  // Mirror flow-gemini-lens.ts's scratch discipline: the manifest + fanout
+  // aggregate are transient; clear both on every exit (success, skip, throw)
+  // so they don't accumulate in the worktree's .flow-tmp/.
+  const cleanScratch = () => {
+    deps.removeFile(manifestPath);
+    deps.removeFile(fanoutOut);
+  };
+
   deps.mkdirp(dirname(parsed.out));
-  deps.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
 
-  const aggregate = deps.runFanout({
-    manifestPath,
-    maxCalls,
-    timeout,
-    outPath: fanoutOut,
-  });
-  const verdict = interpretFanout(aggregate);
+  // Pre-clean any stale --out from a prior run on this reused worktree: every
+  // path below either rewrites --out (ran) or leaves it absent (skip), so the
+  // supervisor's step-3 "fold research-findings.md when present and non-empty"
+  // never splices a previous successful run's findings into a fresh plan when
+  // agy has since gone down. removeFile is idempotent (force) — absent is fine.
+  deps.removeFile(parsed.out);
 
-  if (!verdict.ran) {
+  try {
+    deps.writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+
+    const aggregate = deps.runFanout({
+      manifestPath,
+      maxCalls,
+      timeout,
+      outPath: fanoutOut,
+    });
+    const verdict = interpretFanout(aggregate);
+
+    if (!verdict.ran) {
+      writeStatus(deps, parsed.statusFile, {
+        active: true,
+        ran: false,
+        reason: "agy-unavailable",
+      });
+      deps.writeErr(
+        "flow-research-run: agy unavailable — research skipped, planning proceeds unchanged",
+      );
+      return 0;
+    }
+
+    const gatherText = readEntryArtifact(deps, aggregate, GATHER_TASK);
+    const refuteText = readEntryArtifact(deps, aggregate, REFUTE_TASK);
+    const findings = boundFindings(gatherText, refuteText);
+    deps.writeFile(parsed.out, `${findings}\n`);
     writeStatus(deps, parsed.statusFile, {
       active: true,
-      ran: false,
-      reason: "agy-unavailable",
+      ran: true,
+      reason: "ran",
     });
-    deps.writeErr(
-      "flow-research-run: agy unavailable — research skipped, planning proceeds unchanged",
+    deps.writeOut(
+      `flow-research-run: wrote web-grounded findings to ${parsed.out}`,
     );
     return 0;
+  } finally {
+    cleanScratch();
   }
-
-  const gatherText = readEntryArtifact(deps, aggregate, GATHER_TASK);
-  const refuteText = readEntryArtifact(deps, aggregate, REFUTE_TASK);
-  const findings = boundFindings(gatherText, refuteText);
-  deps.writeFile(parsed.out, `${findings}\n`);
-  writeStatus(deps, parsed.statusFile, {
-    active: true,
-    ran: true,
-    reason: "ran",
-  });
-  deps.writeOut(
-    `flow-research-run: wrote web-grounded findings to ${parsed.out}`,
-  );
-  return 0;
 }
 
 export function run(argv: string[], depsOverride?: Partial<Deps>): number {
@@ -434,6 +455,7 @@ function resolveDeps(o?: Partial<Deps>): Deps {
     runFanout: o?.runFanout ?? defaultRunFanout,
     readFile: o?.readFile ?? ((p) => readFileSync(p, "utf8")),
     writeFile: o?.writeFile ?? ((p, c) => writeFileSync(p, c)),
+    removeFile: o?.removeFile ?? ((p) => void rmSync(p, { force: true })),
     mkdirp: o?.mkdirp ?? ((d) => void mkdirSync(d, { recursive: true })),
     writeOut: o?.writeOut ?? ((line) => console.log(line)),
     writeErr: o?.writeErr ?? ((line) => console.error(line)),
