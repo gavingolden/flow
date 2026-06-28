@@ -90,8 +90,9 @@ Tailwind's 4px base grid. Spacing communicates content relationships:
 ## Component Composition Patterns
 
 Portable principles: see `universal/ui-ux` — card anatomy and animation restraint in
-`references/visual-design.md`; empty/loading/interaction states in `references/interaction-ux.md`.
-Tailwind mechanics below.
+`references/visual-design.md`; empty/error states in `references/interaction-ux.md`; the
+interactive state model (default/hover/focus/active/loading/disabled) and loading-indicator
+selection in `references/component-interaction.md`. Tailwind mechanics below.
 
 **Card structure** — Cards are not just boxes. A well-composed card has:
 

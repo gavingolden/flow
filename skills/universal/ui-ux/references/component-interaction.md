@@ -1,6 +1,6 @@
 # Component interaction
 
-Portable component-level interaction judgment — the states a control must express and how it behaves under latency. Where `interaction-ux.md` covers Nielsen's heuristics as screen-level principles, this file operationalizes the two most relevant ones (heuristic 1, visibility of system status; heuristic 5, error prevention) into a per-control contract. Every principle is stated stack-neutrally; the framework that renders a spinner, a toast, or a disabled control is the stack skill's job. Canonical URLs live in `sources.md`.
+Portable component-level interaction judgment — the states a control must express and how it behaves under latency. Where `interaction-ux.md` covers Nielsen's heuristics as screen-level principles, this file operationalizes the most relevant ones — chiefly heuristic 1 (visibility of system status) and heuristic 5 (error prevention), with heuristic 3 (user control and freedom) carried by the destructive-action contract — into a per-control contract. Every principle is stated stack-neutrally; the framework that renders a spinner, a toast, or a disabled control is the stack skill's job. Canonical URLs live in `sources.md`.
 
 ## The interactive state model
 
@@ -18,7 +18,7 @@ A control that renders only default and pressed is incomplete: a missing hover o
 
 ## Loading and double-submit prevention
 
-When an action takes more than an instant, show that it is happening and stop it from firing twice. On submit of a form or any consequential action, **disable the triggering control and show an inline loading indicator** for the duration of the in-flight request — this is the canonical double-submit (double-click) prevention pattern, and it is the right, narrow use of a disabled state: a button cannot be re-fired while it is visibly working. Choose the indicator by wait length (Nielsen Norman Group):
+When an action takes more than an instant, show that it is happening and stop it from firing twice. On submit of a form or any consequential action, **disable the triggering control and show an inline loading indicator** for the duration of the in-flight request — this is the canonical double-submit (double-click) prevention pattern, and it is the right, narrow use of a disabled state: a button cannot be re-fired while it is visibly working. Choose the indicator by wait length. The selection rule itself — spinner for short waits, determinate progress bar for long ones — is Nielsen Norman Group; the ~3s crossover point below is a practitioner rule of thumb, finer-grained than NNG's own ~10s mandatory-progress-bar threshold (the 10s limit in the response-time thresholds below):
 
 - **Spinner** — short, indeterminate waits (under ~3s) where no progress estimate is available.
 - **Determinate progress bar** — longer operations (over ~3s) where a percentage or step count can be shown; an open-ended spinner on a long wait reads as a hang.
