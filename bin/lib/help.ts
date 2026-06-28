@@ -37,11 +37,13 @@ Usage:
                                         --no-hooks skips the Stop-hook merge into ~/.claude/settings.json;
                                         --repair-settings backs up and rewrites ~/.claude/settings.json when malformed;
                                         --install-deps installs missing source-root runtime deps before symlinking)
-  flow new [--no-auto-merge] [--wait-for-copilot] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>
+  flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>
                                         start a new pipeline in a tmux window
                                         (--no-auto-merge stops at gated regardless of rubric;
                                         --wait-for-copilot forces the full 10-min Copilot wait
                                         even when auto-detect would skip;
+                                        --research forces web-grounded discovery research on,
+                                        bypassing the relevance gate and the research.discovery config opt-in;
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session)
   flow new --resume <name> [<name> ...] resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
@@ -68,12 +70,14 @@ export const HELP_TEXT: Record<string, string> = {
   new: `flow new — start a new pipeline in a tmux window
 
 Usage:
-  flow new [--no-auto-merge] [--wait-for-copilot] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>
+  flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>
   flow new --resume <name> [<name> ...] [--yes]
 
 Options:
   --no-auto-merge       stop at gated regardless of the auto-merge rubric
   --wait-for-copilot    force the full 10-min Copilot wait even when auto-detect would skip
+  --research            force web-grounded discovery research on, bypassing the relevance gate
+                        and the research.discovery config opt-in
   --copilot-review <auto|always|never>
                         opt-in for Copilot review (default auto): 'always' always requests,
                         'never' never requests, 'auto' lets the hybrid classifier decide

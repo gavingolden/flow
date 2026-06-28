@@ -72,6 +72,7 @@ _flow() {
                         _arguments \
                             '--resume[resume a crashed pipeline]' \
                             '--no-auto-merge[stop at gated regardless of rubric]' \
+                            '--research[force web-grounded discovery research on, bypassing the relevance gate]' \
                             '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
                             '*::description:'
                     fi

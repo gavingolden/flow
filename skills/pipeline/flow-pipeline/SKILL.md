@@ -829,6 +829,18 @@ alone. Discovery still validates the supplied goal against the codebase
 and surfaces an Open Question if it disagrees rather than accepting it
 blindly — see `discovery-instructions.md` §3 ("User intent").
 
+Also read the `forceResearch` flag from
+`~/.flow/state/<slug>.json` (`jq -r '.forceResearch // empty'`, the
+same idiom step 7 uses for `waitForCopilot`) and, when the value is the
+literal `true`, fold a `RESEARCH: force-on (flow new --research)` marker
+into the `/product-planning` invocation through the **same append
+channel** that carries the inferred ultimate goal above. `/product-planning`'s
+spawn template forwards the marker to the discovery subagent, where it
+forces discovery Step 1.5's web-grounded research pre-check on (bypassing
+the relevance gate and the `research.discovery` config opt-in). Absent or
+non-`true` ≡ not forced — append nothing. The flag is set per-pipeline via
+`flow new --research "<description>"`.
+
 `/product-planning` is itself a thin wrapper that spawns one
 **Independent Discovery Subagent** via the Task tool (the second of
 the nine named Task-tool exemptions in "Hard rules" above). The
@@ -849,7 +861,13 @@ and print a 3-5 line summary to chat (just the problem statement and
 the task titles — the user reads scrollback). This is the supervisor's
 single read of the plan file; the wrapper does not pre-read it (that
 would duplicate this read in the same supervisor context and erode the
-context-cost win the subagent fan-out is designed to deliver).
+context-cost win the subagent fan-out is designed to deliver). While you
+have plan.md open for that summary, surface any discovery research
+skip-note it carries: if plan.md contains a `> [!NOTE]` line about
+**Web-grounded research (discovery Step 1.5)** being skipped, include
+that one-liner in the chat summary so the user sees why no research ran
+and how to force it (`flow new --research`). Reuse this same read — do
+**not** open plan.md a second time for it.
 
 **End conditions:**
 
