@@ -63,8 +63,7 @@ a failure mode never considered, a downstream ripple unforeseen. Each lens below
 to sharpen the Problem Statement, Architecture Decisions, or Plan risks — do **not** emit a
 "Problem framing" / "JTBD" / "Five Whys" output section. Frameworks applied solo as a performed
 checklist degrade into ceremony; staying internal is the whole point. Reach for one only when
-the request's framing is genuinely in doubt — skip them on expert-specified, trivial, or
-time-critical asks.
+the request's framing is genuinely in doubt — skip them on expert-specified or trivial asks.
 
 - **Five Whys** — _when a stated problem looks like a symptom:_ ask "why" a few times to reach
   the root cause. **Internal-only** — never interrogate the user with a chain of "why", and
