@@ -85,7 +85,7 @@ _flow() {
                     # `epic` verb itself.)
                     if [[ $line[2] == create ]]; then
                         _arguments \
-                            '--resume[resume a crashed epic-design session]' \
+                            '--resume[resume a crashed epic-design session]:pipeline:_flow_slugs' \
                             '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
                             '--model[Claude Code model alias]:alias:(opus haiku sonnet fable)' \
                             '*::prompt:'

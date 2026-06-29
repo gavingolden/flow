@@ -119,6 +119,13 @@ _flow() {
             done
             if [ "$esub" = "create" ]; then
                 case "$prev" in
+                    --resume)
+                        # `flow epic create --resume <slug>` takes a slug, not a
+                        # bare flag — complete it like `attach`/`new`'s resume path.
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
+                        return
+                        ;;
                     --effort)
                         # shellcheck disable=SC2207
                         COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )

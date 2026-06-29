@@ -453,6 +453,20 @@ describe("runEpicCli create — --effort / --model flags", () => {
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
+  it("--model followed by another flag returns exit 2 and writes no state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runEpicCli(
+      ["create", "--model", "--effort", "design the thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+      },
+    );
+    expect(code).toBe(2);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
   it("strips the flag + value tokens from the prompt/slug", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
