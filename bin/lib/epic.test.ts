@@ -50,17 +50,20 @@ vi.mock("./tmux", () => tmuxMock);
 import { runEpicCli } from "./epic";
 import { deriveWorktreePath } from "./new";
 import { writeState } from "./state";
+import { writeEpicRunState } from "./epic-run-state";
 
 let logs!: string[];
 let errors!: string[];
 let stateDir!: string;
 let repoDir!: string;
+let epicsDir!: string;
 
 beforeEach(() => {
   logs = [];
   errors = [];
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-"));
   repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-repo-"));
+  epicsDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-run-"));
   vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
     logs.push(args.map(String).join(" "));
   });
@@ -91,6 +94,7 @@ function freshWindowOk(): void {
 afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
   fs.rmSync(repoDir, { recursive: true, force: true });
+  fs.rmSync(epicsDir, { recursive: true, force: true });
   vi.restoreAllMocks();
 });
 
@@ -683,27 +687,346 @@ describe("runEpicCli create --resume", () => {
   });
 });
 
-describe("runEpicCli deferred subcommands", () => {
-  it("['run','some-id'] returns 2 and names the orchestrator run phase on stderr", () => {
-    const code = runEpicCli(["run", "some-id"], { stateDir });
-    expect(code).toBe(2);
-    expect(errors.join("\n")).toMatch(/run phase/);
+describe("runEpicCli run/status/ls", () => {
+  type FeatureSpec = { id: string; dependsOn?: string[] };
+
+  function gitInit(): void {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+  }
+
+  function writeManifest(slug: string, features: FeatureSpec[]): string {
+    const dir = path.join(repoDir, ".flow", "epics", slug);
+    fs.mkdirSync(dir, { recursive: true });
+    const manifestPath = path.join(dir, "manifest.json");
+    fs.writeFileSync(
+      manifestPath,
+      JSON.stringify({
+        epicId: slug,
+        prompt: "p",
+        createdAt: "2026-06-28",
+        features: features.map((f) => ({
+          id: f.id,
+          title: f.id.toUpperCase(),
+          description: `build ${f.id}`,
+          dependsOn: f.dependsOn ?? [],
+        })),
+      }),
+    );
+    return manifestPath;
+  }
+
+  const okSpawn = () =>
+    vi.fn((_command: string, _args: string[]) => ({
+      status: 0,
+      stdout: "flow:launched-slug\n",
+      stderr: "",
+    }));
+
+  /** readFeatureState that returns the same phase for any slug. */
+  const allPhase = (phase: string) => (slug: string) => ({
+    slug,
+    phase,
+    repo: repoDir,
+    updatedAt: "2026-06-28T00:00:00Z",
   });
 
-  it("['status','some-id'] returns 2 with a deferred message that does NOT name the run phase", () => {
-    const code = runEpicCli(["status", "some-id"], { stateDir });
+  it("run: manifest missing → non-zero + 'manifest not found'", () => {
+    gitInit();
+    const code = runEpicCli(["run", "ghost"], { cwd: repoDir, epicsDir });
     expect(code).toBe(2);
-    const joined = errors.join("\n");
-    expect(joined).toContain("deferred");
-    expect(joined).not.toMatch(/run phase/);
+    expect(errors.join("\n")).toMatch(/manifest not found/);
   });
 
-  it("['ls'] returns 2 with a deferred message that does NOT name the run phase", () => {
-    const code = runEpicCli(["ls"], { stateDir });
+  it("run: invalid DAG (cycle) → refuses non-zero and launches nothing", () => {
+    gitInit();
+    writeManifest("cyclic", [
+      { id: "a", dependsOn: ["b"] },
+      { id: "b", dependsOn: ["a"] },
+    ]);
+    const spawn = okSpawn();
+    const code = runEpicCli(["run", "cyclic"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn,
+      sleep: vi.fn(),
+    });
     expect(code).toBe(2);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/DAG|cycle/i);
+  });
+
+  it("run: the watch loop reaches all-merged → exit 0 with 'epic complete'", () => {
+    gitInit();
+    writeManifest("done-epic", [
+      { id: "schema" },
+      { id: "backend", dependsOn: ["schema"] },
+    ]);
+    const spawn = okSpawn();
+    const sleep = vi.fn();
+    const code = runEpicCli(["run", "done-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn,
+      sleep,
+      readFeatureState: allPhase("merged"),
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    expect(logs.join("\n")).toMatch(/epic complete: 2\/2/);
+    expect(sleep).toHaveBeenCalled(); // it ticked more than once
+  });
+
+  it("run: frontier-empty-but-not-all-merged → non-zero 'blocked' naming the feature", () => {
+    gitInit();
+    writeManifest("stuck", [
+      { id: "schema" },
+      { id: "backend", dependsOn: ["schema"] },
+    ]);
+    const code = runEpicCli(["run", "stuck"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: okSpawn(),
+      sleep: vi.fn(),
+      readFeatureState: allPhase("gated"),
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(1);
     const joined = errors.join("\n");
-    expect(joined).toContain("deferred");
-    expect(joined).not.toMatch(/run phase/);
+    expect(joined).toMatch(/blocked/);
+    expect(joined).toMatch(/schema/);
+  });
+
+  it("run --once: performs exactly one tick (sleep never called) and exits 0", () => {
+    gitInit();
+    writeManifest("once-epic", [{ id: "schema" }]);
+    const spawn = okSpawn();
+    const sleep = vi.fn();
+    const code = runEpicCli(["run", "once-epic", "--once"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn,
+      sleep,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledTimes(1); // launched the single root once
+  });
+
+  it("run: --max-parallel caps concurrent launches (third stays ready)", () => {
+    gitInit();
+    writeManifest("cap", [{ id: "a" }, { id: "b" }, { id: "c" }]);
+    const spawn = okSpawn();
+    const code = runEpicCli(["run", "cap", "--once", "--max-parallel", "2"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn,
+      sleep: vi.fn(),
+      readFeatureState: () => null,
+    });
+    expect(code).toBe(0);
+    // The flag overrides the config default: only 2 of 3 independent features
+    // launch this tick (the cap arithmetic = maxParallel − running).
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it("run: --max-parallel rejects a non-integer / missing value (exit 2)", () => {
+    gitInit();
+    expect(
+      runEpicCli(["run", "cap2", "--max-parallel", "x"], {
+        cwd: repoDir,
+        epicsDir,
+      }),
+    ).toBe(2);
+    expect(
+      runEpicCli(["run", "cap2", "--max-parallel"], {
+        cwd: repoDir,
+        epicsDir,
+      }),
+    ).toBe(2);
+    expect(errors.join("\n")).toMatch(/--max-parallel/);
+  });
+
+  it("run: an unknown -prefixed option exits 2 with a usage message", () => {
+    gitInit();
+    const code = runEpicCli(["run", "x", "--bogus"], {
+      cwd: repoDir,
+      epicsDir,
+    });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/unknown option/);
+  });
+
+  it("run: a persistently-failing launch bails to blocked (exit 1), never spins forever", () => {
+    gitInit();
+    writeManifest("stuck-launch", [{ id: "a" }]);
+    // spawn always fails (e.g. a window-name collision) → launchFeature ok:false
+    // every tick. The feature is never recorded, so it stays in the frontier;
+    // without the stall budget the loop would re-fail forever.
+    const failSpawn = vi.fn((_command: string, _args: string[]) => ({
+      status: 1,
+      stdout: "",
+      stderr: "window 'flow:a' already exists",
+    }));
+    const sleep = vi.fn();
+    const code = runEpicCli(["run", "stuck-launch"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: failSpawn,
+      sleep,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/failed to launch/);
+    // Bounded by LAUNCH_STALL_BUDGET (3) — it does NOT retry indefinitely.
+    expect(failSpawn).toHaveBeenCalledTimes(3);
+  });
+
+  it("status: renders a board with feature rows + summary and exits 0", () => {
+    const manifestPath = writeManifest("watch", [
+      { id: "schema" },
+      { id: "backend", dependsOn: ["schema"] },
+    ]);
+    writeEpicRunState(
+      {
+        epicSlug: "watch",
+        repo: repoDir,
+        manifestPath,
+        manifestSha: "sha",
+        maxParallel: 3,
+        createdAt: "2026-06-28T00:00:00Z",
+        updatedAt: "2026-06-28T00:00:00Z",
+        features: {
+          schema: {
+            slug: "watch-schema",
+            launchedAt: "2026-06-28T00:00:00Z",
+            pr: 12,
+          },
+        },
+      },
+      epicsDir,
+    );
+    const code = runEpicCli(["status", "watch"], {
+      epicsDir,
+      readFeatureState: (slug) =>
+        slug === "watch-schema"
+          ? {
+              slug,
+              phase: "merged",
+              repo: repoDir,
+              updatedAt: "2026-06-28T00:00:00Z",
+              pr: 12,
+            }
+          : null,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("FEATURE");
+    expect(out).toContain("schema");
+    expect(out).toContain("backend");
+    expect(out).toMatch(/ready:.*running:.*blocked:.*merged:/);
+  });
+
+  it("status: no run-state and no committed manifest → 'no epic found', non-zero", () => {
+    gitInit();
+    const code = runEpicCli(["status", "nope"], { cwd: repoDir, epicsDir });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/no epic found/);
+  });
+
+  it("status: ephemeral — committed manifest but no run-state yet renders the board, exit 0", () => {
+    gitInit();
+    // The normal first-use case: design PR merged, `flow epic run` not yet
+    // invoked, so there is a manifest but no run.json — ephemeralRunState serves it.
+    writeManifest("fresh", [{ id: "a" }, { id: "b", dependsOn: ["a"] }]);
+    const code = runEpicCli(["status", "fresh"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    // a is in-degree-0 → ready; b depends on the uncompleted a → blocked.
+    expect(out).toMatch(/a\s+ready/);
+    expect(out).toMatch(/b\s+blocked/);
+  });
+
+  it("status: runtime state present but its manifest is unreadable → exit 2", () => {
+    // Run-state exists, but its recorded manifest path resolves to nothing
+    // (moved/unmerged) — the non-null-assertion + reconcile branch must not run.
+    writeEpicRunState(
+      {
+        epicSlug: "broken",
+        repo: repoDir,
+        manifestPath: path.join(
+          repoDir,
+          ".flow",
+          "epics",
+          "broken",
+          "manifest.json",
+        ),
+        manifestSha: "sha",
+        maxParallel: 3,
+        createdAt: "x",
+        updatedAt: "x",
+        features: {},
+      },
+      epicsDir,
+    );
+    const code = runEpicCli(["status", "broken"], { epicsDir });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/unreadable/);
+  });
+
+  it("ls: lists every epic with per-state counts + status and exits 0", () => {
+    const alphaManifest = writeManifest("alpha", [{ id: "a" }]);
+    const betaManifest = writeManifest("beta", [
+      { id: "b" },
+      { id: "c", dependsOn: ["b"] },
+    ]);
+    writeEpicRunState(
+      {
+        epicSlug: "alpha",
+        repo: repoDir,
+        manifestPath: alphaManifest,
+        manifestSha: "s",
+        maxParallel: 3,
+        createdAt: "x",
+        updatedAt: "x",
+        features: { a: { slug: "alpha-a", launchedAt: "x" } },
+      },
+      epicsDir,
+    );
+    writeEpicRunState(
+      {
+        epicSlug: "beta",
+        repo: repoDir,
+        manifestPath: betaManifest,
+        manifestSha: "s",
+        maxParallel: 3,
+        createdAt: "x",
+        updatedAt: "x",
+        features: { b: { slug: "beta-b", launchedAt: "x" } },
+      },
+      epicsDir,
+    );
+    const code = runEpicCli(["ls"], {
+      epicsDir,
+      readFeatureState: (slug) =>
+        slug === "alpha-a"
+          ? { slug, phase: "merged", repo: repoDir, updatedAt: "x" }
+          : slug === "beta-b"
+            ? { slug, phase: "implementing", repo: repoDir, updatedAt: "x" }
+            : null,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    expect(out).toContain("EPIC");
+    expect(out).toContain("alpha");
+    expect(out).toContain("beta");
   });
 });
 

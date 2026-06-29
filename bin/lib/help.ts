@@ -48,7 +48,7 @@ Usage:
                                         --effort sets the Claude Code reasoning-effort level for the claude session;
                                         --model sets the Claude Code model alias for the claude session)
   flow new --resume <name> [<name> ...] resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
-  flow epic <create|run|status|ls>      design or run an epic (skeleton)
+  flow epic <create|run|status|ls>      design and run an epic (create, run, status, ls)
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
   flow done <name> [<name> ...]         close one or more pipeline windows
@@ -92,27 +92,37 @@ Options:
                         confirms once (each name spawns a Claude Code session)
   --yes, -y             skip the multi-resume confirmation preview`,
 
-  epic: `flow epic — design or run an epic (skeleton)
+  epic: `flow epic — design and run an epic
 
 Usage:
   flow epic create [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] "<prompt>"
-  flow epic run <id>
-  flow epic status <id>
+  flow epic run <slug> [--once] [--max-parallel <N>]
+  flow epic status <slug>
   flow epic ls
 
 Subcommands:
-  create "<prompt>"     design an epic — mint an id and resolve .flow/epics/<slug>
-                        (the designer logic that writes the design + manifest is
-                        deferred to a later feature)
-  run <id>              run an epic (deferred — orchestrator phase)
-  status <id>           epic status (deferred for the skeleton)
-  ls                    list epics (deferred for the skeleton)
+  create "<prompt>"     design an epic — open a tmux window running /epic-create
+                        (clarify → design → validate → open the design PR)
+  run <slug>            drive a merged epic to completion: read the committed
+                        manifest, launch ready features as parallel \`flow new\`
+                        windows in dependency order, and watch for merges to
+                        advance the frontier until the epic finishes or blocks
+  status <slug>         render the live board (read-only): per-feature status,
+                        launched slug + PR + phase, and the current frontier
+  ls                    list every epic under ~/.flow/epics with per-state
+                        feature counts and overall status
 
 Options (create):
   --effort <low|medium|high|xhigh|max>
                         Claude Code reasoning-effort level for the epic-design session
   --model <opus|haiku|sonnet|fable>
-                        Claude Code model alias for the epic-design session (omit for the default)`,
+                        Claude Code model alias for the epic-design session (omit for the default)
+
+Options (run):
+  --once                advance exactly one tick (launch the current frontier,
+                        print the board, exit) — no watch loop
+  --max-parallel <N>    cap concurrent feature windows (default 3, or
+                        ~/.flow/config.json epic.maxParallel)`,
 
   ls: `flow ls — list active pipelines
 

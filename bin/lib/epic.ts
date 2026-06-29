@@ -18,12 +18,17 @@
  * spawned window (cwd'd in a consumer worktree where `bin/lib/*` does not
  * exist) never re-derives the path nor imports `bin/lib`.
  *
- * The orchestrator RUN phase (run/status/ls) is deferred — those subcommands
- * surface a loud deferred message and exit 2.
+ * The orchestrator RUN phase: `run` drives an epic to completion via a
+ * foreground watch loop (tick → launch the ready frontier as parallel `flow
+ * new` windows → sleep → re-tick, exiting on done/blocked), `status` renders
+ * the live board read-only, and `ls` lists every epic under `~/.flow/epics/`.
+ * All three read the committed `.flow/epics/<slug>/manifest.json` READ-ONLY and
+ * keep per-machine runtime state at `~/.flow/epics/<slug>/run.json`.
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import { resolveFlowSource } from "./paths";
@@ -32,7 +37,10 @@ import {
   epicDirRelative,
   EPIC_DESIGN_FILENAME,
   EPIC_MANIFEST_FILENAME,
+  validateEpicManifest,
+  type EpicManifest,
 } from "./epic-manifest-schema";
+import { validateDag } from "../flow-epic-dag";
 import { deriveWorktreePath } from "./new";
 import {
   createWindowVerified,
@@ -54,6 +62,37 @@ import {
 } from "./state";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
+import {
+  reconcile,
+  HALT_STATUSES,
+  type ReadFeatureState,
+} from "./epic-reconcile";
+import { launchFeature, type SpawnFn } from "./epic-launch";
+import {
+  readEpicRunState,
+  writeEpicRunState,
+  listEpicRunStates,
+  type EpicRunState,
+} from "./epic-run-state";
+import { readEpicMaxParallel } from "./epic-config";
+import {
+  renderBoard,
+  renderEpicList,
+  renderTickSummary,
+  type EpicListRow,
+} from "./epic-render";
+
+/** Watch-loop poll interval (the launchd seam for v2 is `--once`). */
+const EPIC_POLL_INTERVAL_MS = 30_000;
+
+/**
+ * Consecutive all-frontier-launch-failure ticks tolerated before the watch loop
+ * bails to `blocked`. A single transient `flow new` failure self-heals on the
+ * next tick, but a persistent one (e.g. a minted slug colliding with a
+ * pre-existing tmux window) would otherwise spin the loop forever with no
+ * progress and no terminal state.
+ */
+const LAUNCH_STALL_BUDGET = 3;
 
 /**
  * Bounded retry budget for the verified window create — mirrors new.ts. A
@@ -117,6 +156,26 @@ export type EpicOptions = {
   model?: ModelAlias;
   /** Backoff (ms) between bounded window-create retries (test seam). */
   retrySleepMs?: number;
+  /** Override the per-machine epic run-state root `~/.flow/epics` (test seam). */
+  epicsDir?: string;
+  /** Watch-loop sleep seam (default `sleepSync`); keeps `runEpicCli` synchronous. */
+  sleep?: (ms: number) => void;
+  /** Watch-loop poll interval in ms (default `EPIC_POLL_INTERVAL_MS`). */
+  pollIntervalMs?: number;
+  /** Feature-launch spawn seam (default spawns the bare `flow new`). */
+  spawn?: SpawnFn;
+  /** Per-feature live-state read seam (default `state.ts` readState). */
+  readFeatureState?: ReadFeatureState;
+  /** Clock seam for run-state timestamps (default `nowIso`). */
+  now?: () => string;
+  /**
+   * `epic.maxParallel` config-default reader seam (default reads the real
+   * `~/.flow/config.json` via `readEpicMaxParallel`). The lone exception to this
+   * module's inject-every-I/O-boundary discipline used to be a bare
+   * `readEpicMaxParallel()` call, which let the run/status/ls unit tests read the
+   * developer's real config; this seam closes that isolation leak.
+   */
+  readMaxParallel?: () => number;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
@@ -139,20 +198,11 @@ export function runEpicCli(args: string[], options: EpicOptions = {}): number {
     case "create":
       return runCreate(args.slice(1), options);
     case "run":
-      console.error(
-        "flow epic run: the epic orchestrator run phase is deferred — out of scope for this skeleton.",
-      );
-      return 2;
+      return runEpicRun(args.slice(1), options);
     case "status":
-      console.error(
-        "flow epic status is deferred — out of scope for this skeleton.",
-      );
-      return 2;
+      return runEpicStatus(args.slice(1), options);
     case "ls":
-      console.error(
-        "flow epic ls is deferred — out of scope for this skeleton.",
-      );
-      return 2;
+      return runEpicLs(options);
     case undefined:
       console.error("flow epic: a subcommand is required.");
       console.error("usage: flow epic <create|run|status|ls>");
@@ -464,6 +514,436 @@ function runEpicResume(name: string, options: EpicOptions): number {
   console.log(
     dim(`flow epic create: resumed — attach with \`flow attach ${slug}\``),
   );
+  return 0;
+}
+
+// ── Run phase: run / status / ls ────────────────────────────────────────────
+
+type RunArgs = {
+  slug: string;
+  once: boolean;
+  maxParallel?: number;
+  error?: string;
+};
+
+/** Parse `<slug>` + `--once` + `--max-parallel <N>` from the run arm's args. */
+function parseRunArgs(rest: string[]): RunArgs {
+  let once = false;
+  let maxParallel: number | undefined;
+  const positionals: string[] = [];
+  for (let i = 0; i < rest.length; i++) {
+    const a = rest[i];
+    if (a === "--once") {
+      once = true;
+      continue;
+    }
+    if (a === "--max-parallel") {
+      const v = rest[i + 1];
+      if (v === undefined || v.startsWith("-")) {
+        return { slug: "", once, error: "--max-parallel requires a value" };
+      }
+      const n = Number(v);
+      if (!Number.isInteger(n) || n < 1) {
+        return {
+          slug: "",
+          once,
+          error: `--max-parallel must be a positive integer (got '${v}')`,
+        };
+      }
+      maxParallel = n;
+      i++;
+      continue;
+    }
+    if (a.startsWith("-")) {
+      return { slug: "", once, error: `unknown option '${a}'` };
+    }
+    positionals.push(a);
+  }
+  return { slug: positionals.join(" ").trim(), once, maxParallel };
+}
+
+/**
+ * Read + shape-validate + DAG-validate the committed manifest READ-ONLY. The
+ * orchestrator never writes `.flow/epics/<slug>/manifest.json`.
+ */
+function loadCommittedManifest(
+  manifestPath: string,
+):
+  | { ok: true; manifest: EpicManifest; sha: string }
+  | { ok: false; reason: string } {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(manifestPath, "utf8");
+  } catch {
+    return { ok: false, reason: "not-found" };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    return {
+      ok: false,
+      reason: `manifest is not valid JSON: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+  const shape = validateEpicManifest(parsed);
+  if (!shape.ok)
+    return { ok: false, reason: `invalid manifest — ${shape.reason}` };
+  const dag = validateDag(shape.value.features);
+  if (!dag.ok) {
+    return {
+      ok: false,
+      reason: `manifest DAG is malformed:\n${dag.violations.map((v) => `  ${v.message}`).join("\n")}`,
+    };
+  }
+  return {
+    ok: true,
+    manifest: shape.value,
+    sha: createHash("sha256").update(raw).digest("hex"),
+  };
+}
+
+function runEpicRun(rest: string[], options: EpicOptions): number {
+  const parsed = parseRunArgs(rest);
+  if (parsed.error) {
+    console.error(`flow epic run: ${parsed.error}`);
+    console.error("usage: flow epic run <slug> [--once] [--max-parallel <N>]");
+    return 2;
+  }
+  if (!parsed.slug) {
+    console.error("flow epic run: a slug is required.");
+    console.error("usage: flow epic run <slug> [--once] [--max-parallel <N>]");
+    return 2;
+  }
+  const { slug, once } = parsed;
+
+  const cwd = options.cwd ?? process.cwd();
+  const repo = resolveRepoRoot(cwd);
+  if (!repo) {
+    console.error(`flow epic run: ${cwd} is not inside a git repository.`);
+    return 2;
+  }
+
+  const manifestPath = path.join(
+    repo,
+    epicDirRelative(slug),
+    EPIC_MANIFEST_FILENAME,
+  );
+  const loaded = loadCommittedManifest(manifestPath);
+  if (!loaded.ok) {
+    if (loaded.reason === "not-found") {
+      console.error(
+        `flow epic run: manifest not found at ${manifestPath} — merge the design PR first.`,
+      );
+    } else {
+      console.error(`flow epic run: ${loaded.reason}`);
+    }
+    return 2;
+  }
+
+  const now = options.now ?? nowIso;
+  const maxParallel =
+    parsed.maxParallel ?? (options.readMaxParallel ?? readEpicMaxParallel)();
+
+  // Load-or-init runtime state; refresh drift-tracking fields on resume.
+  const existing = readEpicRunState(slug, options.epicsDir);
+  const runState: EpicRunState = existing ?? {
+    epicSlug: slug,
+    repo,
+    manifestPath,
+    manifestSha: loaded.sha,
+    maxParallel,
+    createdAt: now(),
+    updatedAt: now(),
+    features: {},
+  };
+  runState.repo = repo;
+  runState.manifestPath = manifestPath;
+  runState.manifestSha = loaded.sha;
+  runState.maxParallel = maxParallel;
+
+  return runWatchLoop(
+    slug,
+    loaded.manifest,
+    runState,
+    maxParallel,
+    once,
+    options,
+    now,
+  );
+}
+
+/**
+ * One reconcile tick: classify, terminate on done/blocked, else launch the
+ * capped frontier and persist. Returns `{ done, code }` — `done` true means the
+ * caller should stop the loop and return `code`.
+ */
+function runEpicTick(
+  slug: string,
+  manifest: EpicManifest,
+  runState: EpicRunState,
+  maxParallel: number,
+  options: EpicOptions,
+  now: () => string,
+): {
+  done: boolean;
+  code: number;
+  running: number;
+  attempted: number;
+  launched: number;
+  launchFailedIds: string[];
+} {
+  const result = reconcile({
+    manifest,
+    runState,
+    readFeatureState: options.readFeatureState,
+    maxParallel,
+  });
+
+  if (result.epicStatus === "done") {
+    console.log(renderBoard(result.board, result.summary));
+    console.log(
+      `epic complete: ${result.summary.merged}/${result.summary.total} features merged.`,
+    );
+    return {
+      done: true,
+      code: 0,
+      running: result.summary.running,
+      attempted: 0,
+      launched: 0,
+      launchFailedIds: [],
+    };
+  }
+
+  if (result.epicStatus === "blocked") {
+    const blockers = result.board
+      .filter((r) => HALT_STATUSES.has(r.status))
+      .map((r) => r.id);
+    console.error(renderBoard(result.board, result.summary));
+    console.error(
+      blockers.length > 0
+        ? `epic blocked — ${blockers.join(", ")} halted (gated/needs-human/orphan); clear via their own pipelines, then re-run \`flow epic run ${slug}\`.`
+        : `epic blocked — the frontier is empty but not all features merged; re-run \`flow epic run ${slug}\` after resolving.`,
+    );
+    return {
+      done: true,
+      code: 1,
+      running: result.summary.running,
+      attempted: 0,
+      launched: 0,
+      launchFailedIds: [],
+    };
+  }
+
+  // Running: launch the capped frontier, recording each minted slug.
+  const launched: { id: string; slug: string }[] = [];
+  const launchFailedIds: string[] = [];
+  for (const feature of result.toLaunch) {
+    const lr = launchFeature(feature, { spawn: options.spawn });
+    if (!lr.ok) {
+      // Surface, never swallow (the slug-drift stall is the #1 failure mode).
+      console.error(
+        `flow epic run: could not launch ${feature.id}: ${lr.error}`,
+      );
+      launchFailedIds.push(feature.id);
+      continue;
+    }
+    runState.features[feature.id] = { slug: lr.slug, launchedAt: now() };
+    launched.push({ id: feature.id, slug: lr.slug });
+  }
+  runState.updatedAt = now();
+  writeEpicRunState(runState, options.epicsDir);
+
+  const line = renderTickSummary(launched, {
+    used: result.summary.running + launched.length,
+    max: maxParallel,
+  });
+  if (line) console.log(line);
+
+  return {
+    done: false,
+    code: 0,
+    running: result.summary.running + launched.length,
+    attempted: result.toLaunch.length,
+    launched: launched.length,
+    launchFailedIds,
+  };
+}
+
+function runWatchLoop(
+  slug: string,
+  manifest: EpicManifest,
+  runState: EpicRunState,
+  maxParallel: number,
+  once: boolean,
+  options: EpicOptions,
+  now: () => string,
+): number {
+  if (once) {
+    return runEpicTick(slug, manifest, runState, maxParallel, options, now)
+      .code;
+  }
+
+  const sleep = options.sleep ?? sleepSync;
+  const pollMs = options.pollIntervalMs ?? EPIC_POLL_INTERVAL_MS;
+
+  // Ctrl-C terminates the watch loop via the runtime's DEFAULT SIGINT handling —
+  // no handler is registered on purpose. A synchronous `sleepSync` loop
+  // (`Atomics.wait`) never yields to the event loop, so a registered SIGINT
+  // listener could never be dispatched AND would suppress the default
+  // terminate-on-Ctrl-C, leaving the process uninterruptible. Letting the
+  // default fire keeps Ctrl-C working: already-launched features keep running in
+  // their own tmux windows (separate processes), run-state is persisted every
+  // tick, so re-running `flow epic run <slug>` resumes from disk — an abrupt
+  // interrupt is functionally equivalent to a graceful stop here.
+  let stalledTicks = 0;
+  for (;;) {
+    const r = runEpicTick(slug, manifest, runState, maxParallel, options, now);
+    if (r.done) return r.code;
+
+    // No-progress guard: a tick that launches nothing, has nothing already
+    // running, yet still wanted to launch (frontier non-empty) means every
+    // frontier feature failed to launch. A transient failure self-heals on the
+    // next tick; a persistent one would otherwise spin forever, so bail to
+    // `blocked` after LAUNCH_STALL_BUDGET consecutive stalled ticks.
+    if (r.running === 0 && r.launched === 0 && r.attempted > 0) {
+      if (++stalledTicks >= LAUNCH_STALL_BUDGET) {
+        console.error(
+          `epic blocked — ${r.launchFailedIds.join(", ")} failed to launch ${LAUNCH_STALL_BUDGET} consecutive ticks with nothing else in flight; fix the underlying \`flow new\` failure (e.g. a window-name collision), then re-run \`flow epic run ${slug}\`.`,
+        );
+        return 1;
+      }
+    } else {
+      stalledTicks = 0;
+    }
+
+    sleep(pollMs);
+  }
+}
+
+/** An empty-features runtime state for an epic that has a manifest but no run yet. */
+function ephemeralRunState(
+  slug: string,
+  manifestPath: string,
+  readMaxParallel: () => number = readEpicMaxParallel,
+): EpicRunState {
+  return {
+    epicSlug: slug,
+    repo: "",
+    manifestPath,
+    manifestSha: "",
+    maxParallel: readMaxParallel(),
+    createdAt: "",
+    updatedAt: "",
+    features: {},
+  };
+}
+
+function runEpicStatus(rest: string[], options: EpicOptions): number {
+  const slug = rest
+    .filter((a) => !a.startsWith("-"))
+    .join(" ")
+    .trim();
+  if (!slug) {
+    console.error("flow epic status: a slug is required.");
+    console.error("usage: flow epic status <slug>");
+    return 2;
+  }
+
+  const runState = readEpicRunState(slug, options.epicsDir);
+  // Prefer the run-state's recorded manifest path (usable from any cwd); else
+  // resolve the committed manifest from the current repo.
+  let manifestPath: string | null = runState?.manifestPath ?? null;
+  if (!manifestPath) {
+    const repo = resolveRepoRoot(options.cwd ?? process.cwd());
+    if (repo) {
+      manifestPath = path.join(
+        repo,
+        epicDirRelative(slug),
+        EPIC_MANIFEST_FILENAME,
+      );
+    }
+  }
+
+  let manifest: EpicManifest | null = null;
+  if (manifestPath) {
+    const loaded = loadCommittedManifest(manifestPath);
+    if (loaded.ok) manifest = loaded.manifest;
+  }
+
+  if (!manifest) {
+    if (!runState) {
+      console.error(`flow epic status: no epic found for '${slug}'.`);
+      console.error(
+        '  design one with `flow epic create "<prompt>"`, then run it once the design PR merges.',
+      );
+      return 2;
+    }
+    console.error(
+      `flow epic status: epic '${slug}' has runtime state but its manifest is unreadable${manifestPath ? ` at ${manifestPath}` : ""}.`,
+    );
+    return 2;
+  }
+
+  const rs =
+    runState ??
+    ephemeralRunState(
+      slug,
+      manifestPath!,
+      options.readMaxParallel ?? readEpicMaxParallel,
+    );
+  const result = reconcile({
+    manifest,
+    runState: rs,
+    readFeatureState: options.readFeatureState,
+    maxParallel: rs.maxParallel,
+  });
+  console.log(
+    `EPIC ${slug} — ${result.epicStatus} (${result.summary.merged}/${result.summary.total} merged)`,
+  );
+  console.log(renderBoard(result.board, result.summary));
+  return 0;
+}
+
+function runEpicLs(options: EpicOptions): number {
+  const states = listEpicRunStates(options.epicsDir);
+  if (states.length === 0) {
+    console.log(renderEpicList([]));
+    return 0;
+  }
+  const rows: EpicListRow[] = states.map((rs) => {
+    const loaded = loadCommittedManifest(rs.manifestPath);
+    if (!loaded.ok) {
+      // Degraded row: manifest unreadable (moved/unmerged). Count launched only.
+      const launched = Object.values(rs.features).length;
+      return {
+        slug: rs.epicSlug,
+        ready: 0,
+        running: 0,
+        blocked: 0,
+        merged: 0,
+        total: launched,
+        status: "running" as const,
+      };
+    }
+    const result = reconcile({
+      manifest: loaded.manifest,
+      runState: rs,
+      readFeatureState: options.readFeatureState,
+      maxParallel: rs.maxParallel,
+    });
+    return {
+      slug: rs.epicSlug,
+      ready: result.summary.ready,
+      running: result.summary.running,
+      blocked: result.summary.blocked,
+      merged: result.summary.merged,
+      total: result.summary.total,
+      status: result.epicStatus,
+    };
+  });
+  rows.sort((a, b) => a.slug.localeCompare(b.slug));
+  console.log(renderEpicList(rows));
   return 0;
 }
 

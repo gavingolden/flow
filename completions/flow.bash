@@ -108,8 +108,8 @@ _flow() {
         epic)
             # Find the epic subcommand (first non-flag token after `epic`). `i`
             # is the verb index from the scan above, so the subcommand starts at
-            # i+1. Once it is `create`, complete its create-level value flags;
-            # otherwise complete the subcommand list.
+            # i+1. Complete each subcommand's value flags; otherwise the
+            # subcommand list.
             local esub="" k
             for ((k=i+1; k < cword; k++)); do
                 case "${words[k]}" in
@@ -139,6 +139,9 @@ _flow() {
                 esac
                 # shellcheck disable=SC2207
                 COMPREPLY=( $(compgen -W "--resume --effort --model" -- "$cur") )
+            elif [ "$esub" = "run" ] && [[ "$cur" == -* ]]; then
+                # shellcheck disable=SC2207
+                COMPREPLY=( $(compgen -W "--once --max-parallel" -- "$cur") )
             else
                 # shellcheck disable=SC2207
                 COMPREPLY=( $(compgen -W "create run status ls" -- "$cur") )

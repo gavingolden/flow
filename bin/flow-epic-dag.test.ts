@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import type { Feature } from "./lib/epic-manifest-schema";
 import {
   type DagViolation,
+  computeFrontier,
   detectCycle,
   findDuplicateIds,
   findOrphanEdges,
@@ -251,6 +252,90 @@ describe("validateDag — aggregates ALL violations", () => {
     expect(kinds(result.violations)).toEqual(
       new Set(["duplicate-id", "orphan-edge"]),
     );
+  });
+});
+
+// --- computeFrontier: the orchestrator's ready-set (Story 1) ---
+
+describe("computeFrontier — ready-set computation", () => {
+  const ids = (features: Feature[]): string[] => features.map((f) => f.id);
+
+  it("returns [] for an empty graph", () => {
+    expect(computeFrontier([], { completed: [], launched: [] })).toEqual([]);
+  });
+
+  it("linear chain a -> b -> c: only the next undone node is ready", () => {
+    const features = [feat("a"), feat("b", ["a"]), feat("c", ["b"])];
+    // Nothing done yet: only the root `a` is ready.
+    expect(
+      ids(computeFrontier(features, { completed: [], launched: [] })),
+    ).toEqual(["a"]);
+    // `a` merged: `b` unblocks; `c` still waits on `b`.
+    expect(
+      ids(computeFrontier(features, { completed: ["a"], launched: [] })),
+    ).toEqual(["b"]);
+    // `a` merged but `b` already launched: nothing new is ready.
+    expect(
+      computeFrontier(features, { completed: ["a"], launched: ["b"] }),
+    ).toEqual([]);
+  });
+
+  it("diamond a -> {b,c} -> d: both middles ready once root completes; tail only after both", () => {
+    const features = [
+      feat("a"),
+      feat("b", ["a"]),
+      feat("c", ["a"]),
+      feat("d", ["b", "c"]),
+    ];
+    expect(
+      ids(computeFrontier(features, { completed: ["a"], launched: [] })),
+    ).toEqual(["b", "c"]);
+    // Only one middle done: `d` still blocked (needs both b and c).
+    expect(
+      ids(
+        computeFrontier(features, { completed: ["a", "b"], launched: ["c"] }),
+      ),
+    ).toEqual([]);
+    // Both middles merged: the tail `d` is ready.
+    expect(
+      ids(
+        computeFrontier(features, { completed: ["a", "b", "c"], launched: [] }),
+      ),
+    ).toEqual(["d"]);
+  });
+
+  it("disconnected components: independent roots are both ready", () => {
+    const features = [feat("a"), feat("b", ["a"]), feat("x"), feat("y", ["x"])];
+    expect(
+      ids(computeFrontier(features, { completed: [], launched: [] })),
+    ).toEqual(["a", "x"]);
+  });
+
+  it("partial completion: a feature with some-but-not-all deps complete is excluded", () => {
+    const features = [feat("a"), feat("b"), feat("c", ["a", "b"])];
+    // `a` done, `b` not: `c` must NOT be in the frontier; only `b` is ready.
+    expect(
+      ids(computeFrontier(features, { completed: ["a"], launched: [] })),
+    ).toEqual(["b"]);
+  });
+
+  it("all-complete returns empty", () => {
+    const features = [feat("a"), feat("b", ["a"]), feat("c", ["b"])];
+    expect(
+      computeFrontier(features, { completed: ["a", "b", "c"], launched: [] }),
+    ).toEqual([]);
+  });
+
+  it("accepts Set inputs as well as arrays (iterable contract)", () => {
+    const features = [feat("a"), feat("b", ["a"])];
+    expect(
+      ids(
+        computeFrontier(features, {
+          completed: new Set(["a"]),
+          launched: new Set<string>(),
+        }),
+      ),
+    ).toEqual(["b"]);
   });
 });
 
