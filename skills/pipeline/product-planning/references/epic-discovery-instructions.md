@@ -6,8 +6,8 @@ They are the **epic-grain** sibling of `discovery-instructions.md`: the same
 one-shot-discovery machinery, re-grained one altitude up. The feature-grain
 file decomposes one PR into intra-feature tasks; this file decomposes an
 **epic** — a body of work larger than one PR — into a dependency DAG of
-**features**, where **one node = one PR-sized feature** that each becomes a
-single ordinary `flow new` pipeline.
+**features**, where **one node (one entry in the manifest's `features[]`) =
+one PR-sized feature** that each becomes a single ordinary `flow new` pipeline.
 
 The designer **produces artifacts and stops**. It emits a six-section
 `design.md` plus a typed `manifest.json` under `.flow/epics/<slug>/`,
@@ -70,8 +70,8 @@ change into artificial slices.
 
 The output shape is fixed regardless of size: a six-section `design.md` +
 a typed `manifest.json`, both written under `.flow/epics/<slug>/`. The
-difference between a large epic and a small one is the number of nodes in
-the DAG, not the artifact set.
+difference between a large epic and a small one is the number of features
+(the manifest's `features[]` entries) in the DAG, not the artifact set.
 
 ## 3. Discovery — make informed assumptions, surface ambiguity (one-shot)
 
@@ -192,6 +192,14 @@ Collect every assumption made under ambiguity (§3) plus anything still
 unresolved as Open Questions for the approval checkpoint — including, if it
 applies, a note when you judged the prompt genuinely epic-sized vs a single
 feature.
+
+For a **visual / palette / typography overhaul** epic, you MUST record
+explicitly in Open Questions that concrete palette/color values (exact
+hex/token values, type scales, spacing primitives) are deferred to each
+feature's F1 (`flow new`) planning — the epic design fixes the structure and
+seams, not the final colors. Stating the deferral here makes it a conscious,
+reviewer-visible choice at the approval checkpoint rather than a silent
+omission.
 
 ## 5. Write the two artifacts
 

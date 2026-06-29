@@ -30,6 +30,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { runUpdate } from "./flow-state-update";
 import { resolveSlugFromPane } from "./lib/tmux";
+import { type GitRunner, defaultGit } from "./lib/resume-probes";
 
 type Args = {
   /** undefined when omitted — caller falls back to resolveSlugFromPane(). */
@@ -201,6 +202,8 @@ export function readCurrentPr(gh: GhRunner): PrInfo | { error: string } {
 
 export type Deps = {
   gh?: GhRunner;
+  /** Test seam: a git runner mirroring `resume-probes`' injectable `GitRunner`. */
+  git?: GitRunner;
   /** Test seam: pass a custom updater that mirrors `flow-state-update`'s `runUpdate` signature. */
   updater?: (argv: string[]) => number;
   resolveSlug?: () => string | null;
@@ -215,6 +218,7 @@ export type Deps = {
 
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
+  const git = deps.git ?? defaultGit;
   const updater = deps.updater ?? runUpdate;
   const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
   const sessionId = deps.sessionId ?? process.env.CLAUDE_CODE_SESSION_ID;
@@ -250,6 +254,36 @@ export function run(argv: string[], deps: Deps = {}): number {
   if (probe.kind === "found") {
     pr = { number: probe.number, url: probe.url };
   } else if (probe.kind === "none") {
+    // Fresh-create path: `gh pr create` requires the branch to exist on the
+    // remote. flow-new-worktree branches track origin/main (it sets
+    // branch.<name>.merge=refs/heads/main + .remote=origin), so `@{u}`
+    // resolves and is NOT a reliable "unpushed" signal. Gate the push on
+    // whether the branch's OWN head exists on origin via
+    // `git ls-remote --exit-code --heads origin <branch>` (exit non-zero when
+    // the ref is absent). That fires for a committed-but-never-pushed branch
+    // (e.g. /epic-create step 5) and is a no-op for already-pushed callers
+    // like /flow-pipeline (whose implement phase pushes with `-u` first).
+    const branchRef = git(["rev-parse", "--abbrev-ref", "HEAD"], process.cwd());
+    const branchName = branchRef.stdout.trim();
+    // Defensive: a detached HEAD has no branch name to publish as a ref, so
+    // skip the push rather than letting `ls-remote`/`push -u` fail. `rev-parse
+    // --abbrev-ref HEAD` reports a detached HEAD as the literal "HEAD" (exit 0,
+    // not a non-zero failure), so guard on both. flow-open-pr callers are
+    // always on a branch, so this guards a case that should not occur.
+    if (branchRef.exitCode === 0 && branchName && branchName !== "HEAD") {
+      const onRemote = git(
+        ["ls-remote", "--exit-code", "--heads", "origin", branchName],
+        process.cwd(),
+      );
+      if (onRemote.exitCode !== 0) {
+        const pushed = git(["push", "-u", "origin", "HEAD"], process.cwd());
+        if (pushed.exitCode !== 0) {
+          if (pushed.stderr) process.stderr.write(pushed.stderr);
+          return pushed.exitCode === -1 ? 1 : pushed.exitCode;
+        }
+      }
+    }
+
     // Fresh-create path only: append the self-describing session marker
     // to the body. The marker is NOT re-applied on the resume (`found`)
     // path — flow-open-pr is idempotent and re-editing would duplicate it.
