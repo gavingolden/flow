@@ -768,6 +768,87 @@ describe("flow-open-pr run()", () => {
     expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(false);
     expect(readState("pushfail").pr).toBeUndefined();
   });
+
+  it("skips the push (no ls-remote, no push) on a detached HEAD and still creates the PR", () => {
+    seedState("detached");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 52,
+        url: "https://github.com/x/y/pull/52",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls: ghCalls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    // `rev-parse --abbrev-ref HEAD` reports a detached HEAD as the literal
+    // "HEAD" (exit 0). The branchName !== "HEAD" guard must then skip the
+    // ls-remote/push pair — only the rev-parse step is consumed.
+    const { git, calls: gitCalls } = makeGitSequence([
+      {
+        matches: isBranchName,
+        response: { stdout: "HEAD\n", stderr: "", exitCode: 0 },
+      },
+    ]);
+    const exit = run(["detached", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git,
+      sessionId: "",
+    });
+    expect(exit).toBe(0);
+    // No remote-existence probe and no push on a detached HEAD ...
+    expect(gitCalls.some((c) => c[0] === "ls-remote")).toBe(false);
+    expect(gitCalls.some((c) => c[0] === "push")).toBe(false);
+    // ... but gh pr create still runs and the PR number lands in state.
+    expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
+    expect(readState("detached").pr).toBe(52);
+  });
+
+  it("skips the push when rev-parse exits non-zero and still creates the PR", () => {
+    seedState("revparsefail");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 53,
+        url: "https://github.com/x/y/pull/53",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls: ghCalls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    // A non-zero rev-parse fails the `branchRef.exitCode === 0` clause, so the
+    // ls-remote/push pair is skipped — only the rev-parse step is consumed.
+    const { git, calls: gitCalls } = makeGitSequence([
+      {
+        matches: isBranchName,
+        response: {
+          stdout: "",
+          stderr: "fatal: not a git repo\n",
+          exitCode: 128,
+        },
+      },
+    ]);
+    const exit = run(["revparsefail", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git,
+      sessionId: "",
+    });
+    expect(exit).toBe(0);
+    expect(gitCalls.some((c) => c[0] === "ls-remote")).toBe(false);
+    expect(gitCalls.some((c) => c[0] === "push")).toBe(false);
+    expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
+    expect(readState("revparsefail").pr).toBe(53);
+  });
 });
 
 describe("isValidSessionId", () => {
