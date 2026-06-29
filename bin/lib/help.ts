@@ -37,7 +37,7 @@ Usage:
                                         --no-hooks skips the Stop-hook merge into ~/.claude/settings.json;
                                         --repair-settings backs up and rewrites ~/.claude/settings.json when malformed;
                                         --install-deps installs missing source-root runtime deps before symlinking)
-  flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>
+  flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>
                                         start a new pipeline in a tmux window
                                         (--no-auto-merge stops at gated regardless of rubric;
                                         --wait-for-copilot forces the full 10-min Copilot wait
@@ -45,7 +45,8 @@ Usage:
                                         --research forces web-grounded discovery research on,
                                         bypassing the relevance gate and the research.discovery config opt-in;
                                         --copilot-review controls Copilot review opt-in, default auto;
-                                        --effort sets the Claude Code reasoning-effort level for the claude session)
+                                        --effort sets the Claude Code reasoning-effort level for the claude session;
+                                        --model sets the Claude Code model alias for the claude session)
   flow new --resume <name> [<name> ...] resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
   flow epic <create|run|status|ls>      design or run an epic (skeleton)
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
@@ -70,7 +71,7 @@ export const HELP_TEXT: Record<string, string> = {
   new: `flow new — start a new pipeline in a tmux window
 
 Usage:
-  flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>
+  flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>
   flow new --resume <name> [<name> ...] [--yes]
 
 Options:
@@ -83,6 +84,8 @@ Options:
                         'never' never requests, 'auto' lets the hybrid classifier decide
   --effort <low|medium|high|xhigh|max>
                         Claude Code reasoning-effort level for the pipeline's claude session
+  --model <opus|haiku|sonnet|fable>
+                        Claude Code model alias for the pipeline's claude session (omit for the default)
   --resume <name> [<name> ...]
                         resume one or more crashed pipelines in their existing windows;
                         resumes sequentially, and with >=2 names previews the list and
@@ -92,7 +95,7 @@ Options:
   epic: `flow epic — design or run an epic (skeleton)
 
 Usage:
-  flow epic create "<prompt>"
+  flow epic create [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] "<prompt>"
   flow epic run <id>
   flow epic status <id>
   flow epic ls
@@ -103,7 +106,13 @@ Subcommands:
                         deferred to a later feature)
   run <id>              run an epic (deferred — orchestrator phase)
   status <id>           epic status (deferred for the skeleton)
-  ls                    list epics (deferred for the skeleton)`,
+  ls                    list epics (deferred for the skeleton)
+
+Options (create):
+  --effort <low|medium|high|xhigh|max>
+                        Claude Code reasoning-effort level for the epic-design session
+  --model <opus|haiku|sonnet|fable>
+                        Claude Code model alias for the epic-design session (omit for the default)`,
 
   ls: `flow ls — list active pipelines
 

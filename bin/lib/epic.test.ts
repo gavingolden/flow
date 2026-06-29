@@ -48,6 +48,7 @@ const tmuxMock = vi.hoisted(() => ({
 vi.mock("./tmux", () => tmuxMock);
 
 import { runEpicCli } from "./epic";
+import { deriveWorktreePath } from "./new";
 import { writeState } from "./state";
 
 let logs!: string[];
@@ -299,6 +300,220 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(code).toBe(2);
     expect(fs.readdirSync(stateDir)).toEqual([]);
     expect(errors.join("\n")).toMatch(/vanished after launch/);
+  });
+});
+
+describe("runEpicCli create — --effort / --model flags", () => {
+  it("--effort high threads --effort before the prompt and persists effort", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(
+      ["create", "--effort", "high", "design the thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+      },
+    );
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    // NO positional seed (delivered via send-keys); --effort sits after --add-dir.
+    expect(command).toEqual([
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+      "--effort",
+      "high",
+    ]);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "design-thing.json"), "utf8"),
+    );
+    expect(raw.effort).toBe("high");
+  });
+
+  it.each(["opus", "fable"] as const)(
+    "--model %s threads --model before the prompt and persists model",
+    (alias) => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      freshWindowOk();
+      const code = runEpicCli(
+        ["create", "--model", alias, "design the thing"],
+        {
+          stateDir,
+          cwd: repoDir,
+        },
+      );
+      expect(code).toBe(0);
+      const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+      // NO positional seed (delivered via send-keys); --model sits after --add-dir.
+      expect(command).toEqual([
+        "claude",
+        "--add-dir",
+        deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+        "--model",
+        alias,
+      ]);
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "design-thing.json"), "utf8"),
+      );
+      expect(raw.model).toBe(alias);
+    },
+  );
+
+  it("--model opus --effort high orders --model before --effort before the prompt", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(
+      ["create", "--model", "opus", "--effort", "high", "design the thing"],
+      { stateDir, cwd: repoDir },
+    );
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    // Deterministic order: --model before --effort, both after --add-dir; NO
+    // positional seed (delivered via send-keys).
+    expect(command).toEqual([
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+      "--model",
+      "opus",
+      "--effort",
+      "high",
+    ]);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "design-thing.json"), "utf8"),
+    );
+    expect(raw.model).toBe("opus");
+    expect(raw.effort).toBe("high");
+  });
+
+  it("without --effort/--model omits both from the argv and the state keys", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).not.toContain("--effort");
+    expect(command).not.toContain("--model");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "design-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("effort");
+    expect(raw).not.toHaveProperty("model");
+  });
+
+  it("--effort with an invalid value returns exit 2 and writes no state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runEpicCli(
+      ["create", "--effort", "bogus", "design the thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+      },
+    );
+    expect(code).toBe(2);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/low, medium, high, xhigh, max/);
+  });
+
+  it("--model with an invalid value returns exit 2 and writes no state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runEpicCli(["create", "--model", "gpt4", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(2);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/opus, haiku, sonnet, fable/);
+  });
+
+  it("--model with a missing value returns exit 2 and writes no state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runEpicCli(["create", "--model"], { stateDir, cwd: repoDir });
+    expect(code).toBe(2);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("--effort followed by another flag returns exit 2 and writes no state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runEpicCli(
+      ["create", "--effort", "--model", "design the thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+      },
+    );
+    expect(code).toBe(2);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("--model followed by another flag returns exit 2 and writes no state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runEpicCli(
+      ["create", "--model", "--effort", "design the thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+      },
+    );
+    expect(code).toBe(2);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("strips the flag + value tokens from the prompt/slug", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(
+      ["create", "--model", "opus", "--effort", "high", "design the thing"],
+      { stateDir, cwd: repoDir },
+    );
+    expect(code).toBe(0);
+    // Slug excludes the flag/value tokens: prompt was "design the thing".
+    expect(fs.existsSync(path.join(stateDir, "design-thing.json"))).toBe(true);
+    // The seed is delivered via send-keys (the 4th arg), NOT a positional argv.
+    const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(seed).toContain("Use the /epic-create skill for: design the thing");
+    expect(seed).not.toContain("--model");
+    expect(seed).not.toContain("--effort");
+  });
+
+  it("--resume re-applies the saved effort + model into the respawn argv", () => {
+    writeState(
+      {
+        slug: "saved-flags-epic",
+        phase: "epic-designing",
+        repo: repoDir,
+        effort: "max",
+        model: "opus",
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runEpicCli(["create", "--resume", "saved-flags-epic"], {
+      stateDir,
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
+    // NO positional seed (delivered via send-keys); saved --model/--effort
+    // re-applied after --add-dir in deterministic order.
+    expect(command).toEqual([
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(repoDir, "saved-flags-epic"),
+      "--model",
+      "opus",
+      "--effort",
+      "max",
+    ]);
   });
 });
 
