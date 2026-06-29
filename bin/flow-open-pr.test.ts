@@ -849,6 +849,43 @@ describe("flow-open-pr run()", () => {
     expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
     expect(readState("revparsefail").pr).toBe(53);
   });
+
+  it("skips the push when rev-parse yields an empty branch name and still creates the PR", () => {
+    seedState("emptybranch");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 54,
+        url: "https://github.com/x/y/pull/54",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls: ghCalls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    // An empty branch name (exit 0, blank stdout) fails the `branchName` clause
+    // of the guard, so the ls-remote/push pair is skipped — only rev-parse runs.
+    const { git, calls: gitCalls } = makeGitSequence([
+      {
+        matches: isBranchName,
+        response: { stdout: "\n", stderr: "", exitCode: 0 },
+      },
+    ]);
+    const exit = run(["emptybranch", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git,
+      sessionId: "",
+    });
+    expect(exit).toBe(0);
+    expect(gitCalls.some((c) => c[0] === "ls-remote")).toBe(false);
+    expect(gitCalls.some((c) => c[0] === "push")).toBe(false);
+    expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
+    expect(readState("emptybranch").pr).toBe(54);
+  });
 });
 
 describe("isValidSessionId", () => {
