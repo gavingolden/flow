@@ -1147,7 +1147,7 @@ describe("runNewCli (--help / -h short-circuit)", () => {
   });
 
   it("runNew --resume re-applies the saved effort into the respawn argv", () => {
-    // LOAD-BEARING: omit `command` so resumeCommand runs.
+    // LOAD-BEARING: omit `command` so buildLaunchCommand runs.
     writeState(
       {
         slug: "saved-effort",
@@ -1178,6 +1178,166 @@ describe("runNewCli (--help / -h short-circuit)", () => {
       "max",
       "--settings",
       settingsPath,
+    ]);
+  });
+
+  it.each(["opus", "fable"] as const)(
+    "runNewCli --model %s launches claude with --model before the prompt and persists model",
+    (alias) => {
+      // LOAD-BEARING: omit `command` so buildLaunchCommand runs.
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      freshWindowOk();
+      const code = runNewCli(["--model", alias, "do", "thing"], {
+        stateDir,
+        cwd: repoDir,
+      });
+      expect(code).toBe(0);
+      const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+      // NO positional seed (delivered via send-keys); --model sits between
+      // --add-dir and the trailing --settings.
+      expect(command).toEqual([
+        "env",
+        "FLOW_PIPELINE=1",
+        "claude",
+        "--add-dir",
+        deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
+        "--model",
+        alias,
+        "--settings",
+        path.join(semDir, "launch-settings.json"),
+      ]);
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+      );
+      expect(raw.model).toBe(alias);
+    },
+  );
+
+  it("runNewCli --model opus --effort high orders --model before --effort before the prompt", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNewCli(
+      ["--model", "opus", "--effort", "high", "do", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+      },
+    );
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    // Deterministic order: --model before --effort, both before --settings.
+    expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
+      "--model",
+      "opus",
+      "--effort",
+      "high",
+      "--settings",
+      path.join(semDir, "launch-settings.json"),
+    ]);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.model).toBe("opus");
+    expect(raw.effort).toBe("high");
+  });
+
+  it("runNewCli without --model omits --model from the launch argv and the model key from state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNewCli(["do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).not.toContain("--model");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("model");
+  });
+
+  it("runNewCli --model with an invalid value returns non-zero and triggers no side-effect", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["--model", "gpt4", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(1);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/opus, haiku, sonnet, fable/);
+  });
+
+  it("runNewCli --model with a missing value returns non-zero and triggers no side-effect", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["--model"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(1);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("runNewCli --model followed by another flag returns non-zero and triggers no side-effect", () => {
+    // Pins the `value.startsWith("--")` half of the missing-value guard: a
+    // following flag must not be consumed as the model value.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runNewCli(["--model", "--no-auto-merge", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(1);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("runNewCli --model opus strips the flag and its value token from the slug", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNewCli(["--model", "opus", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
+  });
+
+  it("runNew --resume re-applies the saved model into the respawn argv", () => {
+    // LOAD-BEARING: omit `command` so buildLaunchCommand runs.
+    writeState(
+      {
+        slug: "saved-model",
+        phase: "verifying",
+        repo: repoDir,
+        model: "opus",
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runNew("saved-model", { resume: true, stateDir });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
+    // NO positional seed (delivered via send-keys); the saved --model is
+    // re-applied between --add-dir and the trailing --settings.
+    expect(command).toEqual([
+      "env",
+      "FLOW_PIPELINE=1",
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(repoDir, "saved-model"),
+      "--model",
+      "opus",
+      "--settings",
+      path.join(semDir, "launch-settings.json"),
     ]);
   });
 

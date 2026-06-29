@@ -20,6 +20,17 @@ import { FLOW_STATE_DIR } from "./paths";
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
+/**
+ * Model aliases accepted by `claude --model`. Single source of truth: `new.ts`
+ * and `epic.ts` import this for `flow new --model` / `flow epic create --model`
+ * validation; help text and completion scripts necessarily restate the literals
+ * as plain strings. Absent ≡ the Claude Code default model (no `--model` flag
+ * passed). flow forwards the alias verbatim — it does not translate to a full
+ * model id.
+ */
+export const MODEL_ALIASES = ["opus", "haiku", "sonnet", "fable"] as const;
+export type ModelAlias = (typeof MODEL_ALIASES)[number];
+
 export type PipelineState = {
   slug: string;
   phase: string;
@@ -60,6 +71,13 @@ export type PipelineState = {
    * default (no `--effort` flag passed).
    */
   effort?: EffortLevel;
+  /**
+   * Claude Code model alias for this pipeline's claude session. Set via
+   * `flow new --model <opus|haiku|sonnet|fable>` (or `flow epic create
+   * --model …`) and re-applied to the respawn argv on `--resume`. Absent ≡
+   * the Claude Code default model (no `--model` flag passed).
+   */
+  model?: ModelAlias;
   /**
    * Claude Code session ID captured by `flow-open-pr` at PR-open time.
    * Carries the ID to `/flow-pipeline` step 10, which emits it as a
@@ -280,6 +298,11 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (
     o.effort !== undefined &&
     !(EFFORT_LEVELS as readonly string[]).includes(o.effort as string)
+  )
+    return false;
+  if (
+    o.model !== undefined &&
+    !(MODEL_ALIASES as readonly string[]).includes(o.model as string)
   )
     return false;
   if (o.sessionId !== undefined && typeof o.sessionId !== "string")

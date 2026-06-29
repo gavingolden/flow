@@ -40,7 +40,16 @@ import {
   FLOW_SESSION,
   type VerifiedLaunchResult,
 } from "./tmux";
-import { readState, writeState, deleteState, nowIso } from "./state";
+import {
+  readState,
+  writeState,
+  deleteState,
+  nowIso,
+  EFFORT_LEVELS,
+  type EffortLevel,
+  MODEL_ALIASES,
+  type ModelAlias,
+} from "./state";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 
@@ -78,6 +87,17 @@ export type EpicOptions = {
   resume?: boolean;
   /** Override the state directory (test seam). */
   stateDir?: string;
+  /**
+   * Persist the Claude Code reasoning-effort level. Threaded into the launch
+   * argv as `--effort <level>` before the prompt. Omitted when absent.
+   */
+  effort?: EffortLevel;
+  /**
+   * Persist the Claude Code model alias. Threaded into the launch argv as
+   * `--model <alias>` before the prompt (and before `--effort`). Omitted when
+   * absent (Claude's default model applies).
+   */
+  model?: ModelAlias;
   /** Backoff (ms) between bounded window-create retries (test seam). */
   retrySleepMs?: number;
 };
@@ -132,8 +152,14 @@ function runCreate(rest: string[], options: EpicOptions): number {
     console.log(`flow epic create — design an epic
 
 Usage:
-  flow epic create "<prompt>"
+  flow epic create [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] "<prompt>"
   flow epic create --resume <slug>
+
+Options:
+  --effort <low|medium|high|xhigh|max>
+                        Claude Code reasoning-effort level for the epic-design session
+  --model <opus|haiku|sonnet|fable>
+                        Claude Code model alias for the epic-design session (omit for the default)
 
 Mints an epic id from the prompt, opens a per-pipeline tmux window running
 the /epic-create supervisor skill (clarify → design → validate → open design
@@ -154,7 +180,66 @@ PR → review checkpoint), and writes initial epic state under
     return runEpicResume(slugArg, options);
   }
 
-  const prompt = rest.join(" ").trim();
+  // --effort / --model are VALUE flags (ported from new.ts's runNewCli). Parse
+  // + enum-validate BEFORE the prompt is built, so an invalid value exits with
+  // epic's usage-error code (2 — NOT new's 1) and triggers no side-effect. The
+  // flag + its value token are both stripped from `rest` before the join.
+  let effort: EffortLevel | undefined;
+  const effortIdx = rest.indexOf("--effort");
+  if (effortIdx >= 0) {
+    const value = rest[effortIdx + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error("flow epic create: --effort requires a value.");
+      console.error("  expected one of: low, medium, high, xhigh, max");
+      return 2;
+    }
+    if (!(EFFORT_LEVELS as readonly string[]).includes(value)) {
+      console.error(`flow epic create: invalid --effort value '${value}'.`);
+      console.error("  expected one of: low, medium, high, xhigh, max");
+      return 2;
+    }
+    effort = value as EffortLevel;
+  }
+  const effortValueToken = effortIdx >= 0 ? rest[effortIdx + 1] : undefined;
+
+  let model: ModelAlias | undefined;
+  const modelIdx = rest.indexOf("--model");
+  if (modelIdx >= 0) {
+    const value = rest[modelIdx + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error("flow epic create: --model requires a value.");
+      console.error("  expected one of: opus, haiku, sonnet, fable");
+      return 2;
+    }
+    if (!(MODEL_ALIASES as readonly string[]).includes(value)) {
+      console.error(`flow epic create: invalid --model value '${value}'.`);
+      console.error("  expected one of: opus, haiku, sonnet, fable");
+      return 2;
+    }
+    model = value as ModelAlias;
+  }
+  const modelValueToken = modelIdx >= 0 ? rest[modelIdx + 1] : undefined;
+
+  let skipNext = false;
+  const promptTokens = rest.filter((a) => {
+    if (skipNext) {
+      skipNext = false;
+      return false;
+    }
+    if (a === "--effort") {
+      skipNext =
+        effortValueToken !== undefined && !effortValueToken.startsWith("--");
+      return false;
+    }
+    if (a === "--model") {
+      skipNext =
+        modelValueToken !== undefined && !modelValueToken.startsWith("--");
+      return false;
+    }
+    return true;
+  });
+
+  const prompt = promptTokens.join(" ").trim();
   if (!prompt) {
     console.error("flow epic create: a prompt is required.");
     console.error('usage: flow epic create "<prompt>"');
@@ -191,7 +276,7 @@ PR → review checkpoint), and writes initial epic state under
   // in a consumer worktree without bin/lib) consumes the literal, never an import.
   const epicDir = epicDirRelative(slug);
   const seed = epicCreateSeed(prompt, epicDir);
-  const command = options.command ?? createCommand(worktree);
+  const command = options.command ?? createCommand(worktree, effort, model);
 
   // Persist-then-verify-then-delete-on-failure (mirrors new.ts runFresh): write
   // epic state(phase=starting) BEFORE the verified launch so the /epic-create
@@ -216,6 +301,8 @@ PR → review checkpoint), and writes initial epic state under
         phase: "starting",
         repo,
         worktree: existing?.worktree,
+        effort,
+        model,
         updatedAt: nowIso(),
       },
       options.stateDir,
@@ -321,7 +408,8 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // window never re-derives the path nor imports bin/lib.
   const epicDir = epicDirRelative(slug);
   const seed = epicResumeSeed(slug, epicDir);
-  const command = options.command ?? resumeCommand(worktree);
+  const command =
+    options.command ?? resumeCommand(worktree, state.effort, state.model);
   // Resume consumption baseline (mirrors new.ts runResume): on resume the phase
   // is already past `starting` (`epic-designing`), so consumption is "the
   // resumed supervisor bumped `updatedAt` past this pre-respawn value". Re-read
@@ -368,8 +456,22 @@ function runEpicResume(name: string, options: EpicOptions): number {
  * the seed is delivered ONLY via send-keys by the verified launcher (claude
  * does not auto-run a positional prompt), mirroring new.ts's launchArgv.
  */
-function launchArgv(worktree: string): string[] {
-  return ["claude", "--add-dir", worktree];
+function launchArgv(
+  worktree: string,
+  effort?: EffortLevel,
+  model?: ModelAlias,
+): string[] {
+  // Bare `claude` base (NO `env FLOW_PIPELINE=1` prefix — that marker is a
+  // new.ts-only concern; epic's launch env stays deliberately bare). NO
+  // positional seed — the seed is delivered ONLY via send-keys by the verified
+  // launcher (claude does not auto-run a positional prompt), mirroring new.ts.
+  // `--model` precedes `--effort`, both after `--add-dir <worktree>`, in a
+  // deterministic order so the argv assertions stay stable. Each is omitted
+  // when unset.
+  const argv = ["claude", "--add-dir", worktree];
+  if (model) argv.push("--model", model);
+  if (effort) argv.push("--effort", effort);
+  return argv;
 }
 
 // The seed text is defined ONCE in these helpers and delivered ONLY via
@@ -388,12 +490,20 @@ function epicResumeSeed(slug: string, epicDir: string): string {
   return `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
 }
 
-function createCommand(worktree: string): string[] {
-  return launchArgv(worktree);
+function createCommand(
+  worktree: string,
+  effort?: EffortLevel,
+  model?: ModelAlias,
+): string[] {
+  return launchArgv(worktree, effort, model);
 }
 
-function resumeCommand(worktree: string): string[] {
-  return launchArgv(worktree);
+function resumeCommand(
+  worktree: string,
+  effort?: EffortLevel,
+  model?: ModelAlias,
+): string[] {
+  return launchArgv(worktree, effort, model);
 }
 
 function resolveRepoRoot(cwd: string): string | null {
