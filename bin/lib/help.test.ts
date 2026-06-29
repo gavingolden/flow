@@ -111,6 +111,18 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.new).toContain("--effort");
     expect(HELP_TEXT.new).toContain("low|medium|high|xhigh|max");
   });
+
+  it("HELP_TEXT.new documents --model with its four-value enum", () => {
+    expect(HELP_TEXT.new).toContain("--model");
+    expect(HELP_TEXT.new).toContain("opus|haiku|sonnet|fable");
+  });
+
+  it("HELP_TEXT.epic documents both --effort and --model on create", () => {
+    expect(HELP_TEXT.epic).toContain("--effort");
+    expect(HELP_TEXT.epic).toContain("low|medium|high|xhigh|max");
+    expect(HELP_TEXT.epic).toContain("--model");
+    expect(HELP_TEXT.epic).toContain("opus|haiku|sonnet|fable");
+  });
 });
 
 describe("HELP_TOP", () => {
@@ -135,6 +147,11 @@ describe("HELP_TOP", () => {
 
   it("documents --effort in the `flow new` synopsis", () => {
     expect(HELP_TOP).toContain("--effort");
+  });
+
+  it("documents --model in the `flow new` synopsis", () => {
+    expect(HELP_TOP).toContain("--model");
+    expect(HELP_TOP).toContain("opus|haiku|sonnet|fable");
   });
 });
 

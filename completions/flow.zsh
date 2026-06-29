@@ -74,18 +74,31 @@ _flow() {
                             '--no-auto-merge[stop at gated regardless of rubric]' \
                             '--research[force web-grounded discovery research on, bypassing the relevance gate]' \
                             '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
+                            '--model[Claude Code model alias]:alias:(opus haiku sonnet fable)' \
                             '*::description:'
                     fi
                     ;;
                 epic)
-                    local -a sub
-                    sub=(
-                        'create:design an epic'
-                        'run:run an epic (deferred)'
-                        'status:epic status (deferred)'
-                        'ls:list epics (deferred)'
-                    )
-                    _describe 'subcommand' sub
+                    # Second-level dispatch: once `create` is the subcommand on
+                    # the line ($line[2]), offer its create-level value flags;
+                    # otherwise complete the subcommand list. ($line[1] is the
+                    # `epic` verb itself.)
+                    if [[ $line[2] == create ]]; then
+                        _arguments \
+                            '--resume[resume a crashed epic-design session]:pipeline:_flow_slugs' \
+                            '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
+                            '--model[Claude Code model alias]:alias:(opus haiku sonnet fable)' \
+                            '*::prompt:'
+                    else
+                        local -a sub
+                        sub=(
+                            'create:design an epic'
+                            'run:run an epic (deferred)'
+                            'status:epic status (deferred)'
+                            'ls:list epics (deferred)'
+                        )
+                        _describe 'subcommand' sub
+                    fi
                     ;;
                 ls)
                     _arguments \

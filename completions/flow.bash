@@ -72,6 +72,11 @@ _flow() {
                     COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
                     return
                     ;;
+                --model)
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
+                    return
+                    ;;
             esac
             # When --resume appeared earlier in the line, every trailing
             # non-flag token is a slug (`flow new --resume x y z`). Complete
@@ -97,12 +102,47 @@ _flow() {
                 COMPREPLY=( $(compgen -W "--resume --yes -y" -- "$cur") )
             else
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--resume --no-auto-merge --research --effort" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--resume --no-auto-merge --research --effort --model" -- "$cur") )
             fi
             ;;
         epic)
-            # shellcheck disable=SC2207
-            COMPREPLY=( $(compgen -W "create run status ls" -- "$cur") )
+            # Find the epic subcommand (first non-flag token after `epic`). `i`
+            # is the verb index from the scan above, so the subcommand starts at
+            # i+1. Once it is `create`, complete its create-level value flags;
+            # otherwise complete the subcommand list.
+            local esub="" k
+            for ((k=i+1; k < cword; k++)); do
+                case "${words[k]}" in
+                    -*) ;;
+                    *) esub="${words[k]}"; break ;;
+                esac
+            done
+            if [ "$esub" = "create" ]; then
+                case "$prev" in
+                    --resume)
+                        # `flow epic create --resume <slug>` takes a slug, not a
+                        # bare flag — complete it like `attach`/`new`'s resume path.
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
+                        return
+                        ;;
+                    --effort)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
+                        return
+                        ;;
+                    --model)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
+                        return
+                        ;;
+                esac
+                # shellcheck disable=SC2207
+                COMPREPLY=( $(compgen -W "--resume --effort --model" -- "$cur") )
+            else
+                # shellcheck disable=SC2207
+                COMPREPLY=( $(compgen -W "create run status ls" -- "$cur") )
+            fi
             ;;
         ls)
             # shellcheck disable=SC2207

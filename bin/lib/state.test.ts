@@ -281,6 +281,54 @@ describe("state", () => {
     expect(readState("effort-bad", dir)).toBeNull();
   });
 
+  it.each(["opus", "haiku", "sonnet", "fable"] as const)(
+    "readState accepts model='%s'",
+    (value) => {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, `model-${value}.json`),
+        JSON.stringify({
+          slug: `model-${value}`,
+          phase: "reviewing",
+          repo: "/tmp/repo",
+          updatedAt: "2026-05-17T00:00:00Z",
+          model: value,
+        }),
+      );
+      expect(readState(`model-${value}`, dir)?.model).toBe(value);
+    },
+  );
+
+  it("readState accepts an absent model field", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "model-absent.json"),
+      JSON.stringify({
+        slug: "model-absent",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    expect(readState("model-absent", dir)).not.toBeNull();
+    expect(readState("model-absent", dir)).not.toHaveProperty("model");
+  });
+
+  it("readState returns null for an invalid model value (not a member)", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "model-bad.json"),
+      JSON.stringify({
+        slug: "model-bad",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        model: "gpt4",
+      }),
+    );
+    expect(readState("model-bad", dir)).toBeNull();
+  });
+
   it.each([
     ["slug", 42],
     ["repo", 99],

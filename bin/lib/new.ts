@@ -31,6 +31,8 @@ import {
   nowIso,
   EFFORT_LEVELS,
   type EffortLevel,
+  MODEL_ALIASES,
+  type ModelAlias,
 } from "./state";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
@@ -125,6 +127,12 @@ export type NewOptions = {
    * absent (no `--effort` flag passed to claude).
    */
   effort?: EffortLevel;
+  /**
+   * Persist the Claude Code model alias. Threaded into the launch argv as
+   * `--model <alias>` before the prompt (and before `--effort`). Omitted when
+   * absent (no `--model` flag passed to claude — Claude's default applies).
+   */
+  model?: ModelAlias;
   /**
    * Backoff (ms) between bounded window-launch retries. Test seam only — when 0
    * it disables real sleep entirely (the orphan-repro harness passes 0 so its
@@ -260,6 +268,28 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   }
   const effortValueToken = effortIdx >= 0 ? args[effortIdx + 1] : undefined;
 
+  // --model <opus|haiku|sonnet|fable> is a VALUE flag mirroring --effort.
+  // Validate the enum here, before any side-effect, so an invalid value exits
+  // non-zero and writes no state. The flag + its value token are both stripped
+  // from the description args.
+  let model: ModelAlias | undefined;
+  const modelIdx = args.indexOf("--model");
+  if (modelIdx >= 0) {
+    const value = args[modelIdx + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error("flow new: --model requires a value.");
+      console.error("  expected one of: opus, haiku, sonnet, fable");
+      return 1;
+    }
+    if (!(MODEL_ALIASES as readonly string[]).includes(value)) {
+      console.error(`flow new: invalid --model value '${value}'.`);
+      console.error("  expected one of: opus, haiku, sonnet, fable");
+      return 1;
+    }
+    model = value as ModelAlias;
+  }
+  const modelValueToken = modelIdx >= 0 ? args[modelIdx + 1] : undefined;
+
   // Drop a leading `--` end-of-options sentinel so descriptions written
   // with `flow new -- fix the -h crash` round-trip without the literal
   // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
@@ -284,6 +314,12 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
           effortValueToken !== undefined && !effortValueToken.startsWith("--");
         return false;
       }
+      if (a === "--model") {
+        // Strip the flag and mark its value token for removal too.
+        skipNext =
+          modelValueToken !== undefined && !modelValueToken.startsWith("--");
+        return false;
+      }
       return (
         a !== "--no-auto-merge" &&
         a !== "--wait-for-copilot" &&
@@ -298,6 +334,7 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     forceResearch,
     copilotReview,
     effort,
+    model,
   });
 }
 
@@ -305,7 +342,7 @@ function runFresh(description: string, options: NewOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow new: description is required.");
     console.error(
-      "usage: flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>",
+      "usage: flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>",
     );
     return 1;
   }
@@ -351,7 +388,7 @@ function runFresh(description: string, options: NewOptions): number {
   const seed = flowPipelineSeed(description);
   const command =
     options.command ??
-    buildLaunchCommand(worktree, options.effort, settingsPath);
+    buildLaunchCommand(worktree, options.effort, settingsPath, options.model);
 
   // Persist-then-verify-then-delete-on-failure: write state(phase=starting)
   // BEFORE the verified launch so the supervisor has a file to advance (its
@@ -385,6 +422,7 @@ function runFresh(description: string, options: NewOptions): number {
         forceResearch: options.forceResearch ? true : undefined,
         copilotReview: options.copilotReview,
         effort: options.effort,
+        model: options.model,
         updatedAt: nowIso(),
       },
       options.stateDir,
@@ -511,7 +549,8 @@ function runResume(name: string, options: NewOptions): number {
   const settingsPath = launchSettingsPathFor(options);
   const seed = flowPipelineResumeSeed(slug);
   const command =
-    options.command ?? buildLaunchCommand(worktree, state.effort, settingsPath);
+    options.command ??
+    buildLaunchCommand(worktree, state.effort, settingsPath, state.model);
   // Verify the relaunched process stays up AND consumes the resume seed, same as
   // the fresh path — a bare respawn/create exit code only proves tmux forked the
   // shell, and a claude idle at an empty input box passes a liveness probe. The
@@ -619,6 +658,7 @@ function launchArgv(
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
+  model?: ModelAlias,
 ): string[] {
   // `env FLOW_PIPELINE=1` prefix: there is no env object on this launch path
   // (the spawned claude inherits the parent env via tmux new-window), so the
@@ -632,8 +672,12 @@ function launchArgv(
   // old positional was dead weight that plausibly slowed the TUI cold-start.
   // `--settings <flow-scoped file>` registers the UserPromptSubmit seed-ingested
   // hook; it is ADDITIVE (the user's global settings still apply).
+  //
+  // `--model` precedes `--effort` (both before `--settings`) in a deterministic
+  // order so the argv assertions stay stable. Each is omitted when unset.
   const base = ["env", "FLOW_PIPELINE=1", "claude", "--add-dir", worktree];
-  const withEffort = effort ? [...base, "--effort", effort] : base;
+  const withModel = model ? [...base, "--model", model] : base;
+  const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
   return [...withEffort, "--settings", settingsPath];
 }
 
@@ -718,6 +762,7 @@ function buildLaunchCommand(
   worktree: string,
   effort: EffortLevel | undefined,
   settingsPath: string,
+  model?: ModelAlias,
 ): string[] {
   try {
     ensureLaunchSettings(settingsPath);
@@ -728,7 +773,7 @@ function buildLaunchCommand(
       ),
     );
   }
-  return launchArgv(worktree, effort, settingsPath);
+  return launchArgv(worktree, effort, settingsPath, model);
 }
 
 /**
