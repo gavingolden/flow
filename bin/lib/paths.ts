@@ -15,6 +15,12 @@ import { fileURLToPath } from "node:url";
 export const HOME = os.homedir();
 export const FLOW_DIR = path.join(HOME, ".flow");
 export const FLOW_STATE_DIR = path.join(FLOW_DIR, "state");
+/**
+ * Per-machine epic-orchestrator runtime state root: `~/.flow/epics/<slug>/run.json`.
+ * Physically distinct from the repo's committed `.flow/epics/<slug>/` (manifest +
+ * design) — that is the design-vs-runtime split. Never committed, recomputable.
+ */
+export const FLOW_EPICS_DIR = path.join(FLOW_DIR, "epics");
 export const FLOW_COMPLETIONS_DIR = path.join(FLOW_DIR, "completions");
 export const FLOW_MANIFEST = path.join(FLOW_DIR, "installed.json");
 export const FLOW_CONFIG = path.join(FLOW_DIR, "config.json");

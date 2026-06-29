@@ -18,9 +18,13 @@
  * F1), then the DAG checks — exit 0 (well-formed) / non-zero (printing each
  * violation message to stderr) / 2 (usage).
  *
- * The ready-set requirement is satisfied by Kahn's algorithm's INTERNAL use to
- * prove acyclicity; no `readySet` is exported and no stateful orchestrator
- * frontier is built here (that is the deferred orchestrator's job).
+ * Kahn's in-degree machinery is used INTERNALLY by `topoSort` to prove
+ * acyclicity. The orchestrator's ready frontier is now exported as the pure
+ * `computeFrontier` — a net-additive sibling reusing the `dependsOn` walk, not
+ * a promotion of the Kahn internal: `topoSort` itself stays private. No
+ * stateful orchestrator frontier (the launched/completed bookkeeping) is built
+ * here; `computeFrontier` is a stateless function of (features, completed,
+ * launched), and the run-state lives in the orchestrator (`epic-run-state.ts`).
  */
 
 import { type Feature, validateEpicManifest } from "./lib/epic-manifest-schema";
@@ -199,6 +203,34 @@ export function validateDag(features: Feature[]): DagResult {
   }
 
   return violations.length === 0 ? { ok: true } : { ok: false, violations };
+}
+
+/**
+ * The ready frontier: every feature that is launchable RIGHT NOW given a
+ * `completed` set (features whose work is done — `merged` in the orchestrator)
+ * and a `launched` set (features already handed to `flow new` this run). A
+ * feature is in the frontier iff every id in its `dependsOn` is in `completed`
+ * AND the feature itself is in neither `completed` nor `launched`.
+ *
+ * Pure and stateless — the in-degree machinery of `topoSort` is reused in
+ * spirit (the `dependsOn` walk) but not in code: the frontier is a one-shot
+ * filter, not a drain. Both sets accept any iterable (Set or array). An orphan
+ * or self `dependsOn` edge naturally excludes the feature (its dep can never be
+ * in `completed`); the run phase validates the DAG before calling this, so a
+ * well-formed graph never relies on that fallback.
+ */
+export function computeFrontier(
+  features: Feature[],
+  opts: { completed: Iterable<string>; launched: Iterable<string> },
+): Feature[] {
+  const completed = new Set(opts.completed);
+  const launched = new Set(opts.launched);
+  return features.filter(
+    (f) =>
+      !completed.has(f.id) &&
+      !launched.has(f.id) &&
+      f.dependsOn.every((dep) => completed.has(dep)),
+  );
 }
 
 async function cliMain(argv: string[]): Promise<number> {
