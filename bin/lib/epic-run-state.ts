@@ -108,18 +108,6 @@ export function writeEpicRunState(
   );
 }
 
-export function deleteEpicRunState(
-  slug: string,
-  dir = FLOW_EPICS_DIR,
-): boolean {
-  try {
-    fs.rmSync(path.join(dir, slug), { recursive: true, force: true });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Every epic whose `~/.flow/epics/<slug>/run.json` parses to a valid state. */
 export function listEpicRunStates(dir = FLOW_EPICS_DIR): EpicRunState[] {
   let entries: fs.Dirent[];

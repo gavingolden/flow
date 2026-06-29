@@ -3,7 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  deleteEpicRunState,
   epicRunStatePath,
   isEpicRunState,
   listEpicRunStates,
@@ -147,12 +146,5 @@ describe("epic-run-state", () => {
 
   it("listEpicRunStates returns [] when the root is missing", () => {
     expect(listEpicRunStates(path.join(dir, "nope"))).toEqual([]);
-  });
-
-  it("deleteEpicRunState removes the per-slug dir", () => {
-    writeEpicRunState(fixture("gone"), dir);
-    expect(deleteEpicRunState("gone", dir)).toBe(true);
-    expect(readEpicRunState("gone", dir)).toBeNull();
-    expect(fs.existsSync(path.join(dir, "gone"))).toBe(false);
   });
 });

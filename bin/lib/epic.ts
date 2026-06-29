@@ -85,6 +85,15 @@ import {
 const EPIC_POLL_INTERVAL_MS = 30_000;
 
 /**
+ * Consecutive all-frontier-launch-failure ticks tolerated before the watch loop
+ * bails to `blocked`. A single transient `flow new` failure self-heals on the
+ * next tick, but a persistent one (e.g. a minted slug colliding with a
+ * pre-existing tmux window) would otherwise spin the loop forever with no
+ * progress and no terminal state.
+ */
+const LAUNCH_STALL_BUDGET = 3;
+
+/**
  * Bounded retry budget for the verified window create — mirrors new.ts. A
  * single transient launch failure self-heals; the loop terminates so a
  * genuinely broken `claude` can't hang the CLI. (Epic intentionally keeps the
@@ -143,6 +152,14 @@ export type EpicOptions = {
   readFeatureState?: ReadFeatureState;
   /** Clock seam for run-state timestamps (default `nowIso`). */
   now?: () => string;
+  /**
+   * `epic.maxParallel` config-default reader seam (default reads the real
+   * `~/.flow/config.json` via `readEpicMaxParallel`). The lone exception to this
+   * module's inject-every-I/O-boundary discipline used to be a bare
+   * `readEpicMaxParallel()` call, which let the run/status/ls unit tests read the
+   * developer's real config; this seam closes that isolation leak.
+   */
+  readMaxParallel?: () => number;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
@@ -609,7 +626,8 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
   }
 
   const now = options.now ?? nowIso;
-  const maxParallel = parsed.maxParallel ?? readEpicMaxParallel();
+  const maxParallel =
+    parsed.maxParallel ?? (options.readMaxParallel ?? readEpicMaxParallel)();
 
   // Load-or-init runtime state; refresh drift-tracking fields on resume.
   const existing = readEpicRunState(slug, options.epicsDir);
@@ -651,7 +669,14 @@ function runEpicTick(
   maxParallel: number,
   options: EpicOptions,
   now: () => string,
-): { done: boolean; code: number; running: number } {
+): {
+  done: boolean;
+  code: number;
+  running: number;
+  attempted: number;
+  launched: number;
+  launchFailedIds: string[];
+} {
   const result = reconcile({
     manifest,
     runState,
@@ -664,7 +689,14 @@ function runEpicTick(
     console.log(
       `epic complete: ${result.summary.merged}/${result.summary.total} features merged.`,
     );
-    return { done: true, code: 0, running: result.summary.running };
+    return {
+      done: true,
+      code: 0,
+      running: result.summary.running,
+      attempted: 0,
+      launched: 0,
+      launchFailedIds: [],
+    };
   }
 
   if (result.epicStatus === "blocked") {
@@ -677,11 +709,19 @@ function runEpicTick(
         ? `epic blocked — ${blockers.join(", ")} halted (gated/needs-human/orphan); clear via their own pipelines, then re-run \`flow epic run ${slug}\`.`
         : `epic blocked — the frontier is empty but not all features merged; re-run \`flow epic run ${slug}\` after resolving.`,
     );
-    return { done: true, code: 1, running: result.summary.running };
+    return {
+      done: true,
+      code: 1,
+      running: result.summary.running,
+      attempted: 0,
+      launched: 0,
+      launchFailedIds: [],
+    };
   }
 
   // Running: launch the capped frontier, recording each minted slug.
   const launched: { id: string; slug: string }[] = [];
+  const launchFailedIds: string[] = [];
   for (const feature of result.toLaunch) {
     const lr = launchFeature(feature, { spawn: options.spawn });
     if (!lr.ok) {
@@ -689,6 +729,7 @@ function runEpicTick(
       console.error(
         `flow epic run: could not launch ${feature.id}: ${lr.error}`,
       );
+      launchFailedIds.push(feature.id);
       continue;
     }
     runState.features[feature.id] = { slug: lr.slug, launchedAt: now() };
@@ -707,6 +748,9 @@ function runEpicTick(
     done: false,
     code: 0,
     running: result.summary.running + launched.length,
+    attempted: result.toLaunch.length,
+    launched: launched.length,
+    launchFailedIds,
   };
 }
 
@@ -726,45 +770,53 @@ function runWatchLoop(
 
   const sleep = options.sleep ?? sleepSync;
   const pollMs = options.pollIntervalMs ?? EPIC_POLL_INTERVAL_MS;
-  let lastRunning = 0;
 
-  // Ctrl-C stops launching NEW features; already-launched windows keep running
-  // (independent sessions). State is on disk, so re-running resumes.
-  const onSigint = () => {
-    console.error(
-      `\nstopped — ${lastRunning} feature(s) still running in their windows; re-run \`flow epic run ${slug}\` to resume.`,
-    );
-    writeEpicRunState(runState, options.epicsDir);
-    process.exit(0);
-  };
-  process.on("SIGINT", onSigint);
-  try {
-    for (;;) {
-      const r = runEpicTick(
-        slug,
-        manifest,
-        runState,
-        maxParallel,
-        options,
-        now,
-      );
-      lastRunning = r.running;
-      if (r.done) return r.code;
-      sleep(pollMs);
+  // Ctrl-C terminates the watch loop via the runtime's DEFAULT SIGINT handling —
+  // no handler is registered on purpose. A synchronous `sleepSync` loop
+  // (`Atomics.wait`) never yields to the event loop, so a registered SIGINT
+  // listener could never be dispatched AND would suppress the default
+  // terminate-on-Ctrl-C, leaving the process uninterruptible. Letting the
+  // default fire keeps Ctrl-C working: already-launched features keep running in
+  // their own tmux windows (separate processes), run-state is persisted every
+  // tick, so re-running `flow epic run <slug>` resumes from disk — an abrupt
+  // interrupt is functionally equivalent to a graceful stop here.
+  let stalledTicks = 0;
+  for (;;) {
+    const r = runEpicTick(slug, manifest, runState, maxParallel, options, now);
+    if (r.done) return r.code;
+
+    // No-progress guard: a tick that launches nothing, has nothing already
+    // running, yet still wanted to launch (frontier non-empty) means every
+    // frontier feature failed to launch. A transient failure self-heals on the
+    // next tick; a persistent one would otherwise spin forever, so bail to
+    // `blocked` after LAUNCH_STALL_BUDGET consecutive stalled ticks.
+    if (r.running === 0 && r.launched === 0 && r.attempted > 0) {
+      if (++stalledTicks >= LAUNCH_STALL_BUDGET) {
+        console.error(
+          `epic blocked — ${r.launchFailedIds.join(", ")} failed to launch ${LAUNCH_STALL_BUDGET} consecutive ticks with nothing else in flight; fix the underlying \`flow new\` failure (e.g. a window-name collision), then re-run \`flow epic run ${slug}\`.`,
+        );
+        return 1;
+      }
+    } else {
+      stalledTicks = 0;
     }
-  } finally {
-    process.removeListener("SIGINT", onSigint);
+
+    sleep(pollMs);
   }
 }
 
 /** An empty-features runtime state for an epic that has a manifest but no run yet. */
-function ephemeralRunState(slug: string, manifestPath: string): EpicRunState {
+function ephemeralRunState(
+  slug: string,
+  manifestPath: string,
+  readMaxParallel: () => number = readEpicMaxParallel,
+): EpicRunState {
   return {
     epicSlug: slug,
     repo: "",
     manifestPath,
     manifestSha: "",
-    maxParallel: readEpicMaxParallel(),
+    maxParallel: readMaxParallel(),
     createdAt: "",
     updatedAt: "",
     features: {},
@@ -817,7 +869,13 @@ function runEpicStatus(rest: string[], options: EpicOptions): number {
     return 2;
   }
 
-  const rs = runState ?? ephemeralRunState(slug, manifestPath!);
+  const rs =
+    runState ??
+    ephemeralRunState(
+      slug,
+      manifestPath!,
+      options.readMaxParallel ?? readEpicMaxParallel,
+    );
   const result = reconcile({
     manifest,
     runState: rs,

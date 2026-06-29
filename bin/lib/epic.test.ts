@@ -760,6 +760,7 @@ describe("runEpicCli run/status/ls", () => {
       spawn,
       sleep,
       readFeatureState: allPhase("merged"),
+      readMaxParallel: () => 3,
     });
     expect(code).toBe(0);
     expect(logs.join("\n")).toMatch(/epic complete: 2\/2/);
@@ -778,6 +779,7 @@ describe("runEpicCli run/status/ls", () => {
       spawn: okSpawn(),
       sleep: vi.fn(),
       readFeatureState: allPhase("gated"),
+      readMaxParallel: () => 3,
     });
     expect(code).toBe(1);
     const joined = errors.join("\n");
@@ -796,10 +798,81 @@ describe("runEpicCli run/status/ls", () => {
       spawn,
       sleep,
       readFeatureState: () => null,
+      readMaxParallel: () => 3,
     });
     expect(code).toBe(0);
     expect(sleep).not.toHaveBeenCalled();
     expect(spawn).toHaveBeenCalledTimes(1); // launched the single root once
+  });
+
+  it("run: --max-parallel caps concurrent launches (third stays ready)", () => {
+    gitInit();
+    writeManifest("cap", [{ id: "a" }, { id: "b" }, { id: "c" }]);
+    const spawn = okSpawn();
+    const code = runEpicCli(["run", "cap", "--once", "--max-parallel", "2"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn,
+      sleep: vi.fn(),
+      readFeatureState: () => null,
+    });
+    expect(code).toBe(0);
+    // The flag overrides the config default: only 2 of 3 independent features
+    // launch this tick (the cap arithmetic = maxParallel − running).
+    expect(spawn).toHaveBeenCalledTimes(2);
+  });
+
+  it("run: --max-parallel rejects a non-integer / missing value (exit 2)", () => {
+    gitInit();
+    expect(
+      runEpicCli(["run", "cap2", "--max-parallel", "x"], {
+        cwd: repoDir,
+        epicsDir,
+      }),
+    ).toBe(2);
+    expect(
+      runEpicCli(["run", "cap2", "--max-parallel"], {
+        cwd: repoDir,
+        epicsDir,
+      }),
+    ).toBe(2);
+    expect(errors.join("\n")).toMatch(/--max-parallel/);
+  });
+
+  it("run: an unknown -prefixed option exits 2 with a usage message", () => {
+    gitInit();
+    const code = runEpicCli(["run", "x", "--bogus"], {
+      cwd: repoDir,
+      epicsDir,
+    });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/unknown option/);
+  });
+
+  it("run: a persistently-failing launch bails to blocked (exit 1), never spins forever", () => {
+    gitInit();
+    writeManifest("stuck-launch", [{ id: "a" }]);
+    // spawn always fails (e.g. a window-name collision) → launchFeature ok:false
+    // every tick. The feature is never recorded, so it stays in the frontier;
+    // without the stall budget the loop would re-fail forever.
+    const failSpawn = vi.fn((_command: string, _args: string[]) => ({
+      status: 1,
+      stdout: "",
+      stderr: "window 'flow:a' already exists",
+    }));
+    const sleep = vi.fn();
+    const code = runEpicCli(["run", "stuck-launch"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: failSpawn,
+      sleep,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/failed to launch/);
+    // Bounded by LAUNCH_STALL_BUDGET (3) — it does NOT retry indefinitely.
+    expect(failSpawn).toHaveBeenCalledTimes(3);
   });
 
   it("status: renders a board with feature rows + summary and exits 0", () => {
@@ -852,6 +925,51 @@ describe("runEpicCli run/status/ls", () => {
     const code = runEpicCli(["status", "nope"], { cwd: repoDir, epicsDir });
     expect(code).toBe(2);
     expect(errors.join("\n")).toMatch(/no epic found/);
+  });
+
+  it("status: ephemeral — committed manifest but no run-state yet renders the board, exit 0", () => {
+    gitInit();
+    // The normal first-use case: design PR merged, `flow epic run` not yet
+    // invoked, so there is a manifest but no run.json — ephemeralRunState serves it.
+    writeManifest("fresh", [{ id: "a" }, { id: "b", dependsOn: ["a"] }]);
+    const code = runEpicCli(["status", "fresh"], {
+      cwd: repoDir,
+      epicsDir,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    const out = logs.join("\n");
+    // a is in-degree-0 → ready; b depends on the uncompleted a → blocked.
+    expect(out).toMatch(/a\s+ready/);
+    expect(out).toMatch(/b\s+blocked/);
+  });
+
+  it("status: runtime state present but its manifest is unreadable → exit 2", () => {
+    // Run-state exists, but its recorded manifest path resolves to nothing
+    // (moved/unmerged) — the non-null-assertion + reconcile branch must not run.
+    writeEpicRunState(
+      {
+        epicSlug: "broken",
+        repo: repoDir,
+        manifestPath: path.join(
+          repoDir,
+          ".flow",
+          "epics",
+          "broken",
+          "manifest.json",
+        ),
+        manifestSha: "sha",
+        maxParallel: 3,
+        createdAt: "x",
+        updatedAt: "x",
+        features: {},
+      },
+      epicsDir,
+    );
+    const code = runEpicCli(["status", "broken"], { epicsDir });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/unreadable/);
   });
 
   it("ls: lists every epic with per-state counts + status and exits 0", () => {
