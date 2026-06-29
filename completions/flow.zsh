@@ -79,23 +79,27 @@ _flow() {
                     fi
                     ;;
                 epic)
-                    # Second-level dispatch: once `create` is the subcommand on
-                    # the line ($line[2]), offer its create-level value flags;
-                    # otherwise complete the subcommand list. ($line[1] is the
-                    # `epic` verb itself.)
-                    if [[ $line[2] == create ]]; then
+                    # Second-level dispatch: after `create`, offer its
+                    # create-level value flags; after `run`, advertise the run
+                    # flags; otherwise complete the subcommand list. ($line[1]
+                    # is the `epic` verb; $line[2] is the chosen subcommand.)
+                    if [[ "$line[2]" == create ]]; then
                         _arguments \
                             '--resume[resume a crashed epic-design session]:pipeline:_flow_slugs' \
                             '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
                             '--model[Claude Code model alias]:alias:(opus haiku sonnet fable)' \
                             '*::prompt:'
+                    elif [[ "$line[2]" == run ]]; then
+                        _arguments \
+                            '--once[advance exactly one tick, then exit]' \
+                            '--max-parallel[cap concurrent feature windows]:N:'
                     else
                         local -a sub
                         sub=(
                             'create:design an epic'
-                            'run:run an epic (deferred)'
-                            'status:epic status (deferred)'
-                            'ls:list epics (deferred)'
+                            'run:drive a merged epic to completion'
+                            'status:render the live epic board (read-only)'
+                            'ls:list epics with per-state feature counts'
                         )
                         _describe 'subcommand' sub
                     fi
