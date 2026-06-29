@@ -40,6 +40,12 @@ export type PipelineState = {
    */
   waitForCopilot?: boolean;
   /**
+   * When true, discovery Step 1.5 forces the web-grounded research pre-check on
+   * and bypasses the relevance gate (and the research.discovery config opt-in).
+   * Absent ≡ not forced.
+   */
+  forceResearch?: boolean;
+  /**
    * Tri-state opt-in for Copilot review on this pipeline's PR. `'always'`
    * always requests, `'never'` never requests, `'auto'` defers to the
    * hybrid glob/inline-judgment classifier. Set via `flow new
@@ -251,6 +257,8 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.autoMerge !== undefined && typeof o.autoMerge !== "boolean")
     return false;
   if (o.waitForCopilot !== undefined && typeof o.waitForCopilot !== "boolean")
+    return false;
+  if (o.forceResearch !== undefined && typeof o.forceResearch !== "boolean")
     return false;
   if (
     o.copilotReview !== undefined &&

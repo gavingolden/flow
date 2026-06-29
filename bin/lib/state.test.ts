@@ -151,6 +151,40 @@ describe("state", () => {
     expect(readState("bad-wait-for-copilot", dir)).toBeNull();
   });
 
+  it("readState returns null when state JSON has wrong-type forceResearch (string instead of boolean)", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-force-research.json"),
+      JSON.stringify({
+        slug: "bad-force-research",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        forceResearch: "yes",
+      }),
+    );
+    expect(readState("bad-force-research", dir)).toBeNull();
+  });
+
+  it("readState accepts forceResearch: true and an absent forceResearch field", () => {
+    writeState(fixture("force-research-on", { forceResearch: true }), dir);
+    expect(readState("force-research-on", dir)?.forceResearch).toBe(true);
+
+    fs.writeFileSync(
+      path.join(dir, "force-research-absent.json"),
+      JSON.stringify({
+        slug: "force-research-absent",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    expect(readState("force-research-absent", dir)).not.toBeNull();
+    expect(readState("force-research-absent", dir)).not.toHaveProperty(
+      "forceResearch",
+    );
+  });
+
   it.each(["auto", "always", "never"] as const)(
     "readState accepts copilotReview='%s'",
     (value) => {
@@ -364,6 +398,7 @@ describe("state", () => {
       worktree: "/tmp/worktree-full",
       autoMerge: false,
       waitForCopilot: true,
+      forceResearch: true,
       copilotReview: "never",
       effort: "high",
       sessionId: "b034430c-03bd-4fa0-8393-9f0859800531",

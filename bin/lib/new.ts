@@ -82,6 +82,12 @@ export type NewOptions = {
    */
   waitForCopilot?: boolean;
   /**
+   * Persist `forceResearch: true` so discovery Step 1.5 forces the
+   * web-grounded research pre-check on, bypassing the relevance gate and the
+   * research.discovery config opt-in.
+   */
+  forceResearch?: boolean;
+  /**
    * Persist the tri-state Copilot-review opt-in (`auto` | `always` |
    * `never`). Omitted when absent (absent ≡ `auto`).
    */
@@ -160,6 +166,7 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   }
   const noAutoMerge = args.includes("--no-auto-merge");
   const waitForCopilot = args.includes("--wait-for-copilot");
+  const forceResearch = args.includes("--research");
 
   // --copilot-review <auto|always|never> is a VALUE flag. Validate the enum
   // here, before any side-effect (slug, tmux, writeState), so an invalid
@@ -230,13 +237,18 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
           effortValueToken !== undefined && !effortValueToken.startsWith("--");
         return false;
       }
-      return a !== "--no-auto-merge" && a !== "--wait-for-copilot";
+      return (
+        a !== "--no-auto-merge" &&
+        a !== "--wait-for-copilot" &&
+        a !== "--research"
+      );
     })
     .join(" ");
   return runNew(description, {
     ...options,
     noAutoMerge,
     waitForCopilot,
+    forceResearch,
     copilotReview,
     effort,
   });
@@ -246,7 +258,7 @@ function runFresh(description: string, options: NewOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow new: description is required.");
     console.error(
-      "usage: flow new [--no-auto-merge] [--wait-for-copilot] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>",
+      "usage: flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] <description>",
     );
     return 1;
   }
@@ -321,6 +333,7 @@ function runFresh(description: string, options: NewOptions): number {
         worktree: existing?.worktree,
         autoMerge: options.noAutoMerge ? false : undefined,
         waitForCopilot: options.waitForCopilot ? true : undefined,
+        forceResearch: options.forceResearch ? true : undefined,
         copilotReview: options.copilotReview,
         effort: options.effort,
         updatedAt: nowIso(),

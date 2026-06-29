@@ -701,6 +701,38 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw.waitForCopilot).toBe(true);
   });
 
+  it("runNewCli --research writes forceResearch: true and excludes the flag from the slug", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNewCli(["--research", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    // Slug must not include the "research" token; description was "do thing".
+    expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.forceResearch).toBe(true);
+  });
+
+  it("runNewCli without --research leaves forceResearch absent (absent ≡ not forced)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNewCli(["do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("forceResearch");
+  });
+
   it.each(["auto", "always", "never"] as const)(
     "runNewCli --copilot-review %s persists copilotReview and excludes the flag+value from the slug",
     (value) => {

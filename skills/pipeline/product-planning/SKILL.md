@@ -147,7 +147,8 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 Fill in the `{{...}}` placeholders before passing to the Task tool. The
 `{{OUTPUT_PATHS}}` block is **mode-dependent** — substitute the feature-mode
 text by default, the epic-mode text under `MODE: epic` (both shown after the
-template). The other placeholders (`{{INSTRUCTIONS_PATH}}`,
+template). The `{{RESEARCH_OVERRIDE}}` block is **omit-when-absent** (shown
+after the template). The other placeholders (`{{INSTRUCTIONS_PATH}}`,
 `{{USER_DESCRIPTION}}`, `{{WORKTREE}}`, `{{SKILL_DIR}}`) are mode-independent:
 
 ```
@@ -159,7 +160,7 @@ Read the full instructions at:
 
 User feature description (verbatim):
   {{USER_DESCRIPTION}}
-
+{{RESEARCH_OVERRIDE}}
 Working directory (cd here before reading any project files):
   {{WORKTREE}}
 
@@ -212,6 +213,27 @@ Write the six-section epic design (design.md) to (absolute path):
 Write the typed epic manifest (manifest.json) to (absolute path):
   {{MANIFEST_PATH}}
 ```
+
+### `{{RESEARCH_OVERRIDE}}` — optional force-research passthrough
+
+The supervisor reads global `~/.flow/config.json` for the
+`research.discovery` opt-in, but the discovery subagent cannot read
+`~/.flow/state/<slug>.json` — so the only way a `flow new --research`
+force-on signal reaches it is through this prompt. When the caller passed
+a `RESEARCH: force-on` marker (see `/flow-pipeline` step 3), substitute
+this block verbatim for `{{RESEARCH_OVERRIDE}}`:
+
+```
+RESEARCH: force-on
+  Discovery Step 1.5's web-grounded research pre-check is FORCED ON for this
+  run — bypass the relevance gate and the research.discovery config opt-in
+  (the agy-availability graceful no-op still applies). See discovery-instructions.md (a0).
+```
+
+When the caller passed **no** marker, substitute the **empty string** —
+omit the block entirely (consistent with the mode-dependent blocks
+above). This passthrough rides the existing single discovery Task call; it
+adds **no** new Task-tool spawn and **no** new exemption.
 
 # Constraints
 

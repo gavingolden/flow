@@ -97,7 +97,7 @@ _flow() {
                 COMPREPLY=( $(compgen -W "--resume --yes -y" -- "$cur") )
             else
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--resume --no-auto-merge --effort" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--resume --no-auto-merge --research --effort" -- "$cur") )
             fi
             ;;
         epic)
