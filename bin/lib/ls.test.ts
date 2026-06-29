@@ -407,10 +407,12 @@ describe("runLs — orphan recovery footnote", () => {
   });
 
   it("surfaces `flow new --resume <slug>` below the table for an orphan ('(no window)') row", async () => {
-    // State for `ghost` but no matching tmux window → buildRows annotates it
-    // `(no window)`. The recovery footnote must print its restart command.
+    // A PAST-`starting` crash for `ghost` with no matching tmux window → buildRows
+    // annotates it `(no window)` and the recovery footnote prints its restart
+    // command. (phase must be past `starting`, else the lazy reaper would silently
+    // reap it as a never-started orphan rather than offer a resume.)
     vi.spyOn(stateModule, "listStates").mockReturnValue([
-      state({ slug: "ghost", repo: "/repo" }),
+      state({ slug: "ghost", phase: "verifying", repo: "/repo" }),
     ]);
     vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -437,6 +439,38 @@ describe("runLs — orphan recovery footnote", () => {
     expect(code).toBe(0);
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
     expect(out).not.toMatch(/flow new --resume/);
+  });
+});
+
+describe("runLs — lazy orphan reaper (Task 6)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("reaps a stale phase=starting no-window orphan (absent) but keeps a past-starting (no window) resume hint", async () => {
+    // A never-started orphan: phase `starting`, no window, updatedAt far older
+    // than the grace window (NOW is months before the real Date.now() runLs
+    // uses). A past-`starting` crash with no window is a legitimately resumable
+    // pipeline and must survive the sweep with its `(no window)` annotation.
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "reap-ls-stale", phase: "starting", repo: "/repo" }),
+      state({ slug: "reap-ls-crashed", phase: "verifying", repo: "/repo" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([]);
+    // Stub the reaper's delete so it never touches the real ~/.flow.
+    const del = vi.spyOn(stateModule, "deleteState").mockReturnValue(true);
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+
+    expect(code).toBe(0);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    // The stale starting/no-window orphan was reaped: deleted + not shown.
+    expect(del).toHaveBeenCalledWith("reap-ls-stale", undefined);
+    expect(out).not.toContain("reap-ls-stale");
+    // The past-starting crash survives with its resume hint.
+    expect(out).toContain("reap-ls-crashed");
+    expect(out).toContain("(no window)");
   });
 });
 

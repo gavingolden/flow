@@ -95,6 +95,16 @@ export type PipelineState = {
    * back-compat shims).
    */
   phaseLog?: Array<{ phase: string; outcome?: string; at: string }>;
+  /**
+   * Timestamp the `flow-seed-ingested-hook` (a Claude Code UserPromptSubmit
+   * hook) stamps the instant the seed prompt is accepted inside a flow
+   * session. The launcher's `consumed()` predicate treats its presence (plus a
+   * live pane) as launch-time confirmation the seed was ingested, upgrading the
+   * lazy orphan-reaper's eventual-consistency guarantee to a launch-time one;
+   * the reaper remains the fallback when the marker is absent (old sessions,
+   * hook-not-fired). Additive — no migration (AGENTS.md: no back-compat shims).
+   */
+  seedIngestedAt?: string;
   updatedAt: string;
 };
 
@@ -278,6 +288,8 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride))
     return false;
   if (o.phaseLog !== undefined && !isPhaseLog(o.phaseLog)) return false;
+  if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
+    return false;
   return true;
 }
 

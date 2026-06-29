@@ -21,6 +21,23 @@ export const FLOW_CONFIG = path.join(FLOW_DIR, "config.json");
 export const FLOW_UPDATE_CACHE = path.join(FLOW_DIR, "update-check.json");
 export const SETUP_LOCK_PATH = path.join(FLOW_DIR, "setup.lock");
 export const FLOW_TEST_SEM_DIR = path.join(FLOW_DIR, "test-sem");
+/**
+ * Counting-semaphore slot dir for the host-wide `flow new` launch concurrency
+ * cap (mirrors FLOW_TEST_SEM_DIR). Overridable for tests via the
+ * `FLOW_LAUNCH_SEM_DIR` env var so unit launches stay off the real ~/.flow.
+ */
+export const FLOW_LAUNCH_SEM_DIR = path.join(FLOW_DIR, "launch-sem");
+/**
+ * Flow-scoped Claude Code settings file passed to `claude --settings` on the
+ * launch argv. Registers the UserPromptSubmit seed-ingested hook for
+ * flow-launched sessions only — `--settings` is ADDITIVE (the user's global
+ * ~/.claude/settings.json still applies), so this file NEVER mutates global
+ * settings.
+ */
+export const FLOW_LAUNCH_SETTINGS_PATH = path.join(
+  FLOW_DIR,
+  "launch-settings.json",
+);
 
 export const CLAUDE_SKILLS_DIR = path.join(HOME, ".claude", "skills");
 export const CLAUDE_AGENTS_DIR = path.join(HOME, ".claude", "agents");

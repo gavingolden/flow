@@ -112,6 +112,23 @@ export function withTestSemaphore<T>(
   }
 }
 
+/**
+ * Host-wide cap on concurrent `flow new` window launches. `FLOW_LAUNCH_CONCURRENCY`
+ * overrides when it parses to a finite integer >= 1; otherwise default 4 so a
+ * burst of parallel launches stops oversubscribing claude cold-starts. Mirrors
+ * `resolveTestConcurrency` in flow-pre-commit; the slots are held through the
+ * generic `withTestSemaphore` (reused unchanged). The cap is a flat default 4
+ * (not core-scaled), so a small parallel burst serialises without starving.
+ */
+export function resolveLaunchConcurrency(env: NodeJS.ProcessEnv): number {
+  const raw = env.FLOW_LAUNCH_CONCURRENCY;
+  if (raw !== undefined && raw.trim() !== "") {
+    const parsed = Number(raw);
+    if (Number.isInteger(parsed) && parsed >= 1) return parsed;
+  }
+  return 4;
+}
+
 function tryAcquire(lockPath: string): boolean {
   try {
     // Atomic publish: write the PID into a per-PID temp file, then link()

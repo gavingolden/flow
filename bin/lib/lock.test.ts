@@ -2,7 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LockTimeoutError, withFileLock, withTestSemaphore } from "./lock";
+import {
+  LockTimeoutError,
+  resolveLaunchConcurrency,
+  withFileLock,
+  withTestSemaphore,
+} from "./lock";
 
 let scratch!: string;
 let lockPath!: string;
@@ -265,6 +270,39 @@ describe(withTestSemaphore, () => {
     );
     expect(ran).toBe(true);
     expect(throttled).toBe(true);
+  });
+});
+
+describe(resolveLaunchConcurrency, () => {
+  it("defaults to 4 when FLOW_LAUNCH_CONCURRENCY is unset", () => {
+    expect(resolveLaunchConcurrency({})).toBe(4);
+  });
+
+  it("honors a valid FLOW_LAUNCH_CONCURRENCY override", () => {
+    expect(resolveLaunchConcurrency({ FLOW_LAUNCH_CONCURRENCY: "7" })).toBe(7);
+    expect(resolveLaunchConcurrency({ FLOW_LAUNCH_CONCURRENCY: "1" })).toBe(1);
+  });
+
+  it("falls back to the default for empty / non-numeric / sub-1 values", () => {
+    expect(resolveLaunchConcurrency({ FLOW_LAUNCH_CONCURRENCY: "" })).toBe(4);
+    expect(resolveLaunchConcurrency({ FLOW_LAUNCH_CONCURRENCY: "   " })).toBe(
+      4,
+    );
+    expect(resolveLaunchConcurrency({ FLOW_LAUNCH_CONCURRENCY: "abc" })).toBe(
+      4,
+    );
+    expect(resolveLaunchConcurrency({ FLOW_LAUNCH_CONCURRENCY: "0" })).toBe(4);
+    expect(resolveLaunchConcurrency({ FLOW_LAUNCH_CONCURRENCY: "-3" })).toBe(4);
+    expect(resolveLaunchConcurrency({ FLOW_LAUNCH_CONCURRENCY: "2.5" })).toBe(
+      4,
+    );
+  });
+
+  it("never returns below 1 (min slot count)", () => {
+    expect(resolveLaunchConcurrency({})).toBeGreaterThanOrEqual(1);
+    expect(
+      resolveLaunchConcurrency({ FLOW_LAUNCH_CONCURRENCY: "9" }),
+    ).toBeGreaterThanOrEqual(1);
   });
 });
 
