@@ -155,6 +155,12 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       "Use the /epic-create skill for: add a watchlist feature",
     );
     expect(seed).toContain(".flow/epics/add-watchlist-feature");
+    // The seed also embeds the resolved product-planning SKILL_DIR (R1) so the
+    // supervisor can pass a concrete path to its Task-spawned designer. Assert
+    // the path-suffix, not an absolute host path — resolveFlowSource() resolves
+    // to the live checkout under vitest.
+    expect(seed).toContain("SKILL_DIR:");
+    expect(seed).toContain("skills/pipeline/product-planning");
     // The argv carries --add-dir <worktree> and NO positional seed (length 3).
     expect(command).toHaveLength(3);
     expect(command[0]).toBe("claude");
@@ -333,6 +339,9 @@ describe("runEpicCli create --resume", () => {
       "Use the /epic-create skill in --resume mode for: crashed-epic",
     );
     expect(seed).toContain(".flow/epics/crashed-epic");
+    // The resume seed carries the same resolved SKILL_DIR as the create seed.
+    expect(seed).toContain("SKILL_DIR:");
+    expect(seed).toContain("skills/pipeline/product-planning");
     // The argv carries NO positional seed (just claude + --add-dir <worktree>).
     expect(command).toHaveLength(3);
     expect(command.some((a) => a.includes("Use the /epic-create skill"))).toBe(

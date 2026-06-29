@@ -23,8 +23,10 @@
  */
 
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
+import { resolveFlowSource } from "./paths";
 import { slugify } from "./slug";
 import {
   epicDirRelative,
@@ -53,6 +55,21 @@ import { dim } from "./color";
  */
 const WINDOW_CREATE_MAX_ATTEMPTS = 3;
 const WINDOW_CREATE_RETRY_MS = 150;
+
+/**
+ * Resolved absolute path to the product-planning skill, embedded (R1) in both
+ * epic seeds so the spawned `/epic-create` supervisor can pass a concrete
+ * `SKILL_DIR` into its Task-spawned `MODE: epic` designer. The supervisor runs
+ * cwd'd in a consumer worktree without `bin/lib`, so it cannot resolve this
+ * itself — the CLI (flow's own installed code) resolves it symlink-aware via
+ * `resolveFlowSource()` and threads it through.
+ */
+const PRODUCT_PLANNING_SKILL_DIR = path.join(
+  resolveFlowSource(),
+  "skills",
+  "pipeline",
+  "product-planning",
+);
 
 function launchWithRetry(
   launch: () => VerifiedLaunchResult,
@@ -190,7 +207,7 @@ PR → review checkpoint), and writes initial epic state under
   // resolved LITERAL EPIC_DIR in the seed prompt so the spawned window (cwd'd
   // in a consumer worktree without bin/lib) consumes the literal, never an import.
   const epicDir = epicDirRelative(slug);
-  const seed = epicCreateSeed(prompt, epicDir);
+  const seed = epicCreateSeed(prompt, epicDir, PRODUCT_PLANNING_SKILL_DIR);
   const command = options.command ?? createCommand(worktree);
 
   // Persist-then-verify-then-delete-on-failure (mirrors new.ts runFresh): write
@@ -320,7 +337,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // R1: recompute the literal EPIC_DIR CLI-side on resume too, so the resumed
   // window never re-derives the path nor imports bin/lib.
   const epicDir = epicDirRelative(slug);
-  const seed = epicResumeSeed(slug, epicDir);
+  const seed = epicResumeSeed(slug, epicDir, PRODUCT_PLANNING_SKILL_DIR);
   const command = options.command ?? resumeCommand(worktree);
   // Resume consumption baseline (mirrors new.ts runResume): on resume the phase
   // is already past `starting` (`epic-designing`), so consumption is "the
@@ -378,14 +395,22 @@ function launchArgv(worktree: string): string[] {
 // /epic-create supervisor + the MODE: epic designer consume it directly rather
 // than re-deriving the path via a bin/lib import they can't reach in a consumer
 // worktree.
-function epicCreateSeed(prompt: string, epicDir: string): string {
-  return `Use the /epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}`;
+function epicCreateSeed(
+  prompt: string,
+  epicDir: string,
+  skillDir: string,
+): string {
+  return `Use the /epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
 }
 
-function epicResumeSeed(slug: string, epicDir: string): string {
+function epicResumeSeed(
+  slug: string,
+  epicDir: string,
+  skillDir: string,
+): string {
   // The supervisor parses this prefix to detect resume mode and walk its
   // `# Resume mode` decision via flow-epic-resume-decide.
-  return `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
+  return `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
 }
 
 function createCommand(worktree: string): string[] {
