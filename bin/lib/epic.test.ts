@@ -1354,6 +1354,24 @@ describe("runEpicCli done", () => {
     expect(logs.join("\n")).toMatch(/removed:/);
   });
 
+  it("done <slug> -y removes the dir and exits 0 without the confirm seam", () => {
+    seedRun("short-flag");
+    const confirm = vi.fn(() => true);
+    expect(
+      runEpicCli(["done", "short-flag", "-y"], { stateDir, epicsDir, confirm }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "short-flag"))).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("rejects a traversal slug ('..') without deleting and exits 2", () => {
+    expect(runEpicCli(["done", "..", "--yes"], { stateDir, epicsDir })).toBe(2);
+    expect(errors.join("\n")).toMatch(/invalid slug/);
+    // The guard must fire BEFORE path.join(epicsDir, '..') + rmSync, which
+    // would otherwise recursively delete epicsDir's parent (all of ~/.flow).
+    expect(fs.existsSync(epicsDir)).toBe(true);
+  });
+
   it("declined confirm leaves the dir and exits 0", () => {
     seedRun("keepme");
     expect(

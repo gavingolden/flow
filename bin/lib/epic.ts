@@ -38,6 +38,7 @@ import {
   FLOW_EPICS_DIR,
 } from "./paths";
 import { slugify } from "./slug";
+import { confirmStdin } from "./confirm";
 import {
   epicDirRelative,
   EPIC_DESIGN_FILENAME,
@@ -1046,6 +1047,22 @@ Options:
     return 2;
   }
 
+  // Slug feeds `path.join(epicsDir, slug)` and a recursive rmSync, so a
+  // traversal slug (`..`) would escape epicsDir and delete arbitrary state
+  // (e.g. `flow epic done .. --yes` resolves to ~/.flow itself). Require a
+  // single safe path segment before building the target — mirrors the
+  // `flow epic create --resume` slug guard.
+  if (
+    slug.includes("/") ||
+    slug.includes("\\") ||
+    slug === "." ||
+    slug === ".." ||
+    path.basename(slug) !== slug
+  ) {
+    console.error(`flow epic done: invalid slug '${slug}'.`);
+    return 2;
+  }
+
   const epicsDir = options.epicsDir ?? FLOW_EPICS_DIR;
   const target = path.join(epicsDir, slug);
   if (!fs.existsSync(target)) {
@@ -1061,7 +1078,10 @@ Options:
     }
   }
 
-  deleteEpicRunState(slug, epicsDir);
+  if (!deleteEpicRunState(slug, epicsDir)) {
+    console.error(`flow epic done: failed to remove run-state for '${slug}'.`);
+    return 1;
+  }
   console.log(`removed: ~/.flow/epics/${slug}`);
 
   // Runtime cross-pointer hint: `flow epic done` is scoped to the run-state
@@ -1078,19 +1098,6 @@ Options:
     );
   }
   return 0;
-}
-
-function confirmStdin(prompt: string): boolean {
-  process.stdout.write(`${prompt} [y/N] `);
-  const buf = Buffer.alloc(16);
-  let len = 0;
-  try {
-    len = fs.readSync(0, buf, 0, buf.length, null);
-  } catch {
-    return false;
-  }
-  const answer = buf.subarray(0, len).toString("utf8").trim().toLowerCase();
-  return answer === "y" || answer === "yes";
 }
 
 /**
