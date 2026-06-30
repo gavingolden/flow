@@ -63,6 +63,7 @@ import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import {
   reconcile,
+  classifyEvent,
   HALT_STATUSES,
   type ReadFeatureState,
 } from "./epic-reconcile";
@@ -73,7 +74,7 @@ import {
   listEpicRunStates,
   type EpicRunState,
 } from "./epic-run-state";
-import { readEpicMaxParallel } from "./epic-config";
+import { readEpicMaxParallel, readEpicJudgment } from "./epic-config";
 import {
   renderBoard,
   renderEpicList,
@@ -160,6 +161,13 @@ export type EpicOptions = {
    * developer's real config; this seam closes that isolation leak.
    */
   readMaxParallel?: () => number;
+  /**
+   * `epic.judgment` config-default reader seam (default `readEpicJudgment`).
+   * When it returns `true` (the default) AND neither `--once` nor
+   * `--no-judgment` is passed, `flow epic run <slug>` spawns the `/epic-run`
+   * supervisor window; otherwise it stays on the foreground deterministic loop.
+   */
+  readJudgment?: () => boolean;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
@@ -506,13 +514,23 @@ function runEpicResume(name: string, options: EpicOptions): number {
 type RunArgs = {
   slug: string;
   once: boolean;
+  /** `--json` — structured single-tick output. VALID ONLY with `--once`. */
+  json: boolean;
+  /** `--no-judgment` — keep the foreground LLM-free loop (no supervisor spawn). */
+  noJudgment: boolean;
   maxParallel?: number;
   error?: string;
 };
 
-/** Parse `<slug>` + `--once` + `--max-parallel <N>` from the run arm's args. */
+/**
+ * Parse `<slug>` + `--once` + `--json` + `--no-judgment` + `--max-parallel <N>`
+ * from the run arm's args. `--json` is rejected without `--once` (the
+ * continuous loop stays human-rendered; only a single tick emits JSON).
+ */
 function parseRunArgs(rest: string[]): RunArgs {
   let once = false;
+  let json = false;
+  let noJudgment = false;
   let maxParallel: number | undefined;
   const positionals: string[] = [];
   for (let i = 0; i < rest.length; i++) {
@@ -521,16 +539,32 @@ function parseRunArgs(rest: string[]): RunArgs {
       once = true;
       continue;
     }
+    if (a === "--json") {
+      json = true;
+      continue;
+    }
+    if (a === "--no-judgment") {
+      noJudgment = true;
+      continue;
+    }
     if (a === "--max-parallel") {
       const v = rest[i + 1];
       if (v === undefined || v.startsWith("-")) {
-        return { slug: "", once, error: "--max-parallel requires a value" };
+        return {
+          slug: "",
+          once,
+          json,
+          noJudgment,
+          error: "--max-parallel requires a value",
+        };
       }
       const n = Number(v);
       if (!Number.isInteger(n) || n < 1) {
         return {
           slug: "",
           once,
+          json,
+          noJudgment,
           error: `--max-parallel must be a positive integer (got '${v}')`,
         };
       }
@@ -539,11 +573,32 @@ function parseRunArgs(rest: string[]): RunArgs {
       continue;
     }
     if (a.startsWith("-")) {
-      return { slug: "", once, error: `unknown option '${a}'` };
+      return {
+        slug: "",
+        once,
+        json,
+        noJudgment,
+        error: `unknown option '${a}'`,
+      };
     }
     positionals.push(a);
   }
-  return { slug: positionals.join(" ").trim(), once, maxParallel };
+  if (json && !once) {
+    return {
+      slug: "",
+      once,
+      json,
+      noJudgment,
+      error: "--json requires --once",
+    };
+  }
+  return {
+    slug: positionals.join(" ").trim(),
+    once,
+    json,
+    noJudgment,
+    maxParallel,
+  };
 }
 
 /**
@@ -587,19 +642,22 @@ function loadCommittedManifest(
   };
 }
 
+const RUN_USAGE =
+  "usage: flow epic run <slug> [--once] [--json] [--no-judgment] [--max-parallel <N>]";
+
 function runEpicRun(rest: string[], options: EpicOptions): number {
   const parsed = parseRunArgs(rest);
   if (parsed.error) {
     console.error(`flow epic run: ${parsed.error}`);
-    console.error("usage: flow epic run <slug> [--once] [--max-parallel <N>]");
+    console.error(RUN_USAGE);
     return 2;
   }
   if (!parsed.slug) {
     console.error("flow epic run: a slug is required.");
-    console.error("usage: flow epic run <slug> [--once] [--max-parallel <N>]");
+    console.error(RUN_USAGE);
     return 2;
   }
-  const { slug, once } = parsed;
+  const { slug, once, json, noJudgment } = parsed;
 
   const cwd = options.cwd ?? process.cwd();
   const repo = resolveRepoRoot(cwd);
@@ -623,6 +681,16 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
       console.error(`flow epic run: ${loaded.reason}`);
     }
     return 2;
+  }
+
+  // Default path (judgment on, no --once, no --no-judgment): spawn the
+  // /epic-run supervisor window. --once / --no-judgment / `epic.judgment:false`
+  // all keep the existing foreground LLM-free loop. The manifest is loaded
+  // FIRST (above) so a missing/invalid design surfaces the same usage error on
+  // every path, before any window is spawned.
+  const judgmentOn = (options.readJudgment ?? readEpicJudgment)();
+  if (!once && !noJudgment && judgmentOn) {
+    return spawnEpicRunSupervisor(slug, repo, options);
   }
 
   const now = options.now ?? nowIso;
@@ -652,9 +720,85 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
     runState,
     maxParallel,
     once,
+    json,
     options,
     now,
   );
+}
+
+/**
+ * Spawn the `/epic-run` supervisor in a per-pipeline tmux window — the default
+ * `flow epic run <slug>` path when judgment is on. Mirrors `runCreate`'s
+ * verify-then-delete-on-failure launch scaffolding, but keyed on the epic
+ * run-state `runnerPhase` (the supervisor stamps it `running` on first entry)
+ * rather than a `state.json` phase machine (epic run has none). The supervisor
+ * itself drives ticks via `flow epic run <slug> --once --json`; this function
+ * only opens the window and proves it consumed the seed.
+ */
+function spawnEpicRunSupervisor(
+  slug: string,
+  repo: string,
+  options: EpicOptions,
+): number {
+  if (windowExists(slug)) {
+    console.error(
+      `flow epic run: window '${FLOW_SESSION}:${slug}' already exists.`,
+    );
+    console.error(
+      `  attach with \`flow attach ${slug}\`, or run \`flow epic run ${slug} --no-judgment\``,
+    );
+    console.error("  for the foreground deterministic loop instead.");
+    return 2;
+  }
+
+  const worktree = deriveWorktreePath(repo, slug);
+  const epicDir = epicDirRelative(slug);
+  const seed = epicRunSeed(slug, epicDir);
+  const command = options.command ?? launchArgv(worktree);
+
+  // Consumption = the supervisor advanced run-state `runnerPhase` to `running`
+  // on first entry (its documented first action). Re-read every attempt inside
+  // the closure so a killed-then-retried window can't satisfy the next
+  // attempt's predicate against a stale `running` marker.
+  const launch = () =>
+    createWindowVerified(slug, repo, command, seed, {
+      consumed: () => {
+        const rs = readEpicRunState(slug, options.epicsDir);
+        return rs != null && rs.runnerPhase === "running";
+      },
+    });
+  const result = launchWithRetry(launch, options.retrySleepMs);
+  if (result.status === "failed") {
+    console.error(
+      "flow epic run: claude exited immediately after launch — the tmux window did not stay up.",
+    );
+    console.error(
+      "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
+    );
+    if (result.stderr) console.error(`  ${result.stderr}`);
+    return 2;
+  }
+
+  // Mode-2 backstop (mirrors runCreate): never report a started supervisor for
+  // a window that vanished between the verified launch and now.
+  if (!windowExists(slug)) {
+    console.error(
+      "flow epic run: the tmux window vanished after launch — the supervisor did not start.",
+    );
+    console.error(
+      "  retry `flow epic run`; if it persists, check tmux/claude health.",
+    );
+    return 2;
+  }
+
+  // First line is the machine-read contract token — raw, never colorized.
+  console.log(`${FLOW_SESSION}:${slug}`);
+  console.log(
+    dim(
+      `flow epic run: supervisor started — attach with \`flow attach ${slug}\``,
+    ),
+  );
+  return 0;
 }
 
 /**
@@ -667,6 +811,7 @@ function runEpicTick(
   manifest: EpicManifest,
   runState: EpicRunState,
   maxParallel: number,
+  json: boolean,
   options: EpicOptions,
   now: () => string,
 ): {
@@ -684,11 +829,38 @@ function runEpicTick(
     maxParallel,
   });
 
+  // `--once --json`: emit the structured tick the /epic-run supervisor parses
+  // (board/summary/epicStatus/toLaunch + the event classification, plus the
+  // per-feature deadlock evidence). Human renders are suppressed below so
+  // stdout carries exactly this one JSON object the supervisor `jq`s.
+  if (json) {
+    const event = classifyEvent(result);
+    const payload: Record<string, unknown> = {
+      epicSlug: slug,
+      event,
+      epicStatus: result.epicStatus,
+      summary: result.summary,
+      board: result.board,
+      toLaunch: result.toLaunch,
+    };
+    if (event.kind === "deadlock") {
+      // A deadlock has no halted blocker, so the actionable evidence is the
+      // set of non-merged features + their unsatisfied deps the supervisor
+      // reasons over to name a probable cause.
+      payload.deadlock = result.board
+        .filter((r) => r.status !== "merged")
+        .map((r) => ({ id: r.id, status: r.status, dependsOn: r.dependsOn }));
+    }
+    console.log(JSON.stringify(payload));
+  }
+
   if (result.epicStatus === "done") {
-    console.log(renderBoard(result.board, result.summary));
-    console.log(
-      `epic complete: ${result.summary.merged}/${result.summary.total} features merged.`,
-    );
+    if (!json) {
+      console.log(renderBoard(result.board, result.summary));
+      console.log(
+        `epic complete: ${result.summary.merged}/${result.summary.total} features merged.`,
+      );
+    }
     return {
       done: true,
       code: 0,
@@ -700,15 +872,17 @@ function runEpicTick(
   }
 
   if (result.epicStatus === "blocked") {
-    const blockers = result.board
-      .filter((r) => HALT_STATUSES.has(r.status))
-      .map((r) => r.id);
-    console.error(renderBoard(result.board, result.summary));
-    console.error(
-      blockers.length > 0
-        ? `epic blocked — ${blockers.join(", ")} halted (gated/needs-human/orphan); clear via their own pipelines, then re-run \`flow epic run ${slug}\`.`
-        : `epic blocked — the frontier is empty but not all features merged; re-run \`flow epic run ${slug}\` after resolving.`,
-    );
+    if (!json) {
+      const blockers = result.board
+        .filter((r) => HALT_STATUSES.has(r.status))
+        .map((r) => r.id);
+      console.error(renderBoard(result.board, result.summary));
+      console.error(
+        blockers.length > 0
+          ? `epic blocked — ${blockers.join(", ")} halted (gated/needs-human/orphan); clear via their own pipelines, then re-run \`flow epic run ${slug}\`.`
+          : `epic blocked — the frontier is empty but not all features merged; re-run \`flow epic run ${slug}\` after resolving.`,
+      );
+    }
     return {
       done: true,
       code: 1,
@@ -726,6 +900,7 @@ function runEpicTick(
     const lr = launchFeature(feature, { spawn: options.spawn });
     if (!lr.ok) {
       // Surface, never swallow (the slug-drift stall is the #1 failure mode).
+      // Stays on stderr so it never corrupts the stdout JSON in --json mode.
       console.error(
         `flow epic run: could not launch ${feature.id}: ${lr.error}`,
       );
@@ -738,11 +913,13 @@ function runEpicTick(
   runState.updatedAt = now();
   writeEpicRunState(runState, options.epicsDir);
 
-  const line = renderTickSummary(launched, {
-    used: result.summary.running + launched.length,
-    max: maxParallel,
-  });
-  if (line) console.log(line);
+  if (!json) {
+    const line = renderTickSummary(launched, {
+      used: result.summary.running + launched.length,
+      max: maxParallel,
+    });
+    if (line) console.log(line);
+  }
 
   return {
     done: false,
@@ -760,12 +937,20 @@ function runWatchLoop(
   runState: EpicRunState,
   maxParallel: number,
   once: boolean,
+  json: boolean,
   options: EpicOptions,
   now: () => string,
 ): number {
   if (once) {
-    return runEpicTick(slug, manifest, runState, maxParallel, options, now)
-      .code;
+    return runEpicTick(
+      slug,
+      manifest,
+      runState,
+      maxParallel,
+      json,
+      options,
+      now,
+    ).code;
   }
 
   const sleep = options.sleep ?? sleepSync;
@@ -782,7 +967,17 @@ function runWatchLoop(
   // interrupt is functionally equivalent to a graceful stop here.
   let stalledTicks = 0;
   for (;;) {
-    const r = runEpicTick(slug, manifest, runState, maxParallel, options, now);
+    // The continuous loop is always human-rendered (--json is rejected without
+    // --once), so the tick never emits JSON here.
+    const r = runEpicTick(
+      slug,
+      manifest,
+      runState,
+      maxParallel,
+      false,
+      options,
+      now,
+    );
     if (r.done) return r.code;
 
     // No-progress guard: a tick that launches nothing, has nothing already
@@ -969,6 +1164,14 @@ function epicResumeSeed(slug: string, epicDir: string): string {
   // The supervisor parses this prefix to detect resume mode and walk its
   // `# Resume mode` decision via flow-epic-resume-decide.
   return `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
+}
+
+// The /epic-run supervisor's seed. Mirrors epicCreateSeed: the slug after
+// `for:` + the literal EPIC_DIR (R1) on its own line, so the spawned window
+// (cwd'd in a consumer worktree without bin/lib) consumes them directly. The
+// SKILL parses this prefix to enter the tick loop.
+function epicRunSeed(slug: string, epicDir: string): string {
+  return `Use the /epic-run skill for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
 }
 
 function createCommand(

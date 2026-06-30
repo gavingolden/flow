@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { reconcile, type ReadFeatureState } from "./epic-reconcile";
+import {
+  classifyEvent,
+  HALT_STATUSES,
+  reconcile,
+  type ReadFeatureState,
+} from "./epic-reconcile";
 import type { EpicManifest, Feature } from "./epic-manifest-schema";
 import type { EpicRunState, FeatureRunRecord } from "./epic-run-state";
 import type { PipelineState } from "./state";
@@ -207,5 +212,94 @@ describe("reconcile — Story 6: terminal classification (done / blocked)", () =
     expect(result.summary.running).toBe(0);
     // Sole feature orphaned, not merged, nothing running, frontier empty → blocked.
     expect(result.epicStatus).toBe("blocked");
+  });
+});
+
+describe("classifyEvent — the /epic-run event taxonomy (derived from ReconcileResult)", () => {
+  it("green: in-flight/ready work, nothing halted", () => {
+    const m = manifest([feat("a"), feat("b")]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({}),
+      readFeatureState: noState,
+      maxParallel: 3,
+    });
+    expect(result.epicStatus).toBe("running");
+    expect(classifyEvent(result)).toEqual({ kind: "green" });
+  });
+
+  it("green: a running feature with nothing halted", () => {
+    const m = manifest([feat("a"), feat("b")]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({ a: { slug: "a" } }),
+      readFeatureState: phases({ a: "implementing" }),
+      maxParallel: 3,
+    });
+    expect(classifyEvent(result)).toEqual({ kind: "green" });
+  });
+
+  it("halt: a single halted (needs-human) feature surfaces its id", () => {
+    const m = manifest([feat("a"), feat("b", ["a"])]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({ a: { slug: "a" } }),
+      readFeatureState: phases({ a: "needs-human" }),
+      maxParallel: 3,
+    });
+    expect(classifyEvent(result)).toEqual({ kind: "halt", haltedIds: ["a"] });
+  });
+
+  it("halt: outranks deadlock — a gated feature with an independent branch still running is a halt, not green", () => {
+    const m = manifest([feat("a"), feat("b", ["a"]), feat("x")]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({ a: { slug: "a", pr: 9 } }),
+      readFeatureState: phases({ a: "gated" }),
+      maxParallel: 3,
+    });
+    expect(result.epicStatus).toBe("running"); // x keeps the epic alive
+    expect(classifyEvent(result)).toEqual({ kind: "halt", haltedIds: ["a"] });
+  });
+
+  it("halt: reports every halted id (gated + orphan)", () => {
+    const m = manifest([feat("a"), feat("b")]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({ a: { slug: "a" }, b: { slug: "b" } }),
+      // a gated; b launched but no state file → orphan. Both are HALT_STATUSES.
+      readFeatureState: phases({ a: "gated" }),
+      maxParallel: 3,
+    });
+    const event = classifyEvent(result);
+    expect(event.kind).toBe("halt");
+    expect(event.kind === "halt" && event.haltedIds.sort()).toEqual(["a", "b"]);
+  });
+
+  it("deadlock: epicStatus blocked + zero halted blockers + not all merged", () => {
+    // A 2-node cycle: neither feature can ever enter the frontier, neither is
+    // launched, so both rows are board-status "blocked" (NOT a HALT_STATUS).
+    const m = manifest([feat("a", ["b"]), feat("b", ["a"])]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({}),
+      readFeatureState: noState,
+      maxParallel: 3,
+    });
+    expect(result.epicStatus).toBe("blocked");
+    expect(result.board.every((r) => !HALT_STATUSES.has(r.status))).toBe(true);
+    expect(classifyEvent(result)).toEqual({ kind: "deadlock" });
+  });
+
+  it("done: all features merged", () => {
+    const m = manifest([feat("a"), feat("b", ["a"])]);
+    const result = reconcile({
+      manifest: m,
+      runState: runState({ a: { slug: "a" }, b: { slug: "b" } }),
+      readFeatureState: phases({ a: "merged", b: "merged" }),
+      maxParallel: 3,
+    });
+    expect(result.epicStatus).toBe("done");
+    expect(classifyEvent(result)).toEqual({ kind: "done" });
   });
 });

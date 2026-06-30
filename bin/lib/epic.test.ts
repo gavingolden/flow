@@ -754,7 +754,9 @@ describe("runEpicCli run/status/ls", () => {
     ]);
     const spawn = okSpawn();
     const sleep = vi.fn();
-    const code = runEpicCli(["run", "done-epic"], {
+    // --no-judgment keeps the foreground deterministic loop (default now spawns
+    // the /epic-run supervisor window instead — covered separately below).
+    const code = runEpicCli(["run", "done-epic", "--no-judgment"], {
       cwd: repoDir,
       epicsDir,
       spawn,
@@ -765,6 +767,7 @@ describe("runEpicCli run/status/ls", () => {
     expect(code).toBe(0);
     expect(logs.join("\n")).toMatch(/epic complete: 2\/2/);
     expect(sleep).toHaveBeenCalled(); // it ticked more than once
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("run: frontier-empty-but-not-all-merged → non-zero 'blocked' naming the feature", () => {
@@ -773,7 +776,7 @@ describe("runEpicCli run/status/ls", () => {
       { id: "schema" },
       { id: "backend", dependsOn: ["schema"] },
     ]);
-    const code = runEpicCli(["run", "stuck"], {
+    const code = runEpicCli(["run", "stuck", "--no-judgment"], {
       cwd: repoDir,
       epicsDir,
       spawn: okSpawn(),
@@ -861,7 +864,7 @@ describe("runEpicCli run/status/ls", () => {
       stderr: "window 'flow:a' already exists",
     }));
     const sleep = vi.fn();
-    const code = runEpicCli(["run", "stuck-launch"], {
+    const code = runEpicCli(["run", "stuck-launch", "--no-judgment"], {
       cwd: repoDir,
       epicsDir,
       spawn: failSpawn,
@@ -873,6 +876,121 @@ describe("runEpicCli run/status/ls", () => {
     expect(errors.join("\n")).toMatch(/failed to launch/);
     // Bounded by LAUNCH_STALL_BUDGET (3) — it does NOT retry indefinitely.
     expect(failSpawn).toHaveBeenCalledTimes(3);
+  });
+
+  it("run --once --json: emits one parseable JSON tick carrying the event class", () => {
+    gitInit();
+    writeManifest("json-epic", [{ id: "schema" }]);
+    const code = runEpicCli(["run", "json-epic", "--once", "--json"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: okSpawn(),
+      sleep: vi.fn(),
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    // --json suppresses the human renders, so stdout is exactly one JSON object.
+    const payload = JSON.parse(logs[0]!);
+    expect(payload.epicSlug).toBe("json-epic");
+    expect(payload.event.kind).toBe("green"); // a launchable frontier, nothing halted
+    expect(payload.epicStatus).toBe("running");
+    expect(Array.isArray(payload.board)).toBe(true);
+    expect(payload.summary.total).toBe(1);
+    expect(payload.toLaunch.map((f: { id: string }) => f.id)).toEqual([
+      "schema",
+    ]);
+    // No window is spawned on the --once path.
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run --json without --once is rejected (exit 2)", () => {
+    gitInit();
+    const code = runEpicCli(["run", "j", "--json"], { cwd: repoDir, epicsDir });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/--json requires --once/);
+  });
+
+  it("run (default, judgment on): spawns exactly one verified /epic-run window", () => {
+    gitInit();
+    writeManifest("spawn-epic", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "spawn-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:spawn-epic");
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
+    // The seed (4th arg, send-keys delivery) carries the /epic-run prefix + the
+    // literal EPIC_DIR (R1) the SKILL parses.
+    const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(seed).toContain("Use the /epic-run skill for: spawn-epic");
+    expect(seed).toContain(".flow/epics/spawn-epic");
+  });
+
+  it("run (default) refuses (exit 2) when a window already exists for the slug", () => {
+    gitInit();
+    writeManifest("dup-epic", [{ id: "a" }]);
+    tmuxMock.windowExists.mockReturnValue(true);
+    const code = runEpicCli(["run", "dup-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/already exists/);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run --once: takes the foreground loop, spawns no window", () => {
+    gitInit();
+    writeManifest("once-nowin", [{ id: "schema" }]);
+    const code = runEpicCli(["run", "once-nowin", "--once"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: okSpawn(),
+      sleep: vi.fn(),
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+      readJudgment: () => true, // judgment on, but --once forces foreground
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run --no-judgment: takes the foreground loop, spawns no window", () => {
+    gitInit();
+    writeManifest("nojudge", [{ id: "schema" }]);
+    const code = runEpicCli(["run", "nojudge", "--no-judgment"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: okSpawn(),
+      sleep: vi.fn(),
+      readFeatureState: allPhase("merged"),
+      readMaxParallel: () => 3,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run (default) with epic.judgment off: takes the foreground loop, spawns no window", () => {
+    gitInit();
+    writeManifest("judge-off", [{ id: "schema" }]);
+    const code = runEpicCli(["run", "judge-off"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: okSpawn(),
+      sleep: vi.fn(),
+      readFeatureState: allPhase("merged"),
+      readMaxParallel: () => 3,
+      readJudgment: () => false,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("status: renders a board with feature rows + summary and exits 0", () => {

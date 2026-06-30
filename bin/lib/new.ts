@@ -101,6 +101,16 @@ export type NewOptions = {
   command?: string[];
   /** Resume a crashed pipeline rather than start a new one. */
   resume?: boolean;
+  /**
+   * `--resume --force`: reclaim a live-but-idle pane in place instead of
+   * refusing it. The epic orchestrator's autonomous-retry path sets this to
+   * relaunch a halted feature whose `claude` pane is alive-but-idle
+   * (needs-human / gated / CI-fail). This is a CLEAN lifecycle respawn owned by
+   * the resume helper (the same `respawnWindowVerified` path the dead-pane
+   * resume already uses) — NOT `send-keys` input injection. Absent ⇒ the
+   * existing live-pane refusal stands.
+   */
+  force?: boolean;
   /** Override the state directory (test seam). */
   stateDir?: string;
   /** Persist `autoMerge: false` so the supervisor stops at gated. */
@@ -185,6 +195,10 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     // bypass flag here for the multi-slug preview. Strip --yes/-y and --resume
     // from the positional list; the remainder is the de-duplicated slug list.
     const yes = args.includes("--yes") || args.includes("-y");
+    // `--force` reclaims a live-but-idle pane in place (the epic orchestrator's
+    // autonomous-retry path). It's stripped from the slug list by the
+    // `!a.startsWith("-")` filter below; detect it here to thread into options.
+    const force = args.includes("--force");
     const slugs = [
       ...args.slice(0, resumeIdx),
       ...args.slice(resumeIdx + 1),
@@ -199,7 +213,7 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     // Single-slug resume routes straight through the UNCHANGED single-slug
     // path — no preview, no confirm — so its output stays byte-identical.
     if (deduped.length === 1) {
-      return runNew(deduped[0], { ...options, resume: true });
+      return runNew(deduped[0], { ...options, resume: true, force });
     }
     // Two or more slugs each spawn a Claude Code session: preview the count +
     // names and confirm once (unless --yes) before launching anything.
@@ -215,7 +229,7 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     // deterministic; per-slug validation/refusal is inherited from runResume.
     let failed = 0;
     for (const slug of deduped) {
-      if (runNew(slug, { ...options, resume: true }) !== 0) failed += 1;
+      if (runNew(slug, { ...options, resume: true, force }) !== 0) failed += 1;
     }
     return failed > 0 ? 1 : 0;
   }
@@ -533,9 +547,20 @@ function runResume(name: string, options: NewOptions): number {
 
   const exists = windowExists(slug);
   if (exists && isPaneAlive(slug)) {
-    console.error(`flow new --resume: pipeline '${slug}' is still running.`);
-    console.error(`  attach with \`flow attach ${slug}\` instead of resuming.`);
-    return 1;
+    if (!options.force) {
+      console.error(`flow new --resume: pipeline '${slug}' is still running.`);
+      console.error(
+        `  attach with \`flow attach ${slug}\` instead of resuming.`,
+      );
+      return 1;
+    }
+    // --force: reclaim the live-idle pane IN PLACE by falling through to the
+    // SAME `respawnWindowVerified` branch the dead-pane path uses (a clean
+    // lifecycle respawn, never `send-keys`). The notice goes to stderr so the
+    // machine-read `flow:<slug>` first stdout line stays the contract token.
+    console.error(
+      `flow new --resume --force: reclaiming live-idle pane for ${slug}`,
+    );
   }
 
   // The repo non-null guard above already returned; bind it so the launch

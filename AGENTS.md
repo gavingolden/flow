@@ -505,3 +505,12 @@ auto-detect > built-in); `checks` run as argv (no shell).
     named surfaces (distinct openers, in `skills/pipeline/epic-create/SKILL.md`):
     **Task-tool fan-out: `/epic-create` → /product-planning MODE: epic designer.**
     and **AskUserQuestion form: `/epic-create` clarification round.**
+  - **`/epic-run` is a separate sanctioned supervisor session.**
+    `flow epic run <slug>` (default, judgment on) spawns a fresh top-level
+    `/epic-run` session, so `/flow-pipeline`'s nine-Task-exemption /
+    two-AskUserQuestion invariants are unaffected (no Task fan-out, no form in
+    v1). It ticks the deterministic reconciler and applies event-driven judgment
+    only on a halt (retry / redirect / escalate) or deadlock (probable cause);
+    `gated ⇒ escalate-only` and it never merges a feature PR. The full invariant
+    set, the `epic.judgment` / `epic.maxRetries` config gate, and the
+    `--no-judgment` / `--once` opt-outs live in the SKILL.

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_EPIC_JUDGMENT,
+  DEFAULT_EPIC_MAX_RETRIES,
   DEFAULT_MAX_PARALLEL,
+  readEpicJudgment,
   readEpicMaxParallel,
+  readEpicMaxRetries,
   type ReadConfigFile,
 } from "./epic-config";
 
@@ -55,5 +59,84 @@ describe("readEpicMaxParallel", () => {
     // The production reader collapses a parse error to `undefined`; assert the
     // resolver maps that to the default rather than propagating an error.
     expect(() => readEpicMaxParallel(reader(undefined))).not.toThrow();
+  });
+});
+
+describe("readEpicJudgment", () => {
+  it("defaults to true (on) when the config is unreadable (undefined)", () => {
+    expect(readEpicJudgment(reader(undefined))).toBe(DEFAULT_EPIC_JUDGMENT);
+    expect(DEFAULT_EPIC_JUDGMENT).toBe(true);
+  });
+
+  it("defaults to true when the epic key is absent", () => {
+    expect(readEpicJudgment(reader({}))).toBe(true);
+  });
+
+  it("defaults to true when epic.judgment is absent", () => {
+    expect(readEpicJudgment(reader({ epic: {} }))).toBe(true);
+  });
+
+  it("honours an explicit false (opt-out)", () => {
+    expect(readEpicJudgment(reader({ epic: { judgment: false } }))).toBe(false);
+  });
+
+  it("honours an explicit true", () => {
+    expect(readEpicJudgment(reader({ epic: { judgment: true } }))).toBe(true);
+  });
+
+  it("defaults to true for a wrong-typed value (string)", () => {
+    expect(readEpicJudgment(reader({ epic: { judgment: "false" } }))).toBe(
+      true,
+    );
+  });
+
+  it("defaults to true for a wrong-typed value (number)", () => {
+    expect(readEpicJudgment(reader({ epic: { judgment: 0 } }))).toBe(true);
+  });
+
+  it("defaults to true when epic is wrong-typed (array)", () => {
+    expect(readEpicJudgment(reader({ epic: [false] }))).toBe(true);
+  });
+});
+
+describe("readEpicMaxRetries", () => {
+  it("defaults to 2 when the config is unreadable (undefined)", () => {
+    expect(readEpicMaxRetries(reader(undefined))).toBe(
+      DEFAULT_EPIC_MAX_RETRIES,
+    );
+    expect(DEFAULT_EPIC_MAX_RETRIES).toBe(2);
+  });
+
+  it("defaults to 2 when the epic key is absent", () => {
+    expect(readEpicMaxRetries(reader({}))).toBe(2);
+  });
+
+  it("defaults to 2 when epic.maxRetries is absent", () => {
+    expect(readEpicMaxRetries(reader({ epic: {} }))).toBe(2);
+  });
+
+  it("returns the configured non-negative integer", () => {
+    expect(readEpicMaxRetries(reader({ epic: { maxRetries: 5 } }))).toBe(5);
+    expect(readEpicMaxRetries(reader({ epic: { maxRetries: 1 } }))).toBe(1);
+  });
+
+  it("honours 0 (escalate on first halt — a legitimate budget)", () => {
+    expect(readEpicMaxRetries(reader({ epic: { maxRetries: 0 } }))).toBe(0);
+  });
+
+  it("falls back to 2 for a negative value", () => {
+    expect(readEpicMaxRetries(reader({ epic: { maxRetries: -1 } }))).toBe(2);
+  });
+
+  it("falls back to 2 for a non-integer (float)", () => {
+    expect(readEpicMaxRetries(reader({ epic: { maxRetries: 2.5 } }))).toBe(2);
+  });
+
+  it("falls back to 2 for a wrong-typed value (string)", () => {
+    expect(readEpicMaxRetries(reader({ epic: { maxRetries: "3" } }))).toBe(2);
+  });
+
+  it("falls back to 2 when epic is wrong-typed (array)", () => {
+    expect(readEpicMaxRetries(reader({ epic: [2] }))).toBe(2);
   });
 });
