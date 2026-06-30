@@ -202,7 +202,12 @@ export type EpicOptions = {
   launchSettingsPath?: string;
   /** Override the per-machine epic run-state root `~/.flow/epics` (test seam). */
   epicsDir?: string;
-  /** Confirmation prompt seam (default reads stdin synchronously); test seam. */
+  /**
+   * Confirmation prompt seam (default reads stdin synchronously); test seam.
+   * Shared by the `done` arm (default `confirmStdin`) and the `project` arm
+   * (default `defaultConfirm`) — both name their irreversible action and abort
+   * with zero side effects when this returns false; `--yes`/`--dry-run` skip it.
+   */
   confirm?: (prompt: string) => boolean;
   /** Watch-loop sleep seam (default `sleepSync`); keeps `runEpicCli` synchronous. */
   sleep?: (ms: number) => void;
@@ -228,12 +233,6 @@ export type EpicOptions = {
    * touch zero real GitHub.
    */
   gh?: GhRunner;
-  /**
-   * Confirmation-gate seam for the `project` arm (default reads fd 0). The
-   * `project` arm names how many real issues it will create and aborts with
-   * zero mutating gh calls when this returns false; `--yes`/`--dry-run` skip it.
-   */
-  confirm?: (message: string) => boolean;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
