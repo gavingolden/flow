@@ -35,8 +35,10 @@ import {
   resolveFlowSource,
   FLOW_LAUNCH_SEM_DIR,
   FLOW_LAUNCH_SETTINGS_PATH,
+  FLOW_EPICS_DIR,
 } from "./paths";
 import { slugify } from "./slug";
+import { confirmStdin } from "./confirm";
 import {
   epicDirRelative,
   EPIC_DESIGN_FILENAME,
@@ -81,6 +83,7 @@ import {
   readEpicRunState,
   writeEpicRunState,
   listEpicRunStates,
+  deleteEpicRunState,
   type EpicRunState,
 } from "./epic-run-state";
 import { readEpicMaxParallel } from "./epic-config";
@@ -197,6 +200,8 @@ export type EpicOptions = {
   launchSettingsPath?: string;
   /** Override the per-machine epic run-state root `~/.flow/epics` (test seam). */
   epicsDir?: string;
+  /** Confirmation prompt seam (default reads stdin synchronously); test seam. */
+  confirm?: (prompt: string) => boolean;
   /** Watch-loop sleep seam (default `sleepSync`); keeps `runEpicCli` synchronous. */
   sleep?: (ms: number) => void;
   /** Watch-loop poll interval in ms (default `EPIC_POLL_INTERVAL_MS`). */
@@ -242,13 +247,15 @@ export function runEpicCli(args: string[], options: EpicOptions = {}): number {
       return runEpicStatus(args.slice(1), options);
     case "ls":
       return runEpicLs(options);
+    case "done":
+      return runEpicDone(args.slice(1), options);
     case undefined:
       console.error("flow epic: a subcommand is required.");
-      console.error("usage: flow epic <create|run|status|ls>");
+      console.error("usage: flow epic <create|run|status|ls|done>");
       return 2;
     default:
       console.error(`flow epic: unknown epic subcommand: ${sub}`);
-      console.error("usage: flow epic <create|run|status|ls>");
+      console.error("usage: flow epic <create|run|status|ls|done>");
       return 2;
   }
 }
@@ -1009,6 +1016,87 @@ function runEpicLs(options: EpicOptions): number {
   });
   rows.sort((a, b) => a.slug.localeCompare(b.slug));
   console.log(renderEpicList(rows));
+  return 0;
+}
+
+function runEpicDone(rest: string[], options: EpicOptions): number {
+  if (argsContainHelp(rest)) {
+    console.log(`flow epic done — remove an epic's per-machine run-state
+
+Usage:
+  flow epic done <slug> [--yes]
+
+Removes the recomputable ~/.flow/epics/<slug>/ runtime state directory (the
+orchestrator's run.json cache). Does NOT close the epic's design window or
+remove its ~/.flow/state/<slug>.json pipeline state — use \`flow done <slug>\`
+for those.
+
+Options:
+  --yes, -y             skip the confirmation prompt`);
+    return 0;
+  }
+
+  const yes = rest.includes("--yes") || rest.includes("-y");
+  const slug = rest
+    .filter((a) => !a.startsWith("-"))
+    .join(" ")
+    .trim();
+  if (!slug) {
+    console.error("flow epic done: a slug is required.");
+    console.error("usage: flow epic done <slug> [--yes]");
+    return 2;
+  }
+
+  // Slug feeds `path.join(epicsDir, slug)` and a recursive rmSync, so a
+  // traversal slug (`..`) would escape epicsDir and delete arbitrary state
+  // (e.g. `flow epic done .. --yes` resolves to ~/.flow itself). Require a
+  // single safe path segment before building the target — mirrors the
+  // `flow epic create --resume` slug guard.
+  if (
+    slug.includes("/") ||
+    slug.includes("\\") ||
+    slug === "." ||
+    slug === ".." ||
+    path.basename(slug) !== slug
+  ) {
+    console.error(`flow epic done: invalid slug '${slug}'.`);
+    return 2;
+  }
+
+  const epicsDir = options.epicsDir ?? FLOW_EPICS_DIR;
+  const target = path.join(epicsDir, slug);
+  if (!fs.existsSync(target)) {
+    console.error(`flow epic done: no run-state for '${slug}'.`);
+    return 1;
+  }
+
+  if (!yes) {
+    const confirm = options.confirm ?? confirmStdin;
+    if (!confirm(`remove epic run-state for '${slug}'?`)) {
+      console.log(dim("flow epic done: aborted — nothing removed"));
+      return 0;
+    }
+  }
+
+  if (!deleteEpicRunState(slug, epicsDir)) {
+    console.error(`flow epic done: failed to remove run-state for '${slug}'.`);
+    return 1;
+  }
+  console.log(`removed: ~/.flow/epics/${slug}`);
+
+  // Runtime cross-pointer hint: `flow epic done` is scoped to the run-state
+  // dir only. If the epic's design window or pipeline-state file still exists,
+  // point the user at `flow done` for those. Read-only probes — this verb
+  // NEVER kills a window or deletes pipeline state.
+  const hasWindow = windowExists(slug);
+  const hasState = readState(slug, options.stateDir) !== null;
+  if (hasWindow || hasState) {
+    console.log(
+      dim(
+        `note: the epic's design window/state still exists — run \`flow done ${slug}\` to close it too.`,
+      ),
+    );
+  }
   return 0;
 }
 

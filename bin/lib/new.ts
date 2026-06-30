@@ -15,6 +15,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { slugify } from "./slug";
+import { confirmStdin } from "./confirm";
 import { toDirSuffix } from "./worktree-slot";
 import {
   createWindowVerified,
@@ -206,7 +207,7 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
     if (!yes) {
       console.log(`will resume ${deduped.length} pipeline(s):`);
       for (const slug of deduped) console.log(`  ${slug}`);
-      if (!confirmResume("proceed?")) {
+      if (!confirmStdin("proceed?")) {
         console.log(dim("flow new --resume: aborted — nothing resumed"));
         return 0;
       }
@@ -814,23 +815,6 @@ function withLaunchSlot(
       ? { timeoutMs: options.launchSemTimeoutMs, pollMs: 5 }
       : {};
   return withTestSemaphore(semDir, slots, launch, semOpts).result;
-}
-
-// Duplicated from done.ts's confirm() rather than extracted to a shared
-// bin/lib/confirm.ts: two consumers with distinct gate semantics (destructive
-// done-confirm vs. session-spawn resume preview) don't yet justify a shared
-// module (No-premature-abstraction). If a third consumer appears, extract then.
-function confirmResume(prompt: string): boolean {
-  process.stdout.write(`${prompt} [y/N] `);
-  const buf = Buffer.alloc(16);
-  let len = 0;
-  try {
-    len = fs.readSync(0, buf, 0, buf.length, null);
-  } catch {
-    return false;
-  }
-  const answer = buf.subarray(0, len).toString("utf8").trim().toLowerCase();
-  return answer === "y" || answer === "yes";
 }
 
 function resolveRepoRoot(cwd: string): string | null {

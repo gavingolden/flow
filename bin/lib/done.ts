@@ -16,8 +16,8 @@
  * before confirming.
  */
 
-import * as fs from "node:fs";
 import { argsContainHelp, printVerbHelp } from "./help";
+import { confirmStdin as confirm } from "./confirm";
 import {
   findWindowBySlug,
   killWindow,
@@ -260,19 +260,4 @@ function sweep(
     console.log(`closed: ${s.slug}`);
   }
   return 0;
-}
-
-function confirm(prompt: string): boolean {
-  process.stdout.write(`${prompt} [y/N] `);
-  // Bun supports synchronous stdin reads via fs.readSync(0, ...). Avoid
-  // require() so this module stays pure ESM (matches the rest of bin/lib).
-  const buf = Buffer.alloc(16);
-  let len = 0;
-  try {
-    len = fs.readSync(0, buf, 0, buf.length, null);
-  } catch {
-    return false;
-  }
-  const answer = buf.subarray(0, len).toString("utf8").trim().toLowerCase();
-  return answer === "y" || answer === "yes";
 }

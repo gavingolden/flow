@@ -1312,3 +1312,117 @@ describe("runEpicCli usage errors", () => {
     expect(errors.join("\n")).toMatch(/usage|required/i);
   });
 });
+
+describe("runEpicCli done", () => {
+  const seedRun = (slug: string) =>
+    writeEpicRunState(
+      {
+        epicSlug: slug,
+        repo: "/tmp/repo",
+        manifestPath: "/tmp/repo/.flow/epics/" + slug + "/manifest.json",
+        manifestSha: "abc",
+        maxParallel: 3,
+        createdAt: "2026-06-28T12:00:00Z",
+        updatedAt: "2026-06-28T12:00:00Z",
+        features: {},
+      },
+      epicsDir,
+    );
+
+  it("--help returns 0 with no fs side effect", () => {
+    const before = fs.readdirSync(epicsDir);
+    expect(runEpicCli(["done", "--help"], { stateDir, epicsDir })).toBe(0);
+    expect(fs.readdirSync(epicsDir)).toEqual(before);
+  });
+
+  it("missing slug exits 2", () => {
+    expect(runEpicCli(["done"], { stateDir, epicsDir })).toBe(2);
+    expect(errors.join("\n")).toContain("flow epic done:");
+  });
+
+  it("nonexistent dir exits 1 without throwing", () => {
+    expect(runEpicCli(["done", "ghost"], { stateDir, epicsDir })).toBe(1);
+    expect(errors.join("\n")).toMatch(/no run-state/);
+  });
+
+  it("done <slug> --yes removes the dir and exits 0", () => {
+    seedRun("finished");
+    expect(
+      runEpicCli(["done", "finished", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "finished"))).toBe(false);
+    expect(logs.join("\n")).toMatch(/removed:/);
+  });
+
+  it("done <slug> -y removes the dir and exits 0 without the confirm seam", () => {
+    seedRun("short-flag");
+    const confirm = vi.fn(() => true);
+    expect(
+      runEpicCli(["done", "short-flag", "-y"], { stateDir, epicsDir, confirm }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "short-flag"))).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("rejects a traversal slug ('..') without deleting and exits 2", () => {
+    expect(runEpicCli(["done", "..", "--yes"], { stateDir, epicsDir })).toBe(2);
+    expect(errors.join("\n")).toMatch(/invalid slug/);
+    // The guard must fire BEFORE path.join(epicsDir, '..') + rmSync, which
+    // would otherwise recursively delete epicsDir's parent (all of ~/.flow).
+    expect(fs.existsSync(epicsDir)).toBe(true);
+  });
+
+  it("declined confirm leaves the dir and exits 0", () => {
+    seedRun("keepme");
+    expect(
+      runEpicCli(["done", "keepme"], {
+        stateDir,
+        epicsDir,
+        confirm: () => false,
+      }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "keepme"))).toBe(true);
+    expect(logs.join("\n")).toMatch(/aborted/);
+  });
+
+  it("accepted confirm removes the dir", () => {
+    seedRun("killme");
+    expect(
+      runEpicCli(["done", "killme"], {
+        stateDir,
+        epicsDir,
+        confirm: () => true,
+      }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "killme"))).toBe(false);
+  });
+
+  it("cross-pointer hint fires when a pipeline-state file exists", () => {
+    seedRun("hinted");
+    writeState(
+      { slug: "hinted", phase: "epic-approved", repo: "", updatedAt: "" },
+      stateDir,
+    );
+    expect(
+      runEpicCli(["done", "hinted", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(logs.join("\n")).toMatch(/flow done hinted/);
+  });
+
+  it("cross-pointer hint fires when a tmux window exists", () => {
+    seedRun("winhint");
+    tmuxMock.windowExists.mockReturnValue(true);
+    expect(
+      runEpicCli(["done", "winhint", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(logs.join("\n")).toMatch(/flow done winhint/);
+  });
+
+  it("no hint when neither window nor state exists", () => {
+    seedRun("silent");
+    expect(
+      runEpicCli(["done", "silent", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(logs.join("\n")).not.toMatch(/flow done/);
+  });
+});
