@@ -31,7 +31,11 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
-import { resolveFlowSource } from "./paths";
+import {
+  resolveFlowSource,
+  FLOW_LAUNCH_SEM_DIR,
+  FLOW_LAUNCH_SETTINGS_PATH,
+} from "./paths";
 import { slugify } from "./slug";
 import {
   epicDirRelative,
@@ -41,7 +45,11 @@ import {
   type EpicManifest,
 } from "./epic-manifest-schema";
 import { validateDag } from "../flow-epic-dag";
-import { deriveWorktreePath } from "./new";
+import {
+  deriveWorktreePath,
+  backoffMsForAttempt,
+  ensureLaunchSettings,
+} from "./new";
 import {
   createWindowVerified,
   respawnWindowVerified,
@@ -62,6 +70,7 @@ import {
 } from "./state";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
+import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
 import {
   reconcile,
   HALT_STATUSES,
@@ -97,12 +106,12 @@ const LAUNCH_STALL_BUDGET = 3;
 /**
  * Bounded retry budget for the verified window create — mirrors new.ts. A
  * single transient launch failure self-heals; the loop terminates so a
- * genuinely broken `claude` can't hang the CLI. (Epic intentionally keeps the
- * flat short retry — the new.ts backoff/--settings/concurrency-cap hardening is
- * scoped to `flow new` for now; see PR notes.)
+ * genuinely broken `claude` can't hang the CLI. Between attempts an increasing
+ * 1s → 2s → 4s backoff (via `backoffMsForAttempt` from new.ts) rides out a
+ * transient cold-start spike under concurrent load — a flat short retry would
+ * land all three tries inside the same degraded window and fail together.
  */
 const WINDOW_CREATE_MAX_ATTEMPTS = 3;
-const WINDOW_CREATE_RETRY_MS = 150;
 
 /**
  * Resolved absolute path to the product-planning skill, embedded (R1) in both
@@ -121,11 +130,17 @@ const PRODUCT_PLANNING_SKILL_DIR = path.join(
 
 function launchWithRetry(
   launch: () => VerifiedLaunchResult,
-  retryMs: number = WINDOW_CREATE_RETRY_MS,
+  retrySleepMs?: number,
+  sleep: (ms: number) => void = sleepSync,
 ): VerifiedLaunchResult {
   let last: VerifiedLaunchResult = { status: "failed", stderr: "" };
   for (let attempt = 0; attempt < WINDOW_CREATE_MAX_ATTEMPTS; attempt++) {
-    if (attempt > 0 && retryMs > 0) sleepSync(retryMs);
+    if (attempt > 0) {
+      // `retrySleepMs` is the test seam: 0 disables real sleep entirely;
+      // undefined applies the increasing 1s → 2s → 4s schedule.
+      const ms = retrySleepMs ?? backoffMsForAttempt(attempt);
+      if (ms > 0) sleep(ms);
+    }
     last = launch();
     // `started` and `launched-not-confirmed` are both success (never kill/respawn
     // a live-but-slow pane); only `failed` (dead pane) is retryable.
@@ -154,8 +169,32 @@ export type EpicOptions = {
    * absent (Claude's default model applies).
    */
   model?: ModelAlias;
-  /** Backoff (ms) between bounded window-create retries (test seam). */
+  /**
+   * Backoff (ms) between bounded window-create retries. Test seam only — when 0
+   * it disables real sleep entirely (the orphan-repro harness passes 0 so its
+   * loop accrues no sleep); when undefined the increasing backoff schedule
+   * (1s → 2s → 4s) applies.
+   */
   retrySleepMs?: number;
+  /**
+   * Injectable sleep fn for the retry backoff. Test seam only (a spy that
+   * asserts the 1s → 2s → 4s schedule without real sleeping); production uses
+   * the spawn-free `sleepSync` default.
+   */
+  retrySleep?: (ms: number) => void;
+  /**
+   * Acquire timeout (ms) for the host-wide launch-concurrency semaphore. Test
+   * seam only — production uses `withTestSemaphore`'s long default; the
+   * fail-open test passes a short value so an over-subscribed cap proceeds fast.
+   */
+  launchSemTimeoutMs?: number;
+  /**
+   * Path to the flow-scoped `claude --settings` file the launch argv references
+   * and `ensureLaunchSettings` writes. Test seam only — production uses
+   * FLOW_LAUNCH_SETTINGS_PATH; tests point it at a temp file to avoid touching
+   * the real ~/.flow and to assert the argv path.
+   */
+  launchSettingsPath?: string;
   /** Override the per-machine epic run-state root `~/.flow/epics` (test seam). */
   epicsDir?: string;
   /** Watch-loop sleep seam (default `sleepSync`); keeps `runEpicCli` synchronous. */
@@ -343,7 +382,9 @@ PR → review checkpoint), and writes initial epic state under
   // in a consumer worktree without bin/lib) consumes the literal, never an import.
   const epicDir = epicDirRelative(slug);
   const seed = epicCreateSeed(prompt, epicDir, PRODUCT_PLANNING_SKILL_DIR);
-  const command = options.command ?? createCommand(worktree, effort, model);
+  const settingsPath = launchSettingsPathFor(options);
+  const command =
+    options.command ?? createCommand(worktree, effort, settingsPath, model);
 
   // Persist-then-verify-then-delete-on-failure (mirrors new.ts runFresh): write
   // epic state(phase=starting) BEFORE the verified launch so the /epic-create
@@ -380,13 +421,22 @@ PR → review checkpoint), and writes initial epic state under
     // seed delivery and kills its own half-created window on failure; the
     // delete-on-failure below removes the up-front state file.
     return createWindowVerified(slug, repo, command, seed, {
+      // Marker-aware consumed(): the seed-ingested hook stamping `seedIngestedAt`
+      // confirms ingestion at launch time; absent the marker, fall back to the
+      // phase advancing past `starting`. (consumed() is only probed while the
+      // pane is alive, so "marker present" already implies a live pane.)
       consumed: () => {
         const s = readState(slug, options.stateDir);
-        return s != null && s.phase !== "starting";
+        if (s == null) return false;
+        if (s.seedIngestedAt != null) return true;
+        return s.phase !== "starting";
       },
     });
   };
-  const result = launchWithRetry(launch, options.retrySleepMs);
+  const result = withLaunchSlot(
+    () => launchWithRetry(launch, options.retrySleepMs, options.retrySleep),
+    options,
+  );
   if (result.status === "failed") {
     deleteState(slug, options.stateDir);
     console.error(
@@ -475,28 +525,43 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // window never re-derives the path nor imports bin/lib.
   const epicDir = epicDirRelative(slug);
   const seed = epicResumeSeed(slug, epicDir, PRODUCT_PLANNING_SKILL_DIR);
+  const settingsPath = launchSettingsPathFor(options);
   const command =
-    options.command ?? resumeCommand(worktree, state.effort, state.model);
+    options.command ??
+    resumeCommand(worktree, state.effort, settingsPath, state.model);
   // Resume consumption baseline (mirrors new.ts runResume): on resume the phase
   // is already past `starting` (`epic-designing`), so consumption is "the
-  // resumed supervisor bumped `updatedAt` past this pre-respawn value". Re-read
-  // the baseline at the START of each attempt (inside the closure), not once
-  // before the loop: `launchWithRetry` reuses the closure, so an attempt that
-  // bumped `updatedAt` then died would otherwise satisfy the next attempt's
-  // predicate immediately (false-success orphan). This path never writes or
-  // deletes state — the window pre-existed the resume — so the read is
-  // non-mutating.
-  const launch = () => {
-    const baseline = readState(slug, options.stateDir)?.updatedAt;
-    const consumed = () => {
-      const s = readState(slug, options.stateDir);
-      return s != null && s.updatedAt !== baseline;
-    };
-    return exists
+  // resumed session RE-STAMPED the seed-ingested marker OR the resumed
+  // supervisor bumped `updatedAt` past this pre-respawn value". BOTH baselines
+  // are captured ONCE before the retry loop (not per-attempt): paired with the
+  // non-destructive launched-not-confirmed timeout, a late advance no longer
+  // respawn-kills a live session. The marker baseline is load-bearing — the
+  // original fresh launch stamped `seedIngestedAt` and `runEpicResume` never
+  // clears it (writeState is not called here), so a bare `seedIngestedAt != null`
+  // check would short-circuit `consumed()` true on the FIRST probe off the STALE
+  // marker, skip the resume-seed send-keys (the double-submit guard), and latch a
+  // false-success resume that never delivered the seed. Requiring `seedIngestedAt`
+  // to DIFFER from the pre-resume value means only a fresh re-stamp counts. This
+  // path never writes or deletes state — the window pre-existed the resume — so
+  // the read is non-mutating.
+  const preResume = readState(slug, options.stateDir);
+  const baseline = preResume?.updatedAt;
+  const markerBaseline = preResume?.seedIngestedAt;
+  const consumed = () => {
+    const s = readState(slug, options.stateDir);
+    if (s == null) return false;
+    if (s.seedIngestedAt != null && s.seedIngestedAt !== markerBaseline)
+      return true;
+    return s.updatedAt !== baseline;
+  };
+  const launch = () =>
+    exists
       ? respawnWindowVerified(slug, repo, command, seed, { consumed })
       : createWindowVerified(slug, repo, command, seed, { consumed });
-  };
-  const result = launchWithRetry(launch, options.retrySleepMs);
+  const result = withLaunchSlot(
+    () => launchWithRetry(launch, options.retrySleepMs, options.retrySleep),
+    options,
+  );
   if (result.status === "failed") {
     console.error(
       "flow epic create --resume: claude exited immediately after launch — the tmux window did not stay up.",
@@ -948,27 +1013,30 @@ function runEpicLs(options: EpicOptions): number {
 }
 
 /**
- * Just `--add-dir <worktree>` (same rationale as new.ts's launchArgv: the
- * chrome-devtools MCP workspace-root pre-authorization). NO positional seed —
- * the seed is delivered ONLY via send-keys by the verified launcher (claude
- * does not auto-run a positional prompt), mirroring new.ts's launchArgv.
+ * `--add-dir <worktree>` (same rationale as new.ts's launchArgv: the
+ * chrome-devtools MCP workspace-root pre-authorization) plus the trailing
+ * `--settings <flow-scoped file>`, which registers the UserPromptSubmit
+ * seed-ingested hook and is ADDITIVE (the user's global settings still apply).
+ * NO positional seed — the seed is delivered ONLY via send-keys by the verified
+ * launcher (claude does not auto-run a positional prompt), mirroring new.ts's
+ * launchArgv.
  */
 function launchArgv(
   worktree: string,
-  effort?: EffortLevel,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
   model?: ModelAlias,
 ): string[] {
   // Bare `claude` base (NO `env FLOW_PIPELINE=1` prefix — that marker is a
   // new.ts-only concern; epic's launch env stays deliberately bare). NO
   // positional seed — the seed is delivered ONLY via send-keys by the verified
   // launcher (claude does not auto-run a positional prompt), mirroring new.ts.
-  // `--model` precedes `--effort`, both after `--add-dir <worktree>`, in a
-  // deterministic order so the argv assertions stay stable. Each is omitted
-  // when unset.
-  const argv = ["claude", "--add-dir", worktree];
-  if (model) argv.push("--model", model);
-  if (effort) argv.push("--effort", effort);
-  return argv;
+  // `--model` precedes `--effort` (both before `--settings`), in a deterministic
+  // order so the argv assertions stay stable. Each is omitted when unset.
+  const base = ["claude", "--add-dir", worktree];
+  const withModel = model ? [...base, "--model", model] : base;
+  const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
+  return [...withEffort, "--settings", settingsPath];
 }
 
 // The seed text is defined ONCE in these helpers and delivered ONLY via
@@ -995,20 +1063,78 @@ function epicResumeSeed(
   return `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
 }
 
-function createCommand(
+/**
+ * Resolves the flow-scoped `claude --settings` path: the explicit option, then
+ * a `FLOW_LAUNCH_SETTINGS_PATH` env override (tests redirect it off the real
+ * ~/.flow), then the default constant.
+ */
+function launchSettingsPathFor(options: EpicOptions): string {
+  return (
+    options.launchSettingsPath ??
+    process.env.FLOW_LAUNCH_SETTINGS_PATH ??
+    FLOW_LAUNCH_SETTINGS_PATH
+  );
+}
+
+/**
+ * Builds the verified-launch argv, registering the seed-ingested hook in the
+ * flow-scoped settings file first (best-effort — a write hiccup degrades to no
+ * hook, and the lazy reaper still backstops orphan cleanup).
+ */
+function buildLaunchCommand(
   worktree: string,
-  effort?: EffortLevel,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
   model?: ModelAlias,
 ): string[] {
-  return launchArgv(worktree, effort, model);
+  try {
+    ensureLaunchSettings(settingsPath);
+  } catch (err) {
+    process.stderr.write(
+      dim(
+        `flow epic create: could not write launch settings: ${err instanceof Error ? err.message : String(err)}\n`,
+      ),
+    );
+  }
+  return launchArgv(worktree, effort, settingsPath, model);
+}
+
+function createCommand(
+  worktree: string,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
+  model?: ModelAlias,
+): string[] {
+  return buildLaunchCommand(worktree, effort, settingsPath, model);
 }
 
 function resumeCommand(
   worktree: string,
-  effort?: EffortLevel,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
   model?: ModelAlias,
 ): string[] {
-  return launchArgv(worktree, effort, model);
+  return buildLaunchCommand(worktree, effort, settingsPath, model);
+}
+
+/**
+ * Wraps the verified launch in the host-wide launch-concurrency semaphore so a
+ * burst of parallel launches stops oversubscribing claude cold-starts.
+ * Fail-open (never blocks a launch): on acquire timeout the launch proceeds
+ * holding no slot. The sem dir honors a `FLOW_LAUNCH_SEM_DIR` env override
+ * (tests redirect it off the real ~/.flow); the cap is `resolveLaunchConcurrency`.
+ */
+function withLaunchSlot(
+  launch: () => VerifiedLaunchResult,
+  options: EpicOptions,
+): VerifiedLaunchResult {
+  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? FLOW_LAUNCH_SEM_DIR;
+  const slots = resolveLaunchConcurrency(process.env);
+  const semOpts =
+    options.launchSemTimeoutMs !== undefined
+      ? { timeoutMs: options.launchSemTimeoutMs, pollMs: 5 }
+      : {};
+  return withTestSemaphore(semDir, slots, launch, semOpts).result;
 }
 
 function resolveRepoRoot(cwd: string): string | null {
