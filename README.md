@@ -36,7 +36,10 @@ flow attach add-csv-export       # attach to a pipeline's window (alias: flow a)
 flow attach                      # attach into the session and browse windows
 flow done add-csv-export         # close a finished pipeline's window
 flow done --merged               # sweep windows that reached a terminal state
+flow epic project my-epic        # one-way export of an epic to GitHub sub-issues
 ```
+
+`flow epic project <slug> [--dry-run] [--yes]` is a one-way, export-only projection of an epic to GitHub: it publishes a parent epic issue plus one native sub-issue per manifest feature (a `merged` feature's sub-issue is closed), so an in-flight epic is browsable and shareable on github.com. It is off by default by construction — there is no config key; it runs only on this explicit invocation, never from `flow epic create`/`run`. `--dry-run` previews the planned actions as JSON without touching GitHub, and `--yes` skips the "create N real issues?" confirmation.
 
 By default a pipeline auto-merges its PR when the merge gate is clear; pass `flow new --no-auto-merge "<desc>"` to always stop at the gate for a manual merge.
 

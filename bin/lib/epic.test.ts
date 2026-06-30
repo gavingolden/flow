@@ -1293,6 +1293,165 @@ describe("runEpicCli run/status/ls", () => {
   });
 });
 
+describe("runEpicCli project", () => {
+  function gitInit(): void {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+  }
+
+  function writeManifest(slug: string, ids: string[]): void {
+    const dir = path.join(repoDir, ".flow", "epics", slug);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "manifest.json"),
+      JSON.stringify({
+        epicId: slug,
+        prompt: "build it",
+        createdAt: "2026-06-28",
+        features: ids.map((id) => ({
+          id,
+          title: id.toUpperCase(),
+          description: `build ${id}`,
+          dependsOn: [],
+        })),
+      }),
+    );
+  }
+
+  /** Routing gh stub: probe → none (would create), then create/link/db-id ok. */
+  function projectGh(): ReturnType<typeof vi.fn> {
+    return vi.fn((argv: string[]) => {
+      if (argv[0] === "issue" && argv[1] === "list")
+        return { stdout: "[]", stderr: "", exitCode: 0 };
+      if (argv[0] === "label") return { stdout: "", stderr: "", exitCode: 0 };
+      if (argv[0] === "issue" && argv[1] === "create")
+        return {
+          stdout: "https://github.com/me/r/issues/7\n",
+          stderr: "",
+          exitCode: 0,
+        };
+      if (argv[0] === "api" && argv.includes("--jq"))
+        return { stdout: "9001", stderr: "", exitCode: 0 };
+      if (argv[0] === "api") return { stdout: "", stderr: "", exitCode: 0 };
+      return { stdout: "", stderr: "", exitCode: 0 };
+    });
+  }
+
+  const isCreate = (a: string[]) => a[0] === "issue" && a[1] === "create";
+  const isClose = (a: string[]) => a[0] === "issue" && a[1] === "close";
+  const isLinkPost = (a: string[]) =>
+    a[0] === "api" && a.includes("--method") && a.includes("POST");
+  const mutating = (gh: ReturnType<typeof vi.fn>) =>
+    gh.mock.calls
+      .map((c) => c[0] as string[])
+      .filter(
+        (a) => isCreate(a) || isClose(a) || isLinkPost(a) || a[0] === "label",
+      );
+
+  it("confirmation gate declined → zero mutating gh calls, exit 0", () => {
+    gitInit();
+    writeManifest("proj-epic", ["a"]);
+    const gh = projectGh();
+    const confirm = vi.fn(() => false);
+    const code = runEpicCli(["project", "proj-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      gh,
+      confirm,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    expect(confirm).toHaveBeenCalledOnce();
+    expect(mutating(gh)).toHaveLength(0);
+  });
+
+  it("--yes happy path creates + links through the injected gh seam (no confirm)", () => {
+    gitInit();
+    writeManifest("proj-epic", ["a"]);
+    const gh = projectGh();
+    const confirm = vi.fn(() => true);
+    const code = runEpicCli(["project", "proj-epic", "--yes"], {
+      cwd: repoDir,
+      epicsDir,
+      gh,
+      confirm,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    expect(confirm).not.toHaveBeenCalled();
+    const calls = gh.mock.calls.map((c) => c[0] as string[]);
+    expect(calls.filter(isCreate)).toHaveLength(2); // parent + child
+    expect(calls.some(isLinkPost)).toBe(true);
+  });
+
+  it("--dry-run prints JSON and makes zero gh calls, exit 0", () => {
+    gitInit();
+    writeManifest("proj-epic", ["a"]);
+    const gh = projectGh();
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    const code = runEpicCli(["project", "proj-epic", "--dry-run"], {
+      cwd: repoDir,
+      epicsDir,
+      gh,
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    expect(gh).not.toHaveBeenCalled();
+    const written = JSON.parse(String(stdout.mock.calls[0][0]));
+    expect(written.parent.title).toBe("Epic: build it");
+    stdout.mockRestore();
+  });
+
+  it("a missing manifest exits 2 with 'manifest not found'", () => {
+    gitInit();
+    const code = runEpicCli(["project", "ghost"], {
+      cwd: repoDir,
+      epicsDir,
+      gh: projectGh(),
+    });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/manifest not found/);
+  });
+
+  it("regression: the create and run arms make ZERO gh (projection) calls", () => {
+    // create arm
+    gitInit();
+    freshWindowOk();
+    const ghCreate = projectGh();
+    expect(
+      runEpicCli(["create", "design the thing"], {
+        stateDir,
+        cwd: repoDir,
+        gh: ghCreate,
+      }),
+    ).toBe(0);
+    expect(ghCreate).not.toHaveBeenCalled();
+
+    // run arm
+    writeManifest("run-epic", ["a"]);
+    const ghRun = projectGh();
+    const code = runEpicCli(["run", "run-epic", "--once"], {
+      cwd: repoDir,
+      epicsDir,
+      gh: ghRun,
+      spawn: vi.fn(() => ({
+        status: 0,
+        stdout: "flow:launched\n",
+        stderr: "",
+      })),
+      sleep: vi.fn(),
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    expect(ghRun).not.toHaveBeenCalled();
+  });
+});
+
 describe("runEpicCli usage errors", () => {
   it("[] (no subcommand) returns 2 with a usage message on stderr", () => {
     const code = runEpicCli([], { stateDir });

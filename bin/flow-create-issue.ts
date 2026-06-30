@@ -157,7 +157,7 @@ export function probeExistingIssue(title: string, gh: GhRunner): ProbeResult {
  * `gh issue create`'s stdout. The number is in the URL path. Parse both
  * out so the caller never has to follow up with `gh issue view`.
  */
-function parseCreateOutput(
+export function parseCreateOutput(
   stdout: string,
 ): { number: number; url: string } | { error: string } {
   const url = stdout.trim().split(/\r?\n/).pop()?.trim() ?? "";

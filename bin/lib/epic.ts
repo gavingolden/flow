@@ -93,6 +93,8 @@ import {
   renderTickSummary,
   type EpicListRow,
 } from "./epic-render";
+import { projectEpic } from "./epic-project";
+import { type GhRunner } from "../flow-create-issue";
 
 /** Watch-loop poll interval (the launchd seam for v2 is `--once`). */
 const EPIC_POLL_INTERVAL_MS = 30_000;
@@ -220,6 +222,18 @@ export type EpicOptions = {
    * developer's real config; this seam closes that isolation leak.
    */
   readMaxParallel?: () => number;
+  /**
+   * GitHub-CLI runner seam for the `project` arm (default spawns the real
+   * `gh`). Mirrors `flow-create-issue`'s `GhRunner`, so projection unit-tests
+   * touch zero real GitHub.
+   */
+  gh?: GhRunner;
+  /**
+   * Confirmation-gate seam for the `project` arm (default reads fd 0). The
+   * `project` arm names how many real issues it will create and aborts with
+   * zero mutating gh calls when this returns false; `--yes`/`--dry-run` skip it.
+   */
+  confirm?: (message: string) => boolean;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
@@ -249,13 +263,15 @@ export function runEpicCli(args: string[], options: EpicOptions = {}): number {
       return runEpicLs(options);
     case "done":
       return runEpicDone(args.slice(1), options);
+    case "project":
+      return runEpicProject(args.slice(1), options);
     case undefined:
       console.error("flow epic: a subcommand is required.");
-      console.error("usage: flow epic <create|run|status|ls|done>");
+      console.error("usage: flow epic <create|run|status|ls|done|project>");
       return 2;
     default:
       console.error(`flow epic: unknown epic subcommand: ${sub}`);
-      console.error("usage: flow epic <create|run|status|ls|done>");
+      console.error("usage: flow epic <create|run|status|ls|done|project>");
       return 2;
   }
 }
@@ -1097,6 +1113,167 @@ Options:
       ),
     );
   }
+  return 0;
+}
+
+// ── Project phase: one-way export to GitHub sub-issues ──────────────────────
+
+type ProjectArgs = {
+  slug: string;
+  dryRun: boolean;
+  yes: boolean;
+  error?: string;
+};
+
+function parseProjectArgs(rest: string[]): ProjectArgs {
+  let dryRun = false;
+  let yes = false;
+  const positionals: string[] = [];
+  for (const a of rest) {
+    if (a === "--dry-run") {
+      dryRun = true;
+      continue;
+    }
+    if (a === "--yes" || a === "-y") {
+      yes = true;
+      continue;
+    }
+    if (a.startsWith("-")) {
+      return { slug: "", dryRun, yes, error: `unknown option '${a}'` };
+    }
+    positionals.push(a);
+  }
+  return { slug: positionals.join(" ").trim(), dryRun, yes };
+}
+
+/** Default `gh` runner — node:child_process for vitest-under-node parity. */
+const defaultGh: GhRunner = (argv) => {
+  const r = spawnSync("gh", argv, { encoding: "utf8" });
+  return {
+    stdout: r.stdout ?? "",
+    stderr: r.stderr ?? "",
+    exitCode: r.status ?? -1,
+  };
+};
+
+/** Default confirmation: read one line from fd 0 (injected away in tests). */
+function defaultConfirm(message: string): boolean {
+  process.stdout.write(`${message} [y/N] `);
+  const buf = Buffer.alloc(64);
+  let bytes = 0;
+  try {
+    bytes = fs.readSync(0, buf, 0, buf.length, null);
+  } catch {
+    return false;
+  }
+  const answer = buf.toString("utf8", 0, bytes).trim().toLowerCase();
+  return answer === "y" || answer === "yes";
+}
+
+function runEpicProject(rest: string[], options: EpicOptions): number {
+  if (argsContainHelp(rest)) {
+    console.log(`flow epic project — export an epic to GitHub sub-issues (one-way)
+
+Usage:
+  flow epic project <slug> [--dry-run] [--yes]
+
+Publishes a parent epic issue plus one native GitHub sub-issue per manifest
+feature to the current repo, so an in-flight epic is browsable and shareable on
+github.com. Off by default by construction — it runs only on this explicit
+invocation, never from \`flow epic create\`/\`run\`. One-way / export-only: the
+committed manifest and per-feature local state stay the single source of truth;
+issue state is never read back. Re-runs are idempotent (no duplicate issues or
+links). A \`merged\` feature's sub-issue is closed so GitHub's progress bar
+reflects local truth.
+
+Options:
+  --dry-run             print the planned create/link/close actions as JSON and
+                        make zero GitHub calls
+  --yes, -y             skip the "create N real issues?" confirmation prompt`);
+    return 0;
+  }
+
+  const parsed = parseProjectArgs(rest);
+  if (parsed.error) {
+    console.error(`flow epic project: ${parsed.error}`);
+    console.error("usage: flow epic project <slug> [--dry-run] [--yes]");
+    return 2;
+  }
+  if (!parsed.slug) {
+    console.error("flow epic project: a slug is required.");
+    console.error("usage: flow epic project <slug> [--dry-run] [--yes]");
+    return 2;
+  }
+
+  const cwd = options.cwd ?? process.cwd();
+  const repo = resolveRepoRoot(cwd);
+  if (!repo) {
+    console.error(`flow epic project: ${cwd} is not inside a git repository.`);
+    return 2;
+  }
+
+  const manifestPath = path.join(
+    repo,
+    epicDirRelative(parsed.slug),
+    EPIC_MANIFEST_FILENAME,
+  );
+  const loaded = loadCommittedManifest(manifestPath);
+  if (!loaded.ok) {
+    if (loaded.reason === "not-found") {
+      console.error(
+        `flow epic project: manifest not found at ${manifestPath} — merge the design PR first.`,
+      );
+    } else {
+      console.error(`flow epic project: ${loaded.reason}`);
+    }
+    return 2;
+  }
+
+  // Board (read-only) → the open/close signal. Use run-state if present, else an
+  // ephemeral empty state (manifest merged but `flow epic run` not yet invoked).
+  const runState =
+    readEpicRunState(parsed.slug, options.epicsDir) ??
+    ephemeralRunState(
+      parsed.slug,
+      manifestPath,
+      options.readMaxParallel ?? readEpicMaxParallel,
+    );
+  const board = reconcile({
+    manifest: loaded.manifest,
+    runState,
+    readFeatureState: options.readFeatureState,
+    maxParallel: runState.maxParallel,
+  }).board;
+
+  const outcome = projectEpic({
+    slug: parsed.slug,
+    manifest: loaded.manifest,
+    board,
+    gh: options.gh ?? defaultGh,
+    epicsDir: options.epicsDir,
+    dryRun: parsed.dryRun,
+    yes: parsed.yes,
+    confirm: options.confirm ?? defaultConfirm,
+  });
+
+  if (!outcome.ok) {
+    console.error(`flow epic project: ${outcome.error}`);
+    return 1;
+  }
+  if (outcome.dryRun) {
+    // projectEpic already printed the planned-actions JSON to stdout.
+    return 0;
+  }
+  if (outcome.aborted) {
+    console.log("flow epic project: aborted — no issues created.");
+    return 0;
+  }
+
+  console.log(
+    `flow epic project: ${parsed.slug} → parent #${outcome.parentNumber}` +
+      ` (created ${outcome.created.length}, linked ${outcome.linked.length},` +
+      ` closed ${outcome.closed.length}, skipped ${outcome.skipped.length})`,
+  );
   return 0;
 }
 
