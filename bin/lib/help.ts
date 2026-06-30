@@ -48,7 +48,7 @@ Usage:
                                         --effort sets the Claude Code reasoning-effort level for the claude session;
                                         --model sets the Claude Code model alias for the claude session)
   flow new --resume <name> [<name> ...] resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
-  flow epic <create|run|status|ls>      design and run an epic (create, run, status, ls)
+  flow epic <create|run|status|ls|done> design and run an epic (create, run, status, ls, done)
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
   flow done <name> [<name> ...]         close one or more pipeline windows
@@ -99,6 +99,7 @@ Usage:
   flow epic run <slug> [--once] [--max-parallel <N>]
   flow epic status <slug>
   flow epic ls
+  flow epic done <slug> [--yes]
 
 Subcommands:
   create "<prompt>"     design an epic — open a tmux window running /epic-create
@@ -111,6 +112,9 @@ Subcommands:
                         launched slug + PR + phase, and the current frontier
   ls                    list every epic under ~/.flow/epics with per-state
                         feature counts and overall status
+  done <slug>          remove the recomputable per-machine ~/.flow/epics/<slug>/
+                        runtime state (does NOT close the design window or
+                        pipeline state — use \`flow done <slug>\` for those)
 
 Options (create):
   --effort <low|medium|high|xhigh|max>
@@ -122,7 +126,10 @@ Options (run):
   --once                advance exactly one tick (launch the current frontier,
                         print the board, exit) — no watch loop
   --max-parallel <N>    cap concurrent feature windows (default 3, or
-                        ~/.flow/config.json epic.maxParallel)`,
+                        ~/.flow/config.json epic.maxParallel)
+
+Options (done):
+  --yes, -y             skip the confirmation prompt`,
 
   ls: `flow ls — list active pipelines
 

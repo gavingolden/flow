@@ -108,6 +108,27 @@ export function writeEpicRunState(
   );
 }
 
+/**
+ * Remove the per-machine `<dir>/<slug>/` run-state directory recursively.
+ * Returns `true` when the directory existed and was removed, `false` when it
+ * was absent or removal failed. Mirrors `deleteState` in `state.ts`; this is
+ * recomputable runtime cache, so a failed/absent removal is a soft `false`,
+ * never a throw.
+ */
+export function deleteEpicRunState(
+  slug: string,
+  dir = FLOW_EPICS_DIR,
+): boolean {
+  const target = path.join(dir, slug);
+  try {
+    if (!fs.existsSync(target)) return false;
+    fs.rmSync(target, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Every epic whose `~/.flow/epics/<slug>/run.json` parses to a valid state. */
 export function listEpicRunStates(dir = FLOW_EPICS_DIR): EpicRunState[] {
   let entries: fs.Dirent[];
