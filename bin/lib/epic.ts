@@ -842,7 +842,14 @@ function spawnEpicRunSupervisor(
   const worktree = deriveWorktreePath(repo, slug);
   const epicDir = epicDirRelative(slug);
   const seed = epicRunSeed(slug, epicDir);
-  const command = options.command ?? launchArgv(worktree);
+  // Mirror runCreate's launch: resolve the flow-scoped settings file (registers
+  // the seed-ingested hook the consumed() predicate below relies on) and build
+  // the verified-launch argv through the shared builder. `flow epic run` has no
+  // --effort/--model surface in v1, so both default to undefined.
+  const settingsPath = launchSettingsPathFor(options);
+  const command =
+    options.command ??
+    createCommand(worktree, options.effort, settingsPath, options.model);
 
   // Consumption = the supervisor advanced run-state `runnerPhase` to `running`
   // on first entry (its documented first action). Re-read every attempt inside
