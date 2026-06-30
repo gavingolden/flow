@@ -379,6 +379,39 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     );
   });
 
+  it("degrades to a dim warning and still launches when the settings write throws", () => {
+    // Force ensureLaunchSettings to throw: point launchSettingsPath under a
+    // regular file so mkdirSync(dirname) hits ENOTDIR. buildLaunchCommand's
+    // best-effort try/catch must swallow it, warn on stderr, and still return
+    // the argv carrying --settings (the lazy reaper backstops orphan cleanup).
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const blocker = path.join(stateDir, "not-a-dir");
+    fs.writeFileSync(blocker, "");
+    const settingsPath = path.join(blocker, "launch-settings.json");
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      launchSettingsPath: settingsPath,
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).toEqual([
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+      "--settings",
+      settingsPath,
+    ]);
+    // The degradation warning was emitted, and no settings file was written.
+    const warned = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(warned).toContain("could not write launch settings");
+    expect(fs.existsSync(settingsPath)).toBe(false);
+  });
+
   it("marker-aware fresh consumed(): true on seedIngestedAt, falls back to phase past starting", () => {
     // The launch-time seed-ingested marker latches consumed() even before the
     // supervisor advances the phase; absent the marker it falls back to the
