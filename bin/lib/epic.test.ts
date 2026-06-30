@@ -1417,7 +1417,7 @@ describe("runEpicCli project", () => {
     expect(errors.join("\n")).toMatch(/manifest not found/);
   });
 
-  it("regression: the create and run arms make ZERO gh (projection) calls", () => {
+  it("regression: create/run/status/ls arms make ZERO gh (projection) calls", () => {
     // create arm
     gitInit();
     freshWindowOk();
@@ -1449,6 +1449,33 @@ describe("runEpicCli project", () => {
     });
     expect(code).toBe(0);
     expect(ghRun).not.toHaveBeenCalled();
+
+    // status arm (ephemeral: committed manifest, no run-state)
+    writeManifest("status-epic", ["a"]);
+    const ghStatus = projectGh();
+    expect(
+      runEpicCli(["status", "status-epic"], {
+        cwd: repoDir,
+        epicsDir,
+        gh: ghStatus,
+        readFeatureState: () => null,
+        readMaxParallel: () => 3,
+      }),
+    ).toBe(0);
+    expect(ghStatus).not.toHaveBeenCalled();
+
+    // ls arm
+    const ghLs = projectGh();
+    expect(
+      runEpicCli(["ls"], {
+        cwd: repoDir,
+        epicsDir,
+        gh: ghLs,
+        readFeatureState: () => null,
+        readMaxParallel: () => 3,
+      }),
+    ).toBe(0);
+    expect(ghLs).not.toHaveBeenCalled();
   });
 });
 

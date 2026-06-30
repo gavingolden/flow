@@ -52,43 +52,47 @@ function childIndex(ids: string[], title: string): number {
 }
 
 /**
- * A routing `gh` stub. `existing` controls whether the parent / each child is
- * reported as an already-open issue by the title probe (idempotent paths); when
- * false the probe returns `[]` (none) so the orchestrator creates it.
+ * A routing `gh` stub. `parentExists` / `childrenExist` control whether the
+ * single bulk label-filtered probe (`gh issue list --label flow-epic --state
+ * all`) reports each issue as already present; `childStates` overrides a child's
+ * open/closed state (default OPEN). When an issue is absent the orchestrator
+ * creates it.
  */
 function makeGh(opts: {
   ids: string[];
   parentExists: boolean;
   childrenExist: boolean;
   existingLinks?: number[]; // child issue numbers already linked under parent
+  childStates?: Record<string, "OPEN" | "CLOSED">;
 }): ReturnType<typeof vi.fn> {
-  const { ids, parentExists, childrenExist, existingLinks = [] } = opts;
+  const {
+    ids,
+    parentExists,
+    childrenExist,
+    existingLinks = [],
+    childStates = {},
+  } = opts;
   return vi.fn((argv: string[]): GhResult => {
-    // issue list --search 'in:title "<title>"' (the probe)
+    // issue list --label flow-epic --state all --json number,title,state (probe)
     if (argv[0] === "issue" && argv[1] === "list") {
-      const search = argv[argv.indexOf("--search") + 1] ?? "";
-      const m = search.match(/in:title "(.*)"/);
-      const title = m ? m[1] : "";
-      if (title.startsWith("Epic:")) {
-        if (!parentExists) return ok("[]");
-        return ok(
-          JSON.stringify([
-            {
-              number: PARENT_NO,
-              title,
-              url: `https://github.com/me/r/issues/${PARENT_NO}`,
-            },
-          ]),
-        );
+      const items: Array<{ number: number; title: string; state: string }> = [];
+      if (parentExists) {
+        items.push({
+          number: PARENT_NO,
+          title: "Epic: build the thing",
+          state: "OPEN",
+        });
       }
-      if (!childrenExist) return ok("[]");
-      const idx = childIndex(ids, title);
-      const number = CHILD_BASE + idx;
-      return ok(
-        JSON.stringify([
-          { number, title, url: `https://github.com/me/r/issues/${number}` },
-        ]),
-      );
+      if (childrenExist) {
+        ids.forEach((id, idx) => {
+          items.push({
+            number: CHILD_BASE + idx,
+            title: `${id}: ${id.toUpperCase()}`,
+            state: childStates[id] ?? "OPEN",
+          });
+        });
+      }
+      return ok(JSON.stringify(items));
     }
     // gh label create flow-epic --force
     if (argv[0] === "label") return ok("");
@@ -107,12 +111,14 @@ function makeGh(opts: {
     if (argv[0] === "api") {
       // POST .../sub_issues (the link write)
       if (argv.includes("--method")) return ok("");
-      // GET .../{n}/sub_issues (existing links)
+      // GET .../{n}/sub_issues (existing links). Mirror gh's real per_page=30
+      // default unless --paginate is passed, so a >30-link epic exercises the
+      // pagination fix (an unpaginated read would miss links 31+).
       if (argv.some((a) => a.endsWith("/sub_issues"))) {
+        const paginated = argv.includes("--paginate");
+        const visible = paginated ? existingLinks : existingLinks.slice(0, 30);
         return ok(
-          JSON.stringify(
-            existingLinks.map((number) => ({ number, id: number })),
-          ),
+          JSON.stringify(visible.map((number) => ({ number, id: number }))),
         );
       }
       // GET .../issues/{n} --jq .id (database id)
@@ -313,5 +319,181 @@ describe("projectEpic — confirmation gate", () => {
     expect(calls.some(isCreate)).toBe(false);
     expect(calls.some(isLinkPost)).toBe(false);
     expect(calls.some((a) => a[0] === "label")).toBe(false);
+  });
+});
+
+describe("projectEpic — idempotent re-run with >30 existing sub-issue links", () => {
+  it("paginates the sub_issues read so links 31+ are detected, not re-POSTed", () => {
+    const ids = Array.from({ length: 35 }, (_, i) => `f${i}`);
+    const gh = makeGh({
+      ids,
+      parentExists: true,
+      childrenExist: true,
+      existingLinks: ids.map((_, i) => CHILD_BASE + i),
+    });
+    const outcome = projectEpic({
+      slug: "e",
+      manifest: manifest(ids),
+      board: board(Object.fromEntries(ids.map((id) => [id, "running"]))),
+      gh,
+      epicsDir,
+      confirm: vi.fn(() => true),
+    });
+    expect(outcome.ok).toBe(true);
+    const calls = callsOf(gh);
+    // All 35 links are already present, so zero link POSTs fire on the re-run.
+    expect(calls.some(isLinkPost)).toBe(false);
+    expect(outcome.linked).toEqual([]);
+    expect(outcome.skipped).toHaveLength(35);
+    // The existing-links read MUST be paginated — without --paginate the stub
+    // returns only the first 30, links 31+ look unlinked, and POSTs would fire.
+    const getLinks = calls.find(
+      (a) =>
+        a[0] === "api" &&
+        !a.includes("--method") &&
+        a.some((s) => s.endsWith("/sub_issues")),
+    );
+    expect(getLinks).toContain("--paginate");
+  });
+});
+
+describe("projectEpic — closed (merged) sub-issue recognized via --state all", () => {
+  it("does not recreate or re-close a sub-issue GitHub already reports closed", () => {
+    const ids = ["schema"];
+    // No projection.json hint pre-seeded — the all-state list alone must
+    // recognize the closed child (the old open-only probe could not see it).
+    const gh = makeGh({
+      ids,
+      parentExists: true,
+      childrenExist: true,
+      childStates: { schema: "CLOSED" },
+      existingLinks: [CHILD_BASE + 0],
+    });
+    const outcome = projectEpic({
+      slug: "e",
+      manifest: manifest(ids),
+      board: board({ schema: "merged" }),
+      gh,
+      epicsDir,
+      confirm: vi.fn(() => true),
+    });
+    expect(outcome.ok).toBe(true);
+    const calls = callsOf(gh);
+    expect(calls.some(isCreate)).toBe(false); // recognized, not recreated
+    expect(calls.some(isClose)).toBe(false); // already closed, no redundant close
+    expect(outcome.closed).toEqual([]);
+    expect(outcome.skipped).toEqual(["schema"]);
+  });
+});
+
+describe("projectEpic — projection.json hint supplies the cached databaseId", () => {
+  it("reuses the hinted databaseId for an unlinked child instead of refetching", () => {
+    const ids = ["schema"];
+    fs.mkdirSync(path.join(epicsDir, "e"), { recursive: true });
+    fs.writeFileSync(
+      path.join(epicsDir, "e", "projection.json"),
+      JSON.stringify({
+        parentNumber: PARENT_NO,
+        features: { schema: { issueNumber: CHILD_BASE + 0, databaseId: 4242 } },
+      }),
+    );
+    const gh = makeGh({
+      ids,
+      parentExists: true,
+      childrenExist: true,
+      existingLinks: [], // unlinked → a link POST must fire
+    });
+    const outcome = projectEpic({
+      slug: "e",
+      manifest: manifest(ids),
+      board: board({ schema: "running" }),
+      gh,
+      epicsDir,
+      confirm: vi.fn(() => true),
+    });
+    expect(outcome.ok).toBe(true);
+    const calls = callsOf(gh);
+    // Linked using the HINTED databaseId (4242), not a freshly-fetched one.
+    const link = calls.find(isLinkPost);
+    expect(link).toContain("sub_issue_id=4242");
+    // No `gh api .../issues/{n} --jq .id` fetch happened.
+    const fetchedId = calls.find(
+      (a) =>
+        a[0] === "api" &&
+        a.includes("--jq") &&
+        a.some((s) => /issues\/\d+$/.test(s)),
+    );
+    expect(fetchedId).toBeUndefined();
+    expect(outcome.linked).toEqual(["schema"]);
+  });
+});
+
+describe("projectEpic — create-then-close (first projection of a merged feature)", () => {
+  it("creates the child and immediately closes it when its board status is merged", () => {
+    const ids = ["schema"];
+    const gh = makeGh({ ids, parentExists: false, childrenExist: false });
+    const outcome = projectEpic({
+      slug: "e",
+      manifest: manifest(ids),
+      board: board({ schema: "merged" }),
+      gh,
+      epicsDir,
+      confirm: vi.fn(() => true),
+    });
+    expect(outcome.ok).toBe(true);
+    expect(outcome.created).toEqual(["parent", "schema"]);
+    expect(outcome.closed).toEqual(["schema"]);
+    const closes = callsOf(gh).filter(isClose);
+    expect(closes).toHaveLength(1);
+    expect(closes[0]).toContain(String(CHILD_BASE + 0));
+  });
+});
+
+describe("projectEpic — gh failure handling", () => {
+  it("surfaces a friendly resume message on a 403 secondary rate limit", () => {
+    const ids = ["schema"];
+    const gh = vi.fn((argv: string[]): GhResult => {
+      if (argv[0] === "issue" && argv[1] === "list") return ok("[]");
+      if (argv[0] === "label") return ok("");
+      if (argv[0] === "issue" && argv[1] === "create")
+        return {
+          stdout: "",
+          stderr: "You have exceeded a secondary rate limit. Please wait...",
+          exitCode: 1,
+        };
+      return ok("");
+    });
+    const outcome = projectEpic({
+      slug: "e",
+      manifest: manifest(ids),
+      board: board({ schema: "ready" }),
+      gh: gh as unknown as GhRunner,
+      epicsDir,
+      yes: true,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.error).toMatch(/secondary rate limit/i);
+    expect(outcome.error).toMatch(/re-run/i);
+  });
+
+  it("falls back to a generic gh-failed message on a non-rate-limit error", () => {
+    const ids = ["schema"];
+    const gh = vi.fn((argv: string[]): GhResult => {
+      if (argv[0] === "issue" && argv[1] === "list") return ok("[]");
+      if (argv[0] === "label") return ok("");
+      if (argv[0] === "issue" && argv[1] === "create")
+        return { stdout: "", stderr: "", exitCode: 5 };
+      return ok("");
+    });
+    const outcome = projectEpic({
+      slug: "e",
+      manifest: manifest(ids),
+      board: board({ schema: "ready" }),
+      gh: gh as unknown as GhRunner,
+      epicsDir,
+      yes: true,
+    });
+    expect(outcome.ok).toBe(false);
+    expect(outcome.error).toMatch(/gh failed \(exit 5\)/);
   });
 });

@@ -21,7 +21,6 @@ import * as path from "node:path";
 import {
   ensureLabels,
   parseCreateOutput,
-  probeExistingIssue,
   type GhRunner,
 } from "../flow-create-issue";
 import type { EpicManifest, Feature } from "./epic-manifest-schema";
@@ -31,8 +30,8 @@ import { FLOW_EPICS_DIR } from "./paths";
 type GhResult = ReturnType<GhRunner>;
 
 /** The label applied to every projected issue so they are filterable/auditable. */
-export const PROJECTION_LABEL = "flow-epic";
-export const PROJECTION_STATE_FILENAME = "projection.json";
+const PROJECTION_LABEL = "flow-epic";
+const PROJECTION_STATE_FILENAME = "projection.json";
 
 /** The pure desired-state shape (also the `--dry-run` JSON payload). */
 export type ProjectionPlan = {
@@ -47,7 +46,7 @@ export type ProjectionPlan = {
 /** Per-feature hint persisted at `projection.json` (live GitHub is authority). */
 type ProjectionHint = {
   parentNumber?: number;
-  features: Record<string, { issueNumber: number; databaseId: number }>;
+  features: Record<string, { issueNumber: number; databaseId?: number }>;
 };
 
 export type ProjectionOutcome = {
@@ -157,37 +156,58 @@ function writeHint(slug: string, epicsDir: string, hint: ProjectionHint): void {
   fs.writeFileSync(file, JSON.stringify(hint, null, 2) + "\n");
 }
 
-type ResolveOk = { kind: "found"; number: number; fromHint: boolean };
-type ResolveNone = { kind: "none" };
-type ResolveErr = { kind: "error"; error: string };
+/** A live projected issue resolved from the bulk label-filtered list. */
+type LiveIssue = { number: number; open: boolean };
 
 /**
- * Resolve an existing issue by exact title (open issues), falling back to the
- * hint number (any state) so a CLOSED merged sub-issue — which the open-state
- * title probe cannot see — is still recognized rather than recreated.
+ * Resolve the parent + every child against GitHub in ONE call: list all issues
+ * carrying `PROJECTION_LABEL` (across both states) and key them by exact title.
+ *
+ * `--state all` is load-bearing for correctness, not just speed: a CLOSED
+ * merged sub-issue is invisible to an open-only title probe, so without it a
+ * lost/absent `projection.json` would re-create an already-merged feature as a
+ * duplicate open issue. Resolving in memory also collapses the old O(features)
+ * serial title probes (one `gh issue list` per feature) into a single request.
+ * Matching is by exact title, so issues from unrelated epics never collide; the
+ * bound is `PROJECTION_LIST_LIMIT` total flow-epic issues across the repo.
  */
-function resolveExisting(
-  title: string,
-  hintNumber: number | undefined,
+function listProjectedIssues(
   gh: GhRunner,
-): ResolveOk | ResolveNone | ResolveErr {
-  const probe = probeExistingIssue(title, gh);
-  if (probe.kind === "error") return { kind: "error", error: probe.message };
-  if (probe.kind === "found") {
-    return { kind: "found", number: probe.number, fromHint: false };
+):
+  | { ok: true; byTitle: Map<string, LiveIssue> }
+  | { ok: false; error: string } {
+  const r = gh([
+    "issue",
+    "list",
+    "--label",
+    PROJECTION_LABEL,
+    "--state",
+    "all",
+    "--json",
+    "number,title,state",
+    "--limit",
+    String(PROJECTION_LIST_LIMIT),
+  ]);
+  if (r.exitCode !== 0) {
+    return { ok: false, error: ghError(r, "list projected epic issues") };
   }
-  if (hintNumber !== undefined) {
-    const r = gh([
-      "api",
-      `repos/{owner}/{repo}/issues/${hintNumber}`,
-      "--jq",
-      ".id",
-    ]);
-    if (r.exitCode === 0 && Number.isInteger(Number(r.stdout.trim()))) {
-      return { kind: "found", number: hintNumber, fromHint: true };
+  try {
+    const arr = JSON.parse(r.stdout);
+    const byTitle = new Map<string, LiveIssue>();
+    if (Array.isArray(arr)) {
+      for (const o of arr) {
+        if (o && typeof o.number === "number" && typeof o.title === "string") {
+          byTitle.set(o.title, { number: o.number, open: o.state === "OPEN" });
+        }
+      }
     }
+    return { ok: true, byTitle };
+  } catch (e) {
+    return {
+      ok: false,
+      error: `issue list returned non-JSON: ${(e as Error).message}`,
+    };
   }
-  return { kind: "none" };
 }
 
 function createIssue(
@@ -243,8 +263,14 @@ function listExistingLinks(
   parentNumber: number,
   gh: GhRunner,
 ): { ok: true; numbers: Set<number> } | { ok: false; error: string } {
+  // `--paginate` so ALL linked sub-issues are read, not just the first page:
+  // the REST sub_issues endpoint defaults to per_page=30 while a parent allows
+  // up to MAX_SUB_ISSUES (100). Without it, a >30-feature epic's re-run sees
+  // only links 1–30, re-POSTs links 31+ that already exist, and the duplicate
+  // link 422s into a hard fail — defeating the idempotency guarantee.
   const r = gh([
     "api",
+    "--paginate",
     `repos/{owner}/{repo}/issues/${parentNumber}/sub_issues`,
   ]);
   if (r.exitCode !== 0) {
@@ -321,6 +347,11 @@ export type ProjectEpicArgs = {
 
 const MAX_SUB_ISSUES = 100;
 
+// Upper bound on the single label-filtered probe list. One fully-projected epic
+// is ≤101 issues (1 parent + ≤100 children), so this leaves headroom for ~10
+// projected epics coexisting in one repo before the list could truncate.
+const PROJECTION_LIST_LIMIT = 1000;
+
 function fail(error: string, dryRun = false): ProjectionOutcome {
   return {
     ok: false,
@@ -375,42 +406,44 @@ export function projectEpic(args: ProjectEpicArgs): ProjectionOutcome {
   const hint = readHint(slug, epicsDir);
   const mergedIds = new Set(plan.subIssuesToClose);
 
-  // --- Probe phase (read-only): resolve parent + every child against GitHub.
-  const parentResolved = resolveExisting(
-    plan.parent.title,
-    hint.parentNumber,
-    gh,
-  );
-  if (parentResolved.kind === "error") return fail(parentResolved.error);
+  // --- Probe phase (read-only): ONE label-filtered, all-state list resolves the
+  // parent and every child by exact title in memory.
+  const live = listProjectedIssues(gh);
+  if (!live.ok) return fail(live.error);
+
+  const parentLive = live.byTitle.get(plan.parent.title);
 
   type ChildPlan = {
     featureId: string;
     title: string;
     body: string;
-    existing: { number: number; fromHint: boolean } | null;
+    existing: { number: number; open: boolean } | null;
   };
-  const children: ChildPlan[] = [];
-  for (const c of plan.children) {
-    const hintNumber = hint.features[c.featureId]?.issueNumber;
-    const r = resolveExisting(c.title, hintNumber, gh);
-    if (r.kind === "error") return fail(r.error);
-    children.push({
+  const children: ChildPlan[] = plan.children.map((c) => {
+    const found = live.byTitle.get(c.title);
+    return {
       ...c,
-      existing:
-        r.kind === "found" ? { number: r.number, fromHint: r.fromHint } : null,
-    });
-  }
+      existing: found ? { number: found.number, open: found.open } : null,
+    };
+  });
 
-  const toCreateCount =
-    (parentResolved.kind === "none" ? 1 : 0) +
-    children.filter((c) => c.existing === null).length;
+  const willCreateParent = parentLive === undefined;
+  const childCreateCount = children.filter((c) => c.existing === null).length;
+  const toCreateCount = (willCreateParent ? 1 : 0) + childCreateCount;
 
   // --- Confirmation gate (irreversible real-issue write). Only when there are
   // issues to create; --yes skips it. Reversible link/close reconciliation
-  // still proceeds even when nothing is created.
+  // still proceeds even when nothing is created. The breakdown names only what
+  // will ACTUALLY be created — it omits the parent when it already exists.
   if (toCreateCount > 0 && !yes) {
     const confirm = args.confirm;
-    const message = `flow epic project: this will create ${toCreateCount} real GitHub issue${toCreateCount === 1 ? "" : "s"} in the current repo (1 parent epic + sub-issues). Proceed?`;
+    const childPart = `${childCreateCount} sub-issue${childCreateCount === 1 ? "" : "s"}`;
+    const breakdown = willCreateParent
+      ? childCreateCount > 0
+        ? `1 parent epic + ${childPart}`
+        : "1 parent epic"
+      : childPart;
+    const message = `flow epic project: this will create ${toCreateCount} real GitHub issue${toCreateCount === 1 ? "" : "s"} in the current repo (${breakdown}). Proceed?`;
     if (!confirm || !confirm(message)) {
       return {
         ok: true,
@@ -439,8 +472,8 @@ export function projectEpic(args: ProjectEpicArgs): ProjectionOutcome {
   // --- Parent.
   let parentNumber: number;
   let parentPreexisted: boolean;
-  if (parentResolved.kind === "found") {
-    parentNumber = parentResolved.number;
+  if (parentLive !== undefined) {
+    parentNumber = parentLive.number;
     parentPreexisted = true;
   } else {
     const c = createIssue(plan.parent.title, plan.parent.body, gh);
@@ -466,9 +499,9 @@ export function projectEpic(args: ProjectEpicArgs): ProjectionOutcome {
     let databaseId: number | undefined;
     if (c.existing) {
       childNumber = c.existing.number;
-      // A title-probe hit is OPEN by definition; a hint-only hit means the
-      // open-state probe missed it ⇒ already closed (skip the redundant close).
-      childOpen = !c.existing.fromHint;
+      // `--state all` gave us the live open/closed state directly, so a merged
+      // feature whose sub-issue is already closed skips the redundant close.
+      childOpen = c.existing.open;
       databaseId = hint.features[c.featureId]?.databaseId;
     } else {
       const cr = createIssue(c.title, c.body, gh);
@@ -500,7 +533,7 @@ export function projectEpic(args: ProjectEpicArgs): ProjectionOutcome {
     nextHint.features[c.featureId] = {
       issueNumber: childNumber,
       ...(databaseId !== undefined ? { databaseId } : {}),
-    } as { issueNumber: number; databaseId: number };
+    };
   }
 
   writeHint(slug, epicsDir, nextHint);
