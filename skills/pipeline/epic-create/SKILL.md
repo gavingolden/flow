@@ -32,17 +32,24 @@ in a different window is a different session.
 ## EPIC_DIR comes from the seed prompt (R1 — never import `bin/lib`)
 
 The CLI (`flow epic create`) is the SOLE evaluator of the epic path contract.
-It embeds the resolved **literal** `EPIC_DIR` (e.g. `.flow/epics/<slug>`) on
-its own line in the seed prompt:
+It embeds the resolved **literal** `EPIC_DIR` (e.g. `.flow/epics/<slug>`) and
+the resolved **literal** product-planning `SKILL_DIR`, each on its own line in
+the seed prompt:
 
 ```
 Use the /epic-create skill for: <prompt>
 
 EPIC_DIR: .flow/epics/<slug>
+
+SKILL_DIR: <abs>/skills/pipeline/product-planning
 ```
 
 Capture that literal `EPIC_DIR` and use it verbatim for every path below
-(`<EPIC_DIR>/design.md`, `<EPIC_DIR>/manifest.json`). You run cwd'd in a
+(`<EPIC_DIR>/design.md`, `<EPIC_DIR>/manifest.json`). Likewise capture the
+literal `SKILL_DIR` and pass it verbatim into the Step 3 designer Task prompt
+(you cannot re-derive it — the in-process Skill-tool base-directory mechanism
+`/flow-pipeline` uses is unavailable when you spawn the designer via Task). You
+run cwd'd in a
 **consumer worktree** where flow's `bin/lib/*` does NOT exist, so you must
 **NEVER `import` `bin/lib`** (`epicDirRelative`, `EPIC_*_FILENAME`) — that
 import fails here. Consume the literal + the **bare-name PATH validators**
@@ -66,7 +73,9 @@ orchestrator seam — leave them for the deferred `flow epic run` phase.
 
 ## Step 1 — Worktree
 
-**Phase:** `starting` → advance via `flow-state-update` as you go.
+**Phase:** `starting` → advance via `flow-state-update` as you go. Every phase
+transition below uses the explicit `flow-state-update --phase <X>` command (the
+bare `phase: <X>` shorthand reads positionally as a slug and no-ops).
 
 Create / reuse the per-pipeline worktree via `flow-new-worktree` (call it
 **bare**, no positional — it auto-resolves the slug from the pane's
@@ -81,8 +90,11 @@ Then `mkdir -p "$WORKTREE/.flow-tmp"` for scratch.
 
 ## Step 2 — Materiality-gated clarification (the `/epic-create` clarification form)
 
-Write `phase: epic-designing`. Then judge the prompt for **material
-ambiguity** — an ambiguity whose answer changes the **feature set** or the
+Run `flow-state-update --phase epic-designing --worktree "$WORKTREE"` (folding
+the worktree persistence into this first transition, mirroring `/flow-pipeline`
+step 2, so a later `flow-epic-resume-decide` sees a non-null `state.worktree`
+and re-renders the checkpoint instead of recreating the worktree). Then judge
+the prompt for **material ambiguity** — an ambiguity whose answer changes the **feature set** or the
 **DAG shape** of the decomposition. This judgment is irreducibly subjective
 (LLM-side): a crisp prompt degrades gracefully to one-shot — **skip the round
 and proceed autonomously**.
@@ -121,7 +133,7 @@ prompt: |
   /product-planning MODE: epic
   <clarified epic prompt>
   WORKTREE: <$WORKTREE>
-  SKILL_DIR: <product-planning SKILL_DIR>
+  SKILL_DIR: <the literal SKILL_DIR from the seed prompt>
   EPIC_DIR: <the literal EPIC_DIR from the seed prompt>
 ```
 
@@ -130,7 +142,7 @@ under `$WORKTREE` and self-validates them, returning a brief summary.
 
 ## Step 4 — Validate (the second independent gate)
 
-Write `phase: epic-validating`. Re-run BOTH **bare-name PATH** validators
+Run `flow-state-update --phase epic-validating`. Re-run BOTH **bare-name PATH** validators
 against the written manifest as an independent second gate:
 
 ```bash
@@ -145,7 +157,7 @@ both validators exit 0.
 
 ## Step 5 — Commit + open the design PR
 
-Write `phase: epic-pr-open`. Commit the two artifacts on the per-pipeline
+Run `flow-state-update --phase epic-pr-open`. Commit the two artifacts on the per-pipeline
 branch (conventional commit, e.g. `feat(epic): design <slug>`), compose the PR
 body under `$WORKTREE/.flow-tmp/`, and open the design PR via `flow-open-pr`:
 
@@ -162,7 +174,7 @@ FIRST and skips `gh pr create` on an already-PR'd branch, writing `pr` to
 
 ## Step 6 — Checkpoint (render + END the turn)
 
-Write `phase: epic-design-pending-review`. Render the checkpoint — the open
+Run `flow-state-update --phase epic-design-pending-review`. Render the checkpoint — the open
 design PR URL plus the approve/redirect/cancel next-action prompt — mirroring
 `/flow-pipeline` step 3's awaiting-approval render:
 
@@ -173,6 +185,11 @@ NEXT ACTION: reply approve / redirect <new direction> / cancel
   - <the design PR URL>
   - <$WORKTREE>/<EPIC_DIR>/design.md
 ```
+
+For a visual / palette / typography-overhaul epic, surface in the checkpoint
+that concrete palette/color values were deliberately deferred to each feature's
+F1 planning (the designer records this in `design.md` Open Questions), so the
+reviewer reads the deferral as a conscious choice rather than an omission.
 
 Then **END the turn**. The `epic-design-pending-review` phase is a pending
 phase, so `flow-stop-guard` permits ending here. Wait for the user to attach
@@ -185,8 +202,8 @@ On the next turn, classify the user's chat input per
 (Affirmative / Imperative redirect / Cancel / Ambiguous — ask one clarifying
 question when ambiguous):
 
-- **approve** (`approve`, `ok`, `lgtm`, `looks good`, `ship it`) → write
-  `phase: epic-approved`, **STOP** with the design PR **LEFT OPEN**. Do **not**
+- **approve** (`approve`, `ok`, `lgtm`, `looks good`, `ship it`) → run
+  `flow-state-update --phase epic-approved`, **STOP** with the design PR **LEFT OPEN**. Do **not**
   merge it — the human merges the design PR. Trigger no orchestrator launch.
 - **redirect** (an imperative directive, e.g. "split feature B into
   read/write") → re-spawn the **Step 3** designer with the redirect appended:
@@ -204,8 +221,8 @@ question when ambiguous):
   review update in place). Re-enter the checkpoint (**Step 6**).
 
 - **cancel** (`cancel`, `abort`, `kill this`) → `gh pr close <pr>`, then
-  `flow-remove-worktree` (call it bare — auto-resolves the slug), write
-  `phase: cancelled`, and stop.
+  `flow-remove-worktree` (call it bare — auto-resolves the slug), run
+  `flow-state-update --phase cancelled`, and stop.
 
 # Resume mode
 

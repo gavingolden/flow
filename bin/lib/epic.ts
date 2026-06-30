@@ -31,7 +31,14 @@ import * as path from "node:path";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
+import {
+  resolveFlowSource,
+  FLOW_LAUNCH_SEM_DIR,
+  FLOW_LAUNCH_SETTINGS_PATH,
+  FLOW_EPICS_DIR,
+} from "./paths";
 import { slugify } from "./slug";
+import { confirmStdin } from "./confirm";
 import {
   epicDirRelative,
   EPIC_DESIGN_FILENAME,
@@ -40,7 +47,11 @@ import {
   type EpicManifest,
 } from "./epic-manifest-schema";
 import { validateDag } from "../flow-epic-dag";
-import { deriveWorktreePath } from "./new";
+import {
+  deriveWorktreePath,
+  backoffMsForAttempt,
+  ensureLaunchSettings,
+} from "./new";
 import {
   createWindowVerified,
   respawnWindowVerified,
@@ -61,6 +72,7 @@ import {
 } from "./state";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
+import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
 import {
   reconcile,
   classifyEvent,
@@ -72,6 +84,7 @@ import {
   readEpicRunState,
   writeEpicRunState,
   listEpicRunStates,
+  deleteEpicRunState,
   type EpicRunState,
 } from "./epic-run-state";
 import { readEpicMaxParallel, readEpicJudgment } from "./epic-config";
@@ -97,20 +110,41 @@ const LAUNCH_STALL_BUDGET = 3;
 /**
  * Bounded retry budget for the verified window create — mirrors new.ts. A
  * single transient launch failure self-heals; the loop terminates so a
- * genuinely broken `claude` can't hang the CLI. (Epic intentionally keeps the
- * flat short retry — the new.ts backoff/--settings/concurrency-cap hardening is
- * scoped to `flow new` for now; see PR notes.)
+ * genuinely broken `claude` can't hang the CLI. Between attempts an increasing
+ * 1s → 2s → 4s backoff (via `backoffMsForAttempt` from new.ts) rides out a
+ * transient cold-start spike under concurrent load — a flat short retry would
+ * land all three tries inside the same degraded window and fail together.
  */
 const WINDOW_CREATE_MAX_ATTEMPTS = 3;
-const WINDOW_CREATE_RETRY_MS = 150;
+
+/**
+ * Resolved absolute path to the product-planning skill, embedded (R1) in both
+ * epic seeds so the spawned `/epic-create` supervisor can pass a concrete
+ * `SKILL_DIR` into its Task-spawned `MODE: epic` designer. The supervisor runs
+ * cwd'd in a consumer worktree without `bin/lib`, so it cannot resolve this
+ * itself — the CLI (flow's own installed code) resolves it symlink-aware via
+ * `resolveFlowSource()` and threads it through.
+ */
+const PRODUCT_PLANNING_SKILL_DIR = path.join(
+  resolveFlowSource(),
+  "skills",
+  "pipeline",
+  "product-planning",
+);
 
 function launchWithRetry(
   launch: () => VerifiedLaunchResult,
-  retryMs: number = WINDOW_CREATE_RETRY_MS,
+  retrySleepMs?: number,
+  sleep: (ms: number) => void = sleepSync,
 ): VerifiedLaunchResult {
   let last: VerifiedLaunchResult = { status: "failed", stderr: "" };
   for (let attempt = 0; attempt < WINDOW_CREATE_MAX_ATTEMPTS; attempt++) {
-    if (attempt > 0 && retryMs > 0) sleepSync(retryMs);
+    if (attempt > 0) {
+      // `retrySleepMs` is the test seam: 0 disables real sleep entirely;
+      // undefined applies the increasing 1s → 2s → 4s schedule.
+      const ms = retrySleepMs ?? backoffMsForAttempt(attempt);
+      if (ms > 0) sleep(ms);
+    }
     last = launch();
     // `started` and `launched-not-confirmed` are both success (never kill/respawn
     // a live-but-slow pane); only `failed` (dead pane) is retryable.
@@ -139,10 +173,36 @@ export type EpicOptions = {
    * absent (Claude's default model applies).
    */
   model?: ModelAlias;
-  /** Backoff (ms) between bounded window-create retries (test seam). */
+  /**
+   * Backoff (ms) between bounded window-create retries. Test seam only — when 0
+   * it disables real sleep entirely (the orphan-repro harness passes 0 so its
+   * loop accrues no sleep); when undefined the increasing backoff schedule
+   * (1s → 2s → 4s) applies.
+   */
   retrySleepMs?: number;
+  /**
+   * Injectable sleep fn for the retry backoff. Test seam only (a spy that
+   * asserts the 1s → 2s → 4s schedule without real sleeping); production uses
+   * the spawn-free `sleepSync` default.
+   */
+  retrySleep?: (ms: number) => void;
+  /**
+   * Acquire timeout (ms) for the host-wide launch-concurrency semaphore. Test
+   * seam only — production uses `withTestSemaphore`'s long default; the
+   * fail-open test passes a short value so an over-subscribed cap proceeds fast.
+   */
+  launchSemTimeoutMs?: number;
+  /**
+   * Path to the flow-scoped `claude --settings` file the launch argv references
+   * and `ensureLaunchSettings` writes. Test seam only — production uses
+   * FLOW_LAUNCH_SETTINGS_PATH; tests point it at a temp file to avoid touching
+   * the real ~/.flow and to assert the argv path.
+   */
+  launchSettingsPath?: string;
   /** Override the per-machine epic run-state root `~/.flow/epics` (test seam). */
   epicsDir?: string;
+  /** Confirmation prompt seam (default reads stdin synchronously); test seam. */
+  confirm?: (prompt: string) => boolean;
   /** Watch-loop sleep seam (default `sleepSync`); keeps `runEpicCli` synchronous. */
   sleep?: (ms: number) => void;
   /** Watch-loop poll interval in ms (default `EPIC_POLL_INTERVAL_MS`). */
@@ -195,13 +255,15 @@ export function runEpicCli(args: string[], options: EpicOptions = {}): number {
       return runEpicStatus(args.slice(1), options);
     case "ls":
       return runEpicLs(options);
+    case "done":
+      return runEpicDone(args.slice(1), options);
     case undefined:
       console.error("flow epic: a subcommand is required.");
-      console.error("usage: flow epic <create|run|status|ls>");
+      console.error("usage: flow epic <create|run|status|ls|done>");
       return 2;
     default:
       console.error(`flow epic: unknown epic subcommand: ${sub}`);
-      console.error("usage: flow epic <create|run|status|ls>");
+      console.error("usage: flow epic <create|run|status|ls|done>");
       return 2;
   }
 }
@@ -334,8 +396,10 @@ PR → review checkpoint), and writes initial epic state under
   // resolved LITERAL EPIC_DIR in the seed prompt so the spawned window (cwd'd
   // in a consumer worktree without bin/lib) consumes the literal, never an import.
   const epicDir = epicDirRelative(slug);
-  const seed = epicCreateSeed(prompt, epicDir);
-  const command = options.command ?? createCommand(worktree, effort, model);
+  const seed = epicCreateSeed(prompt, epicDir, PRODUCT_PLANNING_SKILL_DIR);
+  const settingsPath = launchSettingsPathFor(options);
+  const command =
+    options.command ?? createCommand(worktree, effort, settingsPath, model);
 
   // Persist-then-verify-then-delete-on-failure (mirrors new.ts runFresh): write
   // epic state(phase=starting) BEFORE the verified launch so the /epic-create
@@ -372,13 +436,22 @@ PR → review checkpoint), and writes initial epic state under
     // seed delivery and kills its own half-created window on failure; the
     // delete-on-failure below removes the up-front state file.
     return createWindowVerified(slug, repo, command, seed, {
+      // Marker-aware consumed(): the seed-ingested hook stamping `seedIngestedAt`
+      // confirms ingestion at launch time; absent the marker, fall back to the
+      // phase advancing past `starting`. (consumed() is only probed while the
+      // pane is alive, so "marker present" already implies a live pane.)
       consumed: () => {
         const s = readState(slug, options.stateDir);
-        return s != null && s.phase !== "starting";
+        if (s == null) return false;
+        if (s.seedIngestedAt != null) return true;
+        return s.phase !== "starting";
       },
     });
   };
-  const result = launchWithRetry(launch, options.retrySleepMs);
+  const result = withLaunchSlot(
+    () => launchWithRetry(launch, options.retrySleepMs, options.retrySleep),
+    options,
+  );
   if (result.status === "failed") {
     deleteState(slug, options.stateDir);
     console.error(
@@ -466,29 +539,44 @@ function runEpicResume(name: string, options: EpicOptions): number {
   // R1: recompute the literal EPIC_DIR CLI-side on resume too, so the resumed
   // window never re-derives the path nor imports bin/lib.
   const epicDir = epicDirRelative(slug);
-  const seed = epicResumeSeed(slug, epicDir);
+  const seed = epicResumeSeed(slug, epicDir, PRODUCT_PLANNING_SKILL_DIR);
+  const settingsPath = launchSettingsPathFor(options);
   const command =
-    options.command ?? resumeCommand(worktree, state.effort, state.model);
+    options.command ??
+    resumeCommand(worktree, state.effort, settingsPath, state.model);
   // Resume consumption baseline (mirrors new.ts runResume): on resume the phase
   // is already past `starting` (`epic-designing`), so consumption is "the
-  // resumed supervisor bumped `updatedAt` past this pre-respawn value". Re-read
-  // the baseline at the START of each attempt (inside the closure), not once
-  // before the loop: `launchWithRetry` reuses the closure, so an attempt that
-  // bumped `updatedAt` then died would otherwise satisfy the next attempt's
-  // predicate immediately (false-success orphan). This path never writes or
-  // deletes state — the window pre-existed the resume — so the read is
-  // non-mutating.
-  const launch = () => {
-    const baseline = readState(slug, options.stateDir)?.updatedAt;
-    const consumed = () => {
-      const s = readState(slug, options.stateDir);
-      return s != null && s.updatedAt !== baseline;
-    };
-    return exists
+  // resumed session RE-STAMPED the seed-ingested marker OR the resumed
+  // supervisor bumped `updatedAt` past this pre-respawn value". BOTH baselines
+  // are captured ONCE before the retry loop (not per-attempt): paired with the
+  // non-destructive launched-not-confirmed timeout, a late advance no longer
+  // respawn-kills a live session. The marker baseline is load-bearing — the
+  // original fresh launch stamped `seedIngestedAt` and `runEpicResume` never
+  // clears it (writeState is not called here), so a bare `seedIngestedAt != null`
+  // check would short-circuit `consumed()` true on the FIRST probe off the STALE
+  // marker, skip the resume-seed send-keys (the double-submit guard), and latch a
+  // false-success resume that never delivered the seed. Requiring `seedIngestedAt`
+  // to DIFFER from the pre-resume value means only a fresh re-stamp counts. This
+  // path never writes or deletes state — the window pre-existed the resume — so
+  // the read is non-mutating.
+  const preResume = readState(slug, options.stateDir);
+  const baseline = preResume?.updatedAt;
+  const markerBaseline = preResume?.seedIngestedAt;
+  const consumed = () => {
+    const s = readState(slug, options.stateDir);
+    if (s == null) return false;
+    if (s.seedIngestedAt != null && s.seedIngestedAt !== markerBaseline)
+      return true;
+    return s.updatedAt !== baseline;
+  };
+  const launch = () =>
+    exists
       ? respawnWindowVerified(slug, repo, command, seed, { consumed })
       : createWindowVerified(slug, repo, command, seed, { consumed });
-  };
-  const result = launchWithRetry(launch, options.retrySleepMs);
+  const result = withLaunchSlot(
+    () => launchWithRetry(launch, options.retrySleepMs, options.retrySleep),
+    options,
+  );
   if (result.status === "failed") {
     console.error(
       "flow epic create --resume: claude exited immediately after launch — the tmux window did not stay up.",
@@ -1126,28 +1214,112 @@ function runEpicLs(options: EpicOptions): number {
   return 0;
 }
 
+function runEpicDone(rest: string[], options: EpicOptions): number {
+  if (argsContainHelp(rest)) {
+    console.log(`flow epic done — remove an epic's per-machine run-state
+
+Usage:
+  flow epic done <slug> [--yes]
+
+Removes the recomputable ~/.flow/epics/<slug>/ runtime state directory (the
+orchestrator's run.json cache). Does NOT close the epic's design window or
+remove its ~/.flow/state/<slug>.json pipeline state — use \`flow done <slug>\`
+for those.
+
+Options:
+  --yes, -y             skip the confirmation prompt`);
+    return 0;
+  }
+
+  const yes = rest.includes("--yes") || rest.includes("-y");
+  const slug = rest
+    .filter((a) => !a.startsWith("-"))
+    .join(" ")
+    .trim();
+  if (!slug) {
+    console.error("flow epic done: a slug is required.");
+    console.error("usage: flow epic done <slug> [--yes]");
+    return 2;
+  }
+
+  // Slug feeds `path.join(epicsDir, slug)` and a recursive rmSync, so a
+  // traversal slug (`..`) would escape epicsDir and delete arbitrary state
+  // (e.g. `flow epic done .. --yes` resolves to ~/.flow itself). Require a
+  // single safe path segment before building the target — mirrors the
+  // `flow epic create --resume` slug guard.
+  if (
+    slug.includes("/") ||
+    slug.includes("\\") ||
+    slug === "." ||
+    slug === ".." ||
+    path.basename(slug) !== slug
+  ) {
+    console.error(`flow epic done: invalid slug '${slug}'.`);
+    return 2;
+  }
+
+  const epicsDir = options.epicsDir ?? FLOW_EPICS_DIR;
+  const target = path.join(epicsDir, slug);
+  if (!fs.existsSync(target)) {
+    console.error(`flow epic done: no run-state for '${slug}'.`);
+    return 1;
+  }
+
+  if (!yes) {
+    const confirm = options.confirm ?? confirmStdin;
+    if (!confirm(`remove epic run-state for '${slug}'?`)) {
+      console.log(dim("flow epic done: aborted — nothing removed"));
+      return 0;
+    }
+  }
+
+  if (!deleteEpicRunState(slug, epicsDir)) {
+    console.error(`flow epic done: failed to remove run-state for '${slug}'.`);
+    return 1;
+  }
+  console.log(`removed: ~/.flow/epics/${slug}`);
+
+  // Runtime cross-pointer hint: `flow epic done` is scoped to the run-state
+  // dir only. If the epic's design window or pipeline-state file still exists,
+  // point the user at `flow done` for those. Read-only probes — this verb
+  // NEVER kills a window or deletes pipeline state.
+  const hasWindow = windowExists(slug);
+  const hasState = readState(slug, options.stateDir) !== null;
+  if (hasWindow || hasState) {
+    console.log(
+      dim(
+        `note: the epic's design window/state still exists — run \`flow done ${slug}\` to close it too.`,
+      ),
+    );
+  }
+  return 0;
+}
+
 /**
- * Just `--add-dir <worktree>` (same rationale as new.ts's launchArgv: the
- * chrome-devtools MCP workspace-root pre-authorization). NO positional seed —
- * the seed is delivered ONLY via send-keys by the verified launcher (claude
- * does not auto-run a positional prompt), mirroring new.ts's launchArgv.
+ * `--add-dir <worktree>` (same rationale as new.ts's launchArgv: the
+ * chrome-devtools MCP workspace-root pre-authorization) plus the trailing
+ * `--settings <flow-scoped file>`, which registers the UserPromptSubmit
+ * seed-ingested hook and is ADDITIVE (the user's global settings still apply).
+ * NO positional seed — the seed is delivered ONLY via send-keys by the verified
+ * launcher (claude does not auto-run a positional prompt), mirroring new.ts's
+ * launchArgv.
  */
 function launchArgv(
   worktree: string,
-  effort?: EffortLevel,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
   model?: ModelAlias,
 ): string[] {
   // Bare `claude` base (NO `env FLOW_PIPELINE=1` prefix — that marker is a
   // new.ts-only concern; epic's launch env stays deliberately bare). NO
   // positional seed — the seed is delivered ONLY via send-keys by the verified
   // launcher (claude does not auto-run a positional prompt), mirroring new.ts.
-  // `--model` precedes `--effort`, both after `--add-dir <worktree>`, in a
-  // deterministic order so the argv assertions stay stable. Each is omitted
-  // when unset.
-  const argv = ["claude", "--add-dir", worktree];
-  if (model) argv.push("--model", model);
-  if (effort) argv.push("--effort", effort);
-  return argv;
+  // `--model` precedes `--effort` (both before `--settings`), in a deterministic
+  // order so the argv assertions stay stable. Each is omitted when unset.
+  const base = ["claude", "--add-dir", worktree];
+  const withModel = model ? [...base, "--model", model] : base;
+  const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
+  return [...withEffort, "--settings", settingsPath];
 }
 
 // The seed text is defined ONCE in these helpers and delivered ONLY via
@@ -1156,14 +1328,58 @@ function launchArgv(
 // /epic-create supervisor + the MODE: epic designer consume it directly rather
 // than re-deriving the path via a bin/lib import they can't reach in a consumer
 // worktree.
-function epicCreateSeed(prompt: string, epicDir: string): string {
-  return `Use the /epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}`;
+function epicCreateSeed(
+  prompt: string,
+  epicDir: string,
+  skillDir: string,
+): string {
+  return `Use the /epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
 }
 
-function epicResumeSeed(slug: string, epicDir: string): string {
+function epicResumeSeed(
+  slug: string,
+  epicDir: string,
+  skillDir: string,
+): string {
   // The supervisor parses this prefix to detect resume mode and walk its
   // `# Resume mode` decision via flow-epic-resume-decide.
-  return `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
+  return `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
+}
+
+/**
+ * Resolves the flow-scoped `claude --settings` path: the explicit option, then
+ * a `FLOW_LAUNCH_SETTINGS_PATH` env override (tests redirect it off the real
+ * ~/.flow), then the default constant.
+ */
+function launchSettingsPathFor(options: EpicOptions): string {
+  return (
+    options.launchSettingsPath ??
+    process.env.FLOW_LAUNCH_SETTINGS_PATH ??
+    FLOW_LAUNCH_SETTINGS_PATH
+  );
+}
+
+/**
+ * Builds the verified-launch argv, registering the seed-ingested hook in the
+ * flow-scoped settings file first (best-effort — a write hiccup degrades to no
+ * hook, and the lazy reaper still backstops orphan cleanup).
+ */
+function buildLaunchCommand(
+  worktree: string,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
+  model?: ModelAlias,
+): string[] {
+  try {
+    ensureLaunchSettings(settingsPath);
+  } catch (err) {
+    process.stderr.write(
+      dim(
+        `flow epic create: could not write launch settings: ${err instanceof Error ? err.message : String(err)}\n`,
+      ),
+    );
+  }
+  return launchArgv(worktree, effort, settingsPath, model);
 }
 
 // The /epic-run supervisor's seed. Mirrors epicCreateSeed: the slug after
@@ -1176,18 +1392,40 @@ function epicRunSeed(slug: string, epicDir: string): string {
 
 function createCommand(
   worktree: string,
-  effort?: EffortLevel,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
   model?: ModelAlias,
 ): string[] {
-  return launchArgv(worktree, effort, model);
+  return buildLaunchCommand(worktree, effort, settingsPath, model);
 }
 
 function resumeCommand(
   worktree: string,
-  effort?: EffortLevel,
+  effort: EffortLevel | undefined,
+  settingsPath: string,
   model?: ModelAlias,
 ): string[] {
-  return launchArgv(worktree, effort, model);
+  return buildLaunchCommand(worktree, effort, settingsPath, model);
+}
+
+/**
+ * Wraps the verified launch in the host-wide launch-concurrency semaphore so a
+ * burst of parallel launches stops oversubscribing claude cold-starts.
+ * Fail-open (never blocks a launch): on acquire timeout the launch proceeds
+ * holding no slot. The sem dir honors a `FLOW_LAUNCH_SEM_DIR` env override
+ * (tests redirect it off the real ~/.flow); the cap is `resolveLaunchConcurrency`.
+ */
+function withLaunchSlot(
+  launch: () => VerifiedLaunchResult,
+  options: EpicOptions,
+): VerifiedLaunchResult {
+  const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? FLOW_LAUNCH_SEM_DIR;
+  const slots = resolveLaunchConcurrency(process.env);
+  const semOpts =
+    options.launchSemTimeoutMs !== undefined
+      ? { timeoutMs: options.launchSemTimeoutMs, pollMs: 5 }
+      : {};
+  return withTestSemaphore(semDir, slots, launch, semOpts).result;
 }
 
 function resolveRepoRoot(cwd: string): string | null {

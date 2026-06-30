@@ -57,6 +57,7 @@ let errors!: string[];
 let stateDir!: string;
 let repoDir!: string;
 let epicsDir!: string;
+let semDir!: string;
 
 beforeEach(() => {
   logs = [];
@@ -64,6 +65,16 @@ beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-"));
   repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-repo-"));
   epicsDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-run-"));
+  // Redirect the host-wide launch semaphore + the flow-scoped --settings file
+  // off the real ~/.flow so the whole suite's launches stay hermetic (epic.ts
+  // honors these env overrides).
+  semDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-sem-"));
+  process.env.FLOW_LAUNCH_SEM_DIR = semDir;
+  process.env.FLOW_LAUNCH_SETTINGS_PATH = path.join(
+    semDir,
+    "launch-settings.json",
+  );
+  delete process.env.FLOW_LAUNCH_CONCURRENCY;
   vi.spyOn(console, "log").mockImplementation((...args: unknown[]) => {
     logs.push(args.map(String).join(" "));
   });
@@ -95,6 +106,10 @@ afterEach(() => {
   fs.rmSync(stateDir, { recursive: true, force: true });
   fs.rmSync(repoDir, { recursive: true, force: true });
   fs.rmSync(epicsDir, { recursive: true, force: true });
+  fs.rmSync(semDir, { recursive: true, force: true });
+  delete process.env.FLOW_LAUNCH_SEM_DIR;
+  delete process.env.FLOW_LAUNCH_SETTINGS_PATH;
+  delete process.env.FLOW_LAUNCH_CONCURRENCY;
   vi.restoreAllMocks();
 });
 
@@ -160,10 +175,18 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       "Use the /epic-create skill for: add a watchlist feature",
     );
     expect(seed).toContain(".flow/epics/add-watchlist-feature");
-    // The argv carries --add-dir <worktree> and NO positional seed (length 3).
-    expect(command).toHaveLength(3);
+    // The seed also embeds the resolved product-planning SKILL_DIR (R1) so the
+    // supervisor can pass a concrete path to its Task-spawned designer. Assert
+    // the path-suffix, not an absolute host path — resolveFlowSource() resolves
+    // to the live checkout under vitest.
+    expect(seed).toContain("SKILL_DIR:");
+    expect(seed).toContain("skills/pipeline/product-planning");
+    // The argv carries --add-dir <worktree> + trailing --settings, NO
+    // positional seed (length 5).
+    expect(command).toHaveLength(5);
     expect(command[0]).toBe("claude");
     expect(command[1]).toBe("--add-dir");
+    expect(command[3]).toBe("--settings");
     expect(command.some((a) => a.includes("Use the /epic-create skill"))).toBe(
       false,
     );
@@ -305,6 +328,191 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     expect(fs.readdirSync(stateDir)).toEqual([]);
     expect(errors.join("\n")).toMatch(/vanished after launch/);
   });
+
+  it("backoff schedule: failed attempts sleep 1s then 2s via the injected sleep spy", () => {
+    // The flat short retry is replaced by an increasing 1s → 2s → 4s backoff.
+    // With 3 failing attempts there are 2 inter-attempt gaps → [1000, 2000]. The
+    // retrySleep seam is injected so the schedule is assertable without sleeping.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "failed",
+      stderr: "transient",
+    });
+    const sleeps: number[] = [];
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      retrySleep: (ms) => sleeps.push(ms),
+    });
+    expect(code).not.toBe(0);
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(3);
+    expect(sleeps).toEqual([1000, 2000]);
+  });
+
+  it("launches claude with --add-dir <derived-worktree> and trailing --settings (bare env, hook written)", () => {
+    // LOAD-BEARING: omit `command` so buildLaunchCommand runs the real argv.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const settingsPath = path.join(stateDir, "launch-settings.json");
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      launchSettingsPath: settingsPath,
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).toEqual([
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+      "--settings",
+      settingsPath,
+    ]);
+    // Epic's launch env stays deliberately bare — NO env FLOW_PIPELINE=1 prefix.
+    expect(command).not.toContain("FLOW_PIPELINE=1");
+    expect(command).not.toContain("env");
+    // The flow-scoped settings file was written, registering the seed-ingested hook.
+    expect(fs.existsSync(settingsPath)).toBe(true);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    expect(settings.hooks.UserPromptSubmit[0].hooks[0].command).toContain(
+      "flow-seed-ingested-hook",
+    );
+  });
+
+  it("degrades to a dim warning and still launches when the settings write throws", () => {
+    // Force ensureLaunchSettings to throw: point launchSettingsPath under a
+    // regular file so mkdirSync(dirname) hits ENOTDIR. buildLaunchCommand's
+    // best-effort try/catch must swallow it, warn on stderr, and still return
+    // the argv carrying --settings (the lazy reaper backstops orphan cleanup).
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const blocker = path.join(stateDir, "not-a-dir");
+    fs.writeFileSync(blocker, "");
+    const settingsPath = path.join(blocker, "launch-settings.json");
+    const stderrSpy = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation(() => true);
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      launchSettingsPath: settingsPath,
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).toEqual([
+      "claude",
+      "--add-dir",
+      deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+      "--settings",
+      settingsPath,
+    ]);
+    // The degradation warning was emitted, and no settings file was written.
+    const warned = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(warned).toContain("could not write launch settings");
+    expect(fs.existsSync(settingsPath)).toBe(false);
+  });
+
+  it("marker-aware fresh consumed(): true on seedIngestedAt, falls back to phase past starting", () => {
+    // The launch-time seed-ingested marker latches consumed() even before the
+    // supervisor advances the phase; absent the marker it falls back to the
+    // phase moving off `starting`.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.createWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { status: "started", stderr: "" };
+      },
+    );
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    expect(consumedFn).toBeDefined();
+    // Up-front state is `starting`, no marker → not consumed.
+    expect(consumedFn!()).toBe(false);
+    // Stamp the marker (phase still starting) → consumed via the marker.
+    writeState(
+      {
+        slug: "design-thing",
+        phase: "starting",
+        repo: fs.realpathSync(repoDir),
+        seedIngestedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+});
+
+describe("runEpicCli create — launch concurrency semaphore", () => {
+  it("acquires a slot before the launch and releases it after (success path)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    let slotsDuringLaunch = -1;
+    tmuxMock.createWindowVerified.mockImplementation(() => {
+      slotsDuringLaunch = fs
+        .readdirSync(semDir)
+        .filter((f) => f.startsWith("slot-")).length;
+      return { status: "started", stderr: "" };
+    });
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    expect(slotsDuringLaunch).toBe(1); // one slot held during the launch
+    // Released after: the finally in withTestSemaphore removes the won slot.
+    expect(fs.readdirSync(semDir).filter((f) => f.startsWith("slot-"))).toEqual(
+      [],
+    );
+  });
+
+  it("releases the slot on the failure path too", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "failed",
+      stderr: "dead",
+    });
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      retrySleepMs: 0,
+    });
+    expect(code).toBe(2);
+    expect(fs.readdirSync(semDir).filter((f) => f.startsWith("slot-"))).toEqual(
+      [],
+    );
+  });
+
+  it("honors FLOW_LAUNCH_CONCURRENCY and fails open when the cap is saturated", () => {
+    // cap=1 + slot-0 pre-held by THIS (live) pid → no free slot. The acquire
+    // times out fast and the launch proceeds holding NO slot (fail-open). That
+    // the launch ran with only the pre-held slot present (count 1, not 2) proves
+    // BOTH the override (cap=1) AND the fail-open path.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    process.env.FLOW_LAUNCH_CONCURRENCY = "1";
+    fs.writeFileSync(path.join(semDir, "slot-0"), String(process.pid));
+    let slotsDuringLaunch = -1;
+    tmuxMock.createWindowVerified.mockImplementation(() => {
+      slotsDuringLaunch = fs
+        .readdirSync(semDir)
+        .filter((f) => f.startsWith("slot-")).length;
+      return { status: "started", stderr: "" };
+    });
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      launchSemTimeoutMs: 30,
+    });
+    expect(code).toBe(0); // fail-open: launch ran despite the saturated cap
+    expect(slotsDuringLaunch).toBe(1); // only the pre-held slot — held none
+    fs.rmSync(path.join(semDir, "slot-0"), { force: true });
+  });
 });
 
 describe("runEpicCli create — --effort / --model flags", () => {
@@ -320,13 +528,16 @@ describe("runEpicCli create — --effort / --model flags", () => {
     );
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
-    // NO positional seed (delivered via send-keys); --effort sits after --add-dir.
+    // NO positional seed (delivered via send-keys); --effort sits after --add-dir,
+    // then the trailing --settings (real argv uses process.env.FLOW_LAUNCH_SETTINGS_PATH).
     expect(command).toEqual([
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
       "--effort",
       "high",
+      "--settings",
+      path.join(semDir, "launch-settings.json"),
     ]);
     const raw = JSON.parse(
       fs.readFileSync(path.join(stateDir, "design-thing.json"), "utf8"),
@@ -348,13 +559,16 @@ describe("runEpicCli create — --effort / --model flags", () => {
       );
       expect(code).toBe(0);
       const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
-      // NO positional seed (delivered via send-keys); --model sits after --add-dir.
+      // NO positional seed (delivered via send-keys); --model sits after --add-dir,
+      // then the trailing --settings.
       expect(command).toEqual([
         "claude",
         "--add-dir",
         deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
         "--model",
         alias,
+        "--settings",
+        path.join(semDir, "launch-settings.json"),
       ]);
       const raw = JSON.parse(
         fs.readFileSync(path.join(stateDir, "design-thing.json"), "utf8"),
@@ -372,8 +586,8 @@ describe("runEpicCli create — --effort / --model flags", () => {
     );
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
-    // Deterministic order: --model before --effort, both after --add-dir; NO
-    // positional seed (delivered via send-keys).
+    // Deterministic order: --model before --effort, both after --add-dir, then
+    // the trailing --settings; NO positional seed (delivered via send-keys).
     expect(command).toEqual([
       "claude",
       "--add-dir",
@@ -382,6 +596,8 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "opus",
       "--effort",
       "high",
+      "--settings",
+      path.join(semDir, "launch-settings.json"),
     ]);
     const raw = JSON.parse(
       fs.readFileSync(path.join(stateDir, "design-thing.json"), "utf8"),
@@ -508,7 +724,7 @@ describe("runEpicCli create — --effort / --model flags", () => {
     expect(code).toBe(0);
     const [, , command] = tmuxMock.respawnWindowVerified.mock.calls[0]!;
     // NO positional seed (delivered via send-keys); saved --model/--effort
-    // re-applied after --add-dir in deterministic order.
+    // re-applied after --add-dir in deterministic order, then trailing --settings.
     expect(command).toEqual([
       "claude",
       "--add-dir",
@@ -517,6 +733,8 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "opus",
       "--effort",
       "max",
+      "--settings",
+      path.join(semDir, "launch-settings.json"),
     ]);
   });
 });
@@ -552,8 +770,13 @@ describe("runEpicCli create --resume", () => {
       "Use the /epic-create skill in --resume mode for: crashed-epic",
     );
     expect(seed).toContain(".flow/epics/crashed-epic");
-    // The argv carries NO positional seed (just claude + --add-dir <worktree>).
-    expect(command).toHaveLength(3);
+    // The resume seed carries the same resolved SKILL_DIR as the create seed.
+    expect(seed).toContain("SKILL_DIR:");
+    expect(seed).toContain("skills/pipeline/product-planning");
+    // The argv carries NO positional seed (claude + --add-dir <worktree> +
+    // trailing --settings, length 5).
+    expect(command).toHaveLength(5);
+    expect(command[3]).toBe("--settings");
     expect(command.some((a) => a.includes("Use the /epic-create skill"))).toBe(
       false,
     );
@@ -644,6 +867,55 @@ describe("runEpicCli create --resume", () => {
         phase: "epic-designing",
         repo: repoDir,
         updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+
+  it("resume consumed predicate ignores a STALE seedIngestedAt marker and requires a fresh re-stamp", () => {
+    // The seed-ingested hook stamps `seedIngestedAt` on the ORIGINAL fresh
+    // launch, and runEpicResume never clears it. A bare `seedIngestedAt != null`
+    // check would short-circuit consumed() true on the first probe off the stale
+    // marker — skipping the resume-seed send-keys and latching a false-success
+    // resume. consumed() must require the marker to DIFFER from the captured
+    // pre-resume value (a fresh re-stamp by the resumed session).
+    const baseline = new Date(Date.now() - 10_000).toISOString();
+    const staleMarker = new Date(Date.now() - 9_000).toISOString();
+    writeState(
+      {
+        slug: "stale-marker-epic",
+        phase: "epic-designing",
+        repo: repoDir,
+        updatedAt: baseline,
+        seedIngestedAt: staleMarker,
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.respawnWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { status: "started", stderr: "" };
+      },
+    );
+    const code = runEpicCli(["create", "--resume", "stale-marker-epic"], {
+      stateDir,
+    });
+    expect(code).toBe(0);
+    expect(consumedFn).toBeDefined();
+    // Stale marker unchanged + updatedAt unchanged → NOT consumed.
+    expect(consumedFn!()).toBe(false);
+    // The resumed session's hook RE-STAMPS the marker with a new timestamp → flips.
+    writeState(
+      {
+        slug: "stale-marker-epic",
+        phase: "epic-designing",
+        repo: repoDir,
+        updatedAt: baseline,
+        seedIngestedAt: new Date().toISOString(),
       },
       stateDir,
     );
@@ -1156,5 +1428,119 @@ describe("runEpicCli usage errors", () => {
     const code = runEpicCli(["create"], { stateDir });
     expect(code).toBe(2);
     expect(errors.join("\n")).toMatch(/usage|required/i);
+  });
+});
+
+describe("runEpicCli done", () => {
+  const seedRun = (slug: string) =>
+    writeEpicRunState(
+      {
+        epicSlug: slug,
+        repo: "/tmp/repo",
+        manifestPath: "/tmp/repo/.flow/epics/" + slug + "/manifest.json",
+        manifestSha: "abc",
+        maxParallel: 3,
+        createdAt: "2026-06-28T12:00:00Z",
+        updatedAt: "2026-06-28T12:00:00Z",
+        features: {},
+      },
+      epicsDir,
+    );
+
+  it("--help returns 0 with no fs side effect", () => {
+    const before = fs.readdirSync(epicsDir);
+    expect(runEpicCli(["done", "--help"], { stateDir, epicsDir })).toBe(0);
+    expect(fs.readdirSync(epicsDir)).toEqual(before);
+  });
+
+  it("missing slug exits 2", () => {
+    expect(runEpicCli(["done"], { stateDir, epicsDir })).toBe(2);
+    expect(errors.join("\n")).toContain("flow epic done:");
+  });
+
+  it("nonexistent dir exits 1 without throwing", () => {
+    expect(runEpicCli(["done", "ghost"], { stateDir, epicsDir })).toBe(1);
+    expect(errors.join("\n")).toMatch(/no run-state/);
+  });
+
+  it("done <slug> --yes removes the dir and exits 0", () => {
+    seedRun("finished");
+    expect(
+      runEpicCli(["done", "finished", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "finished"))).toBe(false);
+    expect(logs.join("\n")).toMatch(/removed:/);
+  });
+
+  it("done <slug> -y removes the dir and exits 0 without the confirm seam", () => {
+    seedRun("short-flag");
+    const confirm = vi.fn(() => true);
+    expect(
+      runEpicCli(["done", "short-flag", "-y"], { stateDir, epicsDir, confirm }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "short-flag"))).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("rejects a traversal slug ('..') without deleting and exits 2", () => {
+    expect(runEpicCli(["done", "..", "--yes"], { stateDir, epicsDir })).toBe(2);
+    expect(errors.join("\n")).toMatch(/invalid slug/);
+    // The guard must fire BEFORE path.join(epicsDir, '..') + rmSync, which
+    // would otherwise recursively delete epicsDir's parent (all of ~/.flow).
+    expect(fs.existsSync(epicsDir)).toBe(true);
+  });
+
+  it("declined confirm leaves the dir and exits 0", () => {
+    seedRun("keepme");
+    expect(
+      runEpicCli(["done", "keepme"], {
+        stateDir,
+        epicsDir,
+        confirm: () => false,
+      }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "keepme"))).toBe(true);
+    expect(logs.join("\n")).toMatch(/aborted/);
+  });
+
+  it("accepted confirm removes the dir", () => {
+    seedRun("killme");
+    expect(
+      runEpicCli(["done", "killme"], {
+        stateDir,
+        epicsDir,
+        confirm: () => true,
+      }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "killme"))).toBe(false);
+  });
+
+  it("cross-pointer hint fires when a pipeline-state file exists", () => {
+    seedRun("hinted");
+    writeState(
+      { slug: "hinted", phase: "epic-approved", repo: "", updatedAt: "" },
+      stateDir,
+    );
+    expect(
+      runEpicCli(["done", "hinted", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(logs.join("\n")).toMatch(/flow done hinted/);
+  });
+
+  it("cross-pointer hint fires when a tmux window exists", () => {
+    seedRun("winhint");
+    tmuxMock.windowExists.mockReturnValue(true);
+    expect(
+      runEpicCli(["done", "winhint", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(logs.join("\n")).toMatch(/flow done winhint/);
+  });
+
+  it("no hint when neither window nor state exists", () => {
+    seedRun("silent");
+    expect(
+      runEpicCli(["done", "silent", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(logs.join("\n")).not.toMatch(/flow done/);
   });
 });

@@ -190,6 +190,66 @@ describe("flow-open-pr run()", () => {
   const isView = (argv: string[]) => argv[0] === "pr" && argv[1] === "view";
   const isCreate = (argv: string[]) => argv[0] === "pr" && argv[1] === "create";
 
+  const isBranchName = (argv: string[]) =>
+    argv[0] === "rev-parse" && argv[argv.length - 1] === "HEAD";
+  const isLsRemote = (argv: string[]) =>
+    argv[0] === "ls-remote" && argv.includes("--heads");
+  const isPush = (argv: string[]) => argv[0] === "push" && argv[1] === "-u";
+
+  /**
+   * Mirrors `makeGhSequence` for the injected git seam: replays a queue of
+   * {match, response} pairs in order. The fresh-create path now resolves the
+   * branch name (`rev-parse --abbrev-ref HEAD`), probes whether that branch's
+   * head exists on origin (`ls-remote --exit-code --heads origin <branch>`),
+   * and pushes only when it is absent — all before `gh pr create`. So every
+   * probe-`none` case must inject a git mock or the real `defaultGit` would
+   * shell out in the non-repo scratch dir.
+   */
+  function makeGitSequence(
+    steps: Array<{
+      matches: (argv: string[]) => boolean;
+      response: GhResponse;
+    }>,
+  ) {
+    const calls: string[][] = [];
+    let cursor = 0;
+    const git = vi.fn((argv: string[]) => {
+      calls.push(argv);
+      const step = steps[cursor];
+      if (!step)
+        throw new Error(
+          `unexpected git call (no step left): ${argv.join(" ")}`,
+        );
+      if (!step.matches(argv)) {
+        throw new Error(
+          `git call ${cursor} did not match: got ${argv.join(" ")}`,
+        );
+      }
+      cursor++;
+      return step.response;
+    });
+    return { git, calls };
+  }
+
+  /**
+   * The default git seam for every pre-existing fresh-create case: resolves a
+   * branch name (`rev-parse` exit 0) and reports that branch's head already
+   * exists on origin (`ls-remote` exit 0) so `run()` skips the pre-create
+   * push. Returns just the mock — these cases don't assert on git calls.
+   */
+  function branchOnRemoteGit() {
+    return vi.fn((argv: string[]) => {
+      if (argv[0] === "rev-parse")
+        return { stdout: "feature\n", stderr: "", exitCode: 0 };
+      // ls-remote --exit-code: exit 0 ⇒ the branch's head exists on origin.
+      return {
+        stdout: "abc123\trefs/heads/feature\n",
+        stderr: "",
+        exitCode: 0,
+      };
+    });
+  }
+
   it("creates a PR, reads the number, and writes it to state.json (fresh-create path)", () => {
     seedState("alpha");
     const { updater } = makeUpdater();
@@ -219,6 +279,7 @@ describe("flow-open-pr run()", () => {
     const exit = run(["alpha", "--body-file", bodyFile, "--title", "feat: x"], {
       gh,
       updater,
+      git: branchOnRemoteGit(),
       sessionId: "",
     });
     expect(exit).toBe(0);
@@ -270,7 +331,11 @@ describe("flow-open-pr run()", () => {
       },
     ]);
 
-    const exit = run(["gamma", "--body-file", bodyFile], { gh, updater });
+    const exit = run(["gamma", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git: branchOnRemoteGit(),
+    });
     expect(exit).toBe(4);
     expect(readState("gamma").pr).toBeUndefined();
   });
@@ -318,6 +383,7 @@ describe("flow-open-pr run()", () => {
     run(["epsilon", "--body-file", bodyFile, "--draft", "--base", "develop"], {
       gh,
       updater,
+      git: branchOnRemoteGit(),
     });
     const createCall = calls.find((c) => c[0] === "pr" && c[1] === "create")!;
     expect(createCall).toContain("--draft");
@@ -341,7 +407,11 @@ describe("flow-open-pr run()", () => {
       { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
       { matches: isView, response: prJson },
     ]);
-    const exit = run(["zeta", "--body-file", bodyFile], { gh, updater });
+    const exit = run(["zeta", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git: branchOnRemoteGit(),
+    });
     expect(exit).toBe(1);
   });
 
@@ -364,6 +434,7 @@ describe("flow-open-pr run()", () => {
     const exit = run(["--body-file", bodyFile], {
       gh,
       updater,
+      git: branchOnRemoteGit(),
       resolveSlug: () => "theta",
     });
     expect(exit).toBe(0);
@@ -403,6 +474,7 @@ describe("flow-open-pr run()", () => {
     const exit = run(["iota", "--body-file", bodyFile], {
       gh,
       updater,
+      git: branchOnRemoteGit(),
       resolveSlug: () => "other-pipeline",
     });
     expect(exit).toBe(0);
@@ -441,6 +513,7 @@ describe("flow-open-pr run()", () => {
     const exit = run(["marker-create", "--body-file", bodyFile], {
       gh,
       updater,
+      git: branchOnRemoteGit(),
       sessionId: VALID_SESSION,
     });
     expect(exit).toBe(0);
@@ -472,6 +545,7 @@ describe("flow-open-pr run()", () => {
     const exit = run(["no-session", "--body-file", bodyFile], {
       gh,
       updater,
+      git: branchOnRemoteGit(),
       sessionId: "",
     });
     expect(exit).toBe(0);
@@ -501,6 +575,7 @@ describe("flow-open-pr run()", () => {
     const exit = run(["bad-session", "--body-file", bodyFile], {
       gh,
       updater,
+      git: branchOnRemoteGit(),
       sessionId: "id-with\nnewline",
     });
     expect(exit).toBe(0);
@@ -526,6 +601,7 @@ describe("flow-open-pr run()", () => {
     const exit = run(["forward-create", "--body-file", bodyFile], {
       gh,
       updater,
+      git: branchOnRemoteGit(),
       sessionId: VALID_SESSION,
     });
     expect(exit).toBe(0);
@@ -572,6 +648,243 @@ describe("flow-open-pr run()", () => {
     expect(fs.readFileSync(bodyFile, "utf8")).not.toContain(
       "Claude Code session",
     );
+  });
+
+  // --- pre-create auto-push when the branch's head is absent on origin ------
+
+  it("pushes the branch before gh pr create when its head is absent on origin", () => {
+    seedState("nopush");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 50,
+        url: "https://github.com/x/y/pull/50",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls: ghCalls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    // rev-parse HEAD → branch name (exit 0); ls-remote --exit-code → exit 2
+    // (branch absent on origin) → push fires; push exit 0 → create proceeds.
+    const { git, calls: gitCalls } = makeGitSequence([
+      {
+        matches: isBranchName,
+        response: { stdout: "feature\n", stderr: "", exitCode: 0 },
+      },
+      {
+        matches: isLsRemote,
+        response: { stdout: "", stderr: "", exitCode: 2 },
+      },
+      { matches: isPush, response: { stdout: "", stderr: "", exitCode: 0 } },
+    ]);
+    const exit = run(["nopush", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git,
+      sessionId: "",
+    });
+    expect(exit).toBe(0);
+    // The push fired with the expected argv ...
+    expect(gitCalls).toContainEqual(["push", "-u", "origin", "HEAD"]);
+    // ... and gh pr create still ran after the push.
+    expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
+    expect(readState("nopush").pr).toBe(50);
+  });
+
+  it("skips the push when the branch's head already exists on origin", () => {
+    seedState("haspush");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 51,
+        url: "https://github.com/x/y/pull/51",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    // ls-remote exit 0 (branch present on origin) → no push call is consumed.
+    const { git, calls: gitCalls } = makeGitSequence([
+      {
+        matches: isBranchName,
+        response: { stdout: "feature\n", stderr: "", exitCode: 0 },
+      },
+      {
+        matches: isLsRemote,
+        response: {
+          stdout: "abc123\trefs/heads/feature\n",
+          stderr: "",
+          exitCode: 0,
+        },
+      },
+    ]);
+    const exit = run(["haspush", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git,
+      sessionId: "",
+    });
+    expect(exit).toBe(0);
+    expect(gitCalls.some((c) => c[0] === "push")).toBe(false);
+    expect(readState("haspush").pr).toBe(51);
+  });
+
+  it("propagates a push failure and never calls gh pr create", () => {
+    seedState("pushfail");
+    const { updater } = makeUpdater();
+    // Only the initial probe is consumed — create is never reached.
+    const { gh, calls: ghCalls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+    ]);
+    const { git } = makeGitSequence([
+      {
+        matches: isBranchName,
+        response: { stdout: "feature\n", stderr: "", exitCode: 0 },
+      },
+      {
+        matches: isLsRemote,
+        response: { stdout: "", stderr: "", exitCode: 2 },
+      },
+      {
+        matches: isPush,
+        response: { stdout: "", stderr: "remote rejected\n", exitCode: 128 },
+      },
+    ]);
+    const exit = run(["pushfail", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git,
+      sessionId: "",
+    });
+    expect(exit).toBe(128);
+    expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(false);
+    expect(readState("pushfail").pr).toBeUndefined();
+  });
+
+  it("skips the push (no ls-remote, no push) on a detached HEAD and still creates the PR", () => {
+    seedState("detached");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 52,
+        url: "https://github.com/x/y/pull/52",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls: ghCalls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    // `rev-parse --abbrev-ref HEAD` reports a detached HEAD as the literal
+    // "HEAD" (exit 0). The branchName !== "HEAD" guard must then skip the
+    // ls-remote/push pair — only the rev-parse step is consumed.
+    const { git, calls: gitCalls } = makeGitSequence([
+      {
+        matches: isBranchName,
+        response: { stdout: "HEAD\n", stderr: "", exitCode: 0 },
+      },
+    ]);
+    const exit = run(["detached", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git,
+      sessionId: "",
+    });
+    expect(exit).toBe(0);
+    // No remote-existence probe and no push on a detached HEAD ...
+    expect(gitCalls.some((c) => c[0] === "ls-remote")).toBe(false);
+    expect(gitCalls.some((c) => c[0] === "push")).toBe(false);
+    // ... but gh pr create still runs and the PR number lands in state.
+    expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
+    expect(readState("detached").pr).toBe(52);
+  });
+
+  it("skips the push when rev-parse exits non-zero and still creates the PR", () => {
+    seedState("revparsefail");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 53,
+        url: "https://github.com/x/y/pull/53",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls: ghCalls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    // A non-zero rev-parse fails the `branchRef.exitCode === 0` clause, so the
+    // ls-remote/push pair is skipped — only the rev-parse step is consumed.
+    const { git, calls: gitCalls } = makeGitSequence([
+      {
+        matches: isBranchName,
+        response: {
+          stdout: "",
+          stderr: "fatal: not a git repo\n",
+          exitCode: 128,
+        },
+      },
+    ]);
+    const exit = run(["revparsefail", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git,
+      sessionId: "",
+    });
+    expect(exit).toBe(0);
+    expect(gitCalls.some((c) => c[0] === "ls-remote")).toBe(false);
+    expect(gitCalls.some((c) => c[0] === "push")).toBe(false);
+    expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
+    expect(readState("revparsefail").pr).toBe(53);
+  });
+
+  it("skips the push when rev-parse yields an empty branch name and still creates the PR", () => {
+    seedState("emptybranch");
+    const { updater } = makeUpdater();
+    const prJson: GhResponse = {
+      stdout: JSON.stringify({
+        number: 54,
+        url: "https://github.com/x/y/pull/54",
+      }),
+      stderr: "",
+      exitCode: 0,
+    };
+    const { gh, calls: ghCalls } = makeGhSequence([
+      { matches: isView, response: NO_PR },
+      { matches: isCreate, response: { stdout: "", stderr: "", exitCode: 0 } },
+      { matches: isView, response: prJson },
+    ]);
+    // An empty branch name (exit 0, blank stdout) fails the `branchName` clause
+    // of the guard, so the ls-remote/push pair is skipped — only rev-parse runs.
+    const { git, calls: gitCalls } = makeGitSequence([
+      {
+        matches: isBranchName,
+        response: { stdout: "\n", stderr: "", exitCode: 0 },
+      },
+    ]);
+    const exit = run(["emptybranch", "--body-file", bodyFile], {
+      gh,
+      updater,
+      git,
+      sessionId: "",
+    });
+    expect(exit).toBe(0);
+    expect(gitCalls.some((c) => c[0] === "ls-remote")).toBe(false);
+    expect(gitCalls.some((c) => c[0] === "push")).toBe(false);
+    expect(ghCalls.some((c) => c[0] === "pr" && c[1] === "create")).toBe(true);
+    expect(readState("emptybranch").pr).toBe(54);
   });
 });
 
