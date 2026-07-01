@@ -1268,11 +1268,32 @@ Options:
     return 0;
   }
 
-  console.log(
-    `flow epic project: ${parsed.slug} → parent #${outcome.parentNumber}` +
-      ` (created ${outcome.created.length}, linked ${outcome.linked.length},` +
-      ` closed ${outcome.closed.length}, skipped ${outcome.skipped.length})`,
+  const urls = outcome.issueUrls ?? {};
+  const created = new Set(outcome.created);
+  const linked = new Set(outcome.linked);
+  const closed = new Set(outcome.closed);
+  const skipped = new Set(outcome.skipped);
+  const lines: string[] = [];
+  lines.push(`✓ flow epic project: ${parsed.slug} — projected to GitHub`);
+  lines.push(
+    `  Parent epic  #${outcome.parentNumber}${outcome.parentUrl ? `  ${outcome.parentUrl}` : ""}`,
   );
+  for (const f of loaded.manifest.features) {
+    const actions: string[] = [];
+    if (created.has(f.id)) actions.push("created");
+    if (linked.has(f.id)) actions.push("linked");
+    if (closed.has(f.id)) actions.push("closed");
+    if (skipped.has(f.id)) actions.push("already linked");
+    const status = actions.length > 0 ? actions.join("+") : "unchanged";
+    const url = urls[f.id];
+    lines.push(`  ${status.padEnd(16)} ${f.id}${url ? `  ${url}` : ""}`);
+  }
+  lines.push(
+    `  Summary: created ${outcome.created.length}, linked ${outcome.linked.length},` +
+      ` closed ${outcome.closed.length}, skipped ${outcome.skipped.length}` +
+      `${outcome.parentUrl ? `  —  open the parent to see the sub-issue list + progress bar: ${outcome.parentUrl}` : ""}`,
+  );
+  console.log(lines.join("\n"));
   return 0;
 }
 

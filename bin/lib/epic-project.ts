@@ -57,6 +57,10 @@ export type ProjectionOutcome = {
   aborted: boolean;
   plan?: ProjectionPlan;
   parentNumber?: number;
+  /** Browsable URL of the parent epic issue (the human's entry point). */
+  parentUrl?: string;
+  /** feature id → its sub-issue's browsable URL (for created + reconciled). */
+  issueUrls?: Record<string, string>;
   /** Feature ids (and "parent") whose issue was created this run. */
   created: string[];
   /** Feature ids linked under the parent this run. */
@@ -68,7 +72,12 @@ export type ProjectionOutcome = {
 };
 
 function parentTitle(manifest: EpicManifest): string {
-  return `Epic: ${manifest.prompt}`;
+  // Title on the epicId slug, not the raw prompt: the prompt can be many
+  // paragraphs (an unusable GitHub title) and can be edited, whereas the
+  // epicId is short, stable, and the manifest's canonical identifier — which
+  // also makes it a robust exact-title dedup key across re-runs/machines. The
+  // full prompt lives in the body.
+  return `Epic: ${manifest.epicId}`;
 }
 
 function childTitle(f: Feature): string {
@@ -82,8 +91,11 @@ function buildParentBody(manifest: EpicManifest): string {
     "Export-only reflection of the epic's local manifest and pipeline state —",
     "edits here do not flow back into flow. Sub-issues close as features merge.",
     "",
-    `Features (${manifest.features.length}):`,
+    `## Features (${manifest.features.length})`,
     ...manifest.features.map((f) => `- \`${f.id}\` — ${f.title}`),
+    "",
+    "## Prompt",
+    manifest.prompt,
   ].join("\n");
 }
 
@@ -157,7 +169,7 @@ function writeHint(slug: string, epicsDir: string, hint: ProjectionHint): void {
 }
 
 /** A live projected issue resolved from the bulk label-filtered list. */
-type LiveIssue = { number: number; open: boolean };
+type LiveIssue = { number: number; open: boolean; url: string };
 
 /**
  * Resolve the parent + every child against GitHub in ONE call: list all issues
@@ -184,7 +196,7 @@ function listProjectedIssues(
     "--state",
     "all",
     "--json",
-    "number,title,state",
+    "number,title,state,url",
     "--limit",
     String(PROJECTION_LIST_LIMIT),
   ]);
@@ -197,7 +209,11 @@ function listProjectedIssues(
     if (Array.isArray(arr)) {
       for (const o of arr) {
         if (o && typeof o.number === "number" && typeof o.title === "string") {
-          byTitle.set(o.title, { number: o.number, open: o.state === "OPEN" });
+          byTitle.set(o.title, {
+            number: o.number,
+            open: o.state === "OPEN",
+            url: typeof o.url === "string" ? o.url : "",
+          });
         }
       }
     }
@@ -214,7 +230,7 @@ function createIssue(
   title: string,
   body: string,
   gh: GhRunner,
-): { ok: true; number: number } | { ok: false; error: string } {
+): { ok: true; number: number; url: string } | { ok: false; error: string } {
   const r = gh([
     "issue",
     "create",
@@ -229,7 +245,7 @@ function createIssue(
     return { ok: false, error: ghError(r, `create issue '${title}'`) };
   const parsed = parseCreateOutput(r.stdout);
   if ("error" in parsed) return { ok: false, error: parsed.error };
-  return { ok: true, number: parsed.number };
+  return { ok: true, number: parsed.number, url: parsed.url };
 }
 
 /** The child's INTEGER database id — never the issue number or GraphQL node_id. */
@@ -417,13 +433,15 @@ export function projectEpic(args: ProjectEpicArgs): ProjectionOutcome {
     featureId: string;
     title: string;
     body: string;
-    existing: { number: number; open: boolean } | null;
+    existing: { number: number; open: boolean; url: string } | null;
   };
   const children: ChildPlan[] = plan.children.map((c) => {
     const found = live.byTitle.get(c.title);
     return {
       ...c,
-      existing: found ? { number: found.number, open: found.open } : null,
+      existing: found
+        ? { number: found.number, open: found.open, url: found.url }
+        : null,
     };
   });
 
@@ -471,14 +489,18 @@ export function projectEpic(args: ProjectEpicArgs): ProjectionOutcome {
 
   // --- Parent.
   let parentNumber: number;
+  let parentUrl: string;
   let parentPreexisted: boolean;
+  const issueUrls: Record<string, string> = {};
   if (parentLive !== undefined) {
     parentNumber = parentLive.number;
+    parentUrl = parentLive.url;
     parentPreexisted = true;
   } else {
     const c = createIssue(plan.parent.title, plan.parent.body, gh);
     if (!c.ok) return fail(c.error);
     parentNumber = c.number;
+    parentUrl = c.url;
     parentPreexisted = false;
     created.push("parent");
   }
@@ -503,11 +525,13 @@ export function projectEpic(args: ProjectEpicArgs): ProjectionOutcome {
       // feature whose sub-issue is already closed skips the redundant close.
       childOpen = c.existing.open;
       databaseId = hint.features[c.featureId]?.databaseId;
+      if (c.existing.url) issueUrls[c.featureId] = c.existing.url;
     } else {
       const cr = createIssue(c.title, c.body, gh);
       if (!cr.ok) return fail(cr.error);
       childNumber = cr.number;
       childOpen = true;
+      issueUrls[c.featureId] = cr.url;
       created.push(c.featureId);
     }
 
@@ -544,6 +568,8 @@ export function projectEpic(args: ProjectEpicArgs): ProjectionOutcome {
     aborted: false,
     plan,
     parentNumber,
+    parentUrl,
+    issueUrls,
     created,
     linked,
     closed,

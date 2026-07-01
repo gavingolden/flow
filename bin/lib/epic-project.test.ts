@@ -73,14 +73,20 @@ function makeGh(opts: {
     childStates = {},
   } = opts;
   return vi.fn((argv: string[]): GhResult => {
-    // issue list --label flow-epic --state all --json number,title,state (probe)
+    // issue list --label flow-epic --state all --json number,title,state,url (probe)
     if (argv[0] === "issue" && argv[1] === "list") {
-      const items: Array<{ number: number; title: string; state: string }> = [];
+      const items: Array<{
+        number: number;
+        title: string;
+        state: string;
+        url: string;
+      }> = [];
       if (parentExists) {
         items.push({
           number: PARENT_NO,
-          title: "Epic: build the thing",
+          title: "Epic: epic-x",
           state: "OPEN",
+          url: `https://github.com/me/r/issues/${PARENT_NO}`,
         });
       }
       if (childrenExist) {
@@ -89,6 +95,7 @@ function makeGh(opts: {
             number: CHILD_BASE + idx,
             title: `${id}: ${id.toUpperCase()}`,
             state: childStates[id] ?? "OPEN",
+            url: `https://github.com/me/r/issues/${CHILD_BASE + idx}`,
           });
         });
       }
@@ -155,7 +162,7 @@ describe("buildProjectionPlan", () => {
       m,
       board({ schema: "merged", backend: "running" }),
     );
-    expect(plan.parent.title).toBe("Epic: build the thing");
+    expect(plan.parent.title).toBe("Epic: epic-x");
     expect(plan.children.map((c) => c.title)).toEqual([
       "schema: SCHEMA",
       "backend: BACKEND",
@@ -181,6 +188,14 @@ describe("projectEpic — create", () => {
     expect(outcome.ok).toBe(true);
     expect(outcome.created).toEqual(["parent", "schema"]);
     expect(outcome.linked).toEqual(["schema"]);
+
+    // Browsable links are threaded through for the CLI's human-readable output.
+    expect(outcome.parentUrl).toBe(
+      `https://github.com/me/r/issues/${PARENT_NO}`,
+    );
+    expect(outcome.issueUrls?.schema).toBe(
+      `https://github.com/me/r/issues/${CHILD_BASE + 0}`,
+    );
 
     const calls = callsOf(gh);
     expect(calls.filter(isCreate)).toHaveLength(2);
@@ -276,7 +291,7 @@ describe("projectEpic — dry-run", () => {
     expect(outcome.dryRun).toBe(true);
     expect(gh).not.toHaveBeenCalled();
     const written = JSON.parse(String(stdout.mock.calls[0][0]));
-    expect(written.parent.title).toBe("Epic: build the thing");
+    expect(written.parent.title).toBe("Epic: epic-x");
     expect(written.children).toHaveLength(1);
     expect(written.subIssuesToClose).toEqual(["schema"]);
     stdout.mockRestore();

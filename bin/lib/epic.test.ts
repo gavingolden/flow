@@ -1402,7 +1402,7 @@ describe("runEpicCli project", () => {
     expect(code).toBe(0);
     expect(gh).not.toHaveBeenCalled();
     const written = JSON.parse(String(stdout.mock.calls[0][0]));
-    expect(written.parent.title).toBe("Epic: build it");
+    expect(written.parent.title).toBe("Epic: proj-epic");
     stdout.mockRestore();
   });
 
