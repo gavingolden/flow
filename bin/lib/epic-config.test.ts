@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_EPIC_AUTO_REDIRECT,
   DEFAULT_EPIC_JUDGMENT,
+  DEFAULT_EPIC_MAX_REDIRECTS,
   DEFAULT_EPIC_MAX_RETRIES,
   DEFAULT_MAX_PARALLEL,
+  readEpicAutoRedirect,
   readEpicJudgment,
   readEpicMaxParallel,
+  readEpicMaxRedirects,
   readEpicMaxRetries,
   type ReadConfigFile,
 } from "./epic-config";
@@ -138,5 +142,98 @@ describe("readEpicMaxRetries", () => {
 
   it("falls back to 2 when epic is wrong-typed (array)", () => {
     expect(readEpicMaxRetries(reader({ epic: [2] }))).toBe(2);
+  });
+});
+
+describe("readEpicAutoRedirect", () => {
+  it("defaults to true (on) when the config is unreadable (undefined)", () => {
+    expect(readEpicAutoRedirect(reader(undefined))).toBe(
+      DEFAULT_EPIC_AUTO_REDIRECT,
+    );
+    expect(DEFAULT_EPIC_AUTO_REDIRECT).toBe(true);
+  });
+
+  it("defaults to true when the epic key is absent", () => {
+    expect(readEpicAutoRedirect(reader({}))).toBe(true);
+  });
+
+  it("defaults to true when epic.autoRedirect is absent", () => {
+    expect(readEpicAutoRedirect(reader({ epic: {} }))).toBe(true);
+  });
+
+  it("honours an explicit false (opt-out)", () => {
+    expect(
+      readEpicAutoRedirect(reader({ epic: { autoRedirect: false } })),
+    ).toBe(false);
+  });
+
+  it("honours an explicit true", () => {
+    expect(readEpicAutoRedirect(reader({ epic: { autoRedirect: true } }))).toBe(
+      true,
+    );
+  });
+
+  it("defaults to true for a wrong-typed value (string)", () => {
+    expect(
+      readEpicAutoRedirect(reader({ epic: { autoRedirect: "false" } })),
+    ).toBe(true);
+  });
+
+  it("defaults to true for a wrong-typed value (number)", () => {
+    expect(readEpicAutoRedirect(reader({ epic: { autoRedirect: 0 } }))).toBe(
+      true,
+    );
+  });
+
+  it("defaults to true when epic is wrong-typed (array)", () => {
+    expect(readEpicAutoRedirect(reader({ epic: [false] }))).toBe(true);
+  });
+});
+
+describe("readEpicMaxRedirects", () => {
+  it("defaults to 1 when the config is unreadable (undefined)", () => {
+    expect(readEpicMaxRedirects(reader(undefined))).toBe(
+      DEFAULT_EPIC_MAX_REDIRECTS,
+    );
+    expect(DEFAULT_EPIC_MAX_REDIRECTS).toBe(1);
+  });
+
+  it("defaults to 1 when the epic key is absent", () => {
+    expect(readEpicMaxRedirects(reader({}))).toBe(1);
+  });
+
+  it("defaults to 1 when epic.maxRedirects is absent", () => {
+    expect(readEpicMaxRedirects(reader({ epic: {} }))).toBe(1);
+  });
+
+  it("returns the configured non-negative integer", () => {
+    expect(readEpicMaxRedirects(reader({ epic: { maxRedirects: 3 } }))).toBe(3);
+    expect(readEpicMaxRedirects(reader({ epic: { maxRedirects: 2 } }))).toBe(2);
+  });
+
+  it("honours 0 (escalate instead of redirecting — a legitimate budget)", () => {
+    expect(readEpicMaxRedirects(reader({ epic: { maxRedirects: 0 } }))).toBe(0);
+  });
+
+  it("falls back to 1 for a negative value", () => {
+    expect(readEpicMaxRedirects(reader({ epic: { maxRedirects: -1 } }))).toBe(
+      1,
+    );
+  });
+
+  it("falls back to 1 for a non-integer (float)", () => {
+    expect(readEpicMaxRedirects(reader({ epic: { maxRedirects: 1.5 } }))).toBe(
+      1,
+    );
+  });
+
+  it("falls back to 1 for a wrong-typed value (string)", () => {
+    expect(readEpicMaxRedirects(reader({ epic: { maxRedirects: "2" } }))).toBe(
+      1,
+    );
+  });
+
+  it("falls back to 1 when epic is wrong-typed (array)", () => {
+    expect(readEpicMaxRedirects(reader({ epic: [1] }))).toBe(1);
   });
 });

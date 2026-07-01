@@ -19,14 +19,21 @@
  *   context  (default)
  *     --slug <epic-slug> --feature <feature-id>   feature judgment evidence
  *     --slug <epic-slug> --deadlock               deadlock diagnosis evidence
+ *     Feature context surfaces flags.overridable (gated ⇒ escalate-only),
+ *     flags.budgetExhausted (retryCount >= maxRetries), and
+ *     flags.redirectExhausted (redirectCount >= maxRedirects).
  *
  *   record
  *     --slug <epic-slug> --feature <id> --action <retry|redirect|escalate>
- *       --reason <text> [--increment-retry] [--runner-phase <phase>]
+ *       --reason <text> [--increment-retry] [--relaunch-slug <new-slug>]
+ *       [--runner-phase <phase>]
  *     --slug <epic> --runner-phase <phase>    runner-phase-only stamp
  *     Writes the decision back to epic run-state (lastJudgment, retryCount,
  *     runnerPhase) and echoes the updated record. With --runner-phase but no
  *     --feature it stamps ONLY runnerPhase, touching no feature record.
+ *     --relaunch-slug (valid only with --action redirect) repoints the
+ *     feature record: it pushes the current slug onto priorSlugs, sets slug to
+ *     the relaunched pipeline, and increments redirectCount.
  *
  * The gh/git/clock seams mirror `flow-epic-resume-decide.ts` /
  * `bin/lib/resume-probes.ts` so the helper is fully unit-testable.
@@ -41,7 +48,7 @@ import {
   writeEpicRunState,
   type FeatureRunRecord,
 } from "./lib/epic-run-state";
-import { readEpicMaxRetries } from "./lib/epic-config";
+import { readEpicMaxRedirects, readEpicMaxRetries } from "./lib/epic-config";
 import {
   validateEpicManifest,
   type EpicManifest,
@@ -224,6 +231,8 @@ export type Deps = {
   epicsDir?: string;
   /** Override the retry budget (else `readEpicMaxRetries`). Test seam. */
   maxRetries?: number;
+  /** Override the redirect budget (else `readEpicMaxRedirects`). Test seam. */
+  maxRedirects?: number;
   /** Clock seam for the `record` mode `at` timestamp. Test seam. */
   now?: () => string;
 };
@@ -233,6 +242,7 @@ type Resolved = {
   stateDir: string;
   epicsDir: string;
   maxRetries: number;
+  maxRedirects: number;
   now: () => string;
 };
 
@@ -268,6 +278,7 @@ export function assembleFeatureContext(
   }
 
   const retryCount = runRecord?.retryCount ?? 0;
+  const redirectCount = runRecord?.redirectCount ?? 0;
   const pr =
     board.find((r) => r.id === featureId)?.pr ??
     featureState?.pr ??
@@ -282,6 +293,7 @@ export function assembleFeatureContext(
   // terminal, not advisory) — the judgment layer may never override it.
   const overridable = status !== "gated";
   const budgetExhausted = retryCount >= deps.maxRetries;
+  const redirectExhausted = redirectCount >= deps.maxRedirects;
 
   return {
     ok: true,
@@ -297,7 +309,9 @@ export function assembleFeatureContext(
     neighbourhood,
     retryCount,
     maxRetries: deps.maxRetries,
-    flags: { overridable, budgetExhausted },
+    redirectCount,
+    maxRedirects: deps.maxRedirects,
+    flags: { overridable, budgetExhausted, redirectExhausted },
   };
 }
 
@@ -356,6 +370,8 @@ export type RecordArgs = {
   action?: "retry" | "redirect" | "escalate";
   reason?: string;
   incrementRetry: boolean;
+  /** New slug the feature was relaunched under (redirect actuation); valid only with `--action redirect`. */
+  relaunchSlug?: string;
   runnerPhase?: "running" | "blocked" | "done";
 };
 
@@ -382,6 +398,14 @@ export function recordJudgment(args: RecordArgs, deps: Resolved): unknown {
     record.lastJudgment = { action: args.action!, reason: args.reason!, at };
     if (args.incrementRetry) {
       record.retryCount = (record.retryCount ?? 0) + 1;
+    }
+    // Redirect repoint: retire the current slug into the lineage array and
+    // point the record at the relaunched pipeline. parseArgs guarantees
+    // relaunchSlug arrives only with `--action redirect`.
+    if (args.relaunchSlug !== undefined) {
+      record.priorSlugs = [...(record.priorSlugs ?? []), record.slug];
+      record.slug = args.relaunchSlug;
+      record.redirectCount = (record.redirectCount ?? 0) + 1;
     }
   }
   if (args.runnerPhase) {
@@ -441,11 +465,21 @@ export function parseArgs(argv: string[]): Parsed {
     }
     const incrementRetry = flags.includes("--increment-retry");
 
+    const relaunchSlug = getFlag(flags, "--relaunch-slug");
+
     if (feature) {
       const action = getFlag(flags, "--action");
       if (!action || !JUDGMENT_ACTIONS.has(action)) {
         return {
           error: "record: --action must be one of retry|redirect|escalate",
+        };
+      }
+      // --relaunch-slug repoints the record to a relaunched pipeline; it is
+      // only meaningful for a redirect actuation. Reject it with any other
+      // action (usage error) rather than silently ignoring it.
+      if (relaunchSlug !== undefined && action !== "redirect") {
+        return {
+          error: "record: --relaunch-slug requires --action redirect",
         };
       }
       const reason = getFlag(flags, "--reason");
@@ -458,8 +492,17 @@ export function parseArgs(argv: string[]): Parsed {
           action: action as RecordArgs["action"],
           reason,
           incrementRetry,
+          relaunchSlug,
           runnerPhase: runnerPhase as RecordArgs["runnerPhase"],
         },
+      };
+    }
+
+    // --relaunch-slug is meaningless without a --feature to repoint.
+    if (relaunchSlug !== undefined) {
+      return {
+        error:
+          "record: --relaunch-slug requires --feature and --action redirect",
       };
     }
 
@@ -492,8 +535,9 @@ export function parseArgs(argv: string[]): Parsed {
 
 const USAGE =
   "usage: flow-epic-judge-context [context] --slug <epic> (--feature <id> | --deadlock)\n" +
-  "       flow-epic-judge-context record --slug <epic> --feature <id> --action <retry|redirect|escalate> --reason <text> [--increment-retry] [--runner-phase <phase>]\n" +
-  "       flow-epic-judge-context record --slug <epic> --runner-phase <phase>";
+  "       flow-epic-judge-context record --slug <epic> --feature <id> --action <retry|redirect|escalate> --reason <text> [--increment-retry] [--relaunch-slug <new-slug>] [--runner-phase <phase>]\n" +
+  "       flow-epic-judge-context record --slug <epic> --runner-phase <phase>\n" +
+  "  (--relaunch-slug repoints the feature to a relaunched pipeline; valid only with --action redirect)";
 
 export function run(argv: string[], deps: Deps = {}): number {
   const parsed = parseArgs(argv);
@@ -512,6 +556,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     stateDir: deps.stateDir ?? FLOW_STATE_DIR,
     epicsDir: deps.epicsDir ?? FLOW_EPICS_DIR,
     maxRetries: deps.maxRetries ?? readEpicMaxRetries(),
+    maxRedirects: deps.maxRedirects ?? readEpicMaxRedirects(),
     now: deps.now ?? (() => new Date().toISOString()),
   };
 

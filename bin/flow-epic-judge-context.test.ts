@@ -246,7 +246,7 @@ describe("context mode — feature flags", () => {
     seedFeatureState("foundation-slug", "gated");
     const { exit, out } = runJson(
       ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2 },
+      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
     );
     expect(exit).toBe(0);
     expect(out.mode).toBe("feature");
@@ -259,7 +259,7 @@ describe("context mode — feature flags", () => {
     seedFeatureState("foundation-slug", "needs-human");
     const { out } = runJson(
       ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2 },
+      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
     );
     expect(out.status).toBe("needs-human");
     expect((out.flags as Record<string, unknown>).overridable).toBe(true);
@@ -272,7 +272,7 @@ describe("context mode — feature flags", () => {
     seedFeatureState("foundation-slug", "needs-human");
     const { out } = runJson(
       ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2 },
+      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
     );
     expect(out.retryCount).toBe(2);
     expect((out.flags as Record<string, unknown>).budgetExhausted).toBe(true);
@@ -285,9 +285,37 @@ describe("context mode — feature flags", () => {
     seedFeatureState("foundation-slug", "needs-human");
     const { out } = runJson(
       ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2 },
+      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
     );
     expect((out.flags as Record<string, unknown>).budgetExhausted).toBe(false);
+  });
+
+  it("redirectExhausted:false when redirectCount < maxRedirects", () => {
+    const rs = baseRunState();
+    rs.features.foundation.redirectCount = 0;
+    writeEpicRunState(rs, epicsDir);
+    seedFeatureState("foundation-slug", "needs-human");
+    const { out } = runJson(
+      ["context", "--slug", "epic-x", "--feature", "foundation"],
+      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
+    );
+    expect(out.redirectCount).toBe(0);
+    expect((out.flags as Record<string, unknown>).redirectExhausted).toBe(
+      false,
+    );
+  });
+
+  it("redirectExhausted:true when redirectCount >= maxRedirects", () => {
+    const rs = baseRunState();
+    rs.features.foundation.redirectCount = 1;
+    writeEpicRunState(rs, epicsDir);
+    seedFeatureState("foundation-slug", "needs-human");
+    const { out } = runJson(
+      ["context", "--slug", "epic-x", "--feature", "foundation"],
+      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
+    );
+    expect(out.redirectCount).toBe(1);
+    expect((out.flags as Record<string, unknown>).redirectExhausted).toBe(true);
   });
 
   it("includes the manifest neighbourhood (node + direct dependents)", () => {
@@ -295,7 +323,7 @@ describe("context mode — feature flags", () => {
     seedFeatureState("foundation-slug", "needs-human");
     const { out } = runJson(
       ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2 },
+      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
     );
     const nb = out.neighbourhood as Record<string, unknown>;
     expect(nb.dependents).toEqual(["shell"]);
@@ -330,7 +358,7 @@ describe("context mode — feature flags", () => {
     };
     const { out } = runJson(
       ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh, maxRetries: 2 },
+      { stateDir, epicsDir, gh, maxRetries: 2, maxRedirects: 1 },
     );
     expect(out.pr).toBe(42);
     const ci = out.ciFailure as Record<string, unknown>;
@@ -341,7 +369,7 @@ describe("context mode — feature flags", () => {
   it("tolerantly reports run-state-missing without throwing", () => {
     const { exit, out } = runJson(
       ["context", "--slug", "no-such-epic", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2 },
+      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
     );
     expect(exit).toBe(0);
     expect(out.ok).toBe(false);
@@ -490,6 +518,66 @@ describe("record mode", () => {
     expect(persisted?.updatedAt).toBe(FIXED_NOW);
   });
 
+  it("repoints the slug on --action redirect --relaunch-slug and appends the old slug to priorSlugs", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const { exit, out } = runJson(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "foundation",
+        "--action",
+        "redirect",
+        "--reason",
+        "wrong approach; changed strategy",
+        "--relaunch-slug",
+        "foundation-slug-v2",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    expect(exit).toBe(0);
+    expect(out.ok).toBe(true);
+    const record = out.record as Record<string, unknown>;
+    expect(record.slug).toBe("foundation-slug-v2");
+    expect(record.priorSlugs).toEqual(["foundation-slug"]);
+    expect(record.redirectCount).toBe(1);
+    expect((record.lastJudgment as Record<string, unknown>).action).toBe(
+      "redirect",
+    );
+
+    // Persisted back to disk: reconciler keys on the repointed slug.
+    const persisted = readEpicRunState("epic-x", epicsDir);
+    expect(persisted?.features.foundation.slug).toBe("foundation-slug-v2");
+    expect(persisted?.features.foundation.priorSlugs).toEqual([
+      "foundation-slug",
+    ]);
+    expect(persisted?.features.foundation.redirectCount).toBe(1);
+  });
+
+  it("exits 2 when --relaunch-slug is paired with --action retry (usage error)", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const exit = run(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "foundation",
+        "--action",
+        "retry",
+        "--reason",
+        "x",
+        "--relaunch-slug",
+        "foundation-slug-v2",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    errSpy.mockRestore();
+    expect(exit).toBe(2);
+  });
+
   it("tolerantly reports feature-not-in-run-state", () => {
     writeEpicRunState(baseRunState(), epicsDir);
     const { exit, out } = runJson(
@@ -579,6 +667,52 @@ describe(parseArgs, () => {
       "x",
     ]);
     expect("error" in r && r.error).toMatch(/--action/);
+  });
+
+  it("parses --relaunch-slug with --action redirect", () => {
+    expect(
+      parseArgs([
+        "record",
+        "--slug",
+        "e",
+        "--feature",
+        "f",
+        "--action",
+        "redirect",
+        "--reason",
+        "x",
+        "--relaunch-slug",
+        "f-v2",
+      ]),
+    ).toEqual({
+      mode: "record",
+      args: {
+        slug: "e",
+        feature: "f",
+        action: "redirect",
+        reason: "x",
+        incrementRetry: false,
+        relaunchSlug: "f-v2",
+        runnerPhase: undefined,
+      },
+    });
+  });
+
+  it("errors when --relaunch-slug is paired with a non-redirect action", () => {
+    const r = parseArgs([
+      "record",
+      "--slug",
+      "e",
+      "--feature",
+      "f",
+      "--action",
+      "escalate",
+      "--reason",
+      "x",
+      "--relaunch-slug",
+      "f-v2",
+    ]);
+    expect("error" in r && r.error).toMatch(/--relaunch-slug/);
   });
 
   it("parses a runner-phase-only record (no feature/action/reason)", () => {

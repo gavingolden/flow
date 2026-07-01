@@ -40,6 +40,10 @@ export type FeatureRunRecord = {
   lastStatus?: string;
   /** Per-feature autonomous-retry budget counter; absent ⇒ 0. */
   retryCount?: number;
+  /** Per-feature autonomous-redirect budget counter; absent ⇒ 0. */
+  redirectCount?: number;
+  /** Slugs of pipelines abandoned by prior redirects (lineage/audit); absent ⇒ none. */
+  priorSlugs?: string[];
   /** The last judgment decision recorded for this feature; absent ⇒ none. */
   lastJudgment?: FeatureJudgment;
 };
@@ -90,6 +94,14 @@ function isFeatureRunRecord(x: unknown): x is FeatureRunRecord {
   if (o.lastStatus !== undefined && typeof o.lastStatus !== "string")
     return false;
   if (o.retryCount !== undefined && typeof o.retryCount !== "number")
+    return false;
+  if (o.redirectCount !== undefined && typeof o.redirectCount !== "number")
+    return false;
+  if (
+    o.priorSlugs !== undefined &&
+    (!Array.isArray(o.priorSlugs) ||
+      !o.priorSlugs.every((s) => typeof s === "string"))
+  )
     return false;
   if (o.lastJudgment !== undefined && !isFeatureJudgment(o.lastJudgment))
     return false;

@@ -3666,6 +3666,10 @@ describe("/epic-run supervisor SKILL.md literal anchors", () => {
       "the sanctioned clean-respawn retry actuator (never send-keys)",
     ],
     ["budgetExhausted", "the run-state retry-budget flag the contract reads"],
+    [
+      "redirectExhausted",
+      "the run-state redirect-budget flag the gated-autonomous-redirect contract reads",
+    ],
     // The seed-prefix it parses + the R1 no-bin/lib constraint.
     ["Use the /epic-run skill for:", "the seed-prompt prefix it parses"],
     ["EPIC_DIR", "the literal epic path embedded by the CLI (R1)"],
@@ -3685,7 +3689,7 @@ describe("/epic-run supervisor SKILL.md literal anchors", () => {
     },
   );
 
-  it("names the four hard invariants (no merge / no override / no send-keys / no autonomous redirect)", () => {
+  it("names the four hard invariants (no merge / no override / no send-keys / gated-autonomous-redirect corollary)", () => {
     expect(
       /never\s+merge\s+a\s+feature\s+PR/i.test(epicRunContent),
       "epic-run/SKILL.md must state the supervisor NEVER merges a feature PR.",
@@ -3699,10 +3703,17 @@ describe("/epic-run supervisor SKILL.md literal anchors", () => {
       "epic-run/SKILL.md must forbid send-keys into a feature window (retry is a " +
         "clean respawn).",
     ).toBe(true);
+    // The 4th invariant flipped from "no autonomous redirect in v1" to the
+    // gated autonomous-redirect contract: autonomous redirect IS actuated when
+    // enabled, but NEVER on a gated feature (the corollary of gated ⇒
+    // escalate-only). Assert the gated-corollary literal, not the old ban.
     expect(
-      /no\s+autonomous\s+redirect/i.test(epicRunContent),
-      "epic-run/SKILL.md must state there is no autonomous redirect in v1 " +
-        "(redirect is escalate-with-a-suggested-redirect).",
+      /redirect\s+never\s+fires\s+on\s+a\s+gated\s+feature/i.test(
+        epicRunContent,
+      ),
+      "epic-run/SKILL.md must state the gated-autonomous-redirect corollary " +
+        "'redirect never fires on a gated feature' (autonomous redirect is " +
+        "actuated when enabled but never overrides a gated verdict).",
     ).toBe(true);
   });
 });

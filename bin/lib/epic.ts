@@ -87,7 +87,11 @@ import {
   deleteEpicRunState,
   type EpicRunState,
 } from "./epic-run-state";
-import { readEpicMaxParallel, readEpicJudgment } from "./epic-config";
+import {
+  readEpicMaxParallel,
+  readEpicJudgment,
+  readEpicAutoRedirect,
+} from "./epic-config";
 import {
   renderBoard,
   renderEpicList,
@@ -228,6 +232,15 @@ export type EpicOptions = {
    * supervisor window; otherwise it stays on the foreground deterministic loop.
    */
   readJudgment?: () => boolean;
+  /**
+   * `epic.autoRedirect` config-default reader seam (default `readEpicAutoRedirect`).
+   * Resolves the effective autonomous-redirect setting threaded into the
+   * supervisor seed (`AUTO_REDIRECT: on|off`); the `--no-auto-redirect` flag
+   * forces it off. Same test-isolation rationale as `readMaxParallel` /
+   * `readJudgment`: without the seam the run unit tests would read the
+   * developer's real `~/.flow/config.json`.
+   */
+  readAutoRedirect?: () => boolean;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
@@ -606,19 +619,23 @@ type RunArgs = {
   json: boolean;
   /** `--no-judgment` — keep the foreground LLM-free loop (no supervisor spawn). */
   noJudgment: boolean;
+  /** `--no-auto-redirect` — force autonomous redirect off for this run (default on). */
+  noAutoRedirect: boolean;
   maxParallel?: number;
   error?: string;
 };
 
 /**
- * Parse `<slug>` + `--once` + `--json` + `--no-judgment` + `--max-parallel <N>`
- * from the run arm's args. `--json` is rejected without `--once` (the
- * continuous loop stays human-rendered; only a single tick emits JSON).
+ * Parse `<slug>` + `--once` + `--json` + `--no-judgment` + `--no-auto-redirect`
+ * + `--max-parallel <N>` from the run arm's args. `--json` is rejected without
+ * `--once` (the continuous loop stays human-rendered; only a single tick emits
+ * JSON). Exported so a unit test can assert the flag parse directly.
  */
-function parseRunArgs(rest: string[]): RunArgs {
+export function parseRunArgs(rest: string[]): RunArgs {
   let once = false;
   let json = false;
   let noJudgment = false;
+  let noAutoRedirect = false;
   let maxParallel: number | undefined;
   const positionals: string[] = [];
   for (let i = 0; i < rest.length; i++) {
@@ -635,6 +652,10 @@ function parseRunArgs(rest: string[]): RunArgs {
       noJudgment = true;
       continue;
     }
+    if (a === "--no-auto-redirect") {
+      noAutoRedirect = true;
+      continue;
+    }
     if (a === "--max-parallel") {
       const v = rest[i + 1];
       if (v === undefined || v.startsWith("-")) {
@@ -643,6 +664,7 @@ function parseRunArgs(rest: string[]): RunArgs {
           once,
           json,
           noJudgment,
+          noAutoRedirect,
           error: "--max-parallel requires a value",
         };
       }
@@ -653,6 +675,7 @@ function parseRunArgs(rest: string[]): RunArgs {
           once,
           json,
           noJudgment,
+          noAutoRedirect,
           error: `--max-parallel must be a positive integer (got '${v}')`,
         };
       }
@@ -666,6 +689,7 @@ function parseRunArgs(rest: string[]): RunArgs {
         once,
         json,
         noJudgment,
+        noAutoRedirect,
         error: `unknown option '${a}'`,
       };
     }
@@ -677,6 +701,7 @@ function parseRunArgs(rest: string[]): RunArgs {
       once,
       json,
       noJudgment,
+      noAutoRedirect,
       error: "--json requires --once",
     };
   }
@@ -685,6 +710,7 @@ function parseRunArgs(rest: string[]): RunArgs {
     once,
     json,
     noJudgment,
+    noAutoRedirect,
     maxParallel,
   };
 }
@@ -731,7 +757,7 @@ function loadCommittedManifest(
 }
 
 const RUN_USAGE =
-  "usage: flow epic run <slug> [--once] [--json] [--no-judgment] [--max-parallel <N>]";
+  "usage: flow epic run <slug> [--once] [--json] [--no-judgment] [--no-auto-redirect] [--max-parallel <N>]";
 
 function runEpicRun(rest: string[], options: EpicOptions): number {
   const parsed = parseRunArgs(rest);
@@ -778,7 +804,7 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
   // every path, before any window is spawned.
   const judgmentOn = (options.readJudgment ?? readEpicJudgment)();
   if (!once && !noJudgment && judgmentOn) {
-    return spawnEpicRunSupervisor(slug, repo, options);
+    return spawnEpicRunSupervisor(slug, repo, parsed.noAutoRedirect, options);
   }
 
   const now = options.now ?? nowIso;
@@ -826,6 +852,7 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
 function spawnEpicRunSupervisor(
   slug: string,
   repo: string,
+  noAutoRedirect: boolean,
   options: EpicOptions,
 ): number {
   if (windowExists(slug)) {
@@ -841,7 +868,11 @@ function spawnEpicRunSupervisor(
 
   const worktree = deriveWorktreePath(repo, slug);
   const epicDir = epicDirRelative(slug);
-  const seed = epicRunSeed(slug, epicDir);
+  // Flag forces off; else the config default (which itself defaults on).
+  const effectiveAutoRedirect = noAutoRedirect
+    ? false
+    : (options.readAutoRedirect ?? readEpicAutoRedirect)();
+  const seed = epicRunSeed(slug, epicDir, effectiveAutoRedirect);
   // Mirror runCreate's launch: resolve the flow-scoped settings file (registers
   // the seed-ingested hook the consumed() predicate below relies on) and build
   // the verified-launch argv through the shared builder. `flow epic run` has no
@@ -1406,9 +1437,18 @@ function buildLaunchCommand(
 // The /epic-run supervisor's seed. Mirrors epicCreateSeed: the slug after
 // `for:` + the literal EPIC_DIR (R1) on its own line, so the spawned window
 // (cwd'd in a consumer worktree without bin/lib) consumes them directly. The
-// SKILL parses this prefix to enter the tick loop.
-function epicRunSeed(slug: string, epicDir: string): string {
-  return `Use the /epic-run skill for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
+// SKILL parses this prefix to enter the tick loop. The AUTO_REDIRECT line
+// (on|off) tells the supervisor whether autonomous redirect is actuated this
+// run; an absent line the SKILL treats as `on` (the default) for back-safety.
+function epicRunSeed(
+  slug: string,
+  epicDir: string,
+  autoRedirect: boolean,
+): string {
+  return (
+    `Use the /epic-run skill for: ${slug}\n\nEPIC_DIR: ${epicDir}\n` +
+    `AUTO_REDIRECT: ${autoRedirect ? "on" : "off"}`
+  );
 }
 
 function createCommand(
