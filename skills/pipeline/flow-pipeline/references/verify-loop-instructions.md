@@ -115,26 +115,44 @@ Layer-3 commit is the only config write — zero-config auto-detect
 
 ## 4. UI-smoke pass
 
-When the worktree declares a `.flow/ui-validation.json` manifest, run the
-browser-driven UI-smoke pass as part of this step, following the shared
-procedure in
+When the diff touches a meaningful UI surface (not only when a
+`.flow/ui-validation.json` manifest already exists), run the browser-driven
+UI-smoke pass as part of this step, following the shared procedure in
 [ui-smoke-pass.md](ui-smoke-pass.md): probe the `chrome-devtools` MCP →
 on missing schema run `flow-ui-validate --mcp-absent` (a quiet
-`ran:false` skip, never a failure) → otherwise launch on dedicated ports,
-open a per-pipeline isolated page, drive the MCP per route, assemble a
-captures JSON, and run `flow-ui-validate --captures`. A shared-profile
-lock is a loud-but-clean skip via `flow-ui-validate --browser-busy`, never
-a hard failure. A `ran:true` result with `ok:false` is a verify failure
-that feeds the **same 3-attempt loop** above; headless / MCP-absent runs
-stay green. **Adaptive noise filter:** when an `ok:false` flags benign
-noise unrelated to the diff (a favicon 404, a third-party beacon), add the
-substring to the manifest's `ignoreRequestPatterns` /
-`ignoreConsolePatterns` and **commit that manifest change** rather than
-consuming a fix-loop attempt. **Self-improving manifest:** when you adapt
-the launch on the fly to make a custom-port run work, persist the launch
-adaptation back into `.flow/ui-validation.json` and commit it, so the next
-run starts deterministic. Record the outcome in `ui_smoke`
-(`passed` / `skipped` / `not-applicable`).
+`ran:false` skip, never a failure) → otherwise run
+`flow-ui-validate --changed-files <diff>` and **branch on the helper
+verdict**. On `action: "bootstrap"` (no manifest yet, MCP present), the
+helper has inferred `launch`/`baseUrl` (with a `{{PORT}}` placeholder) /
+`routes` / `loginUrl` / credential env-var NAMES plus a `needs[]`: allocate
+a free port, resolve the placeholder, **empirically verify** the inference
+(launch starts, routes render, login succeeds using VALUES resolved from
+the local `.env`/shell env at run time), then write the verified
+NAMES/config back into `.flow/ui-validation.json` and commit it — storing
+names and non-secret config only — never a secret value. On `ran:true`
+(ready), a manifest already exists — launch on dedicated ports, open a
+per-pipeline isolated page, drive the MCP per route, assemble a captures
+JSON, and run `flow-ui-validate --captures`. A shared-profile lock is a
+loud-but-clean skip via `flow-ui-validate --browser-busy`, never a hard
+failure. A `ran:true` result with `ok:false` is a verify failure that feeds
+the **same 3-attempt loop** above; headless / MCP-absent runs stay green.
+**Adaptive noise filter:** when an `ok:false` flags benign noise unrelated
+to the diff (a favicon 404, a third-party beacon), add the substring to the
+manifest's `ignoreRequestPatterns` / `ignoreConsolePatterns` and **commit
+that manifest change** rather than consuming a fix-loop attempt.
+**Self-completing + self-maintaining manifest:** complete and maintain
+EVERYTHING the smoketest needs — when you adapt the launch on the fly, fix a
+404'd route or a failed launch field, or record a verified `loginUrl` +
+credential NAMES, persist the launch adaptation back into
+`.flow/ui-validation.json` and commit it, so the next run starts
+deterministic. When the bootstrap `needs` includes `credentials` (a login
+wall exists but no NAMES could be mined and none resolve from the local
+env), write everything else you verified into the manifest, commit it, and
+escalate `NEEDS HUMAN: smoketest-needs-creds` rather than guessing a login
+flow. Record the outcome in `ui_smoke` (`passed` / `skipped` /
+`not-applicable`); on `skipped` with a UI-touching diff, also set
+`ui_smoke_reason` to a one-line reason so the supervisor can surface the
+user-visible "UI changed; browser validation did not run — <reason>" line.
 
 ## 5. Write the structured artifact
 
@@ -150,6 +168,7 @@ The artifact MUST conform to this JSON schema:
   "attempts": 1,
   "config_authored": false,
   "ui_smoke": "passed" | "skipped" | "not-applicable",
+  "ui_smoke_reason": "<present only when ui_smoke is 'skipped' AND the diff touched UI: a one-line reason (mcp-absent / no-creds / launch-failed / not-meaningful) the supervisor renders into the user-visible 'UI changed; browser validation did not run — <reason>' line>",
   "final_failure_excerpt": "<present only when verify_status is 'exhausted': the head/tail-capped final failure log the supervisor renders into the PR-body `> [!CAUTION]` block>",
   "rejected_alternatives": [
     "<each fix-shape or strategy you considered and rolled back, one line each>"
@@ -207,7 +226,9 @@ Before writing the artifact and returning, self-check:
 - `final_failure_excerpt` is present iff `verify_status` is `exhausted`.
 - No nested Task call was made (no `/coder` spawn) — fixes were applied
   inline.
-- `ui_smoke` is one of `passed` / `skipped` / `not-applicable`.
+- `ui_smoke` is one of `passed` / `skipped` / `not-applicable`; when it is
+  `skipped` on a UI-touching diff, `ui_smoke_reason` carries the one-line
+  reason for the user-visible unverified-UI line.
 - `rejected_alternatives` and `anti_patterns_found` reflect what you
   actually weighed; empty arrays only when you genuinely had none.
 - The artifact JSON parses (no trailing commas, no unescaped strings).

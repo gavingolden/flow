@@ -40,14 +40,22 @@ skipped for this run and review proceeds on the rest of the diff.
 
 ## Browser-item runnable bucket (visual-appearance via the browser-validation capability)
 
-When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are
-present, **enumerated visual-appearance items become a runnable bucket** rather
-than not-runnable. Probe the MCP with a guarded
-`ToolSearch query="select:mcp__chrome-devtools__navigate_page"` once at the top
-of Step 8c; on missing schema, leave every browser item unticked with a
-`subjective UX` reason as before (MCP-absent runs are no regression — browser
-items stay not-runnable and unticked exactly as today). With the MCP present,
-per visual item:
+When the `chrome-devtools` MCP is present, **enumerated visual-appearance items
+become a runnable bucket** rather than not-runnable — a hand-authored
+`.flow/ui-validation.json` manifest is no longer a precondition. Probe the MCP
+with a guarded `ToolSearch query="select:mcp__chrome-devtools__navigate_page"`
+once at the top of Step 8c; on missing schema, leave every browser item unticked
+with a `subjective UX` reason as before (MCP-absent runs are no regression —
+browser items stay not-runnable and unticked exactly as today). With the MCP
+present, branch on the `flow-ui-validate` verdict: on `action: "bootstrap"` (no
+manifest yet, meaningful UI diff), the helper has inferred
+`launch`/`baseUrl`/`routes`/`loginUrl` + credential env-var NAMES plus a
+`needs[]` — allocate a free port, resolve the `{{PORT}}` placeholder,
+empirically verify the inference (launch starts, routes render, login succeeds
+with VALUES resolved from the local `.env`/shell env at run time), and write the
+verified NAMES/config back into `.flow/ui-validation.json` — storing names and
+non-secret config only — never a secret value — committing it into the reviewable
+PR diff before driving the bucket. Then, per visual item:
 
 0. Before driving any route, read `meta.env` from the `flow-ui-validate` ready
    envelope and inject it into the launch subprocess's environment, then bring
@@ -134,13 +142,18 @@ substring to `ignoreRequestPatterns` / `ignoreConsolePatterns` in
 reviewable PR diff), and re-run. Reserve fix-loop failures for post-filter
 errors.
 
-**Self-improving manifest (CRITICAL).** Reusing that same commit-the-manifest
-pattern: when the agent adapts the launch on the fly to make a custom-port run
-work (tweaks the command, adds/changes an `env` var, fixes `baseUrl`), it
+**Self-completing + self-maintaining manifest (CRITICAL).** Reusing that same
+commit-the-manifest pattern, the agent completes and maintains EVERYTHING the
+smoketest needs, not just the launch: when it adapts on the fly to make a run
+work (tweaks the command, adds/changes an `env` var, fixes `baseUrl`, corrects a
+404'd route, records a verified `loginUrl` + credential NAMES), it
 persists the launch adaptation back into `.flow/ui-validation.json`
-(env/launch/baseUrl) and commits it into the reviewable PR diff, so the next
-run starts deterministic. Treat the manifest as a deterministic cache of
-non-secret facts the agent maintains, not a frozen contract.
+(env/launch/baseUrl/routes/loginUrl/credentialEnvVars) and commits it into the
+reviewable PR diff, so the next run starts deterministic. Runtime credential
+VALUES are resolved from the local `.env`/shell env and NEVER persisted: the
+committed manifest stores names and non-secret config only — never a secret
+value. Treat the manifest as a deterministic cache of non-secret facts the agent
+maintains, not a frozen contract.
 
 ## Snapshot-primary, screenshot-by-reference
 

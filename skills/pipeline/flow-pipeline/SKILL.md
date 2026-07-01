@@ -302,6 +302,8 @@ in-process for skills; shell out for scripts; never delegate.
 > is the structured artifact at
 > `<worktree>/.flow-tmp/verify-loop-result.json` (typed fields
 > `verify_status`, `attempts`, `config_authored`, `ui_smoke`,
+> `ui_smoke_reason?` (present when `ui_smoke` is `skipped` on a UI-touching
+> diff — the reason carrier for the user-visible unverified-UI line),
 > `final_failure_excerpt?`, `rejected_alternatives`,
 > `anti_patterns_found`, `summary`), which the supervisor reads once and
 > branches on: `pass` continues to step 7, `exhausted` escalates
@@ -1417,7 +1419,7 @@ own transcript (the one measured unbounded supervisor-context
 offender). The supervisor keeps only the spawn, a single artifact read,
 and the terminal branch.
 
-**Automated UI-smoke pass (before/alongside `/verify`).** The verify-loop subagent runs the browser-driven UI-smoke pass as part of the loop when the worktree declares a `.flow/ui-validation.json` manifest, following the shared procedure in [references/ui-smoke-pass.md](references/ui-smoke-pass.md): probe the `chrome-devtools` MCP (`ToolSearch query="select:mcp__chrome-devtools__navigate_page"`) → on missing schema run `flow-ui-validate --mcp-absent` (a quiet `ran:false` skip, never a failure) → otherwise `meta.env`-injected launch on dedicated ports → open a per-pipeline isolated page (`new_page` with `isolatedContext` keyed on the pipeline slug) → drive the MCP per route → assemble a captures JSON → `flow-ui-validate --captures`. A shared-profile lock — another pipeline holding chrome-devtools-mcp's default `~/.cache/chrome-devtools-mcp/chrome-profile` (the `already running` / `Use --isolated` error) — is treated as a loud-but-clean skip via `flow-ui-validate --browser-busy` (`ran:false` / `skipped_reason: browser-profile-busy`, loud recovery nudge), never a hard failure, mirroring the MCP-absent degrade; the operator-side cross-pipeline fix is registering the MCP with `--isolated`, while the per-call `isolatedContext` is same-server defense-in-depth only. A `ran:true` result with `ok:false` is a verify failure that feeds the **existing 3-attempt fix loop** above, exactly like any failed `flow-pre-commit` check; headless / MCP-absent runs stay green. **Adaptive noise filter:** when an `ok:false` flags a console error or failed request that is benign noise unrelated to the diff (a favicon 404, a third-party beacon/analytics request, browser-extension noise), do **not** consume a fix-loop attempt on it — add the offending substring to the manifest's `ignoreRequestPatterns` / `ignoreConsolePatterns` in `.flow/ui-validation.json` and **commit that manifest change** (it lands in the reviewable PR diff), then re-run; reserve the 3-attempt fix loop for post-filter errors that the diff actually introduced. **Self-improving manifest (CRITICAL):** when the agent adapts the launch on the fly to make a custom-port run work, it persists the launch adaptation back into `.flow/ui-validation.json` (env/launch/baseUrl) and commits it into the reviewable PR diff, so the next run starts deterministic. See [references/ui-smoke-pass.md](references/ui-smoke-pass.md) for the full probe → launch → drive → assemble → fix-loop body, the screenshot save-path cascade, and the LLM-free / no-`claude -p` / no-Task constraint.
+**Automated UI-smoke pass (before/alongside `/verify`).** The verify-loop subagent runs the browser-driven UI-smoke pass as part of the loop when the diff touches a meaningful UI surface and the MCP is present — a hand-authored `.flow/ui-validation.json` manifest is no longer required; when none exists the helper returns a mechanical `action: "bootstrap"` verdict the subagent branches on (infer `launch`/`baseUrl`/`routes`/`loginUrl` + credential NAMES → empirically verify → write the verified NAMES/config back into the manifest, names and non-secret config only — never a secret value, and commit it). It follows the shared procedure in [references/ui-smoke-pass.md](references/ui-smoke-pass.md): probe the `chrome-devtools` MCP (`ToolSearch query="select:mcp__chrome-devtools__navigate_page"`) → on missing schema run `flow-ui-validate --mcp-absent` (a quiet `ran:false` skip, never a failure) → otherwise `flow-ui-validate --changed-files <diff>` → on `bootstrap` self-complete the manifest, on `ran:true` (ready) `meta.env`-injected launch on dedicated ports → open a per-pipeline isolated page (`new_page` with `isolatedContext` keyed on the pipeline slug) → drive the MCP per route → assemble a captures JSON → `flow-ui-validate --captures`. A shared-profile lock — another pipeline holding chrome-devtools-mcp's default `~/.cache/chrome-devtools-mcp/chrome-profile` (the `already running` / `Use --isolated` error) — is treated as a loud-but-clean skip via `flow-ui-validate --browser-busy` (`ran:false` / `skipped_reason: browser-profile-busy`, loud recovery nudge), never a hard failure, mirroring the MCP-absent degrade; the operator-side cross-pipeline fix is registering the MCP with `--isolated`, while the per-call `isolatedContext` is same-server defense-in-depth only. A `ran:true` result with `ok:false` is a verify failure that feeds the **existing 3-attempt fix loop** above, exactly like any failed `flow-pre-commit` check; headless / MCP-absent runs stay green. **Adaptive noise filter:** when an `ok:false` flags a console error or failed request that is benign noise unrelated to the diff (a favicon 404, a third-party beacon/analytics request, browser-extension noise), do **not** consume a fix-loop attempt on it — add the offending substring to the manifest's `ignoreRequestPatterns` / `ignoreConsolePatterns` in `.flow/ui-validation.json` and **commit that manifest change** (it lands in the reviewable PR diff), then re-run; reserve the 3-attempt fix loop for post-filter errors that the diff actually introduced. **Self-completing + self-maintaining manifest (CRITICAL):** the agent completes and maintains EVERYTHING the smoketest needs, not just the launch — when it adapts the launch on the fly, fixes a 404'd route or a failed launch field, or records a verified `loginUrl` + credential NAMES, it persists the launch adaptation back into `.flow/ui-validation.json` (env/launch/baseUrl/routes/loginUrl/credentialEnvVars) and commits it into the reviewable PR diff, so the next run starts deterministic; runtime credential VALUES resolve from the local `.env`/shell env and are never persisted. When a UI diff goes unverified (MCP absent, launch/creds unresolvable) the subagent records `ui_smoke: skipped` + a `ui_smoke_reason`, which the supervisor surfaces as the user-visible "UI changed; browser validation did not run — <reason>" line (below); when a bootstrap can't resolve creds it escalates `NEEDS HUMAN: smoketest-needs-creds`. See [references/ui-smoke-pass.md](references/ui-smoke-pass.md) for the full probe → bootstrap → launch → drive → assemble → fix-loop body, the screenshot save-path cascade, and the LLM-free / no-`claude -p` / no-Task constraint.
 
 ### Independent Verify-Retry-Loop Subagent
 
@@ -1482,6 +1484,28 @@ VERIFY_STATUS=$(jq -r '.verify_status' "$ARTIFACT_PATH")
 
 - **`pass`** → the loop exited clean (an outer attempt 1, 2, or 3
   succeeded). Continue to step 7.
+
+**Unverified-UI signal (user-visible, either branch).** When the artifact
+carries `ui_smoke: skipped` with a non-empty `ui_smoke_reason` (a UI diff
+that did not get browser-validated — MCP absent, launch/creds unresolvable,
+or a not-meaningful surface), upsert a user-visible line into the PR body as
+a sibling to the `> [!CAUTION]` verify block — idempotent, edit-in-place, do
+not stack — so a skipped UI diff is never silent:
+
+  ```bash
+  UI_SMOKE=$(jq -r '.ui_smoke // empty' "$ARTIFACT_PATH")
+  UI_REASON=$(jq -r '.ui_smoke_reason // empty' "$ARTIFACT_PATH")
+  if [ "$UI_SMOKE" = "skipped" ] && [ -n "$UI_REASON" ]; then
+    gh pr view "$PR" --json body --jq '.body' > "$WORKTREE/.flow-tmp/body.md"
+    # upsert the sibling line "> [!NOTE] UI changed; browser validation did
+    # not run — <UI_REASON>" under ## Test Steps, then
+    gh pr edit "$PR" --body-file "$WORKTREE/.flow-tmp/body.md"
+  fi
+  ```
+
+  The same reason also flows into the gate summary's `WHY`/`NEXT ACTION`
+  where relevant; no new gate-summary status is introduced.
+
 - **`exhausted`** → after three failed outer attempts, escalate
   `NEEDS HUMAN: verify-exhausted`. Surface the artifact's
   `final_failure_excerpt` on the PR body's `## Test Steps` section as a

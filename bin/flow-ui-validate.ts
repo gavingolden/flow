@@ -23,6 +23,15 @@
  * flow-pr-static-analysis:
  *   0 — envelope emitted (any skip is still a verdict)
  *   2 — bad CLI args
+ *
+ * Bootstrap verdict (SKIP-DECISION, no manifest yet): when the diff touches a
+ * meaningful UI surface and the MCP is present, the helper deterministically
+ * infers `launch`/`baseUrl`/`routes`/`loginUrl`/`credentialEnvVars` (LLM-free,
+ * via the sibling `ui-*-infer` modules) and returns `action: "bootstrap"` for
+ * the skill to branch on. SECRET-VALUE GUARDRAIL: the bootstrap payload — and
+ * the manifest the skill persists from it — carries env-var names and
+ * non-secret config only — never a secret value; `.env` VALUES are resolved
+ * locally at run time and never enter the emitted JSON.
  */
 
 import * as fs from "node:fs";
@@ -32,6 +41,9 @@ import type {
   UiValidationManifest,
   Viewport,
 } from "./lib/ui-validation-schema";
+import { deriveRoutes } from "./lib/ui-route-infer";
+import { inferLaunch } from "./lib/ui-launch-infer";
+import { inferAuth } from "./lib/ui-auth-infer";
 
 // --- Types -----------------------------------------------------------------
 
@@ -67,8 +79,28 @@ export type UiValidateEnvelope = {
   loud: boolean;
   skipped_reason?: SkippedReason;
   nudge?: string;
-  /** Present in SKIP-DECISION ready output: normalized manifest routes to drive. */
-  routes?: ReadyRoute[] | RouteFindings[];
+  /**
+   * SKIP-DECISION discriminator. `"bootstrap"` means: no manifest yet, but the
+   * diff touches a meaningful UI surface with the MCP present, so the skill
+   * should self-complete `.flow/ui-validation.json` from the inferred payload
+   * below (names/config only) and empirically verify it.
+   */
+  action?: "bootstrap";
+  /**
+   * Present in SKIP-DECISION ready output: normalized manifest routes to drive.
+   * On a bootstrap verdict this is the inferred `string[]` of derived routes.
+   */
+  routes?: ReadyRoute[] | RouteFindings[] | string[];
+  /** Bootstrap payload — the inferred launch command ({{PORT}} placeholder form). */
+  launch?: string;
+  /** Bootstrap payload — the inferred base URL ({{PORT}} placeholder form). */
+  baseUrl?: string;
+  /** Bootstrap payload — the inferred login route, when a login-ish route exists. */
+  loginUrl?: string;
+  /** Bootstrap payload — credential env-var NAMES (never values). */
+  credentialEnvVars?: { user: string; pass: string };
+  /** Bootstrap payload — fields the helper could not infer (launch/routes/credentials). */
+  needs?: string[];
   /** Present in ASSEMBLE output: true iff every route passed. */
   ok?: boolean;
   evidence_paths?: string[];
@@ -121,6 +153,10 @@ export type Deps = {
   readStdin?: () => string;
   writeOut?: (s: string) => void;
   writeErr?: (s: string) => void;
+  /** Bootstrap inputs — dep-injected so the module tests stay filesystem-free.
+   * Default to a plain `readFile` of the conventional path. */
+  readPackageJson?: () => string | null;
+  readEnvExample?: () => string | null;
 };
 
 const DEFAULT_MANIFEST = ".flow/ui-validation.json";
@@ -212,12 +248,30 @@ export function parseArgs(
 
 // --- UI-file signal --------------------------------------------------------
 
-const UI_EXTENSIONS = [".svelte", ".css", ".scss"];
+const UI_EXTENSIONS = [".svelte", ".css", ".scss", ".tsx", ".jsx", ".vue"];
+
+// Component/page extensions — a render-bearing surface, as opposed to a bare
+// stylesheet token (.css/.scss) that renders nothing on its own.
+const COMPONENT_EXTENSIONS = [".svelte", ".tsx", ".jsx", ".vue"];
 
 /** A changed path counts as a UI file by extension or by a UI path segment. */
 export function isUiFile(p: string): boolean {
   const lower = p.toLowerCase();
   if (UI_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true;
+  if (lower.includes("routes/")) return true;
+  if (lower.includes("/components/")) return true;
+  if (lower.includes("lib/components")) return true;
+  return false;
+}
+
+/**
+ * A "meaningful" UI surface: a render-bearing component/page, or a file living
+ * under a routes/components tree — as opposed to a bare `.css`/`.scss` token
+ * change with no derivable route (which renders nothing on its own).
+ */
+function isComponentOrPage(p: string): boolean {
+  const lower = p.toLowerCase();
+  if (COMPONENT_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true;
   if (lower.includes("routes/")) return true;
   if (lower.includes("/components/")) return true;
   if (lower.includes("lib/components")) return true;
@@ -473,8 +527,12 @@ export function run(argv: string[], deps: Deps = {}): number {
   }
 
   if (manifest === null) {
-    // Manifest missing or malformed → no-ui-manifest. Loud IFF the diff
-    // touches UI files (the discovery nudge); quiet otherwise.
+    // Manifest missing or malformed. The diff-touches-UI signal decides
+    // between three outcomes: a mechanical bootstrap verdict (meaningful UI
+    // surface, MCP present — reaching here already implies MCP present since
+    // --mcp-absent returned early), a quiet not-meaningful skip (bare
+    // stylesheet with no derivable route), or the quiet no-ui-manifest skip
+    // (non-UI diff).
     const changedRaw =
       parsed.changedFiles !== undefined
         ? readFile(parsed.changedFiles)
@@ -484,13 +542,58 @@ export function run(argv: string[], deps: Deps = {}): number {
     const changed = changedRaw !== null ? parseChangedFiles(changedRaw) : [];
     const uiFiles = changed.filter(isUiFile);
     if (uiFiles.length > 0) {
-      const listed = uiFiles.slice(0, 3).join(", ");
-      return emit({
+      const routes = deriveRoutes(changed);
+      // Meaningful surface: a render-bearing component/page OR ≥1 derivable
+      // route. A bare .css token change with no route renders nothing on its
+      // own → quiet not-meaningful skip, no bootstrap.
+      const meaningful = routes.length > 0 || uiFiles.some(isComponentOrPage);
+      if (!meaningful) {
+        return emit({
+          ran: false,
+          loud: false,
+          skipped_reason: "no-ui-manifest",
+          nudge: `diff touches only non-rendering UI files (${uiFiles.slice(0, 3).join(", ")}) with no derivable route — nothing meaningful to browser-validate`,
+        });
+      }
+
+      const readPackageJson =
+        deps.readPackageJson ?? (() => readFile("package.json"));
+      const readEnvExample =
+        deps.readEnvExample ?? (() => readFile(".env.example"));
+
+      const pkgText = readPackageJson();
+      const launchInfo = pkgText !== null ? inferLaunch(pkgText) : null;
+      const envExampleText = readEnvExample();
+      // GUARDRAIL: inferAuth is passed the .env.example TEXT but returns env-var
+      // NAMES only; no VALUE ever enters the payload below.
+      const auth = inferAuth({
+        routes,
+        envExampleText: envExampleText ?? undefined,
+      });
+
+      const needs: string[] = [];
+      if (!launchInfo) needs.push("launch");
+      if (routes.length === 0) needs.push("routes");
+      // Credentials are only "needed" when a login wall is inferable (a login
+      // route exists) but no credential NAMES could be mined — the precursor
+      // to the smoketest-needs-creds NEEDS HUMAN pause.
+      if (auth.loginUrl && !auth.credentialEnvVars) needs.push("credentials");
+
+      const env: UiValidateEnvelope = {
         ran: false,
         loud: true,
-        skipped_reason: "no-ui-manifest",
-        nudge: `diff touches UI (${listed}) but no .flow/ui-validation.json — copy templates/ui-validation.json.example to .flow/ui-validation.json to enable UI validation; see AGENTS.md 'Local Testing Credentials'`,
-      });
+        action: "bootstrap",
+        routes,
+        needs,
+      };
+      if (launchInfo) {
+        env.launch = launchInfo.launch;
+        env.baseUrl = launchInfo.baseUrl;
+      }
+      if (auth.loginUrl) env.loginUrl = auth.loginUrl;
+      if (auth.credentialEnvVars)
+        env.credentialEnvVars = auth.credentialEnvVars;
+      return emit(env);
     }
     return emit({ ran: false, loud: false, skipped_reason: "no-ui-manifest" });
   }

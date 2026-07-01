@@ -221,6 +221,12 @@ const UI_SMOKE_PASS_PATH = path.resolve(
   "references",
   "ui-smoke-pass.md",
 );
+const FLOW_UI_VALIDATE_PATH = path.resolve(HERE, "flow-ui-validate.ts");
+const UI_VALIDATION_SCHEMA_PATH = path.resolve(
+  HERE,
+  "lib",
+  "ui-validation-schema.ts",
+);
 
 const content = fs.readFileSync(SKILL_MD_PATH, "utf8");
 const agentsContent = fs.readFileSync(AGENTS_MD_PATH, "utf8");
@@ -276,6 +282,11 @@ const uiValidationEvidenceContent = fs.readFileSync(
   "utf8",
 );
 const uiSmokePassContent = fs.readFileSync(UI_SMOKE_PASS_PATH, "utf8");
+const flowUiValidateContent = fs.readFileSync(FLOW_UI_VALIDATE_PATH, "utf8");
+const uiValidationSchemaContent = fs.readFileSync(
+  UI_VALIDATION_SCHEMA_PATH,
+  "utf8",
+);
 
 /**
  * Strip markdown blockquote `> ` prefixes from line starts so cross-line
@@ -3317,6 +3328,36 @@ describe("browser-driven UI-validation structural anchors", () => {
       agentsTemplateContent.includes("ignoreRequestPatterns"),
       "templates/AGENTS.md.template must reference 'ignoreRequestPatterns' in " +
         "the ui-validation manifest field reference.",
+    ).toBe(true);
+  });
+
+  it("guards the secret-value guardrail phrase across the bootstrap doc sites", () => {
+    // The bootstrap can auto-write a manifest, so the "names/config only,
+    // never a secret VALUE" boundary must be stated at every site that
+    // documents the manifest's provenance. Anchor on a stable single-line
+    // substring present in the helper doc comment, the schema doc comment,
+    // and the onboarding template.
+    const guardrailAnchor = "never a secret value";
+    expect(
+      flowUiValidateContent.includes(guardrailAnchor),
+      "bin/flow-ui-validate.ts doc comment must state the secret-value " +
+        "guardrail (anchor: '" +
+        guardrailAnchor +
+        "').",
+    ).toBe(true);
+    expect(
+      uiValidationSchemaContent.includes(guardrailAnchor),
+      "bin/lib/ui-validation-schema.ts doc comment must state the " +
+        "secret-value guardrail (anchor: '" +
+        guardrailAnchor +
+        "').",
+    ).toBe(true);
+    expect(
+      agentsTemplateContent.includes(guardrailAnchor),
+      "templates/AGENTS.md.template must state the secret-value guardrail " +
+        "(anchor: '" +
+        guardrailAnchor +
+        "').",
     ).toBe(true);
   });
 
