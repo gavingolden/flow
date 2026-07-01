@@ -160,6 +160,8 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
     "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/ for partial state, then re-invoke /pr-review <PR>",
   "coder-failed":
     "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/coder-result.json (if present), then re-invoke the caller skill",
+  "smoketest-needs-creds":
+    "The UI-smoke pass needs a test-user credential it could not infer. Provide the test-user credential env var(s) named in .flow/ui-validation.json's credentialEnvVars (in your local .env or shell env), then flow new --resume <slug>",
 };
 
 type Args = {

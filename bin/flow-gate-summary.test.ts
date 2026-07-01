@@ -223,6 +223,22 @@ describe("render — needs-human (per-reason mapping)", () => {
     });
   }
 
+  it("maps smoketest-needs-creds to a concrete resume instruction + sentinel (Story 7)", () => {
+    const out = render({
+      status: "needs-human",
+      reason: "smoketest-needs-creds",
+    });
+    expect(out).toContain(
+      `NEXT ACTION: ${NEXT_ACTION_BY_REASON["smoketest-needs-creds"]}`,
+    );
+    expect(out).toContain("credentialEnvVars");
+    expect(out).toContain("flow new --resume");
+    expect(finalLine(out)).toBe("NEEDS HUMAN: smoketest-needs-creds");
+    // The reason tag must stay colon-free so nextActionForReason (which splits
+    // on the first ':') resolves the full mapping.
+    expect("smoketest-needs-creds".includes(":")).toBe(false);
+  });
+
   it("falls back to DEFAULT_NEXT_ACTION for an unmapped reason", () => {
     const out = render({ status: "needs-human", reason: "made-up-tag" });
     expect(out).toContain(`NEXT ACTION: ${DEFAULT_NEXT_ACTION}`);

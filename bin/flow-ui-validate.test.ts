@@ -92,6 +92,9 @@ describe("isUiFile signal", () => {
     "styles/main.scss",
     "src/lib/components/Button.svelte",
     "app/components/Nav.tsx",
+    "app/page.tsx",
+    "components/Foo.jsx",
+    "src/App.vue",
   ])("treats '%s' as a UI file", (p) => {
     expect(isUiFile(p)).toBe(true);
   });
@@ -140,28 +143,99 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
     expect(e.loud).toBe(false);
   });
 
-  it("no manifest + UI-touching diff → LOUD no-ui-manifest with nudge", () => {
+  it("no manifest + UI-touching diff + MCP present → bootstrap verdict (Story 5)", () => {
     const c = drive(["--changed-files", "changed.txt"], {
-      "changed.txt": "src/routes/+page.svelte\nsrc/lib/util.ts\n",
+      "changed.txt": "src/routes/about/+page.svelte\nsrc/lib/util.ts\n",
+      "package.json": JSON.stringify({ scripts: { dev: "vite" } }),
     });
     expect(c.code).toBe(0);
     const e = envelope(c);
     expect(e.ran).toBe(false);
-    expect(e.loud).toBe(true);
-    expect(e.skipped_reason).toBe("no-ui-manifest");
-    expect(e.nudge).toContain("templates/ui-validation.json.example");
-    expect(e.nudge).toContain("src/routes/+page.svelte");
+    expect(e.action).toBe("bootstrap");
+    expect(e.routes).toEqual(["/about"]);
+    expect(e.launch).toBe("PORT={{PORT}} npm run dev");
+    expect(e.baseUrl).toBe("http://localhost:{{PORT}}");
+    // No skipped_reason on a bootstrap verdict — it's an action, not a skip.
+    expect(e.skipped_reason).toBeUndefined();
   });
 
-  it("nudge lists at most 3 changed UI files", () => {
+  it("bootstrap infers loginUrl + credential NAMES from routes + .env.example", () => {
     const c = drive(["--changed-files", "changed.txt"], {
-      "changed.txt": ["a.svelte", "b.svelte", "c.svelte", "d.svelte"].join(
-        "\n",
-      ),
+      "changed.txt": "src/routes/login/+page.svelte\n",
+      "package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+      ".env.example": "TEST_USER_EMAIL=\nTEST_USER_PASSWORD=\n",
     });
     const e = envelope(c);
-    expect(e.nudge).toContain("a.svelte, b.svelte, c.svelte");
-    expect(e.nudge).not.toContain("d.svelte");
+    expect(e.action).toBe("bootstrap");
+    expect(e.loginUrl).toBe("/login");
+    expect(e.credentialEnvVars).toEqual({
+      user: "TEST_USER_EMAIL",
+      pass: "TEST_USER_PASSWORD",
+    });
+    expect(e.needs).toEqual([]);
+  });
+
+  it("bootstrap needs 'launch' when no dev/start script exists", () => {
+    const c = drive(["--changed-files", "changed.txt"], {
+      "changed.txt": "src/routes/about/+page.svelte\n",
+      "package.json": JSON.stringify({ scripts: { build: "tsc" } }),
+    });
+    const e = envelope(c);
+    expect(e.action).toBe("bootstrap");
+    expect(e.launch).toBeUndefined();
+    expect(e.needs).toContain("launch");
+  });
+
+  it("bootstrap needs 'credentials' when a login route exists but no creds are mined", () => {
+    const c = drive(["--changed-files", "changed.txt"], {
+      "changed.txt": "src/routes/login/+page.svelte\n",
+      "package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+    });
+    const e = envelope(c);
+    expect(e.action).toBe("bootstrap");
+    expect(e.loginUrl).toBe("/login");
+    expect(e.credentialEnvVars).toBeUndefined();
+    expect(e.needs).toContain("credentials");
+  });
+
+  it("GUARDRAIL: no populated .env VALUE leaks into the bootstrap envelope (Story 6)", () => {
+    const c = drive(["--changed-files", "changed.txt"], {
+      "changed.txt": "src/routes/login/+page.svelte\n",
+      "package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+      ".env.example": "TEST_USER_EMAIL=\nTEST_USER_PASSWORD=\n",
+      // A populated .env is injected via the readEnvExample dep to prove no
+      // VALUE substring reaches the emitted JSON (helper reads names only).
+    });
+    // Drive readEnvExample with a POPULATED file to attempt a leak.
+    const c2 = drive(
+      ["--changed-files", "changed.txt"],
+      { "changed.txt": "src/routes/login/+page.svelte\n" },
+      {
+        readPackageJson: () => JSON.stringify({ scripts: { dev: "vite" } }),
+        readEnvExample: () =>
+          "TEST_USER_EMAIL=alice@example.com\nTEST_USER_PASSWORD=hunter2-s3cret\n",
+      },
+    );
+    for (const captured of [c, c2]) {
+      expect(captured.out).not.toContain("alice@example.com");
+      expect(captured.out).not.toContain("hunter2-s3cret");
+    }
+    const e2 = envelope(c2);
+    expect(e2.credentialEnvVars).toEqual({
+      user: "TEST_USER_EMAIL",
+      pass: "TEST_USER_PASSWORD",
+    });
+  });
+
+  it("bare .css change with no derivable route → quiet not-meaningful skip", () => {
+    const c = drive(["--changed-files", "changed.txt"], {
+      "changed.txt": "src/app.css\n",
+    });
+    const e = envelope(c);
+    expect(e.ran).toBe(false);
+    expect(e.loud).toBe(false);
+    expect(e.action).toBeUndefined();
+    expect(e.skipped_reason).toBe("no-ui-manifest");
   });
 
   it("no manifest + non-UI diff → quiet no-ui-manifest", () => {
@@ -192,11 +266,12 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
     expect(e.skipped_reason).toBe("no-ui-manifest");
   });
 
-  it("reads changed files from stdin when --changed-files is absent", () => {
+  it("reads changed files from stdin when --changed-files is absent (bootstrap)", () => {
     const c = drive([], {}, { readStdin: () => "src/routes/x.svelte\n" });
     const e = envelope(c);
     expect(e.loud).toBe(true);
-    expect(e.skipped_reason).toBe("no-ui-manifest");
+    expect(e.action).toBe("bootstrap");
+    expect(e.routes).toEqual(["/x"]);
   });
 
   it("valid manifest + MCP present → ready (ran:true) listing routes", () => {

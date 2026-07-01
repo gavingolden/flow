@@ -23,6 +23,12 @@
  * CLI mode: `bun bin/lib/ui-validation-schema.ts --validate <path>` —
  * reads the file, parses JSON, runs the validator, prints `{ok: true}` to
  * stdout (exit 0) or `{ok: false, reason, path}` to stderr (exit 1).
+ *
+ * SECRET-VALUE GUARDRAIL: whether hand-authored or bootstrapped by
+ * `flow-ui-validate`, this manifest stores env-var names and non-secret
+ * config only — never a secret value. `credentialEnvVars` carries the NAMES
+ * of env vars (`TEST_USER_EMAIL`), resolved to VALUES from the local `.env`
+ * or shell env at run time and never persisted here.
  */
 
 export type UiValidationRoute = {

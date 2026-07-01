@@ -1187,11 +1187,12 @@ many were left unticked with which rubric category.
 
 ### 8c.iii. Browser-item runnable bucket (visual-appearance via the browser-validation capability)
 
-When the `chrome-devtools` MCP and a `.flow/ui-validation.json` manifest are
-present, **enumerated visual-appearance items become a runnable bucket** rather
-than not-runnable — but a `SUBJECTIVE: `-prefixed item is excluded from browser
-validation: it is irreducibly-aesthetic judgment one notch beyond the enumerated
-bucket, never validated into a tick. Each route is captured **per viewport** (loop over the
+When the `chrome-devtools` MCP is present, **enumerated visual-appearance items
+become a runnable bucket** rather than not-runnable — no hand-authored
+`.flow/ui-validation.json` needed: on a meaningful UI diff with no manifest,
+`flow-ui-validate` returns a mechanical `action: "bootstrap"` verdict this pass
+self-completes + commits (names/config only, never a secret value — see the manifest-less bootstrap flow in [references/ui-validation-evidence.md](references/ui-validation-evidence.md)). A
+`SUBJECTIVE: `-prefixed item is excluded from browser validation: irreducibly-aesthetic judgment beyond the enumerated bucket, never validated into a tick. Each route is captured **per viewport** (loop over the
 envelope's `meta.viewports` — declared set or built-in default), applying the per-viewport
 **`## UI traits to verify`** rubric to each while `flow-ui-validate` gates the mechanical
 geometry assertions automatically. The a11y `take_snapshot` is the primary evidence (injected
