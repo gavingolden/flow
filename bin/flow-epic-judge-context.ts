@@ -60,6 +60,7 @@ import {
   type FeatureStatus,
 } from "./lib/epic-reconcile";
 import { defaultGh, type GhRunner, type GitRunner } from "./lib/resume-probes";
+import { validateEpicJudgment } from "./lib/epic-judgment-schema";
 
 // --- Budgets ----------------------------------------------------------------
 
@@ -373,6 +374,9 @@ export type RecordArgs = {
   /** New slug the feature was relaunched under (redirect actuation); valid only with `--action redirect`. */
   relaunchSlug?: string;
   runnerPhase?: "running" | "blocked" | "done";
+  /** Supervisor-passed gate flags driving the retry→escalate downgrade. */
+  overridable?: boolean;
+  budgetExhausted?: boolean;
 };
 
 export function recordJudgment(args: RecordArgs, deps: Resolved): unknown {
@@ -383,6 +387,7 @@ export function recordJudgment(args: RecordArgs, deps: Resolved): unknown {
 
   const at = deps.now();
   let record: FeatureRunRecord | null = null;
+  let downgraded = false;
   if (args.feature !== undefined) {
     // Guard the bracket lookup with Object.hasOwn so an unvalidated CLI
     // `--feature __proto__`/`constructor` resolves to not-found rather than
@@ -394,9 +399,41 @@ export function recordJudgment(args: RecordArgs, deps: Resolved): unknown {
     if (!record) {
       return { ok: false, mode: "record", reason: "feature-not-in-run-state" };
     }
-    // parseArgs guarantees action/reason when feature is present.
-    record.lastJudgment = { action: args.action!, reason: args.reason!, at };
-    if (args.incrementRetry) {
+    // parseArgs guarantees action/reason when feature is present. Validate the
+    // typed decision through the same seam the sub-agent's artifact is checked
+    // against before touching run-state — a malformed decision writes nothing.
+    const valid = validateEpicJudgment({
+      action: args.action!,
+      reason: args.reason!,
+    });
+    if (!valid.ok) {
+      return {
+        ok: false,
+        mode: "record",
+        reason: `invalid-judgment: ${valid.reason}`,
+      };
+    }
+    // Retry→escalate downgrade backstop: a gated feature (overridable:false)
+    // or a budget-exhausted one can never be recorded as a retry, even if the
+    // sub-agent's honest read was retry. The supervisor passes the flags; this
+    // seam enforces the downgrade and skips the retry increment.
+    let action = args.action!;
+    let reason = args.reason!;
+    if (
+      action === "retry" &&
+      (args.budgetExhausted === true || args.overridable === false)
+    ) {
+      const cause =
+        args.overridable === false
+          ? "gated (overridable:false)"
+          : "budgetExhausted";
+      action = "escalate";
+      reason = `[downgraded retry→escalate: ${cause}] ${reason}`;
+      downgraded = true;
+    }
+    record.lastJudgment = { action, reason, at };
+    // A downgraded escalate is not a retry — never increment on it.
+    if (args.incrementRetry && !downgraded) {
       record.retryCount = (record.retryCount ?? 0) + 1;
     }
     // Redirect repoint: retire the current slug into the lineage array and
@@ -419,6 +456,7 @@ export function recordJudgment(args: RecordArgs, deps: Resolved): unknown {
     mode: "record",
     featureId: args.feature ?? null,
     record,
+    downgraded,
     runnerPhase: runState.runnerPhase ?? null,
   };
 }
@@ -484,6 +522,14 @@ export function parseArgs(argv: string[]): Parsed {
       }
       const reason = getFlag(flags, "--reason");
       if (!reason) return { error: "record: --reason <text> is required" };
+      const overridableRaw = getFlag(flags, "--overridable");
+      let overridable: boolean | undefined;
+      if (overridableRaw === "true") overridable = true;
+      else if (overridableRaw === "false") overridable = false;
+      else if (overridableRaw !== undefined) {
+        return { error: "record: --overridable must be true or false" };
+      }
+      const budgetExhausted = flags.includes("--budget-exhausted");
       return {
         mode: "record",
         args: {
@@ -494,6 +540,8 @@ export function parseArgs(argv: string[]): Parsed {
           incrementRetry,
           relaunchSlug,
           runnerPhase: runnerPhase as RecordArgs["runnerPhase"],
+          overridable,
+          budgetExhausted,
         },
       };
     }
@@ -535,7 +583,7 @@ export function parseArgs(argv: string[]): Parsed {
 
 const USAGE =
   "usage: flow-epic-judge-context [context] --slug <epic> (--feature <id> | --deadlock)\n" +
-  "       flow-epic-judge-context record --slug <epic> --feature <id> --action <retry|redirect|escalate> --reason <text> [--increment-retry] [--relaunch-slug <new-slug>] [--runner-phase <phase>]\n" +
+  "       flow-epic-judge-context record --slug <epic> --feature <id> --action <retry|redirect|escalate> --reason <text> [--increment-retry] [--relaunch-slug <new-slug>] [--runner-phase <phase>] [--overridable <true|false>] [--budget-exhausted]\n" +
   "       flow-epic-judge-context record --slug <epic> --runner-phase <phase>\n" +
   "  (--relaunch-slug repoints the feature to a relaunched pipeline; valid only with --action redirect)";
 

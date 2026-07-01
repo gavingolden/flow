@@ -578,6 +578,134 @@ describe("record mode", () => {
     expect(exit).toBe(2);
   });
 
+  it("downgrades retry→escalate when --budget-exhausted, and does NOT increment retry", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const { exit, out } = runJson(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "foundation",
+        "--action",
+        "retry",
+        "--reason",
+        "looks flaky",
+        "--budget-exhausted",
+        "--increment-retry",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    expect(exit).toBe(0);
+    expect(out.downgraded).toBe(true);
+    const record = out.record as Record<string, unknown>;
+    const lj = record.lastJudgment as Record<string, unknown>;
+    expect(lj.action).toBe("escalate");
+    expect(lj.reason).toContain("budgetExhausted");
+    // A downgraded escalate is not a retry — no increment even with the flag.
+    expect(record.retryCount).toBeUndefined();
+  });
+
+  it("downgrades retry→escalate when --overridable false (gated)", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const { out } = runJson(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "foundation",
+        "--action",
+        "retry",
+        "--reason",
+        "wants a rerun",
+        "--overridable",
+        "false",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    expect(out.downgraded).toBe(true);
+    const lj = (out.record as Record<string, unknown>).lastJudgment as Record<
+      string,
+      unknown
+    >;
+    expect(lj.action).toBe("escalate");
+    expect(lj.reason).toContain("gated");
+  });
+
+  it("REGRESSION: a plain retry record with no new flags stays retry", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const { out } = runJson(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "foundation",
+        "--action",
+        "retry",
+        "--reason",
+        "transient",
+        "--increment-retry",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    expect(out.downgraded).toBeFalsy();
+    const record = out.record as Record<string, unknown>;
+    expect((record.lastJudgment as Record<string, unknown>).action).toBe(
+      "retry",
+    );
+    expect(record.retryCount).toBe(1);
+  });
+
+  it("keeps retry when --overridable true and not budget-exhausted", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const { out } = runJson(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "foundation",
+        "--action",
+        "retry",
+        "--reason",
+        "legit retry",
+        "--overridable",
+        "true",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    expect(out.downgraded).toBeFalsy();
+    expect(
+      (
+        (out.record as Record<string, unknown>).lastJudgment as Record<
+          string,
+          unknown
+        >
+      ).action,
+    ).toBe("retry");
+  });
+
+  it("parseArgs rejects a non-boolean --overridable value", () => {
+    const r = parseArgs([
+      "record",
+      "--slug",
+      "e",
+      "--feature",
+      "f",
+      "--action",
+      "retry",
+      "--reason",
+      "x",
+      "--overridable",
+      "maybe",
+    ]);
+    expect("error" in r && r.error).toBe(
+      "record: --overridable must be true or false",
+    );
+  });
+
   it("tolerantly reports feature-not-in-run-state", () => {
     writeEpicRunState(baseRunState(), epicsDir);
     const { exit, out } = runJson(
