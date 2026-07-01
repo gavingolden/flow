@@ -1311,6 +1311,41 @@ describe("cross-model (Gemini) lens doc symmetry", () => {
   });
 });
 
+describe("cross-model plan review doc symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", () => {
+  /**
+   * The Layer-2 cross-model plan review is a flow-delegate Bash fan-out (NOT a
+   * Task, NOT a tenth exemption). Its "not a tenth exemption" sibling note must
+   * appear in BOTH AGENTS.md `## Don'ts` and flow-pipeline/SKILL.md "Hard
+   * rules", using the SAME shared phrase as the Gemini-lens note so a rename
+   * can't silently drift one doc out of sync. A separately-anchored guard — it
+   * does NOT touch the nine-exemption-count `.toBe`/only-nine lints.
+   */
+  const PLAN_REVIEW_PHRASE = "cross-model plan review";
+  const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+
+  it("AGENTS.md names the cross-model plan review Bash-fan-out sibling note", () => {
+    expect(
+      agentsContent.includes(PLAN_REVIEW_PHRASE),
+      `AGENTS.md ## Don'ts must name the '${PLAN_REVIEW_PHRASE}' Layer-2 lens.`,
+    ).toBe(true);
+    expect(
+      agentsContent.includes(FANOUT_PHRASE),
+      `AGENTS.md must carry the shared '${FANOUT_PHRASE}' phrase for the plan-review note.`,
+    ).toBe(true);
+  });
+
+  it("flow-pipeline/SKILL.md names the cross-model plan review Bash-fan-out sibling note", () => {
+    expect(
+      content.includes(PLAN_REVIEW_PHRASE),
+      `flow-pipeline/SKILL.md must name the '${PLAN_REVIEW_PHRASE}' Layer-2 lens.`,
+    ).toBe(true);
+    expect(
+      content.includes(FANOUT_PHRASE),
+      `flow-pipeline/SKILL.md Hard rules must carry the shared '${FANOUT_PHRASE}' phrase for the plan-review note.`,
+    ).toBe(true);
+  });
+});
+
 describe("Fix-Applier artifact JSON schema drift (pr-review/SKILL.md ↔ references/fix-applier-instructions.md)", () => {
   const REQUIRED_KEYS = [
     "commits",

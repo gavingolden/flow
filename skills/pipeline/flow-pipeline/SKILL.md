@@ -324,6 +324,19 @@ in-process for skills; shell out for scripts; never delegate.
 > hard-fails the review). Documented bidirectionally in `AGENTS.md`
 > `## Don'ts` and `skills/pipeline/pr-review/SKILL.md` Step 3.
 
+> **The Step-3 cross-model plan review is a
+> Bash fan-out, not a tenth exemption.** When the consumer has opted into `review.gemini` and plan.md
+> carries a `## Decision analysis` section, step 3 runs ONE cross-model plan
+> reviewer (AGY / Gemini) via `flow-delegate` as a Bash subprocess
+> (`flow-plan-review`) to pressure-test the PRD's consequential decisions
+> before the plan-pending-review gate. It spawns no Task, so the
+> nine-exemption count above is unchanged — a sibling note in the same F2
+> "not a tenth exemption" shape as the Gemini-lens note above, NOT a `#10`
+> exemption block. It reuses the SAME `review.gemini` gate key, is default
+> off, and gracefully skips on any failure (it never blocks the plan gate).
+> Documented bidirectionally in `AGENTS.md` `## Don'ts` and this file's
+> step 3.
+
 > **You never bypass the helper scripts.** Always call
 > `flow-new-worktree`, `flow-remove-worktree`,
 > `flow-fetch-pr-review`, `flow-reply-pr-comments`, and
@@ -930,6 +943,52 @@ that line **verbatim** in the 3-5 line chat summary so the user always
 sees the research skip note regardless of whether discovery wrote it.
 Always run it — it self-no-ops in every case where there is nothing to
 surface.
+
+**Cross-model plan review (Layer 2, optional, config-gated).** After the
+note backstop above and BEFORE the End conditions branch below, run one
+independent cross-model review of the plan's consequential decisions. This
+fires for **ANY** intent (a bug/refactor plan can carry a consequential
+decision too), positioned before the feature/non-feature end-condition split.
+It is a Bash `flow-delegate` (AGY) fan-out — the same mechanism as
+`/pr-review`'s Gemini lens — and spawns **no Task** (see Hard rules'
+"Bash fan-out, not a tenth exemption" sibling note). Two-part gate, both
+human-readable:
+
+```bash
+jq -e '(.review | type == "object") and (.review.gemini == true)' ~/.flow/config.json \
+  && grep -q '^## Decision analysis' "$WORKTREE/.flow-tmp/plan.md"
+```
+
+The config half reuses the SAME `review.gemini` opt-in that gates the
+`/pr-review` Gemini lens (no new config key); the section half is the
+omit-when-empty `## Decision analysis` Layer-1 section — its absence means
+discovery found no consequential diverging decision, so there is nothing to
+cross-review. When **either** half fails, skip this sub-step and proceed to End
+conditions unchanged.
+
+When both fire, run ONE review and branch on the helper's `{ran}` envelope
+(NEVER the exit code):
+
+```bash
+flow-plan-review --plan-file "$WORKTREE/.flow-tmp/plan.md" \
+  --out "$WORKTREE/.flow-tmp/plan-review.md"
+```
+
+- `ran:false` → record the `skipReason` in the chat summary and proceed
+  unchanged (a graceful no-op — e.g. `agy-not-found` when agy is absent or
+  logged out). No revision, no reconciliation subsection.
+- `ran:true` → read `plan-review.md` and weigh EACH material AGY point against
+  the codebase context you hold. flow holds the most context; AGY is a
+  different model with less — its output is **INPUT you weigh, NOT a verdict**.
+  Revise plan.md **once** where a point is warranted, then append a
+  `### Cross-model review (AGY)` subsection under `## Decision analysis`
+  recording each material point as **accepted** (naming the revision made) or
+  **overridden** (with a one-line rationale — exactly how Step 1.5 treats
+  refuted research claims).
+
+This is a **bounded single-pass**: one review, at most one revision — NOT an
+unbounded critic/revise loop. The plan-pending-review / advance end-condition
+below is unchanged; this sub-step only enriches plan.md before that gate fires.
 
 **End conditions:**
 

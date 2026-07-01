@@ -323,6 +323,16 @@ non-conformant Gemini output is dropped with a recorded skip reason rather than
 breaking the review. Off by default; absent or malformed config behaves exactly
 as today.
 
+The **same** `review.gemini` key ALSO gates a Layer-2 **cross-model plan review**
+in `/flow-pipeline` Step 3 (no new config key — someone who wants a cross-model
+reviewer at PR time wants one at plan time too). When it is opted in and the PRD
+carries an omit-when-empty `## Decision analysis` section, the supervisor runs one
+AGY (`flow-delegate`) review of the plan's consequential decisions, reads the
+feedback, and revises the PRD once if warranted. It reuses the same tolerant jq
+gate shown above, the AGY model is hardcoded (`Gemini 3.1 Pro (High)`, no override
+key), and it is the same graceful no-op when agy is absent — a `ran:false` skip
+that never blocks the plan gate.
+
 ### Command Execution
 
 Prefer absolute paths over `cd <path> &&` to maintain a consistent working directory.

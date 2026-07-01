@@ -155,7 +155,7 @@ Response guidelines for any agent working in this repo. The first entry is an ac
 Source for shipped helper binaries lives in **`bin/`**. The user-callable
 helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-state-update`,
-`flow-notify`, `flow-stop-guard`, `flow-ui-validate`, `flow-delegate`, `flow-delegate-fanout`, `flow-research-cache` — live there with `.ts`
+`flow-notify`, `flow-stop-guard`, `flow-ui-validate`, `flow-delegate`, `flow-delegate-fanout`, `flow-plan-review`, `flow-research-cache` — live there with `.ts`
 extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow install` symlinks each into `~/.local/bin/<name>` (extensionless on PATH). `flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import, NOT in the allowlist below. `flow-delegate-fanout` powers `flow-research`.
 
 The three schema validators `flow-pr-review-result-schema`, `flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked onto PATH by `flow install` — but sourced from `bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators` (distinct from `discoverHelpers`' auto-pickup of every `bin/*.ts`), so pipeline skills invoke them by bare name regardless of cwd.
@@ -237,32 +237,29 @@ npm run verify             # typecheck:scripts + test + lint
 bun bin/flow install         # global install (skills, agents, helpers, wrapper)
 ```
 
-There is no `npm run build` — flow ships `bin/flow` directly via Bun;
-no compile step.
+No `npm run build` — flow ships `bin/flow` via Bun, no compile step.
 
 ## CI
 
 `.github/workflows/ci.yml` runs `npm run verify` (`typecheck:scripts` +
-vitest + lint) on every PR and push to `main`. It is the
-server-side backstop for the local-only `flow-pre-commit` gate, which a
-human pushing a PR outside `/flow-pipeline` never invokes and which an
-in-pipeline run can pass falsely against stale PATH-symlinked code. The
-runner installs both Node and Bun — the vitest suite spawns `bun` as a
-subprocess. **Make the `verify` job a required status check** via a
-branch ruleset (or classic branch protection) on `main` so a red PR
-cannot be merged — the status check to select is the job name `verify`
-(GitHub may display it as `CI / verify` in the PR checks tab). This is
-a repo-admin setting, not something the workflow file can enforce.
+vitest + lint) on every PR and push to `main` — the server-side backstop
+for the local-only `flow-pre-commit` gate (which a human pushing outside
+`/flow-pipeline` never invokes, and an in-pipeline run can pass falsely
+against stale PATH-symlinked code). The runner installs Node and Bun
+(vitest spawns `bun`). **Make the `verify` job a required status check**
+via a branch ruleset (or classic branch protection) on `main` so a red
+PR can't merge — select job name `verify` (shown `CI / verify` in the
+checks tab). A repo-admin setting, not workflow-enforceable.
 
 ## What flow is *not*
 
-- The supervisor does not re-implement Claude Code skills inside its own
+- The supervisor does not re-implement Claude Code skills in its own
   process. It hosts a skill library at `skills/` distributed via
-  `flow install`; `bin/flow` only routes verbs to helper scripts and
-  tmux. Pipeline behaviour lives in the `/flow-pipeline` supervisor
-  skill, executed by Claude Code inside a tmux window.
-- It is not a full SDLC tool. It does not host a web UI, post to Slack,
-  open Jira tickets, or manage permissions.
+  `flow install`; `bin/flow` only routes verbs to helper scripts and tmux.
+  Pipeline behaviour lives in the `/flow-pipeline` supervisor skill, run
+  by Claude Code in a tmux window.
+- It is not a full SDLC tool. It hosts no web UI, Slack posts, Jira
+  tickets, or permission management.
 - It is not a long-running daemon. Each `flow` invocation does one thing
   and exits. Per-pipeline state persists in `~/.flow/state/<slug>.json`
   and the tmux window's scrollback.
@@ -284,36 +281,35 @@ Workflow YAML under `.github/workflows/`
 off `PATH`, the affected check emits a `skipReason` and counts as passed. The
 `root-fallback` pseudo-scope (`npm run typecheck` + `npm run test` +
 `npm run lint` at root) fires **additively** — appended alongside matched
-scopes for any unclaimed file (not when the diff is fully claimed), so
+scopes for any unclaimed file (never when the diff is fully claimed), so
 `reason: "unmatched-files"` no longer fires. (`filterDefinedChecks` drops
-checks with an undefined npm script; a zero-check non-empty diff signals
+undefined-script checks; a zero-check non-empty diff signals
 `reason: "no-checks-defined"`.)
 
-**Host-wide test-concurrency cap.** `flow-pre-commit` caps concurrent local test runs host-wide at `K = max(1, ceil(os.availableParallelism()/9))` (2 on 18 cores) via a counting semaphore in `~/.flow/test-sem/`, so parallel pipelines stop oversubscribing cores. Only the test check is throttled; other checks run unthrottled. Override `K` via `FLOW_TEST_CONCURRENCY` (integer ≥ 1). On acquire timeout the test runs anyway.
+**Host-wide test-concurrency cap.** `flow-pre-commit` caps concurrent local test runs host-wide at `K = max(1, ceil(os.availableParallelism()/9))` (2 on 18 cores) via a counting semaphore in `~/.flow/test-sem/`, so parallel pipelines stop oversubscribing cores. Only the test check is throttled (others run unthrottled). Override `K` via `FLOW_TEST_CONCURRENCY` (integer ≥ 1); on acquire timeout the test runs anyway.
 
-**Host-wide research cache.** `flow-research-cache` caches synthesis at `~/.flow/research-cache/` (host-wide), SHA-256-keyed on the normalized question; F2 discovery is bare-keyed, direct `/flow-research` namespaced-prefix-keyed so the two stay isolated by construction. 48h TTL (`--ttl-hours`/`FLOW_RESEARCH_CACHE_TTL_HOURS`, dir `FLOW_RESEARCH_CACHE_DIR`); miss/stale/corrupt → exit 3, never errors. Opt-in `prune` sweep (age/count + orphan-tmp), separate from the TTL miss. Full contract in `discovery-instructions.md`.
+**Host-wide research cache.** `flow-research-cache` caches synthesis at `~/.flow/research-cache/`, SHA-256-keyed on the normalized question; F2 discovery is bare-keyed, direct `/flow-research` namespaced-prefix-keyed, so the two stay isolated. 48h TTL (`--ttl-hours`/`FLOW_RESEARCH_CACHE_TTL_HOURS`, dir `FLOW_RESEARCH_CACHE_DIR`); miss/stale/corrupt → exit 3, never errors. Opt-in `prune` sweep (age/count + orphan-tmp), separate from the TTL miss. Contract in `discovery-instructions.md`.
 
 **Zero-config monorepo auto-detect + three-layer command resolution.**
-Before root-fallback claims orphans, a SEPARATE pass over the unclaimed
-files recognizes `apps/<pkg>/` and `packages/<pkg>/` dirs that **own a
-`package.json`**, mapping each to an auto-detected scope named by its path
-(`apps/web`, via `--scope apps/web`) — a no-owner file falls to
-root-fallback. Every scope's commands resolve through one shared table
-in `bin/lib/stack-table.ts`: (1) the package's own declared verify
-scripts, probed `typecheck`/`check` → `lint` → `test` → `format:check`,
-scoped `npm run <script> -w <pkg-path>`; a **name-based** denylist never
-runs mutating/interactive scripts
-(`format`/`dev`/`build`/`preview`/`smoketest`/`*:watch`/`*:e2e`), matching
-NAMES not bodies;
-(2) a stack-default table keyed on a marker file (v1: node + go), into
-which flow's built-ins are lifted unchanged;
-(3) a flow-drafted `.flow/pre-commit.json` entry in the PR diff
-(see `/flow-pipeline` Step 6) when 1–2 resolve nothing — that file
-(distinct from `~/.flow/config.json`) is the **escape-hatch**:
-a top-level array of `{ name, prefixes, checks }` scopes (merged config >
-auto-detect > built-in); `checks` run as argv (no shell).
+Before root-fallback claims orphans, a SEPARATE pass maps each unclaimed
+`apps/<pkg>/` or `packages/<pkg>/` dir that **owns a `package.json`** to an
+auto-detected path-named scope (`apps/web`, via `--scope apps/web`); a
+no-owner file falls to root-fallback. Every scope resolves through one
+shared table in `bin/lib/stack-table.ts`: (1) the package's own declared
+verify scripts, probed `typecheck`/`check` → `lint` → `test` →
+`format:check`, scoped `npm run <script> -w <pkg-path>`, with a
+**name-based** denylist (NAMES not bodies) that never runs
+mutating/interactive scripts
+(`format`/`dev`/`build`/`preview`/`smoketest`/`*:watch`/`*:e2e`); (2) a
+stack-default table keyed on a marker file (v1: node + go), into which
+flow's built-ins are lifted unchanged; (3) a flow-drafted
+`.flow/pre-commit.json` entry in the PR diff (see `/flow-pipeline` Step 6)
+when 1–2 resolve nothing — that file (distinct from `~/.flow/config.json`)
+is the **escape-hatch**: a top-level array of `{ name, prefixes, checks }`
+scopes (merged config > auto-detect > built-in); `checks` run as argv (no
+shell).
 
-**Optional UI-validation manifest.** A consumer may declare `.flow/ui-validation.json` (a single OBJECT, not an array) to opt into browser-driven UI validation; `flow-ui-validate` parses it tolerantly and skips gracefully (exit 0, loud only on a broken precondition). Optional `ignoreConsolePatterns` / `ignoreRequestPatterns` lists suppress noise (favicon 404). Fields + onboarding in `templates/AGENTS.md.template`.
+**Optional UI-validation manifest.** A consumer may declare `.flow/ui-validation.json` (a single OBJECT, not an array) to opt into browser-driven UI validation; `flow-ui-validate` parses it tolerantly and skips gracefully (exit 0, loud only on a broken precondition). Optional `ignoreConsolePatterns`/`ignoreRequestPatterns` lists suppress noise (favicon 404). Fields + onboarding in `templates/AGENTS.md.template`.
 
 ## Don'ts
 
@@ -456,6 +452,10 @@ auto-detect > built-in); `checks` run as argv (no shell).
     A sibling guard, not a tenth exemption.
   - **The `/pr-review` Gemini lens is a Bash fan-out, not a tenth
     exemption** — it spawns no Task, so the nine count is unchanged.
+  - **The `/flow-pipeline` Step-3 cross-model plan review is a
+    Bash fan-out, not a tenth exemption** — same `review.gemini` gate,
+    one AGY reviewer (`flow-plan-review`) of the PRD's `## Decision
+    analysis`, no Task (nine count unchanged), graceful skip sans agy.
   - **AskUserQuestion exemption: `/flow-pipeline` candidate-issues
     form (two firing locations).** The multi-select form that picks
     which orthogonal candidates to file post-merge. It is ONE named
