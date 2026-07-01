@@ -43,7 +43,15 @@ export function renderBoard(
   const table = renderTable(
     [
       { header: "FEATURE", get: (r) => r.id },
-      { header: "STATUS", get: (r) => r.status },
+      {
+        header: "STATUS",
+        get: (r) =>
+          r.adopted
+            ? r.issueNumber
+              ? `merged (external #${r.issueNumber})`
+              : "merged (external)"
+            : r.status,
+      },
       { header: "SLUG", get: (r) => r.slug ?? DASH },
       { header: "PR", get: (r) => (r.pr ? `#${r.pr}` : DASH) },
       { header: "PHASE", get: (r) => r.phase ?? DASH },
