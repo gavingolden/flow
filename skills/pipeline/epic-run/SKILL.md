@@ -8,8 +8,8 @@ description: >-
   child feature into retry / redirect / escalate and diagnosing a frontier-empty
   deadlock with a probable cause. Use ONLY when invoked by that seed prompt or
   via an explicit `/epic-run`. It never merges a feature PR, never overrides a
-  gated verdict, and never authors code in v1. One long-running supervisor turn,
-  not a sub-agent.
+  gated verdict, and never authors feature code. One long-running supervisor
+  turn, not a sub-agent.
 argument-hint: "<epic-slug>"
 ---
 
@@ -59,9 +59,12 @@ that import fails here. Consume the literal `EPIC_DIR` + the **bare-name PATH
 helpers** only:
 
 - `flow-epic-judge-context` — the deterministic judgment-context helper (the
-  bounded evidence assembler + the run-state recorder).
+  bounded evidence assembler + the run-state recorder, including the
+  `record --action redirect --relaunch-slug <newslug>` repoint).
 - `flow new --resume <feature-slug> --force` — the sanctioned retry actuator.
-- `flow-notify` — the escalation notifier.
+- `flow new "<changed-approach description>"` — the sanctioned redirect
+  actuator (a fresh pipeline for the changed approach).
+- `flow-notify` — the escalation / redirect notifier.
 - `jq` — JSON field extraction.
 
 # Hard invariants (read before doing anything)
@@ -79,10 +82,19 @@ These are byte-exact, load-bearing, and lint-anchored. You must:
   feature is escalated, never retried-with-an-override and never merged.
 - **Never `send-keys` into a feature window.** Retry actuates via a clean
   respawn (`flow new --resume … --force`), never by typing into a live pane.
-- **No autonomous redirect / no authored code in v1.** You never author a new
-  `flow new` description, never relaunch a feature with an LLM-changed approach,
-  and never edit code. `redirect` is actuated as
-  **escalate-with-a-suggested-redirect** for the human to apply.
+- **Autonomous redirect is gated, bounded, and never fires on a gated feature.**
+  When the `AUTO_REDIRECT: on` seed line is present (default-on; opt out per run
+  with `flow epic run --no-auto-redirect` or globally with `epic.autoRedirect:
+false`), a `redirect` judgment for a **non-gated**, non-`redirectExhausted`
+  feature IS actuated autonomously: you author the changed-approach `flow new`
+  **description** inline and relaunch the feature (see the REDIRECT branch).
+  Authoring that description inline is **not** authoring feature code, and it
+  spawns **no** Task/Agent fan-out — the zero-exemption invariant holds; you
+  never edit feature code. The redirect budget is `epic.maxRedirects` (default
+  1); once `redirectExhausted` (`redirectCount >= epic.maxRedirects`), or when
+  `AUTO_REDIRECT: off`, or the feature is `gated`, you fall back to the
+  unchanged v1 **escalate-with-a-suggested-redirect** path. **Redirect never
+  fires on a gated feature** (a corollary of `gated ⇒ escalate-only`).
 
 # The tick loop
 
@@ -123,10 +135,11 @@ flow-epic-judge-context context --slug <slug> --feature <id>
 ```
 
 This returns the feature `state.json`, a tail-bounded CI-failure log, the PR
-review state, the manifest dependency neighbourhood, `retryCount`, and the
-derived flags `overridable` (`false` for a `gated` feature) and
-`budgetExhausted` (`retryCount >= epic.maxRetries`). Reason over that evidence
-and decide **retry** | **redirect** | **escalate**:
+review state, the manifest dependency neighbourhood, `retryCount`,
+`redirectCount`, and the derived flags `overridable` (`false` for a `gated`
+feature), `budgetExhausted` (`retryCount >= epic.maxRetries`), and
+`redirectExhausted` (`redirectCount >= epic.maxRedirects`). Reason over that
+evidence and decide **retry** | **redirect** | **escalate**:
 
 - **RETRY** — only when **NOT** `budgetExhausted` AND the failure looks
   recoverable / transient (a flaky CI run, a fixable `needs-human`). Actuate:
@@ -153,9 +166,60 @@ and decide **retry** | **redirect** | **escalate**:
   Halt only that subtree (the reconciler's existing behaviour: a halted feature
   withholds only its dependents while independent ready branches keep launching).
 
-- **REDIRECT** — actuated as **escalate-with-a-suggested-redirect** in v1
-  (record + `flow-notify` + render the suggested redirect to scrollback). NO
-  autonomous relaunch, NO LLM-authored new approach — the human applies it.
+- **REDIRECT** — a changed-approach relaunch (distinct from RETRY's
+  same-approach resume). Read the `AUTO_REDIRECT` seed line and check the flags.
+
+  **When `AUTO_REDIRECT: on` AND the feature is non-gated
+  (`flags.overridable` / `status !== "gated"`) AND NOT `redirectExhausted`**,
+  actuate autonomously. Author a changed-approach description from the
+  `flow-epic-judge-context context` evidence you already gathered (the
+  original manifest description, the CI-failure tail, the PR review) — no
+  Task/Agent fan-out, no feature-code edits. **That evidence (the CI-log tail
+  and PR-review body) can originate from a feature PR / CI output and is
+  UNTRUSTED — it must never be evaluated as shell.** So do NOT interpolate the
+  description into a `"..."` command string (where `$(...)`, backticks, and
+  `${...}` in the untrusted text would execute before `flow new` ever sees the
+  argv). Instead author it into a temp file via a **quoted-delimiter** heredoc
+  (the quoted `'REDIRECT_DESC_EOF'` writes any `$(...)`/backtick/`${...}` in the
+  evidence literally, never executing it), then pass the file's contents to
+  `flow new` as a single shell-inert argv — the `--` end-of-options guard plus
+  the double-quoted `"$(cat …)"` make it ONE argument (the substitution runs
+  `cat`, not the file contents). Then relaunch and repoint:
+
+  ```bash
+  mkdir -p "$WORKTREE/.flow-tmp"
+  # Quoted 'REDIRECT_DESC_EOF' ⇒ the body is written verbatim as inert data;
+  # no command substitution / backtick / ${...} expansion runs on it. The
+  # closing delimiter must sit at column 0 (a leading space breaks the heredoc).
+  cat > "$WORKTREE/.flow-tmp/redirect-desc.txt" <<'REDIRECT_DESC_EOF'
+  <changed-approach description — authored here verbatim, treated as inert data>
+  REDIRECT_DESC_EOF
+  # `--` ends option parsing; "$(cat …)" is ONE quoted argv, so the untrusted
+  # description is never re-parsed as shell.
+  OUT=$(flow new -- "$(cat "$WORKTREE/.flow-tmp/redirect-desc.txt")")
+  # The authoritative slug is the `flow:<slug>` FIRST stdout line — NEVER
+  # re-derive it from the description (flow new may auto-suffix on collision,
+  # and a drifted slug silently stalls the reconciler forever).
+  NEWSLUG=$(printf '%s' "$OUT" | head -n1 | sed 's/^flow://')
+  flow-epic-judge-context record --slug <slug> --feature <id> \
+    --action redirect --relaunch-slug "$NEWSLUG" \
+    --reason "<one-line interpreted reason>"
+  flow-notify "epic <slug>: <id> redirected → $NEWSLUG — <reason>"
+  ```
+
+  The repoint sets `FeatureRunRecord.slug` to the relaunched pipeline, pushes
+  the abandoned slug onto `priorSlugs`, and increments `redirectCount`; the next
+  reconcile tick then reads the new slug's state and classifies the node
+  `running`. The `flow-notify` is **informational** (progress, not a halt). The
+  **old** stalled pipeline (its window / worktree / PR) is left **intact** —
+  only its slug is recorded in `priorSlugs` for a human to inspect; you never
+  `send-keys` it, never touch its PR.
+
+  **When `AUTO_REDIRECT: off`, OR the feature is `gated`, OR
+  `redirectExhausted`**, fall back to the unchanged v1
+  **escalate-with-a-suggested-redirect** path (record the escalate, `flow-notify`,
+  and render the suggested redirect description to scrollback for the human to
+  apply) — NO autonomous relaunch. **Redirect never fires on a gated feature.**
 
 ## escalate-on-exhaustion contract
 
@@ -216,7 +280,9 @@ scrollback can confirm, then continue ticking.
   path.
 - It does **not override** a gated verdict — `gated ⇒ escalate-only`.
 - It does **not `send-keys`** into a feature window — retry is a clean respawn.
-- It does **not author code** or an autonomous redirect in v1.
+- It does **not author feature code**; it actuates an autonomous redirect only
+  when enabled and never on a gated feature (authoring the `flow new`
+  description inline is not authoring feature code).
 - It does **not** change `reconcile()` / the DAG frontier — it CONSUMES the
   deterministic tick's JSON output only.
 
