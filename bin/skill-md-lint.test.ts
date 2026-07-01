@@ -3670,6 +3670,14 @@ describe("/epic-run supervisor SKILL.md literal anchors", () => {
       "redirectExhausted",
       "the run-state redirect-budget flag the gated-autonomous-redirect contract reads",
     ],
+    [
+      "AUTO_REDIRECT",
+      "the seed line (producer bin/lib/epic.ts) the supervisor parses to gate autonomous redirect",
+    ],
+    [
+      "--relaunch-slug",
+      "the sanctioned redirect actuator flag that repoints the feature to the relaunched slug",
+    ],
     // The seed-prefix it parses + the R1 no-bin/lib constraint.
     ["Use the /epic-run skill for:", "the seed-prompt prefix it parses"],
     ["EPIC_DIR", "the literal epic path embedded by the CLI (R1)"],

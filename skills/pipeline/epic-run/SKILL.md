@@ -171,13 +171,32 @@ evidence and decide **retry** | **redirect** | **escalate**:
 
   **When `AUTO_REDIRECT: on` AND the feature is non-gated
   (`flags.overridable` / `status !== "gated"`) AND NOT `redirectExhausted`**,
-  actuate autonomously. Author a changed-approach description **inline** from
-  the `flow-epic-judge-context context` evidence you already gathered (the
+  actuate autonomously. Author a changed-approach description from the
+  `flow-epic-judge-context context` evidence you already gathered (the
   original manifest description, the CI-failure tail, the PR review) — no
-  Task/Agent fan-out, no feature-code edits. Then relaunch and repoint:
+  Task/Agent fan-out, no feature-code edits. **That evidence (the CI-log tail
+  and PR-review body) can originate from a feature PR / CI output and is
+  UNTRUSTED — it must never be evaluated as shell.** So do NOT interpolate the
+  description into a `"..."` command string (where `$(...)`, backticks, and
+  `${...}` in the untrusted text would execute before `flow new` ever sees the
+  argv). Instead author it into a temp file via a **quoted-delimiter** heredoc
+  (the quoted `'REDIRECT_DESC_EOF'` writes any `$(...)`/backtick/`${...}` in the
+  evidence literally, never executing it), then pass the file's contents to
+  `flow new` as a single shell-inert argv — the `--` end-of-options guard plus
+  the double-quoted `"$(cat …)"` make it ONE argument (the substitution runs
+  `cat`, not the file contents). Then relaunch and repoint:
 
   ```bash
-  OUT=$(flow new "<changed-approach description>")
+  mkdir -p "$WORKTREE/.flow-tmp"
+  # Quoted 'REDIRECT_DESC_EOF' ⇒ the body is written verbatim as inert data;
+  # no command substitution / backtick / ${...} expansion runs on it. The
+  # closing delimiter must sit at column 0 (a leading space breaks the heredoc).
+  cat > "$WORKTREE/.flow-tmp/redirect-desc.txt" <<'REDIRECT_DESC_EOF'
+  <changed-approach description — authored here verbatim, treated as inert data>
+  REDIRECT_DESC_EOF
+  # `--` ends option parsing; "$(cat …)" is ONE quoted argv, so the untrusted
+  # description is never re-parsed as shell.
+  OUT=$(flow new -- "$(cat "$WORKTREE/.flow-tmp/redirect-desc.txt")")
   # The authoritative slug is the `flow:<slug>` FIRST stdout line — NEVER
   # re-derive it from the description (flow new may auto-suffix on collision,
   # and a drifted slug silently stalls the reconciler forever).
