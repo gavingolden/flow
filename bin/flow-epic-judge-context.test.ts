@@ -720,7 +720,14 @@ describe("record mode", () => {
         reason: "",
         incrementRetry: false,
       },
-      { gh: ghNone, stateDir, epicsDir, maxRetries: 2, now: () => FIXED_NOW },
+      {
+        gh: ghNone,
+        stateDir,
+        epicsDir,
+        maxRetries: 2,
+        maxRedirects: 1,
+        now: () => FIXED_NOW,
+      },
     ) as Record<string, unknown>;
     expect(out.ok).toBe(false);
     expect(out.reason).toBe(
@@ -848,6 +855,8 @@ describe(parseArgs, () => {
         incrementRetry: false,
         relaunchSlug: "f-v2",
         runnerPhase: undefined,
+        overridable: undefined,
+        budgetExhausted: false,
       },
     });
   });
