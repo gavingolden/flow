@@ -224,18 +224,18 @@ When forming assumptions, lean on these signals:
 
 Categories worth examining (use them as a checklist, not a question list):
 
-| Category                  | What to determine                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **User intent**           | What problem does this solve? Who is the primary user? What is the success criterion? Framing lens: **Jobs-to-be-Done** — what job would the user hire this to do? (see discovery-playbook.md, internal-only).                                                                                                                                                                                                                           |
-| **Scope**                 | New page, modification, or backend-only change? Boundaries — what is explicitly out?                                                                                                                                                                                                                                                                                                                                                     |
-| **UI/UX**                 | What does the user see and interact with? Existing UI to reference?                                                                                                                                                                                                                                                                                                                                                                      |
-| **Data**                  | What data does this need? New tables or existing ones? External API?                                                                                                                                                                                                                                                                                                                                                                     |
-| **Architecture**          | What layers does this touch? New module or extend an existing one? Framing lenses: **first-principles** (strip to what's necessarily true) and **second-order effects** (what does this change trigger downstream — other skills, pipeline steps, consumer repos?) — see discovery-playbook.md, internal-only.                                                                                                                           |
-| **Edge cases**            | What happens when X is empty? How should errors display? Framing lenses: **inversion** (what would make this actively harmful or useless?) and **second-order effects** (what does the first-order fix break downstream?) — see discovery-playbook.md, internal-only.                                                                                                                                                                    |
-| **Trade-offs**            | Would a simplification be acceptable for v1? If the request is framed as a binary A-or-B choice, is there a middle-ground option?                                                                                                                                                                                                                                                                                                        |
-| **Necessity**             | Is this request necessary at all? Could doing nothing, or an existing capability the user has overlooked, serve them just as well? Treat "reject — do nothing" as a legitimate verdict to weigh, not a non-answer; the user invited the feature, but inviting it is not the same as needing it. Framing lens: **first-principles** — strip inherited constraints to what is necessarily true (see discovery-playbook.md, internal-only). |
-| **Options & exclusivity** | What other options exist beyond the literal request? Of the adjacent features, which are **complementary** (pair well, increase the request's value) and which are **mutually exclusive** — cannot coexist with the request, or conflict with each other, so the user must pick one path? Name both kinds, not just the complementary ones.                                                                                              |
-| **Existing patterns**     | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.                                                                                                                                                                                                                                                                                                                                      |
+| Category                  | What to determine                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **User intent**           | What problem does this solve? Who is the primary user? What is the success criterion? Framing lens: **Jobs-to-be-Done** — what job would the user hire this to do? (see discovery-playbook.md, internal-only).                                                                                                                                                                                                                                                                                   |
+| **Scope**                 | New page, modification, or backend-only change? Boundaries — what is explicitly out?                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **UI/UX**                 | What does the user see and interact with? Existing UI to reference?                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| **Data**                  | What data does this need? New tables or existing ones? External API?                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Architecture**          | What layers does this touch? New module or extend an existing one? Framing lenses: **first-principles** (strip to what's necessarily true) and **second-order effects** (what does this change trigger downstream — other skills, pipeline steps, consumer repos?) — see discovery-playbook.md, internal-only.                                                                                                                                                                                   |
+| **Edge cases**            | What happens when X is empty? How should errors display? Framing lenses: **inversion** (what would make this actively harmful or useless?) and **second-order effects** (what does the first-order fix break downstream?) — see discovery-playbook.md, internal-only.                                                                                                                                                                                                                            |
+| **Trade-offs**            | Would a simplification be acceptable for v1? If the request is framed as a binary A-or-B choice, is there a middle-ground option? When a trade-off hinges on a consequential decision whose branches genuinely diverge, simulate it in the "Decision analysis" sub-section (step 5).                                                                                                                                                                                                             |
+| **Necessity**             | Is this request necessary at all? Could doing nothing, or an existing capability the user has overlooked, serve them just as well? Treat "reject — do nothing" as a legitimate verdict to weigh, not a non-answer; the user invited the feature, but inviting it is not the same as needing it. Framing lens: **first-principles** — strip inherited constraints to what is necessarily true (see discovery-playbook.md, internal-only).                                                         |
+| **Options & exclusivity** | What other options exist beyond the literal request? Of the adjacent features, which are **complementary** (pair well, increase the request's value) and which are **mutually exclusive** — cannot coexist with the request, or conflict with each other, so the user must pick one path? Name both kinds, not just the complementary ones. The exclusive-vs-complementary marking and ranked combinations feed the "Decision analysis" sub-section (step 5) when the decision is consequential. |
+| **Existing patterns**     | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.                                                                                                                                                                                                                                                                                                                                                                                              |
 
 **Caller-supplied ultimate goal.** When the caller (the `/flow-pipeline`
 supervisor) hands you an inferred ultimate goal alongside the request, treat it as
@@ -264,6 +264,11 @@ become the "Architecture Decisions" section verbatim:
   Architecture Decisions or Open Questions section — silently picking a pole violates
   the flow `AGENTS.md` `## Output style` rule **Consider the middle ground when a request is framed as a binary choice.** When the choice is genuinely binary, say so
   explicitly.
+- **Decision-analysis check:** if any decision captured above is a _consequential_ open decision
+  whose branches genuinely diverge, flag it for the omit-when-empty `## Decision analysis` PRD
+  section (step 5), where each branch's downstream flow is simulated, exclusivity marked,
+  combinations ranked, and a verdict given. Omit-when-none — see the "Decision analysis"
+  sub-section for the full contract.
 - **Framing-lens risk check:** before drafting the `## Plan risks` line (step 5), run the
   risk-side **framing lenses** internally — a **pre-mortem** (assume the chosen plan shipped
   and failed; narrate the most likely reason) and **inversion** (what would make this goal
@@ -285,6 +290,11 @@ format. Sections:
 - **Architecture Decisions** — from the checkpoint above.
 - **Technical Constraints** — framework, security, performance needs.
 - **Open Questions** — every assumption you made plus anything still unresolved.
+- **Decision analysis** (omit-when-empty) — for each _consequential_ open decision whose
+  branches genuinely diverge, illustrate each branch's downstream end-user/system flow, mark
+  exclusive vs complementary, enumerate + rank the viable combinations, and give a verdict that
+  feeds the Recommendation; omit the heading entirely when no such decision exists. See the
+  "Decision analysis" sub-section below for the full contract.
 - **Recommendation** — a single clear recommendation; see the "Recommendation"
   sub-section below for the verdict enum and one-line-rationale contract.
 - **Plan risks** — an always-present single line naming the plan's single weakest
@@ -341,6 +351,40 @@ belongs in the `# Task breakdown`, built now. Per the AGENTS.md `## Output style
 test is cohesion, not size; do not use this section as a hedge to defer cohesive in-scope
 work. Keep the bar high — backlogs full of low-confidence candidates are noise, and so is
 a feature shipped with its cohesive other half parked in a follow-up.
+
+### Decision analysis
+
+When discovery surfaces one or more **consequential** open decisions whose branches genuinely
+diverge, add an omit-when-empty `## Decision analysis` section to the PRD, placed between
+`## Open Questions` and `## Recommendation`. For each such decision: illustrate each branch's
+downstream **end-user** flow (or, when a decision makes no user-visible difference, its
+**system-perspective** flow), mark the decisions **mutually exclusive vs complementary**,
+enumerate and **rank** the viable combinations, and give a **verdict** that feeds the
+`## Recommendation`. This is the consequence-simulation counterpart to the risk-naming
+`## Plan risks`: `## Plan risks` names the single weakest assumption, while `## Decision analysis`
+walks the downstream consequences of the decisions the plan actually forks on.
+
+**Relation to Open Questions.** Open Questions are assumptions to _confirm_; Decision analysis is
+the _simulated consequences_ of the consequential ones. A decision worth simulating here is usually
+also an Open Question — list it in both: the OQ so the user can redirect at `plan-pending-review`,
+the Decision-analysis entry so the ranked verdict is on record.
+
+**Omit-when-empty (load-bearing).** When no consequential open decision exists — or every open
+decision's branches converge to the same downstream flow — **omit the `## Decision analysis`
+heading entirely; do not write an empty heading.** Same rule as the `# Candidate follow-up issues`
+section above: an empty heading implies a fork exists when none does, adds noise to plan review, and
+— because the section's presence doubles as the Layer-2 cross-model-review gate signal in
+`/flow-pipeline` Step 3 — would falsely trigger a review with nothing to review.
+
+**Ceremony reconciliation.** `<SKILL_DIR>/references/discovery-playbook.md` warns that
+solo-applied frameworks degrade into ceremony. This section escapes that trap two ways: (a) it is
+omit-when-no-consequential-decision — heavier than the always-present one-line `## Plan risks`, so
+it MUST be omit-when-empty — and (b) it illustrates **only** genuinely-diverging branches: a
+decision whose branches converge to the same downstream flow is not consequential and is not
+simulated. This is what keeps the section a bounded technique producing a useful verdict rather
+than a performed checklist — a box-ticking walk of every open question is exactly the failure mode
+to avoid. The section earns its place by feeding the `## Recommendation` verdict, not by being
+performed.
 
 ### Recommendation
 
