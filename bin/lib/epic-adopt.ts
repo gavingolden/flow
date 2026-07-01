@@ -5,7 +5,7 @@
  * or a prior run merged it and its run.json record was lost). The reconciler
  * would otherwise re-launch a duplicate pipeline for it. This module resolves
  * such nodes live per-tick from GitHub: a feature whose `flow-epic` sub-issue
- * is CLOSED (in ANY closed state — we do NOT filter on stateReason) counts as
+ * is CLOSED (in ANY closed state — we do NOT read stateReason) counts as
  * merged even when absent from run.json.
  *
  * The reader is a seam (`ReadClosedSubIssues`) injected into the pure
@@ -20,7 +20,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_EPICS_DIR } from "./paths";
-import type { GhRunner } from "../flow-create-issue";
+import type { GhRunner } from "./resume-probes";
 
 const FLOW_EPIC_LABEL = "flow-epic";
 
@@ -85,7 +85,7 @@ export function makeReadClosedSubIssues(
         "--state",
         "closed",
         "--json",
-        "number,stateReason",
+        "number",
         "--limit",
         "1000",
       ]);
@@ -102,10 +102,13 @@ export function makeReadClosedSubIssues(
     }
     if (!Array.isArray(parsed)) return adopted;
 
-    // Adopt on ANY closed state — stateReason is captured but deliberately not
-    // filtered (a "won't-do" close is indistinguishable from a "done" close).
+    // Adopt on ANY closed state — stateReason is deliberately not read (a
+    // "won't-do" close is indistinguishable from a "done" close). Guard each
+    // element: a `[null]` / non-object payload must degrade to an empty Map,
+    // not throw, to honour this module's never-throw contract.
     const closedNumbers = new Set<number>();
     for (const entry of parsed) {
+      if (!entry || typeof entry !== "object") continue;
       const num = (entry as { number?: unknown }).number;
       if (typeof num === "number") closedNumbers.add(num);
     }

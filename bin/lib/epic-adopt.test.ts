@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { makeReadClosedSubIssues } from "./epic-adopt";
-import type { GhRunner } from "../flow-create-issue";
+import type { GhRunner } from "./resume-probes";
 
 function tempEpicsDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), "epic-adopt-"));
@@ -79,6 +79,40 @@ describe("makeReadClosedSubIssues", () => {
     expect(read({ epicSlug: "watchlist", featureIds: ["a"] }).size).toBe(0);
   });
 
+  it("returns an empty Map (never throws) when the gh runner throws", () => {
+    const epicsDir = tempEpicsDir();
+    writeProjection(epicsDir, "watchlist", {
+      features: { a: { issueNumber: 101 } },
+    });
+    const gh: GhRunner = () => {
+      throw new Error("spawn gh ENOENT");
+    };
+    const read = makeReadClosedSubIssues(gh, epicsDir);
+    expect(() =>
+      read({ epicSlug: "watchlist", featureIds: ["a"] }),
+    ).not.toThrow();
+    expect(read({ epicSlug: "watchlist", featureIds: ["a"] }).size).toBe(0);
+  });
+
+  it("returns an empty Map (never throws) on malformed / non-array gh stdout", () => {
+    const epicsDir = tempEpicsDir();
+    writeProjection(epicsDir, "watchlist", {
+      features: { a: { issueNumber: 101 } },
+    });
+    const read = (stdout: string) =>
+      makeReadClosedSubIssues(ghReturning(stdout).gh, epicsDir);
+    // Unparseable stdout, a non-array JSON payload, and a `[null]` element
+    // (which passes Array.isArray but would throw on `.number` without a guard).
+    for (const stdout of ["not json", '{"x":1}', "[null]"]) {
+      expect(() =>
+        read(stdout)({ epicSlug: "watchlist", featureIds: ["a"] }),
+      ).not.toThrow();
+      expect(
+        read(stdout)({ epicSlug: "watchlist", featureIds: ["a"] }).size,
+      ).toBe(0);
+    }
+  });
+
   it("returns an empty Map (and fires no gh call) when projection.json is missing", () => {
     const epicsDir = tempEpicsDir(); // nothing written
     const { gh, calls } = ghReturning(
@@ -117,8 +151,27 @@ describe("makeReadClosedSubIssues", () => {
       featureIds: ["a", "b", "c"],
     });
     expect(calls).toHaveLength(1);
+    // Pin the gh query shape so a regression to `--state open` or a wrong
+    // label is caught behaviorally, not only in production.
+    expect(calls[0]).toContain("issue");
+    expect(calls[0]).toContain("list");
+    expect(calls[0]).toContain("--label");
+    expect(calls[0]).toContain("flow-epic");
+    expect(calls[0]).toContain("--state");
+    expect(calls[0]).toContain("closed");
     expect([...adopted.keys()].sort()).toEqual(["a", "c"]);
     expect(adopted.get("a")).toBe(1);
     expect(adopted.get("c")).toBe(3);
+  });
+
+  it("returns an empty Map and fires no gh call for empty featureIds", () => {
+    const epicsDir = tempEpicsDir();
+    writeProjection(epicsDir, "watchlist", {
+      features: { a: { issueNumber: 101 } },
+    });
+    const { gh, calls } = ghReturning(JSON.stringify([{ number: 101 }]));
+    const read = makeReadClosedSubIssues(gh, epicsDir);
+    expect(read({ epicSlug: "watchlist", featureIds: [] }).size).toBe(0);
+    expect(calls).toHaveLength(0);
   });
 });
