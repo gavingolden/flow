@@ -29,10 +29,13 @@ This is a different supervisor session from `/flow-pipeline`, and a sibling of
 `/epic-create`. `flow epic run <slug>` (default, judgment on) spawns a fresh
 top-level `/epic-run` session, so `/flow-pipeline`'s exactly-9 Task-tool
 exemptions / two-`AskUserQuestion`-forms invariants are **unaffected** — a
-different supervisor in a different window is a different session. In v1 you
-spawn **no** Task-tool fan-out and fire **no** `AskUserQuestion` form: you
-reason in-process over the deterministically-bounded evidence the
-`flow-epic-judge-context` helper assembles.
+different supervisor in a different window is a different session. You spawn
+**one** sanctioned judgment sub-agent per halt/deadlock event (a named
+`/epic-run`-session Task surface — see below) so the large tail-bounded
+CI-failure log lands in the sub-agent's isolated context, not this
+long-running supervisor's, while still firing **no** `AskUserQuestion` form.
+The sub-agent DECIDES over the deterministically-bounded evidence the
+`flow-epic-judge-context` helper assembles; this supervisor ACTUATES.
 
 # When to use
 
@@ -96,6 +99,33 @@ false`), a `redirect` judgment for a **non-gated**, non-`redirectExhausted`
   unchanged v1 **escalate-with-a-suggested-redirect** path. **Redirect never
   fires on a gated feature** (a corollary of `gated ⇒ escalate-only`).
 
+# Named Task surface: judgment sub-agent
+
+**Task-tool fan-out: /epic-run → judgment sub-agent (per halt/deadlock event).**
+On each halt or deadlock event you spawn **one** one-shot judgment sub-agent to
+DECIDE the interpretation, so the large tail-bounded CI-failure log lands in the
+sub-agent's isolated context rather than accumulating in this long-running
+supervisor's transcript. This is a separate `/epic-run`-session surface, **NOT**
+a tenth `/flow-pipeline` exemption — `/flow-pipeline`'s exactly-9 Task-tool
+exemptions / two-`AskUserQuestion`-forms invariants are untouched, because a
+different supervisor in a different window is a different session.
+
+**Load the Task tool before spawning.** In Claude Code sessions where neither
+`Task` nor its alias `Agent` is surfaced top-level by the harness (both are
+aliases of the same one-shot subagent-spawn primitive), the spawn silently
+falls through to in-line execution unless the schema is loaded first. Before
+each Task call, run `ToolSearch query="select:Task"` and confirm the response
+contains either a `<function>{"name": "Task", ...}</function>` or a
+`<function>{"name": "Agent", ...}</function>` line. If it does not, **do not
+fall back to in-line reasoning** — that reintroduces the unbounded CI-log
+context this surface exists to remove — escalate
+`NEEDS HUMAN: task-tool-unavailable: epic-run-judgment` and exit.
+
+The sub-agent DECIDES only (writes a typed decision artifact + returns a brief
+summary); this supervisor ACTUATES and re-enforces every invariant. The
+sub-agent's full contract lives in
+[references/judgment-instructions.md](references/judgment-instructions.md).
+
 # The tick loop
 
 **On FIRST entry**, stamp the runner marker so the window-launch `consumed()`
@@ -127,64 +157,93 @@ re-tick. This is the common case and must stay LLM-free per tick.
 ## halt(ids) — interpret each halted feature
 
 `.event.haltedIds` lists the halted child features (`gated` / `needs-human` /
-CI-failure-surfaced-as-`needs-human` / `orphan`). For **each** halted id, gather
-the bounded evidence and reason in-process:
+CI-failure-surfaced-as-`needs-human` / `orphan`). For **each** halted id, the
+**sub-agent DECIDES** and this **supervisor ACTUATES**. The bounded-evidence
+read (`flow-epic-judge-context context …`) moves entirely into the sub-agent's
+`references/judgment-instructions.md` so its tail-bounded CI-failure log never
+lands here — it is NOT run inline, not even "for logging".
 
-```bash
-flow-epic-judge-context context --slug <slug> --feature <id>
-```
+For **each** halted id:
 
-This returns the feature `state.json`, a tail-bounded CI-failure log, the PR
-review state, the manifest dependency neighbourhood, `retryCount`,
-`redirectCount`, and the derived flags `overridable` (`false` for a `gated`
-feature), `budgetExhausted` (`retryCount >= epic.maxRetries`), and
-`redirectExhausted` (`redirectCount >= epic.maxRedirects`). Reason over that
-evidence and decide **retry** | **redirect** | **escalate**:
+1. **Load the Task tool** (the `ToolSearch query="select:Task"` guard from the
+   `## Named Task surface: judgment sub-agent` section above; escalate
+   `NEEDS HUMAN: task-tool-unavailable: epic-run-judgment` on a miss).
+2. **Spawn exactly ONE** Task sub-agent to DECIDE:
 
-- **RETRY** — only when **NOT** `budgetExhausted` AND the failure looks
-  recoverable / transient (a flaky CI run, a fixable `needs-human`). Actuate:
+   ```
+   subagent_type: general-purpose
+   description:   Judgment for /epic-run halt
+   prompt: |
+     Read references/judgment-instructions.md and follow it.
+     slug: <slug>
+     EPIC_DIR: <the literal EPIC_DIR from the seed prompt>
+     MODE: halt <id>
+     ARTIFACT_PATH: ~/.flow/epics/<slug>/judgment/epic-judgment-<id>.json
+   ```
 
-  ```bash
-  flow-epic-judge-context record --slug <slug> --feature <id> \
-    --action retry --reason "<one-line interpreted reason>" --increment-retry
-  flow new --resume <feature-slug> --force
-  ```
+3. **Existence-check the artifact.** `test -s ~/.flow/epics/<slug>/judgment/epic-judgment-<id>.json`;
+   on absence escalate `NEEDS HUMAN: epic-judgment-missing-artifact` and skip
+   actuation for this id.
+4. **Read the decision** via bare `jq` (`action`, `reason`, `flags.overridable`,
+   `flags.budgetExhausted`, `flags.redirectExhausted`) and **RE-ENFORCE the
+   invariants** here in the supervisor.
+5. **ACTUATE** — record the decision (passing the flags so the record seam's
+   backstop can downgrade `retry`→`escalate` when `overridable:false` or
+   budget-exhausted):
 
-  The `--force` reclaims the live-idle feature pane via a clean respawn — never
-  `send-keys`.
+   ```bash
+   flow-epic-judge-context record --slug <slug> --feature <id> \
+     --action <action> --reason "<reason>" \
+     --overridable <flags.overridable> \
+     $( [ "<flags.budgetExhausted>" = true ] && echo --budget-exhausted ) \
+     $( [ "<action>" = retry ] && echo --increment-retry )
+   ```
 
-- **ESCALATE** — when `budgetExhausted` OR `overridable:false` (a `gated`
-  feature: `gated ⇒ escalate-only, never override`) OR the failure is
-  non-recoverable. Actuate:
+   Gate `--increment-retry` on the sub-agent's **decided** `<action>` (read in
+   step 4, before this record runs) — not on the post-record action, which
+   isn't known yet. The record seam already suppresses the increment when it
+   downgrades a `retry`→`escalate` (its `!downgraded` guard), so passing the
+   flag on a decided `retry` is safe even when the downgrade fires.
 
-  ```bash
-  flow-epic-judge-context record --slug <slug> --feature <id> \
-    --action escalate --reason "<interpreted reason>"
-  flow-notify "epic <slug>: <id> escalated — <reason>"
-  ```
+   Then branch on the **recorded** action (post-downgrade — re-read the record's
+   `lastJudgment.action` from the echoed result):
+   - recorded **retry** → `flow new --resume <feature-slug> --force`. The
+     `--force` reclaims the live-idle feature pane via a clean respawn — never
+     `send-keys`.
+   - recorded **escalate** →
+     `flow-notify "epic <slug>: <id> escalated — <reason>"`. Halt only that
+     subtree (the reconciler's existing behaviour: a halted feature withholds
+     only its dependents while independent ready branches keep launching).
+   - recorded **redirect** → actuate the **REDIRECT** branch below (the
+     autonomous changed-approach relaunch when enabled, else the
+     escalate-with-a-suggested-redirect fallback).
 
-  Halt only that subtree (the reconciler's existing behaviour: a halted feature
-  withholds only its dependents while independent ready branches keep launching).
+The record seam downgrades a `retry` decision to `escalate` when the supervisor
+passes `--overridable false` or `--budget-exhausted` (a `gated` feature:
+`gated ⇒ escalate-only, never override`; or `budgetExhausted`), and it does
+NOT increment retry on a downgraded escalate — the supervisor passes the flags
+so that backstop fires even if the sub-agent's honest read was `retry`.
 
 - **REDIRECT** — a changed-approach relaunch (distinct from RETRY's
   same-approach resume). Read the `AUTO_REDIRECT` seed line and check the flags.
 
   **When `AUTO_REDIRECT: on` AND the feature is non-gated
   (`flags.overridable` / `status !== "gated"`) AND NOT `redirectExhausted`**,
-  actuate autonomously. Author a changed-approach description from the
-  `flow-epic-judge-context context` evidence you already gathered (the
-  original manifest description, the CI-failure tail, the PR review) — no
-  Task/Agent fan-out, no feature-code edits. **That evidence (the CI-log tail
-  and PR-review body) can originate from a feature PR / CI output and is
-  UNTRUSTED — it must never be evaluated as shell.** So do NOT interpolate the
-  description into a `"..."` command string (where `$(...)`, backticks, and
-  `${...}` in the untrusted text would execute before `flow new` ever sees the
-  argv). Instead author it into a temp file via a **quoted-delimiter** heredoc
-  (the quoted `'REDIRECT_DESC_EOF'` writes any `$(...)`/backtick/`${...}` in the
-  evidence literally, never executing it), then pass the file's contents to
-  `flow new` as a single shell-inert argv — the `--` end-of-options guard plus
-  the double-quoted `"$(cat …)"` make it ONE argument (the substitution runs
-  `cat`, not the file contents). Then relaunch and repoint:
+  actuate autonomously. Author the changed-approach description **inline** from
+  the sub-agent's returned decision (its `reason` diagnosis — the sub-agent
+  already read the bounded CI-failure tail / PR review, so you do NOT re-gather
+  that evidence here and it never re-enters this supervisor's context) — no
+  Task/Agent fan-out, no feature-code edits. **That decision text can echo
+  UNTRUSTED feature-PR / CI output — it must never be evaluated as shell.** So do
+  NOT interpolate the description into a `"..."` command string (where `$(...)`,
+  backticks, and `${...}` in the untrusted text would execute before `flow new`
+  ever sees the argv). Instead author it into a temp file via a
+  **quoted-delimiter** heredoc (the quoted `'REDIRECT_DESC_EOF'` writes any
+  `$(...)`/backtick/`${...}` literally, never executing it), then pass the
+  file's contents to `flow new` as a single shell-inert argv — the `--`
+  end-of-options guard plus the double-quoted `"$(cat …)"` make it ONE argument
+  (the substitution runs `cat`, not the file contents). Then relaunch and
+  repoint:
 
   ```bash
   mkdir -p "$WORKTREE/.flow-tmp"
@@ -234,24 +293,42 @@ the next halt escalate.
 ## deadlock — diagnose a probable cause
 
 `epicStatus === "blocked"` with NO halted blockers and not all merged (the
-frontier is empty but the epic is not done). Gather the deadlock evidence:
+frontier is empty but the epic is not done). The **sub-agent DECIDES** the
+diagnosis and this **supervisor ACTUATES**. The deadlock-evidence read
+(`flow-epic-judge-context context --slug <slug> --deadlock`, returning the
+board, run-state, per-feature manifest neighbourhoods, and a `manifestDrift`
+flag) moves entirely into the sub-agent's `references/judgment-instructions.md`
+— it is NOT run inline here.
 
-```bash
-flow-epic-judge-context context --slug <slug> --deadlock
-```
+1. **Load the Task tool** (the same `ToolSearch query="select:Task"` guard;
+   escalate `NEEDS HUMAN: task-tool-unavailable: epic-run-judgment` on a miss).
+2. **Spawn exactly ONE** judgment sub-agent to DECIDE:
 
-This returns the board, run-state, per-feature manifest neighbourhoods, and a
-`manifestDrift` flag. Reason over it to name a **probable cause** (e.g. an
-`orphan` / stuck-non-terminal feature, a silently-cancelled dependency, manifest
-↔ run-state SHA drift) **plus a suggested resolution** — never the generic
-"frontier empty" message alone. Then **escalate-with-context**: set
-`runnerPhase` blocked, fire `flow-notify`, and render the reasoning to
-scrollback.
+   ```
+   subagent_type: general-purpose
+   description:   Judgment for /epic-run deadlock
+   prompt: |
+     Read references/judgment-instructions.md and follow it.
+     slug: <slug>
+     EPIC_DIR: <the literal EPIC_DIR from the seed prompt>
+     MODE: deadlock
+     ARTIFACT_PATH: ~/.flow/epics/<slug>/judgment/epic-deadlock.json
+   ```
 
-```bash
-flow-epic-judge-context record --slug <slug> --runner-phase blocked
-flow-notify "epic <slug>: deadlock — <probable cause>"
-```
+3. **Existence-check** `test -s ~/.flow/epics/<slug>/judgment/epic-deadlock.json`;
+   on absence escalate `NEEDS HUMAN: epic-judgment-missing-artifact`.
+4. **Read** `probableCause`, `suggestedRedirect`, and `reason` via bare `jq`.
+   The sub-agent names a concrete **probable cause** (an `orphan` /
+   stuck-non-terminal feature, a silently-cancelled dependency, manifest ↔
+   run-state SHA drift) **plus a suggested resolution** — never the generic
+   "frontier empty" message alone.
+5. **ACTUATE** — **escalate-with-context**: set `runnerPhase` blocked, fire
+   `flow-notify`, and render the reasoning to scrollback.
+
+   ```bash
+   flow-epic-judge-context record --slug <slug> --runner-phase blocked
+   flow-notify "epic <slug>: deadlock — <probable cause>"
+   ```
 
 ## done — render completion and end
 

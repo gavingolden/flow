@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   run,
   parseArgs,
+  recordJudgment,
   tailBound,
   fetchCiFailure,
   fetchPrReview,
@@ -578,6 +579,166 @@ describe("record mode", () => {
     expect(exit).toBe(2);
   });
 
+  it("downgrades retry→escalate when --budget-exhausted, and does NOT increment retry", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const { exit, out } = runJson(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "foundation",
+        "--action",
+        "retry",
+        "--reason",
+        "looks flaky",
+        "--budget-exhausted",
+        "--increment-retry",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    expect(exit).toBe(0);
+    expect(out.downgraded).toBe(true);
+    const record = out.record as Record<string, unknown>;
+    const lj = record.lastJudgment as Record<string, unknown>;
+    expect(lj.action).toBe("escalate");
+    expect(lj.reason).toContain("budgetExhausted");
+    // A downgraded escalate is not a retry — no increment even with the flag.
+    expect(record.retryCount).toBeUndefined();
+  });
+
+  it("downgrades retry→escalate when --overridable false (gated)", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const { out } = runJson(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "foundation",
+        "--action",
+        "retry",
+        "--reason",
+        "wants a rerun",
+        "--overridable",
+        "false",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    expect(out.downgraded).toBe(true);
+    const lj = (out.record as Record<string, unknown>).lastJudgment as Record<
+      string,
+      unknown
+    >;
+    expect(lj.action).toBe("escalate");
+    expect(lj.reason).toContain("gated");
+  });
+
+  it("REGRESSION: a plain retry record with no new flags stays retry", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const { out } = runJson(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "foundation",
+        "--action",
+        "retry",
+        "--reason",
+        "transient",
+        "--increment-retry",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    expect(out.downgraded).toBeFalsy();
+    const record = out.record as Record<string, unknown>;
+    expect((record.lastJudgment as Record<string, unknown>).action).toBe(
+      "retry",
+    );
+    expect(record.retryCount).toBe(1);
+  });
+
+  it("keeps retry when --overridable true and not budget-exhausted", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const { out } = runJson(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "foundation",
+        "--action",
+        "retry",
+        "--reason",
+        "legit retry",
+        "--overridable",
+        "true",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    expect(out.downgraded).toBeFalsy();
+    expect(
+      (
+        (out.record as Record<string, unknown>).lastJudgment as Record<
+          string,
+          unknown
+        >
+      ).action,
+    ).toBe("retry");
+  });
+
+  it("parseArgs rejects a non-boolean --overridable value", () => {
+    const r = parseArgs([
+      "record",
+      "--slug",
+      "e",
+      "--feature",
+      "f",
+      "--action",
+      "retry",
+      "--reason",
+      "x",
+      "--overridable",
+      "maybe",
+    ]);
+    expect("error" in r && r.error).toBe(
+      "record: --overridable must be true or false",
+    );
+  });
+
+  it("returns invalid-judgment when the decision fails validateEpicJudgment", () => {
+    // Direct call: parseArgs pre-validates action/reason on the public `run`
+    // path, so the `!valid.ok` early-return is only reachable by driving
+    // recordJudgment directly with an off-shape decision (here an empty reason).
+    writeEpicRunState(baseRunState(), epicsDir);
+    const out = recordJudgment(
+      {
+        slug: "epic-x",
+        feature: "foundation",
+        action: "retry",
+        reason: "",
+        incrementRetry: false,
+      },
+      {
+        gh: ghNone,
+        stateDir,
+        epicsDir,
+        maxRetries: 2,
+        maxRedirects: 1,
+        now: () => FIXED_NOW,
+      },
+    ) as Record<string, unknown>;
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe(
+      "invalid-judgment: 'reason' must be a non-empty string",
+    );
+    // No write happened: the pre-seeded feature record is untouched.
+    expect(
+      readEpicRunState("epic-x", epicsDir)?.features.foundation.lastJudgment,
+    ).toBeUndefined();
+  });
+
   it("tolerantly reports feature-not-in-run-state", () => {
     writeEpicRunState(baseRunState(), epicsDir);
     const { exit, out } = runJson(
@@ -694,6 +855,8 @@ describe(parseArgs, () => {
         incrementRetry: false,
         relaunchSlug: "f-v2",
         runnerPhase: undefined,
+        overridable: undefined,
+        budgetExhausted: false,
       },
     });
   });

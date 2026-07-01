@@ -3717,6 +3717,16 @@ describe("/epic-run supervisor SKILL.md literal anchors", () => {
     ["Use the /epic-run skill for:", "the seed-prompt prefix it parses"],
     ["EPIC_DIR", "the literal epic path embedded by the CLI (R1)"],
     ["never import", "the R1 no-bin/lib-import constraint"],
+    // The judgment sub-agent Task surface (this PR).
+    [
+      "Task-tool fan-out: /epic-run → judgment sub-agent (per halt/deadlock event)",
+      "the named judgment-sub-agent Task surface opener",
+    ],
+    [
+      "task-tool-unavailable: epic-run-judgment",
+      "the escalate-on-Task-miss NEEDS HUMAN tag",
+    ],
+    ['ToolSearch query="select:Task"', "the Task-schema load preamble"],
   ];
 
   it.each(REQUIRED_LITERALS)(
@@ -3757,6 +3767,19 @@ describe("/epic-run supervisor SKILL.md literal anchors", () => {
       "epic-run/SKILL.md must state the gated-autonomous-redirect corollary " +
         "'redirect never fires on a gated feature' (autonomous redirect is " +
         "actuated when enabled but never overrides a gated verdict).",
+    ).toBe(true);
+  });
+
+  it("registers the judgment-sub-agent surface bidirectionally in AGENTS.md", () => {
+    // The named Task surface must appear with the same opener literal in both
+    // the SKILL and AGENTS.md, mirroring the /epic-create bidirectional
+    // registration — so neither doc can drift out of sync with the other.
+    const OPENER =
+      "Task-tool fan-out: /epic-run → judgment sub-agent (per halt/deadlock event)";
+    expect(
+      agentsContent.includes(OPENER),
+      "AGENTS.md's /epic-run bullet must name the judgment-sub-agent Task " +
+        `surface opener '${OPENER}' (bidirectional with epic-run/SKILL.md).`,
     ).toBe(true);
   });
 });
