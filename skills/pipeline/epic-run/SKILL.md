@@ -149,6 +149,15 @@ feature create` windows (the reconciler's existing job, unchanged), and emits a 
 object carrying `board`, `summary`, `epicStatus`, `toLaunch`, and the `event`
 classification (`green` | `halt` | `deadlock` | `done`). Branch on `.event.kind`.
 
+The reconciler also **adopts externally-merged nodes**: a feature whose
+`flow-epic` GitHub sub-issue is CLOSED counts as merged even when absent from
+`run.json`, so the frontier advances past it instead of re-launching a duplicate
+pipeline. It is derived live per-tick via one batched `gh issue list` call,
+degrades gracefully (no projection / gh failure → today's run.json-only
+behaviour), and runs only on the tick + judgment paths — read-only `flow epic
+status` / `flow epic ls` stay on the no-op default. Caveat: the signal is plain
+CLOSED state, so a "won't-do" close is indistinguishable from a "done" close.
+
 ## green — continue ticking, NO judgment
 
 In-flight / ready work, nothing halted. Apply **no** judgment. Sleep briefly,
