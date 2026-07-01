@@ -13,7 +13,9 @@
  *
  * Skip vocabulary: `plan-review-disabled` (gate off), `plan-unreadable`,
  * `no-decision-analysis` (omit-when-empty ⇒ nothing to review), `agy-not-found`
- * (propagated from a `ran:false` delegate). Exit 2 only on a usage error.
+ * (propagated from a `ran:false` delegate), `agy-error` (delegate output
+ * unparseable), and the local IO-throw defensive skips `plan-prep-failed`,
+ * `plan-output-unreadable`, `plan-finalize-failed`. Exit 2 only on a usage error.
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";

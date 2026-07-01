@@ -228,6 +228,59 @@ describe("run — branch on envelope.ran, never the exit code", () => {
   });
 });
 
+describe("run — stale --out cleanup on skip", () => {
+  it("removes a pre-existing stale --out file when a post-gate skip fires", () => {
+    // Pre-seed a stale feedback file from a prior run, then drive a skip that
+    // occurs AFTER the config gate (no-decision-analysis). The unconditional
+    // removeFile(parsed.out) must clear it so no stale feedback survives a skip.
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, PLAN_NO_SECTION);
+    deps.files.set(OUT, "stale prior feedback");
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps).skipReason).toBe("no-decision-analysis");
+    expect(deps.files.has(OUT)).toBe(false);
+    expect(deps.calls.removed).toContain(OUT);
+  });
+});
+
+describe("run — post-delegate error paths (ran:true → degrade to skip)", () => {
+  it("skips with plan-output-unreadable when reading the raw artifact throws", () => {
+    // Delegate reports ran:true but the raw artifact it points at can't be read.
+    const deps = makeDeps({
+      runDelegate: (argv) => {
+        deps.calls.delegate.push(argv);
+        const rawPath = argv[argv.indexOf("--out") + 1]!;
+        // Deliberately do NOT seed rawPath, so readFile(rawPath) throws.
+        return { ran: true, artifactPath: rawPath } as DelegateEnvelope;
+      },
+    });
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "plan-output-unreadable",
+    });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("skips with plan-finalize-failed when the final --out write throws", () => {
+    // Delegate produced a readable artifact, but finalizing --out fails: the
+    // helper must degrade to a skip rather than emit ran:true at a partial file.
+    const deps = makeDeps({
+      writeFile: (p, c) => {
+        if (p === OUT) throw new Error("ENOSPC");
+        deps.calls.writes.push({ path: p, contents: c });
+        deps.files.set(p, c);
+      },
+    });
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "plan-finalize-failed",
+    });
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+});
+
 describe("run — happy path", () => {
   it("copies AGY raw prose to --out and reports ran:true with skipReason null", () => {
     const deps = makeDeps();

@@ -244,12 +244,12 @@ No `npm run build` — flow ships `bin/flow` via Bun, no compile step.
 `.github/workflows/ci.yml` runs `npm run verify` (`typecheck:scripts` +
 vitest + lint) on every PR and push to `main` — the server-side backstop
 for the local-only `flow-pre-commit` gate (which a human pushing outside
-`/flow-pipeline` never invokes, and which an in-pipeline run can pass
-falsely against stale PATH-symlinked code). The runner installs Node and
-Bun (the vitest suite spawns `bun`). **Make the `verify` job a required
-status check** via a branch ruleset on `main` so a red PR can't merge —
-select the job name `verify` (shown as `CI / verify` in the checks tab).
-A repo-admin setting the workflow file can't enforce.
+`/flow-pipeline` never invokes, and an in-pipeline run can pass falsely
+against stale PATH-symlinked code). The runner installs Node and Bun
+(vitest spawns `bun`). **Make the `verify` job a required status check**
+via a branch ruleset (or classic branch protection) on `main` so a red
+PR can't merge — select job name `verify` (shown `CI / verify` in the
+checks tab). A repo-admin setting, not workflow-enforceable.
 
 ## What flow is *not*
 
