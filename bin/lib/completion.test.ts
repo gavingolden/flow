@@ -175,7 +175,11 @@ describe("completion scripts stay in sync with VERBS", () => {
       );
       expect(script).toContain("create");
       expect(script).toContain("resume");
-      // No lingering old verb arms / verb-list entries.
+      // No lingering old verb arms / verb-list entries. `setup` and `migrate`
+      // are pinnable as bare words (zero legitimate occurrences); `new` is NOT
+      // bare-word-assertable because the `create` subcommand's description
+      // ("start a new pipeline") legitimately contains the word.
+      expect(script).not.toMatch(/(^|[^\w-])setup([^\w-]|$)/m);
       expect(script).not.toMatch(/(^|[^\w-])migrate([^\w-]|$)/m);
     }
   });

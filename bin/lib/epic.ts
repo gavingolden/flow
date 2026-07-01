@@ -244,10 +244,10 @@ export type EpicOptions = {
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
-  // STEP 1: verb-level help guard FIRST, before any side effect. Unlike
-  // feature.ts (which has no subcommands and so scans the whole args array), this
-  // verb dispatches on a subcommand, so the verb-level guard must fire ONLY
-  // when the help flag is in the verb position (`flow epic --help`). Using
+  // STEP 1: verb-level help guard FIRST, before any side effect. Like
+  // feature.ts, this verb dispatches on a subcommand, so the verb-level guard
+  // must fire ONLY when the help flag is in the verb position
+  // (`flow epic --help`). Using
   // argsContainHelp(args) here would also match a subcommand-level flag like
   // `flow epic create --help` and wrongly print the verb help — instead, let
   // that fall through to the switch so runCreate's own argsContainHelp(rest)
