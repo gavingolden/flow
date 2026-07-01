@@ -177,6 +177,86 @@ describe("epic-run-state", () => {
     ).toBe(false);
   });
 
+  it("type-guard accepts a feature record carrying redirectCount + priorSlugs", () => {
+    expect(
+      isEpicRunState(
+        fixture("redirected", {
+          features: {
+            a: {
+              slug: "redirected-a-v2",
+              launchedAt: "2026-06-28T00:00:00Z",
+              redirectCount: 1,
+              priorSlugs: ["redirected-a"],
+            },
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("type-guard accepts a feature record WITHOUT redirectCount/priorSlugs (back-compat)", () => {
+    expect(
+      isEpicRunState(
+        fixture("legacy-redirect", {
+          features: {
+            a: {
+              slug: "legacy-redirect-a",
+              launchedAt: "2026-06-28T00:00:00Z",
+            },
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("type-guard rejects a wrong-typed redirectCount (string)", () => {
+    expect(
+      isEpicRunState(
+        fixture("bad-redirect", {
+          features: {
+            a: {
+              slug: "bad-redirect-a",
+              launchedAt: "2026-06-28T00:00:00Z",
+              redirectCount: "1",
+            },
+          } as never,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("type-guard rejects a non-string-array priorSlugs (numbers)", () => {
+    expect(
+      isEpicRunState(
+        fixture("bad-prior-arr", {
+          features: {
+            a: {
+              slug: "bad-prior-arr-a",
+              launchedAt: "2026-06-28T00:00:00Z",
+              priorSlugs: [1, 2],
+            },
+          } as never,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("type-guard rejects a non-array priorSlugs (string)", () => {
+    expect(
+      isEpicRunState(
+        fixture("bad-prior-str", {
+          features: {
+            a: {
+              slug: "bad-prior-str-a",
+              launchedAt: "2026-06-28T00:00:00Z",
+              priorSlugs: "redirected-a",
+            },
+          } as never,
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it.each([
     ["non-object lastJudgment", "escalate" as never],
     [

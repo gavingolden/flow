@@ -47,7 +47,7 @@ const tmuxMock = vi.hoisted(() => ({
 }));
 vi.mock("./tmux", () => tmuxMock);
 
-import { runEpicCli } from "./epic";
+import { runEpicCli, parseRunArgs } from "./epic";
 import { deriveWorktreePath } from "./feature";
 import { writeState } from "./state";
 import {
@@ -1205,6 +1205,56 @@ describe("runEpicCli run/status/ls", () => {
     const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(seed).toContain("Use the /epic-run skill for: spawn-epic");
     expect(seed).toContain(".flow/epics/spawn-epic");
+    // Default (no flag, injected config on) → autonomous redirect on.
+    expect(seed).toContain("AUTO_REDIRECT: on");
+  });
+
+  it("run (default): seed carries AUTO_REDIRECT: on when the config default is on", () => {
+    gitInit();
+    writeManifest("ar-on", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "ar-on"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+      readAutoRedirect: () => true,
+    });
+    expect(code).toBe(0);
+    const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(seed).toContain("AUTO_REDIRECT: on");
+    expect(seed).not.toContain("AUTO_REDIRECT: off");
+  });
+
+  it("run --no-auto-redirect: seed carries AUTO_REDIRECT: off (flag forces off)", () => {
+    gitInit();
+    writeManifest("ar-flag-off", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "ar-flag-off", "--no-auto-redirect"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+      // Even with config on, the flag forces the seed off.
+      readAutoRedirect: () => true,
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:ar-flag-off");
+    const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(seed).toContain("AUTO_REDIRECT: off");
+  });
+
+  it("run (default) with epic.autoRedirect off: seed carries AUTO_REDIRECT: off (config disables)", () => {
+    gitInit();
+    writeManifest("ar-config-off", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "ar-config-off"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+      readAutoRedirect: () => false,
+    });
+    expect(code).toBe(0);
+    const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(seed).toContain("AUTO_REDIRECT: off");
   });
 
   const seedRunState = (
@@ -1359,6 +1409,70 @@ describe("runEpicCli run/status/ls", () => {
     });
     expect(code).toBe(0);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run --no-auto-redirect composes with the spawn path (window spawned, seed off)", () => {
+    // --no-auto-redirect only tunes the seed; it does NOT force the foreground
+    // loop the way --once/--no-judgment do. The supervisor window still spawns.
+    gitInit();
+    writeManifest("ar-spawn", [{ id: "schema" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "ar-spawn", "--no-auto-redirect"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+      readAutoRedirect: () => true,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
+    const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(seed).toContain("AUTO_REDIRECT: off");
+  });
+
+  it("run --no-auto-redirect --no-judgment: --no-judgment still forces the foreground loop", () => {
+    gitInit();
+    writeManifest("ar-nojudge", [{ id: "schema" }]);
+    const code = runEpicCli(
+      ["run", "ar-nojudge", "--no-auto-redirect", "--no-judgment"],
+      {
+        cwd: repoDir,
+        epicsDir,
+        spawn: okSpawn(),
+        sleep: vi.fn(),
+        readFeatureState: allPhase("merged"),
+        readMaxParallel: () => 3,
+        readJudgment: () => true,
+      },
+    );
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  describe("parseRunArgs", () => {
+    it("sets noAutoRedirect:true on --no-auto-redirect", () => {
+      const parsed = parseRunArgs(["my-epic", "--no-auto-redirect"]);
+      expect(parsed.error).toBeUndefined();
+      expect(parsed.slug).toBe("my-epic");
+      expect(parsed.noAutoRedirect).toBe(true);
+    });
+
+    it("defaults noAutoRedirect:false absent the flag", () => {
+      const parsed = parseRunArgs(["my-epic"]);
+      expect(parsed.noAutoRedirect).toBe(false);
+    });
+
+    it("composes --no-auto-redirect with other flags", () => {
+      const parsed = parseRunArgs([
+        "my-epic",
+        "--no-judgment",
+        "--no-auto-redirect",
+        "--max-parallel",
+        "2",
+      ]);
+      expect(parsed.noAutoRedirect).toBe(true);
+      expect(parsed.noJudgment).toBe(true);
+      expect(parsed.maxParallel).toBe(2);
+    });
   });
 
   it("status: renders a board with feature rows + summary and exits 0", () => {
