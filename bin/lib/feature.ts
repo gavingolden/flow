@@ -19,6 +19,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import { slugify } from "./slug";
+import { confirmStdin } from "./confirm";
 import { toDirSuffix } from "./worktree-slot";
 import {
   createWindowVerified,
@@ -105,6 +106,16 @@ export type FeatureOptions = {
   command?: string[];
   /** Resume a crashed pipeline rather than start a new one. */
   resume?: boolean;
+  /**
+   * `--resume --force`: reclaim a live-but-idle pane in place instead of
+   * refusing it. The epic orchestrator's autonomous-retry path sets this to
+   * relaunch a halted feature whose `claude` pane is alive-but-idle
+   * (needs-human / gated / CI-fail). This is a CLEAN lifecycle respawn owned by
+   * the resume helper (the same `respawnWindowVerified` path the dead-pane
+   * resume already uses) — NOT `send-keys` input injection. Absent ⇒ the
+   * existing live-pane refusal stands.
+   */
+  force?: boolean;
   /** Override the state directory (test seam). */
   stateDir?: string;
   /** Persist `autoMerge: false` so the supervisor stops at gated. */
@@ -219,6 +230,10 @@ function runResumeCli(rest: string[], options: FeatureOptions = {}): number {
   // stray flags) from the positional list; the remainder is the de-duplicated
   // slug list.
   const yes = rest.includes("--yes") || rest.includes("-y");
+  // `--force` reclaims a live-but-idle pane in place (the epic orchestrator's
+  // autonomous-retry path). It's stripped from the slug list by the
+  // `!a.startsWith("-")` filter below; detect it here to thread into options.
+  const force = rest.includes("--force");
   const slugs = rest.filter(
     (a) => a !== "--yes" && a !== "-y" && !a.startsWith("-"),
   );
@@ -232,14 +247,14 @@ function runResumeCli(rest: string[], options: FeatureOptions = {}): number {
   // Single-slug resume routes straight through the UNCHANGED single-slug
   // path — no preview, no confirm — so its output stays byte-identical.
   if (deduped.length === 1) {
-    return runNew(deduped[0], { ...options, resume: true });
+    return runNew(deduped[0], { ...options, resume: true, force });
   }
   // Two or more slugs each spawn a Claude Code session: preview the count +
   // names and confirm once (unless --yes) before launching anything.
   if (!yes) {
     console.log(`will resume ${deduped.length} pipeline(s):`);
     for (const slug of deduped) console.log(`  ${slug}`);
-    if (!confirmResume("proceed?")) {
+    if (!confirmStdin("proceed?")) {
       console.log(dim("flow feature resume: aborted — nothing resumed"));
       return 0;
     }
@@ -248,7 +263,7 @@ function runResumeCli(rest: string[], options: FeatureOptions = {}): number {
   // deterministic; per-slug validation/refusal is inherited from runResume.
   let failed = 0;
   for (const slug of deduped) {
-    if (runNew(slug, { ...options, resume: true }) !== 0) failed += 1;
+    if (runNew(slug, { ...options, resume: true, force }) !== 0) failed += 1;
   }
   return failed > 0 ? 1 : 0;
 }
@@ -595,9 +610,22 @@ function runResume(name: string, options: FeatureOptions): number {
 
   const exists = windowExists(slug);
   if (exists && isPaneAlive(slug)) {
-    console.error(`flow feature resume: pipeline '${slug}' is still running.`);
-    console.error(`  attach with \`flow attach ${slug}\` instead of resuming.`);
-    return 1;
+    if (!options.force) {
+      console.error(
+        `flow feature resume: pipeline '${slug}' is still running.`,
+      );
+      console.error(
+        `  attach with \`flow attach ${slug}\` instead of resuming.`,
+      );
+      return 1;
+    }
+    // --force: reclaim the live-idle pane IN PLACE by falling through to the
+    // SAME `respawnWindowVerified` branch the dead-pane path uses (a clean
+    // lifecycle respawn, never `send-keys`). The notice goes to stderr so the
+    // machine-read `flow:<slug>` first stdout line stays the contract token.
+    console.error(
+      `flow feature resume --force: reclaiming live-idle pane for ${slug}`,
+    );
   }
 
   // The repo non-null guard above already returned; bind it so the launch
@@ -880,23 +908,6 @@ function withLaunchSlot(
       ? { timeoutMs: options.launchSemTimeoutMs, pollMs: 5 }
       : {};
   return withTestSemaphore(semDir, slots, launch, semOpts).result;
-}
-
-// Duplicated from done.ts's confirm() rather than extracted to a shared
-// bin/lib/confirm.ts: two consumers with distinct gate semantics (destructive
-// done-confirm vs. session-spawn resume preview) don't yet justify a shared
-// module (No-premature-abstraction). If a third consumer appears, extract then.
-function confirmResume(prompt: string): boolean {
-  process.stdout.write(`${prompt} [y/N] `);
-  const buf = Buffer.alloc(16);
-  let len = 0;
-  try {
-    len = fs.readSync(0, buf, 0, buf.length, null);
-  } catch {
-    return false;
-  }
-  const answer = buf.subarray(0, len).toString("utf8").trim().toLowerCase();
-  return answer === "y" || answer === "yes";
 }
 
 function resolveRepoRoot(cwd: string): string | null {

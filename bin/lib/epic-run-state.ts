@@ -21,6 +21,14 @@ import { FLOW_EPICS_DIR } from "./paths";
 
 export const EPIC_RUN_STATE_FILENAME = "run.json";
 
+/** The last judgment decision the `/epic-run` supervisor recorded for a feature. */
+export type FeatureJudgment = {
+  action: "retry" | "redirect" | "escalate";
+  reason: string;
+  /** ISO timestamp the decision was recorded. */
+  at: string;
+};
+
 /** A single launched feature's runtime record. */
 export type FeatureRunRecord = {
   /** The authoritative slug `flow feature create` minted (parsed from its stdout). */
@@ -30,6 +38,10 @@ export type FeatureRunRecord = {
   pr?: number;
   /** Last observed pipeline phase for the feature, when known. */
   lastStatus?: string;
+  /** Per-feature autonomous-retry budget counter; absent ⇒ 0. */
+  retryCount?: number;
+  /** The last judgment decision recorded for this feature; absent ⇒ none. */
+  lastJudgment?: FeatureJudgment;
 };
 
 export type EpicRunState = {
@@ -43,10 +55,30 @@ export type EpicRunState = {
   createdAt: string;
   updatedAt: string;
   features: Record<string, FeatureRunRecord>;
+  /**
+   * The `/epic-run` supervisor writes this on first tick so the window-launch
+   * `consumed()` predicate has something to verify; absent ⇒ supervisor not yet
+   * started.
+   */
+  runnerPhase?: "running" | "blocked" | "done";
 };
 
 export function epicRunStatePath(slug: string, dir = FLOW_EPICS_DIR): string {
   return path.join(dir, slug, EPIC_RUN_STATE_FILENAME);
+}
+
+function isFeatureJudgment(x: unknown): x is FeatureJudgment {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  if (
+    o.action !== "retry" &&
+    o.action !== "redirect" &&
+    o.action !== "escalate"
+  )
+    return false;
+  if (typeof o.reason !== "string") return false;
+  if (typeof o.at !== "string") return false;
+  return true;
 }
 
 function isFeatureRunRecord(x: unknown): x is FeatureRunRecord {
@@ -56,6 +88,10 @@ function isFeatureRunRecord(x: unknown): x is FeatureRunRecord {
   if (typeof o.launchedAt !== "string") return false;
   if (o.pr !== undefined && typeof o.pr !== "number") return false;
   if (o.lastStatus !== undefined && typeof o.lastStatus !== "string")
+    return false;
+  if (o.retryCount !== undefined && typeof o.retryCount !== "number")
+    return false;
+  if (o.lastJudgment !== undefined && !isFeatureJudgment(o.lastJudgment))
     return false;
   return true;
 }
@@ -80,6 +116,13 @@ export function isEpicRunState(x: unknown): x is EpicRunState {
   if (typeof o.createdAt !== "string") return false;
   if (typeof o.updatedAt !== "string") return false;
   if (!isFeatureMap(o.features)) return false;
+  if (
+    o.runnerPhase !== undefined &&
+    o.runnerPhase !== "running" &&
+    o.runnerPhase !== "blocked" &&
+    o.runnerPhase !== "done"
+  )
+    return false;
   return true;
 }
 
@@ -106,6 +149,27 @@ export function writeEpicRunState(
     epicRunStatePath(state.epicSlug, dir),
     JSON.stringify(state, null, 2) + "\n",
   );
+}
+
+/**
+ * Remove the per-machine `<dir>/<slug>/` run-state directory recursively.
+ * Returns `true` when the directory existed and was removed, `false` when it
+ * was absent or removal failed. Mirrors `deleteState` in `state.ts`; this is
+ * recomputable runtime cache, so a failed/absent removal is a soft `false`,
+ * never a throw.
+ */
+export function deleteEpicRunState(
+  slug: string,
+  dir = FLOW_EPICS_DIR,
+): boolean {
+  const target = path.join(dir, slug);
+  try {
+    if (!fs.existsSync(target)) return false;
+    fs.rmSync(target, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Every epic whose `~/.flow/epics/<slug>/run.json` parses to a valid state. */

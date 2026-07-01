@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  deleteEpicRunState,
   epicRunStatePath,
   isEpicRunState,
   listEpicRunStates,
@@ -127,6 +128,94 @@ describe("epic-run-state", () => {
     ).toBe(true);
   });
 
+  it("type-guard accepts a feature record carrying retryCount + lastJudgment", () => {
+    expect(
+      isEpicRunState(
+        fixture("judged", {
+          features: {
+            a: {
+              slug: "judged-a",
+              launchedAt: "2026-06-28T00:00:00Z",
+              retryCount: 1,
+              lastJudgment: {
+                action: "retry",
+                reason: "transient CI flake",
+                at: "2026-06-29T00:00:00Z",
+              },
+            },
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("type-guard accepts a feature record WITHOUT the new judgment fields (back-compat)", () => {
+    expect(
+      isEpicRunState(
+        fixture("legacy", {
+          features: {
+            a: { slug: "legacy-a", launchedAt: "2026-06-28T00:00:00Z" },
+          },
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("type-guard rejects a wrong-typed retryCount (string)", () => {
+    expect(
+      isEpicRunState(
+        fixture("bad-retry", {
+          features: {
+            a: {
+              slug: "bad-retry-a",
+              launchedAt: "2026-06-28T00:00:00Z",
+              retryCount: "1",
+            },
+          } as never,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it.each([
+    ["non-object lastJudgment", "escalate" as never],
+    [
+      "wrong-typed action (number)",
+      { action: 1, reason: "x", at: "t" } as never,
+    ],
+    ["missing at field", { action: "retry", reason: "x" } as never],
+    [
+      "invalid action literal",
+      { action: "merge", reason: "x", at: "t" } as never,
+    ],
+  ])("type-guard rejects a wrong-typed lastJudgment: %s", (_label, bad) => {
+    expect(
+      isEpicRunState(
+        fixture("bad-judgment", {
+          features: {
+            a: {
+              slug: "bad-judgment-a",
+              launchedAt: "2026-06-28T00:00:00Z",
+              lastJudgment: bad,
+            },
+          } as never,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("type-guard accepts a valid top-level runnerPhase and rejects a wrong literal", () => {
+    for (const phase of ["running", "blocked", "done"] as const) {
+      expect(isEpicRunState(fixture("rp", { runnerPhase: phase }))).toBe(true);
+    }
+    // Absent is fine (back-compat).
+    expect(isEpicRunState(fixture("rp-absent"))).toBe(true);
+    // A value outside the three literals is rejected.
+    expect(
+      isEpicRunState(fixture("rp-bad", { runnerPhase: "paused" as never })),
+    ).toBe(false);
+  });
+
   it("listEpicRunStates returns every epic with a valid run.json", () => {
     writeEpicRunState(fixture("alpha"), dir);
     writeEpicRunState(fixture("beta", { maxParallel: 2 }), dir);
@@ -146,5 +235,26 @@ describe("epic-run-state", () => {
 
   it("listEpicRunStates returns [] when the root is missing", () => {
     expect(listEpicRunStates(path.join(dir, "nope"))).toEqual([]);
+  });
+
+  it("deleteEpicRunState removes a populated dir and returns true", () => {
+    writeEpicRunState(fixture("gone"), dir);
+    expect(deleteEpicRunState("gone", dir)).toBe(true);
+    expect(fs.existsSync(path.join(dir, "gone"))).toBe(false);
+  });
+
+  it("deleteEpicRunState returns false for an absent dir without throwing", () => {
+    expect(deleteEpicRunState("never", dir)).toBe(false);
+  });
+
+  it("deleteEpicRunState only removes the target slug", () => {
+    writeEpicRunState(fixture("keep"), dir);
+    writeEpicRunState(fixture("drop"), dir);
+    expect(deleteEpicRunState("drop", dir)).toBe(true);
+    expect(
+      listEpicRunStates(dir)
+        .map((s) => s.epicSlug)
+        .sort(),
+    ).toEqual(["keep"]);
   });
 });

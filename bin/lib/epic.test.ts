@@ -50,7 +50,11 @@ vi.mock("./tmux", () => tmuxMock);
 import { runEpicCli } from "./epic";
 import { deriveWorktreePath } from "./feature";
 import { writeState } from "./state";
-import { writeEpicRunState } from "./epic-run-state";
+import {
+  writeEpicRunState,
+  readEpicRunState,
+  type EpicRunState,
+} from "./epic-run-state";
 
 let logs!: string[];
 let errors!: string[];
@@ -1026,7 +1030,9 @@ describe("runEpicCli run/status/ls", () => {
     ]);
     const spawn = okSpawn();
     const sleep = vi.fn();
-    const code = runEpicCli(["run", "done-epic"], {
+    // --no-judgment keeps the foreground deterministic loop (default now spawns
+    // the /epic-run supervisor window instead — covered separately below).
+    const code = runEpicCli(["run", "done-epic", "--no-judgment"], {
       cwd: repoDir,
       epicsDir,
       spawn,
@@ -1037,6 +1043,7 @@ describe("runEpicCli run/status/ls", () => {
     expect(code).toBe(0);
     expect(logs.join("\n")).toMatch(/epic complete: 2\/2/);
     expect(sleep).toHaveBeenCalled(); // it ticked more than once
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("run: frontier-empty-but-not-all-merged → non-zero 'blocked' naming the feature", () => {
@@ -1045,7 +1052,7 @@ describe("runEpicCli run/status/ls", () => {
       { id: "schema" },
       { id: "backend", dependsOn: ["schema"] },
     ]);
-    const code = runEpicCli(["run", "stuck"], {
+    const code = runEpicCli(["run", "stuck", "--no-judgment"], {
       cwd: repoDir,
       epicsDir,
       spawn: okSpawn(),
@@ -1133,7 +1140,7 @@ describe("runEpicCli run/status/ls", () => {
       stderr: "window 'flow:a' already exists",
     }));
     const sleep = vi.fn();
-    const code = runEpicCli(["run", "stuck-launch"], {
+    const code = runEpicCli(["run", "stuck-launch", "--no-judgment"], {
       cwd: repoDir,
       epicsDir,
       spawn: failSpawn,
@@ -1145,6 +1152,213 @@ describe("runEpicCli run/status/ls", () => {
     expect(errors.join("\n")).toMatch(/failed to launch/);
     // Bounded by LAUNCH_STALL_BUDGET (3) — it does NOT retry indefinitely.
     expect(failSpawn).toHaveBeenCalledTimes(3);
+  });
+
+  it("run --once --json: emits one parseable JSON tick carrying the event class", () => {
+    gitInit();
+    writeManifest("json-epic", [{ id: "schema" }]);
+    const code = runEpicCli(["run", "json-epic", "--once", "--json"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: okSpawn(),
+      sleep: vi.fn(),
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+    });
+    expect(code).toBe(0);
+    // --json suppresses the human renders, so stdout is exactly one JSON object.
+    const payload = JSON.parse(logs[0]!);
+    expect(payload.epicSlug).toBe("json-epic");
+    expect(payload.event.kind).toBe("green"); // a launchable frontier, nothing halted
+    expect(payload.epicStatus).toBe("running");
+    expect(Array.isArray(payload.board)).toBe(true);
+    expect(payload.summary.total).toBe(1);
+    expect(payload.toLaunch.map((f: { id: string }) => f.id)).toEqual([
+      "schema",
+    ]);
+    // No window is spawned on the --once path.
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run --json without --once is rejected (exit 2)", () => {
+    gitInit();
+    const code = runEpicCli(["run", "j", "--json"], { cwd: repoDir, epicsDir });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/--json requires --once/);
+  });
+
+  it("run (default, judgment on): spawns exactly one verified /epic-run window", () => {
+    gitInit();
+    writeManifest("spawn-epic", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "spawn-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe("flow:spawn-epic");
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
+    // The seed (4th arg, send-keys delivery) carries the /epic-run prefix + the
+    // literal EPIC_DIR (R1) the SKILL parses.
+    const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(seed).toContain("Use the /epic-run skill for: spawn-epic");
+    expect(seed).toContain(".flow/epics/spawn-epic");
+  });
+
+  const seedRunState = (
+    slug: string,
+    manifestPath: string,
+    overrides: Partial<EpicRunState> = {},
+  ): EpicRunState => ({
+    epicSlug: slug,
+    repo: fs.realpathSync(repoDir),
+    manifestPath,
+    manifestSha: "sha",
+    maxParallel: 3,
+    createdAt: "2026-06-28T00:00:00Z",
+    updatedAt: "2026-06-28T00:00:00Z",
+    features: {},
+    ...overrides,
+  });
+
+  it("run (default): wires a consumed() predicate that latches only on runnerPhase='running'", () => {
+    // Mirror the create-path consumed-predicate test (line ~276) for the
+    // /epic-run spawn path, which was previously constructed but never
+    // exercised — a regression (wrong field / wrong literal / dropped
+    // epicsDir threading) would otherwise pass every test yet hang in prod.
+    gitInit();
+    const manifestPath = writeManifest("consumed-epic", [{ id: "a" }]);
+    freshWindowOk();
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.createWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { status: "started", stderr: "" };
+      },
+    );
+    const code = runEpicCli(["run", "consumed-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    expect(consumedFn).toBeDefined();
+    // No run.json yet → not consumed.
+    expect(consumedFn!()).toBe(false);
+    // A non-running phase must NOT satisfy consumption.
+    writeEpicRunState(
+      seedRunState("consumed-epic", manifestPath, { runnerPhase: "blocked" }),
+      epicsDir,
+    );
+    expect(consumedFn!()).toBe(false);
+    // Only the supervisor's `running` stamp flips it true.
+    writeEpicRunState(
+      seedRunState("consumed-epic", manifestPath, { runnerPhase: "running" }),
+      epicsDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+
+  it("run (default): clears a stale runnerPhase='running' before launch so consumed() can't latch on an orphaned marker", () => {
+    // Regression for the blocking bug: a supervisor that died abnormally leaves
+    // run.json with runnerPhase='running' but no window. On re-run the fresh
+    // window's FIRST consumed() probe must NOT short-circuit true over that
+    // stale marker (which would skip seed delivery + falsely report started).
+    gitInit();
+    const manifestPath = writeManifest("stale-epic", [{ id: "a" }]);
+    writeEpicRunState(
+      seedRunState("stale-epic", manifestPath, { runnerPhase: "running" }),
+      epicsDir,
+    );
+    freshWindowOk();
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.createWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { status: "started", stderr: "" };
+      },
+    );
+    const code = runEpicCli(["run", "stale-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    // The launch closure cleared the stale marker → first probe is false.
+    expect(consumedFn!()).toBe(false);
+    expect(
+      readEpicRunState("stale-epic", epicsDir)?.runnerPhase,
+    ).toBeUndefined();
+    // Only THIS run's fresh stamp re-latches consumption.
+    writeEpicRunState(
+      seedRunState("stale-epic", manifestPath, { runnerPhase: "running" }),
+      epicsDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+
+  it("run (default) refuses (exit 2) when a window already exists for the slug", () => {
+    gitInit();
+    writeManifest("dup-epic", [{ id: "a" }]);
+    tmuxMock.windowExists.mockReturnValue(true);
+    const code = runEpicCli(["run", "dup-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/already exists/);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run --once: takes the foreground loop, spawns no window", () => {
+    gitInit();
+    writeManifest("once-nowin", [{ id: "schema" }]);
+    const code = runEpicCli(["run", "once-nowin", "--once"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: okSpawn(),
+      sleep: vi.fn(),
+      readFeatureState: () => null,
+      readMaxParallel: () => 3,
+      readJudgment: () => true, // judgment on, but --once forces foreground
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run --no-judgment: takes the foreground loop, spawns no window", () => {
+    gitInit();
+    writeManifest("nojudge", [{ id: "schema" }]);
+    const code = runEpicCli(["run", "nojudge", "--no-judgment"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: okSpawn(),
+      sleep: vi.fn(),
+      readFeatureState: allPhase("merged"),
+      readMaxParallel: () => 3,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("run (default) with epic.judgment off: takes the foreground loop, spawns no window", () => {
+    gitInit();
+    writeManifest("judge-off", [{ id: "schema" }]);
+    const code = runEpicCli(["run", "judge-off"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn: okSpawn(),
+      sleep: vi.fn(),
+      readFeatureState: allPhase("merged"),
+      readMaxParallel: () => 3,
+      readJudgment: () => false,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("status: renders a board with feature rows + summary and exits 0", () => {
@@ -1310,5 +1524,119 @@ describe("runEpicCli usage errors", () => {
     const code = runEpicCli(["create"], { stateDir });
     expect(code).toBe(2);
     expect(errors.join("\n")).toMatch(/usage|required/i);
+  });
+});
+
+describe("runEpicCli done", () => {
+  const seedRun = (slug: string) =>
+    writeEpicRunState(
+      {
+        epicSlug: slug,
+        repo: "/tmp/repo",
+        manifestPath: "/tmp/repo/.flow/epics/" + slug + "/manifest.json",
+        manifestSha: "abc",
+        maxParallel: 3,
+        createdAt: "2026-06-28T12:00:00Z",
+        updatedAt: "2026-06-28T12:00:00Z",
+        features: {},
+      },
+      epicsDir,
+    );
+
+  it("--help returns 0 with no fs side effect", () => {
+    const before = fs.readdirSync(epicsDir);
+    expect(runEpicCli(["done", "--help"], { stateDir, epicsDir })).toBe(0);
+    expect(fs.readdirSync(epicsDir)).toEqual(before);
+  });
+
+  it("missing slug exits 2", () => {
+    expect(runEpicCli(["done"], { stateDir, epicsDir })).toBe(2);
+    expect(errors.join("\n")).toContain("flow epic done:");
+  });
+
+  it("nonexistent dir exits 1 without throwing", () => {
+    expect(runEpicCli(["done", "ghost"], { stateDir, epicsDir })).toBe(1);
+    expect(errors.join("\n")).toMatch(/no run-state/);
+  });
+
+  it("done <slug> --yes removes the dir and exits 0", () => {
+    seedRun("finished");
+    expect(
+      runEpicCli(["done", "finished", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "finished"))).toBe(false);
+    expect(logs.join("\n")).toMatch(/removed:/);
+  });
+
+  it("done <slug> -y removes the dir and exits 0 without the confirm seam", () => {
+    seedRun("short-flag");
+    const confirm = vi.fn(() => true);
+    expect(
+      runEpicCli(["done", "short-flag", "-y"], { stateDir, epicsDir, confirm }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "short-flag"))).toBe(false);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("rejects a traversal slug ('..') without deleting and exits 2", () => {
+    expect(runEpicCli(["done", "..", "--yes"], { stateDir, epicsDir })).toBe(2);
+    expect(errors.join("\n")).toMatch(/invalid slug/);
+    // The guard must fire BEFORE path.join(epicsDir, '..') + rmSync, which
+    // would otherwise recursively delete epicsDir's parent (all of ~/.flow).
+    expect(fs.existsSync(epicsDir)).toBe(true);
+  });
+
+  it("declined confirm leaves the dir and exits 0", () => {
+    seedRun("keepme");
+    expect(
+      runEpicCli(["done", "keepme"], {
+        stateDir,
+        epicsDir,
+        confirm: () => false,
+      }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "keepme"))).toBe(true);
+    expect(logs.join("\n")).toMatch(/aborted/);
+  });
+
+  it("accepted confirm removes the dir", () => {
+    seedRun("killme");
+    expect(
+      runEpicCli(["done", "killme"], {
+        stateDir,
+        epicsDir,
+        confirm: () => true,
+      }),
+    ).toBe(0);
+    expect(fs.existsSync(path.join(epicsDir, "killme"))).toBe(false);
+  });
+
+  it("cross-pointer hint fires when a pipeline-state file exists", () => {
+    seedRun("hinted");
+    writeState(
+      { slug: "hinted", phase: "epic-approved", repo: "", updatedAt: "" },
+      stateDir,
+    );
+    expect(
+      runEpicCli(["done", "hinted", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(logs.join("\n")).toMatch(/flow done hinted/);
+  });
+
+  it("cross-pointer hint fires when a tmux window exists", () => {
+    seedRun("winhint");
+    tmuxMock.windowExists.mockReturnValue(true);
+    expect(
+      runEpicCli(["done", "winhint", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(logs.join("\n")).toMatch(/flow done winhint/);
+  });
+
+  it("no hint when neither window nor state exists", () => {
+    seedRun("silent");
+    expect(
+      runEpicCli(["done", "silent", "--yes"], { stateDir, epicsDir }),
+    ).toBe(0);
+    expect(logs.join("\n")).not.toMatch(/flow done/);
   });
 });

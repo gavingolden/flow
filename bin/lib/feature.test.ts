@@ -199,6 +199,53 @@ describe("runNew --resume", () => {
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
+  it("--resume --force reclaims a live-idle pane in place (respawns instead of refusing)", () => {
+    // The epic orchestrator's autonomous-retry path: a needs-human/gated/CI-fail
+    // feature window is alive-but-idle, and --force respawns it via the SAME
+    // respawnWindowVerified branch the dead-pane path uses.
+    seedState("alive-forced");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(true);
+    const code = runFeatureCli(["resume", "alive-forced", "--force"], {
+      stateDir,
+      launchSettingsPath: path.join(stateDir, "launch-settings.json"),
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(
+      /reclaiming live-idle pane for alive-forced/,
+    );
+    // The refusal message must NOT fire under --force.
+    expect(errors.join("\n")).not.toMatch(/is still running/);
+  });
+
+  it("--resume WITHOUT --force still refuses a live pane (existing behavior preserved)", () => {
+    seedState("alive-noforce");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(true);
+    const code = runFeatureCli(["resume", "alive-noforce"], { stateDir });
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/is still running/);
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("--resume --force on a dead pane behaves like a normal resume (respawn, no reclaim notice)", () => {
+    seedState("dead-forced");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.isPaneAlive.mockReturnValue(false);
+    const code = runFeatureCli(["resume", "dead-forced", "--force"], {
+      stateDir,
+      launchSettingsPath: path.join(stateDir, "launch-settings.json"),
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    // Dead pane never triggers the live-idle reclaim notice.
+    expect(errors.join("\n")).not.toMatch(/reclaiming live-idle pane/);
+  });
+
   it("respawns the existing window when state exists and pane is dead", () => {
     seedState("crashed");
     tmuxMock.windowExists.mockReturnValue(true);

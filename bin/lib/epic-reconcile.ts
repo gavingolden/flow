@@ -63,6 +63,44 @@ export type ReconcileResult = {
   epicStatus: EpicStatus;
 };
 
+/**
+ * The `/epic-run` event taxonomy the LLM-judgment layer branches on, derived
+ * purely from a `ReconcileResult` — NOT a recomputation of the frontier or any
+ * change to `reconcile()`:
+ *
+ *   - `green`    — in-flight/ready work, nothing halted (no judgment needed).
+ *   - `halt`     — one or more features sit in a `HALT_STATUSES` state; the
+ *                  judgment layer interprets each halted id.
+ *   - `deadlock` — `epicStatus === "blocked"` with NO halted blockers and not
+ *                  all merged (the frontier is empty but the epic is not done —
+ *                  today's `blockers.length === 0` blocked branch in epic.ts).
+ *   - `done`     — all features merged.
+ */
+export type EpicEvent =
+  | { kind: "green" }
+  | { kind: "halt"; haltedIds: string[] }
+  | { kind: "deadlock" }
+  | { kind: "done" };
+
+/**
+ * Classify a tick's `ReconcileResult` into an `EpicEvent`. Precedence:
+ * `done` (all merged) ⇒ a halted feature anywhere on the board ⇒ a no-halted-
+ * blocker `blocked` deadlock ⇒ otherwise `green`. Halt outranks deadlock so a
+ * `blocked` epic whose block IS a halted feature surfaces its ids (the
+ * actionable case) rather than a generic deadlock; an independent branch still
+ * running alongside a halted feature is still a `halt`, since judgment is owed
+ * on the halted id regardless of `epicStatus`.
+ */
+export function classifyEvent(result: ReconcileResult): EpicEvent {
+  if (result.epicStatus === "done") return { kind: "done" };
+  const haltedIds = result.board
+    .filter((row) => HALT_STATUSES.has(row.status))
+    .map((row) => row.id);
+  if (haltedIds.length > 0) return { kind: "halt", haltedIds };
+  if (result.epicStatus === "blocked") return { kind: "deadlock" };
+  return { kind: "green" };
+}
+
 /** Seam to read a feature's live pipeline state (default: state.ts readState). */
 export type ReadFeatureState = (slug: string) => PipelineState | null;
 
