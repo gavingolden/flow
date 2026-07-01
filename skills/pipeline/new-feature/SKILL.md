@@ -296,6 +296,12 @@ interpretation` section, or the section's Recommended path is
     originated in discovery or in this Critical Analysis. When `.flow-tmp/plan.md` already
     carries a `## Plan risks` line, reconcile against it rather than duplicating — confirm the
     named risk still holds or update it if scouting changed the picture.
+  - **Reconcile the Decision analysis.** When `.flow-tmp/plan.md` carries a `## Decision analysis`
+    section (omit-when-empty, so it is present only when discovery found ≥1 consequential diverging
+    decision), read it and reconcile its ranked verdict against your post-scout findings — confirm
+    the verdict still holds or update it if scouting changed the downstream picture, mirroring the
+    `## Plan risks` reconciliation above. Omit this reconciliation entirely when plan.md has no
+    `## Decision analysis` section.
 
 ## 3. Write `it.todo()` Test Specs
 

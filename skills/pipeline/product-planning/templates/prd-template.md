@@ -98,6 +98,21 @@
 
 - [ ] [Anything still unresolved before implementation]
 
+## Decision analysis
+
+<!-- Omit-when-empty: include ONLY when discovery surfaced ≥1 consequential open
+     decision whose branches genuinely diverge; otherwise omit the heading entirely
+     (never an empty heading). For each such decision: illustrate each branch's
+     downstream end-user/system flow, mark exclusive vs complementary, rank the
+     viable combinations, give a verdict that feeds ## Recommendation. Full contract
+     — omit-when-empty rule, relation to Open Questions, ceremony reconciliation —
+     lives in
+     skills/pipeline/product-planning/references/discovery-instructions.md
+     "Decision analysis" — the single source of truth. Do NOT inline the contract
+     here; this is a thin sketch. -->
+
+**Decision [X] — [the forking question]?** [illustrate each branch's downstream flow] [exclusive | complementary] Verdict: **[chosen branch]** — [one-line rationale].
+
 ## Recommendation
 
 <!-- Always present (unlike the omit-when-empty sections). One line: verdict +
