@@ -50,7 +50,11 @@ vi.mock("./tmux", () => tmuxMock);
 import { runEpicCli } from "./epic";
 import { deriveWorktreePath } from "./new";
 import { writeState } from "./state";
-import { writeEpicRunState } from "./epic-run-state";
+import {
+  writeEpicRunState,
+  readEpicRunState,
+  type EpicRunState,
+} from "./epic-run-state";
 
 let logs!: string[];
 let errors!: string[];
@@ -1201,6 +1205,98 @@ describe("runEpicCli run/status/ls", () => {
     const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(seed).toContain("Use the /epic-run skill for: spawn-epic");
     expect(seed).toContain(".flow/epics/spawn-epic");
+  });
+
+  const seedRunState = (
+    slug: string,
+    manifestPath: string,
+    overrides: Partial<EpicRunState> = {},
+  ): EpicRunState => ({
+    epicSlug: slug,
+    repo: fs.realpathSync(repoDir),
+    manifestPath,
+    manifestSha: "sha",
+    maxParallel: 3,
+    createdAt: "2026-06-28T00:00:00Z",
+    updatedAt: "2026-06-28T00:00:00Z",
+    features: {},
+    ...overrides,
+  });
+
+  it("run (default): wires a consumed() predicate that latches only on runnerPhase='running'", () => {
+    // Mirror the create-path consumed-predicate test (line ~276) for the
+    // /epic-run spawn path, which was previously constructed but never
+    // exercised — a regression (wrong field / wrong literal / dropped
+    // epicsDir threading) would otherwise pass every test yet hang in prod.
+    gitInit();
+    const manifestPath = writeManifest("consumed-epic", [{ id: "a" }]);
+    freshWindowOk();
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.createWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { status: "started", stderr: "" };
+      },
+    );
+    const code = runEpicCli(["run", "consumed-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    expect(consumedFn).toBeDefined();
+    // No run.json yet → not consumed.
+    expect(consumedFn!()).toBe(false);
+    // A non-running phase must NOT satisfy consumption.
+    writeEpicRunState(
+      seedRunState("consumed-epic", manifestPath, { runnerPhase: "blocked" }),
+      epicsDir,
+    );
+    expect(consumedFn!()).toBe(false);
+    // Only the supervisor's `running` stamp flips it true.
+    writeEpicRunState(
+      seedRunState("consumed-epic", manifestPath, { runnerPhase: "running" }),
+      epicsDir,
+    );
+    expect(consumedFn!()).toBe(true);
+  });
+
+  it("run (default): clears a stale runnerPhase='running' before launch so consumed() can't latch on an orphaned marker", () => {
+    // Regression for the blocking bug: a supervisor that died abnormally leaves
+    // run.json with runnerPhase='running' but no window. On re-run the fresh
+    // window's FIRST consumed() probe must NOT short-circuit true over that
+    // stale marker (which would skip seed delivery + falsely report started).
+    gitInit();
+    const manifestPath = writeManifest("stale-epic", [{ id: "a" }]);
+    writeEpicRunState(
+      seedRunState("stale-epic", manifestPath, { runnerPhase: "running" }),
+      epicsDir,
+    );
+    freshWindowOk();
+    let consumedFn: (() => boolean) | undefined;
+    tmuxMock.createWindowVerified.mockImplementation(
+      (_name, _cwd, _command, _seed, deps) => {
+        consumedFn = deps?.consumed;
+        return { status: "started", stderr: "" };
+      },
+    );
+    const code = runEpicCli(["run", "stale-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    // The launch closure cleared the stale marker → first probe is false.
+    expect(consumedFn!()).toBe(false);
+    expect(
+      readEpicRunState("stale-epic", epicsDir)?.runnerPhase,
+    ).toBeUndefined();
+    // Only THIS run's fresh stamp re-latches consumption.
+    writeEpicRunState(
+      seedRunState("stale-epic", manifestPath, { runnerPhase: "running" }),
+      epicsDir,
+    );
+    expect(consumedFn!()).toBe(true);
   });
 
   it("run (default) refuses (exit 2) when a window already exists for the slug", () => {

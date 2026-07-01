@@ -7,6 +7,7 @@ import {
   parseArgs,
   tailBound,
   fetchCiFailure,
+  fetchPrReview,
   CI_LOG_TAIL_LINES,
   CI_LOG_TAIL_BYTES,
 } from "./flow-epic-judge-context";
@@ -193,6 +194,45 @@ describe(fetchCiFailure, () => {
     expect(ev.failingChecks).toEqual([]);
     expect(ev.logTail).toBe("");
     expect(ev.truncated).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fetchPrReview (stubbed gh)
+// ---------------------------------------------------------------------------
+
+describe(fetchPrReview, () => {
+  it("parses the populated success path (state + reviewDecision)", () => {
+    const gh: GhRunner = (argv) => {
+      if (argv[0] === "pr" && argv[1] === "view") {
+        return {
+          stdout: JSON.stringify({
+            state: "OPEN",
+            reviewDecision: "CHANGES_REQUESTED",
+          }),
+          stderr: "",
+          exitCode: 0,
+        };
+      }
+      return { stdout: "", stderr: "", exitCode: 1 };
+    };
+    expect(fetchPrReview(42, gh)).toEqual({
+      state: "OPEN",
+      reviewDecision: "CHANGES_REQUESTED",
+    });
+  });
+
+  it("degrades to null when gh exits non-zero", () => {
+    expect(fetchPrReview(42, ghNone)).toBe(null);
+  });
+
+  it("degrades to null when the JSON payload fails to parse", () => {
+    const gh: GhRunner = () => ({
+      stdout: "not json {",
+      stderr: "",
+      exitCode: 0,
+    });
+    expect(fetchPrReview(42, gh)).toBe(null);
   });
 });
 
@@ -469,6 +509,32 @@ describe("record mode", () => {
     expect(exit).toBe(0);
     expect(out.ok).toBe(false);
     expect(out.reason).toBe("feature-not-in-run-state");
+  });
+
+  it("treats a '__proto__' feature key as not-found and does not pollute Object.prototype", () => {
+    writeEpicRunState(baseRunState(), epicsDir);
+    const { exit, out } = runJson(
+      [
+        "record",
+        "--slug",
+        "epic-x",
+        "--feature",
+        "__proto__",
+        "--action",
+        "retry",
+        "--reason",
+        "x",
+        "--increment-retry",
+      ],
+      { stateDir, epicsDir, now: () => FIXED_NOW },
+    );
+    expect(exit).toBe(0);
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe("feature-not-in-run-state");
+    // The Object.hasOwn guard means the bracket lookup never resolved to
+    // Object.prototype, so the record-write below never fired against it.
+    expect(({} as Record<string, unknown>).lastJudgment).toBeUndefined();
+    expect(({} as Record<string, unknown>).retryCount).toBeUndefined();
   });
 });
 

@@ -852,16 +852,30 @@ function spawnEpicRunSupervisor(
     createCommand(worktree, options.effort, settingsPath, options.model);
 
   // Consumption = the supervisor advanced run-state `runnerPhase` to `running`
-  // on first entry (its documented first action). Re-read every attempt inside
-  // the closure so a killed-then-retried window can't satisfy the next
-  // attempt's predicate against a stale `running` marker.
-  const launch = () =>
-    createWindowVerified(slug, repo, command, seed, {
+  // on first entry (its documented first action). Clear any pre-existing
+  // `runnerPhase` at the START of EVERY launch attempt — mirroring how
+  // runFresh/runCreate rewrite `phase: "starting"` per attempt — so consumed()
+  // only latches on a `running` stamp THIS run's supervisor makes. Re-reading
+  // alone is insufficient: a supervisor that died abnormally (crash / closed
+  // window / reboot) before its graceful `blocked`/`done` stamp leaves
+  // `runnerPhase: "running"` in run.json; with the window gone, the `already
+  // exists` refusal doesn't fire, and on re-run the fresh window's FIRST
+  // consumed() probe would read that stale marker and short-circuit true —
+  // the seed is never sent (tmux guards it behind `!consumed()`) and the CLI
+  // falsely reports "supervisor started" over an idle orphan window.
+  const launch = () => {
+    const existing = readEpicRunState(slug, options.epicsDir);
+    if (existing && existing.runnerPhase !== undefined) {
+      existing.runnerPhase = undefined;
+      writeEpicRunState(existing, options.epicsDir);
+    }
+    return createWindowVerified(slug, repo, command, seed, {
       consumed: () => {
         const rs = readEpicRunState(slug, options.epicsDir);
         return rs != null && rs.runnerPhase === "running";
       },
     });
+  };
   const result = launchWithRetry(launch, options.retrySleepMs);
   if (result.status === "failed") {
     console.error(

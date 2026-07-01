@@ -368,7 +368,13 @@ export function recordJudgment(args: RecordArgs, deps: Resolved): unknown {
   const at = deps.now();
   let record: FeatureRunRecord | null = null;
   if (args.feature !== undefined) {
-    record = runState.features[args.feature] ?? null;
+    // Guard the bracket lookup with Object.hasOwn so an unvalidated CLI
+    // `--feature __proto__`/`constructor` resolves to not-found rather than
+    // Object.prototype (which is truthy, bypassing the guard, and would then
+    // pollute the prototype via the `record.lastJudgment = …` write below).
+    record = Object.hasOwn(runState.features, args.feature)
+      ? runState.features[args.feature]
+      : null;
     if (!record) {
       return { ok: false, mode: "record", reason: "feature-not-in-run-state" };
     }
