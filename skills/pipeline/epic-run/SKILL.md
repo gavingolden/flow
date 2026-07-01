@@ -196,8 +196,14 @@ For **each** halted id:
      --action <action> --reason "<reason>" \
      --overridable <flags.overridable> \
      $( [ "<flags.budgetExhausted>" = true ] && echo --budget-exhausted ) \
-     $( [ "<recorded action>" = retry ] && echo --increment-retry )
+     $( [ "<action>" = retry ] && echo --increment-retry )
    ```
+
+   Gate `--increment-retry` on the sub-agent's **decided** `<action>` (read in
+   step 4, before this record runs) — not on the post-record action, which
+   isn't known yet. The record seam already suppresses the increment when it
+   downgrades a `retry`→`escalate` (its `!downgraded` guard), so passing the
+   flag on a decided `retry` is safe even when the downgrade fires.
 
    Then branch on the **recorded** action (post-downgrade — re-read the record's
    `lastJudgment.action` from the echoed result):

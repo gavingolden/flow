@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   run,
   parseArgs,
+  recordJudgment,
   tailBound,
   fetchCiFailure,
   fetchPrReview,
@@ -704,6 +705,31 @@ describe("record mode", () => {
     expect("error" in r && r.error).toBe(
       "record: --overridable must be true or false",
     );
+  });
+
+  it("returns invalid-judgment when the decision fails validateEpicJudgment", () => {
+    // Direct call: parseArgs pre-validates action/reason on the public `run`
+    // path, so the `!valid.ok` early-return is only reachable by driving
+    // recordJudgment directly with an off-shape decision (here an empty reason).
+    writeEpicRunState(baseRunState(), epicsDir);
+    const out = recordJudgment(
+      {
+        slug: "epic-x",
+        feature: "foundation",
+        action: "retry",
+        reason: "",
+        incrementRetry: false,
+      },
+      { gh: ghNone, stateDir, epicsDir, maxRetries: 2, now: () => FIXED_NOW },
+    ) as Record<string, unknown>;
+    expect(out.ok).toBe(false);
+    expect(out.reason).toBe(
+      "invalid-judgment: 'reason' must be a non-empty string",
+    );
+    // No write happened: the pre-seeded feature record is untouched.
+    expect(
+      readEpicRunState("epic-x", epicsDir)?.features.foundation.lastJudgment,
+    ).toBeUndefined();
   });
 
   it("tolerantly reports feature-not-in-run-state", () => {

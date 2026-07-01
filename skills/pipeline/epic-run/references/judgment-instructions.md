@@ -30,10 +30,12 @@ Follow the steps below in order.
 
 ## 1. Load context
 
-`cd` into the consumer-repo working directory the wrapper passes you. You run
-cwd'd in a consumer worktree where flow's `bin/lib/*` does NOT exist, so
-consume the **bare-name PATH helpers** (`flow-epic-judge-context`, `jq`)
-only — **never `import` `bin/lib`**.
+You run in the consumer-repo working directory you inherit from the
+supervisor's cwd (the spawn prompt passes `slug`, `EPIC_DIR`, `MODE`, and the
+artifact path — not a working-directory input), so no `cd` is required. That
+cwd is a consumer worktree where flow's `bin/lib/*` does NOT exist, so consume
+the **bare-name PATH helpers** (`flow-epic-judge-context`, `jq`) only —
+**never `import` `bin/lib`**.
 
 ## 2. Assemble the bounded evidence
 
