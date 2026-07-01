@@ -6,14 +6,13 @@
  */
 
 export const VERBS = [
-  "setup",
-  "new",
+  "install",
+  "feature",
   "epic",
   "ls",
   "attach",
   "a",
   "done",
-  "migrate",
   "completion",
   "version",
   "help",

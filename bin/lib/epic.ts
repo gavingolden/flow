@@ -1,7 +1,7 @@
 /**
  * `flow epic <create|run|status|ls>` — the epic-designer/orchestrator verb.
  *
- * `flow epic create "<prompt>"` mirrors `flow new`: it mints the epic id +
+ * `flow epic create "<prompt>"` mirrors `flow feature create`: it mints the epic id +
  * the literal epic directory (CLI-side, R1), spawns a per-pipeline tmux window
  * running the `/epic-create` supervisor skill, and writes initial epic state
  * (`phase: "starting"`). The supervisor drives clarification → designer →
@@ -9,7 +9,7 @@
  *
  * `flow epic create --resume <slug>` re-launches a crashed `/epic-create`
  * session in its existing tmux window (or recreates it if tmux died too) using
- * the epic resume seed prompt — full parity with `flow new --resume`.
+ * the epic resume seed prompt — full parity with `flow feature resume`.
  *
  * R1 (the consumer-worktree seam): the CLI is the SOLE evaluator of
  * `epicDirRelative(slug)` + the filename constants — flow's installed code,
@@ -20,7 +20,7 @@
  *
  * The orchestrator RUN phase: `run` drives an epic to completion via a
  * foreground watch loop (tick → launch the ready frontier as parallel `flow
- * new` windows → sleep → re-tick, exiting on done/blocked), `status` renders
+ * feature create` windows → sleep → re-tick, exiting on done/blocked), `status` renders
  * the live board read-only, and `ls` lists every epic under `~/.flow/epics/`.
  * All three read the committed `.flow/epics/<slug>/manifest.json` READ-ONLY and
  * keep per-machine runtime state at `~/.flow/epics/<slug>/run.json`.
@@ -51,7 +51,7 @@ import {
   deriveWorktreePath,
   backoffMsForAttempt,
   ensureLaunchSettings,
-} from "./new";
+} from "./feature";
 import {
   createWindowVerified,
   respawnWindowVerified,
@@ -104,7 +104,7 @@ const EPIC_POLL_INTERVAL_MS = 30_000;
 
 /**
  * Consecutive all-frontier-launch-failure ticks tolerated before the watch loop
- * bails to `blocked`. A single transient `flow new` failure self-heals on the
+ * bails to `blocked`. A single transient `flow feature create` failure self-heals on the
  * next tick, but a persistent one (e.g. a minted slug colliding with a
  * pre-existing tmux window) would otherwise spin the loop forever with no
  * progress and no terminal state.
@@ -112,10 +112,10 @@ const EPIC_POLL_INTERVAL_MS = 30_000;
 const LAUNCH_STALL_BUDGET = 3;
 
 /**
- * Bounded retry budget for the verified window create — mirrors new.ts. A
+ * Bounded retry budget for the verified window create — mirrors feature.ts. A
  * single transient launch failure self-heals; the loop terminates so a
  * genuinely broken `claude` can't hang the CLI. Between attempts an increasing
- * 1s → 2s → 4s backoff (via `backoffMsForAttempt` from new.ts) rides out a
+ * 1s → 2s → 4s backoff (via `backoffMsForAttempt` from feature.ts) rides out a
  * transient cold-start spike under concurrent load — a flat short retry would
  * land all three tries inside the same degraded window and fail together.
  */
@@ -211,7 +211,7 @@ export type EpicOptions = {
   sleep?: (ms: number) => void;
   /** Watch-loop poll interval in ms (default `EPIC_POLL_INTERVAL_MS`). */
   pollIntervalMs?: number;
-  /** Feature-launch spawn seam (default spawns the bare `flow new`). */
+  /** Feature-launch spawn seam (default spawns the bare `flow feature create`). */
   spawn?: SpawnFn;
   /** Per-feature live-state read seam (default `state.ts` readState). */
   readFeatureState?: ReadFeatureState;
@@ -244,10 +244,10 @@ export type EpicOptions = {
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
-  // STEP 1: verb-level help guard FIRST, before any side effect. Unlike
-  // new.ts (which has no subcommands and so scans the whole args array), this
-  // verb dispatches on a subcommand, so the verb-level guard must fire ONLY
-  // when the help flag is in the verb position (`flow epic --help`). Using
+  // STEP 1: verb-level help guard FIRST, before any side effect. Like
+  // feature.ts, this verb dispatches on a subcommand, so the verb-level guard
+  // must fire ONLY when the help flag is in the verb position
+  // (`flow epic --help`). Using
   // argsContainHelp(args) here would also match a subcommand-level flag like
   // `flow epic create --help` and wrongly print the verb help — instead, let
   // that fall through to the switch so runCreate's own argsContainHelp(rest)
@@ -302,7 +302,7 @@ PR → review checkpoint), and writes initial epic state under
     return 0;
   }
 
-  // Intercept --resume BEFORE the prompt parse (mirrors runNewCli's --resume
+  // Intercept --resume BEFORE the prompt parse (mirrors runFeatureCli's resume-subcommand
   // interception). `flow epic create --resume <slug>` dispatches to the resume
   // path; everything after --resume that isn't a flag is the slug.
   const resumeIdx = rest.indexOf("--resume");
@@ -314,7 +314,7 @@ PR → review checkpoint), and writes initial epic state under
     return runEpicResume(slugArg, options);
   }
 
-  // --effort / --model are VALUE flags (ported from new.ts's runNewCli). Parse
+  // --effort / --model are VALUE flags (ported from feature.ts's runCreateCli). Parse
   // + enum-validate BEFORE the prompt is built, so an invalid value exits with
   // epic's usage-error code (2 — NOT new's 1) and triggers no side-effect. The
   // flag + its value token are both stripped from `rest` before the join.
@@ -414,7 +414,7 @@ PR → review checkpoint), and writes initial epic state under
   const command =
     options.command ?? createCommand(worktree, effort, settingsPath, model);
 
-  // Persist-then-verify-then-delete-on-failure (mirrors new.ts runFresh): write
+  // Persist-then-verify-then-delete-on-failure (mirrors feature.ts runFresh): write
   // epic state(phase=starting) BEFORE the verified launch so the /epic-create
   // supervisor has a file to advance and the `consumed` predicate has a
   // baseline. The no-orphan guarantee is preserved by deleting this file on
@@ -422,7 +422,7 @@ PR → review checkpoint), and writes initial epic state under
   const existing = readState(slug, options.stateDir);
 
   // Re-establish the `starting` baseline at the START of EVERY launch attempt
-  // (inside the retry closure), not once before the loop — mirrors new.ts
+  // (inside the retry closure), not once before the loop — mirrors feature.ts
   // runFresh. `launchWithRetry` reuses one closure across attempts and
   // createWindowVerified kills its window on failure, so an attempt that
   // advanced the phase then died would otherwise leave state non-`starting`,
@@ -445,7 +445,7 @@ PR → review checkpoint), and writes initial epic state under
     );
     // Verify the window's process stayed up AND consumed the seed (the
     // supervisor advanced epic state.json past `starting`) before keeping that
-    // state (the intermittent `flow new` orphan bug). createWindowVerified owns
+    // state (the intermittent `flow feature create` orphan bug). createWindowVerified owns
     // seed delivery and kills its own half-created window on failure; the
     // delete-on-failure below removes the up-front state file.
     return createWindowVerified(slug, repo, command, seed, {
@@ -477,7 +477,7 @@ PR → review checkpoint), and writes initial epic state under
     return 2;
   }
 
-  // Mode-2 backstop (mirrors new.ts runFresh): the verified launch confirmed a
+  // Mode-2 backstop (mirrors feature.ts runFresh): the verified launch confirmed a
   // live, seeded window, but a window can still vanish between that check and now
   // (a racing kill, a tmux bounce). Never keep epic state for a window that is
   // already gone — delete the up-front file so no orphaned `phase: "starting"`
@@ -557,7 +557,7 @@ function runEpicResume(name: string, options: EpicOptions): number {
   const command =
     options.command ??
     resumeCommand(worktree, state.effort, settingsPath, state.model);
-  // Resume consumption baseline (mirrors new.ts runResume): on resume the phase
+  // Resume consumption baseline (mirrors feature.ts runResume): on resume the phase
   // is already past `starting` (`epic-designing`), so consumption is "the
   // resumed session RE-STAMPED the seed-ingested marker OR the resumed
   // supervisor bumped `updatedAt` past this pre-respawn value". BOTH baselines
@@ -1128,7 +1128,7 @@ function runWatchLoop(
     if (r.running === 0 && r.launched === 0 && r.attempted > 0) {
       if (++stalledTicks >= LAUNCH_STALL_BUDGET) {
         console.error(
-          `epic blocked — ${r.launchFailedIds.join(", ")} failed to launch ${LAUNCH_STALL_BUDGET} consecutive ticks with nothing else in flight; fix the underlying \`flow new\` failure (e.g. a window-name collision), then re-run \`flow epic run ${slug}\`.`,
+          `epic blocked — ${r.launchFailedIds.join(", ")} failed to launch ${LAUNCH_STALL_BUDGET} consecutive ticks with nothing else in flight; fix the underlying \`flow feature create\` failure (e.g. a window-name collision), then re-run \`flow epic run ${slug}\`.`,
         );
         return 1;
       }
@@ -1348,12 +1348,12 @@ Options:
 }
 
 /**
- * `--add-dir <worktree>` (same rationale as new.ts's launchArgv: the
+ * `--add-dir <worktree>` (same rationale as feature.ts's launchArgv: the
  * chrome-devtools MCP workspace-root pre-authorization) plus the trailing
  * `--settings <flow-scoped file>`, which registers the UserPromptSubmit
  * seed-ingested hook and is ADDITIVE (the user's global settings still apply).
  * NO positional seed — the seed is delivered ONLY via send-keys by the verified
- * launcher (claude does not auto-run a positional prompt), mirroring new.ts's
+ * launcher (claude does not auto-run a positional prompt), mirroring feature.ts's
  * launchArgv.
  */
 function launchArgv(
@@ -1363,9 +1363,9 @@ function launchArgv(
   model?: ModelAlias,
 ): string[] {
   // Bare `claude` base (NO `env FLOW_PIPELINE=1` prefix — that marker is a
-  // new.ts-only concern; epic's launch env stays deliberately bare). NO
+  // feature.ts-only concern; epic's launch env stays deliberately bare). NO
   // positional seed — the seed is delivered ONLY via send-keys by the verified
-  // launcher (claude does not auto-run a positional prompt), mirroring new.ts.
+  // launcher (claude does not auto-run a positional prompt), mirroring feature.ts.
   // `--model` precedes `--effort` (both before `--settings`), in a deterministic
   // order so the argv assertions stay stable. Each is omitted when unset.
   const base = ["claude", "--add-dir", worktree];

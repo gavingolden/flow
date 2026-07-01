@@ -8,7 +8,7 @@
  * May 2026 chore-intent incident — the supervisor stopped at
  * `/new-feature`'s tail despite every layer being in place. The
  * structural defence is now `flow-stop-guard` (a Claude Code Stop hook
- * registered by `flow setup`), which intercepts the turn-end signal
+ * registered by `flow install`), which intercepts the turn-end signal
  * itself.
  *
  * This test grep-asserts what the new contract requires: the Hard rule
@@ -132,8 +132,8 @@ describe("flow-pipeline supervisor SKILL.md", () => {
       "# Notifications",
     );
 
-    it("documents that the helper is registered by flow setup", () => {
-      expect(section).toMatch(/flow setup/);
+    it("documents that the helper is registered by flow install", () => {
+      expect(section).toMatch(/flow install/);
     });
 
     it("documents the --no-hooks opt-out", () => {

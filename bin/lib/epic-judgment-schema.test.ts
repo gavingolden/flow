@@ -61,13 +61,15 @@ describe("validateEpicJudgment — halt/deadlock artifact round-trips", () => {
       action: "escalate",
       reason: "stuck orphan",
       probableCause: "orphan feature X",
-      suggestedRedirect: "re-run flow new for X",
+      suggestedRedirect: "re-run flow feature create for X",
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.action).toBe("escalate");
       expect(result.value.probableCause).toBe("orphan feature X");
-      expect(result.value.suggestedRedirect).toBe("re-run flow new for X");
+      expect(result.value.suggestedRedirect).toBe(
+        "re-run flow feature create for X",
+      );
     }
   });
 });

@@ -3,7 +3,7 @@
  * so `flow ls` reads one directory and state survives worktree cleanup.
  *
  * Schema is deliberately small. Writers:
- *   - `flow new`         creates with phase: "starting"
+ *   - `flow feature create`         creates with phase: "starting"
  *   - `flow-state-update` updates phase / pr / worktree at every transition
  *   - `flow done`        removes
  */
@@ -14,15 +14,15 @@ import { FLOW_STATE_DIR } from "./paths";
 
 /**
  * Reasoning-effort levels accepted by `claude --effort`. Single source of
- * truth: `new.ts` imports this for `flow new --effort` validation; help text
+ * truth: `feature.ts` imports this for `flow feature create --effort` validation; help text
  * and completion scripts necessarily restate the literals as plain strings.
  */
 export const EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 
 /**
- * Model aliases accepted by `claude --model`. Single source of truth: `new.ts`
- * and `epic.ts` import this for `flow new --model` / `flow epic create --model`
+ * Model aliases accepted by `claude --model`. Single source of truth: `feature.ts`
+ * and `epic.ts` import this for `flow feature create --model` / `flow epic create --model`
  * validation; help text and completion scripts necessarily restate the literals
  * as plain strings. Absent ≡ the Claude Code default model (no `--model` flag
  * passed). flow forwards the alias verbatim — it does not translate to a full
@@ -59,21 +59,21 @@ export type PipelineState = {
   /**
    * Tri-state opt-in for Copilot review on this pipeline's PR. `'always'`
    * always requests, `'never'` never requests, `'auto'` defers to the
-   * hybrid glob/inline-judgment classifier. Set via `flow new
+   * hybrid glob/inline-judgment classifier. Set via `flow feature create
    * --copilot-review <auto|always|never>`. Absent ≡ `'auto'` (the
    * documented default).
    */
   copilotReview?: "auto" | "always" | "never";
   /**
    * Claude Code reasoning-effort level for this pipeline's claude session.
-   * Set via `flow new --effort <low|medium|high|xhigh|max>` and re-applied
-   * to the respawn argv on `flow new --resume`. Absent ≡ the Claude Code
+   * Set via `flow feature create --effort <low|medium|high|xhigh|max>` and re-applied
+   * to the respawn argv on `flow feature resume`. Absent ≡ the Claude Code
    * default (no `--effort` flag passed).
    */
   effort?: EffortLevel;
   /**
    * Claude Code model alias for this pipeline's claude session. Set via
-   * `flow new --model <opus|haiku|sonnet|fable>` (or `flow epic create
+   * `flow feature create --model <opus|haiku|sonnet|fable>` (or `flow epic create
    * --model …`) and re-applied to the respawn argv on `--resume`. Absent ≡
    * the Claude Code default model (no `--model` flag passed).
    */

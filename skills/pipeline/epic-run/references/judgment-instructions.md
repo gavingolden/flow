@@ -12,7 +12,7 @@ own transcript across every halt across the epic's life (the one measured
 unbounded supervisor-context offender for a long run).
 
 You **DECIDE only. You never actuate.** The supervisor owns every side
-effect — the `flow-epic-judge-context record` write, the `flow new --resume`
+effect — the `flow-epic-judge-context record` write, the `flow feature resume`
 respawn, the `flow-notify` escalation. Your single output is the typed
 decision artifact you write to disk plus a brief both-sides summary you
 return on completion.
@@ -182,7 +182,7 @@ Before writing the artifact and returning, self-check:
 # Constraints
 
 - **Decision-only.** NEVER run `flow-epic-judge-context record`, NEVER
-  `flow new --resume`, NEVER `flow-notify`, NEVER `gh pr merge`, and NEVER
+  `flow feature resume`, NEVER `flow-notify`, NEVER `gh pr merge`, and NEVER
   `send-keys` into a window. Those are the supervisor's to actuate — you
   DECIDE, it ACTUATES and re-enforces the invariants.
 - NEVER author code or an autonomous redirect. `redirect` is

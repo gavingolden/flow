@@ -12,7 +12,7 @@
  *
  * `flow done --merged --orphans` — compose both filters in one sweep.
  * The preview tags each row `merged`, `orphan`, or `merged+orphan` so
- * an in-flight orphan a user meant to `flow new --resume` is visible
+ * an in-flight orphan a user meant to `flow feature resume` is visible
  * before confirming.
  */
 

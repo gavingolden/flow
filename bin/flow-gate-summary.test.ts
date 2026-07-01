@@ -53,11 +53,11 @@ describe("render — merged", () => {
       status: "merged",
       prUrl: "https://example/pr/1",
       deferredBlock:
-        "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow setup --upgrade  (exit 0)",
+        "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow install --upgrade  (exit 0)",
     });
     expect(out).toContain("FOLLOW-UPS:");
     expect(out).toContain("  LOCAL FOLLOW-UPS: 1 ran");
-    expect(out).toContain("  RAN     flow setup --upgrade  (exit 0)");
+    expect(out).toContain("  RAN     flow install --upgrade  (exit 0)");
     expect(finalLine(out)).toBe("MERGED");
   });
 
@@ -73,7 +73,7 @@ describe("render — merged", () => {
       deferredBlock:
         "LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed\n" +
         "\n" +
-        "  - [ ]   flow setup --upgrade  # new helper landed (auto)",
+        "  - [ ]   flow install --upgrade  # new helper landed (auto)",
     });
     const lines = out.split("\n");
     const idx = lines.findIndex((l) => l === "FOLLOW-UPS:");
@@ -85,7 +85,7 @@ describe("render — merged", () => {
       "  LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed",
     );
     expect(lines[idx + 2]).toBe(
-      "  - [ ]   flow setup --upgrade  # new helper landed (auto)",
+      "  - [ ]   flow install --upgrade  # new helper landed (auto)",
     );
     // No whitespace-only lines and no 4-space-indented lines anywhere
     // in the rendered block.

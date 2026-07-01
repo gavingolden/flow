@@ -56,7 +56,7 @@ export function decideNote(
   }
 
   const reason = computeReason(status, forced);
-  const noteLine = `Web-grounded research (discovery Step 1.5): ${reason}; force with \`flow new --research\`.`;
+  const noteLine = `Web-grounded research (discovery Step 1.5): ${reason}; force with \`flow feature create --research\`.`;
   return { noteLine, insertedText: `> [!NOTE]\n> ${noteLine}` };
 }
 

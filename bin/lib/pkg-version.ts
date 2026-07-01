@@ -12,7 +12,7 @@ import * as path from "node:path";
  * Reads the `version` field from `<source>/package.json`. Throws with a
  * caller-actionable message on a missing/unparseable file or absent field —
  * `runVersion` catches and routes to stderr; other consumers (e.g.
- * `flow setup`'s outcome headline) decide their own degradation.
+ * `flow install`'s outcome headline) decide their own degradation.
  */
 export function readFlowVersion(source: string): string {
   const pkgPath = path.join(source, "package.json");

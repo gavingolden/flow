@@ -4,12 +4,12 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
- * Structural lint for the `flow new --research` / `forceResearch` wiring.
+ * Structural lint for the `flow feature create --research` / `forceResearch` wiring.
  *
  * The force-research feature is a contract spread across five surfaces — the
  * `forceResearch` state field + validator, the `--research` CLI parse/strip,
- * the discovery Step 1.5 skip-note ("force with `flow new --research`"), the
- * `flow new --help` documentation, and the `RESEARCH: force-on` marker token
+ * the discovery Step 1.5 skip-note ("force with `flow feature create --research`"), the
+ * `flow feature create --help` documentation, and the `RESEARCH: force-on` marker token
  * that threads the force-on signal supervisor -> /product-planning -> discovery
  * across three skill files. None of the five is import-coupled to the others,
  * so a future edit could silently drop one (e.g. remove the help line, the
@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 const STATE_TS_PATH = path.resolve(HERE, "lib", "state.ts");
-const NEW_TS_PATH = path.resolve(HERE, "lib", "new.ts");
+const FEATURE_TS_PATH = path.resolve(HERE, "lib", "feature.ts");
 const HELP_TS_PATH = path.resolve(HERE, "lib", "help.ts");
 const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   HERE,
@@ -50,7 +50,7 @@ const PLANNING_SKILL_PATH = path.resolve(
 );
 
 const state = fs.readFileSync(STATE_TS_PATH, "utf8");
-const newTs = fs.readFileSync(NEW_TS_PATH, "utf8");
+const featureTs = fs.readFileSync(FEATURE_TS_PATH, "utf8");
 const help = fs.readFileSync(HELP_TS_PATH, "utf8");
 const discovery = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
 const pipelineSkill = fs.readFileSync(PIPELINE_SKILL_PATH, "utf8");
@@ -68,14 +68,14 @@ describe("forceResearch wiring lint", () => {
     ).toBe(true);
   });
 
-  it("(b) parses and strips the --research flag in new.ts", () => {
+  it("(b) parses and strips the --research flag in feature.ts", () => {
     expect(
-      newTs.includes('args.includes("--research")'),
-      "bin/lib/new.ts must detect the `--research` flag via args.includes.",
+      featureTs.includes('args.includes("--research")'),
+      "bin/lib/feature.ts must detect the `--research` flag via args.includes.",
     ).toBe(true);
     expect(
-      newTs.includes('a !== "--research"'),
-      "bin/lib/new.ts must strip the `--research` token before slugify (filter predicate).",
+      featureTs.includes('a !== "--research"'),
+      "bin/lib/feature.ts must strip the `--research` token before slugify (filter predicate).",
     ).toBe(true);
   });
 
@@ -86,10 +86,10 @@ describe("forceResearch wiring lint", () => {
     ).toBe(true);
   });
 
-  it("(d) documents --research in the flow new help text", () => {
+  it("(d) documents --research in the flow feature create help text", () => {
     expect(
       help.includes("--research"),
-      "bin/lib/help.ts must document the `--research` flag in `flow new --help`.",
+      "bin/lib/help.ts must document the `--research` flag in `flow feature create --help`.",
     ).toBe(true);
   });
 
@@ -111,7 +111,7 @@ describe("forceResearch wiring lint", () => {
   });
 
   it("(g) wires the deterministic forced-research runner (flow-research-run)", () => {
-    // `flow new --research` must execute research deterministically, not rely on
+    // `flow feature create --research` must execute research deterministically, not rely on
     // the discovery subagent's observed-skippable Step 1.5. Freeze both the
     // helper's existence and the supervisor's step-3 forced-path call to it —
     // dropping either silently un-wires forced research with every other test

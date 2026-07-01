@@ -82,10 +82,10 @@ describe("resolveJsonlPath", () => {
 // --- ALLOWLIST shape ---
 
 describe("ALLOWLIST", () => {
-  it("seeds with flow setup variants only", () => {
+  it("seeds with flow install variants only", () => {
     expect([...ALLOWLIST].sort()).toEqual([
-      "flow setup",
-      "flow setup --upgrade",
+      "flow install",
+      "flow install --upgrade",
     ]);
   });
 });
@@ -94,17 +94,19 @@ describe("ALLOWLIST", () => {
 
 describe("computeId", () => {
   it("is deterministic across calls", () => {
-    expect(computeId("flow setup", "x")).toBe(computeId("flow setup", "x"));
+    expect(computeId("flow install", "x")).toBe(computeId("flow install", "x"));
   });
 
   it("changes when command changes", () => {
-    expect(computeId("flow setup", "x")).not.toBe(
-      computeId("flow setup --upgrade", "x"),
+    expect(computeId("flow install", "x")).not.toBe(
+      computeId("flow install --upgrade", "x"),
     );
   });
 
   it("changes when reason changes", () => {
-    expect(computeId("flow setup", "x")).not.toBe(computeId("flow setup", "y"));
+    expect(computeId("flow install", "x")).not.toBe(
+      computeId("flow install", "y"),
+    );
   });
 
   it("returns a 12-char hex string", () => {
@@ -122,7 +124,7 @@ describe("parseAddArgs", () => {
   });
 
   it("requires --reason", () => {
-    expect(parseAddArgs(["--command", "flow setup"])).toEqual({
+    expect(parseAddArgs(["--command", "flow install"])).toEqual({
       error: "--reason is required",
     });
   });
@@ -143,7 +145,7 @@ describe("parseAddArgs", () => {
     expect(
       parseAddArgs([
         "--command",
-        "flow setup --upgrade",
+        "flow install --upgrade",
         "--reason",
         "new helper added",
         "--auto",
@@ -153,7 +155,7 @@ describe("parseAddArgs", () => {
         "step-5.5",
       ]),
     ).toEqual({
-      command: "flow setup --upgrade",
+      command: "flow install --upgrade",
       reason: "new helper added",
       auto: true,
       id: "abc123",
@@ -356,7 +358,7 @@ const failSpawn: Spawner = () => ({
 
 const allowedAuto: Entry = {
   id: "a",
-  command: "flow setup --upgrade",
+  command: "flow install --upgrade",
   reason: "new helper",
   auto: true,
   registeredAt: "t",
@@ -397,7 +399,7 @@ describe("runEntries", () => {
   it("executes auto-allowlisted entries", () => {
     const v = runEntries([allowedAuto], { spawn: okSpawn, homeDir: "/tmp" });
     expect(v.summary).toEqual({ total: 1, ran: 1, noted: 0, failed: 0 });
-    expect(v.ran[0].command).toBe("flow setup --upgrade");
+    expect(v.ran[0].command).toBe("flow install --upgrade");
     expect(v.ran[0].exitCode).toBe(0);
   });
 
@@ -485,7 +487,7 @@ describe("buildPrBodySection", () => {
   it("renders heading and entries", () => {
     const md = buildPrBodySection([allowedAuto, manual]);
     expect(md).toContain("## Local Follow-ups");
-    expect(md).toContain("- [ ] flow setup --upgrade  # new helper (auto)");
+    expect(md).toContain("- [ ] flow install --upgrade  # new helper (auto)");
     expect(md).toContain("- [ ] manual step  # rotate creds");
     // Manual entry is not auto, so no (auto) tag.
     expect(
@@ -517,7 +519,7 @@ describe("runAdd", () => {
     const code = runAdd(
       [
         "--command",
-        "flow setup",
+        "flow install",
         "--reason",
         "test",
         "--auto",
@@ -530,7 +532,7 @@ describe("runAdd", () => {
     const entries = readEntries(jsonlPath);
     expect(entries).toHaveLength(1);
     expect(entries[0]).toMatchObject({
-      command: "flow setup",
+      command: "flow install",
       reason: "test",
       auto: true,
       registeredAt: "2026-05-05T00:00:00.000Z",
@@ -538,8 +540,22 @@ describe("runAdd", () => {
   });
 
   it("dedupes by id on a second add with same command+reason", () => {
-    runAdd(["--command", "flow setup", "--reason", "x", "--jsonl", jsonlPath]);
-    runAdd(["--command", "flow setup", "--reason", "x", "--jsonl", jsonlPath]);
+    runAdd([
+      "--command",
+      "flow install",
+      "--reason",
+      "x",
+      "--jsonl",
+      jsonlPath,
+    ]);
+    runAdd([
+      "--command",
+      "flow install",
+      "--reason",
+      "x",
+      "--jsonl",
+      jsonlPath,
+    ]);
     expect(readEntries(jsonlPath)).toHaveLength(1);
   });
 
@@ -583,7 +599,7 @@ describe("runRun", () => {
   it("emits human-readable text on the merged path", () => {
     runAdd([
       "--command",
-      "flow setup --upgrade",
+      "flow install --upgrade",
       "--reason",
       "new helper",
       "--auto",
@@ -603,7 +619,7 @@ describe("runRun", () => {
   it("emits JSON verdict on --json", () => {
     runAdd([
       "--command",
-      "flow setup",
+      "flow install",
       "--reason",
       "r",
       "--auto",
@@ -624,7 +640,7 @@ describe("runRun", () => {
   it("does not spawn under --note-only", () => {
     runAdd([
       "--command",
-      "flow setup --upgrade",
+      "flow install --upgrade",
       "--reason",
       "r",
       "--auto",
@@ -703,7 +719,7 @@ describe("runUpsert", () => {
   it("appends a new section when body lacks the heading", () => {
     runAdd([
       "--command",
-      "flow setup",
+      "flow install",
       "--reason",
       "test",
       "--auto",
@@ -719,14 +735,14 @@ describe("runUpsert", () => {
     expect(editCall?.bodyFileContent).toBeDefined();
     expect(editCall!.bodyFileContent!).toContain("## Local Follow-ups");
     expect(editCall!.bodyFileContent!).toContain(
-      "- [ ] flow setup  # test (auto)",
+      "- [ ] flow install  # test (auto)",
     );
   });
 
   it("replaces an existing section idempotently", () => {
     runAdd([
       "--command",
-      "flow setup",
+      "flow install",
       "--reason",
       "test",
       "--auto",
@@ -736,7 +752,7 @@ describe("runUpsert", () => {
     const captured: { argv: string[]; bodyFileContent?: string }[] = [];
     const { gh, setBody } = makeGh(captured);
     setBody(
-      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] flow setup  # test (auto)\n",
+      "## Why\nbecause\n\n## Local Follow-ups\n\n- [ ] flow install  # test (auto)\n",
     );
     runUpsert(["99", "--jsonl", jsonlPath], { gh });
     // Second invocation: body is already correct → no edit call should fire.
@@ -747,7 +763,7 @@ describe("runUpsert", () => {
   it("returns 1 on gh pr view failure", () => {
     runAdd([
       "--command",
-      "flow setup",
+      "flow install",
       "--reason",
       "test",
       "--auto",

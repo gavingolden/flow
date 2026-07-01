@@ -397,7 +397,7 @@ export function parseLsFilesModes(stdout: string): GitModeEntry[] {
  * Diff-scoped gate: when the changeset touches a `bin/<helper>.ts` (top-level,
  * selected by name) or a bun-executable `bin/lib/<helper>.ts` module (selected
  * by content) tracked non-executable, fail with a `chmod +x` hint. A
- * non-executable module symlinked onto PATH by `flow setup` dies with
+ * non-executable module symlinked onto PATH by `flow install` dies with
  * 'permission denied'. Returns null (inert) when no changed file is a
  * candidate. `readFile` is injected for testability (defaults to a working-tree
  * read — the candidate is in the current diff, so it exists on disk).
@@ -427,7 +427,7 @@ export function checkHelperExecutableModes(
   if (candidates.length === 0) return null;
 
   // git-tracked mode is authoritative: the committed bit — not the working-tree
-  // stat — is what `flow setup` and the merge ship.
+  // stat — is what `flow install` and the merge ship.
   const { stdout, exitCode } = runner([
     "git",
     "ls-files",

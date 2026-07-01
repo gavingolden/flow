@@ -1,5 +1,5 @@
 /**
- * Tests for `bin/lib/git.ts` — fail-open helpers used by `flow setup
+ * Tests for `bin/lib/git.ts` — fail-open helpers used by `flow install
  * --upgrade` (`fastForwardCanonical` and `resolveDefaultBranch`).
  *
  * No real git or network access. The tests inject a Spawner stub that

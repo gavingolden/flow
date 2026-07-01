@@ -99,7 +99,7 @@ describe(decideNote, () => {
 
   it("(f) is idempotent: echoes the existing note line, signals no insert", () => {
     const existing =
-      "# PRD\n\n> [!NOTE]\n> Web-grounded research (discovery Step 1.5): skipped — agy unavailable on this host; force with `flow new --research`.\n\nbody\n";
+      "# PRD\n\n> [!NOTE]\n> Web-grounded research (discovery Step 1.5): skipped — agy unavailable on this host; force with `flow feature create --research`.\n\nbody\n";
     const d = decideNote({
       active: true,
       forced: false,
@@ -207,7 +207,7 @@ describe("flow-research-note CLI", () => {
     withTmp((dir) => {
       const plan = path.join(dir, "plan.md");
       const original =
-        "# PRD\n\n> [!NOTE]\n> Web-grounded research (discovery Step 1.5): skipped — not a researchable question; force with `flow new --research`.\n\nbody\n";
+        "# PRD\n\n> [!NOTE]\n> Web-grounded research (discovery Step 1.5): skipped — not a researchable question; force with `flow feature create --research`.\n\nbody\n";
       writeFileSync(plan, original);
       const r = runCli(["ensure", "--plan-file", plan, "--forced", "true"]);
       expect(r.status).toBe(0);

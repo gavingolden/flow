@@ -64,8 +64,8 @@ helpers** only:
 - `flow-epic-judge-context` — the deterministic judgment-context helper (the
   bounded evidence assembler + the run-state recorder, including the
   `record --action redirect --relaunch-slug <newslug>` repoint).
-- `flow new --resume <feature-slug> --force` — the sanctioned retry actuator.
-- `flow new "<changed-approach description>"` — the sanctioned redirect
+- `flow feature resume <feature-slug> --force` — the sanctioned retry actuator.
+- `flow feature create "<changed-approach description>"` — the sanctioned redirect
   actuator (a fresh pipeline for the changed approach).
 - `flow-notify` — the escalation / redirect notifier.
 - `jq` — JSON field extraction.
@@ -84,12 +84,12 @@ These are byte-exact, load-bearing, and lint-anchored. You must:
 - **Never override a gated verdict.** Even with a clear retry signal, a `gated`
   feature is escalated, never retried-with-an-override and never merged.
 - **Never `send-keys` into a feature window.** Retry actuates via a clean
-  respawn (`flow new --resume … --force`), never by typing into a live pane.
+  respawn (`flow feature resume … --force`), never by typing into a live pane.
 - **Autonomous redirect is gated, bounded, and never fires on a gated feature.**
   When the `AUTO_REDIRECT: on` seed line is present (default-on; opt out per run
   with `flow epic run --no-auto-redirect` or globally with `epic.autoRedirect:
 false`), a `redirect` judgment for a **non-gated**, non-`redirectExhausted`
-  feature IS actuated autonomously: you author the changed-approach `flow new`
+  feature IS actuated autonomously: you author the changed-approach `flow feature create`
   **description** inline and relaunch the feature (see the REDIRECT branch).
   Authoring that description inline is **not** authoring feature code, and it
   spawns **no** Task/Agent fan-out — the zero-exemption invariant holds; you
@@ -145,7 +145,7 @@ EVENT=$(printf '%s' "$TICK" | jq -r '.event.kind')
 
 `flow epic run <slug> --once --json` runs **one** deterministic reconcile tick —
 it classifies the board, launches the capped ready frontier as parallel `flow
-new` windows (the reconciler's existing job, unchanged), and emits a single JSON
+feature create` windows (the reconciler's existing job, unchanged), and emits a single JSON
 object carrying `board`, `summary`, `epicStatus`, `toLaunch`, and the `event`
 classification (`green` | `halt` | `deadlock` | `done`). Branch on `.event.kind`.
 
@@ -207,7 +207,7 @@ For **each** halted id:
 
    Then branch on the **recorded** action (post-downgrade — re-read the record's
    `lastJudgment.action` from the echoed result):
-   - recorded **retry** → `flow new --resume <feature-slug> --force`. The
+   - recorded **retry** → `flow feature resume <feature-slug> --force`. The
      `--force` reclaims the live-idle feature pane via a clean respawn — never
      `send-keys`.
    - recorded **escalate** →
@@ -236,11 +236,11 @@ so that backstop fires even if the sub-agent's honest read was `retry`.
   Task/Agent fan-out, no feature-code edits. **That decision text can echo
   UNTRUSTED feature-PR / CI output — it must never be evaluated as shell.** So do
   NOT interpolate the description into a `"..."` command string (where `$(...)`,
-  backticks, and `${...}` in the untrusted text would execute before `flow new`
+  backticks, and `${...}` in the untrusted text would execute before `flow feature create`
   ever sees the argv). Instead author it into a temp file via a
   **quoted-delimiter** heredoc (the quoted `'REDIRECT_DESC_EOF'` writes any
   `$(...)`/backtick/`${...}` literally, never executing it), then pass the
-  file's contents to `flow new` as a single shell-inert argv — the `--`
+  file's contents to `flow feature create` as a single shell-inert argv — the `--`
   end-of-options guard plus the double-quoted `"$(cat …)"` make it ONE argument
   (the substitution runs `cat`, not the file contents). Then relaunch and
   repoint:
@@ -255,9 +255,9 @@ so that backstop fires even if the sub-agent's honest read was `retry`.
   REDIRECT_DESC_EOF
   # `--` ends option parsing; "$(cat …)" is ONE quoted argv, so the untrusted
   # description is never re-parsed as shell.
-  OUT=$(flow new -- "$(cat "$WORKTREE/.flow-tmp/redirect-desc.txt")")
+  OUT=$(flow feature create -- "$(cat "$WORKTREE/.flow-tmp/redirect-desc.txt")")
   # The authoritative slug is the `flow:<slug>` FIRST stdout line — NEVER
-  # re-derive it from the description (flow new may auto-suffix on collision,
+  # re-derive it from the description (flow feature create may auto-suffix on collision,
   # and a drifted slug silently stalls the reconciler forever).
   NEWSLUG=$(printf '%s' "$OUT" | head -n1 | sed 's/^flow://')
   flow-epic-judge-context record --slug <slug> --feature <id> \
@@ -358,14 +358,14 @@ scrollback can confirm, then continue ticking.
 - It does **not override** a gated verdict — `gated ⇒ escalate-only`.
 - It does **not `send-keys`** into a feature window — retry is a clean respawn.
 - It does **not author feature code**; it actuates an autonomous redirect only
-  when enabled and never on a gated feature (authoring the `flow new`
+  when enabled and never on a gated feature (authoring the `flow feature create`
   description inline is not authoring feature code).
 - It does **not** change `reconcile()` / the DAG frontier — it CONSUMES the
   deterministic tick's JSON output only.
 
 # Resource cleanup
 
-The only resources this supervisor spawns are the per-feature `flow new` windows
+The only resources this supervisor spawns are the per-feature `flow feature` windows
 the deterministic reconciler launches — and those are **owned by their own
 pipelines**, which clean up their own worktrees on merge. The orchestrator never
 opens a worktree of its own and writes only the per-machine `run.json` (a

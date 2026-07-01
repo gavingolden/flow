@@ -420,10 +420,10 @@ describe("render — FOLLOW-UP ISSUES", () => {
 describe("render — MANUAL STEPS", () => {
   it("embeds the captured followups block verbatim (preserves ran/failed)", () => {
     const block =
-      "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow setup --upgrade  (exit 0)";
+      "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow install --upgrade  (exit 0)";
     const out = render({ ...EMPTY_RENDER, manualStepsBlock: block });
     expect(out).toContain("LOCAL FOLLOW-UPS: 1 ran");
-    expect(out).toContain("RAN     flow setup --upgrade  (exit 0)");
+    expect(out).toContain("RAN     flow install --upgrade  (exit 0)");
   });
 
   it("renders `MANUAL STEPS: none` for an empty block", () => {
@@ -492,12 +492,12 @@ describe("run — end-to-end", () => {
   it("the --followups-block-file pass-through preserves the captured text", () => {
     const blockFile = write(
       "followups-block.txt",
-      "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow setup --upgrade  (exit 0)\n",
+      "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow install --upgrade  (exit 0)\n",
     );
     const out = captureStdout(() => {
       run(["--status", "merged", "--followups-block-file", blockFile]);
     });
-    expect(out).toContain("RAN     flow setup --upgrade  (exit 0)");
+    expect(out).toContain("RAN     flow install --upgrade  (exit 0)");
   });
 
   it("renders the --followups-jsonl note-only verdict (never re-executing entries)", () => {
@@ -505,7 +505,7 @@ describe("run — end-to-end", () => {
       "local-followups.jsonl",
       JSON.stringify({
         id: "abc123",
-        command: "flow setup --upgrade",
+        command: "flow install --upgrade",
         reason: "new helper landed",
         auto: true,
         registeredAt: "t1",
@@ -517,20 +517,20 @@ describe("run — end-to-end", () => {
     // noteOnly: true => the auto-allowlisted entry is NOTED, not run, and the
     // header carries the deferred verdict.
     expect(out).toContain("LOCAL FOLLOW-UPS (deferred — PR not yet merged)");
-    expect(out).toContain("flow setup --upgrade");
-    expect(out).not.toContain("RAN     flow setup --upgrade");
+    expect(out).toContain("flow install --upgrade");
+    expect(out).not.toContain("RAN     flow install --upgrade");
   });
 
   it("prefers --followups-block-file over --followups-jsonl when both are passed", () => {
     const blockFile = write(
       "followups-block.txt",
-      "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow setup --upgrade  (exit 0)\n",
+      "LOCAL FOLLOW-UPS: 1 ran\n\n  RAN     flow install --upgrade  (exit 0)\n",
     );
     const jsonl = write(
       "local-followups.jsonl",
       JSON.stringify({
         id: "abc123",
-        command: "flow setup --upgrade",
+        command: "flow install --upgrade",
         reason: "new helper landed",
         auto: true,
         registeredAt: "t1",
@@ -548,7 +548,7 @@ describe("run — end-to-end", () => {
     });
     // Block-file wins: the captured ran/failed results are preserved and the
     // jsonl note-only fallback never fires.
-    expect(out).toContain("RAN     flow setup --upgrade  (exit 0)");
+    expect(out).toContain("RAN     flow install --upgrade  (exit 0)");
     expect(out).not.toContain(
       "LOCAL FOLLOW-UPS (deferred — PR not yet merged)",
     );

@@ -1,13 +1,13 @@
 # flow
 
-**Ship a change end-to-end from one command.** `flow new "<description>"` opens a tmux window, launches [Claude Code](https://docs.claude.com/en/docs/claude-code), and a single supervisor skill drives the whole run — plan, worktree, implement, verify, CI, review, and merge — while you watch or walk away. flow also ships a curated skill library that any Claude Code project can use on its own.
+**Ship a change end-to-end from one command.** `flow feature create "<description>"` opens a tmux window, launches [Claude Code](https://docs.claude.com/en/docs/claude-code), and a single supervisor skill drives the whole run — plan, worktree, implement, verify, CI, review, and merge — while you watch or walk away. flow also ships a curated skill library that any Claude Code project can use on its own.
 
 ## Prerequisites
 
 - **git** — flow works in a per-pipeline worktree off your repo.
 - **node / npm** — installs flow's dependencies (`npm install`).
 - **bun** — the runtime for the `flow` wrapper and its helpers.
-- **tmux** — each pipeline runs in its own tmux window; `flow setup` checks for it.
+- **tmux** — each pipeline runs in its own tmux window; `flow install` checks for it.
 - **gh** (GitHub CLI, authenticated) — flow opens the PR, polls CI, and merges through it.
 
 Your target project must be a **git repo with a GitHub remote** — the pipeline opens and merges a PR, so without a remote there is nothing to push to.
@@ -18,19 +18,17 @@ Your target project must be a **git repo with a GitHub remote** — the pipeline
 git clone https://github.com/<user>/flow ~/code/flow
 cd ~/code/flow
 npm install
-bun bin/flow setup
+bun bin/flow install
 ```
 
-`flow setup` symlinks the skills, the helper binaries, and the `flow` wrapper itself into place. Verify it worked by running `flow ls` (it should print an empty pipeline list, not "command not found"). The most common failure is `~/.local/bin` not being on your `PATH` — add it and open a fresh shell. Setup internals (symlink mechanics, shell completions, the Copilot escape hatch) live in [CONTRIBUTING.md](CONTRIBUTING.md).
+`flow install` symlinks the skills, the helper binaries, and the `flow` wrapper itself into place. Verify it worked by running `flow ls` (it should print an empty pipeline list, not "command not found"). The most common failure is `~/.local/bin` not being on your `PATH` — add it and open a fresh shell. Setup internals (symlink mechanics, shell completions, the Copilot escape hatch) live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
-To come current, run `flow setup --upgrade`: it self-pulls (fast-forwards your canonical checkout to `origin`) and reports what changed, so a non-contributor needs only that one command. flow also surfaces a non-blocking staleness notice at `flow ls` and `flow version` when your checkout is behind origin, naming the exact upgrade command to run. Opt out by setting `update.checkFor` to `"off"` in `~/.flow/config.json` (or exporting `FLOW_UPDATE_CHECK=off`). A reserved `update.autoUpgrade` flag (default off, not yet executing) is parsed for a future opt-in that upgrades automatically.
-
-Upgrading from the old per-repo `flow install`? See [`docs/migration.md`](docs/migration.md).
+To come current, run `flow install --upgrade`: it self-pulls (fast-forwards your canonical checkout to `origin`) and reports what changed, so a non-contributor needs only that one command. flow also surfaces a non-blocking staleness notice at `flow ls` and `flow version` when your checkout is behind origin, naming the exact upgrade command to run. Opt out by setting `update.checkFor` to `"off"` in `~/.flow/config.json` (or exporting `FLOW_UPDATE_CHECK=off`). A reserved `update.autoUpgrade` flag (default off, not yet executing) is parsed for a future opt-in that upgrades automatically.
 
 ## Usage
 
 ```sh
-flow new "add CSV export"        # start a pipeline in a new tmux window
+flow feature create "add CSV export"        # start a pipeline in a new tmux window
 flow ls                          # list active pipelines
 flow attach add-csv-export       # attach to a pipeline's window (alias: flow a)
 flow attach                      # attach into the session and browse windows
@@ -38,19 +36,19 @@ flow done add-csv-export         # close a finished pipeline's window
 flow done --merged               # sweep windows that reached a terminal state
 ```
 
-By default a pipeline auto-merges its PR when the merge gate is clear; pass `flow new --no-auto-merge "<desc>"` to always stop at the gate for a manual merge.
+By default a pipeline auto-merges its PR when the merge gate is clear; pass `flow feature create --no-auto-merge "<desc>"` to always stop at the gate for a manual merge.
 
-**New to tmux?** Your first `flow new` starts the pipeline in a tmux window but doesn't drop you into it — run `flow attach` (no args) to pop into the flow session (it lands you on your most-recent pipeline), or `flow attach <name>` (alias `flow a <name>`) to jump to a specific one. To step away from a running pipeline without stopping it, detach with `Ctrl-b d` (`Ctrl-b` is tmux's prefix key, then press `d`) — the pipeline keeps running in the background, and you come back with `flow attach`.
+**New to tmux?** Your first `flow feature create` starts the pipeline in a tmux window but doesn't drop you into it — run `flow attach` (no args) to pop into the flow session (it lands you on your most-recent pipeline), or `flow attach <name>` (alias `flow a <name>`) to jump to a specific one. To step away from a running pipeline without stopping it, detach with `Ctrl-b d` (`Ctrl-b` is tmux's prefix key, then press `d`) — the pipeline keeps running in the background, and you come back with `flow attach`.
 
 <details>
-<summary>More <code>flow new</code> flags</summary>
+<summary>More <code>flow feature create</code> flags</summary>
 
 - `--copilot-review <auto|always|never>` (default `auto`) — control whether flow requests a Copilot review on the PR.
 - `--wait-for-copilot` — block on the Copilot review before proceeding.
 - `--research` — force web-grounded discovery research on for that pipeline, bypassing the relevance gate and the `research.discovery` config opt-in.
 - `--resume <name>` — re-launch a crashed supervisor session for an existing pipeline.
 
-Run `flow new --help` for the full surface.
+Run `flow feature create --help` for the full surface.
 
 </details>
 
@@ -63,7 +61,7 @@ The supervisor pauses once for plan approval on feature work (type `approved`, a
 The transcript below is **illustrative — not exact output**; it shows the sequence and the terminal-state strings with the real verbosity hidden.
 
 ```text
-$ flow new "add CSV export"
+$ flow feature create "add CSV export"
   → window flow:add-csv-export created
 
 [plan] feature detected — drafting plan, pausing for approval
@@ -78,7 +76,7 @@ $ flow new "add CSV export"
 MERGED
 ```
 
-When the merge gate is not clear (an unchecked Test Steps item, or `flow new --no-auto-merge`), the run ends with `GATED: <url>` instead — open that URL and merge when you're ready.
+When the merge gate is not clear (an unchecked Test Steps item, or `flow feature create --no-auto-merge`), the run ends with `GATED: <url>` instead — open that URL and merge when you're ready.
 
 ## Resuming
 
@@ -86,7 +84,7 @@ There are two distinct ways to come back to a pipeline, and which one you need d
 
 **Walk away and return.** If the pipeline is still running, just detach (`Ctrl-b d`) and later `flow attach` to re-enter — nothing special is needed, because the state lives on disk (`~/.flow/state/<slug>.json` plus the worktree plus the PR).
 
-**Resume after a crash.** If the supervisor crashed or you closed the window, run `flow ls` to find the pipeline's slug, then `flow new --resume <slug>` to re-launch Claude Code into the same window and pick up exactly where it left off — it reads the saved phase, worktree, and PR and continues. It refuses if the pipeline is actually still running, telling you to attach instead.
+**Resume after a crash.** If the supervisor crashed or you closed the window, run `flow ls` to find the pipeline's slug, then `flow feature resume <slug>` to re-launch Claude Code into the same window and pick up exactly where it left off — it reads the saved phase, worktree, and PR and continues. It refuses if the pipeline is actually still running, telling you to attach instead.
 
 The transcript below is **illustrative — not exact output**:
 
@@ -95,7 +93,7 @@ $ flow ls
   add-csv-export    review    window died
   fix-login-redirect ci       running
 
-$ flow new --resume add-csv-export
+$ flow feature resume add-csv-export
   → re-launching flow:add-csv-export
 RESUMING AT: review (PR #142, 2 findings open)
 [review] multi-agent review + Copilot ... resolving findings ...

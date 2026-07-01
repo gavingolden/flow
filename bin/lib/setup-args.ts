@@ -1,5 +1,5 @@
 /**
- * Argument parsing + CLI wrapper for `flow setup`. Kept separate from
+ * Argument parsing + CLI wrapper for `flow install`. Kept separate from
  * `bin/lib/setup.ts` so the CLI seam is unit-testable without enlarging
  * the library file (already over the < 200-line target).
  */
@@ -22,7 +22,7 @@ export type ParsedSetupArgs = {
 export type SetupArgsResult = ParsedSetupArgs | { error: string };
 
 const USAGE =
-  "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]";
+  "usage: flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]";
 const FLAGS = new Set([
   "--upgrade",
   "--force",
@@ -62,12 +62,12 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
     } else if (arg === "--source") {
       const value = args[i + 1];
       if (!value || FLAGS.has(value) || value === "--source") {
-        return { error: "flow setup: --source requires a path argument" };
+        return { error: "flow install: --source requires a path argument" };
       }
       out.flowSource = value;
       i++;
     } else {
-      return { error: `flow setup: unknown option '${arg}'` };
+      return { error: `flow install: unknown option '${arg}'` };
     }
   }
   // --no-hooks opts out of touching settings.json this run; --repair-settings
@@ -77,14 +77,14 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
   if (out.noHooks && out.repairSettings) {
     return {
       error:
-        "flow setup: --no-hooks and --repair-settings are mutually exclusive",
+        "flow install: --no-hooks and --repair-settings are mutually exclusive",
     };
   }
   return out;
 }
 
 /**
- * CLI wrapper for `bin/flow`'s setup verb. Parses args, delegates to
+ * CLI wrapper for `bin/flow`'s install verb. Parses args, delegates to
  * `runSetup`, and translates the resulting `SetupSummary` to a process
  * exit code: blocked symlinks → 1, parser errors → 2, otherwise 0.
  *
@@ -100,7 +100,7 @@ export function runSetupCli(
   extraOptions?: SetupOptions,
 ): number {
   if (argsContainHelp(args)) {
-    printVerbHelp("setup");
+    printVerbHelp("install");
     return 0;
   }
   const parsed = parseSetupArgs(args);

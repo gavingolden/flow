@@ -280,7 +280,7 @@ auto-invoke it from any pipeline step.
 `{ "research": { "discovery": true } }` in `~/.flow/config.json` lets a pipeline
 OPTIONALLY run deep, web-grounded, agy-delegated research **before planning**,
 feeding a cited report into discovery as prior context (with confidence labels).
-It is **config-only** — there is no `flow new` flag — and the schema is an object
+It is **config-only** — there is no `flow feature create` flag — and the schema is an object
 (`research: { discovery: boolean, maxCalls?: number, model?: string, refuteModel?: string, timeout?: string }`,
 `discovery` default `false`). The pass is **relevance-gated and safe-by-default**:
 it fires only on a genuinely-researchable feature (integrating an external
@@ -306,7 +306,7 @@ cross-model reviewer (Gemini, via agy on your Google AI Ultra quota) to
 agents. `/pr-review`'s six agents all run on the same Claude model family and
 share that family's blind spots; a genuinely different model catches issues no
 role-specialized Claude lens does, at no Claude-credit cost. It is **config-only**
-(no `flow new` flag), the schema is an object (`review: { gemini: boolean }`,
+(no `flow feature create` flag), the schema is an object (`review: { gemini: boolean }`,
 default `false`) so per-lens-focus knobs can be added later without a break, and
 the gate is read tolerantly:
 

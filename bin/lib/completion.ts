@@ -1,12 +1,12 @@
 /**
  * `flow completion <shell>` — escape-hatch subcommand that prints a shell
- * completion script to stdout. Primary install path is `flow setup`'s rc-file
+ * completion script to stdout. Primary install path is `flow install`'s rc-file
  * editing; this verb is for users on read-only homedirs (NixOS / Guix), CI
  * environments, or anyone who prefers explicit `eval "$(flow completion zsh)"`
  * sourcing in their rc.
  *
  * Source files live under <flow-source>/completions/ and are also symlinked
- * into ~/.flow/completions/ by `flow setup`. This verb reads them from the
+ * into ~/.flow/completions/ by `flow install`. This verb reads them from the
  * canonical source so the output is byte-identical to what's auto-installed.
  */
 

@@ -1,5 +1,5 @@
 /**
- * Runtime-dependency resolution check for `flow setup`. Lives in its own
+ * Runtime-dependency resolution check for `flow install`. Lives in its own
  * module because setup.ts is already over the 200-line budget. Strictly pure:
  * no logging, no process.exit, no spawn — so it runs identically under Bun and
  * vitest's Node. Uses node:fs / node:path (not Bun.resolveSync, which is used

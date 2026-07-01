@@ -55,7 +55,7 @@ describe("argsContainHelp", () => {
   });
 
   it("stops scanning at `--` so a literal -h after the sentinel is treated as data", () => {
-    // `flow new -- fix the -h crash` should NOT short-circuit to help — the
+    // `flow feature create -- fix the -h crash` should NOT short-circuit to help — the
     // user's description happens to contain `-h` as a literal token.
     expect(argsContainHelp(["--", "fix", "the", "-h", "crash"])).toBe(false);
     expect(argsContainHelp(["--", "--help"])).toBe(false);
@@ -72,13 +72,12 @@ describe("HELP_TEXT", () => {
   // Aliases (`a`, `-v`, `--version`, `--help`, `-h`, `help`) canonicalize
   // through bin/flow's runHelpVerb, so they don't need their own entries.
   const REQUIRED_VERBS = [
-    "new",
+    "feature",
     "epic",
     "ls",
     "attach",
     "done",
-    "migrate",
-    "setup",
+    "install",
     "completion",
     "version",
   ] as const;
@@ -95,26 +94,26 @@ describe("HELP_TEXT", () => {
   // Flag-presence guard. The verb-presence assertions above don't catch a
   // silent deletion of a single flag from the verb's help body. Pin the
   // newly-added `--wait-for-copilot` flag here so a future editor who
-  // removes it from HELP_TEXT.new sees a red test rather than shipping
+  // removes it from HELP_TEXT.feature sees a red test rather than shipping
   // stale help text.
-  it("HELP_TEXT.new documents --wait-for-copilot", () => {
-    expect(HELP_TEXT.new).toContain("--wait-for-copilot");
+  it("HELP_TEXT.feature documents --wait-for-copilot", () => {
+    expect(HELP_TEXT.feature).toContain("--wait-for-copilot");
   });
 
-  it("HELP_TEXT.new documents --copilot-review with its three values and the auto default", () => {
-    expect(HELP_TEXT.new).toContain("--copilot-review");
-    expect(HELP_TEXT.new).toContain("auto|always|never");
-    expect(HELP_TEXT.new).toMatch(/default auto/);
+  it("HELP_TEXT.feature documents --copilot-review with its three values and the auto default", () => {
+    expect(HELP_TEXT.feature).toContain("--copilot-review");
+    expect(HELP_TEXT.feature).toContain("auto|always|never");
+    expect(HELP_TEXT.feature).toMatch(/default auto/);
   });
 
-  it("HELP_TEXT.new documents --effort with its five-value enum", () => {
-    expect(HELP_TEXT.new).toContain("--effort");
-    expect(HELP_TEXT.new).toContain("low|medium|high|xhigh|max");
+  it("HELP_TEXT.feature documents --effort with its five-value enum", () => {
+    expect(HELP_TEXT.feature).toContain("--effort");
+    expect(HELP_TEXT.feature).toContain("low|medium|high|xhigh|max");
   });
 
-  it("HELP_TEXT.new documents --model with its four-value enum", () => {
-    expect(HELP_TEXT.new).toContain("--model");
-    expect(HELP_TEXT.new).toContain("opus|haiku|sonnet|fable");
+  it("HELP_TEXT.feature documents --model with its four-value enum", () => {
+    expect(HELP_TEXT.feature).toContain("--model");
+    expect(HELP_TEXT.feature).toContain("opus|haiku|sonnet|fable");
   });
 
   it("HELP_TEXT.epic documents both --effort and --model on create", () => {
@@ -137,19 +136,19 @@ describe("HELP_TOP", () => {
   });
 
   // Same flag-presence guard as above, applied to the top-level help block.
-  it("documents --wait-for-copilot in the `flow new` synopsis", () => {
+  it("documents --wait-for-copilot in the `flow feature create` synopsis", () => {
     expect(HELP_TOP).toContain("--wait-for-copilot");
   });
 
-  it("documents --copilot-review in the `flow new` synopsis", () => {
+  it("documents --copilot-review in the `flow feature create` synopsis", () => {
     expect(HELP_TOP).toContain("--copilot-review");
   });
 
-  it("documents --effort in the `flow new` synopsis", () => {
+  it("documents --effort in the `flow feature create` synopsis", () => {
     expect(HELP_TOP).toContain("--effort");
   });
 
-  it("documents --model in the `flow new` synopsis", () => {
+  it("documents --model in the `flow feature create` synopsis", () => {
     expect(HELP_TOP).toContain("--model");
     expect(HELP_TOP).toContain("opus|haiku|sonnet|fable");
   });
@@ -172,9 +171,9 @@ describe("printVerbHelp", () => {
   it("returns 0 and prints the verb's help text to stdout", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const code = printVerbHelp("new");
+    const code = printVerbHelp("feature");
     expect(code).toBe(0);
-    expect(log).toHaveBeenCalledWith(HELP_TEXT.new);
+    expect(log).toHaveBeenCalledWith(HELP_TEXT.feature);
     expect(err).not.toHaveBeenCalled();
     log.mockRestore();
     err.mockRestore();
@@ -241,13 +240,12 @@ describe("runHelpVerb", () => {
   });
 
   it.each([
-    "new",
+    "feature",
     "epic",
     "ls",
     "attach",
     "done",
-    "migrate",
-    "setup",
+    "install",
     "completion",
     "version",
   ])(

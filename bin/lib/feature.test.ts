@@ -22,7 +22,7 @@ vi.mock("node:fs", async () => {
 const tmuxMock = vi.hoisted(() => ({
   windowExists: vi.fn<(name: string) => boolean>(() => false),
   isPaneAlive: vi.fn<(name: string) => boolean>(() => false),
-  // new.ts now launches windows through the liveness-verified wrappers, so the
+  // feature.ts now launches windows through the liveness-verified wrappers, so the
   // mock drives those (not the bare createWindow/respawnWindow). They default
   // to ok so the happy paths still pass without per-test setup. The 5th arg is
   // the deps object carrying the injected `consumed` state-file-poll predicate.
@@ -54,7 +54,7 @@ const tmuxMock = vi.hoisted(() => ({
 }));
 vi.mock("./tmux", () => tmuxMock);
 
-import { runNew, runNewCli, deriveWorktreePath } from "./new";
+import { runNew, runFeatureCli, deriveWorktreePath } from "./feature";
 import { writeState } from "./state";
 
 let stateDir!: string;
@@ -67,7 +67,7 @@ beforeEach(() => {
   stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-"));
   repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-repo-"));
   // Redirect the host-wide launch semaphore off the real ~/.flow so the whole
-  // suite's launches stay hermetic (new.ts honors this env override).
+  // suite's launches stay hermetic (feature.ts honors this env override).
   semDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-new-sem-"));
   process.env.FLOW_LAUNCH_SEM_DIR = semDir;
   // Redirect the flow-scoped --settings file off the real ~/.flow too, so any
@@ -169,7 +169,7 @@ describe("runNew --resume", () => {
     const code = runNew("ghost", { resume: true, stateDir });
     expect(code).toBe(1);
     expect(errors[0]).toMatch(/no pipeline state for 'ghost'/);
-    expect(errors[1]).toMatch(/run `flow new <description>`/);
+    expect(errors[1]).toMatch(/run `flow feature create <description>`/);
   });
 
   it("does not write state on a refusal path", () => {
@@ -206,7 +206,7 @@ describe("runNew --resume", () => {
     seedState("alive-forced");
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(true);
-    const code = runNewCli(["--resume", "alive-forced", "--force"], {
+    const code = runFeatureCli(["resume", "alive-forced", "--force"], {
       stateDir,
       launchSettingsPath: path.join(stateDir, "launch-settings.json"),
     });
@@ -224,7 +224,7 @@ describe("runNew --resume", () => {
     seedState("alive-noforce");
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(true);
-    const code = runNewCli(["--resume", "alive-noforce"], { stateDir });
+    const code = runFeatureCli(["resume", "alive-noforce"], { stateDir });
     expect(code).toBe(1);
     expect(errors.join("\n")).toMatch(/is still running/);
     expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
@@ -235,7 +235,7 @@ describe("runNew --resume", () => {
     seedState("dead-forced");
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(false);
-    const code = runNewCli(["--resume", "dead-forced", "--force"], {
+    const code = runFeatureCli(["resume", "dead-forced", "--force"], {
       stateDir,
       launchSettingsPath: path.join(stateDir, "launch-settings.json"),
     });
@@ -280,10 +280,10 @@ describe("runNew --resume", () => {
       "[pipeline-slug: crashed]\nUse the /flow-pipeline skill in --resume mode for: crashed",
     );
     expect(logs[0]).toBe("flow:crashed");
-    // Cross-verb voice: the second line uses the stable `flow new:` prose
+    // Cross-verb voice: the second line uses the stable `flow feature resume:` prose
     // voice. Non-TTY (vitest) → no ANSI on either line.
     expect(logs[1]).toBe(
-      "flow new: resumed — attach with `flow attach crashed`",
+      "flow feature resume: resumed — attach with `flow attach crashed`",
     );
   });
 
@@ -504,14 +504,14 @@ describe("runNew --resume", () => {
   });
 });
 
-describe("runNewCli --resume (multi-slug)", () => {
+describe("runFeatureCli --resume (multi-slug)", () => {
   it("resumes each slug sequentially with the per-slug resume seed and exits 0", () => {
     seedState("x");
     seedState("y");
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(false);
 
-    const code = runNewCli(["--resume", "x", "y", "--yes"], { stateDir });
+    const code = runFeatureCli(["resume", "x", "y", "--yes"], { stateDir });
 
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(2);
@@ -540,7 +540,7 @@ describe("runNewCli --resume (multi-slug)", () => {
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockImplementation((name: string) => name === "alive");
 
-    const code = runNewCli(["--resume", "x", "alive", "y", "--yes"], {
+    const code = runFeatureCli(["resume", "x", "alive", "y", "--yes"], {
       stateDir,
     });
 
@@ -564,7 +564,7 @@ describe("runNewCli --resume (multi-slug)", () => {
       .mockImplementation(() => true);
     declinePrompt();
 
-    const code = runNewCli(["--resume", "x", "y"], { stateDir });
+    const code = runFeatureCli(["resume", "x", "y"], { stateDir });
 
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
@@ -584,7 +584,7 @@ describe("runNewCli --resume (multi-slug)", () => {
       .mockImplementation(() => true);
     acceptPrompt();
 
-    const code = runNewCli(["--resume", "x", "y"], { stateDir });
+    const code = runFeatureCli(["resume", "x", "y"], { stateDir });
 
     expect(code).toBe(0);
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(2);
@@ -599,10 +599,10 @@ describe("runNewCli --resume (multi-slug)", () => {
       .spyOn(process.stdout, "write")
       .mockImplementation(() => true);
 
-    const code = runNewCli(["--resume", "x", "x"], { stateDir });
+    const code = runFeatureCli(["resume", "x", "x"], { stateDir });
 
     expect(code).toBe(0);
-    // dedup at new.ts:91-92 collapses the repeat to length 1, so it routes
+    // dedup at feature.ts:91-92 collapses the repeat to length 1, so it routes
     // through the single-slug short-circuit: one respawn, no >=2 preview,
     // and the confirm prompt (readSync) is never consulted.
     expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
@@ -618,7 +618,7 @@ describe("runNewCli --resume (multi-slug)", () => {
     tmuxMock.windowExists.mockReturnValue(true);
     tmuxMock.isPaneAlive.mockReturnValue(false);
 
-    const code = runNewCli(["--resume", "x", "y", "--yes"], { stateDir });
+    const code = runFeatureCli(["resume", "x", "y", "--yes"], { stateDir });
 
     expect(code).toBe(0);
     expect(readSyncMock).not.toHaveBeenCalled();
@@ -636,7 +636,7 @@ describe("runNew (fresh)", () => {
   it("falls back to a deterministic task-<hash8> slug for purely-punctuation input", () => {
     // Item 15: aggressive slugify never returns "" — when stop-word filtering
     // (or in this case, dashing of pure punctuation) leaves nothing, slugify
-    // returns task-<sha256[0..8]>(input). `flow new` should accept that slug
+    // returns task-<sha256[0..8]>(input). `flow feature create` should accept that slug
     // rather than refuse with the old "produces an empty slug" error, so
     // any input the user types is always actionable.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
@@ -651,7 +651,7 @@ describe("runNew (fresh)", () => {
     ).toBeDefined();
   });
 
-  it("emits the stable 'flow new:' voice and a raw contract first line on a fresh start", () => {
+  it("emits the stable 'flow feature create:' voice and a raw contract first line on a fresh start", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
     const code = runNew("CSV export", {
@@ -663,7 +663,7 @@ describe("runNew (fresh)", () => {
     // First line is the machine-read contract token — no ANSI, exact shape.
     expect(logs[0]).toBe("flow:csv-export");
     expect(logs[1]).toBe(
-      "flow new: created — attach with `flow attach csv-export`",
+      "flow feature create: created — attach with `flow attach csv-export`",
     );
   });
 
@@ -939,27 +939,47 @@ describe("deriveWorktreePath", () => {
   });
 });
 
-describe("runNewCli (--help / -h short-circuit)", () => {
-  // Regression for the catastrophic bug: `flow new --help` previously
+describe("runFeatureCli (mini-dispatcher)", () => {
+  it("with no subcommand prints a usage error and exits 2", () => {
+    const code = runFeatureCli([], { stateDir });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(
+      /a subcommand is required \(create\|resume\)/,
+    );
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+  });
+
+  it("with an unknown subcommand prints an error and exits 2", () => {
+    const code = runFeatureCli(["bogus"], { stateDir });
+    expect(code).toBe(2);
+    expect(errors.join("\n")).toMatch(/unknown feature subcommand: bogus/);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+  });
+});
+
+describe("runFeatureCli (--help / -h short-circuit)", () => {
+  // Regression for the catastrophic bug: `flow feature create --help` previously
   // slugified `--help` to `help`, spawned a tmux window, and wrote
   // ~/.flow/state/help.json. The CLI shim must intercept the flag before
   // any side-effect.
 
   for (const flag of ["--help", "-h"]) {
     it(`exits 0 and writes no state file when args is ['${flag}']`, () => {
-      const code = runNewCli([flag], { stateDir });
+      const code = runFeatureCli([flag], { stateDir });
       expect(code).toBe(0);
       expect(fs.readdirSync(stateDir)).toEqual([]);
     });
 
     it(`prints help to stdout (not stderr) for '${flag}'`, () => {
-      runNewCli([flag], { stateDir });
+      runFeatureCli([flag], { stateDir });
       expect(logs.length).toBeGreaterThan(0);
-      expect(logs.join("\n")).toMatch(/^flow new — start a new pipeline/);
+      expect(logs.join("\n")).toMatch(
+        /^flow feature — start or resume a pipeline/,
+      );
     });
 
     it(`does not invoke tmux for '${flag}'`, () => {
-      runNewCli([flag], { stateDir });
+      runFeatureCli([flag], { stateDir });
       expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
       expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
       expect(tmuxMock.windowExists).not.toHaveBeenCalled();
@@ -967,7 +987,9 @@ describe("runNewCli (--help / -h short-circuit)", () => {
   }
 
   it("short-circuits even when --help follows --no-auto-merge", () => {
-    const code = runNewCli(["--no-auto-merge", "--help"], { stateDir });
+    const code = runFeatureCli(["create", "--no-auto-merge", "--help"], {
+      stateDir,
+    });
     expect(code).toBe(0);
     expect(fs.readdirSync(stateDir)).toEqual([]);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
@@ -976,19 +998,22 @@ describe("runNewCli (--help / -h short-circuit)", () => {
   it("short-circuits even when --help follows --resume", () => {
     // --resume normally requires a single <name>; with --help present the
     // shim must print help instead of erroring on missing <name>.
-    const code = runNewCli(["--resume", "--help"], { stateDir });
+    const code = runFeatureCli(["resume", "--help"], { stateDir });
     expect(code).toBe(0);
     expect(errors).toEqual([]);
   });
 
-  it("runNewCli --wait-for-copilot writes waitForCopilot: true and excludes the flag from the slug", () => {
+  it("runFeatureCli --wait-for-copilot writes waitForCopilot: true and excludes the flag from the slug", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runNewCli(["--wait-for-copilot", "do", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      command: ["true"],
-    });
+    const code = runFeatureCli(
+      ["create", "--wait-for-copilot", "do", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+      },
+    );
     expect(code).toBe(0);
     // Slug must not include "wait-for-copilot" tokens; description was "do thing".
     expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
@@ -998,10 +1023,10 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw.waitForCopilot).toBe(true);
   });
 
-  it("runNewCli --research writes forceResearch: true and excludes the flag from the slug", () => {
+  it("runFeatureCli --research writes forceResearch: true and excludes the flag from the slug", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runNewCli(["--research", "do", "thing"], {
+    const code = runFeatureCli(["create", "--research", "do", "thing"], {
       stateDir,
       cwd: repoDir,
       command: ["true"],
@@ -1015,10 +1040,10 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw.forceResearch).toBe(true);
   });
 
-  it("runNewCli without --research leaves forceResearch absent (absent ≡ not forced)", () => {
+  it("runFeatureCli without --research leaves forceResearch absent (absent ≡ not forced)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runNewCli(["do", "thing"], {
+    const code = runFeatureCli(["create", "do", "thing"], {
       stateDir,
       cwd: repoDir,
       command: ["true"],
@@ -1031,15 +1056,18 @@ describe("runNewCli (--help / -h short-circuit)", () => {
   });
 
   it.each(["auto", "always", "never"] as const)(
-    "runNewCli --copilot-review %s persists copilotReview and excludes the flag+value from the slug",
+    "runFeatureCli --copilot-review %s persists copilotReview and excludes the flag+value from the slug",
     (value) => {
       spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
       freshWindowOk();
-      const code = runNewCli(["--copilot-review", value, "do", "thing"], {
-        stateDir,
-        cwd: repoDir,
-        command: ["true"],
-      });
+      const code = runFeatureCli(
+        ["create", "--copilot-review", value, "do", "thing"],
+        {
+          stateDir,
+          cwd: repoDir,
+          command: ["true"],
+        },
+      );
       expect(code).toBe(0);
       // Slug must not include the flag or its value token; description was "do thing".
       expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
@@ -1050,21 +1078,24 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     },
   );
 
-  it("runNewCli --copilot-review with an invalid value returns non-zero and writes no state", () => {
+  it("runFeatureCli --copilot-review with an invalid value returns non-zero and writes no state", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(["--copilot-review", "sometimes", "do", "thing"], {
-      stateDir,
-      cwd: repoDir,
-      command: ["true"],
-    });
+    const code = runFeatureCli(
+      ["create", "--copilot-review", "sometimes", "do", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+        command: ["true"],
+      },
+    );
     expect(code).toBe(1);
     expect(fs.readdirSync(stateDir)).toEqual([]);
     expect(errors.join("\n")).toMatch(/auto, always, never/);
   });
 
-  it("runNewCli --copilot-review with a missing value returns non-zero and writes no state", () => {
+  it("runFeatureCli --copilot-review with a missing value returns non-zero and writes no state", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(["--copilot-review"], {
+    const code = runFeatureCli(["create", "--copilot-review"], {
       stateDir,
       cwd: repoDir,
       command: ["true"],
@@ -1073,10 +1104,10 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(fs.readdirSync(stateDir)).toEqual([]);
   });
 
-  it("runNewCli without --copilot-review leaves the field undefined (absent ≡ auto)", () => {
+  it("runFeatureCli without --copilot-review leaves the field undefined (absent ≡ auto)", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runNewCli(["do", "thing"], {
+    const code = runFeatureCli(["create", "do", "thing"], {
       stateDir,
       cwd: repoDir,
       command: ["true"],
@@ -1088,13 +1119,13 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw).not.toHaveProperty("copilotReview");
   });
 
-  it("runNewCli --effort high launches claude with --effort then --settings, no positional seed, persists effort", () => {
+  it("runFeatureCli --effort high launches claude with --effort then --settings, no positional seed, persists effort", () => {
     // LOAD-BEARING: omit `command` so buildLaunchCommand runs — passing
     // `command: ["true"]` would short-circuit the argv under test.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
     const settingsPath = path.join(stateDir, "launch-settings.json");
-    const code = runNewCli(["--effort", "high", "do", "thing"], {
+    const code = runFeatureCli(["create", "--effort", "high", "do", "thing"], {
       stateDir,
       cwd: repoDir,
       launchSettingsPath: settingsPath,
@@ -1118,11 +1149,11 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw.effort).toBe("high");
   });
 
-  it("runNewCli without --effort omits --effort from the launch argv and the effort key from state", () => {
+  it("runFeatureCli without --effort omits --effort from the launch argv and the effort key from state", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
     const settingsPath = path.join(stateDir, "launch-settings.json");
-    const code = runNewCli(["do", "thing"], {
+    const code = runFeatureCli(["create", "do", "thing"], {
       stateDir,
       cwd: repoDir,
       launchSettingsPath: settingsPath,
@@ -1145,9 +1176,9 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw).not.toHaveProperty("effort");
   });
 
-  it("runNewCli --effort with an invalid value returns non-zero and triggers no side-effect", () => {
+  it("runFeatureCli --effort with an invalid value returns non-zero and triggers no side-effect", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(["--effort", "bogus", "do", "thing"], {
+    const code = runFeatureCli(["create", "--effort", "bogus", "do", "thing"], {
       stateDir,
       cwd: repoDir,
     });
@@ -1157,9 +1188,9 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(errors.join("\n")).toMatch(/low, medium, high, xhigh, max/);
   });
 
-  it("runNewCli --effort with a missing value returns non-zero and triggers no side-effect", () => {
+  it("runFeatureCli --effort with a missing value returns non-zero and triggers no side-effect", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(["--effort"], {
+    const code = runFeatureCli(["create", "--effort"], {
       stateDir,
       cwd: repoDir,
     });
@@ -1168,23 +1199,26 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
-  it("runNewCli --effort followed by another flag returns non-zero and triggers no side-effect", () => {
+  it("runFeatureCli --effort followed by another flag returns non-zero and triggers no side-effect", () => {
     // Pins the `value.startsWith("--")` half of the missing-value guard: a
     // following flag must not be consumed as the effort value.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(["--effort", "--no-auto-merge", "do", "thing"], {
-      stateDir,
-      cwd: repoDir,
-    });
+    const code = runFeatureCli(
+      ["create", "--effort", "--no-auto-merge", "do", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+      },
+    );
     expect(code).toBe(1);
     expect(fs.readdirSync(stateDir)).toEqual([]);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
-  it("runNewCli --effort high strips the flag and its value token from the slug", () => {
+  it("runFeatureCli --effort high strips the flag and its value token from the slug", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runNewCli(["--effort", "high", "do", "thing"], {
+    const code = runFeatureCli(["create", "--effort", "high", "do", "thing"], {
       stateDir,
       cwd: repoDir,
     });
@@ -1229,12 +1263,12 @@ describe("runNewCli (--help / -h short-circuit)", () => {
   });
 
   it.each(["opus", "fable"] as const)(
-    "runNewCli --model %s launches claude with --model before the prompt and persists model",
+    "runFeatureCli --model %s launches claude with --model before the prompt and persists model",
     (alias) => {
       // LOAD-BEARING: omit `command` so buildLaunchCommand runs.
       spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
       freshWindowOk();
-      const code = runNewCli(["--model", alias, "do", "thing"], {
+      const code = runFeatureCli(["create", "--model", alias, "do", "thing"], {
         stateDir,
         cwd: repoDir,
       });
@@ -1260,11 +1294,11 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     },
   );
 
-  it("runNewCli --model opus --effort high orders --model before --effort before the prompt", () => {
+  it("runFeatureCli --model opus --effort high orders --model before --effort before the prompt", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runNewCli(
-      ["--model", "opus", "--effort", "high", "do", "thing"],
+    const code = runFeatureCli(
+      ["create", "--model", "opus", "--effort", "high", "do", "thing"],
       {
         stateDir,
         cwd: repoDir,
@@ -1293,10 +1327,10 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw.effort).toBe("high");
   });
 
-  it("runNewCli without --model omits --model from the launch argv and the model key from state", () => {
+  it("runFeatureCli without --model omits --model from the launch argv and the model key from state", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runNewCli(["do", "thing"], {
+    const code = runFeatureCli(["create", "do", "thing"], {
       stateDir,
       cwd: repoDir,
     });
@@ -1309,9 +1343,9 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(raw).not.toHaveProperty("model");
   });
 
-  it("runNewCli --model with an invalid value returns non-zero and triggers no side-effect", () => {
+  it("runFeatureCli --model with an invalid value returns non-zero and triggers no side-effect", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(["--model", "gpt4", "do", "thing"], {
+    const code = runFeatureCli(["create", "--model", "gpt4", "do", "thing"], {
       stateDir,
       cwd: repoDir,
     });
@@ -1321,9 +1355,9 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(errors.join("\n")).toMatch(/opus, haiku, sonnet, fable/);
   });
 
-  it("runNewCli --model with a missing value returns non-zero and triggers no side-effect", () => {
+  it("runFeatureCli --model with a missing value returns non-zero and triggers no side-effect", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(["--model"], {
+    const code = runFeatureCli(["create", "--model"], {
       stateDir,
       cwd: repoDir,
     });
@@ -1332,23 +1366,26 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
-  it("runNewCli --model followed by another flag returns non-zero and triggers no side-effect", () => {
+  it("runFeatureCli --model followed by another flag returns non-zero and triggers no side-effect", () => {
     // Pins the `value.startsWith("--")` half of the missing-value guard: a
     // following flag must not be consumed as the model value.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
-    const code = runNewCli(["--model", "--no-auto-merge", "do", "thing"], {
-      stateDir,
-      cwd: repoDir,
-    });
+    const code = runFeatureCli(
+      ["create", "--model", "--no-auto-merge", "do", "thing"],
+      {
+        stateDir,
+        cwd: repoDir,
+      },
+    );
     expect(code).toBe(1);
     expect(fs.readdirSync(stateDir)).toEqual([]);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
-  it("runNewCli --model opus strips the flag and its value token from the slug", () => {
+  it("runFeatureCli --model opus strips the flag and its value token from the slug", () => {
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runNewCli(["--model", "opus", "do", "thing"], {
+    const code = runFeatureCli(["create", "--model", "opus", "do", "thing"], {
       stateDir,
       cwd: repoDir,
     });
@@ -1431,12 +1468,12 @@ describe("runNewCli (--help / -h short-circuit)", () => {
 
   it("treats -h after `--` as part of the description, not a help flag", () => {
     // Regression for the over-eager argsContainHelp scan: a description body
-    // that happens to contain `-h` (e.g. `flow new -- fix the -h crash`)
-    // must not be intercepted as `flow new --help`. Pipeline runs, slug
+    // that happens to contain `-h` (e.g. `flow feature create -- fix the -h crash`)
+    // must not be intercepted as `flow feature create --help`. Pipeline runs, slug
     // derives from the words after `--`.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
-    const code = runNewCli(["--", "fix", "the", "-h", "crash"], {
+    const code = runFeatureCli(["create", "--", "fix", "the", "-h", "crash"], {
       stateDir,
       cwd: repoDir,
       command: ["true"],
@@ -1449,12 +1486,14 @@ describe("runNewCli (--help / -h short-circuit)", () => {
     expect(files).toHaveLength(1);
     expect(files[0].endsWith(".json")).toBe(true);
     // Sanity-check no help text leaked to logs (would indicate intercept).
-    expect(logs.join("\n")).not.toMatch(/^flow new — start a new pipeline/m);
+    expect(logs.join("\n")).not.toMatch(
+      /^flow feature — start or resume a pipeline/m,
+    );
   });
 });
 
 describe("runFresh — persist-then-delete-on-failure (orphaned-window regression)", () => {
-  // Models the intermittent `flow new` bug under the INVERTED persist gate:
+  // Models the intermittent `flow feature create` bug under the INVERTED persist gate:
   // runFresh now writes state(phase=starting) UP FRONT (the supervisor needs a
   // file to advance), then deletes it on every launch-failure exit. tmux's
   // `new-window` returns ok (the shell forked) but the launched `claude` dies
@@ -1673,7 +1712,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
   });
 
   it("MODE 3 (window-create-then-immediate-exit, bounded self-heal): one transient failure then success writes exactly one state file", () => {
-    // The new.ts-layer framing of the consume-then-die race: the launcher fails
+    // The feature.ts-layer framing of the consume-then-die race: the launcher fails
     // once (the window created then claude exited before consuming the seed) then
     // succeeds on retry. Bounded to exactly two launcher calls, exit 0, one state
     // file. The successful attempt reaches the Mode-2 re-check → freshWindowOk().
@@ -1700,7 +1739,7 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
   });
 
   it("BLOCKING regression: an attempt that advances the phase then dies must not poison the next retry's consumed()", () => {
-    // Within-retry Mode-3 false-success repro (issue #82, new.ts runFresh): the
+    // Within-retry Mode-3 false-success repro (issue #82, feature.ts runFresh): the
     // `consumed` predicate compares phase to the literal `starting`, but the
     // up-front state write fires ONCE and the closure is reused across attempts.
     // So if attempt 1's supervisor advances the phase past `starting` and THEN

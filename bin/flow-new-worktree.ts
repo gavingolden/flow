@@ -52,7 +52,7 @@ type PickBranchNameResult =
 /**
  * Reconciles a positional `<slug>` arg with the supervisor pane's
  * `@flow-slug`. The canonical pipeline slug lives on the pane (set by
- * `flow new` and read by every other helper); silently accepting a
+ * `flow feature create` and read by every other helper); silently accepting a
  * mismatched positional was the PR #152 footgun — state.json keyed by
  * pane slug, worktree directory keyed by the mismatched positional.
  *
@@ -72,7 +72,7 @@ export function pickBranchName(
       kind: "error",
       message:
         `slug-mismatch: positional '${positional}' != pane @flow-slug '${paneSlug}'.\n` +
-        `  The supervisor's pipeline slug (set by 'flow new') is canonical.\n` +
+        `  The supervisor's pipeline slug (set by 'flow feature create') is canonical.\n` +
         `  Re-run with no positional arg, or fix the caller to match @flow-slug.`,
       exitCode: 2,
     };

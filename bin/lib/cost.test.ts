@@ -99,7 +99,7 @@ describe(seedMatchesSlug, () => {
   });
 
   it("matches the resume-mode seed prompt format", () => {
-    // `flow new --resume <slug>` seeds the supervisor with this prompt; the
+    // `flow feature resume <slug>` seeds the supervisor with this prompt; the
     // resumed JSONL must still attribute back to the same pipeline so cost
     // counts both the pre-crash and post-resume sessions.
     expect(
@@ -286,7 +286,7 @@ describe(computeCost, () => {
   });
 
   it("sums across all matching JSONLs when a pipeline has multiple sessions (resume)", async () => {
-    // `flow new --resume` spawns a fresh Claude session and writes a second
+    // `flow feature resume` spawns a fresh Claude session and writes a second
     // JSONL whose seed-prompt also extracts back to the same slug. Cost must
     // include both pre-crash and post-resume sessions, plus aggregate
     // per-model totals and unknown-model markers across them.

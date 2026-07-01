@@ -28,7 +28,7 @@ export const FLOW_UPDATE_CACHE = path.join(FLOW_DIR, "update-check.json");
 export const SETUP_LOCK_PATH = path.join(FLOW_DIR, "setup.lock");
 export const FLOW_TEST_SEM_DIR = path.join(FLOW_DIR, "test-sem");
 /**
- * Counting-semaphore slot dir for the host-wide `flow new` launch concurrency
+ * Counting-semaphore slot dir for the host-wide `flow feature create` launch concurrency
  * cap (mirrors FLOW_TEST_SEM_DIR). Overridable for tests via the
  * `FLOW_LAUNCH_SEM_DIR` env var so unit launches stay off the real ~/.flow.
  */

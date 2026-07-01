@@ -1,19 +1,23 @@
 /**
- * `flow new <description>` — slugify, create a tmux window, write initial
- * state. The supervisor skill (PR 2) takes over from there. Does not
+ * `flow feature <create|resume>` — the feature-pipeline verb, a mini-dispatcher
+ * mirroring `flow epic`.
+ *
+ * `flow feature create <description>` — slugify, create a tmux window, write
+ * initial state. The supervisor skill takes over from there. Does not
  * auto-attach by default; the user runs `flow attach <slug>` separately.
  *
- * `flow new --resume <name>` — re-launch a crashed supervisor session in
- * its existing tmux window (or recreate the window if tmux died too) using
- * the resume seed prompt. Refuses if there is no state for `<name>` or if
- * the existing pane has a live process.
+ * `flow feature resume <name> [<name> ...]` — re-launch one or more crashed
+ * supervisor sessions in their existing tmux windows (or recreate the window
+ * if tmux died too) using the resume seed prompt. Refuses if there is no state
+ * for `<name>` or if the existing pane has a live process. With >=2 names it
+ * previews the list and confirms once (unless `-y/--yes`).
  */
 
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { argsContainHelp, printVerbHelp } from "./help";
+import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import { slugify } from "./slug";
 import { confirmStdin } from "./confirm";
 import { toDirSuffix } from "./worktree-slot";
@@ -44,7 +48,7 @@ import { installBaseBranchGuard } from "./base-branch-guard";
 /**
  * Bounded retry budget for the verified window launch. A single transient
  * launch failure (e.g. a momentary tmux/claude hiccup) should self-heal, but
- * the loop must terminate — an unbounded retry would hang `flow new` forever
+ * the loop must terminate — an unbounded retry would hang `flow feature create` forever
  * against a genuinely broken `claude` install.
  */
 const WINDOW_CREATE_MAX_ATTEMPTS = 3;
@@ -95,7 +99,7 @@ function launchWithRetry(
   return last;
 }
 
-export type NewOptions = {
+export type FeatureOptions = {
   /** Override the cwd for the new window (default: process.cwd()). */
   cwd?: string;
   /** Override the command launched in the window. */
@@ -172,67 +176,107 @@ export type NewOptions = {
   launchSettingsPath?: string;
 };
 
-export function runNew(input: string, options: NewOptions = {}): number {
+export function runNew(input: string, options: FeatureOptions = {}): number {
   if (options.resume) return runResume(input, options);
   return runFresh(input, options);
 }
 
 /**
- * CLI shim for `bin/flow`'s `new` verb. Intercepts --help / -h before any
- * side-effect (slug computation, tmux window create, state file write),
- * then dispatches the parsed args to `runNew`. The previous inline
- * `dispatchNew` lived in `bin/flow`; moving it here makes the help-flag
- * short-circuit unit-testable and avoids the catastrophic
- * `flow new --help` → phantom 'help' pipeline regression.
+ * CLI shim for `bin/flow`'s `feature` verb — a mini-dispatcher mirroring
+ * `runEpicCli`. Guards the verb-position help flag first (`flow feature
+ * --help`), then dispatches on the subcommand: `create` (fresh launch) and
+ * `resume` (re-launch crashed pipelines). A verb-position help flag must fire
+ * ONLY at the verb position — using `argsContainHelp(args)` here would also
+ * match a subcommand-level `flow feature create --help` and wrongly print the
+ * verb help; instead that falls through to the subcommand's own help guard.
  */
-export function runNewCli(args: string[], options: NewOptions = {}): number {
-  if (argsContainHelp(args)) {
-    printVerbHelp("new");
+export function runFeatureCli(
+  args: string[],
+  options: FeatureOptions = {},
+): number {
+  if (isHelpFlag(args[0])) {
+    printVerbHelp("feature");
     return 0;
   }
-  const resumeIdx = args.indexOf("--resume");
-  if (resumeIdx >= 0) {
-    // The resume branch returns before the later --yes/-y parse, so detect the
-    // bypass flag here for the multi-slug preview. Strip --yes/-y and --resume
-    // from the positional list; the remainder is the de-duplicated slug list.
-    const yes = args.includes("--yes") || args.includes("-y");
-    // `--force` reclaims a live-but-idle pane in place (the epic orchestrator's
-    // autonomous-retry path). It's stripped from the slug list by the
-    // `!a.startsWith("-")` filter below; detect it here to thread into options.
-    const force = args.includes("--force");
-    const slugs = [
-      ...args.slice(0, resumeIdx),
-      ...args.slice(resumeIdx + 1),
-    ].filter((a) => a !== "--yes" && a !== "-y" && !a.startsWith("-"));
-    const seen = new Set<string>();
-    const deduped = slugs.filter((s) => !seen.has(s) && seen.add(s));
-    if (deduped.length === 0) {
-      console.error("flow new --resume: <name> is required.");
-      console.error("usage: flow new --resume <name> [<name> ...]");
-      return 1;
+  const sub = args[0];
+  switch (sub) {
+    case "create":
+      return runCreateCli(args.slice(1), options);
+    case "resume":
+      return runResumeCli(args.slice(1), options);
+    case undefined:
+      console.error("flow feature: a subcommand is required (create|resume).");
+      console.error("usage: flow feature <create|resume>");
+      return 2;
+    default:
+      console.error(`flow feature: unknown feature subcommand: ${sub}`);
+      console.error("usage: flow feature <create|resume>");
+      return 2;
+  }
+}
+
+/**
+ * `flow feature resume <name> [<name> ...]` — re-launch one or more crashed
+ * pipelines. Intercepts --help before any side-effect; a single slug routes
+ * straight through the byte-identical single-slug path (no preview), two or
+ * more slugs preview the list and confirm once (unless -y/--yes).
+ */
+function runResumeCli(rest: string[], options: FeatureOptions = {}): number {
+  if (argsContainHelp(rest)) {
+    printVerbHelp("feature");
+    return 0;
+  }
+  // Detect the bypass flag for the multi-slug preview. Strip --yes/-y (and any
+  // stray flags) from the positional list; the remainder is the de-duplicated
+  // slug list.
+  const yes = rest.includes("--yes") || rest.includes("-y");
+  // `--force` reclaims a live-but-idle pane in place (the epic orchestrator's
+  // autonomous-retry path). It's stripped from the slug list by the
+  // `!a.startsWith("-")` filter below; detect it here to thread into options.
+  const force = rest.includes("--force");
+  const slugs = rest.filter(
+    (a) => a !== "--yes" && a !== "-y" && !a.startsWith("-"),
+  );
+  const seen = new Set<string>();
+  const deduped = slugs.filter((s) => !seen.has(s) && seen.add(s));
+  if (deduped.length === 0) {
+    console.error("flow feature resume: <name> is required.");
+    console.error("usage: flow feature resume <name> [<name> ...]");
+    return 1;
+  }
+  // Single-slug resume routes straight through the UNCHANGED single-slug
+  // path — no preview, no confirm — so its output stays byte-identical.
+  if (deduped.length === 1) {
+    return runNew(deduped[0], { ...options, resume: true, force });
+  }
+  // Two or more slugs each spawn a Claude Code session: preview the count +
+  // names and confirm once (unless --yes) before launching anything.
+  if (!yes) {
+    console.log(`will resume ${deduped.length} pipeline(s):`);
+    for (const slug of deduped) console.log(`  ${slug}`);
+    if (!confirmStdin("proceed?")) {
+      console.log(dim("flow feature resume: aborted — nothing resumed"));
+      return 0;
     }
-    // Single-slug resume routes straight through the UNCHANGED single-slug
-    // path — no preview, no confirm — so its output stays byte-identical.
-    if (deduped.length === 1) {
-      return runNew(deduped[0], { ...options, resume: true, force });
-    }
-    // Two or more slugs each spawn a Claude Code session: preview the count +
-    // names and confirm once (unless --yes) before launching anything.
-    if (!yes) {
-      console.log(`will resume ${deduped.length} pipeline(s):`);
-      for (const slug of deduped) console.log(`  ${slug}`);
-      if (!confirmStdin("proceed?")) {
-        console.log(dim("flow new --resume: aborted — nothing resumed"));
-        return 0;
-      }
-    }
-    // Sequential launch (never concurrent) so tmux window creation stays
-    // deterministic; per-slug validation/refusal is inherited from runResume.
-    let failed = 0;
-    for (const slug of deduped) {
-      if (runNew(slug, { ...options, resume: true, force }) !== 0) failed += 1;
-    }
-    return failed > 0 ? 1 : 0;
+  }
+  // Sequential launch (never concurrent) so tmux window creation stays
+  // deterministic; per-slug validation/refusal is inherited from runResume.
+  let failed = 0;
+  for (const slug of deduped) {
+    if (runNew(slug, { ...options, resume: true, force }) !== 0) failed += 1;
+  }
+  return failed > 0 ? 1 : 0;
+}
+
+/**
+ * `flow feature create <description>` — fresh launch. Intercepts --help before
+ * any side-effect (slug computation, tmux window create, state file write),
+ * parses + enum-validates the value flags, then dispatches to `runNew`.
+ */
+function runCreateCli(args: string[], options: FeatureOptions = {}): number {
+  if (argsContainHelp(args)) {
+    printVerbHelp("feature");
+    return 0;
   }
   const noAutoMerge = args.includes("--no-auto-merge");
   const waitForCopilot = args.includes("--wait-for-copilot");
@@ -248,12 +292,14 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   if (crIdx >= 0) {
     const value = args[crIdx + 1];
     if (value === undefined || value.startsWith("--")) {
-      console.error("flow new: --copilot-review requires a value.");
+      console.error("flow feature create: --copilot-review requires a value.");
       console.error("  expected one of: auto, always, never");
       return 1;
     }
     if (!(COPILOT_REVIEW_VALUES as readonly string[]).includes(value)) {
-      console.error(`flow new: invalid --copilot-review value '${value}'.`);
+      console.error(
+        `flow feature create: invalid --copilot-review value '${value}'.`,
+      );
       console.error("  expected one of: auto, always, never");
       return 1;
     }
@@ -270,12 +316,12 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   if (effortIdx >= 0) {
     const value = args[effortIdx + 1];
     if (value === undefined || value.startsWith("--")) {
-      console.error("flow new: --effort requires a value.");
+      console.error("flow feature create: --effort requires a value.");
       console.error("  expected one of: low, medium, high, xhigh, max");
       return 1;
     }
     if (!(EFFORT_LEVELS as readonly string[]).includes(value)) {
-      console.error(`flow new: invalid --effort value '${value}'.`);
+      console.error(`flow feature create: invalid --effort value '${value}'.`);
       console.error("  expected one of: low, medium, high, xhigh, max");
       return 1;
     }
@@ -292,12 +338,12 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   if (modelIdx >= 0) {
     const value = args[modelIdx + 1];
     if (value === undefined || value.startsWith("--")) {
-      console.error("flow new: --model requires a value.");
+      console.error("flow feature create: --model requires a value.");
       console.error("  expected one of: opus, haiku, sonnet, fable");
       return 1;
     }
     if (!(MODEL_ALIASES as readonly string[]).includes(value)) {
-      console.error(`flow new: invalid --model value '${value}'.`);
+      console.error(`flow feature create: invalid --model value '${value}'.`);
       console.error("  expected one of: opus, haiku, sonnet, fable");
       return 1;
     }
@@ -306,7 +352,7 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   const modelValueToken = modelIdx >= 0 ? args[modelIdx + 1] : undefined;
 
   // Drop a leading `--` end-of-options sentinel so descriptions written
-  // with `flow new -- fix the -h crash` round-trip without the literal
+  // with `flow feature create -- fix the -h crash` round-trip without the literal
   // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
   const ddIdx = args.indexOf("--");
   const descriptionArgs =
@@ -353,32 +399,38 @@ export function runNewCli(args: string[], options: NewOptions = {}): number {
   });
 }
 
-function runFresh(description: string, options: NewOptions): number {
+function runFresh(description: string, options: FeatureOptions): number {
   if (!description || description.trim() === "") {
-    console.error("flow new: description is required.");
+    console.error("flow feature create: description is required.");
     console.error(
-      "usage: flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>",
+      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>",
     );
     return 1;
   }
 
   const slug = slugify(description);
   if (!slug) {
-    console.error(`flow new: '${description}' produces an empty slug.`);
+    console.error(
+      `flow feature create: '${description}' produces an empty slug.`,
+    );
     return 1;
   }
 
   const cwd = options.cwd ?? process.cwd();
   const repo = resolveRepoRoot(cwd);
   if (!repo) {
-    console.error(`flow new: ${cwd} is not inside a git repository.`);
+    console.error(
+      `flow feature create: ${cwd} is not inside a git repository.`,
+    );
     return 1;
   }
 
   if (windowExists(slug)) {
-    console.error(`flow new: window '${FLOW_SESSION}:${slug}' already exists.`);
     console.error(
-      `  attach with \`flow attach ${slug}\`, resume with \`flow new --resume ${slug}\`,`,
+      `flow feature create: window '${FLOW_SESSION}:${slug}' already exists.`,
+    );
+    console.error(
+      `  attach with \`flow attach ${slug}\`, resume with \`flow feature resume ${slug}\`,`,
     );
     console.error("  or pick a different description.");
     return 1;
@@ -393,7 +445,7 @@ function runFresh(description: string, options: NewOptions): number {
   } catch (err) {
     console.error(
       dim(
-        `flow new: could not install base-branch guard: ${err instanceof Error ? err.message : String(err)}`,
+        `flow feature create: could not install base-branch guard: ${err instanceof Error ? err.message : String(err)}`,
       ),
     );
   }
@@ -447,7 +499,7 @@ function runFresh(description: string, options: NewOptions): number {
     // state. A bare `createWindow` only proves tmux forked the shell, and a
     // `claude` idle at an empty input box passes a liveness probe, so a
     // dead-on-arrival pipeline would otherwise leave an orphaned state file (the
-    // intermittent `flow new` bug). createWindowVerified owns seed delivery and
+    // intermittent `flow feature create` bug). createWindowVerified owns seed delivery and
     // kills its own half-created window on failure, so an exhausted retry leaves
     // no window behind; the delete-on-failure below removes the up-front state.
     return createWindowVerified(slug, repo, command, seed, {
@@ -471,7 +523,7 @@ function runFresh(description: string, options: NewOptions): number {
   if (result.status === "failed") {
     deleteState(slug, options.stateDir);
     console.error(
-      "flow new: claude exited immediately after launch — the tmux window did not stay up.",
+      "flow feature create: claude exited immediately after launch — the tmux window did not stay up.",
     );
     console.error(
       "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
@@ -487,10 +539,10 @@ function runFresh(description: string, options: NewOptions): number {
   if (!windowExists(slug)) {
     deleteState(slug, options.stateDir);
     console.error(
-      "flow new: the tmux window vanished after launch — not writing state.",
+      "flow feature create: the tmux window vanished after launch — not writing state.",
     );
     console.error(
-      "  retry `flow new`; if it persists, check tmux/claude health.",
+      "  retry `flow feature create`; if it persists, check tmux/claude health.",
     );
     return 1;
   }
@@ -504,44 +556,54 @@ function runFresh(description: string, options: NewOptions): number {
     // confirmed the seed within the short budget (its first phase write lands
     // ~60s out). Leave it running; the lazy reaper backstops a true never-start.
     console.error(
-      dim("flow new: launched; supervisor still starting — attach to verify"),
+      dim(
+        "flow feature create: launched; supervisor still starting — attach to verify",
+      ),
     );
   } else {
-    console.log(dim(`flow new: created — attach with \`flow attach ${slug}\``));
+    console.log(
+      dim(`flow feature create: created — attach with \`flow attach ${slug}\``),
+    );
   }
   return 0;
 }
 
-function runResume(name: string, options: NewOptions): number {
+function runResume(name: string, options: FeatureOptions): number {
   if (!name || name.trim() === "") {
-    console.error("flow new --resume: <name> is required.");
-    console.error("usage: flow new --resume <name>");
+    console.error("flow feature resume: <name> is required.");
+    console.error("usage: flow feature resume <name>");
     return 1;
   }
 
   const slug = slugify(name);
   if (!slug || slug !== name) {
-    console.error(`flow new --resume: '${name}' is not a valid pipeline name.`);
+    console.error(
+      `flow feature resume: '${name}' is not a valid pipeline name.`,
+    );
     console.error("  pass the slug as printed by `flow ls`.");
     return 1;
   }
 
   const state = readState(slug, options.stateDir);
   if (!state) {
-    console.error(`flow new --resume: no pipeline state for '${slug}'.`);
-    console.error("  run `flow new <description>` to start a fresh pipeline.");
+    console.error(`flow feature resume: no pipeline state for '${slug}'.`);
+    console.error(
+      "  run `flow feature create <description>` to start a fresh pipeline.",
+    );
     return 1;
   }
 
   if (!state.repo || !fs.existsSync(state.repo)) {
-    // The repo path recorded at `flow new` time has moved or been deleted.
+    // The repo path recorded at `flow feature create` time has moved or been deleted.
     // tmux would surface this as an opaque "-c: no such directory" — give
     // the user the actual cause so they can decide to recreate the state.
-    console.error(`flow new --resume: pipeline '${slug}' was launched against`);
+    console.error(
+      `flow feature resume: pipeline '${slug}' was launched against`,
+    );
     console.error(`  ${state.repo || "(no repo recorded)"}`);
     console.error(`  but that path no longer exists. Move the repo back, or`);
     console.error(
-      `  run \`flow done ${slug}\` and start fresh with \`flow new\`.`,
+      `  run \`flow done ${slug}\` and start fresh with \`flow feature create\`.`,
     );
     return 1;
   }
@@ -549,7 +611,9 @@ function runResume(name: string, options: NewOptions): number {
   const exists = windowExists(slug);
   if (exists && isPaneAlive(slug)) {
     if (!options.force) {
-      console.error(`flow new --resume: pipeline '${slug}' is still running.`);
+      console.error(
+        `flow feature resume: pipeline '${slug}' is still running.`,
+      );
       console.error(
         `  attach with \`flow attach ${slug}\` instead of resuming.`,
       );
@@ -560,7 +624,7 @@ function runResume(name: string, options: NewOptions): number {
     // lifecycle respawn, never `send-keys`). The notice goes to stderr so the
     // machine-read `flow:<slug>` first stdout line stays the contract token.
     console.error(
-      `flow new --resume --force: reclaiming live-idle pane for ${slug}`,
+      `flow feature resume --force: reclaiming live-idle pane for ${slug}`,
     );
   }
 
@@ -623,7 +687,7 @@ function runResume(name: string, options: NewOptions): number {
   );
   if (result.status === "failed") {
     console.error(
-      "flow new --resume: claude exited immediately after launch — the tmux window did not stay up.",
+      "flow feature resume: claude exited immediately after launch — the tmux window did not stay up.",
     );
     console.error(
       "  Check your Claude Code install (try running `claude` manually in this repo), then retry.",
@@ -638,10 +702,14 @@ function runResume(name: string, options: NewOptions): number {
   console.log(`${FLOW_SESSION}:${slug}`);
   if (result.status === "launched-not-confirmed") {
     console.error(
-      dim("flow new: launched; supervisor still starting — attach to verify"),
+      dim(
+        "flow feature resume: launched; supervisor still starting — attach to verify",
+      ),
     );
   } else {
-    console.log(dim(`flow new: resumed — attach with \`flow attach ${slug}\``));
+    console.log(
+      dim(`flow feature resume: resumed — attach with \`flow attach ${slug}\``),
+    );
   }
   return 0;
 }
@@ -770,7 +838,7 @@ function flowPipelineResumeSeed(slug: string): string {
  * a `FLOW_LAUNCH_SETTINGS_PATH` env override (tests redirect it off the real
  * ~/.flow), then the default constant.
  */
-function launchSettingsPathFor(options: NewOptions): string {
+function launchSettingsPathFor(options: FeatureOptions): string {
   return (
     options.launchSettingsPath ??
     process.env.FLOW_LAUNCH_SETTINGS_PATH ??
@@ -795,7 +863,7 @@ function buildLaunchCommand(
   } catch (err) {
     process.stderr.write(
       dim(
-        `flow new: could not write launch settings: ${err instanceof Error ? err.message : String(err)}\n`,
+        `flow feature create: could not write launch settings: ${err instanceof Error ? err.message : String(err)}\n`,
       ),
     );
   }
@@ -815,7 +883,7 @@ function makeLaunchProgressWriter(): (elapsedMs: number) => void {
     lastBucket = bucket;
     process.stderr.write(
       dim(
-        `flow new: waiting for supervisor to start (${Math.round(elapsedMs / 1000)}s)…\n`,
+        `flow feature create: waiting for supervisor to start (${Math.round(elapsedMs / 1000)}s)…\n`,
       ),
     );
   };
@@ -823,7 +891,7 @@ function makeLaunchProgressWriter(): (elapsedMs: number) => void {
 
 /**
  * Wraps the verified launch in the host-wide launch-concurrency semaphore so a
- * burst of parallel `flow new` launches stops oversubscribing claude
+ * burst of parallel `flow feature create` launches stops oversubscribing claude
  * cold-starts. Fail-open (never blocks a launch): on acquire timeout the launch
  * proceeds holding no slot. The sem dir honors a `FLOW_LAUNCH_SEM_DIR` env
  * override (tests redirect it off the real ~/.flow); the cap is
@@ -831,7 +899,7 @@ function makeLaunchProgressWriter(): (elapsedMs: number) => void {
  */
 function withLaunchSlot(
   launch: () => VerifiedLaunchResult,
-  options: NewOptions,
+  options: FeatureOptions,
 ): VerifiedLaunchResult {
   const semDir = process.env.FLOW_LAUNCH_SEM_DIR ?? FLOW_LAUNCH_SEM_DIR;
   const slots = resolveLaunchConcurrency(process.env);

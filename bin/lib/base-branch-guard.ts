@@ -104,7 +104,7 @@ export function installBaseBranchGuard(
     }
     console.error(
       dim(
-        "flow new: base-branch guard not installed — existing pre-commit hook present",
+        "flow feature create: base-branch guard not installed — existing pre-commit hook present",
       ),
     );
     return { installed: false, reason: "exists" };

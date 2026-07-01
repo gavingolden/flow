@@ -1,5 +1,5 @@
 /**
- * `flow setup` and `flow setup --upgrade`: globally install flow's skills,
+ * `flow install` and `flow install --upgrade`: globally install flow's skills,
  * agents, and helper binaries via symlinks under ~/.claude/ and ~/.local/bin/.
  *
  * Manifest at ~/.flow/installed.json records every symlink so --upgrade can
@@ -69,7 +69,7 @@ export type SetupOptions = {
   flowSource?: string;
   /**
    * Override the canonical install root recorded in the manifest. Distinct
-   * from `flowSource`: when `flow setup --source <worktree>` is used,
+   * from `flowSource`: when `flow install --source <worktree>` is used,
    * `flowSource` points at the per-pipeline worktree (so discovery picks up
    * its in-flight skills/agents) while `installRoot` stays on the canonical
    * install location. Defaults to `resolveFlowSource()` in production —
@@ -121,7 +121,7 @@ export type SetupOptions = {
    * the lock acquires (so two parallel pipelines don't serialize on the
    * network round-trip). Defaults to `true` whenever `upgrade` is true;
    * ignored on non-upgrade runs. Set false to opt out via
-   * `flow setup --upgrade --no-pull-canonical`.
+   * `flow install --upgrade --no-pull-canonical`.
    */
   pullCanonicalFirst?: boolean;
   /**
@@ -204,9 +204,9 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
     ff = fastForwardCanonical({ canonicalRoot: installRoot });
   }
 
-  // Serialize symlink + manifest writes against any concurrent `flow setup`
+  // Serialize symlink + manifest writes against any concurrent `flow install`
   // invocation. Without the lock, two parallel pipelines that both run
-  // `flow setup --upgrade` can race on the same skill/agent symlink.
+  // `flow install --upgrade` can race on the same skill/agent symlink.
   return withFileLock(
     options.lockPath ?? SETUP_LOCK_PATH,
     () =>
@@ -312,7 +312,7 @@ function runUnderLock(
       );
       if (result.reason === "malformed-json") {
         log(
-          `      → run "flow setup --repair-settings" to back up and rewrite the file`,
+          `      → run "flow install --repair-settings" to back up and rewrite the file`,
         );
       }
       // unsafe-symlink-target intentionally gets no repair hint — repair
@@ -536,7 +536,7 @@ function printOutcome(
       // ff === undefined: --no-pull-canonical opted out, so content was never
       // fetched/compared. Don't claim up-to-date — links were re-pointed but
       // no content check happened.
-      log(green(`flow setup complete at ${v} (content not checked)`));
+      log(green(`flow install complete at ${v} (content not checked)`));
     }
   } else {
     log(green(`flow installed ${v}`));

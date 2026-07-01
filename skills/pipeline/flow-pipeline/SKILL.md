@@ -4,7 +4,7 @@ description: >-
   Supervisor skill for the tmux-driven flow pipeline. Drives one feature
   end-to-end (triage → worktree → plan → implement → verify → ci-wait →
   review → gate → merge) inside a single Claude Code session. Use ONLY
-  when invoked by `flow new <description>`'s seed prompt or via an
+  when invoked by `flow feature create <description>`'s seed prompt or via an
   explicit `/flow-pipeline <description>`. Do NOT auto-trigger on
   generic "build X" / "implement Y" phrasing — that hijacks unrelated
   chats. The skill is one long-running supervisor turn per phase, not a
@@ -15,7 +15,7 @@ argument-hint: '"<feature description>"'
 # Goal
 
 You are the supervisor of one tmux window's pipeline. The user typed
-`flow new "<description>"` from a terminal; tmux opened a window,
+`flow feature create "<description>"` from a terminal; tmux opened a window,
 launched Claude Code in it, and seeded this chat with a prompt that
 invokes you. From here, you drive the pipeline from prompt to
 **`MERGED`**, **`gated`**, or **`NEEDS HUMAN: <reason>`** — the user
@@ -32,19 +32,19 @@ in-process for skills; shell out for scripts; never delegate.
 
 # When to Use
 
-- Invoked from `flow new`'s seed prompt: `Use the /flow-pipeline
+- Invoked from `flow feature create`'s seed prompt: `Use the /flow-pipeline
   skill for: <description>`.
 - Explicit user invocation: `/flow-pipeline "<description>"`.
 
 # When NOT to Use
 
 - Generic "add X" / "implement Y" phrasing without `/flow-pipeline`
-  or a `flow new` seed. Use `/new-feature` directly for one-shot
+  or a `flow feature create` seed. Use `/new-feature` directly for one-shot
   feature work in the user's existing session.
 - The user wants to step through phases manually (no auto-progression).
   Use the individual skills (`/product-planning`, `/new-feature`,
   `/verify`, `/pr-review`) directly.
-- Resume after a Claude Code crash → `flow new --resume <name>` is
+- Resume after a Claude Code crash → `flow feature resume <name>` is
   the entry point. The wrapper re-launches Claude Code into the same
   tmux window with the resume seed prompt; this skill detects the
   prompt prefix and walks the decision tree in
@@ -66,7 +66,7 @@ in-process for skills; shell out for scripts; never delegate.
 > The two constraints behind the rule above are (1) sub-agents can't
 > spawn sub-agents (one-level cap) and (2) a long-running supervisor
 > with sub-agents would bloat past the context window. The supervisor
-> is itself a top-level Claude Code session (started by `flow new`
+> is itself a top-level Claude Code session (started by `flow feature create`
 > opening tmux + `claude`), so constraint (1) does not apply to *its*
 > Task calls — it applies to *its* sub-agents. All nine exemptions
 > below are also one-shot, not long-running, so constraint (2) doesn't
@@ -455,7 +455,7 @@ in-process for skills; shell out for scripts; never delegate.
 > contract). Every other step
 > transition stays in the same turn. Harness-level enforcement:
 > `flow-stop-guard`
-> (registered as a Claude Code Stop hook by `flow setup`) reads
+> (registered as a Claude Code Stop hook by `flow install`) reads
 > `~/.flow/state/<slug>.json` and blocks any turn-end whose phase
 > is not in this set. See "Harness-level enforcement (Stop hook)"
 > below for the contract.
@@ -463,7 +463,7 @@ in-process for skills; shell out for scripts; never delegate.
 # Harness-level enforcement (Stop hook)
 
 `flow-stop-guard` is a Claude Code Stop hook installed by
-`flow setup` into `~/.claude/settings.json`. It is the structural
+`flow install` into `~/.claude/settings.json`. It is the structural
 defence behind the "never end the turn between sub-skills" Hard
 rule above — text-only reminders in this SKILL.md cannot intercept
 a model that has already chosen to stop, but a Stop hook fires
@@ -505,7 +505,7 @@ Contract:
   be blocked this turn …`) that Claude Code surfaces on the next
   turn-start.
 
-Opt out: `flow setup --no-hooks` skips the merge entirely and
+Opt out: `flow install --no-hooks` skips the merge entirely and
 leaves `~/.claude/settings.json` untouched. The supervisor's
 contract still holds — the hook is the mechanical guardrail, not
 the contract itself.
@@ -530,7 +530,7 @@ a slug (`flow-notify`, `flow-state-update`, `flow-rename-window`,
 `flow-open-pr`, `flow-resume-decide`, `flow-gate-decide`,
 `flow-remove-worktree`) auto-resolves it from `$TMUX_PANE`'s `@flow-slug`
 window option. The supervisor's per-Bash-call shell loses any `SLUG=…` it
-sets between calls, but the tmux option set by `flow new`'s `createWindow`
+sets between calls, but the tmux option set by `flow feature create`'s `createWindow`
 is durable for the life of the window. Pass `--slug <slug>` (or the
 positional, depending on the helper) only when invoking from outside the
 pipeline window — every example below relies on the auto-resolve path.
@@ -550,14 +550,14 @@ escalation site documented under `# Failure paths`.
 # State: `~/.flow/state/<slug>.json`
 
 One state file per pipeline at `~/.flow/state/<slug>.json`, written
-initially by `flow new` with `phase: "starting"` and updated at every
+initially by `flow feature create` with `phase: "starting"` and updated at every
 transition by you. `flow ls` reads only this file. The supervisor
 never writes the worktree-side `.flow-status` text file (it doesn't
 exist anymore).
 
 | Field | Set by | When |
 |---|---|---|
-| `slug`, `repo` | `flow new` | once at pipeline creation |
+| `slug`, `repo` | `flow feature create` | once at pipeline creation |
 | `phase` | you, via `flow-state-update --phase <p>` | at every transition |
 | `worktree` | you, via `flow-state-update --worktree <path>` | once after step 2 (`flow-new-worktree` returns) |
 | `pr` | you, via `flow-state-update --pr <n>` | once after step 5 (the PR opens) |
@@ -575,7 +575,7 @@ state file, surfacing drift instead of papering over it.
 
 `$PHASE` must be one of the values listed in the phase table below.
 The slug is auto-resolved from `$TMUX_PANE`'s `@flow-slug` window
-option — the canonical pipeline identifier, set by `flow new` when
+option — the canonical pipeline identifier, set by `flow feature create` when
 creating the window and matching the worktree directory's basename
 (e.g. `csv-export`). It is *not* the display name, which the
 supervisor renames to a readable title in step 1 and which the user
@@ -620,7 +620,7 @@ below. The slug is a concrete string (e.g. `csv-export`), not a shell
 variable that persists across tool calls.
 
 Write the phase to state.json so `flow ls` immediately shows `triaging`
-instead of the stale `starting` from `flow new`. Pass `--slug <slug>`
+instead of the stale `starting` from `flow feature create`. Pass `--slug <slug>`
 explicitly so the state write is not subject to `resolveSlugFromPane()`'s
 ambient-pane resolution, which may race against a parallel pipeline's
 window during the brief window between window creation and the first
@@ -633,8 +633,8 @@ flow-state-update --phase triaging --slug <slug>
 **No-state-file guard (never work inline on the base branch).** If this
 first `flow-state-update --phase triaging` exits non-zero with a `no state
 file` error *while the pane resolves `@flow-slug` from `$TMUX_PANE`* — i.e.
-the supervisor is genuinely inside a `flow new`-created window — this is the
-`flow new` state-write race (the parent's `phase: starting` write has not
+the supervisor is genuinely inside a `flow feature create`-created window — this is the
+`flow feature create` state-write race (the parent's `phase: starting` write has not
 landed yet), **not** a direct/manual invocation. The supervisor must **not**
 fall through to classifying or implementing inline on the base branch.
 Retry `flow-state-update --phase triaging --slug <slug>` a bounded ~3 times
@@ -643,14 +643,14 @@ state-file-missing-on-start` and end the turn. The escalation may itself be
 unable to write `phase: needs-human` (there is no state file to update), so
 the supervisor prints the `NEEDS HUMAN: state-file-missing-on-start` line and
 ends — `flow-stop-guard` already no-ops when state.json is missing, so the
-turn-end is permitted. (`flow new` now writes `phase: starting` before it
+turn-end is permitted. (`flow feature create` now writes `phase: starting` before it
 delivers the seed, so this guard is defense-in-depth against a residual
 slow-filesystem window or a future regression, not the common path.)
 
 Then set a readable tmux window title so the user can scan their
 status bar at a glance instead of squinting at the slug. The slug
 stays the canonical lookup key (it's stored in tmux's `@flow-slug`
-user option, set when `flow new` created the window) — the rename
+user option, set when `flow feature create` created the window) — the rename
 only changes the display. Pass `--slug <slug>` here for the same
 reason as above: the explicit slug avoids the pane-resolution race:
 
@@ -753,7 +753,7 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
   persisted for re-surfacing on resume, since a no-change pipeline has
   no worktree to store it under. Do NOT proceed to step 2.
 - **Change** → continue to step 2. The **slug** was already finalized
-  by `flow new`'s aggressive slugify (`bin/lib/slug.ts`: stop-word
+  by `flow feature create`'s aggressive slugify (`bin/lib/slug.ts`: stop-word
   filter + 5-token cap + `task-<hash8>` fallback) and is the basename
   of the worktree directory. The supervisor never re-derives or
   renames the slug; it is the canonical pipeline identifier (stored
@@ -809,14 +809,14 @@ Now record the worktree path in state.json (the only step where
 flow-state-update --phase worktree-create --worktree "$WORKTREE"
 ```
 
-**Runtime `/add-dir` fallback (best-effort, never-blocking).** `flow new`
+**Runtime `/add-dir` fallback (best-effort, never-blocking).** `flow feature create`
 already pre-authorized the *deterministic* worktree path as a chrome-devtools
 MCP workspace root at launch (`claude --add-dir <repo-parent>/<repo>-<slug>`),
 so screenshot evidence in step 8c can write to
 `<worktree>/.flow-tmp/ui-evidence/` instead of falling back to the session
 cwd (issue #317). But when `flow-new-worktree` hit a collision and
 auto-suffixed the directory (`-2`/`-3`/…), the **actual** `$WORKTREE` diverges
-from the path `flow new` pre-authorized. To cover that divergence, issue a
+from the path `flow feature create` pre-authorized. To cover that divergence, issue a
 runtime `/add-dir "$WORKTREE"` now (the slash-command form a running Claude
 Code session uses to add a workspace root mid-session) so the *actual*
 worktree is authorized regardless. This is purely a reliability nicety for the
@@ -854,16 +854,16 @@ blindly — see `discovery-instructions.md` §3 ("User intent").
 **Force-on threading (mandatory).** BEFORE invoking `/product-planning`,
 you MUST run `jq -r '.forceResearch // empty' ~/.flow/state/<slug>.json`
 (the same idiom step 7 uses for `waitForCopilot`). When the value is the
-literal `true`, you MUST append a `RESEARCH: force-on (flow new --research)`
+literal `true`, you MUST append a `RESEARCH: force-on (flow feature create --research)`
 marker line to the `/product-planning` invocation through the **same append
 channel** that carries the inferred ultimate goal above. This is not
-optional: drop the marker and a `flow new --research` pipeline silently
+optional: drop the marker and a `flow feature create --research` pipeline silently
 loses its forced research. `/product-planning`'s spawn template forwards
 the marker to the discovery subagent, where it forces discovery Step 1.5's
 web-grounded research pre-check on (bypassing the relevance gate and the
 `research.discovery` config opt-in). Absent or non-`true` ≡ not forced —
 append nothing. The flag is set per-pipeline via
-`flow new --research "<description>"`.
+`flow feature create --research "<description>"`.
 
 **Deterministic forced research (mandatory on the forced path).** The
 discovery subagent's own Step 1.5 was observed to skip the fan-out even
@@ -890,7 +890,7 @@ RESEARCH FINDINGS (web-grounded, pre-run by supervisor — use as prior context,
 <contents of research-findings.md>
 ```
 
-This makes `flow new --research` actually execute research deterministically
+This makes `flow feature create --research` actually execute research deterministically
 instead of relying on the subagent's unreliable Step 1.5. The discovery
 subagent reuses these findings rather than re-running the fan-out (avoiding
 double agy spend — see `discovery-instructions.md` (a0)), and the
@@ -924,7 +924,7 @@ have plan.md open for that summary, surface any discovery research
 skip-note it carries: if plan.md contains a `> [!NOTE]` line about
 **Web-grounded research (discovery Step 1.5)** being skipped, include
 that one-liner in the chat summary so the user sees why no research ran
-and how to force it (`flow new --research`). Reuse this same read — do
+and how to force it (`flow feature create --research`). Reuse this same read — do
 **not** open plan.md a second time for it.
 
 **Deterministic note backstop (mandatory, non-skippable).** The
@@ -1312,10 +1312,10 @@ implement-failed`.
 
 Sub-skills loaded by the supervisor in steps 6–8 (`/verify`,
 `/pr-review`) are read from `~/.claude/skills/` and `~/.claude/agents/`
-— populated by `flow setup` (and `flow setup --upgrade`) via symlink.
+— populated by `flow install` (and `flow install --upgrade`) via symlink.
 A worktree that adds new files under `skills/` or `agents/` in step 5
 does not get those files symlinked automatically; the same supervisor
-session cannot use them downstream until `flow setup --upgrade` runs.
+session cannot use them downstream until `flow install --upgrade` runs.
 This step closes that gap.
 
 ```bash
@@ -1336,13 +1336,13 @@ ADDED=$(git diff --name-only --diff-filter=A "origin/$DEFAULT_BRANCH...HEAD" | \
 if [ -n "$ADDED" ]; then
   echo "Detected new skill/agent files; re-symlinking:"
   echo "$ADDED" | sed 's/^/  /'
-  flow setup --upgrade --source "$WORKTREE"
+  flow install --upgrade --source "$WORKTREE"
   # Register a post-merge follow-up so the user's home install also gets
   # re-symlinked against the canonical (post-merge) main, not just this
-  # supervisor's in-flight worktree. `--auto` plus the `flow setup --upgrade`
+  # supervisor's in-flight worktree. `--auto` plus the `flow install --upgrade`
   # allowlist entry means step 11 runs it automatically on the MERGED path.
   flow-followups add \
-    --command "flow setup --upgrade" \
+    --command "flow install --upgrade" \
     --reason "new skills/agents added on this branch — re-symlink home install post-merge" \
     --auto \
     --registered-by "flow-pipeline:step-5.5"
@@ -1360,7 +1360,7 @@ re-symlink; only new files do. The default-branch resolution mirrors
 `bin/flow-new-worktree.ts` and `bin/flow-pre-commit.ts`; do not
 hardcode `origin/main`.
 
-The `--source "$WORKTREE"` argument forces `flow setup` to read its
+The `--source "$WORKTREE"` argument forces `flow install` to read its
 content tree from the in-flight worktree rather than the original
 install root. Without it, a PR against flow itself that adds a new
 skill under `skills/...` would not see the new files in the same
@@ -1373,15 +1373,15 @@ so passing `--source "$WORKTREE"` would point at a tree that has no
 this branch from running in that case.
 
 The override only swaps the **content source** — the worktree path
-is the location `flow setup` reads files from. The **recorded owner**
+is the location `flow install` reads files from. The **recorded owner**
 written to `~/.flow/installed.json` stays on the canonical install
 root via `resolveFlowSource()`. That split means a worktree's
 post-merge removal cannot strand worktree-rooted manifest entries,
 and any dangling symlinks left by past `--source <worktree>` runs get
-reaped on the next `flow setup --upgrade` (the relaxed orphan-pruning
+reaped on the next `flow install --upgrade` (the relaxed orphan-pruning
 path).
 
-**Concurrency.** `flow setup` wraps its symlink work in
+**Concurrency.** `flow install` wraps its symlink work in
 `~/.flow/setup.lock` (`bin/lib/lock.ts`), so parallel pipelines that
 both add skills/agents serialise here rather than racing on
 `~/.claude/skills/` and `~/.claude/agents/`. Do not add an ad-hoc
@@ -1668,7 +1668,7 @@ auto-detect short-circuits (see
 empty'`) and appends `--wait-for-copilot` to the `flow-ci-wait` call
 when the value is the literal `true`. Absent ≡ false ≡ auto-detect ON
 (the documented default). The flag is set per-pipeline via
-`flow new --wait-for-copilot "<description>"`.
+`flow feature create --wait-for-copilot "<description>"`.
 
 **Fix-loop cap: 3 total ci-fix loops** across the whole pipeline.
 After the third red CI, escalate `NEEDS HUMAN: ci-fix-exhausted`.
@@ -1830,7 +1830,7 @@ VALIDATION_ITEMS=$(printf '%s' "$RESULT" | jq -r '.validationItems[]? // empty')
 
 The helper reads `autoMerge` from `~/.flow/state/<slug>.json`
 itself (defaulting to `true` when absent). `autoMerge: false` —
-the user passed `flow new --no-auto-merge`, or
+the user passed `flow feature create --no-auto-merge`, or
 `flow-state-update --no-auto-merge` was issued mid-flight — routes
 every `OPEN` PR to `gated` regardless of section content. `MERGED`
 and `CLOSED` states still take their normal branches.
@@ -1962,7 +1962,7 @@ GUARD_RC=$?
 if [ "$GUARD_RC" -ne 0 ]; then
   PR_URL=$(gh pr view "$PR" --json url -q .url 2>/dev/null)
   GUARD_REASON=$(printf '%s' "$GUARD_JSON" | jq -r '.reason // empty' 2>/dev/null)
-  GUARD_REASON=${GUARD_REASON:-"flow-merge-guard exited $GUARD_RC (helper missing from PATH? run flow setup --upgrade)"}
+  GUARD_REASON=${GUARD_REASON:-"flow-merge-guard exited $GUARD_RC (helper missing from PATH? run flow install --upgrade)"}
   flow-followups run --note-only > "$WORKTREE/.flow-tmp/followups-block.txt"
   flow-gate-summary --status needs-human \
     --reason gate-override-without-confirmation \
@@ -1979,7 +1979,7 @@ fi
 A non-zero `flow-merge-guard` exit means a `gated` verdict was reached
 without the fresh-confirmation override (exit 1 = blocked), or the guard
 could not run (exit 2 = gh error / bad args, or 127 = helper not yet on
-PATH — the user must run `flow setup --upgrade`). In **every** non-zero
+PATH — the user must run `flow install --upgrade`). In **every** non-zero
 case the supervisor escalates `NEEDS HUMAN: gate-override-without-confirmation`
 and ends — it never merges past the guard and never retries it. Only
 when `GUARD_RC` is `0` does the supervisor continue to the merge below.
@@ -2249,16 +2249,16 @@ report builds.
 note below).
 
 Local follow-ups are manual local-computer steps a pipeline produced (e.g.
-`flow setup --upgrade` after a new helper landed). Sub-skills register them
+`flow install --upgrade` after a new helper landed). Sub-skills register them
 during the run via `flow-followups add`; step 11 reports them and, on the
 MERGED path, executes the safe subset.
 
 **Two-layer safety boundary:** an entry's `auto: true` flag declares
 *intent*; the helper's hardcoded ALLOWLIST gates *permission* (exact-match,
-v1: `flow setup` and `flow setup --upgrade`). Both must be true to execute.
+v1: `flow install` and `flow install --upgrade`). Both must be true to execute.
 Same narrow-and-named exemption pattern as the `/pr-review` auto-push and
 `/flow-pipeline` auto-merge clauses in `AGENTS.md` "Don'ts". Auto-run is
-gated by the same `autoMerge` flag as step 10 — `flow new --no-auto-merge`
+gated by the same `autoMerge` flag as step 10 — `flow feature create --no-auto-merge`
 disables both.
 
 **End-state matrix:**
@@ -2346,13 +2346,13 @@ either re-enable it or run `git push origin --delete <branch>` manually
 after each merge.
 
 **Failed auto-runs are reported, not escalated.** A non-zero exit code from
-an allowlisted command (e.g. `flow setup --upgrade` failed because of a
+an allowlisted command (e.g. `flow install --upgrade` failed because of a
 permission issue) is rendered in the printed block as `FAIL <command> (exit
 N)` with a tail excerpt. The supervisor still ends with `MERGED` — the user
 inspects scrollback. Escalating to `NEEDS HUMAN` would block a successful
 merge on a peripheral failure, which inverts the priority.
 
-**Canonical fast-forward.** `flow setup --upgrade` opportunistically
+**Canonical fast-forward.** `flow install --upgrade` opportunistically
 fast-forwards the canonical install root before discovery — this fixes
 the PR #115 race where freshly-merged skills got orphan-reaped because
 the canonical checkout still had the pre-merge tree. The line
@@ -2364,7 +2364,7 @@ symlink summary. As a defense-in-depth layer for the
 dirty-canonical case, `removeIfManagedSymlink` (in `bin/lib/symlink.ts`)
 now defers reaping a dangling pointer when the recorded source still
 exists in `origin/<default>`'s tree but not in the canonical working
-tree. Opt out per-run with `flow setup --upgrade --no-pull-canonical`;
+tree. Opt out per-run with `flow install --upgrade --no-pull-canonical`;
 the followup itself does NOT pass this flag — the allowlist exact-match
 is load-bearing.
 
@@ -2434,7 +2434,7 @@ the literal prefix:
 Use the /flow-pipeline skill in --resume mode for: <slug>
 ```
 
-`flow new --resume <name>` writes that prompt; nothing else does.
+`flow feature resume <name>` writes that prompt; nothing else does.
 On detecting it, **do not** start at step 1. Call `flow-resume-decide`
 to walk the resume-from-disk decision tree:
 
@@ -2470,7 +2470,7 @@ Branch on `.resumeAt`:
 | `step-3` | Re-enter step 3 (plan). Re-invoke `/product-planning`. |
 | `step-4` | Re-enter step 4 (approval) — **but first check for the non-feature candidate-issues overflow marker** (see the note below the table). Absent the marker: re-print the plan summary, then emit the same two markdown bullets as step 3's feature-intent end-condition (worktree absolute path + plan file absolute path, on their own lines as the last lines of the message, no trailing punctuation), and wait — never replay an approval the user gave to a now-dead session. |
 | `step-5` | Re-enter step 5 (implement). Re-invoke `/new-feature`. |
-| `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow setup --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
+| `step-5.5` | Re-enter step 5.5 (re-symlink). Re-run `flow install --upgrade --source "$WORKTREE"` per step 5.5's end-condition (idempotent). |
 | `step-6` | Re-enter step 6 (verify). Re-spawn the Verify-Retry-Loop subagent (phase stays `verifying`; the subagent re-runs the `/verify` loop observing the worktree fresh, so a re-spawn is idempotent). |
 | `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-backgrounded pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, the backgrounded `flow-ci-wait` already reached a terminal decision — read the persisted verdict and branch on `.decision` without re-running the loop. Only when the file is absent or unparseable does the supervisor re-launch the backgrounded `flow-ci-wait` (the poll loop restarts, observing CI state fresh from GitHub). |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/pr-review <PR>`. |

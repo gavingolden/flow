@@ -1,6 +1,6 @@
 /**
  * Tests for `flow epic`. F5 rewires `create` from a resolve-and-print stub to
- * a window-spawn (mirroring `flow new`): it opens a tmux window running the
+ * a window-spawn (mirroring `flow feature create`): it opens a tmux window running the
  * `/epic-create` supervisor and writes initial epic state. So the `create`
  * specs now mock `./tmux` (like new.test.ts) and assert state + seed prompt;
  * the help / deferred-subcommand / usage specs stay side-effect-free.
@@ -48,7 +48,7 @@ const tmuxMock = vi.hoisted(() => ({
 vi.mock("./tmux", () => tmuxMock);
 
 import { runEpicCli, parseRunArgs } from "./epic";
-import { deriveWorktreePath } from "./new";
+import { deriveWorktreePath } from "./feature";
 import { writeState } from "./state";
 import {
   writeEpicRunState,
@@ -839,7 +839,7 @@ describe("runEpicCli create --resume", () => {
 
   it("wires a resume consumed predicate that gates on updatedAt advancing from epic-designing", () => {
     // On resume the phase is already `epic-designing`, so consumption keys on
-    // `updatedAt` moving off the pre-respawn baseline, mirroring new.ts runResume.
+    // `updatedAt` moving off the pre-respawn baseline, mirroring feature.ts runResume.
     const baseline = new Date(Date.now() - 10_000).toISOString();
     writeState(
       {

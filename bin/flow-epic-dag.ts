@@ -208,7 +208,7 @@ export function validateDag(features: Feature[]): DagResult {
 /**
  * The ready frontier: every feature that is launchable RIGHT NOW given a
  * `completed` set (features whose work is done — `merged` in the orchestrator)
- * and a `launched` set (features already handed to `flow new` this run). A
+ * and a `launched` set (features already handed to `flow feature create` this run). A
  * feature is in the frontier iff every id in its `dependsOn` is in `completed`
  * AND the feature itself is in neither `completed` nor `launched`.
  *

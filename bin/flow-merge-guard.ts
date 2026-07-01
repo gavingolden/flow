@@ -64,7 +64,7 @@ import { resolveSlugFromPane } from "./lib/tmux";
  * A recorded gate-override token is honoured only when it matches the PR
  * being merged AND was confirmed within this window. The window closes the
  * stale-token hole: a token left in state.json by an earlier run (e.g. a
- * crash-then-`flow new --resume`) must not silently authorise a merge in a
+ * crash-then-`flow feature resume`) must not silently authorise a merge in a
  * later session. 30 minutes is generous for a merge to follow its
  * confirmation, yet far too short for a token to survive into an unrelated
  * later resume.
@@ -288,7 +288,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   if (!slug) {
     console.error(
       "flow-merge-guard: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
-        "  pass --slug <slug>, or run inside a tmux window created by `flow new`.",
+        "  pass --slug <slug>, or run inside a tmux window created by `flow feature create`.",
     );
     return 2;
   }

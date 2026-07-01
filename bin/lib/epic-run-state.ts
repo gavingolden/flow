@@ -31,7 +31,7 @@ export type FeatureJudgment = {
 
 /** A single launched feature's runtime record. */
 export type FeatureRunRecord = {
-  /** The authoritative slug `flow new` minted (parsed from its stdout). */
+  /** The authoritative slug `flow feature create` minted (parsed from its stdout). */
   slug: string;
   launchedAt: string;
   /** Last observed PR number for the feature's pipeline, when known. */

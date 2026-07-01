@@ -265,7 +265,7 @@ NEXT ACTION: validate then run: gh pr merge --squash 142
   - Switch the time range to 1y — chart updates without a full reload
 FOLLOW-UPS:
   LOCAL FOLLOW-UPS (deferred — PR not yet merged): 0 ran, 1 noted, 0 failed
-  - [ ]   flow setup --upgrade  # new helper landed (auto)
+  - [ ]   flow install --upgrade  # new helper landed (auto)
 GATED: https://github.com/org/repo/pull/142
 ```
 

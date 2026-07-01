@@ -443,7 +443,7 @@ function main(): void {
       "  No slug given and could not resolve from $TMUX_PANE's @flow-slug option.",
     );
     log.info(
-      "  Pass <slug> explicitly, or run inside a tmux window created by `flow new`.",
+      "  Pass <slug> explicitly, or run inside a tmux window created by `flow feature create`.",
     );
     process.exit(1);
   }

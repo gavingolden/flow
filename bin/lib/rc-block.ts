@@ -1,10 +1,8 @@
 /**
  * Managed-block parser/writer for shell rc files (~/.zshrc, ~/.bashrc,
- * ~/.bash_profile). Mirrors the marker convention in `bin/lib/gitignore.ts`
- * — `#` is both the gitignore and the shell comment character — but operates
- * on arbitrary shell-source bodies rather than path lists, so the two
- * implementations stay parallel rather than sharing a base. Two consumers
- * isn't enough to justify a shared module; revisit if a third appears.
+ * ~/.bash_profile). `#` doubles as the shell comment character, so a managed
+ * block is delimited by `# managed by flow <tag>` markers and operates on
+ * arbitrary shell-source bodies.
  *
  * Block format:
  *   # managed by flow <tag>

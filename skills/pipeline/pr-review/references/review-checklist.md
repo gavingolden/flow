@@ -1146,7 +1146,7 @@ or `npm link` will get a successful install with no executable shim.
 4. Confirm any remaining references are explicitly historical /
    migration text, not "do this to install".
 5. If the new install path requires a separate command (e.g.
-   `flow setup`), confirm the README's "Install" section is the
+   `flow install`), confirm the README's "Install" section is the
    single source of truth and reads cleanly without the deleted
    field.
 
@@ -1168,7 +1168,7 @@ or `npm link` will get a successful install with no executable shim.
 // the documented path is the only path that still works.
 //   git clone <repo>
 //   npm install
-//   bun bin/flow setup
+//   bun bin/flow install
 ```
 
 **General rule:** A `package.json` field deletion is half a change.

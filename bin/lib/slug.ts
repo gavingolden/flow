@@ -1,7 +1,7 @@
 /**
  * Slug normalization for tmux window names + state-file basenames.
  *
- * Slugs are derived once at `flow new` time and never renamed (rename in a
+ * Slugs are derived once at `flow feature create` time and never renamed (rename in a
  * parallel-pipeline world adds collision hazards the supervisor is trying to
  * reduce). The supervisor takes the slug as final.
  *
@@ -10,7 +10,7 @@
  *   2. Drop English stop-words from the token list.
  *   3. Cap at MAX_TOKENS tokens (kebab "words"), then 40-char overall.
  *   4. If filtering yields nothing, fall back to `task-<sha256[0..8]>` so
- *      `flow new` never refuses with "produces an empty slug".
+ *      `flow feature create` never refuses with "produces an empty slug".
  */
 
 import { createHash } from "node:crypto";

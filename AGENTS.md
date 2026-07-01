@@ -2,14 +2,14 @@
 
 `flow` has two responsibilities in one repo:
 
-1. A **tmux-driven multi-phase pipeline supervisor**. Each `flow new
+1. A **tmux-driven multi-phase pipeline supervisor**. Each `flow feature create
    "<description>"` opens a tmux window running Claude Code, and the
    `/flow-pipeline` supervisor skill drives the full pipeline (triage →
    plan → worktree → implement → verify → CI → review → gate → merge)
    inside that one chat session. Sub-skills load in-process; helper
    scripts under `bin/` are Bash tool calls.
 2. A **curated skill library** at `skills/` plus the helper binaries at
-   `bin/` they shell out to. Both are distributed by `flow setup` (the
+   `bin/` they shell out to. Both are distributed by `flow install` (the
    global install). Skills are usable independent of the supervisor; the
    wrapper is just one consumer.
 
@@ -156,9 +156,9 @@ Source for shipped helper binaries lives in **`bin/`**. The user-callable
 helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-state-update`,
 `flow-notify`, `flow-stop-guard`, `flow-ui-validate`, `flow-delegate`, `flow-delegate-fanout`, `flow-plan-review`, `flow-research-cache` — live there with `.ts`
-extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow setup` symlinks each into `~/.local/bin/<name>` (extensionless on PATH). `flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import, NOT in the allowlist below. `flow-delegate-fanout` is the manifest runner powering `flow-research`.
+extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow install` symlinks each into `~/.local/bin/<name>` (extensionless on PATH). `flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import, NOT in the allowlist below. `flow-delegate-fanout` powers `flow-research`.
 
-The three schema validators `flow-pr-review-result-schema`, `flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked onto PATH by `flow setup` — but sourced from `bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators` (distinct from `discoverHelpers`' auto-pickup of every `bin/*.ts`), so pipeline skills invoke them by bare name regardless of cwd.
+The three schema validators `flow-pr-review-result-schema`, `flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked onto PATH by `flow install` — but sourced from `bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators` (distinct from `discoverHelpers`' auto-pickup of every `bin/*.ts`), so pipeline skills invoke them by bare name regardless of cwd.
 
 The `flow` wrapper itself is also Bun, at `bin/flow`. It dispatches every
 verb natively — there is no passthrough or legacy entry point.
@@ -167,7 +167,7 @@ Conventions for any script under `bin/`:
 
 - `#!/usr/bin/env bun` shebang and `chmod +x`.
 - Use `import.meta.main` (Bun's symlink-aware "is this the entry point?" check) to gate the `main()` call. Do **not** compare `import.meta.url` to `process.argv[1]` — that comparison breaks when the script is invoked through a symlink.
-- Tests live next door as `<name>.test.ts` and run via vitest (`npm run test`). They're flow-internal: `flow setup` skips `*.test.ts` files when symlinking, since consumers don't need them on PATH.
+- Tests live next door as `<name>.test.ts` and run via vitest (`npm run test`). They're flow-internal: `flow install` skips `*.test.ts` files when symlinking, since consumers don't need them on PATH.
 - Source ≠ install target by design (`bin/` in flow's repo vs `~/.local/bin/` on the user's machine). Don't move scripts back to the install directory.
 
 When adding a new script, default to Bun. If you need to deviate (e.g. a Node-only dependency), confirm with the user first and document the exception inline.
@@ -234,7 +234,7 @@ npm install                # one-time
 npm run typecheck:scripts  # tsc -p tsconfig.scripts.json (bin/)
 npm run test               # vitest run (bin/)
 npm run verify             # typecheck:scripts + test + lint
-bun bin/flow setup         # global install (skills, agents, helpers, wrapper)
+bun bin/flow install         # global install (skills, agents, helpers, wrapper)
 ```
 
 No `npm run build` — flow ships `bin/flow` via Bun, no compile step.
@@ -255,7 +255,7 @@ checks tab). A repo-admin setting, not workflow-enforceable.
 
 - The supervisor does not re-implement Claude Code skills in its own
   process. It hosts a skill library at `skills/` distributed via
-  `flow setup`; `bin/flow` only routes verbs to helper scripts and tmux.
+  `flow install`; `bin/flow` only routes verbs to helper scripts and tmux.
   Pipeline behaviour lives in the `/flow-pipeline` supervisor skill, run
   by Claude Code in a tmux window.
 - It is not a full SDLC tool. It hosts no web UI, Slack posts, Jira
@@ -379,7 +379,7 @@ shell).
     comes out as `auto-merge`; (b) merging a `gated` PR on the strength of a stale or
     inferred "merge" / "ship it" instruction given before the gate
     verdict was surfaced. Invoking `/flow-pipeline` is itself the user's
-    authorisation; opt out per-pipeline with `flow new --no-auto-merge`
+    authorisation; opt out per-pipeline with `flow feature create --no-auto-merge`
     (the supervisor stops at the gated state regardless of the gate
     verdict).
   - **Shared rationale for the nine Task-tool exemptions below.**

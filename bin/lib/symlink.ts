@@ -1,5 +1,5 @@
 /**
- * Symlink primitives for `flow setup`.
+ * Symlink primitives for `flow install`.
  *
  * The "managed symlink" rule: a symlink at the install target is owned by
  * flow if and only if it points to a path under `<flow-source>/`. Real files
@@ -107,7 +107,7 @@ export function removeIfManagedSymlink(
       const branch = opts!.defaultBranch!;
       const root = opts!.canonicalRoot!;
       opts?.log?.(
-        `  ! ${path.basename(target)}  (skipped: exists on origin/${branch} but not in canonical working tree — run \`cd ${root} && git pull && flow setup --upgrade\`)`,
+        `  ! ${path.basename(target)}  (skipped: exists on origin/${branch} but not in canonical working tree — run \`cd ${root} && git pull && flow install --upgrade\`)`,
       );
       return false;
     }

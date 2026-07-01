@@ -6,7 +6,7 @@
  *
  *   - `board`     — one ordered row per manifest feature with its status.
  *   - `summary`   — the ready/running/blocked/merged counts.
- *   - `toLaunch`  — the frontier features to hand to `flow new` this tick,
+ *   - `toLaunch`  — the frontier features to hand to `flow feature create` this tick,
  *                   capped at `maxParallel − runningCount`.
  *   - `epicStatus`— `done` (all merged) / `blocked` (frontier empty, nothing
  *                   running, not all merged — a halted/deadlocked subtree) /

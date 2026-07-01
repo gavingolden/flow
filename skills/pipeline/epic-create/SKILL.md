@@ -6,7 +6,7 @@ description: >-
   approve/redirect/cancel) inside a single Claude Code session spawned by
   `flow epic create "<prompt>"`. Use ONLY when invoked by that seed prompt or
   via an explicit `/epic-create`. It opens a reviewable design PR and STOPS at
-  the checkpoint — it never launches a feature `flow new`, computes a DAG
+  the checkpoint — it never launches a feature `flow feature create`, computes a DAG
   frontier, or merges the design PR. One long-running supervisor turn per
   phase, not a sub-agent.
 argument-hint: '"<epic prompt>"'
@@ -62,7 +62,7 @@ F5 OPENS the design PR but **NEVER merges it**. The approve branch leaves the
 PR OPEN for the human to merge. You must:
 
 - **never** compute a Kahn frontier / ready-set from the manifest;
-- **never** `flow new` a feature window or open a per-feature worktree;
+- **never** `flow feature create` a feature window or open a per-feature worktree;
 - **never** `gh pr merge` the design PR (no auto-merge exemption is claimed or
   needed).
 
@@ -270,7 +270,7 @@ first (`flow-new-worktree` is idempotent), then branch on `.epicResumeAt`:
   reads the existing PR back via `flow-open-pr`'s up-front probe.
 - It does **not merge** the design PR — F5 never merges, on the fresh path or
   the resume path.
-- It does not launch a feature `flow new` or compute a DAG frontier.
+- It does not launch a feature `flow feature create` or compute a DAG frontier.
 
 # Resource cleanup
 

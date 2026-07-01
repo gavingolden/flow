@@ -39,7 +39,7 @@ export function runAttachCli(args: string[]): number {
 export function runAttach(name?: string): number {
   if (!sessionExists()) {
     console.error(
-      `flow attach: no '${FLOW_SESSION}' tmux session. Start one with 'flow new'.`,
+      `flow attach: no '${FLOW_SESSION}' tmux session. Start one with 'flow feature create'.`,
     );
     return 1;
   }
