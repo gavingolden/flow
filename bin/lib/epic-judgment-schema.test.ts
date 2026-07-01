@@ -43,6 +43,37 @@ describe("validateEpicJudgment — happy paths", () => {
   );
 });
 
+describe("validateEpicJudgment — halt/deadlock artifact round-trips", () => {
+  it("round-trips a halt-shaped judgment (action + reason)", () => {
+    const result = validateEpicJudgment({
+      action: "retry",
+      reason: "flaky CI",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.action).toBe("retry");
+      expect(result.value.reason).toBe("flaky CI");
+    }
+  });
+
+  it("round-trips a deadlock-shaped judgment (both optional fields)", () => {
+    const result = validateEpicJudgment({
+      action: "escalate",
+      reason: "stuck orphan",
+      probableCause: "orphan feature X",
+      suggestedRedirect: "re-run flow feature create for X",
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.action).toBe("escalate");
+      expect(result.value.probableCause).toBe("orphan feature X");
+      expect(result.value.suggestedRedirect).toBe(
+        "re-run flow feature create for X",
+      );
+    }
+  });
+});
+
 describe("validateEpicJudgment — rejections", () => {
   it("rejects a non-object input", () => {
     expect(validateEpicJudgment(null).ok).toBe(false);
