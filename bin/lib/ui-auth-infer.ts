@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 /**
  * Pure auth inference for the browser-driven UI-validation bootstrap. Picks a
  * `loginUrl` candidate from the derived routes and mines credential env-var

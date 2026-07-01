@@ -52,6 +52,17 @@ describe("deriveRoutes — edge cases", () => {
     expect(route("app/routes/about/+page.svelte")).toBe("/about");
   });
 
+  it("a route dir literally named `app` keeps its leading segment", () => {
+    expect(route("src/routes/app/dashboard/+page.svelte")).toBe(
+      "/app/dashboard",
+    );
+    expect(route("src/routes/app/+page.svelte")).toBe("/app");
+  });
+
+  it("a Next route.ts Route Handler (JSON API) derives no route", () => {
+    expect(route("app/api/users/route.ts")).toBeUndefined();
+  });
+
   it("a bare stylesheet under routes/ derives no route", () => {
     expect(route("src/routes/about/styles.css")).toBeUndefined();
   });

@@ -143,6 +143,28 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
     expect(e.loud).toBe(false);
   });
 
+  it("--mcp-absent + UI diff + no manifest stays a quiet skip, never bootstraps", () => {
+    // The bootstrap verdict's precondition is "MCP present", enforced only by
+    // ordering: --mcp-absent returns early above the manifest===null branch.
+    // Guard that a bootstrap-eligible UI diff under --mcp-absent still yields a
+    // quiet mcp-not-available skip and leaks no inferred launch/route/cred
+    // payload, so a future reorder of the early-return guard is caught.
+    const c = drive(["--mcp-absent", "--changed-files", "changed.txt"], {
+      "changed.txt": "src/routes/about/+page.svelte\n",
+      "package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+      ".env.example": "TEST_USER_EMAIL=\nTEST_USER_PASSWORD=\n",
+    });
+    expect(c.code).toBe(0);
+    const e = envelope(c);
+    expect(e.ran).toBe(false);
+    expect(e.loud).toBe(false);
+    expect(e.skipped_reason).toBe("mcp-not-available");
+    expect(e.action).toBeUndefined();
+    expect(e.launch).toBeUndefined();
+    expect(e.routes).toBeUndefined();
+    expect(e.credentialEnvVars).toBeUndefined();
+  });
+
   it("no manifest + UI-touching diff + MCP present → bootstrap verdict (Story 5)", () => {
     const c = drive(["--changed-files", "changed.txt"], {
       "changed.txt": "src/routes/about/+page.svelte\nsrc/lib/util.ts\n",
@@ -184,6 +206,21 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
     expect(e.action).toBe("bootstrap");
     expect(e.launch).toBeUndefined();
     expect(e.needs).toContain("launch");
+  });
+
+  it("bootstrap needs 'routes' when a meaningful component diff derives no route", () => {
+    // A bare component under lib/components is meaningful via isComponentOrPage
+    // yet derives no URL (routeRootIndex returns -1), so the surface bootstraps
+    // with routes:[] and needs:['routes'] — the one bootstrap-eligible-but-
+    // routeless shape, previously unguarded.
+    const c = drive(["--changed-files", "changed.txt"], {
+      "changed.txt": "src/lib/components/Button.svelte\n",
+      "package.json": JSON.stringify({ scripts: { dev: "vite" } }),
+    });
+    const e = envelope(c);
+    expect(e.action).toBe("bootstrap");
+    expect(e.routes).toEqual([]);
+    expect(e.needs).toContain("routes");
   });
 
   it("bootstrap needs 'credentials' when a login route exists but no creds are mined", () => {

@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 /**
  * Pure launch + free-port inference for the browser-driven UI-validation
  * bootstrap. Reads a `package.json`'s scripts to infer how to bring the app

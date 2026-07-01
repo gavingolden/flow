@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 /**
  * Pure, stack-agnostic route derivation for the browser-driven UI-validation
  * bootstrap. Maps a changed file under a `routes/` or `app/` directory to a
@@ -25,17 +24,18 @@ const ROUTE_LEAF_EXTENSIONS = [".svelte", ".tsx", ".jsx", ".vue", ".ts", ".js"];
 const NAMED_LEAF_EXTENSIONS = [".svelte", ".tsx", ".jsx", ".vue"];
 
 // Boilerplate leaf stems where the DIRECTORY is the route and the filename is
-// framework convention (SvelteKit `+page`, Next `page`/`route`, generic
-// `index`).
-const BOILERPLATE_STEMS = new Set(["+page", "page", "index", "route"]);
+// framework convention (SvelteKit `+page`, Next `page`, generic `index`).
+const BOILERPLATE_STEMS = new Set(["+page", "page", "index"]);
 
 // Boilerplate stems that are NOT a single concrete page (layouts, endpoints,
 // error/loading shells) — a changed one of these has no single URL, so emit
-// nothing.
+// nothing. Next's `route.ts` Route Handler is a JSON API endpoint (the analog
+// of SvelteKit's `+server.ts`), NOT a browseable page, so it lives here.
 const NON_PAGE_STEMS = new Set([
   "+layout",
   "+server",
   "+error",
+  "route",
   "layout",
   "loading",
   "error",
@@ -71,17 +71,18 @@ function isGroupSegment(seg: string): boolean {
 }
 
 /**
- * Locate the route root within a path's segments. Prefer the LAST occurrence
- * of a `routes`/`app` segment so Remix's `app/routes/…` resolves to the inner
- * `routes` root rather than the outer `app`, while Next's bare `app/…` (no
- * nested `routes`) still resolves at `app`.
+ * Locate the route root within a path's segments. Prefer the FIRST `routes`
+ * segment, falling back to the FIRST `app` segment only when no `routes`
+ * segment exists. This resolves Remix's `app/routes/…` to the inner `routes`
+ * root (and Next's bare `app/…` to `app`), while keeping a route directory
+ * literally named `app` — e.g. the common authenticated area
+ * `src/routes/app/…` — as part of the URL rather than dropping its leading
+ * segment.
  */
 function routeRootIndex(segments: string[]): number {
-  let idx = -1;
-  for (let i = 0; i < segments.length; i++) {
-    if (segments[i] === "routes" || segments[i] === "app") idx = i;
-  }
-  return idx;
+  const routesIdx = segments.indexOf("routes");
+  if (routesIdx !== -1) return routesIdx;
+  return segments.indexOf("app");
 }
 
 /** Derive a single URL from one changed file, or null when none is confident. */
