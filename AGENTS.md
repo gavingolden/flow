@@ -510,8 +510,8 @@ shell).
     `/flow-pipeline`'s nine-Task-exemption / two-AskUserQuestion invariants are
     unaffected. Its ONE named surface (in the SKILL) —
     **Task-tool fan-out: /epic-run → judgment sub-agent (per halt/deadlock event).**
-    — runs its judgment in a one-shot sub-agent isolating CI-log context, while
-    it still fires no `AskUserQuestion` form. It judges only on a halt
+    — runs judgment in a one-shot sub-agent isolating CI-log context, and
+    fires no `AskUserQuestion` form. It judges only on a halt
     (retry / redirect / escalate) or deadlock; `gated ⇒ escalate-only` and it
-    never merges a feature PR. Invariant set + `epic.judgment` /
-    `epic.maxRetries` gate + `--no-judgment` / `--once` live in the SKILL.
+    never merges a feature PR. Invariant set + config gates + opt-outs
+    live in the SKILL.
