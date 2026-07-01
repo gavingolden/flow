@@ -218,7 +218,7 @@ Write the typed epic manifest (manifest.json) to (absolute path):
 
 The supervisor reads global `~/.flow/config.json` for the
 `research.discovery` opt-in, but the discovery subagent cannot read
-`~/.flow/state/<slug>.json` — so the only way a `flow new --research`
+`~/.flow/state/<slug>.json` — so the only way a `flow feature create --research`
 force-on signal reaches it is through this prompt. When the caller passed
 a `RESEARCH: force-on` marker (see `/flow-pipeline` step 3), substitute
 this block verbatim for `{{RESEARCH_OVERRIDE}}`:

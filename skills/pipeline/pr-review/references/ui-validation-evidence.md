@@ -151,7 +151,7 @@ binary).
 
 ## Screenshot save-path cascade
 
-`flow new` now pre-authorizes the per-pipeline worktree as an MCP workspace
+`flow feature create` now pre-authorizes the per-pipeline worktree as an MCP workspace
 root at launch (`claude --add-dir <repo-parent>/<repo>-<slug>`), and
 `/flow-pipeline` step 2 best-effort runtime-`/add-dir`s the actual worktree
 path to cover the auto-suffix-collision case where the launch-time path
@@ -162,7 +162,7 @@ succeed for pipeline-launched sessions. The cascade stays as defense-in-depth
 cleanly:
 
 1. PREFERRED — `.flow-tmp/ui-evidence/<n>-<viewport>.png` under the worktree
-   (the worktree is registered as a workspace root via `flow new`'s injected
+   (the worktree is registered as a workspace root via `flow feature create`'s injected
    `claude --add-dir`). The filename includes the viewport name (e.g.
    `0-wide.png`, `0-mobile.png`) so per-viewport screenshots don't collide.
 2. On denial, FALL BACK to session-cwd `.flow-tmp/ui-evidence/`.

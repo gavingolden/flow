@@ -36,7 +36,7 @@ Usage:
   flow-rename-window <title>     # slug auto-resolved from $TMUX_PANE's @flow-slug
 
 The window keeps its @flow-slug user option, so 'flow attach <slug>',
-'flow done <slug>', 'flow ls', and 'flow new --resume <slug>' continue
+'flow done <slug>', 'flow ls', and 'flow feature resume <slug>' continue
 to find the window after the rename.`;
 
 /** `slug` is undefined when only a title was given — caller resolves from pane. */
@@ -147,7 +147,7 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
       "flow-rename-window: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n",
     );
     writeErr(
-      "  pass <slug> explicitly, or run inside a tmux window created by `flow new`.\n",
+      "  pass <slug> explicitly, or run inside a tmux window created by `flow feature create`.\n",
     );
     return 2;
   }

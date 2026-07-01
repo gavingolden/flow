@@ -3,7 +3,7 @@
  *
  * Every verb's CLI shim must call `argsContainHelp(args)` before parsing
  * args or producing side-effects. The check existed only at the verb
- * position before — `flow new --help` slugified `--help` to `help` and
+ * position before — `flow feature create --help` slugified `--help` to `help` and
  * spawned a phantom pipeline. The helpers here close that gap.
  */
 
@@ -15,7 +15,7 @@ export function isHelpFlag(arg: string | undefined): boolean {
 
 export function argsContainHelp(args: string[]): boolean {
   // Stop scanning at `--` (POSIX end-of-options) so a literal `-h` or
-  // `--help` inside a `flow new <description>` body — e.g. `flow new -- fix
+  // `--help` inside a `flow feature create <description>` body — e.g. `flow feature create -- fix
   // the -h crash` — isn't mistaken for a help flag and doesn't suppress the
   // pipeline. Without this, `argsContainHelp(["fix", "-h", "crash"])` would
   // return true and short-circuit a real run.
@@ -29,15 +29,16 @@ export function argsContainHelp(args: string[]): boolean {
 export const HELP_TOP = `flow — tmux-driven pipelines for Claude Code
 
 Usage:
-  flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--repair-settings] [--install-deps]
+  flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]
                                         install skills, agents, helpers globally
                                         (--source overrides the install root,
                                         e.g. for /flow-pipeline step 5.5 in a worktree;
                                         --no-completions skips rc-file editing;
                                         --no-hooks skips the Stop-hook merge into ~/.claude/settings.json;
+                                        --no-pull-canonical skips pulling the canonical source before symlinking;
                                         --repair-settings backs up and rewrites ~/.claude/settings.json when malformed;
                                         --install-deps installs missing source-root runtime deps before symlinking)
-  flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>
+  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>
                                         start a new pipeline in a tmux window
                                         (--no-auto-merge stops at gated regardless of rubric;
                                         --wait-for-copilot forces the full 10-min Copilot wait
@@ -47,7 +48,7 @@ Usage:
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session;
                                         --model sets the Claude Code model alias for the claude session)
-  flow new --resume <name> [<name> ...] resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
+  flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
   flow epic <create|run|status|ls>      design and run an epic (create, run, status, ls)
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
@@ -55,26 +56,32 @@ Usage:
   flow done --merged                    close every merged or cancelled window
   flow done --orphans                   close every state file whose tmux window is gone
   flow done --merged --orphans          compose: close terminal-state OR orphaned pipelines
-  flow migrate [--apply] [--scan <p>]   clean up legacy per-repo flow install
   flow completion <bash|zsh>            print a shell completion script to stdout
 
   flow --version                        print the installed flow version
   flow --help                           this help
   flow help <verb>                      print verb-specific usage
 
-Run 'flow setup' once after cloning the flow source. Pipelines run inside
+Run 'flow install' once after cloning the flow source. Pipelines run inside
 tmux windows; the supervisor skill (/flow-pipeline) drives each one.
 Shell completions install automatically into ~/.zshrc / ~/.bashrc /
-~/.bash_profile via 'flow setup' — opt out with --no-completions.`;
+~/.bash_profile via 'flow install' — opt out with --no-completions.`;
 
 export const HELP_TEXT: Record<string, string> = {
-  new: `flow new — start a new pipeline in a tmux window
+  feature: `flow feature — start or resume a pipeline in a tmux window
 
 Usage:
-  flow new [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>
-  flow new --resume <name> [<name> ...] [--yes]
+  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>
+  flow feature resume <name> [<name> ...] [--yes]
 
-Options:
+Subcommands:
+  create <description>  start a new pipeline in a tmux window
+  resume <name> [<name> ...]
+                        resume one or more crashed pipelines in their existing windows;
+                        resumes sequentially, and with >=2 names previews the list and
+                        confirms once (each name spawns a Claude Code session)
+
+Options (create):
   --no-auto-merge       stop at gated regardless of the auto-merge rubric
   --wait-for-copilot    force the full 10-min Copilot wait even when auto-detect would skip
   --research            force web-grounded discovery research on, bypassing the relevance gate
@@ -86,10 +93,8 @@ Options:
                         Claude Code reasoning-effort level for the pipeline's claude session
   --model <opus|haiku|sonnet|fable>
                         Claude Code model alias for the pipeline's claude session (omit for the default)
-  --resume <name> [<name> ...]
-                        resume one or more crashed pipelines in their existing windows;
-                        resumes sequentially, and with >=2 names previews the list and
-                        confirms once (each name spawns a Claude Code session)
+
+Options (resume):
   --yes, -y             skip the multi-resume confirmation preview`,
 
   epic: `flow epic — design and run an epic
@@ -104,9 +109,10 @@ Subcommands:
   create "<prompt>"     design an epic — open a tmux window running /epic-create
                         (clarify → design → validate → open the design PR)
   run <slug>            drive a merged epic to completion: read the committed
-                        manifest, launch ready features as parallel \`flow new\`
-                        windows in dependency order, and watch for merges to
-                        advance the frontier until the epic finishes or blocks
+                        manifest, launch ready features as parallel
+                        \`flow feature create\` windows in dependency order, and
+                        watch for merges to advance the frontier until the epic
+                        finishes or blocks
   status <slug>         render the live board (read-only): per-feature status,
                         launched slug + PR + phase, and the current frontier
   ls                    list every epic under ~/.flow/epics with per-state
@@ -165,21 +171,10 @@ Pass two or more <name>s to close several pipelines in one confirm-once sweep
 When both --merged and --orphans are passed, the sweep unions the two filters
 and tags each preview row 'merged', 'orphan', or 'merged+orphan'.`,
 
-  migrate: `flow migrate — exit ramp from per-repo 'flow install'
+  install: `flow install — install skills, agents, helpers globally
 
 Usage:
-  flow migrate [--apply] [--include-orchestrator]
-  flow migrate --scan <path>
-
-Options:
-  --apply                  execute the plan (default is dry-run)
-  --scan <path>            dry-run across every git repo under <path>
-  --include-orchestrator   also rm -rf .orchestrator/`,
-
-  setup: `flow setup — install skills, agents, helpers globally
-
-Usage:
-  flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--repair-settings] [--install-deps]
+  flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]
 
 Options:
   --upgrade              update existing symlinks to point at the current source
@@ -188,6 +183,7 @@ Options:
   --no-completions       skip rc-file editing for shell completions
   --no-hooks             skip the Claude Code Stop-hook merge into ~/.claude/settings.json
                          (use when you manage settings.json by hand)
+  --no-pull-canonical    skip pulling the canonical source before symlinking
   --repair-settings      back up and rewrite ~/.claude/settings.json when malformed
   --install-deps         install missing source-root runtime dependencies before symlinking
                          (default is to report the missing package and exit non-zero)`,
@@ -197,7 +193,7 @@ Options:
 Usage:
   flow completion <bash|zsh>
 
-Source the output in your shell rc to enable tab-completion. 'flow setup'
+Source the output in your shell rc to enable tab-completion. 'flow install'
 installs completions automatically; this verb is the escape hatch for
 read-only homedirs (NixOS, Guix) or explicit eval-based sourcing.`,
 

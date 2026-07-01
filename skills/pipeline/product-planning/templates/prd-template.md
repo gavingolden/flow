@@ -23,10 +23,10 @@
      table for CLI / flag / output / file-location deltas. Write `none` for
      pure-internal changes (refactor, infra) — never omit the heading. -->
 
-| Before              | After               |
-| ------------------- | ------------------- |
-| `flow install`      | `flow setup`        |
-| `flow add "<desc>"` | `flow new "<desc>"` |
+| Before              | After                          |
+| ------------------- | ------------------------------ |
+| `flow install`      | `flow install`                 |
+| `flow add "<desc>"` | `flow feature create "<desc>"` |
 
 ## User Stories / Acceptance Criteria
 

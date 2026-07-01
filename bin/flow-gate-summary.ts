@@ -101,11 +101,11 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "triage-ambiguous":
     "Attach (flow attach <slug>); restate the request with a clearer intent (feature / bug / refactor / docs / infra / chore)",
   "worktree-create-failed":
-    "Inspect the flow-new-worktree stderr in scrollback; check disk space, branch-name collisions, then flow new --resume <slug>",
+    "Inspect the flow-new-worktree stderr in scrollback; check disk space, branch-name collisions, then flow feature resume <slug>",
   "plan-missing":
     "Attach (flow attach <slug>); re-run /flow-pipeline with a more specific description, or invoke /product-planning manually in the worktree",
   "pr-missing":
-    "PR creation failed upstream — check gh auth status, branch protection, and network reachability, then flow new --resume <slug>",
+    "PR creation failed upstream — check gh auth status, branch protection, and network reachability, then flow feature resume <slug>",
   "scout-missing":
     "Attach (flow attach <slug>); re-invoke /new-feature directly so the scout subagent runs again",
   "approval-ambiguous":
@@ -115,9 +115,9 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "verify-exhausted":
     "Attach (flow attach <slug>); redirect /verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log",
   "ci-hang":
-    "Attach (flow attach <slug>); inspect GitHub Actions for the stalled check, then flow new --resume <slug>",
+    "Attach (flow attach <slug>); inspect GitHub Actions for the stalled check, then flow feature resume <slug>",
   "pr-blocked":
-    "Branch protection blocks the merge (failing required check, missing required review, CODEOWNERS, or linear-history) and waiting cannot clear it. Satisfy the protection rule on GitHub, then flow new --resume <slug>",
+    "Branch protection blocks the merge (failing required check, missing required review, CODEOWNERS, or linear-history) and waiting cannot clear it. Satisfy the protection rule on GitHub, then flow feature resume <slug>",
   "ci-fix-exhausted":
     "Attach (flow attach <slug>); inspect the last CI failure log, then redirect /new-feature mode=fix with a targeted fix hint",
   "review-fix-exhausted":
@@ -127,13 +127,13 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "review-partial":
     "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/pr-review-result.json's .missed_steps, then re-invoke /pr-review <PR> --resume-from <step>",
   "gh-error":
-    "Attach (flow attach <slug>); check gh auth status and network reachability, then flow new --resume <slug>",
+    "Attach (flow attach <slug>); check gh auth status and network reachability, then flow feature resume <slug>",
   "pr-closed-without-merge":
     "Decide: reopen the PR (gh pr reopen <pr>) or run flow done <slug> to clean up",
   "pr-closed-mid-flight":
     "Decide: reopen the PR (gh pr reopen <pr>) or run flow done <slug> to clean up",
   "test-steps-section-missing":
-    "Attach (flow attach <slug>); edit the PR body to add a ## Test Steps section, then flow new --resume <slug>",
+    "Attach (flow attach <slug>); edit the PR body to add a ## Test Steps section, then flow feature resume <slug>",
   "gate-override-without-confirmation":
     "The PR is gated (unchecked Test Steps remain) and flow-merge-guard refused the merge. Validate the unchecked steps and merge through GitHub yourself, or reply with a fresh, explicit instruction to merge this gated PR anyway so the supervisor can confirm and record the override",
   "merge-failed":
@@ -143,17 +143,17 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "branch-mismatch":
     "Inspect git reflog and git worktree list before any further git commands; do NOT auto-recover",
   "terminal-regression":
-    "A terminal-phase state file was about to be regressed to a non-terminal phase (likely an ambient-pane slug race from 'flow new' inside a flow window). Inspect ~/.flow/state/<slug>.json; if the victim is genuinely terminal, restore it with flow-state-update --phase <merged|gated|...> --force --slug <victim-slug>; do NOT auto-recover",
+    "A terminal-phase state file was about to be regressed to a non-terminal phase (likely an ambient-pane slug race from 'flow feature create' inside a flow window). Inspect ~/.flow/state/<slug>.json; if the victim is genuinely terminal, restore it with flow-state-update --phase <merged|gated|...> --force --slug <victim-slug>; do NOT auto-recover",
   "cross-branch-operation-attempted":
     "Inspect git worktree list and the failed command's stderr; the supervisor refused to cross worktrees; resolve manually",
   "task-tool-unavailable":
-    "Restart claude (or upgrade the CLI) so the Task tool is surfaced top-level, then flow new --resume <slug>",
+    "Restart claude (or upgrade the CLI) so the Task tool is surfaced top-level, then flow feature resume <slug>",
   "state-missing-on-resume":
-    "Run flow new <description> afresh; ~/.flow/state/<slug>.json is missing so resume cannot proceed",
+    "Run flow feature create <description> afresh; ~/.flow/state/<slug>.json is missing so resume cannot proceed",
   "worktree-missing-on-resume":
     "Decide: recreate the worktree manually (git worktree add) or run flow done <slug> to clean up",
   "flow-setup-upgrade-failed":
-    "Run flow setup --upgrade manually from the canonical install root and inspect its output",
+    "Run flow install --upgrade manually from the canonical install root and inspect its output",
   "fix-applier-missing-artifact":
     "Inspect git log on the feature branch and the PR body's Local Follow-ups section before re-invoking /pr-review",
   "pr-review-missing-artifact":

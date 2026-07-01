@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  buildFlowNewArgs,
+  buildFeatureCreateArgs,
   launchFeature,
   type SpawnFn,
   type SpawnResult,
@@ -19,38 +19,48 @@ function feat(overrides: Partial<Feature> = {}): Feature {
 
 const ok = (stdout: string): SpawnResult => ({ status: 0, stdout, stderr: "" });
 
-describe("buildFlowNewArgs", () => {
-  it("no hints → just new + description", () => {
-    expect(buildFlowNewArgs(feat())).toEqual([
-      "new",
+describe("buildFeatureCreateArgs", () => {
+  it("no hints → just feature create + description", () => {
+    expect(buildFeatureCreateArgs(feat())).toEqual([
+      "feature",
+      "create",
       "add the watchlist schema",
     ]);
   });
 
   it("autoMerge:false → --no-auto-merge", () => {
     expect(
-      buildFlowNewArgs(feat({ flowNewHints: { autoMerge: false } })),
-    ).toEqual(["new", "add the watchlist schema", "--no-auto-merge"]);
+      buildFeatureCreateArgs(feat({ flowNewHints: { autoMerge: false } })),
+    ).toEqual([
+      "feature",
+      "create",
+      "add the watchlist schema",
+      "--no-auto-merge",
+    ]);
   });
 
   it("autoMerge absent → no flag", () => {
-    expect(buildFlowNewArgs(feat({ flowNewHints: {} }))).toEqual([
-      "new",
+    expect(buildFeatureCreateArgs(feat({ flowNewHints: {} }))).toEqual([
+      "feature",
+      "create",
       "add the watchlist schema",
     ]);
   });
 
   it("autoMerge:true → no flag (true ≡ default)", () => {
     expect(
-      buildFlowNewArgs(feat({ flowNewHints: { autoMerge: true } })),
-    ).toEqual(["new", "add the watchlist schema"]);
+      buildFeatureCreateArgs(feat({ flowNewHints: { autoMerge: true } })),
+    ).toEqual(["feature", "create", "add the watchlist schema"]);
   });
 
   it("copilotReview:always → --copilot-review always", () => {
     expect(
-      buildFlowNewArgs(feat({ flowNewHints: { copilotReview: "always" } })),
+      buildFeatureCreateArgs(
+        feat({ flowNewHints: { copilotReview: "always" } }),
+      ),
     ).toEqual([
-      "new",
+      "feature",
+      "create",
       "add the watchlist schema",
       "--copilot-review",
       "always",
@@ -59,13 +69,19 @@ describe("buildFlowNewArgs", () => {
 
   it("effort:high → --effort high", () => {
     expect(
-      buildFlowNewArgs(feat({ flowNewHints: { effort: "high" } })),
-    ).toEqual(["new", "add the watchlist schema", "--effort", "high"]);
+      buildFeatureCreateArgs(feat({ flowNewHints: { effort: "high" } })),
+    ).toEqual([
+      "feature",
+      "create",
+      "add the watchlist schema",
+      "--effort",
+      "high",
+    ]);
   });
 
   it("combined hints emit every flag in order", () => {
     expect(
-      buildFlowNewArgs(
+      buildFeatureCreateArgs(
         feat({
           flowNewHints: {
             autoMerge: false,
@@ -75,7 +91,8 @@ describe("buildFlowNewArgs", () => {
         }),
       ),
     ).toEqual([
-      "new",
+      "feature",
+      "create",
       "add the watchlist schema",
       "--no-auto-merge",
       "--copilot-review",
@@ -89,13 +106,16 @@ describe("buildFlowNewArgs", () => {
 describe("launchFeature", () => {
   it("parses the minted slug from the flow:<slug> stdout first line", () => {
     const spawn = vi.fn<SpawnFn>(() =>
-      ok("flow:watchlist-schema-2\nflow new: created — attach with ...\n"),
+      ok(
+        "flow:watchlist-schema-2\nflow feature create: created — attach with ...\n",
+      ),
     );
     const result = launchFeature(feat(), { spawn });
     expect(result).toEqual({ ok: true, slug: "watchlist-schema-2" });
     // Spawned the bare `flow` with the built argv.
     expect(spawn).toHaveBeenCalledWith("flow", [
-      "new",
+      "feature",
+      "create",
       "add the watchlist schema",
     ]);
   });
@@ -113,7 +133,7 @@ describe("launchFeature", () => {
     const spawn = vi.fn<SpawnFn>(() => ({
       status: 1,
       stdout: "",
-      stderr: "flow new: window 'flow:schema' already exists.",
+      stderr: "flow feature create: window 'flow:schema' already exists.",
     }));
     const result = launchFeature(feat(), { spawn });
     expect(result.ok).toBe(false);

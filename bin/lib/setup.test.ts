@@ -1,5 +1,5 @@
 /**
- * Tests for `flow setup`. Each test stands up a fake flow-source tree and
+ * Tests for `flow install`. Each test stands up a fake flow-source tree and
  * a fake install-target tree in tmpdir, runs setup against them, and
  * asserts the resulting symlinks + manifest. Real ~/.claude/ is never
  * touched.
@@ -91,7 +91,7 @@ function setup(
   });
 }
 
-describe("flow setup", () => {
+describe("flow install", () => {
   it("creates symlinks for every skill, agent, and helper from a fresh state", () => {
     const summary = setup();
 
@@ -991,7 +991,7 @@ describe("flow setup", () => {
     });
 
     it("e2e --upgrade fast-forwards canonical and the freshly-merged skill survives the reap", () => {
-      // Mirrors the PR #115 race: the supervisor's `flow setup --upgrade`
+      // Mirrors the PR #115 race: the supervisor's `flow install --upgrade`
       // (post-merge sweep) advances canonical, then reap runs against the
       // post-merge tree and does NOT consider the new skill orphaned.
       buildFakeFlowSourceWithGit(

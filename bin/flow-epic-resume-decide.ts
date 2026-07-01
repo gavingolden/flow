@@ -8,7 +8,7 @@
  * Why: an epic session that crashes at any epic phase (epic-designing /
  * epic-validating / epic-pr-open / epic-design-pending-review) must resume at
  * the correct step from disk state alone, with the same crash-safety as
- * `flow new --resume`: never replay an approval given to a dead session, never
+ * `flow feature resume`: never replay an approval given to a dead session, never
  * re-open an already-open design PR (lean on flow-open-pr's up-front probe),
  * never re-merge (F5 never merges anyway). The supervisor reinventing the walk
  * on every `flow epic create --resume` is the failure mode this helper closes.
@@ -16,7 +16,7 @@
  * Per the Q7 middle ground, the skill-agnostic probes (worktree / PR / branch)
  * are imported from ./lib/resume-probes — the SAME module flow-resume-decide.ts
  * uses; only the epic phase table + the epic-artifact probe are local. This
- * helper is flow's INSTALLED code (a bare-name PATH command after `flow setup`,
+ * helper is flow's INSTALLED code (a bare-name PATH command after `flow install`,
  * exactly like flow-resume-decide), so its ./lib import is fine — R1 forbids
  * `bin/lib` imports only inside the spawned consumer-worktree window.
  *

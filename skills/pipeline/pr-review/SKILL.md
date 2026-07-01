@@ -33,7 +33,7 @@ by learning from gaps between its findings and human reviewer feedback.
 
 # Context
 
-Helpers (installed globally by `flow setup` and on PATH):
+Helpers (installed globally by `flow install` and on PATH):
 
 - `flow-fetch-pr-review` — fetches PR metadata, description, changed files, review
   summaries, and inline comments from GitHub
@@ -58,7 +58,7 @@ Helpers (installed globally by `flow setup` and on PATH):
 - `flow-pre-commit` — auto-detects scope, runs format + checks, reports pass/fail
 - `flow-reply-pr-comments` — batch-posts replies to PR review comments
 
-If `flow setup` has not been run on this machine, fall back to `gh pr view`, `gh pr diff`,
+If `flow install` has not been run on this machine, fall back to `gh pr view`, `gh pr diff`,
 and the project's npm scripts directly. The skill workflow is the value; the binaries are
 just helpers.
 
@@ -1032,7 +1032,7 @@ For each `- [ ]` item, classify before running:
   invocation and an assertion on disk state, exit code, or stdout/stderr. Examples:
   `npm run test`, `npm run typecheck`, `RUN_INTEGRATION=1 npm run test -- foo`,
   `./scripts/foo.ts`, `curl localhost:3000/x` paired with a documented assertion,
-  "edit `.gitignore`, create symlink, run `flow setup --upgrade`, confirm `1
+  "edit `.gitignore`, create symlink, run `flow install --upgrade`, confirm `1
   removed` and the symlink is gone."
 - **Not runnable**: requires a GENUINELY external/irreversible resource — a deploy target,
   production credentials, or a real third-party service (Slack post, Stripe redirect,
@@ -1218,7 +1218,7 @@ surface.
 
 ### 8c.i. Inject evidence under each runnable item
 
-Use `flow-inject-evidence` (installed by `flow setup` and on PATH) to perform
+Use `flow-inject-evidence` (installed by `flow install` and on PATH) to perform
 both the box-tick and the evidence injection in one idempotent edit. Save the
 PR body to scratch first so all items can be applied to the same working copy:
 
@@ -1773,7 +1773,7 @@ to delete), register a follow-up:
 
 ```bash
 flow-followups add \
-  --command "flow setup --upgrade" \
+  --command "flow install --upgrade" \
   --reason "<why this matters post-merge>" \
   --auto    # only when command is in the helper's allowlist
 ```

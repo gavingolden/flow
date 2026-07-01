@@ -150,10 +150,10 @@ describe("completion scripts stay in sync with VERBS", () => {
     expect(script).toContain("compdef _flow flow");
   });
 
-  it("zsh `new --resume` completes a repeating slug list, not a single value", () => {
-    // Pins the multi-slug --resume intent: the resume path must use the
-    // repeating `*::pipeline:_flow_slugs` rest-spec (mirroring `done`), not
-    // the old single-value `--resume:pipeline:_flow_slugs` optarg.
+  it("zsh `feature resume` completes a repeating slug list, not a single value", () => {
+    // Pins the multi-slug resume intent: the `feature resume` subcommand path
+    // must use the repeating `*::pipeline:_flow_slugs` rest-spec (mirroring
+    // `done`), not the old single-value `--resume:pipeline:_flow_slugs` optarg.
     const script = fs.readFileSync(
       path.join(FLOW_SOURCE, "completions", "flow.zsh"),
       "utf8",
@@ -162,5 +162,21 @@ describe("completion scripts stay in sync with VERBS", () => {
     expect(script).not.toContain(
       "'--resume[resume a crashed pipeline]:pipeline:_flow_slugs'",
     );
+  });
+
+  it("both scripts complete the feature create/resume subcommands and drop new/setup/migrate", () => {
+    // The `feature` mini-dispatcher must offer `create`/`resume` (mirroring
+    // `epic`'s subcommand arm), and the removed verbs must not linger in the
+    // top-level verb list.
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      expect(script).toContain("create");
+      expect(script).toContain("resume");
+      // No lingering old verb arms / verb-list entries.
+      expect(script).not.toMatch(/(^|[^\w-])migrate([^\w-]|$)/m);
+    }
   });
 });

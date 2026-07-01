@@ -116,7 +116,7 @@ describe("parseSetupArgs", () => {
   it("errors when --source is followed by --repair-settings instead of a path", () => {
     const result = parseSetupArgs(["--source", "--repair-settings"]);
     expect(result).toEqual({
-      error: "flow setup: --source requires a path argument",
+      error: "flow install: --source requires a path argument",
     });
   });
 
@@ -125,7 +125,7 @@ describe("parseSetupArgs", () => {
     // not silently capture as a path value.
     const result = parseSetupArgs(["--source", "--no-pull-canonical"]);
     expect(result).toEqual({
-      error: "flow setup: --source requires a path argument",
+      error: "flow install: --source requires a path argument",
     });
   });
 
@@ -188,42 +188,42 @@ describe("parseSetupArgs", () => {
   it("errors when --source is the last token (no value)", () => {
     const result = parseSetupArgs(["--source"]);
     expect(result).toEqual({
-      error: "flow setup: --source requires a path argument",
+      error: "flow install: --source requires a path argument",
     });
   });
 
   it("errors when --source is followed by another flag instead of a path", () => {
     const result = parseSetupArgs(["--source", "--upgrade"]);
     expect(result).toEqual({
-      error: "flow setup: --source requires a path argument",
+      error: "flow install: --source requires a path argument",
     });
   });
 
   it("errors when --source is followed by --no-completions instead of a path", () => {
     const result = parseSetupArgs(["--source", "--no-completions"]);
     expect(result).toEqual({
-      error: "flow setup: --source requires a path argument",
+      error: "flow install: --source requires a path argument",
     });
   });
 
   it("errors when --source is followed by --no-hooks instead of a path", () => {
     const result = parseSetupArgs(["--source", "--no-hooks"]);
     expect(result).toEqual({
-      error: "flow setup: --source requires a path argument",
+      error: "flow install: --source requires a path argument",
     });
   });
 
   it("errors on an unknown flag", () => {
     const result = parseSetupArgs(["--bogus"]);
     expect(result).toEqual({
-      error: "flow setup: unknown option '--bogus'",
+      error: "flow install: unknown option '--bogus'",
     });
   });
 
   it("errors on an unknown flag even after valid flags", () => {
     const result = parseSetupArgs(["--upgrade", "--mystery"]);
     expect(result).toEqual({
-      error: "flow setup: unknown option '--mystery'",
+      error: "flow install: unknown option '--mystery'",
     });
   });
 
@@ -231,7 +231,7 @@ describe("parseSetupArgs", () => {
     // The new flag must not widen the unknown-flag rejection path.
     const result = parseSetupArgs(["--install-deps", "--bogus"]);
     expect(result).toEqual({
-      error: "flow setup: unknown option '--bogus'",
+      error: "flow install: unknown option '--bogus'",
     });
   });
 
@@ -242,7 +242,7 @@ describe("parseSetupArgs", () => {
     const result = parseSetupArgs(["--no-hooks", "--repair-settings"]);
     expect(result).toEqual({
       error:
-        "flow setup: --no-hooks and --repair-settings are mutually exclusive",
+        "flow install: --no-hooks and --repair-settings are mutually exclusive",
     });
   });
 
@@ -250,7 +250,7 @@ describe("parseSetupArgs", () => {
     const result = parseSetupArgs(["--repair-settings", "--no-hooks"]);
     expect(result).toEqual({
       error:
-        "flow setup: --no-hooks and --repair-settings are mutually exclusive",
+        "flow install: --no-hooks and --repair-settings are mutually exclusive",
     });
   });
 });
@@ -352,9 +352,11 @@ describe("runSetupCli", () => {
       .mockImplementation(() => undefined);
     const code = runSetupCli(["--bogus"]);
     expect(code).toBe(2);
-    expect(errSpy).toHaveBeenCalledWith("flow setup: unknown option '--bogus'");
     expect(errSpy).toHaveBeenCalledWith(
-      "usage: flow setup [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]",
+      "flow install: unknown option '--bogus'",
+    );
+    expect(errSpy).toHaveBeenCalledWith(
+      "usage: flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]",
     );
     errSpy.mockRestore();
   });
@@ -370,7 +372,7 @@ describe("runSetupCli", () => {
       const code = runSetupCli([flag]);
       expect(code).toBe(0);
       expect(log).toHaveBeenCalled();
-      expect(log.mock.calls[0][0]).toMatch(/^flow setup — install skills/);
+      expect(log.mock.calls[0][0]).toMatch(/^flow install — install skills/);
       expect(err).not.toHaveBeenCalled();
       log.mockRestore();
       err.mockRestore();

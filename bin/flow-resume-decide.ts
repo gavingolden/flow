@@ -11,7 +11,7 @@
  * rules — most notably row 9's "PR is MERGED but worktree still exists"
  * branch, which must NOT fall through to row 10's `gh pr merge` on an
  * already-merged PR. The supervisor reinventing the walk on every
- * `flow new --resume` is the failure mode this helper closes.
+ * `flow feature resume` is the failure mode this helper closes.
  *
  * Usage:
  *   flow-resume-decide <slug>
@@ -580,7 +580,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   if (!slug) {
     console.error(
       "flow-resume-decide: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
-        "  pass <slug> explicitly, or run inside a tmux window created by `flow new`.",
+        "  pass <slug> explicitly, or run inside a tmux window created by `flow feature create`.",
     );
     return 2;
   }

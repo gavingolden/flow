@@ -84,7 +84,7 @@ describe("runVersion — update notice seam", () => {
       checkUpdate: () => ({
         status: "behind",
         behind: 2,
-        upgradeCmd: "flow setup --upgrade",
+        upgradeCmd: "flow install --upgrade",
       }),
     });
 

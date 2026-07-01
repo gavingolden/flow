@@ -2,7 +2,7 @@
  * Cross-process file lock with stale-PID detection, plus a counting
  * semaphore (`withTestSemaphore`) built on the same primitives.
  *
- * Why: `flow setup --upgrade` invoked concurrently from parallel pipelines
+ * Why: `flow install --upgrade` invoked concurrently from parallel pipelines
  * can race on `~/.claude/skills/` symlinks. Wrap the symlink-creation block
  * in `withFileLock(SETUP_LOCK_PATH, ...)` and the second invocation waits
  * for the first to finish. `withTestSemaphore` reuses the same atomic
@@ -113,7 +113,7 @@ export function withTestSemaphore<T>(
 }
 
 /**
- * Host-wide cap on concurrent `flow new` window launches. `FLOW_LAUNCH_CONCURRENCY`
+ * Host-wide cap on concurrent `flow feature create` window launches. `FLOW_LAUNCH_CONCURRENCY`
  * overrides when it parses to a finite integer >= 1; otherwise default 4 so a
  * burst of parallel launches stops oversubscribing claude cold-starts. Mirrors
  * `resolveTestConcurrency` in flow-pre-commit; the slots are held through the

@@ -7,7 +7,7 @@ one-shot-discovery machinery, re-grained one altitude up. The feature-grain
 file decomposes one PR into intra-feature tasks; this file decomposes an
 **epic** — a body of work larger than one PR — into a dependency DAG of
 **features**, where **one node (one entry in the manifest's `features[]`) =
-one PR-sized feature** that each becomes a single ordinary `flow new` pipeline.
+one PR-sized feature** that each becomes a single ordinary `flow feature create` pipeline.
 
 The designer **produces artifacts and stops**. It emits a six-section
 `design.md` plus a typed `manifest.json` under `.flow/epics/<slug>/`,
@@ -33,7 +33,7 @@ For the canonical exemplar of a finished design: **in flow's own repo**, the
 committed worked example at `.flow/epics/build-the-epic-designer/` (its
 `design.md` + `manifest.json` are a real epic decomposed by this method, and
 they pass both validators) is the canonical exemplar. It is **not** distributed
-to consumer repos (`flow setup` ships only `skills/` + `bin/`), so when you run
+to consumer repos (`flow install` ships only `skills/` + `bin/`), so when you run
 in a consumer `WORKTREE` that path won't exist — treat it as **optional: read
 it if present, skip it if absent**, mirroring the `if exists` guard this file
 uses for the `example-prd.md` reference below. The six-section shape required of
@@ -142,7 +142,7 @@ feature.
 
 ### 4c. Feature decomposition — vertical slices, Parnas + Simon seams
 
-Decompose into **features**, each sized to be **exactly one `flow new`
+Decompose into **features**, each sized to be **exactly one `flow feature create`
 pipeline = one mergeable PR = one vertical slice that passes its own gate**.
 The rules:
 
@@ -172,7 +172,7 @@ The rules:
    the DAG has a clear root and early features de-risk the architecture.
 
 For each feature, capture: a `title`, a self-contained `description` (one
-paragraph sufficient to run one standard `flow new` pipeline — this becomes
+paragraph sufficient to run one standard `flow feature create` pipeline — this becomes
 the pipeline's prompt), its `dependsOn[]` edges (produced/consumed only), a
 one-line `rationale` (which volatile decision it hides), its EARS-shaped
 `acceptanceCriteria[]`, and `flowNewHints` (`autoMerge` / `copilotReview` /
@@ -196,7 +196,7 @@ feature.
 For a **visual / palette / typography overhaul** epic, you MUST record
 explicitly in Open Questions that concrete palette/color values (exact
 hex/token values, type scales, spacing primitives) are deferred to each
-feature's F1 (`flow new`) planning — the epic design fixes the structure and
+feature's F1 (`flow feature create`) planning — the epic design fixes the structure and
 seams, not the final colors. Stating the deferral here makes it a conscious,
 reviewer-visible choice at the approval checkpoint rather than a silent
 omission.

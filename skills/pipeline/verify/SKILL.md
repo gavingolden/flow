@@ -25,7 +25,7 @@ Run all relevant pre-commit checks, fix any failures, and re-run until every che
 
 # Context
 
-- `flow-pre-commit` (installed globally by `flow setup` and on PATH) auto-detects scope,
+- `flow-pre-commit` (installed globally by `flow install` and on PATH) auto-detects scope,
   runs format + checks, and reports pass/fail. The `--json` flag emits a single bounded
   JSON object — head/tail-capped failure excerpts plus a `firstErrorText` extraction —
   so this skill returns a compact summary to its caller instead of replaying 50–200 KB
@@ -203,7 +203,7 @@ user must replicate locally post-merge, register a follow-up:
 
 ```bash
 flow-followups add \
-  --command "flow setup --upgrade" \
+  --command "flow install --upgrade" \
   --reason "<why this matters post-merge>" \
   --auto    # only when command is in the helper's allowlist
 ```

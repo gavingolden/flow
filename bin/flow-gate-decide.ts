@@ -299,7 +299,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   if (!slug) {
     console.error(
       "flow-gate-decide: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
-        "  pass --slug <slug>, or run inside a tmux window created by `flow new`.",
+        "  pass --slug <slug>, or run inside a tmux window created by `flow feature create`.",
     );
     return 2;
   }

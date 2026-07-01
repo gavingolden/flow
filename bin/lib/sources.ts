@@ -1,5 +1,5 @@
 /**
- * Discover what `flow setup` should install: skills, agents, and helper
+ * Discover what `flow install` should install: skills, agents, and helper
  * binaries from the flow source tree. Each entry pairs the absolute source
  * path with its target install path.
  */
@@ -40,7 +40,7 @@ const MAINTAINER_ONLY = new Set(["flow-release"]);
 
 /**
  * Whether a `bin/` basename (e.g. `flow-new-worktree.ts`) is a helper that
- * `flow setup` symlinks onto a user's PATH: a `.ts` file that is not a test,
+ * `flow install` symlinks onto a user's PATH: a `.ts` file that is not a test,
  * not the `flow` wrapper, and not a maintainer-only tool. Shared with
  * flow-pre-commit's executable-mode gate so the installer and the gate cannot
  * disagree about which files must be tracked executable.
@@ -177,7 +177,7 @@ export function discoverValidators(
  * Anchored to `installRoot`, never `flowSource`. Bun's `import.meta.path`
  * resolves the wrapper symlink to derive `resolveFlowSource()`, so pointing
  * `~/.local/bin/flow` at a worktree's wrapper would (a) dangle the moment
- * `flow-remove-worktree` runs and (b) poison every subsequent `flow setup`
+ * `flow-remove-worktree` runs and (b) poison every subsequent `flow install`
  * by collapsing `installRoot` onto the worktree path.
  */
 export function flowWrapperEntry(
@@ -221,7 +221,7 @@ export function discoverCompletions(
 }
 
 /**
- * All entries `flow setup` should install, in display order.
+ * All entries `flow install` should install, in display order.
  *
  * Content discovery (skills/agents/helpers/completions) reads from
  * `flowSource` so step 5.5's `--source <worktree>` can pull in-flight skill

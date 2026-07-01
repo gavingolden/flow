@@ -40,7 +40,7 @@ const content = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
 const FILE_LABEL =
   "skills/pipeline/product-planning/references/discovery-instructions.md";
 
-// The forced (`flow new --research`) path runs bin/flow-research-run.ts, which
+// The forced (`flow feature create --research`) path runs bin/flow-research-run.ts, which
 // keeps its OWN copy of the model-variant pins + cross-model diversity-guard
 // fallback ordering. That copy must stay byte-identical to the doc's frozen
 // block — otherwise the forced path and the config-on path research with

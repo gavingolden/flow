@@ -124,7 +124,7 @@ describe("checkForUpdate — behind", () => {
     expect(result).toEqual({
       status: "behind",
       behind: 4,
-      upgradeCmd: "flow setup --upgrade",
+      upgradeCmd: "flow install --upgrade",
     });
   });
 });
@@ -260,7 +260,7 @@ describe("checkForUpdate — throttle", () => {
     expect(result).toEqual({
       status: "behind",
       behind: 3,
-      upgradeCmd: "flow setup --upgrade",
+      upgradeCmd: "flow install --upgrade",
     });
     expect(calls.find((c) => c[1] === "fetch")).toBeUndefined();
     expect(calls.length).toBe(0);
@@ -283,7 +283,7 @@ describe("checkForUpdate — throttle", () => {
     expect(result).toEqual({
       status: "behind",
       behind: 7,
-      upgradeCmd: "flow setup --upgrade",
+      upgradeCmd: "flow install --upgrade",
     });
     expect(calls.find((c) => c[1] === "fetch")).toBeDefined();
     const rewritten = JSON.parse(fs.readFileSync(cachePath, "utf8"));
@@ -308,7 +308,7 @@ describe("checkForUpdate — throttle", () => {
     expect(result).toEqual({
       status: "behind",
       behind: 2,
-      upgradeCmd: "flow setup --upgrade",
+      upgradeCmd: "flow install --upgrade",
     });
     expect(calls.find((c) => c[1] === "fetch")).toBeDefined();
     const rewritten = JSON.parse(fs.readFileSync(cachePath, "utf8"));
@@ -401,19 +401,19 @@ describe("formatUpdateNotice", () => {
     const behind: UpdateCheckResult = {
       status: "behind",
       behind: 5,
-      upgradeCmd: "flow setup --upgrade",
+      upgradeCmd: "flow install --upgrade",
     };
     const notice = formatUpdateNotice(behind);
     expect(notice).not.toBeNull();
     expect(notice).toContain("5 commits behind");
-    expect(notice).toContain("flow setup --upgrade");
+    expect(notice).toContain("flow install --upgrade");
   });
 
   it("uses the singular 'commit' for a single-commit gap", () => {
     const notice = formatUpdateNotice({
       status: "behind",
       behind: 1,
-      upgradeCmd: "flow setup --upgrade",
+      upgradeCmd: "flow install --upgrade",
     });
     expect(notice).toContain("1 commit behind");
     expect(notice).not.toContain("1 commits");
@@ -423,12 +423,12 @@ describe("formatUpdateNotice", () => {
     const notice = formatUpdateNotice({
       status: "behind",
       behind: 3,
-      upgradeCmd: "flow setup --upgrade",
+      upgradeCmd: "flow install --upgrade",
       localVersion: "1.0.0",
       remoteVersion: "1.1.0",
     });
     expect(notice).toContain("v1.0.0 → v1.1.0 available");
-    expect(notice).toContain("flow setup --upgrade");
+    expect(notice).toContain("flow install --upgrade");
     expect(notice).not.toContain("commit");
   });
 });
@@ -450,7 +450,7 @@ describe("checkForUpdate — version-aware", () => {
       expect(result).toEqual({
         status: "behind",
         behind: 4,
-        upgradeCmd: "flow setup --upgrade",
+        upgradeCmd: "flow install --upgrade",
         localVersion: "1.0.0",
         remoteVersion: "1.1.0",
       });
@@ -476,7 +476,7 @@ describe("checkForUpdate — version-aware", () => {
       expect(result).toEqual({
         status: "behind",
         behind: 2,
-        upgradeCmd: "flow setup --upgrade",
+        upgradeCmd: "flow install --upgrade",
       });
       expect(formatUpdateNotice(result)).toContain("2 commits behind");
     } finally {
@@ -501,7 +501,7 @@ describe("checkForUpdate — version-aware", () => {
       expect(result).toEqual({
         status: "behind",
         behind: 5,
-        upgradeCmd: "flow setup --upgrade",
+        upgradeCmd: "flow install --upgrade",
       });
     } finally {
       fs.rmSync(local, { recursive: true, force: true });
@@ -524,7 +524,7 @@ describe("checkForUpdate — version-aware", () => {
       expect(result).toEqual({
         status: "behind",
         behind: 6,
-        upgradeCmd: "flow setup --upgrade",
+        upgradeCmd: "flow install --upgrade",
       });
     } finally {
       fs.rmSync(local, { recursive: true, force: true });
@@ -555,7 +555,7 @@ describe("checkForUpdate — version-aware", () => {
       expect(result).toEqual({
         status: "behind",
         behind: 3,
-        upgradeCmd: "flow setup --upgrade",
+        upgradeCmd: "flow install --upgrade",
         localVersion: "1.0.0",
         remoteVersion: "2.0.0",
       });

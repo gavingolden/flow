@@ -1,6 +1,6 @@
 /**
  * Read/write ~/.flow/installed.json — the canonical record of every symlink
- * `flow setup` created. `flow setup --upgrade` diffs this against the current
+ * `flow install` created. `flow install --upgrade` diffs this against the current
  * source tree to reap orphans.
  */
 

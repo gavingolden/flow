@@ -173,7 +173,7 @@ The fallback prefers the cheaper failure mode.
 
 #### Opt-in request path and the decline collapse
 
-With opt-in Copilot review (`flow new --copilot-review <auto|always|never>`,
+With opt-in Copilot review (`flow feature create --copilot-review <auto|always|never>`,
 default `auto`), `/flow-pipeline` step 7 decides _before_ the wait whether
 to request Copilot for this PR — see SKILL.md step 7's "Copilot request
 decision". On the **request** path nothing here changes: the two signals
@@ -405,7 +405,7 @@ The precondition list lives at `deriveCopilotSkipReason` in
 should be detected by the function-name anchor.
 
 Suppress entirely with `--wait-for-copilot` (per-pipeline via
-`flow new --wait-for-copilot "<desc>"`, or per-invocation directly on
+`flow feature create --wait-for-copilot "<desc>"`, or per-invocation directly on
 the helper). Suppressed → the existing 10-min copilot-timeout branch
 fires unchanged.
 
@@ -530,7 +530,7 @@ and 'Self-dismissal short-circuit' above) are suppressed by two flags:
 
 - `--wait-for-copilot` (boolean) suppresses **both** auto-detect rows
   and restores the full 10-min copilot timeout as the only Copilot
-  exit branch. Per-pipeline via `flow new --wait-for-copilot
+  exit branch. Per-pipeline via `flow feature create --wait-for-copilot
 "<desc>"` (the supervisor reads `waitForCopilot` from state.json
   and appends the flag), or per-invocation directly on `flow-ci-wait`.
 - `--claim-deadline-sec <n>` (positive integer) overrides the

@@ -257,7 +257,7 @@ scripts). For full rationale see `references/env-vars-and-build.md`.
 # Verification
 
 - Skill installed at `~/.claude/skills/cloudflare-pages/` after
-  `flow setup --upgrade`.
+  `flow install --upgrade`.
 
 **Reusable-workflow path:**
 

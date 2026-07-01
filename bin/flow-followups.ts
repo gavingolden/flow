@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Local follow-ups: register and (where safe) execute manual local-computer
- * steps a pipeline produces — e.g. `flow setup --upgrade` after a new helper
+ * steps a pipeline produces — e.g. `flow install --upgrade` after a new helper
  * lands. Step 11 of `/flow-pipeline` invokes `run` on the MERGED path
  * (executes allowlisted+auto entries) and `run --note-only` on GATED /
  * NEEDS HUMAN paths (lists without executing). Sub-skills register entries
@@ -43,8 +43,8 @@ import { upsertPrBodySection } from "./lib/pr-body-upsert";
 // `auto: true` is also set. Expanding this list is a future PR — the narrow
 // seed (post-merge skill/agent re-symlink) is the entire safety story for v1.
 export const ALLOWLIST: ReadonlySet<string> = new Set([
-  "flow setup",
-  "flow setup --upgrade",
+  "flow install",
+  "flow install --upgrade",
 ]);
 
 const HEAD_LINES = 50;

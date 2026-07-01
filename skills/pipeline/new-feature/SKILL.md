@@ -75,7 +75,7 @@ disk + a brief summary.
 - Skill consultation: before writing `.svelte` files, read the `svelte` skill. Before writing
   tests, read the `testing` skill. Before UI/layout work, read the `tailwind-shadcn` skill.
   Before database/migrations, read the `supabase-project` skill. (Names assume the canonical stack
-  skills installed by `flow setup`; substitute whatever your project uses.)
+  skills installed by `flow install`; substitute whatever your project uses.)
 
 # Instructions
 
@@ -384,7 +384,7 @@ Format: freeform bullets. For renames or removals, use a `Before → After` bull
 delta reads at a glance. Example:
 
 - New flag: `flow ls --cost` adds a `$` column summed across the supervisor session.
-- Before → After: `flow install` (removed) → `flow setup` (global install via symlink).
+- Before → After: `flow install` (removed) → `flow install` (global install via symlink).
 
 If the change is pure-internal (refactor, infra, no user-observable delta), write the literal
 word `none` under the heading. Never delete the heading — `none` is an explicit author
@@ -619,12 +619,12 @@ The no-emoji rule from `AGENTS.md` § Output style applies to the generated rati
 
 When the implementation produces a side-effect the user must replicate on their
 local machine after merge — a new helper added under `bin/` (so the home install
-needs `flow setup --upgrade`), a new local dependency, a stale config file to
+needs `flow install --upgrade`), a new local dependency, a stale config file to
 delete — register a follow-up:
 
 ```bash
 flow-followups add \
-  --command "flow setup --upgrade" \
+  --command "flow install --upgrade" \
   --reason "<why this matters post-merge>" \
   --auto    # only if the command is in the helper's allowlist
 ```

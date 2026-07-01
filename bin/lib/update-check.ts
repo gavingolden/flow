@@ -20,7 +20,7 @@ import { spawnSync } from "node:child_process";
 
 const THROTTLE_MS = 24 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10_000;
-const UPGRADE_CMD = "flow setup --upgrade";
+const UPGRADE_CMD = "flow install --upgrade";
 
 export type UpdateCheckSkippedReason =
   | "not-a-git-repo"
@@ -121,7 +121,7 @@ function writeCache(cachePath: string, entry: CacheEntry): void {
 }
 
 /**
- * Best-effort cache invalidation called by `flow setup --upgrade` so the next
+ * Best-effort cache invalidation called by `flow install --upgrade` so the next
  * `checkForUpdate` re-fetches instead of replaying a stale "N commits behind"
  * notice from the 24h throttle cache. Deletes the file rather than resetting
  * it to `behind: 0`: `readCache` returns `null` for a missing file (forcing a

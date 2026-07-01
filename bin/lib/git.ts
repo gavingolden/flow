@@ -108,7 +108,7 @@ export type FastForwardOptions = {
 /**
  * Opportunistically fast-forwards `<canonicalRoot>` to `origin/<default>`.
  * Never throws — returns a typed `skipped` reason on any failure so callers
- * (`flow setup --upgrade`) can log and continue. Only advances when the
+ * (`flow install --upgrade`) can log and continue. Only advances when the
  * working tree is clean, the current branch matches the default, and the
  * fetch succeeds.
  */
@@ -203,7 +203,7 @@ export type ChangedInstallPathsOptions = {
  * skill/helper display names: a skill is the directory owning `SKILL.md`
  * under `skills/...`; a helper is `bin/<name>.ts` (basename, `.ts` dropped,
  * `.test.ts` ignored). Deduped, order-stable. Purely a reporting helper for
- * `flow setup --upgrade`'s changed-list — it NEVER throws: any git error,
+ * `flow install --upgrade`'s changed-list — it NEVER throws: any git error,
  * missing SHA, or empty diff yields `[]`.
  */
 export function changedInstallPaths(

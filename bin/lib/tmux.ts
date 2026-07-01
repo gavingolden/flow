@@ -29,7 +29,7 @@ const FLOW_SLUG_OPTION = "@flow-slug";
 export const FLOW_PHASE_OPTION = "@flow-phase";
 /**
  * Window option holding the basename of the pipeline's root repo (the repo
- * resolved at `flow new`, matching the REPO column in `flow ls`). Same
+ * resolved at `flow feature create`, matching the REPO column in `flow ls`). Same
  * additive/opt-in/publish-only contract as `@flow-phase`: flow sets it on its
  * own windows so a status-bar format can bind `#{@flow-repo}` into a compact
  * `[repo phase]` badge, never writing the user's tmux config. Best-effort — a
@@ -46,7 +46,7 @@ export const FLOW_REPO_OPTION = "@flow-repo";
 export const FLOW_PHASE_SHORT_OPTION = "@flow-phase-short";
 /**
  * The phase seeded at window creation, before the first
- * `flow-state-update --phase` lands. Must match the initial phase `flow new`
+ * `flow-state-update --phase` lands. Must match the initial phase `flow feature create`
  * writes to `~/.flow/state/<slug>.json` (`STEP_PHASES[0]` in `./state`), so a
  * status bar bound to `@flow-phase` never renders empty for a live pipeline.
  */
@@ -239,7 +239,7 @@ export function createWindow(
  * out a slow cold-start under concurrent load without failing the launch.
  *
  * Consumption is then probed on a deliberately SHORT (~5s) fast-exit budget via
- * the injected `consumed` predicate, which `new.ts` / `epic.ts` build from the
+ * the injected `consumed` predicate, which `feature.ts` / `epic.ts` build from the
  * `~/.flow/state/<slug>.json` signal (the seed-ingested marker, or the
  * supervisor advancing the phase / bumping `updatedAt`). On a healthy fast
  * supervisor consumption latches inside the short budget → `started`. When the
@@ -471,7 +471,7 @@ export type CreateWindowVerifiedDeps = {
    */
   readPane?: (slug: string, session?: string) => string;
   /**
-   * Consumption-signal seam. The caller (`new.ts` / `epic.ts`) injects a
+   * Consumption-signal seam. The caller (`feature.ts` / `epic.ts`) injects a
    * predicate that returns true once the seed has been consumed — i.e. the
    * supervisor advanced `~/.flow/state/<slug>.json` past `starting`. Keeps
    * `tmux.ts` state-module-agnostic (no `state.ts` import here) so the
@@ -489,7 +489,7 @@ export type CreateWindowVerifiedDeps = {
   consumeAttempts?: number;
   /**
    * Progress seam, invoked at most once per poll interval during the readiness
-   * and consumption waits with the elapsed ms for THAT phase. `new.ts` wires a
+   * and consumption waits with the elapsed ms for THAT phase. `feature.ts` wires a
    * writer that emits dim stderr progress so a launch is never a silent hang;
    * tests inject a spy. Never writes stdout (the `flow:<slug>` contract token).
    */
@@ -852,7 +852,7 @@ export function killWindow(slug: string, session = FLOW_SESSION): boolean {
 
 /**
  * Reruns `command` inside the named window's first pane, replacing whatever
- * was there. Used by `flow new --resume` when the window survived the crash —
+ * was there. Used by `flow feature resume` when the window survived the crash —
  * preserves the pane id so the user's tmux scrollback addressing stays valid.
  */
 export function respawnWindow(

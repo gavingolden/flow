@@ -1,7 +1,7 @@
 /**
  * Per-pipeline $ spend, derived from Claude Code's per-session JSONL.
  *
- * Pipeline → JSONL match: `flow new <description>` slugifies the
+ * Pipeline → JSONL match: `flow feature create <description>` slugifies the
  * description and seeds the supervisor with the literal prompt
  * `Use the /flow-pipeline skill for: <description>`. We scan
  * `~/.claude/projects/<encoded-cwd>/` for the supervisor's starting
@@ -10,13 +10,13 @@
  * construction (slugs are unique window names), so concurrent
  * pipelines don't alias.
  *
- * Why "every" not "first": `flow new --resume` spawns a fresh Claude
+ * Why "every" not "first": `flow feature resume` spawns a fresh Claude
  * session — and therefore a fresh JSONL — that also seed-matches the
  * same slug (resume's seed is `Use the /flow-pipeline skill in
  * --resume mode for: <slug>`, which the regex below also accepts).
  * After a single resume there are at least two matching JSONLs for
  * the same pipeline; only summing across all of them reports the
- * true cost. The same applies to repeated `flow new <same desc>`
+ * true cost. The same applies to repeated `flow feature create <same desc>`
  * after `flow done` — old JSONLs accumulate in `~/.claude/projects/`.
  */
 

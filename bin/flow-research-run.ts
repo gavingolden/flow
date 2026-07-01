@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Deterministic forced-research runner for `flow new --research`.
+ * Deterministic forced-research runner for `flow feature create --research`.
  *
- * WHY: `flow new --research` sets `forceResearch: true`, which is meant to
+ * WHY: `flow feature create --research` sets `forceResearch: true`, which is meant to
  * force discovery Step 1.5's web-grounded research pre-check ON. But that
  * pre-check lives inside the discovery sub-agent's own judgment, and it was
  * observed to skip the fan-out even on the forced path. This helper makes the

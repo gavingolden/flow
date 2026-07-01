@@ -4,7 +4,7 @@
  *
  * The supervisor skill (PR 2) calls this once per phase transition so
  * `flow ls` sees fresh phase / pr / worktree fields. PR 1 wrote the
- * initial state via `flow new` and pinned the schema; this binary is
+ * initial state via `flow feature create` and pinned the schema; this binary is
  * the writer the supervisor uses to keep it current.
  *
  * Usage:
@@ -30,7 +30,7 @@
  *   Bash tool calls, so the auto-resolve path is the load-bearing one;
  *   the explicit positional stays for back-compat and for callers
  *   outside tmux.
- * - The slug must already have a state file (created by `flow new`).
+ * - The slug must already have a state file (created by `flow feature create`).
  *   Refuses to invent state out of nowhere — that surfaces drift
  *   instead of papering over it.
  * - `updatedAt` is rewritten to the current ISO-8601 UTC timestamp on
@@ -293,7 +293,7 @@ export function runUpdate(
   if (!slug) {
     console.error(
       "flow-state-update: no slug given and could not resolve from $TMUX_PANE's @flow-slug option.\n" +
-        "  pass <slug> explicitly, or run inside a tmux window created by `flow new`.",
+        "  pass <slug> explicitly, or run inside a tmux window created by `flow feature create`.",
     );
     return 2;
   }
@@ -301,7 +301,7 @@ export function runUpdate(
   if (!existing) {
     console.error(
       `flow-state-update: no state file for slug '${slug}'.\n` +
-        "  did you forget to run `flow new`? state files live at ~/.flow/state/<slug>.json.",
+        "  did you forget to run `flow feature create`? state files live at ~/.flow/state/<slug>.json.",
     );
     return 1;
   }

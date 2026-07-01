@@ -406,7 +406,7 @@ describe("runLs — orphan recovery footnote", () => {
     vi.restoreAllMocks();
   });
 
-  it("surfaces `flow new --resume <slug>` below the table for an orphan ('(no window)') row", async () => {
+  it("surfaces `flow feature resume <slug>` below the table for an orphan ('(no window)') row", async () => {
     // A PAST-`starting` crash for `ghost` with no matching tmux window → buildRows
     // annotates it `(no window)` and the recovery footnote prints its restart
     // command. (phase must be past `starting`, else the lazy reaper would silently
@@ -421,11 +421,11 @@ describe("runLs — orphan recovery footnote", () => {
 
     expect(code).toBe(0);
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(out).toContain("flow new --resume ghost");
+    expect(out).toContain("flow feature resume ghost");
   });
 
   it("prints no recovery footnote when every pipeline has a live window", async () => {
-    // Non-orphan output must be unchanged — no `flow new --resume` line leaks.
+    // Non-orphan output must be unchanged — no `flow feature resume` line leaks.
     vi.spyOn(stateModule, "listStates").mockReturnValue([
       state({ slug: "csv-export", repo: "/repo" }),
     ]);
@@ -438,7 +438,7 @@ describe("runLs — orphan recovery footnote", () => {
 
     expect(code).toBe(0);
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(out).not.toMatch(/flow new --resume/);
+    expect(out).not.toMatch(/flow feature resume/);
   });
 });
 
@@ -491,7 +491,7 @@ describe("runLs — update notice seam", () => {
       checkUpdate: () => ({
         status: "behind",
         behind: 2,
-        upgradeCmd: "flow setup --upgrade",
+        upgradeCmd: "flow install --upgrade",
       }),
     });
     expect(code).toBe(0);

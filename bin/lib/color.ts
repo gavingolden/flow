@@ -8,7 +8,7 @@
  * any non-TTY — `dim`/`green`/`red` return their input byte-for-byte
  * unchanged, so captured output is identical to the no-color path.
  *
- * Because of that, machine-read contract lines (e.g. `flow new`'s first
+ * Because of that, machine-read contract lines (e.g. `flow feature create`'s first
  * stdout line, `flow done`'s `closed:` token) MUST NOT be passed through
  * these helpers at all. The gating makes color absent when piped, but a
  * forced-color interactive run would still inject SGR bytes into a line a

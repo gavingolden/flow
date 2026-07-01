@@ -5,7 +5,7 @@
  * `npm version <type>` — atomically, in one call. NEVER pushes; the maintainer
  * runs `git push --follow-tags` afterwards.
  *
- * Deliberately NOT symlinked onto PATH by `flow setup` (see the MAINTAINER_ONLY
+ * Deliberately NOT symlinked onto PATH by `flow install` (see the MAINTAINER_ONLY
  * exclusion in bin/lib/sources.ts) — it mutates the tree and creates tags, so
  * it must not ship to every user's PATH. Run it from a clean main checkout:
  *   bun bin/flow-release <patch|minor|major>

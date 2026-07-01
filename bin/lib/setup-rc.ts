@@ -1,5 +1,5 @@
 /**
- * The rc-file editing step of `flow setup`. Adds (or, with --no-completions,
+ * The rc-file editing step of `flow install`. Adds (or, with --no-completions,
  * removes) a `# managed by flow completions` block in each shell rc file the
  * user already has. Never creates an rc file we didn't author. Marker
  * convention matches `bin/lib/rc-block.ts` and the older gitignore module.

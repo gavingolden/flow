@@ -2,19 +2,19 @@
 /**
  * `flow` — the shell wrapper for tmux-driven pipelines.
  *
- *   flow setup [--upgrade] [--force] [--source <path>]
+ *   flow install [--upgrade] [--force] [--source <path>]
  *                                      global install
- *   flow new <description>             create a tmux window + initial state
+ *   flow feature create <description>  create a tmux window + initial state
+ *   flow feature resume <name> [...]   re-launch crashed pipeline(s)
  *   flow ls [--cost [--detail]]        list active pipelines
  *   flow attach <name>                 tmux attach -t flow:<name>  (alias: a)
  *   flow done <name> | --merged | --orphans
  *                                      kill window + remove state
- *   flow migrate [--apply] [--scan <p>] [--include-orchestrator]
  *
  * Per-verb argument parsing lives in `bin/lib/<verb>.ts` as `run<Verb>Cli`.
  * Each shim short-circuits `--help` / `-h` before producing side-effects so
- * `flow new --help` (and friends) print usage instead of slugifying the flag
- * into a phantom pipeline.
+ * `flow feature create --help` (and friends) print usage instead of slugifying
+ * the flag into a phantom pipeline.
  */
 
 import { runAttachCli } from "./lib/attach";
@@ -23,8 +23,7 @@ import { printTopHelp, runHelpVerb } from "./lib/help";
 import { runDoneCli } from "./lib/done";
 import { runEpicCli } from "./lib/epic";
 import { runLsCli } from "./lib/ls";
-import { runMigrateCli } from "./lib/migrate";
-import { runNewCli } from "./lib/new";
+import { runFeatureCli } from "./lib/feature";
 import { runSetupCli } from "./lib/setup-args";
 import { runVersionCli } from "./lib/version";
 import { isVerb } from "./lib/verbs";
@@ -52,10 +51,10 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
     case "-h":
     case "help":
       return runHelpVerb(args);
-    case "setup":
+    case "install":
       return runSetupCli(args);
-    case "new":
-      return runNewCli(args);
+    case "feature":
+      return runFeatureCli(args);
     case "epic":
       return runEpicCli(args);
     case "attach":
@@ -65,8 +64,6 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
       return runDoneCli(args);
     case "ls":
       return await runLsCli(args);
-    case "migrate":
-      return runMigrateCli(args);
     case "completion":
       return runCompletion(args[0], {}, args.slice(1));
     case "--version":

@@ -8,7 +8,7 @@
  * `manifest.json` (the machine-readable feature DAG this module validates).
  * The filenames and the per-slug directory are exported as constants here so
  * every downstream epic feature (DAG well-formedness in F2, the ready-set
- * scheduler, `flow new` fan-out) resolves the same paths.
+ * scheduler, `flow feature create` fan-out) resolves the same paths.
  *
  * This module OWNS the `EpicManifest` shape: all downstream epic features
  * import `EpicManifest` / `Feature` from here rather than restating the type,

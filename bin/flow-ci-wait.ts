@@ -1161,7 +1161,7 @@ export type Args = {
   /**
    * When true, suppress both Copilot auto-detect skips
    * (`unclaimed-after-deadline` and `self-dismissed`) and wait the full
-   * 10-min copilot timeout. Plumbed through from `flow new
+   * 10-min copilot timeout. Plumbed through from `flow feature create
    * --wait-for-copilot` via state.json's `waitForCopilot` field.
    */
   waitForCopilot?: boolean;

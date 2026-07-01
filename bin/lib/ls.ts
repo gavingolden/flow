@@ -5,7 +5,7 @@
  * State source: a single global JSON file per pipeline. The supervisor
  * (PR 2) updates `phase` + `updatedAt` (and `pr` after step 5, `worktree`
  * after step 2) at every transition via `flow-state-update`. PR 1 wrote
- * the initial state with `phase: "starting"` from `flow new`.
+ * the initial state with `phase: "starting"` from `flow feature create`.
  *
  * Drift handling:
  *   - state file but no window → "(no window)" (likely a crashed session)
@@ -117,10 +117,10 @@ export async function runLs(opts: LsOptions = {}): Promise<number> {
 
 /**
  * Prints a post-table recovery footnote for orphaned pipelines — state files
- * whose tmux window is gone (`(no window)`), typically a crashed `flow new`
+ * whose tmux window is gone (`(no window)`), typically a crashed `flow feature create`
  * whose window never stayed up. Each gets its one-command restart line. Kept
  * BELOW the table (not inlined into the NAME cell) because printTable derives
- * column widths from cell lengths, so a long `flow new --resume <slug>` string
+ * column widths from cell lengths, so a long `flow feature resume <slug>` string
  * in the cell would widen the whole table for every row. No-op when no orphan
  * rows exist, so healthy output is unchanged.
  */
@@ -130,7 +130,7 @@ function printOrphanRecovery(rows: Row[]): void {
   console.log("");
   console.log(dim("orphaned pipelines (no tmux window) — resume with:"));
   for (const row of orphans) {
-    console.log(dim(`  flow new --resume ${row.name}`));
+    console.log(dim(`  flow feature resume ${row.name}`));
   }
 }
 
