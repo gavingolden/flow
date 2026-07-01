@@ -913,10 +913,18 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * the request, not just the literal ask.**, whose full technique is offloaded
    * to skills/pipeline/product-planning/references/discovery-playbook.md so only
    * the lean anchored summary costs bytes here — a deliberate addition, not
-   * silent regrowth.
+   * silent regrowth. Raised once more from 39_000 to 39_700 to fund the
+   * `/epic-run` separate-supervisor-session bullet (the epic-orchestrator
+   * judgment layer), whose full contract — the four hard invariants, the
+   * `epic.judgment` / `epic.maxRetries` config gate, the event-driven judgment
+   * surface — is offloaded to skills/pipeline/epic-run/SKILL.md so only a lean
+   * pointer bullet (gated ⇒ escalate-only + never-merge inline) costs bytes
+   * here. Headroom to the 40k warning is now thin (~370 chars): the NEXT
+   * contract must offload-then-trim (dedup an equivalent volume), not raise
+   * this budget again.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 39_000;
+    const CHAR_BUDGET = 39_700;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
@@ -3613,6 +3621,88 @@ describe("/epic-create supervisor SKILL.md literal anchors", () => {
       /re-open/i.test(epicCreateContent),
       "epic-create/SKILL.md resume mode must state it does NOT re-open an " +
         "already-open design PR (lean on flow-open-pr's up-front probe).",
+    ).toBe(true);
+  });
+});
+
+describe("/epic-run supervisor SKILL.md literal anchors", () => {
+  // Durable structural guards for the /epic-run supervisor (Task 5). These go
+  // red on `npm run verify` if any load-bearing literal — the two byte-exact
+  // judgment contracts (gated ⇒ escalate-only, escalate-on-exhaustion), the
+  // seed-prefix it parses, the EPIC_DIR/R1 no-bin/lib constraint, the bare-name
+  // judgment-context helper, the sanctioned retry actuator, OR the four hard
+  // invariants — is dropped from the skill. STANDALONE block so it does NOT
+  // disturb the "exactly 9 Task-tool exemptions" / two-AskUserQuestion-forms
+  // assertions (which are /flow-pipeline-anchored and must stay green): /epic-run
+  // is a SEPARATE sanctioned supervisor session, not a /flow-pipeline exemption.
+  const EPIC_RUN_SKILL_MD_PATH = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "epic-run",
+    "SKILL.md",
+  );
+  const epicRunContent = fs.readFileSync(EPIC_RUN_SKILL_MD_PATH, "utf8");
+
+  const REQUIRED_LITERALS: Array<[string, string]> = [
+    // The two byte-exact judgment contracts the plan's Stories 2 + 3 lint.
+    [
+      "gated ⇒ escalate-only, never override",
+      "the gated-escalate-only hard invariant (a gated verdict is terminal)",
+    ],
+    [
+      "escalate-on-exhaustion",
+      "the bounded-retry contract (budget reached ⇒ escalate, not retry)",
+    ],
+    // The deterministic-tick + judgment-context wiring.
+    [
+      "flow epic run <slug> --once --json",
+      "the deterministic JSON tick primitive",
+    ],
+    ["flow-epic-judge-context", "the bare-name judgment-context helper"],
+    [
+      "flow new --resume <feature-slug> --force",
+      "the sanctioned clean-respawn retry actuator (never send-keys)",
+    ],
+    ["budgetExhausted", "the run-state retry-budget flag the contract reads"],
+    // The seed-prefix it parses + the R1 no-bin/lib constraint.
+    ["Use the /epic-run skill for:", "the seed-prompt prefix it parses"],
+    ["EPIC_DIR", "the literal epic path embedded by the CLI (R1)"],
+    ["never import", "the R1 no-bin/lib-import constraint"],
+  ];
+
+  it.each(REQUIRED_LITERALS)(
+    "epic-run/SKILL.md contains the load-bearing literal %j (%s)",
+    (literal) => {
+      expect(
+        epicRunContent.includes(literal),
+        `skills/pipeline/epic-run/SKILL.md must contain '${literal}'. ` +
+          `Dropping it breaks the /epic-run supervisor's contract (the judgment ` +
+          `acceptance lints this literal); restore it or update this anchor in ` +
+          `lockstep.`,
+      ).toBe(true);
+    },
+  );
+
+  it("names the four hard invariants (no merge / no override / no send-keys / no autonomous redirect)", () => {
+    expect(
+      /never\s+merge\s+a\s+feature\s+PR/i.test(epicRunContent),
+      "epic-run/SKILL.md must state the supervisor NEVER merges a feature PR.",
+    ).toBe(true);
+    expect(
+      /never\s+override\s+a\s+gated\s+verdict/i.test(epicRunContent),
+      "epic-run/SKILL.md must state the supervisor NEVER overrides a gated verdict.",
+    ).toBe(true);
+    expect(
+      /send-keys/i.test(epicRunContent),
+      "epic-run/SKILL.md must forbid send-keys into a feature window (retry is a " +
+        "clean respawn).",
+    ).toBe(true);
+    expect(
+      /no\s+autonomous\s+redirect/i.test(epicRunContent),
+      "epic-run/SKILL.md must state there is no autonomous redirect in v1 " +
+        "(redirect is escalate-with-a-suggested-redirect).",
     ).toBe(true);
   });
 });
