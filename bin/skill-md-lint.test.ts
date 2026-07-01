@@ -3662,7 +3662,7 @@ describe("/epic-run supervisor SKILL.md literal anchors", () => {
     ],
     ["flow-epic-judge-context", "the bare-name judgment-context helper"],
     [
-      "flow new --resume <feature-slug> --force",
+      "flow feature resume <feature-slug> --force",
       "the sanctioned clean-respawn retry actuator (never send-keys)",
     ],
     ["budgetExhausted", "the run-state retry-budget flag the contract reads"],

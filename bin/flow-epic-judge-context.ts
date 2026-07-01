@@ -5,7 +5,7 @@
  * The supervisor runs cwd'd in a consumer worktree where flow's `bin/lib` is
  * absent, so the bounded evidence the in-process LLM reasons over is assembled
  * HERE — a bare-name PATH command (auto-discovered by `discoverHelpers`,
- * symlinked by `flow setup`), invoked like `flow-epic-resume-decide`. This
+ * symlinked by `flow install`), invoked like `flow-epic-resume-decide`. This
  * helper is flow's INSTALLED code (resolved through the symlink to the
  * canonical source), so its `./lib` imports are fine — R1 forbids `bin/lib`
  * imports only inside the spawned consumer-worktree window.

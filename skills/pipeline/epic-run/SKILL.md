@@ -60,7 +60,7 @@ helpers** only:
 
 - `flow-epic-judge-context` — the deterministic judgment-context helper (the
   bounded evidence assembler + the run-state recorder).
-- `flow new --resume <feature-slug> --force` — the sanctioned retry actuator.
+- `flow feature resume <feature-slug> --force` — the sanctioned retry actuator.
 - `flow-notify` — the escalation notifier.
 - `jq` — JSON field extraction.
 
@@ -78,9 +78,9 @@ These are byte-exact, load-bearing, and lint-anchored. You must:
 - **Never override a gated verdict.** Even with a clear retry signal, a `gated`
   feature is escalated, never retried-with-an-override and never merged.
 - **Never `send-keys` into a feature window.** Retry actuates via a clean
-  respawn (`flow new --resume … --force`), never by typing into a live pane.
+  respawn (`flow feature resume … --force`), never by typing into a live pane.
 - **No autonomous redirect / no authored code in v1.** You never author a new
-  `flow new` description, never relaunch a feature with an LLM-changed approach,
+  `flow feature create` description, never relaunch a feature with an LLM-changed approach,
   and never edit code. `redirect` is actuated as
   **escalate-with-a-suggested-redirect** for the human to apply.
 
@@ -134,7 +134,7 @@ and decide **retry** | **redirect** | **escalate**:
   ```bash
   flow-epic-judge-context record --slug <slug> --feature <id> \
     --action retry --reason "<one-line interpreted reason>" --increment-retry
-  flow new --resume <feature-slug> --force
+  flow feature resume <feature-slug> --force
   ```
 
   The `--force` reclaims the live-idle feature pane via a clean respawn — never
@@ -222,7 +222,7 @@ scrollback can confirm, then continue ticking.
 
 # Resource cleanup
 
-The only resources this supervisor spawns are the per-feature `flow new` windows
+The only resources this supervisor spawns are the per-feature `flow feature` windows
 the deterministic reconciler launches — and those are **owned by their own
 pipelines**, which clean up their own worktrees on merge. The orchestrator never
 opens a worktree of its own and writes only the per-machine `run.json` (a
