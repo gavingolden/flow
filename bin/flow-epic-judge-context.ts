@@ -59,7 +59,6 @@ import {
   type BoardRow,
   type FeatureStatus,
 } from "./lib/epic-reconcile";
-import { makeReadClosedSubIssues } from "./lib/epic-adopt";
 import { defaultGh, type GhRunner, type GitRunner } from "./lib/resume-probes";
 import { validateEpicJudgment } from "./lib/epic-judgment-schema";
 
@@ -273,7 +272,6 @@ export function assembleFeatureContext(
       manifest: loaded.manifest,
       runState,
       readFeatureState: (s) => readState(s, deps.stateDir),
-      readClosedSubIssues: makeReadClosedSubIssues(deps.gh),
       maxParallel: runState.maxParallel,
     });
     board = result.board;
@@ -337,7 +335,6 @@ export function assembleDeadlockContext(
       manifest: loaded.manifest,
       runState,
       readFeatureState: (s) => readState(s, deps.stateDir),
-      readClosedSubIssues: makeReadClosedSubIssues(deps.gh),
       maxParallel: runState.maxParallel,
     });
     board = result.board;

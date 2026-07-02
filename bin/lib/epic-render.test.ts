@@ -65,48 +65,6 @@ describe("renderBoard", () => {
     const out = renderBoard(board, summary);
     expect(out).toContain("ready: 0   running: 1   blocked: 1   merged: 1 / 3");
   });
-
-  it("renders an external marker for an adopted merged row", () => {
-    const adoptedBoard: BoardRow[] = [
-      {
-        id: "schema",
-        status: "merged",
-        adopted: true,
-        issueNumber: 310,
-        dependsOn: [],
-      },
-    ];
-    const s: ReconcileSummary = {
-      ready: 0,
-      running: 0,
-      blocked: 0,
-      merged: 1,
-      total: 1,
-    };
-    const out = renderBoard(adoptedBoard, s);
-    expect(out).toContain("merged (external #310)");
-  });
-
-  it("renders the bare external marker for an adopted row without an issueNumber", () => {
-    const adoptedBoard: BoardRow[] = [
-      {
-        id: "schema",
-        status: "merged",
-        adopted: true,
-        dependsOn: [],
-      },
-    ];
-    const s: ReconcileSummary = {
-      ready: 0,
-      running: 0,
-      blocked: 0,
-      merged: 1,
-      total: 1,
-    };
-    const out = renderBoard(adoptedBoard, s);
-    expect(out).toContain("merged (external)");
-    expect(out).not.toContain("external #");
-  });
 });
 
 describe("renderEpicList", () => {

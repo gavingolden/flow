@@ -79,11 +79,6 @@ import {
   HALT_STATUSES,
   type ReadFeatureState,
 } from "./epic-reconcile";
-import {
-  makeReadClosedSubIssues,
-  type ReadClosedSubIssues,
-} from "./epic-adopt";
-import { defaultGh, type GhRunner } from "./resume-probes";
 import { launchFeature, type SpawnFn } from "./epic-launch";
 import {
   readEpicRunState,
@@ -220,15 +215,6 @@ export type EpicOptions = {
   spawn?: SpawnFn;
   /** Per-feature live-state read seam (default `state.ts` readState). */
   readFeatureState?: ReadFeatureState;
-  /**
-   * Externally-merged-node adoption seam threaded into the tick reconcile call
-   * (default: the real gh+fs reader built from `gh`, returning a Map of feature
-   * id → sub-issue number). A network-free stub here keeps `epic.test.ts` /
-   * `epic-end-to-end.test.ts` off GitHub.
-   */
-  readClosedSubIssues?: ReadClosedSubIssues;
-  /** gh runner the default adoption reader is built from (default `defaultGh`). */
-  gh?: GhRunner;
   /** Clock seam for run-state timestamps (default `nowIso`). */
   now?: () => string;
   /**
@@ -976,16 +962,10 @@ function runEpicTick(
   launched: number;
   launchFailedIds: string[];
 } {
-  // The tick path adopts externally-merged nodes: prefer a test-injected seam,
-  // else build the real gh+fs reader. status/ls stay on the no-op default.
-  const readClosedSubIssues =
-    options.readClosedSubIssues ??
-    makeReadClosedSubIssues(options.gh ?? defaultGh);
   const result = reconcile({
     manifest,
     runState,
     readFeatureState: options.readFeatureState,
-    readClosedSubIssues,
     maxParallel,
   });
 
@@ -1231,8 +1211,6 @@ function runEpicStatus(rest: string[], options: EpicOptions): number {
       manifestPath!,
       options.readMaxParallel ?? readEpicMaxParallel,
     );
-  // Read-only status: no adoption reader — leave `readClosedSubIssues` on its
-  // no-op default so a `flow epic status` never fires a gh call.
   const result = reconcile({
     manifest,
     runState: rs,
@@ -1267,8 +1245,6 @@ function runEpicLs(options: EpicOptions): number {
         status: "running" as const,
       };
     }
-    // Read-only ls: no adoption reader on the DEFAULT — ls loops every epic and
-    // passing the real reader would fire one gh call per epic.
     const result = reconcile({
       manifest: loaded.manifest,
       runState: rs,

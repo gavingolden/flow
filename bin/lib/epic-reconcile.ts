@@ -20,7 +20,6 @@
 import { computeFrontier } from "../flow-epic-dag";
 import type { EpicManifest, Feature } from "./epic-manifest-schema";
 import type { EpicRunState } from "./epic-run-state";
-import type { ReadClosedSubIssues } from "./epic-adopt";
 import { readState, TERMINAL_PHASE_SET, type PipelineState } from "./state";
 
 export type FeatureStatus =
@@ -45,12 +44,6 @@ export type BoardRow = {
   pr?: number;
   phase?: string;
   dependsOn: string[];
-  /** True when this row's `merged` status came FROM externally-merged adoption
-   * (its `flow-epic` sub-issue is closed) rather than a live `merged` pipeline
-   * phase — whether or not it also has a run.json record. */
-  adopted?: boolean;
-  /** The adopted node's GitHub sub-issue number, when resolvable; omitted otherwise. */
-  issueNumber?: number;
 };
 
 export type ReconcileSummary = {
@@ -133,20 +126,11 @@ export function reconcile(input: {
   manifest: EpicManifest;
   runState: EpicRunState;
   readFeatureState?: ReadFeatureState;
-  /**
-   * Seam that reports which feature ids are already merged externally (their
-   * `flow-epic` sub-issue is CLOSED), mapped to their sub-issue number.
-   * Defaults to a no-op empty Map so reconcile stays PURE and every existing
-   * caller is network-free.
-   */
-  readClosedSubIssues?: ReadClosedSubIssues;
   maxParallel: number;
 }): ReconcileResult {
   const { manifest, runState, maxParallel } = input;
   const readFeatureState =
     input.readFeatureState ?? ((slug: string) => readState(slug));
-  const readClosedSubIssues =
-    input.readClosedSubIssues ?? (() => new Map<string, number>());
 
   const features = manifest.features;
   const launchedIds = new Set(Object.keys(runState.features));
@@ -168,27 +152,8 @@ export function reconcile(input: {
       .filter((f) => launchedStatus.get(f.id) === "merged")
       .map((f) => f.id),
   );
-
-  // Adopt externally-merged nodes: a feature whose flow-epic sub-issue is CLOSED
-  // counts as merged even when absent from run.json. The Map's KEYS union into
-  // `completed` (which dedups), so a node both merged-in-run and closed counts
-  // exactly once; the values carry each adopted node's sub-issue number for
-  // board provenance. Injected seam only — reconcile fires no gh/fs itself; the
-  // default is a no-op empty Map.
-  const epicSlug = runState.epicSlug || manifest.epicId;
-  const adoptedIds = readClosedSubIssues({
-    epicSlug,
-    featureIds: features.map((f) => f.id),
-  });
-  for (const id of adoptedIds.keys()) completed.add(id);
-
-  // Exclude ids that `completed` (via adoption) has promoted to merged: an
-  // externally-merged feature is done, not running, even if its own pipeline
-  // record still reads a live `running` phase. Counting it as running would
-  // both inflate `summary.running` past the merged board row and steal a launch
-  // slot for a feature that no longer needs one.
-  const runningCount = [...launchedStatus.entries()].filter(
-    ([id, s]) => s === "running" && !completed.has(id),
+  const runningCount = [...launchedStatus.values()].filter(
+    (s) => s === "running",
   ).length;
 
   const frontier = computeFrontier(features, {
@@ -197,48 +162,19 @@ export function reconcile(input: {
   });
   const frontierIds = new Set(frontier.map((f) => f.id));
 
-  // Build the ordered board. Invariant: any id in `completed` renders `merged`
-  // — including a run.json-record row whose live phase is non-merged (e.g. a
-  // still-running/orphan pipeline whose sub-issue was closed externally). This
-  // keeps `summary.merged` consistent with the count of merged rows. A row
-  // whose merged-ness comes from adoption (present in the seam Map) carries
-  // `adopted: true` + `issueNumber` for `merged (external #<n>)` provenance.
+  // Build the ordered board.
   const board: BoardRow[] = features.map((f) => {
     const record = runState.features[f.id];
-    const adoptionNumber = adoptedIds.get(f.id);
     if (record) {
       const state = liveState.get(f.id) ?? null;
-      const liveStatus = launchedStatus.get(f.id)!;
-      const merged = completed.has(f.id);
-      const row: BoardRow = {
+      return {
         id: f.id,
-        status: merged ? "merged" : liveStatus,
+        status: launchedStatus.get(f.id)!,
         slug: record.slug,
         pr: state?.pr ?? record.pr,
         phase: state?.phase,
         dependsOn: f.dependsOn,
       };
-      // Only mark adopted when the merged status came FROM adoption, not from a
-      // live `merged` phase — a genuinely run-merged row keeps its normal
-      // render even if its sub-issue also happens to be closed.
-      if (merged && liveStatus !== "merged" && adoptionNumber !== undefined) {
-        row.adopted = true;
-        row.issueNumber = adoptionNumber;
-      }
-      return row;
-    }
-    // No run.json record: an id adopted as externally-merged must render
-    // `merged` (with adopted provenance) rather than falling through to
-    // ready/blocked.
-    if (completed.has(f.id)) {
-      const row: BoardRow = {
-        id: f.id,
-        status: "merged",
-        adopted: true,
-        dependsOn: f.dependsOn,
-      };
-      if (adoptionNumber !== undefined) row.issueNumber = adoptionNumber;
-      return row;
     }
     return {
       id: f.id,
@@ -264,11 +200,7 @@ export function reconcile(input: {
     ready: board.filter((r) => r.status === "ready").length,
     running: runningCount,
     blocked: board.filter((r) => r.status === "blocked").length,
-    // Count merged ROWS (not `completed.size`) so the summary can never skew
-    // from the board — the two are provably equal since every completed id
-    // renders a merged row, but deriving from the board makes the invariant
-    // self-evident.
-    merged: board.filter((r) => r.status === "merged").length,
+    merged: completed.size,
     total: features.length,
   };
 
