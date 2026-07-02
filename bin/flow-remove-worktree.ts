@@ -18,6 +18,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { resolveSlugFromPane } from "./lib/tmux";
+import { readState } from "./lib/state";
 import { detectDefaultBranch, SYMLINK_FILES } from "./lib/worktree-fs";
 import {
   BRANCH_MARKER_FILENAME,
@@ -371,16 +372,54 @@ function listWorktrees(repoDir: string): WorktreeListEntry[] {
   return parseWorktreeListOutput(raw);
 }
 
-/** Resolves the user's input (path or branch name) to full worktree info. */
-function resolveWorktree(input: string): WorktreeInfo {
-  const repoDir = git(["rev-parse", "--show-toplevel"]);
-  const worktrees = listWorktrees(repoDir);
+/**
+ * Canonicalizes an absolute path so two spellings of the same location compare
+ * equal: resolves symlinks and platform aliases (macOS `/var` → `/private/var`,
+ * `os.tmpdir()` under `/var/folders`). Falls back to {@link path.resolve} when
+ * the path does not exist on disk (a stale recorded path), which normalizes `.`
+ * / `..` / trailing slashes without touching the filesystem — so a stale
+ * recorded path simply fails to match any live entry rather than throwing.
+ */
+function canonicalizePath(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
 
-  // The primary worktree is the first one listed (the main checkout)
-  const primary = worktrees[0];
-  if (!primary) {
-    log.error("Could not determine the primary worktree.");
-    process.exit(1);
+/**
+ * Resolves the removal target among the live worktrees. When `recordedPath` is
+ * supplied (the absolute `worktree` path `~/.flow/state/<slug>.json` recorded at
+ * creation time) and — after canonicalization — equals a live entry's path, that
+ * entry wins OVER every slug-derived heuristic below.
+ *
+ * This is the cross-pipeline-safety guarantee. `flow-new-worktree` auto-suffixes
+ * on a collision (`<slug>-2`, branch `<slug>-2`), but the pipeline slug /
+ * `@flow-slug` / state-file name stay the un-suffixed `<slug>`. Re-deriving the
+ * worktree from the slug alone then matched a *sibling* pipeline's worktree by
+ * its exact branch name (`w.branch === input`) — deleting the wrong branch and
+ * leaking the real `-2` worktree. The recorded absolute path is the only value
+ * that survived that divergence unmodified, and an EXACT absolute-path equality
+ * (never `endsWith` / `includes`) makes a sibling match structurally impossible.
+ *
+ * When no recorded path is supplied or it no longer matches a live entry
+ * (manual invocation with no state file, or a stale recording), resolution
+ * falls back to the historical order — absolute-path → exact branch →
+ * directory-suffix — with no behavior change. Pure: no I/O beyond the
+ * best-effort `realpathSync` canonicalization, so it is directly unit-testable.
+ */
+export function matchWorktree(
+  input: string,
+  worktrees: WorktreeListEntry[],
+  recordedPath?: string,
+): WorktreeListEntry | undefined {
+  if (recordedPath) {
+    const canonRecorded = canonicalizePath(recordedPath);
+    const recordedMatch = worktrees.find(
+      (w) => canonicalizePath(w.path) === canonRecorded,
+    );
+    if (recordedMatch) return recordedMatch;
   }
 
   // Try matching by absolute path first
@@ -397,6 +436,33 @@ function resolveWorktree(input: string): WorktreeInfo {
     const suffix = input.replace(/\//g, "-");
     match = worktrees.find((w) => w.path.endsWith(`-${suffix}`));
   }
+
+  return match;
+}
+
+/** Resolves the user's input (path or branch name) to full worktree info. */
+function resolveWorktree(input: string): WorktreeInfo {
+  const repoDir = git(["rev-parse", "--show-toplevel"]);
+  const worktrees = listWorktrees(repoDir);
+
+  // The primary worktree is the first one listed (the main checkout)
+  const primary = worktrees[0];
+  if (!primary) {
+    log.error("Could not determine the primary worktree.");
+    process.exit(1);
+  }
+
+  // Prefer the worktree path recorded in ~/.flow/state/<slug>.json. Only when
+  // the input is a bare slug (no path separator) is it a valid state-file key —
+  // a path or a slash-bearing branch name (`agent/foo`) is never a slug and
+  // must not drive a statePath lookup (guards against `../` traversal into the
+  // state dir). The recorded path is what makes a collision-auto-suffixed
+  // worktree resolvable by its un-suffixed slug without matching a sibling.
+  const recordedPath = input.includes("/")
+    ? undefined
+    : readState(input)?.worktree;
+
+  const match = matchWorktree(input, worktrees, recordedPath);
 
   if (!match) {
     log.error(`Could not find a worktree matching '${input}'.`);

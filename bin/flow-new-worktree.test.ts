@@ -486,6 +486,52 @@ describe(createWorktreeWithRetry, () => {
     ).toThrow(/simulated failure 5/);
     expect(count).toBe(5);
   });
+
+  it("warns when the requested slug collides and the chosen slot is auto-suffixed", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-foo");
+    // Occupy the bare slot so findAvailableSlot moves to `foo-2` on attempt 1.
+    fs.mkdirSync(initialDir, { recursive: true });
+    const warnings: string[] = [];
+    const noopGitAdd = () => {};
+
+    const slot = createWorktreeWithRetry(
+      "foo",
+      initialDir,
+      "main",
+      fx.repoDir,
+      noopGitAdd,
+      (msg) => warnings.push(msg),
+    );
+
+    expect(slot.branchName).toBe("foo-2");
+    const collisionWarn = warnings.find((w) => w.includes("collided"));
+    expect(
+      collisionWarn,
+      `warnings: ${JSON.stringify(warnings)}`,
+    ).toBeDefined();
+    // Names both the requested slug and the actual suffixed dir + branch.
+    expect(collisionWarn).toContain("'foo'");
+    expect(collisionWarn).toContain("foo-2");
+    expect(collisionWarn).toContain(`${initialDir}-2`);
+  });
+
+  it("does NOT warn on the bare-slug happy path (no collision)", () => {
+    const initialDir = path.join(path.dirname(fx.repoDir), "repo-bar");
+    const warnings: string[] = [];
+    const noopGitAdd = () => {};
+
+    const slot = createWorktreeWithRetry(
+      "bar",
+      initialDir,
+      "main",
+      fx.repoDir,
+      noopGitAdd,
+      (msg) => warnings.push(msg),
+    );
+
+    expect(slot.branchName).toBe("bar");
+    expect(warnings.filter((w) => w.includes("collided"))).toEqual([]);
+  });
 });
 
 // --- Integration tests against a real git fixture ---------------------------
