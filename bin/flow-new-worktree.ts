@@ -195,6 +195,7 @@ export function createWorktreeWithRetry(
       repoDir,
     );
   },
+  warn: (msg: string) => void = log.warn,
 ): { branchName: string; worktreeDir: string } {
   const startPoint = `origin/${baseBranch}`;
   let lastErr: unknown = null;
@@ -204,6 +205,21 @@ export function createWorktreeWithRetry(
       console.log(`📂 Creating worktree at: ${slot.worktreeDir}`);
       log.info(`Branch: ${slot.branchName} (from ${startPoint})`);
       gitWorktreeAdd(slot.worktreeDir, slot.branchName, startPoint);
+      // Loud divergence signal: the requested slug collided, so the created
+      // worktree/branch carry a numeric suffix the pipeline slug / @flow-slug /
+      // ~/.flow/state/<slug>.json filename do NOT. Cleanup must therefore rely
+      // on the recorded worktree path in state.json to target this branch, not
+      // re-derive from the slug (which would resolve the colliding sibling).
+      // Surfacing it here makes the divergence — and any pre-existing leaked
+      // sibling that caused the collision — visible in scrollback.
+      if (slot.branchName !== initialBranch) {
+        warn(
+          `worktree slug '${initialBranch}' collided; created '${slot.worktreeDir}' ` +
+            `on branch '${slot.branchName}'. The pipeline slug / @flow-slug / state.json ` +
+            `stay '${initialBranch}'; cleanup relies on the recorded worktree path in ` +
+            `~/.flow/state to remove the correct worktree and branch.`,
+        );
+      }
       return slot;
     } catch (err) {
       lastErr = err;
