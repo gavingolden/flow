@@ -106,6 +106,13 @@ export type DecisionContext = {
   headCommitSubject?: string;
   hasSkillAdditions?: boolean;
   answer?: string;
+  /**
+   * True when `<worktree>/.flow-tmp/checkpoint.md` is present — the signal
+   * Resume mode reads to re-inject persisted conversational addenda (an
+   * "approved with condition X" note the fresh process would otherwise drop).
+   * Additive/optional; absent on pipelines that never checkpointed.
+   */
+  checkpointExists?: boolean;
 };
 
 export type DecisionResult = {

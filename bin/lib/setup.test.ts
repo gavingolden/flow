@@ -455,9 +455,42 @@ describe("flow install", () => {
       return n;
     }
 
+    function countFlowSessionStartEntries(): number {
+      const settings = readSettings() as {
+        hooks?: {
+          SessionStart?: Array<{
+            matcher?: string;
+            hooks?: Array<{ command?: string }>;
+          }>;
+        };
+      };
+      let n = 0;
+      for (const matcher of settings.hooks?.SessionStart ?? []) {
+        for (const h of matcher.hooks ?? []) {
+          if (h.command === "flow-session-start-hook") n++;
+        }
+      }
+      return n;
+    }
+
     it("registers the Stop hook entry on a fresh setup", () => {
       setup();
       expect(countFlowStopEntries()).toBe(1);
+    });
+
+    it("registers the SessionStart:clear hook on a fresh setup, absent under --no-hooks", () => {
+      setup();
+      expect(countFlowSessionStartEntries()).toBe(1);
+      const settings = readSettings() as {
+        hooks?: { SessionStart?: Array<{ matcher?: string }> };
+      };
+      expect(settings.hooks?.SessionStart?.[0]?.matcher).toBe("clear");
+
+      // --no-hooks never touches settings.json (asserted here fresh: the
+      // afterEach tears the whole home dir down, so a separate run has no file).
+      fs.rmSync(settingsPath(), { force: true });
+      setup({ noHooks: true });
+      expect(fs.existsSync(settingsPath())).toBe(false);
     });
 
     it("preserves user-authored Stop hook entries when registering", () => {

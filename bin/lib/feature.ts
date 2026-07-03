@@ -829,7 +829,7 @@ function flowPipelineSeed(description: string): string {
   return `[pipeline-slug: ${slug}]\nUse the /flow-pipeline skill for: ${description}`;
 }
 
-function flowPipelineResumeSeed(slug: string): string {
+export function flowPipelineResumeSeed(slug: string): string {
   return `[pipeline-slug: ${slug}]\nUse the /flow-pipeline skill in --resume mode for: ${slug}`;
 }
 
