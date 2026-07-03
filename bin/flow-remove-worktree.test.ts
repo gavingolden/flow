@@ -12,10 +12,13 @@ import {
   isDeregisteredFailure,
   isNotFullyMergedFailure,
   isRemovalPhaseFailure,
+  matchWorktree,
   parseWorktreeListOutput,
   removeWorktreeWithFallback,
   resolveInput,
+  stateSlugForInput,
   type RemoveWorktreeDeps,
+  type WorktreeListEntry,
 } from "./flow-remove-worktree";
 
 // --- parseWorktreeListOutput ---
@@ -117,6 +120,118 @@ describe(resolveInput, () => {
     // resolveInput is intentionally narrow: positional ?? fallback. Empty
     // string passes through and downstream resolveWorktree() rejects it.
     expect(resolveInput("", () => "should-not-be-used")).toBe("");
+  });
+});
+
+// --- stateSlugForInput ------------------------------------------------------
+
+describe(stateSlugForInput, () => {
+  it("returns a bare slug unchanged (a valid state-file key)", () => {
+    expect(stateSlugForInput("re-skin-auth-surface-new")).toBe(
+      "re-skin-auth-surface-new",
+    );
+  });
+
+  it("returns undefined for a slash-bearing branch name (never a state key)", () => {
+    // agent/foo would map statePath to ~/.flow/state/agent/foo.json — a nested
+    // path, never a real state file; the guard skips the readState lookup.
+    expect(stateSlugForInput("agent/foo")).toBeUndefined();
+  });
+
+  it("returns undefined for a traversing path (guards statePath from ../ escape)", () => {
+    expect(stateSlugForInput("../../etc/passwd")).toBeUndefined();
+  });
+
+  it("returns undefined for an absolute worktree path", () => {
+    expect(stateSlugForInput("/Users/me/code/repo-feat")).toBeUndefined();
+  });
+});
+
+// --- matchWorktree ----------------------------------------------------------
+
+describe(matchWorktree, () => {
+  // The collision hazard in miniature: a sibling pipeline's worktree whose
+  // branch name equals the un-suffixed slug, alongside this pipeline's own
+  // auto-suffixed `-2` worktree recorded in state.json.
+  const sibling: WorktreeListEntry = {
+    path: "/Users/me/code/repo-reskin",
+    branch: "reskin",
+  };
+  const own: WorktreeListEntry = {
+    path: "/Users/me/code/repo-reskin-2",
+    branch: "reskin-2",
+  };
+  const primary: WorktreeListEntry = {
+    path: "/Users/me/code/repo",
+    branch: "main",
+  };
+
+  it("prefers the recorded path over a colliding sibling branch match", () => {
+    // Input is the un-suffixed slug 'reskin'; without the recorded-path
+    // preference the exact-branch arm would match the SIBLING (branch 'reskin').
+    const match = matchWorktree("reskin", [primary, sibling, own], own.path);
+    expect(match).toBe(own);
+  });
+
+  it("uses exact absolute-path equality — never resolves a sibling by suffix/branch when the recorded path is present", () => {
+    // A recorded path that matches `own` must never fall through to the branch
+    // or directory-suffix arms that would pick `sibling`.
+    const match = matchWorktree("reskin", [primary, sibling, own], own.path);
+    expect(match?.path).toBe(own.path);
+    expect(match?.branch).toBe("reskin-2");
+  });
+
+  it("falls back to the existing order when no recorded path is supplied", () => {
+    // undefined recordedPath → historical behavior: exact-branch match wins.
+    const match = matchWorktree("reskin", [primary, sibling, own], undefined);
+    expect(match).toBe(sibling);
+  });
+
+  it("falls back cleanly when the recorded path is absent from the live list (stale recording)", () => {
+    const stalePath = "/Users/me/code/repo-reskin-2-gone";
+    const match = matchWorktree("reskin", [primary, sibling, own], stalePath);
+    // Recorded path matches nothing live → historical exact-branch match.
+    expect(match).toBe(sibling);
+  });
+
+  it("still matches by absolute-path and directory-suffix in the no-recorded-path path", () => {
+    expect(matchWorktree(own.path, [primary, sibling, own])).toBe(own);
+    // Directory-suffix arm: 'agent/foo' → '*-agent-foo'.
+    const suffixed: WorktreeListEntry = {
+      path: "/Users/me/code/repo-agent-foo",
+      branch: "agent/foo",
+    };
+    expect(matchWorktree("agent/foo", [primary, suffixed])).toBe(suffixed);
+  });
+
+  it("returns undefined when nothing matches", () => {
+    expect(matchWorktree("nonexistent", [primary, sibling])).toBeUndefined();
+  });
+
+  it("canonicalizes both sides so a symlinked/aliased recorded path still matches", () => {
+    // Exercises the realpathSync canonicalization: state.json may record the
+    // symlinked spelling (/var/...) while `git worktree list` reports the
+    // canonical one (/private/var/...), or vice versa. Build a real symlink so
+    // the two spellings genuinely differ on disk.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "match-canon-"));
+    try {
+      const realDir = path.join(root, "real-wt");
+      fs.mkdirSync(realDir);
+      const linkDir = path.join(root, "link-wt");
+      fs.symlinkSync(realDir, linkDir);
+
+      const canonicalReal = fs.realpathSync(realDir);
+      const worktrees: WorktreeListEntry[] = [
+        { path: "/primary", branch: "main" },
+        { path: canonicalReal, branch: "other" },
+      ];
+      // Recorded path is the symlinked spelling; it must still resolve to the
+      // canonical live entry.
+      const match = matchWorktree("slug", worktrees, linkDir);
+      expect(match?.path).toBe(canonicalReal);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 
@@ -516,11 +631,16 @@ const FLOW_REMOVE_WORKTREE_BIN = path.resolve(
 
 type SpawnResult = { exitCode: number; stdout: string; stderr: string };
 
-function runHelper(args: string[], cwd: string): Promise<SpawnResult> {
+function runHelper(
+  args: string[],
+  cwd: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<SpawnResult> {
   return new Promise((resolve) => {
     const child = spawn("bun", ["run", FLOW_REMOVE_WORKTREE_BIN, ...args], {
       cwd,
       stdio: ["ignore", "pipe", "pipe"],
+      ...(env ? { env } : {}),
     });
     let stdout = "";
     let stderr = "";
@@ -933,5 +1053,98 @@ describe("flow-remove-worktree (integration: auto-delete merged branches)", () =
     const branches = mustGit(["branch", "--list"], fx.repoDir);
     expect(branches).not.toContain("squash-feat");
     expect(r.stdout, `stdout: ${r.stdout}`).toMatch(/force-deleted/);
+  });
+});
+
+// --- Integration: collision auto-suffix cross-pipeline safety ----------------
+
+// Reproduces the reported hazard end-to-end: when flow-new-worktree auto-suffixes
+// on a collision (<slug>-2), the pipeline slug / @flow-slug / state.json filename
+// stay the un-suffixed <slug>. A bare `flow-remove-worktree --delete-branch`
+// resolving from the un-suffixed slug must remove THIS pipeline's own -2 worktree
+// (recorded in state.json) and delete branch <slug>-2 — never the sibling whose
+// branch name equals <slug>. Reverting the matchWorktree recorded-path preference
+// makes this spec fail: the exact-branch arm resolves the sibling instead.
+describe("flow-remove-worktree (integration: collision auto-suffix safety)", () => {
+  let fx: FreshRepoFixture;
+  let home: string;
+  let stateDir: string;
+
+  beforeEach(() => {
+    fx = makeFreshRepoFixture();
+    // A throwaway HOME so the spawned helper's FLOW_STATE_DIR (derived from
+    // $HOME) points at a temp state dir we control — same seam as
+    // flow-state-update.test.ts's --answer-stdin spawn suite.
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "flow-collision-home-"));
+    stateDir = path.join(home, ".flow", "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+  });
+  afterEach(() => {
+    fx.cleanup();
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it("removes the recorded -2 worktree + branch and leaves the colliding sibling intact", async () => {
+    const slug = "reskin";
+
+    // Sibling pipeline: bare slot, branch `reskin`, dir `repo-reskin`.
+    const sibling = await runNewWorktree([slug], fx.repoDir);
+    expect(sibling.exitCode, `sibling stderr: ${sibling.stderr}`).toBe(0);
+    const siblingDir = path.join(path.dirname(fx.repoDir), `repo-${slug}`);
+    expect(fs.existsSync(siblingDir)).toBe(true);
+
+    // This pipeline: same slug collides → auto-suffixed to `reskin-2` /
+    // `repo-reskin-2`. The warning fires on stderr (Task 3).
+    const own = await runNewWorktree([slug], fx.repoDir);
+    expect(own.exitCode, `own stderr: ${own.stderr}`).toBe(0);
+    const ownDir = path.join(path.dirname(fx.repoDir), `repo-${slug}-2`);
+    expect(fs.existsSync(ownDir), `expected -2 worktree at ${ownDir}`).toBe(
+      true,
+    );
+    expect(
+      own.stderr,
+      `expected collision warning, got: ${own.stderr}`,
+    ).toMatch(/collided/);
+
+    // state.json (keyed by the UN-suffixed slug) records the true -2 path,
+    // exactly as /flow-pipeline step 2 writes it from flow-new-worktree output.
+    fs.writeFileSync(
+      path.join(stateDir, `${slug}.json`),
+      JSON.stringify({
+        slug,
+        phase: "merging",
+        repo: fx.repoDir,
+        worktree: ownDir,
+        updatedAt: "2026-07-02T00:00:00Z",
+      }),
+    );
+
+    // Bare-slug cleanup, exactly as step 11 runs it.
+    const remove = await runHelper([slug, "--delete-branch"], fx.repoDir, {
+      ...process.env,
+      HOME: home,
+      TMUX_PANE: "",
+    });
+    expect(
+      remove.exitCode,
+      `stderr: ${remove.stderr}\nstdout: ${remove.stdout}`,
+    ).toBe(0);
+
+    // The pipeline's OWN -2 worktree is gone; its branch `reskin-2` is deleted.
+    expect(fs.existsSync(ownDir), `-2 worktree should be removed`).toBe(false);
+    // The SIBLING worktree + branch `reskin` survive untouched.
+    expect(
+      fs.existsSync(siblingDir),
+      `sibling worktree must NOT be removed`,
+    ).toBe(true);
+
+    const branches = mustGit(["branch", "--list"], fx.repoDir);
+    expect(branches, `branches: ${branches}`).not.toContain(`${slug}-2`);
+    expect(branches, `branches: ${branches}`).toContain(slug);
+
+    // The sibling is still a registered worktree; the -2 one is not.
+    const list = mustGit(["worktree", "list", "--porcelain"], fx.repoDir);
+    expect(list).toContain(siblingDir);
+    expect(list).not.toContain(ownDir);
   });
 });
