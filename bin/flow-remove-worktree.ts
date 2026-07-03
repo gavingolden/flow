@@ -389,6 +389,19 @@ function canonicalizePath(p: string): string {
 }
 
 /**
+ * Returns the input as a `~/.flow/state/<slug>.json` key, or `undefined` when
+ * the input is not a bare slug. Only a bare slug (no path separator) is a valid
+ * state-file key; a filesystem path or a slash-bearing branch name (`agent/foo`)
+ * must never drive a `statePath` lookup — joining it under the state dir would
+ * traverse out of it (`../`) or into a nested subdir. Pure + exported so the
+ * traversal guard is unit-testable independently of the impure `resolveWorktree`
+ * (which shells out to git), which no test exercises directly.
+ */
+export function stateSlugForInput(input: string): string | undefined {
+  return input.includes("/") ? undefined : input;
+}
+
+/**
  * Resolves the removal target among the live worktrees. When `recordedPath` is
  * supplied (the absolute `worktree` path `~/.flow/state/<slug>.json` recorded at
  * creation time) and — after canonicalization — equals a live entry's path, that
@@ -458,9 +471,8 @@ function resolveWorktree(input: string): WorktreeInfo {
   // must not drive a statePath lookup (guards against `../` traversal into the
   // state dir). The recorded path is what makes a collision-auto-suffixed
   // worktree resolvable by its un-suffixed slug without matching a sibling.
-  const recordedPath = input.includes("/")
-    ? undefined
-    : readState(input)?.worktree;
+  const stateSlug = stateSlugForInput(input);
+  const recordedPath = stateSlug ? readState(stateSlug)?.worktree : undefined;
 
   const match = matchWorktree(input, worktrees, recordedPath);
 

@@ -16,6 +16,7 @@ import {
   parseWorktreeListOutput,
   removeWorktreeWithFallback,
   resolveInput,
+  stateSlugForInput,
   type RemoveWorktreeDeps,
   type WorktreeListEntry,
 } from "./flow-remove-worktree";
@@ -119,6 +120,30 @@ describe(resolveInput, () => {
     // resolveInput is intentionally narrow: positional ?? fallback. Empty
     // string passes through and downstream resolveWorktree() rejects it.
     expect(resolveInput("", () => "should-not-be-used")).toBe("");
+  });
+});
+
+// --- stateSlugForInput ------------------------------------------------------
+
+describe(stateSlugForInput, () => {
+  it("returns a bare slug unchanged (a valid state-file key)", () => {
+    expect(stateSlugForInput("re-skin-auth-surface-new")).toBe(
+      "re-skin-auth-surface-new",
+    );
+  });
+
+  it("returns undefined for a slash-bearing branch name (never a state key)", () => {
+    // agent/foo would map statePath to ~/.flow/state/agent/foo.json — a nested
+    // path, never a real state file; the guard skips the readState lookup.
+    expect(stateSlugForInput("agent/foo")).toBeUndefined();
+  });
+
+  it("returns undefined for a traversing path (guards statePath from ../ escape)", () => {
+    expect(stateSlugForInput("../../etc/passwd")).toBeUndefined();
+  });
+
+  it("returns undefined for an absolute worktree path", () => {
+    expect(stateSlugForInput("/Users/me/code/repo-feat")).toBeUndefined();
   });
 });
 
