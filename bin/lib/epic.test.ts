@@ -1643,6 +1643,67 @@ describe("runEpicCli run/status/ls", () => {
     expect(command[command.indexOf("--model") + 1]).toBe("fable");
   });
 
+  it("run (default, no --model): threads config models.default into the supervisor launch argv", () => {
+    // Precedence `--model > config.models.default > inherited`, parity with
+    // `flow feature create` / `flow epic create`. Absent --model, the config
+    // default must reach the supervisor session's --model.
+    gitInit();
+    writeManifest("run-default-epic", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "run-default-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+      readConfig: () => ({ models: { default: "sonnet" } }),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--model") + 1]).toBe("sonnet");
+  });
+
+  it("run --model wins over config models.default", () => {
+    gitInit();
+    writeManifest("run-model-wins-epic", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(
+      ["run", "run-model-wins-epic", "--model", "fable"],
+      {
+        cwd: repoDir,
+        epicsDir,
+        readJudgment: () => true,
+        readConfig: () => ({ models: { default: "sonnet" } }),
+      },
+    );
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--model") + 1]).toBe("fable");
+  });
+
+  it("run --model-judge on a PRE-EXISTING run-state refreshes the persisted modelJudge", () => {
+    // The `if (existing)` refresh branch: a prior run seeded modelJudge='opus';
+    // re-running with --model-judge haiku must overwrite it so the supervisor's
+    // jq read sees the alias THIS run passed (not the stale seed).
+    gitInit();
+    const manifestPath = writeManifest("refresh-judge-epic", [{ id: "a" }]);
+    writeEpicRunState(
+      seedRunState("refresh-judge-epic", manifestPath, { modelJudge: "opus" }),
+      epicsDir,
+    );
+    freshWindowOk();
+    const code = runEpicCli(
+      ["run", "refresh-judge-epic", "--model-judge", "haiku"],
+      {
+        cwd: repoDir,
+        epicsDir,
+        readJudgment: () => true,
+      },
+    );
+    expect(code).toBe(0);
+    expect(readEpicRunState("refresh-judge-epic", epicsDir)?.modelJudge).toBe(
+      "haiku",
+    );
+  });
+
   it("status: renders a board with feature rows + summary and exits 0", () => {
     const manifestPath = writeManifest("watch", [
       { id: "schema" },

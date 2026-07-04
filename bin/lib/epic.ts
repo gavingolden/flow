@@ -991,12 +991,18 @@ function spawnEpicRunSupervisor(
   // Mirror runCreate's launch: resolve the flow-scoped settings file (registers
   // the seed-ingested hook the consumed() predicate below relies on) and build
   // the verified-launch argv through the shared builder. The supervisor session
-  // model is the run-parity `--model` (models.runModel); absent, no --model
-  // reaches claude. `--effort` has no epic-run flag surface (defaults undefined).
+  // model is `--model > config.models.default > inherited` (parity with
+  // `flow feature create` / `flow epic create`); absent both, no --model reaches
+  // claude. `--effort` has no epic-run flag surface (defaults undefined).
   const settingsPath = launchSettingsPathFor(options);
+  for (const w of collectModelConfigWarnings(options.readConfig)) {
+    console.error(dim(`flow epic run: ${w}`));
+  }
+  const runSessionModel =
+    models.runModel ?? readDefaultModel(options.readConfig);
   const command =
     options.command ??
-    createCommand(worktree, options.effort, settingsPath, models.runModel);
+    createCommand(worktree, options.effort, settingsPath, runSessionModel);
 
   // Consumption = the supervisor advanced run-state `runnerPhase` to `running`
   // on first entry (its documented first action). Clear any pre-existing
