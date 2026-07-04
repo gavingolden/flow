@@ -1396,37 +1396,36 @@ VERDICT=$(gh pr diff "$PR" --name-only \
 REQUESTED=$(printf '%s' "$VERDICT" | jq -r '.requestCopilot')
 ```
 
-`flow-ci-wait` consolidates the entire poll loop (one-shot presence
-checks → cadence ramp → 20-min wall-clock cap → 10-min Copilot
-timeout → CI/Copilot/PR-state decision matrix) into a single Bash
-call that returns one JSON verdict on stdout. The contract —
-terminal-state taxonomy, cadence ramp, lowercased Copilot login on
-both sides, the `not configured` overrides, the Copilot timeout
-relative to the first ci-terminal poll — lives in
+`flow-ci-wait` consolidates the entire poll loop (presence checks →
+cadence ramp → 20-min wall-clock cap → 10-min Copilot timeout →
+CI/Copilot/PR-state decision matrix) into a single Bash call that returns
+one JSON verdict on stdout. The full contract (terminal-state taxonomy,
+cadence ramp, lowercased Copilot login, `not configured` overrides, the
+Copilot timeout relative to the first ci-terminal poll) lives in
 `references/polling-protocol.md` and is unit-tested at
-`bin/flow-ci-wait.test.ts`. Per-iteration progress (`CI poll N,
-elapsed XmYYs of 20m, cadence Zs`) is written to stderr so the JSON
-on stdout is cleanly capturable.
+`bin/flow-ci-wait.test.ts`. Per-iteration progress is written to stderr so
+the stdout JSON is cleanly capturable.
 
 Append `--copilot-not-requested` to the `flow-ci-wait` call only when no
 Copilot review is coming. **Two** signals trigger it: the request decision
-was to **decline** (`$REQUESTED` is `false` — a trivial PR, or the global
-`bots.copilotSkipWait` budget short-circuit, which forces
-`requestCopilot=false` so the wait collapses when your Copilot budget is
-spent); or the verdict reports `copilotRequestable:false` (the request
-failed because Copilot genuinely isn't available on this repo). Read
-`$REQUESTABLE` via `jq` alongside `$REQUESTED`. When `$REQUESTED` is `false`, the verdict's `declineKind` field names which decline it is — `skip-wait` (the `bots.copilotSkipWait` budget toggle) vs `skip-request` (an explicit per-PR `--override never` or a glob class that doesn't warrant a request); both collapse the wait, but the field makes the distinction machine-checkable instead of string-sniffing `reason`.
+was to **decline** (`$REQUESTED` is `false` — a trivial PR or the
+`bots.copilotSkipWait` budget short-circuit); or the verdict reports
+`copilotRequestable:false` (Copilot isn't available on this repo). Read
+`$REQUESTABLE` via `jq` alongside `$REQUESTED`; the verdict's `declineKind`
+field (`skip-wait` for the `bots.copilotSkipWait` budget toggle vs
+`skip-request` for an explicit `--override never` or an unqualifying glob
+class) makes the decline reason machine-checkable instead of string-sniffing
+`reason`.
 
 A `requestSkipReason` (auto-review already enabled, so the helper skipped
 the redundant request) **deliberately does NOT** append the flag — the
 auto-review will still post, so the supervisor keeps waiting and picks it
-up via the historical/author-match path. Coupling the skip to the flag
-(the pre-decoupling behaviour) made non-trivial PRs race past their own
-auto-review; only a genuine decline or unavailability should collapse the
-wait. The flag — **not** a no-op — hard-forces `copilotConfigured=false`,
-bypassing BOTH the in-flight `reviewRequests` check AND the historical-PR
-fallback; `$SKIP_REASON` may still be read for logging but must not drive
-it. A forced request (`--override always`) hard-bypasses this historical short-circuit entirely (the #260 fix), so a forced request never yields a `requestSkipReason` — the POST always fires.
+up via the historical/author-match path (only a genuine decline or
+unavailability should collapse the wait). The flag hard-forces
+`copilotConfigured=false`, bypassing both the in-flight `reviewRequests`
+check and the historical-PR fallback; `$SKIP_REASON` is logged only, never
+a driver. A forced request (`--override always`) never yields a
+`requestSkipReason` — the POST always fires (the #260 fix).
 
 Launch the call (run the Bash tool with `run_in_background: true`):
 
@@ -1461,13 +1460,10 @@ CI_FAILED_CHECKS=$(printf '%s' "$RESULT" | jq -r '.ciFailedChecks // empty')
 ```
 
 **Why background-by-default + file-read, not a foreground capture.** A
-foreground `RESULT=$(flow-ci-wait …)` command substitution loses the
-verdict whenever the harness force-backgrounds the long-running call to
-reclaim its budget — `RESULT` comes back empty and there is nothing
-durable to recover (observed live: two foreground calls returned empty
-stdout, only an explicit background+redirect invocation recovered the
-verdict). Running detached with `--out` makes recovery the *normal*
-path: `flow-ci-wait` writes the same JSON it prints to stdout to
+foreground `RESULT=$(flow-ci-wait …)` loses the verdict whenever the
+harness force-backgrounds the long-running call to reclaim its budget
+(observed live: empty stdout). Running detached with `--out` makes
+recovery the *normal* path — `flow-ci-wait` writes the verdict JSON to
 `$VERDICT_FILE` on every `emitResult` exit, so the supervisor reads a
 file that is always there rather than racing the budget.
 
@@ -1847,23 +1843,15 @@ site re-derives `PRIMARY=$(git worktree list ...)` in its own block
 before invoking `gh pr merge` — the merge command itself takes no extra
 flags, so there is nothing else to carry across.
 
-The `Claude-Code-Session-Id:` trailer is no longer composed here. Step
-10 runs a bare `gh pr merge --squash` — no `--body`, no `--subject` —
-so gh builds the squash-commit body from its default concatenation of
-the branch's individual commit messages and defaults the subject to
-`<PR title> (#N)`. The trailer reaches `git log` /
-`git blame` because the per-commit `prepare-commit-msg` hook installed
-by `flow-new-worktree` appends `Claude-Code-Session-Id: <id>` to every
-individual commit in the worktree (when `CLAUDE_CODE_SESSION_ID` is
-set); gh's default concatenation then carries it into the squash-merge
-commit for free. The step 9 auto-merge gate is unaffected — it inspects
-only the live PR body, never the commit trailers.
-
-The primary worktree always has the base branch checked out (flow's
-invariant), so gh's post-merge `git checkout <base>` runs as a no-op
-there. Running the merge from `$WORKTREE` (which has the feature branch
-checked out) would make that checkout collide with the primary worktree
-and fail, even though the squash already succeeded server-side.
+Step 10 runs a bare `gh pr merge --squash` — no `--body`, no `--subject` —
+so gh builds the squash-commit body from its default concatenation of the
+branch's commit messages. The `Claude-Code-Session-Id:` trailer reaches
+`git log` / `git blame` via the per-commit `prepare-commit-msg` hook
+`flow-new-worktree` installs (gh's concatenation carries it into the squash
+commit for free); the step 9 gate is unaffected — it inspects only the live
+PR body. The merge runs from `$PRIMARY` (which has the base branch checked
+out) because gh's post-merge `git checkout <base>` would collide with the
+primary worktree if run from the feature-branch `$WORKTREE`.
 
 On `MERGE_RC == 0`: continue to the post-merge sweep below.
 
@@ -1927,14 +1915,11 @@ ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
 INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"
 BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
 mkdir -p "$WORKTREE/.flow-tmp"
-# Best-effort conflicting-file list. The wrapper does not initiate
-# `git rebase` itself — the resolver runs the rebase as Step 2 of its
-# instructions. So this list is only non-empty when an outer process
-# (a prior failed merge attempt, a manual `git rebase`) already left
-# the worktree mid-rebase. `git diff --name-only --diff-filter=U` is
-# the canonical query for unmerged paths and catches every U-class
-# status (UU/AU/UA/DU/UD), unlike a porcelain prefix grep which misses
-# the AU/DU pair where U is in column 2.
+# Best-effort conflicting-file list — only non-empty when an outer
+# process already left the worktree mid-rebase (the resolver runs the
+# rebase itself in Step 2). `git diff --name-only --diff-filter=U`
+# catches every U-class status (UU/AU/UA/DU/UD), unlike a porcelain
+# prefix grep which misses the AU/DU pair where U is in column 2.
 (cd "$WORKTREE" && git fetch origin "$BASE_BRANCH") || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
 CONFLICTING_FILES=$(cd "$WORKTREE" && git diff --name-only --diff-filter=U)
 PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
