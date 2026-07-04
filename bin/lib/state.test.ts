@@ -674,6 +674,7 @@ describe("phase constants", () => {
     expect(PENDING_PHASES).toContain("triage-pending-clarification");
     expect(PENDING_PHASES).toContain("approval-pending-clarification");
     expect(PENDING_PHASES).toContain("ci-wait-pending");
+    expect(PENDING_PHASES).toContain("checkpoint-pending-clear");
   });
 
   it("includes the full epic-designer phase lifecycle", () => {
@@ -742,6 +743,7 @@ describe("shortPhase", () => {
     "triage-pending-clarification": "triage?",
     "approval-pending-clarification": "appr?",
     "ci-wait-pending": "ci?",
+    "checkpoint-pending-clear": "ckpt?",
     merged: "merged",
     gated: "gated",
     "needs-human": "human",

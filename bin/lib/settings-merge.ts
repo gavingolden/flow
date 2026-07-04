@@ -85,13 +85,29 @@ type StopMatcher = {
   [k: string]: unknown;
 };
 
+/**
+ * A SessionStart entry mirrors a Stop entry but carries a `matcher` field
+ * (`"clear"`, `"resume"`, …) selecting which session-start event fires it.
+ * Duplicated rather than folded into StopMatcher so the Stop-only shape stays
+ * unchanged.
+ */
+type SessionStartMatcher = {
+  matcher?: string;
+  hooks?: HookEntry[];
+  [k: string]: unknown;
+};
+
 type SettingsShape = {
   hooks?: {
     Stop?: StopMatcher[];
+    SessionStart?: SessionStartMatcher[];
     [k: string]: unknown;
   };
   [k: string]: unknown;
 };
+
+/** The minimal shape `alreadyContains` reads — shared by Stop + SessionStart. */
+type HookMatcher = { hooks?: HookEntry[] };
 
 export function ensureStopHook(
   settingsPath: string,
@@ -150,6 +166,100 @@ export function ensureStopHook(
   // Resolve through any symlink so the rename targets the underlying file
   // and the user's dotfiles-managed symlink survives the write. First-install
   // (ENOENT) has no symlink to follow — fall through to the raw path.
+  let resolved: string;
+  try {
+    resolved = fs.realpathSync(settingsPath);
+  } catch {
+    resolved = settingsPath;
+  }
+  const home = options.homeDir ?? os.homedir();
+  if (escapesHome(resolved, home)) {
+    return {
+      changed: false,
+      reason: "unsafe-symlink-target",
+      error: `realpath ${resolved} escapes ${home}`,
+    };
+  }
+  const dir = path.dirname(resolved);
+  fs.mkdirSync(dir, { recursive: true });
+  const tmp = `${resolved}.flow-tmp-${process.pid}`;
+  try {
+    fs.writeFileSync(tmp, after + "\n");
+    fs.renameSync(tmp, resolved);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      // best-effort cleanup; ignore
+    }
+    return { changed: false, reason: "io-error", error: String(err) };
+  }
+  return { changed: true };
+}
+
+/**
+ * Idempotent sibling to `ensureStopHook` for a SessionStart hook. The only
+ * shape difference is the `matcher: "clear"` field on the pushed entry — flow's
+ * SessionStart hook fires on `/clear` to auto-resume a checkpointed pipeline.
+ * Sentinel identity is still command-based, so user-authored SessionStart
+ * entries (any command) survive, and re-running is a no-op. Same atomic
+ * temp+rename and symlink-containment guard as `ensureStopHook`.
+ */
+export function ensureSessionStartHook(
+  settingsPath: string,
+  command: string,
+  options: { homeDir?: string } = {},
+): EnsureResult {
+  let settings: SettingsShape = {};
+  let hadFile = false;
+  try {
+    const raw = fs.readFileSync(settingsPath, "utf8");
+    hadFile = true;
+    if (raw.trim().length > 0) {
+      settings = JSON.parse(raw) as SettingsShape;
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      if (err instanceof SyntaxError) {
+        return {
+          changed: false,
+          reason: "malformed-json",
+          error: "malformed JSON at " + settingsPath + ": " + err.message,
+        };
+      }
+      return { changed: false, reason: "io-error", error: String(err) };
+    }
+  }
+
+  if (
+    settings === null ||
+    typeof settings !== "object" ||
+    Array.isArray(settings)
+  ) {
+    return {
+      changed: false,
+      reason: "malformed-json",
+      error: "settings root is not an object",
+    };
+  }
+
+  const before = JSON.stringify(settings);
+  settings.hooks ??= {};
+  settings.hooks.SessionStart ??= [];
+
+  if (alreadyContains(settings.hooks.SessionStart, command)) {
+    return { changed: false };
+  }
+
+  settings.hooks.SessionStart.push({
+    matcher: "clear",
+    hooks: [{ type: "command", command }],
+  });
+
+  const after = JSON.stringify(settings, null, 2);
+  if (after === before && hadFile) return { changed: false };
+
   let resolved: string;
   try {
     resolved = fs.realpathSync(settingsPath);
@@ -264,7 +374,7 @@ export function repairSettings(
   return { changed: true, backupPath, resolvedPath: resolved };
 }
 
-function alreadyContains(stops: StopMatcher[], command: string): boolean {
+function alreadyContains(stops: HookMatcher[], command: string): boolean {
   for (const matcher of stops) {
     const hooks = Array.isArray(matcher?.hooks) ? matcher.hooks : [];
     for (const h of hooks) {
@@ -291,6 +401,34 @@ export function countStopHook(settingsPath: string, command: string): number {
   const stops = parsed.hooks?.Stop ?? [];
   let n = 0;
   for (const matcher of stops) {
+    const hooks = Array.isArray(matcher?.hooks) ? matcher.hooks : [];
+    for (const h of hooks) {
+      if (h?.command === command) n++;
+    }
+  }
+  return n;
+}
+
+/** Counts how many entries in hooks.SessionStart reference the given command — for tests/idempotency checks. */
+export function countSessionStartHook(
+  settingsPath: string,
+  command: string,
+): number {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(settingsPath, "utf8");
+  } catch {
+    return 0;
+  }
+  let parsed: SettingsShape;
+  try {
+    parsed = JSON.parse(raw) as SettingsShape;
+  } catch {
+    return 0;
+  }
+  const entries = parsed.hooks?.SessionStart ?? [];
+  let n = 0;
+  for (const matcher of entries) {
     const hooks = Array.isArray(matcher?.hooks) ? matcher.hooks : [];
     for (const h of hooks) {
       if (h?.command === command) n++;

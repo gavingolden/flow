@@ -3,7 +3,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  countSessionStartHook,
   countStopHook,
+  ensureSessionStartHook,
   ensureStopHook,
   repairSettings,
 } from "./settings-merge";
@@ -181,6 +183,96 @@ describe("ensureStopHook", () => {
     const remaining = fs.readdirSync(dir);
     expect(remaining.filter((f) => f.includes("flow-tmp"))).toEqual([]);
     expect(remaining).toContain("settings.json");
+  });
+});
+
+describe("ensureSessionStartHook", () => {
+  const SS_COMMAND = "flow-session-start-hook";
+  function ensureSSWithHome(
+    p: string,
+  ): ReturnType<typeof ensureSessionStartHook> {
+    return ensureSessionStartHook(p, SS_COMMAND, { homeDir: TEST_HOME });
+  }
+
+  it("creates settings.json with a matcher:'clear' SessionStart entry when missing", () => {
+    const result = ensureSSWithHome(settings);
+    expect(result).toEqual({ changed: true });
+    expect(countSessionStartHook(settings, SS_COMMAND)).toBe(1);
+    const got = read() as {
+      hooks: { SessionStart: Array<{ matcher?: string }> };
+    };
+    expect(got.hooks.SessionStart[0].matcher).toBe("clear");
+  });
+
+  it("is idempotent: re-running does not duplicate the entry", () => {
+    expect(ensureSSWithHome(settings)).toEqual({ changed: true });
+    expect(ensureSSWithHome(settings)).toEqual({ changed: false });
+    expect(ensureSSWithHome(settings)).toEqual({ changed: false });
+    expect(countSessionStartHook(settings, SS_COMMAND)).toBe(1);
+  });
+
+  it("preserves user-authored SessionStart entries when registering", () => {
+    fs.writeFileSync(
+      settings,
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            {
+              matcher: "startup",
+              hooks: [{ type: "command", command: "/usr/local/bin/user.sh" }],
+            },
+          ],
+        },
+      }),
+    );
+    expect(ensureSSWithHome(settings)).toEqual({ changed: true });
+    const got = read() as {
+      hooks: {
+        SessionStart: Array<{
+          matcher?: string;
+          hooks: Array<{ command: string }>;
+        }>;
+      };
+    };
+    expect(got.hooks.SessionStart).toHaveLength(2);
+    expect(got.hooks.SessionStart[0].hooks[0].command).toBe(
+      "/usr/local/bin/user.sh",
+    );
+    expect(got.hooks.SessionStart[1].hooks[0].command).toBe(SS_COMMAND);
+    expect(got.hooks.SessionStart[1].matcher).toBe("clear");
+  });
+
+  it("coexists with a Stop hook without disturbing it", () => {
+    ensureStopHook(settings, COMMAND, { homeDir: TEST_HOME });
+    ensureSSWithHome(settings);
+    expect(countStopHook(settings, COMMAND)).toBe(1);
+    expect(countSessionStartHook(settings, SS_COMMAND)).toBe(1);
+  });
+
+  it("refuses to write when settingsPath is a symlink escaping homedir", () => {
+    const homeOverride = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-ss-home-"),
+    );
+    const escapeTarget = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-ss-escape-"),
+    );
+    try {
+      const settingsLink = path.join(homeOverride, "settings.json");
+      const planted = path.join(escapeTarget, "planted-target.json");
+      fs.writeFileSync(planted, "{}");
+      fs.symlinkSync(planted, settingsLink);
+
+      const result = ensureSessionStartHook(settingsLink, SS_COMMAND, {
+        homeDir: homeOverride,
+      });
+      expect(result.changed).toBe(false);
+      expect(result.reason).toBe("unsafe-symlink-target");
+      expect(result.error).toContain("escapes");
+      expect(fs.readFileSync(planted, "utf8")).toBe("{}");
+    } finally {
+      fs.rmSync(homeOverride, { recursive: true, force: true });
+      fs.rmSync(escapeTarget, { recursive: true, force: true });
+    }
   });
 });
 

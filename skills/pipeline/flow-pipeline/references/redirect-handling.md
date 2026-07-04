@@ -5,7 +5,7 @@ the tmux window's chat. The user can type at any phase boundary or
 mid-phase; the supervisor's next turn must classify the input and
 either continue, redirect, or escalate.
 
-## Three categories
+## Input categories
 
 Every chat-turn input falls into one of:
 
@@ -24,6 +24,16 @@ different scope`; `stop and rebuild against the new schema`;
   through /coder" below.
 - **Cancel.** `cancel`, `abort`, `kill this`, `stop the pipeline`,
   `shut it down`. Means "tear down and exit."
+- **Checkpoint.** `checkpoint`, `checkpoint this`, `save state
+before I clear`. Means "flush the load-bearing conversational
+  state to disk so I can `/clear` without losing it." Load the
+  `/checkpoint` skill in-process (via the `Skill` tool — no `Task`
+  spawn, no new exemption): it summarizes pending approval
+  conditions/addenda, unmaterialized redirects, and explicit in-chat
+  decisions to `<worktree>/.flow-tmp/checkpoint.md`, runs
+  `flow-checkpoint` to write the one-shot `checkpoint.pending`
+  marker, tells the user it is safe to `/clear`, and ends the turn.
+  It does NOT auto-`/clear` (Claude cannot self-invoke `/clear`).
 
 Inputs that don't clearly fall into one of these are **ambiguous** —
 ask one clarifying question; if still unclear, escalate `NEEDS HUMAN:

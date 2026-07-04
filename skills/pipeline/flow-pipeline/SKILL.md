@@ -454,7 +454,12 @@ in-process for skills; shell out for scripts; never delegate.
 > before the verdict file lands, the supervisor writes `phase:
 > ci-wait-pending` and ends the turn cleanly rather than hand-rolling
 > a discouraged manual poll loop (see step 7 for the yield-and-resume
-> contract). Every other step
+> contract); and (6) step 4's auto-checkpoint at the approval →
+> implement hand-off (state writes `phase: checkpoint-pending-clear`),
+> where the supervisor flushes conversational state to
+> `.flow-tmp/checkpoint.md`, nudges "safe to `/clear`", and yields so
+> the user can reset context before the token-heavy phases (see step 4
+> for the auto-checkpoint sub-step). Every other step
 > transition stays in the same turn. Harness-level enforcement:
 > `flow-stop-guard`
 > (registered as a Claude Code Stop hook by `flow install`) reads
@@ -480,10 +485,10 @@ Contract:
   must continue.
 - Exits 0 (allows the stop) when phase is in the legitimate-end
   set: any of the four terminals (`merged`, `gated`, `needs-human`,
-  `cancelled`) or the five pending-end phases
+  `cancelled`) or the six pending-end phases
   (`plan-pending-review`, `triaged-no-change`,
   `triage-pending-clarification`, `approval-pending-clarification`,
-  `ci-wait-pending`).
+  `ci-wait-pending`, `checkpoint-pending-clear`).
 - Self-detects: exits 0 (no-op) outside tmux, in non-flow tmux
   windows (no `@flow-slug` set), or when state.json is missing.
   Safe to install in a global Stop hook list.
@@ -493,7 +498,8 @@ Contract:
 - Legitimate pending exits do NOT consume the budget — phase=
   `plan-pending-review` / `triaged-no-change` /
   `triage-pending-clarification` / `approval-pending-clarification` /
-  `ci-wait-pending` all exit 0 without incrementing the counter.
+  `ci-wait-pending` / `checkpoint-pending-clear` all exit 0 without
+  incrementing the counter.
 - `stop_hook_active` is treated as advisory (used to detect turn
   boundaries via `false`-on-first-stop) rather than authoritative
   budget.
@@ -1148,7 +1154,10 @@ typed something into the tmux chat. Classify the input using
 `references/redirect-handling.md`:
 
 - **Affirmative** ("approved", "looks good", "go ahead", etc.) →
-  run the candidate-issues sub-step below, then continue to step 5.
+  run the candidate-issues sub-step below, then the auto-checkpoint
+  sub-step, which ends the turn at `checkpoint-pending-clear`; the
+  user resumes into step 5 by typing `continue` (same session) or
+  `/clear` (fresh, auto-resumed session).
 - **Imperative redirect** ("actually, also handle TSV"; "redo with
   X") → loop back to step 3, appending the redirect to the
   `/product-planning` prompt as `USER REDIRECT (received during
@@ -1181,7 +1190,8 @@ Branch on `.action`:
 
 - **`no-op`** (section absent, or present with zero items) or
   **`skip-already-ticked`** (the user pre-ticked during plan review —
-  their explicit choice wins) → no prompt; continue to step 5.
+  their explicit choice wins) → no prompt; continue to the
+  auto-checkpoint sub-step below.
 - **`prompt`** (1–4 unticked candidates) → fire one `AskUserQuestion`
   (multi-select) built from `.candidates` — each `{ title, body }`
   becomes an option. Map the user's selections back to their 1-based
@@ -1193,7 +1203,7 @@ Branch on `.action`:
   flow-candidate-issues --plan-md-file "$WORKTREE/.flow-tmp/plan.md" --tick <comma,separated,indices>
   ```
 
-  Then continue to step 5.
+  Then continue to the auto-checkpoint sub-step below.
 - **`overflow`** (5+ unticked candidates) → the form's option cap
   can't fit the candidates. Render the AWAITING APPROVAL block via
   `flow-gate-summary --status awaiting-approval --why "5+ candidate
@@ -2469,6 +2479,7 @@ REASON=$(printf '%s' "$RESULT" | jq -r '.reason')
 WORKTREE=$(printf '%s' "$RESULT" | jq -r '.context.worktree // empty')
 PR=$(printf '%s' "$RESULT" | jq -r '.context.pr // empty')
 ANSWER=$(printf '%s' "$RESULT" | jq -r '.context.answer // empty')
+CHECKPOINT_EXISTS=$(printf '%s' "$RESULT" | jq -r '.context.checkpointExists // empty')
 ```
 
 The helper reads `~/.flow/state/<slug>.json`, probes the worktree +
@@ -2485,6 +2496,27 @@ re-entering the step, so the user reading scrollback can confirm.
 From that step onward, behave exactly as the normal pipeline — the
 same phase transitions, the same `flow-state-update` calls, the same
 caps.
+
+**Checkpoint re-injection (persisted conversational state).** A fresh
+process reconstructs the pipeline *step* from disk but drops any
+instruction the previous session held only in chat. Before re-entering
+the resolved step, check `$CHECKPOINT_EXISTS`: when it is `true` (the
+decision context surfaced a `<worktree>/.flow-tmp/checkpoint.md`
+written by `/checkpoint` or step 4's auto-checkpoint), **read
+`$WORKTREE/.flow-tmp/checkpoint.md`** and fold its addenda into the
+re-entered step's behaviour — honor the persisted approval condition,
+redirect, or in-chat decision as if it had just been given. Then run:
+
+```bash
+flow-checkpoint --consume
+```
+
+which deletes the one-shot `checkpoint.pending` marker so a later
+unrelated `/clear` in the same window does not re-fire the auto-resume
+hook (a `noop` verdict when the marker is already gone is harmless).
+This re-injection is the whole point of the checkpoint artifact — skip
+it and an "approved with condition X" addendum silently vanishes on the
+clear.
 
 Branch on `.resumeAt`:
 
@@ -2853,6 +2885,7 @@ triaging
 worktree-create
 planning
 plan-pending-review     (feature only; ends turn — pending phase)
+checkpoint-pending-clear (feature only; ends turn — pending phase; step 4 auto-checkpoint before implement)
 implementing
 installing-skills       (only if worktree adds skills/agents; otherwise skipped)
 verifying
@@ -2874,6 +2907,7 @@ triaged-no-change                  (step 1 no-change branch)
 triage-pending-clarification       (step 1 single clarifying question)
 approval-pending-clarification     (step 4 single clarifying question)
 ci-wait-pending                    (step 7 yield while flow-ci-wait is backgrounded)
+checkpoint-pending-clear           (step 4 auto-checkpoint at the approval → implement hand-off)
 ```
 
 The canonical phase set is exported from `bin/lib/state.ts` as

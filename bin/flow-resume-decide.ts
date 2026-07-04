@@ -106,6 +106,13 @@ export type DecisionContext = {
   headCommitSubject?: string;
   hasSkillAdditions?: boolean;
   answer?: string;
+  /**
+   * True when `<worktree>/.flow-tmp/checkpoint.md` is present — the signal
+   * Resume mode reads to re-inject persisted conversational addenda (an
+   * "approved with condition X" note the fresh process would otherwise drop).
+   * Additive/optional; absent on pipelines that never checkpointed.
+   */
+  checkpointExists?: boolean;
 };
 
 export type DecisionResult = {
@@ -124,6 +131,7 @@ export type Inputs = {
   state: PipelineState;
   worktree: WorktreeInfo;
   planExists: boolean;
+  checkpointExists: boolean;
   pr: PrInfo;
   hasSkillAdditions: boolean;
   ciState: CiState;
@@ -166,6 +174,7 @@ export const NO_INFLIGHT_WORK_PHASES = new Set<string>([
 // implies every earlier phase is complete, so it belongs in all three
 // "phase advanced past row N" sets below alongside `ci-wait`.
 const POST_APPROVAL_PHASES = new Set([
+  "checkpoint-pending-clear",
   "implementing",
   "installing-skills",
   "verifying",
@@ -315,6 +324,7 @@ export function decide(inputs: Inputs): DecisionResult {
 
   // Row 3 — plan.md exists and is non-empty.
   ctx.planExists = inputs.planExists;
+  ctx.checkpointExists = inputs.checkpointExists;
   if (!inputs.planExists) {
     return {
       resumeAt: "step-3",
@@ -427,6 +437,22 @@ export function probePlan(worktreePath: string): boolean {
   }
 }
 
+/**
+ * Reads <worktree>/.flow-tmp/checkpoint.md and returns true iff present +
+ * non-empty — the presence signal Resume mode reads to re-inject persisted
+ * conversational addenda. Mirrors probePlan.
+ */
+export function probeCheckpoint(worktreePath: string): boolean {
+  const checkpointPath = path.join(worktreePath, ".flow-tmp", "checkpoint.md");
+  try {
+    const stat = fs.statSync(checkpointPath);
+    if (!stat.isFile()) return false;
+    return stat.size > 0;
+  } catch {
+    return false;
+  }
+}
+
 /** Resolves the default branch (e.g. "main", "master") from the worktree's origin/HEAD. */
 export function resolveDefaultBranch(
   worktreePath: string,
@@ -522,6 +548,7 @@ export function gatherInputs(
       state,
       worktree: { kind: "absent-from-state" },
       planExists: false,
+      checkpointExists: false,
       pr: { kind: "none" },
       hasSkillAdditions: false,
       ciState: { kind: "no-checks-reported" },
@@ -533,6 +560,8 @@ export function gatherInputs(
 
   const planExists =
     worktree.kind === "present" ? probePlan(worktree.path) : false;
+  const checkpointExists =
+    worktree.kind === "present" ? probeCheckpoint(worktree.path) : false;
   const hasSkillAdditions =
     worktree.kind === "present"
       ? probeSkillAdditions(worktree.path, git)
@@ -552,6 +581,7 @@ export function gatherInputs(
     state,
     worktree,
     planExists,
+    checkpointExists,
     pr,
     hasSkillAdditions,
     ciState,

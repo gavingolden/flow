@@ -36,7 +36,11 @@ import {
 } from "./symlink";
 import { withFileLock } from "./lock";
 import { applyShellRcCompletions } from "./setup-rc";
-import { ensureStopHook, repairSettings } from "./settings-merge";
+import {
+  ensureSessionStartHook,
+  ensureStopHook,
+  repairSettings,
+} from "./settings-merge";
 import {
   changedInstallPaths,
   fastForwardCanonical,
@@ -49,6 +53,7 @@ import { invalidateUpdateCheckCache } from "./update-check";
 import { dim, green, red } from "./color";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
+const SESSION_START_HOOK_COMMAND = "flow-session-start-hook";
 
 /** Default `installRunner`: run `npm install` at `root` via Bun.spawnSync. */
 function npmInstall(root: string): { ok: boolean; stderr?: string } {
@@ -319,6 +324,26 @@ function runUnderLock(
       // would just chase the same escaping symlink. The user needs to
       // inspect the symlink themselves and decide whether it's a planted
       // attack or a legitimate dotfiles target outside ~/.
+    }
+
+    // SessionStart:clear auto-resume hook — same gate + settingsPath as the
+    // Stop hook. Runs AFTER the Stop block so that if a malformed file was
+    // repaired above (--repair-settings), this rides the now-valid file. A
+    // malformed-json outcome here is a duplicate of the Stop hook's own
+    // report + repair hint, so it's not re-logged.
+    const ssResult = ensureSessionStartHook(
+      settingsPath,
+      SESSION_START_HOOK_COMMAND,
+      { homeDir: options.homeDir },
+    );
+    if (ssResult.changed) {
+      log(
+        `  + hooks/SessionStart:${SESSION_START_HOOK_COMMAND}  (registered in ${settingsPath})`,
+      );
+    } else if (ssResult.reason && ssResult.reason !== "malformed-json") {
+      log(
+        `  ! hooks/SessionStart:${SESSION_START_HOOK_COMMAND}  (${ssResult.reason}: ${ssResult.error ?? "no detail"})`,
+      );
     }
   }
 
