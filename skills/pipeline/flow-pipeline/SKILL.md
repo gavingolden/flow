@@ -329,26 +329,15 @@ Contract:
 - Self-detects: exits 0 (no-op) outside tmux, in non-flow tmux
   windows (no `@flow-slug` set), or when state.json is missing.
   Safe to install in a global Stop hook list.
-- Loop-break budget: the hook owns its own per-turn block counter,
-  persisted at `~/.flow/state/turns/<slug>.json` (a sibling
-  subdirectory so `flow ls` does not see it as a phantom pipeline).
-- Legitimate pending exits do NOT consume the budget — phase=
-  `plan-pending-review` / `triaged-no-change` /
-  `triage-pending-clarification` / `approval-pending-clarification` /
-  `ci-wait-pending` / `checkpoint-pending-clear` all exit 0 without
-  incrementing the counter.
-- `stop_hook_active` is treated as advisory (used to detect turn
-  boundaries via `false`-on-first-stop) rather than authoritative
-  budget.
+- Loop-break budget: a per-turn block counter persisted at
+  `~/.flow/state/turns/<slug>.json` (a sibling subdirectory so `flow ls`
+  ignores it). Legitimate pending exits do NOT consume it.
+- `stop_hook_active` is treated as advisory (turn-boundary detection via
+  `false`-on-first-stop), not an authoritative budget.
 - Stagnation detection: once the budget is exhausted (blockCount ≥
-  TURN_BLOCK_LIMIT), subsequent stops exit 0 only when phase has
-  advanced since the last block; otherwise stagnation re-engages and
-  exits 2 with a "phase has not advanced" reminder.
-- Loop-break breadcrumb: when the hook exits 0 via the phase-advance
-  loop-break path, it writes a single line to stderr
-  (`flow-stop-guard: loop-break consumed; subsequent stops will not
-  be blocked this turn …`) that Claude Code surfaces on the next
-  turn-start.
+  TURN_BLOCK_LIMIT), subsequent stops exit 0 only when phase has advanced
+  since the last block; otherwise it re-engages and exits 2. The loop-break
+  exit writes a stderr breadcrumb Claude Code surfaces the next turn-start.
 
 Opt out: `flow install --no-hooks` skips the merge entirely and
 leaves `~/.claude/settings.json` untouched. The supervisor's
@@ -370,15 +359,12 @@ flow-notify --status <merged|gated|needs-human> \
             [--url "<pr-url>"]
 ```
 
-`--slug` is omitted in the call above because every flow helper that takes
-a slug (`flow-notify`, `flow-state-update`, `flow-rename-window`,
-`flow-open-pr`, `flow-resume-decide`, `flow-gate-decide`,
-`flow-remove-worktree`) auto-resolves it from `$TMUX_PANE`'s `@flow-slug`
-window option. The supervisor's per-Bash-call shell loses any `SLUG=…` it
-sets between calls, but the tmux option set by `flow feature create`'s `createWindow`
-is durable for the life of the window. Pass `--slug <slug>` (or the
-positional, depending on the helper) only when invoking from outside the
-pipeline window — every example below relies on the auto-resolve path.
+`--slug` is omitted because every slug-taking flow helper (`flow-notify`,
+`flow-state-update`, `flow-rename-window`, `flow-open-pr`,
+`flow-resume-decide`, `flow-gate-decide`, `flow-remove-worktree`)
+auto-resolves it from `$TMUX_PANE`'s durable `@flow-slug` window option
+(the per-Bash-call shell loses any `SLUG=…` between calls). Pass `--slug`
+explicitly only when invoking from outside the pipeline window.
 
 - darwin-only; non-mac hosts and unset `FLOW_NOTIFY` both no-op.
 - Backend: `terminal-notifier` preferred (click-through to
@@ -530,39 +516,31 @@ Up technique in
 and state it in **one line** in chat, then carry it in your context
 through to step 3.
 
-Laddering up is the default framing move; the same playbook carries a
-broader set of **framing lenses** — internal-only Five Whys,
-Jobs-to-be-Done, first-principles, inversion, pre-mortem, and
-second-order effects — for the case where a request is at the right
-altitude but still mis-framed. They are **conditional and internal**:
-reach for one only when framing is genuinely in doubt, keep it internal
-reasoning (never an interrogation, never an emitted/performed section),
-and skip them on expert-specified / trivial / time-critical asks.
+Laddering up is the default; the same playbook carries a broader set of
+**framing lenses** (internal-only Five Whys, Jobs-to-be-Done,
+first-principles, inversion, pre-mortem, second-order effects) for a
+request at the right altitude but still mis-framed — reach for one only
+when framing is genuinely in doubt, keep it internal (never an
+interrogation or an emitted section), and skip it on expert-specified /
+trivial / time-critical asks.
 
 This is the triage-side entry point for the AGENTS.md `## Output style`
 rule **Understand the ultimate goal behind the request, not just the
 literal ask.**, and it is **conditional**: do NOT ladder up
-expert-specified / trivial / time-critical requests — state the goal in
-one line and move on. Infer-and-proceed is the default, weighted heavily
-toward proceeding: flow PRs are gated and revertible, so the "offer
-both" move — proceed on the most-likely goal and surface the considered
-alternative in the PRD and the PR `## Why` (gated at
-`plan-pending-review` for feature intent) — beats stopping to ask. Route
-non-blocking goal ambiguity to those always-present artifacts, not to a
-kickoff question.
+expert-specified / trivial / time-critical requests. Infer-and-proceed is
+the default — flow PRs are gated and revertible, so proceed on the
+most-likely goal and surface the considered alternative in the PRD and the
+PR `## Why` (gated at `plan-pending-review` for feature intent) rather than
+stopping to ask.
 
-**The one question (rare).** Ask exactly one focused goal-framing
-question ONLY when no defensible one-line goal can be stated even after
-laddering up (the request admits materially-different underlying goals
-that would yield materially-different plans) AND guessing wrong would be
-costly or hard to reverse. When that bar is met, reuse the existing
-mechanism — don't invent a parallel one: write `flow-state-update
---phase triage-pending-clarification`, ask the single question, and end
-the turn. The next turn re-enters step 1 with the reply; if it is still
-ambiguous, escalate `NEEDS HUMAN: triage-ambiguous` (as in the Ambiguous
-branch below) rather than asking twice. Never ask mid-run, and never
-interrogate with a chain of "why" — the laddering is internal reasoning,
-so emit no ceremonial goal/root-cause section.
+**The one question (rare).** Ask exactly one focused goal-framing question
+ONLY when no defensible one-line goal can be stated even after laddering up
+AND guessing wrong would be costly or hard to reverse. When that bar is
+met, write `flow-state-update --phase triage-pending-clarification`, ask
+the single question, and end the turn; the next turn re-enters step 1 with
+the reply, and if still ambiguous, escalate `NEEDS HUMAN: triage-ambiguous`
+rather than asking twice. Never ask mid-run and never interrogate with a
+chain of "why".
 
 Then classify. Apply the heuristics from `flow-add` /
 `docs/phases/triage.md`:
@@ -589,28 +567,21 @@ Then assign an **intent**: `feature` / `bug` / `refactor` / `docs` /
   EOF
   ```
 
-  The phase write is what `flow-stop-guard`
-  reads to recognise the legitimate stop; the quoted-heredoc + `--answer-stdin`
-  stdin transport persists the answer verbatim — immune to shell expansion
-  and to argv parsing of a leading `--`, so a markdown answer with backticks,
-  `$(...)`, or a leading `---` round-trips byte-for-byte (the prior
-  `--answer "<text>"` double-quoted-arg form mangled those). The answer is
-  persisted for re-surfacing on resume, since a no-change pipeline has
-  no worktree to store it under. Do NOT proceed to step 2.
-- **Change** → continue to step 2. The **slug** was already finalized
-  by `flow feature create`'s aggressive slugify (`bin/lib/slug.ts`: stop-word
-  filter + 5-token cap + `task-<hash8>` fallback) and is the basename
-  of the worktree directory. The supervisor never re-derives or
-  renames the slug; it is the canonical pipeline identifier (stored
-  in the window's `@flow-slug` tmux option) and changing it would
-  orphan the state file, the worktree branch, and `flow attach`/
-  `flow done` lookups. The display-title rename above
-  (`flow-rename-window`) is the only permitted exception, fires
-  exactly once here in step 1, and never touches the slug.
-  `flow-new-worktree` enforces this contract mechanically: passing
-  a positional slug that doesn't match the pane's `@flow-slug` exits
-  non-zero with `slug-mismatch:` rather than silently creating a
-  misnamed worktree (the PR #152 footgun).
+  The phase write is what `flow-stop-guard` reads to recognise the
+  legitimate stop; the quoted-heredoc + `--answer-stdin` transport persists
+  the answer verbatim (immune to shell expansion and a leading `--`, so
+  backticks, `$(...)`, or a leading `---` round-trip byte-for-byte) for
+  re-surfacing on resume, since a no-change pipeline has no worktree. Do NOT
+  proceed to step 2.
+- **Change** → continue to step 2. The **slug** was already finalized by
+  `flow feature create`'s slugify (`bin/lib/slug.ts`) and is the worktree
+  directory basename; the supervisor never re-derives or renames it (it is
+  the canonical pipeline identifier in the window's `@flow-slug` tmux
+  option — changing it would orphan the state file, worktree branch, and
+  `flow attach`/`flow done` lookups). The display-title rename
+  (`flow-rename-window`) is the only exception. `flow-new-worktree` enforces
+  this: a positional slug not matching the pane's `@flow-slug` exits
+  non-zero with `slug-mismatch:` (the PR #152 footgun).
 - **Ambiguous** (input is genuinely unparseable) → write
   `flow-state-update --phase triage-pending-clarification`,
   then ask the single clarifying question and end the turn. The
@@ -636,12 +607,11 @@ Then create the worktree:
 flow-new-worktree <slug>
 ```
 
-The positional `<slug>` here is belt-and-suspenders: `flow-new-worktree`
-reads `@flow-slug` from the pane itself, so a bare `flow-new-worktree`
-(no positional) would resolve to the same value. Passing a positional
-that doesn't match `@flow-slug` is a hard error (`slug-mismatch:`,
-exit 2) rather than a silent footgun — see step 1's "never re-derives
-the slug" contract.
+The positional `<slug>` is belt-and-suspenders: `flow-new-worktree` reads
+`@flow-slug` from the pane, so a bare call resolves the same value; a
+positional that doesn't match `@flow-slug` is a hard error
+(`slug-mismatch:`, exit 2), not a silent footgun (step 1's "never
+re-derives the slug" contract).
 
 Capture the absolute worktree path it prints. Set `$WORKTREE` to
 this for the rest of the pipeline. **`cd` into the worktree** —
@@ -654,22 +624,16 @@ Now record the worktree path in state.json (the only step where
 flow-state-update --phase worktree-create --worktree "$WORKTREE"
 ```
 
-**Runtime `/add-dir` fallback (best-effort, never-blocking).** `flow feature create`
-already pre-authorized the *deterministic* worktree path as a chrome-devtools
-MCP workspace root at launch (`claude --add-dir <repo-parent>/<repo>-<slug>`),
-so screenshot evidence in step 8c can write to
-`<worktree>/.flow-tmp/ui-evidence/` instead of falling back to the session
-cwd (issue #317). But when `flow-new-worktree` hit a collision and
-auto-suffixed the directory (`-2`/`-3`/…), the **actual** `$WORKTREE` diverges
-from the path `flow feature create` pre-authorized. To cover that divergence, issue a
-runtime `/add-dir "$WORKTREE"` now (the slash-command form a running Claude
-Code session uses to add a workspace root mid-session) so the *actual*
-worktree is authorized regardless. This is purely a reliability nicety for the
-supplementary screenshot artifact: the a11y snapshot remains the evidence
-gate, and if the runtime `/add-dir` is unavailable or does not propagate to
-the MCP server, the screenshot save-path cascade's session-cwd fallback still
-applies (see `/pr-review` `references/ui-validation-evidence.md`). Never block
-or escalate on it.
+**Runtime `/add-dir` fallback (best-effort, never-blocking).** `flow feature
+create` pre-authorized the *deterministic* worktree path as a
+chrome-devtools MCP workspace root at launch, but a collision auto-suffix
+(`-2`/`-3`/…) makes the **actual** `$WORKTREE` diverge from it. Issue a
+runtime `/add-dir "$WORKTREE"` now so step 8c screenshot evidence can write
+to `<worktree>/.flow-tmp/ui-evidence/` (issue #317). Purely a reliability
+nicety — the a11y snapshot remains the evidence gate, and the screenshot
+save-path cascade's session-cwd fallback covers an unavailable `/add-dir`
+(see `/pr-review` `references/ui-validation-evidence.md`). Never block or
+escalate on it.
 
 **End condition:** the worktree directory exists, is on a fresh
 branch, and `pwd` matches `$WORKTREE`.
@@ -1179,35 +1143,21 @@ else
 fi
 ```
 
-The detection grep uses `--name-only` plus `--diff-filter=A` and the
-triple-dot range so the comparison reflects only genuine file
-*additions* in the worktree's diff against the merge-base — matching
-the additions-only intent the `ADDED` variable name already implies.
-Modifications or deletions under `skills/`/`agents/` do not trigger a
-re-symlink; only new files do. The default-branch resolution mirrors
-`bin/flow-new-worktree.ts` and `bin/flow-pre-commit.ts`; do not
+The detection grep uses `--name-only --diff-filter=A` and the triple-dot
+range so only genuine file *additions* under `skills/`/`agents/` trigger a
+re-symlink (modifications/deletions do not); the default-branch resolution
+mirrors `bin/flow-new-worktree.ts` / `bin/flow-pre-commit.ts` — do not
 hardcode `origin/main`.
 
-The `--source "$WORKTREE"` argument forces `flow install` to read its
-content tree from the in-flight worktree rather than the original
-install root. Without it, a PR against flow itself that adds a new
-skill under `skills/...` would not see the new files in the same
-supervisor session — `resolveFlowSource()` derives the source from
-the installed binary's canonical path. For PRs against repos *other
-than flow*, the override is harmless: flow's source is already the
-original install root and the worktree is an unrelated repo's tree,
-so passing `--source "$WORKTREE"` would point at a tree that has no
-`skills/` or `agents/` directories. The detection guard above keeps
-this branch from running in that case.
-
-The override only swaps the **content source** — the worktree path
-is the location `flow install` reads files from. The **recorded owner**
-written to `~/.flow/installed.json` stays on the canonical install
-root via `resolveFlowSource()`. That split means a worktree's
-post-merge removal cannot strand worktree-rooted manifest entries,
-and any dangling symlinks left by past `--source <worktree>` runs get
-reaped on the next `flow install --upgrade` (the relaxed orphan-pruning
-path).
+`--source "$WORKTREE"` forces `flow install` to read its content tree from
+the in-flight worktree (so a flow-self PR adding a skill sees the new files
+this session); for non-flow repos the worktree has no `skills/`/`agents/`
+tree, so the detection guard above keeps this branch from running. The
+override swaps only the **content source** — the **recorded owner** in
+`~/.flow/installed.json` stays on the canonical install root via
+`resolveFlowSource()`, so a worktree's post-merge removal can't strand
+manifest entries, and dangling symlinks from past `--source` runs get
+reaped on the next `flow install --upgrade`.
 
 **Concurrency.** `flow install` wraps its symlink work in
 `~/.flow/setup.lock` (`bin/lib/lock.ts`), so parallel pipelines that
@@ -1553,17 +1503,12 @@ prose, only `/pr-review`'s brief return summary.
 `/pr-review` also spawns one **Independent Gatekeeper Subagent** via
 the Task tool (the seventh of the nine named Task-tool exemptions in
 "Hard rules" above) at its Step 1.5, before any other Task-tool
-fan-out fires. This short-circuit uses a `model: "haiku"` cost-routing
-override to skip closed/merged/trivial/no-new-commits PRs cheaply
-without ever paying for the four-agent Sonnet review. On a skip
-verdict the wrapper writes a `status: "clean"` result artifact with
-`completed_steps: ["1", "1.5"]` and the supervisor proceeds normally
-to the auto-merge gate; on `decision: "proceed"` the gatekeeper falls
-through to the full review unchanged. The subagent writes its own
-single-use artifact at `<worktree>/.flow-tmp/gatekeeper-result.json`
-which `/pr-review`'s wrapper reads exactly once and discards after the
-branch decision — the supervisor never sees the `gh pr view` metadata
-or the skip-rule eval that drove the verdict.
+fan-out fires. This short-circuit uses a `model: "haiku"` cost-routing override to skip
+closed/merged/trivial/no-new-commits PRs cheaply without paying for the
+four-agent Sonnet review. On a skip verdict the wrapper writes a
+`status: "clean"` artifact and the supervisor proceeds to the auto-merge
+gate; on `decision: "proceed"` it falls through to the full review. Full
+contract in `references/exemption-contracts.md`.
 
 The skill auto-detects Address vs Review mode from the existing PR
 state and:
@@ -1599,16 +1544,14 @@ flow-pr-review-result-schema --validate \
   "$WORKTREE/.flow-tmp/pr-review-result.json"
 ```
 
-The validator exits 0 on a well-formed artifact and prints
-`{ok: true}` on stdout; on a malformed or missing file it exits
-non-zero and prints `{ok: false, reason, path?}` on stderr.
+The validator exits 0 and prints `{ok: true}` on a well-formed artifact;
+on a malformed or missing file it exits non-zero with
+`{ok: false, reason, path?}` on stderr.
 
 **Missing or empty artifact** → escalate `NEEDS HUMAN:
-pr-review-missing-artifact` (no retry; mirrors the existing
-`fix-applier-missing-artifact` escalation pattern). The wrapper
-writes the artifact on every documented exit path, so absence
-signals a catastrophic crash that the supervisor cannot recover
-from inside this run.
+pr-review-missing-artifact` (no retry; mirrors
+`fix-applier-missing-artifact`). The wrapper writes the artifact on every
+documented exit path, so absence signals a catastrophic crash.
 
 Branch on the artifact's `.status` field — exactly one of the
 three string literals `"clean"`, `"partial"`, or `"escalated"`:
@@ -1616,12 +1559,10 @@ three string literals `"clean"`, `"partial"`, or `"escalated"`:
 - `"clean"` → the skill ran to completion; continue to step 7 (CI
   wait) per the existing flow above, then step 9.
 - `"partial"` (with non-empty `.missed_steps`) → re-invoke
-  `/pr-review <PR> --resume-from <first-missed-step>` exactly
-  once. The `--resume-from` flag instructs `/pr-review` to read
-  its existing result artifact, skip the steps already in
-  `.completed_steps`, and resume at the named step. After the
-  retry returns, re-validate the artifact and re-branch on
-  `.status`:
+  `/pr-review <PR> --resume-from <first-missed-step>` exactly once (the
+  `--resume-from` flag skips the steps already in `.completed_steps` and
+  resumes at the named step). After the retry returns, re-validate the
+  artifact and re-branch on `.status`:
     - retry-`"clean"` → continue per the `"clean"` branch above.
     - retry-`"partial"` → escalate `NEEDS HUMAN: review-partial:
       <missed_steps joined with commas>`.
@@ -1631,19 +1572,14 @@ three string literals `"clean"`, `"partial"`, or `"escalated"`:
       `review-partial` would drop the actionable tag, e.g.
       `task-tool-unavailable: pr-review-fix-applier`, in favour
       of a generic missed-step list).
-  The partial-retry budget is one and is **independent of the
-  existing 2-loop review-fix cap above** — the cap counts
-  review-fix iterations (critical findings the skill auto-fixed),
-  this counter tracks structural missed-step retries.
+  The partial-retry budget is one, **independent of the 2-loop
+  review-fix cap above** (that cap counts auto-fixed critical findings;
+  this counter tracks structural missed-step retries).
 - `"escalated"` → propagate the `.escalation_tag` verbatim into
-  `NEEDS HUMAN: <escalation_tag>` and bail. No retry: the
-  escalation tag names a documented bail-out site
-  (`task-tool-unavailable: pr-review-gatekeeper`,
-  `task-tool-unavailable: pr-review-multi-agent-review`,
-  `task-tool-unavailable: pr-review-fix-applier`,
-  `gatekeeper-missing-artifact`, or
-  `fix-applier-missing-artifact`) for which the resolution is
-  user-action, not retry.
+  `NEEDS HUMAN: <escalation_tag>` and bail. No retry: the tag names a
+  documented bail-out site (e.g. `task-tool-unavailable: pr-review-*`,
+  `gatekeeper-missing-artifact`, `fix-applier-missing-artifact`) whose
+  resolution is user-action.
 
 On non-zero exit from `/pr-review` itself (Bun-level / shell-level
 failure with no artifact written): retry once. If the retry also
@@ -1653,18 +1589,14 @@ fails, escalate `NEEDS HUMAN: review-failed`.
 
 **Phase:** `gating`
 
-`flow-gate-decide` consolidates the four-step rubric parse
-(heading-presence grep → section extract → HTML-comment strip →
-unchecked-`- [ ]`-count) and the four-state matrix (PR state ×
-autoMerge opt-out × section verdict) into one call. The heading
-contract — which heading to look for, what counts as
-no-unchecked-items / has-unchecked-items / missing — lives in
-**`references/auto-merge-rubric.md`** (single source of truth) and
-is unit-tested at `bin/flow-gate-decide.test.ts`. The
-heading-presence check is load-bearing: silently treating a missing
-heading as "no unchecked items" would ship a PR the user expected
-to be gated, so the helper escalates that case explicitly rather
-than collapsing it to auto-merge.
+`flow-gate-decide` consolidates the rubric parse (heading-presence grep →
+section extract → HTML-comment strip → unchecked-`- [ ]`-count) and the
+four-state matrix (PR state × autoMerge opt-out × section verdict) into one
+call. The heading contract lives in **`references/auto-merge-rubric.md`**
+(single source of truth) and is unit-tested at
+`bin/flow-gate-decide.test.ts`. The heading-presence check is load-bearing:
+a missing heading escalates explicitly rather than collapsing to
+auto-merge (which would ship a PR the user expected to be gated).
 
 ```bash
 RESULT=$(flow-gate-decide "$PR")
