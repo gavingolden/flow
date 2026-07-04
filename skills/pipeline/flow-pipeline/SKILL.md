@@ -697,22 +697,20 @@ and surfaces an Open Question if it disagrees rather than accepting it
 blindly — see `discovery-instructions.md` §3 ("User intent").
 
 **Force-on threading (mandatory).** BEFORE invoking `/product-planning`,
-you MUST run `jq -r '.forceResearch // empty' ~/.flow/state/<slug>.json`
-(the same idiom step 7 uses for `waitForCopilot`). When the value is the
-literal `true`, you MUST append a `RESEARCH: force-on (flow feature create --research)`
-marker line to the `/product-planning` invocation through the **same append
-channel** that carries the inferred ultimate goal above. This is not
-optional: drop the marker and a `flow feature create --research` pipeline silently
-loses its forced research. `/product-planning`'s spawn template forwards
-the marker to the discovery subagent, where it forces discovery Step 1.5's
-web-grounded research pre-check on (bypassing the relevance gate and the
-`research.discovery` config opt-in). Absent or non-`true` ≡ not forced —
-append nothing. The flag is set per-pipeline via
-`flow feature create --research "<description>"`.
+run `jq -r '.forceResearch // empty' ~/.flow/state/<slug>.json`. When the
+value is the literal `true`, append a
+`RESEARCH: force-on (flow feature create --research)` marker line to the
+`/product-planning` invocation through the **same append channel** that
+carries the inferred ultimate goal above — drop it and a
+`flow feature create --research` pipeline silently loses its forced
+research. The spawn template forwards the marker to the discovery subagent,
+forcing discovery Step 1.5's web-grounded research on (bypassing the
+relevance gate and the `research.discovery` opt-in). Absent or non-`true` ≡
+not forced — append nothing.
 
 **Deterministic forced research (mandatory on the forced path).** The
 discovery subagent's own Step 1.5 was observed to skip the fan-out even
-when forced, so on the `forceResearch == true` path you MUST also run the
+when forced, so on the `forceResearch == true` path you MUST ALSO run the
 research deterministically yourself, BEFORE invoking `/product-planning`:
 
 ```bash
@@ -721,73 +719,54 @@ flow-research-run --task "<verbatim user description>" \
   --status-file "$WORKTREE/.flow-tmp/research-status.json"
 ```
 
-This is a bounded (~3-min) gather+refute agy fan-out via
-`flow-delegate-fanout`; it self-degrades to a graceful skip when agy is
-unavailable (writing `research-status.json` `{ran:false,reason:"agy-unavailable"}`)
-and NEVER blocks planning. Then, when
-`$WORKTREE/.flow-tmp/research-findings.md` exists and is non-empty, fold
-its contents into the `/product-planning` invocation as prior research
-context — append it through the **same channel** as the ultimate goal and
-the `RESEARCH: force-on` marker, clearly labelled:
+This bounded gather+refute agy fan-out self-degrades to a graceful skip
+when agy is unavailable and NEVER blocks planning. Then, when
+`$WORKTREE/.flow-tmp/research-findings.md` exists and is non-empty, fold its
+contents into the `/product-planning` invocation through the **same channel**
+as the ultimate goal and the `RESEARCH: force-on` marker, clearly labelled:
 
 ```
 RESEARCH FINDINGS (web-grounded, pre-run by supervisor — use as prior context, do NOT re-run the fan-out):
 <contents of research-findings.md>
 ```
 
-This makes `flow feature create --research` actually execute research deterministically
-instead of relying on the subagent's unreliable Step 1.5. The discovery
-subagent reuses these findings rather than re-running the fan-out (avoiding
-double agy spend — see `discovery-instructions.md` (a0)), and the
-`flow-research-note ensure` call below then sees `research-status.json`
-`{ran:true}` and stays silent (or emits the agy-unavailable note if agy was
-down). The non-forced (config-on) path is unchanged — it never calls
+The discovery subagent reuses these findings rather than re-running the
+fan-out (avoiding double agy spend — see `discovery-instructions.md` (a0)).
+The non-forced (config-on) path is unchanged — it never calls
 `flow-research-run`; discovery's own Step 1.5 still owns research there.
 
-`/product-planning` is itself a thin wrapper that spawns one
-**Independent Discovery Subagent** via the Task tool (the second of
-the nine named Task-tool exemptions in "Hard rules" above). The
-subagent does all the discovery in its own isolated context — reading
-the README, scanning the skill directory, examining domain models,
-drafting the PRD — and writes the consolidated artifact to
+`/product-planning` is a thin wrapper that spawns one **Independent
+Discovery Subagent** via the Task tool (exemption #2 in "Hard rules"
+above) in its own isolated context, writing the consolidated artifact to
 `<worktree>/.flow-tmp/plan.md` plus a PR-description draft to
 `<worktree>/.flow-tmp/pr-description-draft.md`. The wrapper creates
-`.flow-tmp/` before spawning so the subagent can write directly. The
-supervisor never sees the discovery transcript, only the wrapper's
-brief return summary. The path lives under `.flow-tmp/` so the
-post-merge `git worktree remove` (run after step 10's merge) doesn't
-choke on a stray untracked file at the worktree root — same reason
-the supervisor itself writes all scratch under `$WORKTREE/.flow-tmp/`.
+`.flow-tmp/` before spawning; the supervisor never sees the discovery
+transcript, only the wrapper's brief return summary. Full spawn contract
+in `references/exemption-contracts.md`; the discovery method in
+`skills/pipeline/product-planning/references/discovery-instructions.md`.
 
-After the wrapper returns, **read `<worktree>/.flow-tmp/plan.md`**
-and print a 3-5 line summary to chat (just the problem statement and
-the task titles — the user reads scrollback). This is the supervisor's
-single read of the plan file; the wrapper does not pre-read it (that
-would duplicate this read in the same supervisor context and erode the
-context-cost win the subagent fan-out is designed to deliver). While you
-have plan.md open for that summary, surface any discovery research
-skip-note it carries: if plan.md contains a `> [!NOTE]` line about
-**Web-grounded research (discovery Step 1.5)** being skipped, include
-that one-liner in the chat summary so the user sees why no research ran
-and how to force it (`flow feature create --research`). Reuse this same read — do
-**not** open plan.md a second time for it.
+After the wrapper returns, **read `<worktree>/.flow-tmp/plan.md`** once
+and print a 3-5 line summary to chat (problem statement + task titles).
+This is the supervisor's single read of the plan file — the wrapper does
+not pre-read it. While plan.md is open, surface any discovery research
+skip-note it carries: a `> [!NOTE]` line about **Web-grounded research
+(discovery Step 1.5)** being skipped, so the user sees why no research ran
+and how to force it (`flow feature create --research`). Reuse this
+read — do **not** open plan.md a second time.
 
-**Deterministic note backstop (mandatory, non-skippable).** The
-discovery subagent's `> [!NOTE]` is best-effort and has been observed to
-be skipped entirely, so after the plan.md read above ALWAYS run:
+**Deterministic note backstop (mandatory, non-skippable).** The discovery
+subagent's `> [!NOTE]` is best-effort and has been observed to be skipped,
+so after the plan.md read ALWAYS run:
 
 ```bash
 flow-research-note ensure --plan-file "$WORKTREE/.flow-tmp/plan.md" \
   --forced "$(jq -r '.forceResearch // false' ~/.flow/state/<slug>.json)"
 ```
 
-This self-no-ops when research actually ran, when the path was dormant,
-and when the subagent already wrote a note (it is idempotent and leaves a
-subagent-authored note untouched). When its stdout is non-empty, include
-that line **verbatim** in the 3-5 line chat summary so the user always
-sees the research skip note regardless of whether discovery wrote it.
-Always run it — it self-no-ops in every case where there is nothing to
-surface.
+This is idempotent and self-no-ops when research ran, when the path was
+dormant, and when the subagent already wrote a note. When its stdout is
+non-empty, include that line **verbatim** in the 3-5 line chat summary so
+the user always sees the research skip note.
 
 **Cross-model plan review (Layer 2, optional, config-gated).** After the
 note backstop above and BEFORE the End conditions branch below, run one
