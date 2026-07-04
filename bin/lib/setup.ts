@@ -25,6 +25,7 @@ import {
 import {
   DEFAULT_TARGETS,
   discoverAll,
+  effectiveLinkSource,
   entryToRecord,
   type InstallTargets,
   type SourceEntry,
@@ -252,9 +253,21 @@ function runUnderLock(
   log(`      source ${flowSource}`);
 
   for (const entry of entries) {
+    // Point the live symlink at the canonical (installRoot) path for any
+    // content that exists there, so a `--source <worktree>` install doesn't
+    // leave global links dangling when the worktree is removed on merge.
+    // A genuinely worktree-only new file has no canonical counterpart yet, so
+    // it stays worktree-pointed (usable during the pipeline). The manifest
+    // record (entry.source → entryToRecord) is unchanged: it always records
+    // canonical, even for the not-yet-existing worktree-only case.
+    const liveSource = effectiveLinkSource(
+      entry.source,
+      flowSource,
+      installRoot,
+    );
     const result = ensureSymlink(
       entry.target,
-      entry.source,
+      liveSource,
       options.force ?? false,
     );
     logResult(entry, result, log);

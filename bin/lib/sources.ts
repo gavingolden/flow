@@ -268,14 +268,66 @@ export function entryToRecord(
   };
 }
 
-export function canonicalizeRecordedSource(
+/**
+ * Rebase a `flowSource`-rooted path onto `installRoot`. Identity in the two
+ * cases where rebasing is meaningless: when the two roots are the same (the
+ * non-`--source` common case), and when `source` does not live under
+ * `flowSource` (`path.relative` escapes with a leading `..`, or is absolute —
+ * e.g. the `flow` wrapper, which is already `installRoot`-anchored). The
+ * `..`-guard hardens what previously worked only because
+ * `flow-new-worktree` guarantees canonical/worktree are same-depth siblings;
+ * a non-sibling layout would otherwise produce a wrong `path.join` result.
+ */
+export function rebaseOntoInstallRoot(
   source: string,
   flowSource: string,
   installRoot: string,
 ): string {
   if (path.resolve(flowSource) === path.resolve(installRoot)) return source;
   const rel = path.relative(flowSource, source);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) return source;
   return path.join(installRoot, rel);
+}
+
+export function canonicalizeRecordedSource(
+  source: string,
+  flowSource: string,
+  installRoot: string,
+): string {
+  return rebaseOntoInstallRoot(source, flowSource, installRoot);
+}
+
+/**
+ * The path the *live* symlink should point at, distinct from the *recorded*
+ * source (`canonicalizeRecordedSource`). Prefer the canonical (installRoot)
+ * path so the symlink survives a `--source <worktree>`'s post-merge removal —
+ * but only when that canonical file actually exists on disk. A genuinely
+ * worktree-only new file (no canonical counterpart yet) has no canonical path
+ * to point at, so it falls back to the worktree `source` and stays invocable
+ * on PATH for the introducing pipeline; the post-merge `flow install
+ * --upgrade` follow-up re-links it to canonical once merged. `fs.existsSync`
+ * never throws (returns false on any error), so this can't break the install.
+ *
+ * Additions vs modifications: this is intentionally additions-only for the
+ * live PATH surface. A file that already EXISTS in canonical resolves to
+ * canonical EVEN IF the worktree copy was modified in-flight — the check is
+ * mere existence (`fs.existsSync(rebased)`), not content-equality — so a
+ * bare-name invocation during the introducing pipeline exercises the
+ * unmodified canonical copy, not the in-flight edit. This is the deliberate
+ * cost of the "never dangle on worktree removal" invariant: `--source
+ * <worktree>` picks up brand-new files but pins modified-existing content to
+ * canonical. Practical impact is minimal — step 5.5 only fires on skill/agent
+ * ADDITIONS, and skills load once per session — so no code change is needed
+ * here; if mid-pipeline dogfooding of modifications is ever required, gate the
+ * canonical preference on content-equality instead of bare existence.
+ */
+export function effectiveLinkSource(
+  source: string,
+  flowSource: string,
+  installRoot: string,
+): string {
+  const rebased = rebaseOntoInstallRoot(source, flowSource, installRoot);
+  return rebased !== source && fs.existsSync(rebased) ? rebased : source;
 }
 
 function existsDir(p: string): boolean {
