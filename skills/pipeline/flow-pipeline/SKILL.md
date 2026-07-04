@@ -2300,24 +2300,20 @@ caps.
 
 **Checkpoint re-injection (persisted conversational state).** A fresh
 process reconstructs the pipeline *step* from disk but drops any
-instruction the previous session held only in chat. Before re-entering
-the resolved step, check `$CHECKPOINT_EXISTS`: when it is `true` (the
-decision context surfaced a `<worktree>/.flow-tmp/checkpoint.md`
-written by `/checkpoint` or step 4's auto-checkpoint), **read
-`$WORKTREE/.flow-tmp/checkpoint.md`** and fold its addenda into the
-re-entered step's behaviour — honor the persisted approval condition,
-redirect, or in-chat decision as if it had just been given. Then run:
+instruction held only in chat. Before re-entering the resolved step,
+check `$CHECKPOINT_EXISTS`: when `true` (a
+`<worktree>/.flow-tmp/checkpoint.md` written by `/checkpoint` or step 4's
+auto-checkpoint), **read `$WORKTREE/.flow-tmp/checkpoint.md`** and fold its
+addenda into the re-entered step — honor the persisted approval condition,
+redirect, or in-chat decision as if just given. Then run:
 
 ```bash
 flow-checkpoint --consume
 ```
 
 which deletes the one-shot `checkpoint.pending` marker so a later
-unrelated `/clear` in the same window does not re-fire the auto-resume
-hook (a `noop` verdict when the marker is already gone is harmless).
-This re-injection is the whole point of the checkpoint artifact — skip
-it and an "approved with condition X" addendum silently vanishes on the
-clear.
+unrelated `/clear` does not re-fire the auto-resume hook. Skip this and an
+"approved with condition X" addendum silently vanishes on the clear.
 
 Branch on `.resumeAt`:
 
@@ -2359,13 +2355,14 @@ unaffected.
 
 ## Edge cases (verbatim from `references/failure-recovery.md` section (b))
 
+These mirror the resume-table rows above; the full per-row precondition
+table lives in `references/failure-recovery.md` section (b).
+
 - **Worktree path recorded but the directory is gone.** Escalate
-  `NEEDS HUMAN: worktree-missing-on-resume`. Don't auto-recreate —
-  the user may have removed it deliberately.
+  `NEEDS HUMAN: worktree-missing-on-resume` — don't auto-recreate.
 - **Worktree exists but state.json shows `phase: starting` /
-  `triaging` / `worktree-create`.** Treat as resume-from-step-3
-  (plan). The worktree was created but the pipeline crashed before
-  the planning phase advanced state.
+  `triaging` / `worktree-create`.** Treat as resume-from-step-3 (the
+  worktree was created but planning never advanced state).
 - **`.flow-tmp/plan.md` exists but no PR.** Resume at step 4 (approval).
   The user may have approved before the crash; re-print the plan
   summary, emit the same two markdown bullets as step 3's
@@ -2373,31 +2370,21 @@ unaffected.
   absolute path, last lines, no trailing punctuation), and wait for
   the user to re-confirm. Don't replay an approval the user gave to
   a now-dead session.
-- **PR exists but state.json is stale (e.g. still shows
-  `implementing`).** Resume at step 6 (verify). The PR survived;
-  the phase value didn't catch up before the crash.
+- **PR exists but state.json is stale (e.g. `implementing`).** Resume at
+  step 6 (verify) — the PR survived; the phase didn't catch up.
 - **PR `CLOSED` without merge.** Escalate `NEEDS HUMAN:
-  pr-closed-without-merge`; do not resume. Let the user decide
-  reopen vs. abandon.
-- **Terminal phase (`merged` / `gated` / `needs-human` / `cancelled`).** Render the
-  terminal block via `flow-gate-summary --status <merged|gated|needs-human|cancelled>
-  ...` (the same helper every gate-emission site uses) and end without
-  re-running anything. The window stayed open after a previous run;
-  this resume is a no-op. (`needs-human` is sourced from the canonical
-  `TERMINAL_PHASES` in `bin/lib/state.ts`, so a crashed escalation
-  resolves `terminal` instead of falling through the row tree.)
+  pr-closed-without-merge`; let the user decide reopen vs. abandon.
+- **Terminal phase (`merged` / `gated` / `needs-human` / `cancelled`).**
+  Render the terminal block via `flow-gate-summary --status
+  <merged|gated|needs-human|cancelled> ...` and end without re-running
+  anything (`needs-human` sourced from `TERMINAL_PHASES` in
+  `bin/lib/state.ts`, so a crashed escalation resolves `terminal`).
 - **No-in-flight-work pending phase (`triaged-no-change` /
   `triage-pending-clarification`).** `flow-resume-decide` short-circuits
-  these to `terminal` pre-tree (reasons `no-change-investigation-complete` /
-  `awaiting-triage-clarification`) — they carry no worktree, plan, or PR, so
-  there is nothing to resume and no gate-summary status applies. On
-  `triaged-no-change`, re-print the saved `$ANSWER` (from `.context.answer`,
-  extracted alongside the other `RESULT`/`jq` fields above) as markdown when
-  it is non-empty, so the user re-reads the original answer; otherwise print a
-  one-line note that the pipeline already completed (a no-change
-  investigation, or one awaiting a clarification a resume can't re-ask) and
-  end. Do **not** fall through to step 2 and build a worktree — that was the
-  bug this short-circuit closed.
+  these to `terminal` pre-tree — they carry no worktree, plan, or PR. On
+  `triaged-no-change`, re-print the saved `$ANSWER` (from `.context.answer`)
+  as markdown when non-empty; otherwise a one-line already-completed note.
+  Do **not** fall through to step 2 and build a worktree.
 
 ## What resume mode does NOT do
 
@@ -2603,41 +2590,26 @@ flow-notify --status needs-human --reason "task-tool-unavailable: <exemption-nam
 ```
 
 The helper parses the `:`-suffix and appends ` (spawn site:
-<exemption-name>)` to `NEXT_ACTION_BY_REASON["task-tool-unavailable"]`
-so the rendered NEXT ACTION line names the exact spawn site that lost
-its Task tool — without this, all nine exemption sites would collapse
-to the same generic remediation string. The sentinel line is byte-exact
-`NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
+<exemption-name>)` to `NEXT_ACTION_BY_REASON["task-tool-unavailable"]` so
+the NEXT ACTION line names the exact spawn site; the sentinel line is
+byte-exact `NEEDS HUMAN: task-tool-unavailable: <exemption-name>`.
+`<exemption-name>` is one of `pr-review-gatekeeper`,
+`pr-review-multi-agent-review`, `pr-review-fix-applier`,
+`pr-review-consolidator-validator`, `product-planning-discovery`,
+`new-feature-scout`, `coder-edit-applier`, `flow-pipeline-merge-resolver`,
+`flow-pipeline-verify-loop`.
 
-`<exemption-name>` is the spawn site's canonical name — one of
-`pr-review-gatekeeper`, `pr-review-multi-agent-review`,
-`pr-review-fix-applier`, `pr-review-consolidator-validator`,
-`product-planning-discovery`,
-`new-feature-scout`, `coder-edit-applier`,
-`flow-pipeline-merge-resolver`, `flow-pipeline-verify-loop`.
+No retry is appropriate — the deferred-tool surfacing is environmental;
+remediation is to re-run in a session where `Task` or `Agent` is surfaced
+top-level (restart `claude` or upgrade the CLI). Leave the worktree + PR
+intact. For the `pr-review-*` sites (now reachable from the in-process
+Skill load, `context: fork` removed), the escalation tag is written into
+`<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
+and step 8's artifact-read propagates it into `NEEDS HUMAN:
+<escalation_tag>`.
 
-No retry is appropriate because the deferred-tool surfacing is
-environmental — user remediation is to re-run in a session where
-either `Task` or its alias `Agent` is surfaced top-level (typically
-by restarting `claude` or upgrading the CLI). This complements (does not replace) the
-per-step retry caps in `references/failure-recovery.md`. Leave the
-worktree + PR intact.
-
-The `pr-review-multi-agent-review` and `pr-review-fix-applier`
-exemption sites are now both reachable from the supervisor's
-in-process Skill load — the `context: fork` frontmatter directive
-has been removed from `/pr-review`, so the wrapper runs inside the
-supervisor's session rather than in a forked subprocess. The
-escalation fires only if the supervisor's own session has neither
-`Task` nor `Agent` surfaced top-level. In that case, the
-escalation tag is written verbatim into
-`<worktree>/.flow-tmp/pr-review-result.json` with
-`status: "escalated"` before `/pr-review` exits, and step 8's
-artifact-read above propagates the tag back into `NEEDS HUMAN:
-<escalation_tag>` rather than re-discovering it from scrollback.
-
-The full per-step cap table and the resume-from-disk decision tree
-live in `references/failure-recovery.md`.
+The full per-step cap table and the resume-from-disk decision tree live
+in `references/failure-recovery.md`.
 
 # Mid-flight redirects
 
@@ -2659,23 +2631,17 @@ mid-phase. Apply `references/redirect-handling.md`:
 
 An imperative redirect splits into two kinds. A **scope/plan redirect**
 ("redo the plan with different scope") re-runs `/product-planning` or
-re-prompts the in-flight sub-skill — the existing behaviour above. A
-**code-change redirect** ("rename foo to bar", "change this line") is
-different: when it arrives at a phase where the worktree already exists
+re-prompts the in-flight sub-skill. A **code-change redirect** ("rename
+foo to bar", "change this line") arriving at a worktree-existing phase
 (`plan-pending-review`, `implementing`, `verifying`, `ci-wait`,
-`reviewing`) and is NON-trivial, the supervisor routes it through
-`/coder` rather than editing inline. This is the
-**interactive code-change redirect** path: the supervisor composes a structured
-edit-set `{file, intent, expected_outcome}` from the verbatim redirect,
-invokes `/coder` in-process, and reads `.flow-tmp/coder-result.json`
-(`verify_status` + `summary`) exactly once — it never sees the per-edit
-diff.
-
-A trivial edit may stay inline: ≤1 file AND ≤30 LOC AND every file named
-in the redirect (the same bar `/new-feature` step 5 uses). This routing
-is distinct from a scope/plan redirect, which re-runs
-`/product-planning` or re-prompts the sub-skill — do not collapse the two
-paths. See `references/redirect-handling.md` for the per-phase matrix.
+`reviewing`) and NON-trivial takes the **interactive code-change redirect**
+path: the supervisor composes a structured edit-set
+`{file, intent, expected_outcome}` from the verbatim redirect, invokes
+`/coder` in-process, and reads `.flow-tmp/coder-result.json`
+(`verify_status` + `summary`) exactly once — never the per-edit diff. A
+trivial edit (≤1 file AND ≤30 LOC AND every file named in the redirect,
+the same bar `/new-feature` step 5 uses) stays inline. Do not collapse the
+two paths. See `references/redirect-handling.md` for the per-phase matrix.
 
 # Quick reference: phase values
 
