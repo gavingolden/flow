@@ -307,6 +307,19 @@ export function canonicalizeRecordedSource(
  * on PATH for the introducing pipeline; the post-merge `flow install
  * --upgrade` follow-up re-links it to canonical once merged. `fs.existsSync`
  * never throws (returns false on any error), so this can't break the install.
+ *
+ * Additions vs modifications: this is intentionally additions-only for the
+ * live PATH surface. A file that already EXISTS in canonical resolves to
+ * canonical EVEN IF the worktree copy was modified in-flight — the check is
+ * mere existence (`fs.existsSync(rebased)`), not content-equality — so a
+ * bare-name invocation during the introducing pipeline exercises the
+ * unmodified canonical copy, not the in-flight edit. This is the deliberate
+ * cost of the "never dangle on worktree removal" invariant: `--source
+ * <worktree>` picks up brand-new files but pins modified-existing content to
+ * canonical. Practical impact is minimal — step 5.5 only fires on skill/agent
+ * ADDITIONS, and skills load once per session — so no code change is needed
+ * here; if mid-pipeline dogfooding of modifications is ever required, gate the
+ * canonical preference on content-equality instead of bare existence.
  */
 export function effectiveLinkSource(
   source: string,
