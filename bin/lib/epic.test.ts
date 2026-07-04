@@ -708,6 +708,100 @@ describe("runEpicCli create — --effort / --model flags", () => {
     expect(seed).not.toContain("--effort");
   });
 
+  // --- --model-planning (shared modelPlanning field, Task 4) --------------
+
+  it.each(["opus", "fable"] as const)(
+    "--model-planning %s persists modelPlanning and does NOT reach the launch argv",
+    (alias) => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      freshWindowOk();
+      const code = runEpicCli(
+        ["create", "--model-planning", alias, "design the thing"],
+        { stateDir, cwd: repoDir },
+      );
+      expect(code).toBe(0);
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "design-thing.json"), "utf8"),
+      );
+      expect(raw.modelPlanning).toBe(alias);
+      const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+      // Per-phase override is NOT threaded into the session launch argv.
+      expect(command).not.toContain("--model-planning");
+      expect(command).not.toContain("--model");
+    },
+  );
+
+  it("--model-planning with an invalid value returns exit 2 and writes no state", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runEpicCli(
+      ["create", "--model-planning", "gpt4", "design the thing"],
+      { stateDir, cwd: repoDir },
+    );
+    expect(code).toBe(2);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/opus, haiku, sonnet, fable/);
+  });
+
+  it("--model-planning strips the flag + value from the slug", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(
+      ["create", "--model-planning", "fable", "design the thing"],
+      { stateDir, cwd: repoDir },
+    );
+    expect(code).toBe(0);
+    expect(fs.existsSync(path.join(stateDir, "design-thing.json"))).toBe(true);
+  });
+
+  // --- config models.default at epic-create launch (Task 3) ---------------
+
+  it("threads config models.default into the epic launch argv when no --model, and persists it", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ models: { default: "sonnet" } }),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--model") + 1]).toBe("sonnet");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "design-thing.json"), "utf8"),
+    );
+    expect(raw.model).toBe("sonnet");
+  });
+
+  it("--model wins over config models.default at epic create", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(["create", "--model", "opus", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ models: { default: "sonnet" } }),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--model") + 1]).toBe("opus");
+  });
+
+  it("warns and falls back when config models.default is present-but-invalid at epic create", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runEpicCli(["create", "design the thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ models: { default: "gpt4" } }),
+    });
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(
+      /models\.default.*not a valid model alias/,
+    );
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).not.toContain("--model");
+  });
+
   it("--resume re-applies the saved effort + model into the respawn argv", () => {
     writeState(
       {
@@ -1473,6 +1567,80 @@ describe("runEpicCli run/status/ls", () => {
       expect(parsed.noJudgment).toBe(true);
       expect(parsed.maxParallel).toBe(2);
     });
+
+    it("parses --model and --model-judge value flags", () => {
+      const parsed = parseRunArgs([
+        "my-epic",
+        "--model",
+        "opus",
+        "--model-judge",
+        "haiku",
+      ]);
+      expect(parsed.error).toBeUndefined();
+      expect(parsed.slug).toBe("my-epic");
+      expect(parsed.model).toBe("opus");
+      expect(parsed.modelJudge).toBe("haiku");
+    });
+
+    it("defaults model/modelJudge to undefined absent the flags", () => {
+      const parsed = parseRunArgs(["my-epic"]);
+      expect(parsed.model).toBeUndefined();
+      expect(parsed.modelJudge).toBeUndefined();
+    });
+
+    it("rejects an invalid --model-judge value", () => {
+      const parsed = parseRunArgs(["my-epic", "--model-judge", "gpt4"]);
+      expect(parsed.error).toMatch(/invalid --model-judge value/);
+    });
+
+    it("rejects a missing --model value", () => {
+      const parsed = parseRunArgs(["my-epic", "--model"]);
+      expect(parsed.error).toMatch(/--model requires a value/);
+    });
+  });
+
+  it("run --model-judge: seed carries the MODEL_JUDGE line and run-state persists modelJudge", () => {
+    gitInit();
+    writeManifest("judge-epic", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "judge-epic", "--model-judge", "haiku"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(seed).toContain("MODEL_JUDGE: haiku");
+    // Persisted to run-state (jq-readable by the /epic-run supervisor).
+    expect(readEpicRunState("judge-epic", epicsDir)?.modelJudge).toBe("haiku");
+  });
+
+  it("run without --model-judge: seed omits MODEL_JUDGE and run-state has no modelJudge", () => {
+    gitInit();
+    writeManifest("no-judge-epic", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "no-judge-epic"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(seed).not.toContain("MODEL_JUDGE");
+  });
+
+  it("run --model (parity): threads --model into the supervisor launch argv", () => {
+    gitInit();
+    writeManifest("run-model-epic", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "run-model-epic", "--model", "fable"], {
+      cwd: repoDir,
+      epicsDir,
+      readJudgment: () => true,
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--model") + 1]).toBe("fable");
   });
 
   it("status: renders a board with feature rows + summary and exits 0", () => {

@@ -55,7 +55,7 @@ const tmuxMock = vi.hoisted(() => ({
 vi.mock("./tmux", () => tmuxMock);
 
 import { runNew, runFeatureCli, deriveWorktreePath } from "./feature";
-import { writeState } from "./state";
+import { writeState, PHASE_MODEL_FLAGS } from "./state";
 
 let stateDir!: string;
 let repoDir!: string;
@@ -1391,6 +1391,194 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     });
     expect(code).toBe(0);
     expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
+  });
+
+  // --- Per-phase --model-<phase> flags (Task 1) ---------------------------
+
+  it.each(PHASE_MODEL_FLAGS)(
+    "runFeatureCli %s fable parses, persists to state, and does NOT thread into the launch argv",
+    ({ flag, field }) => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      freshWindowOk();
+      const code = runFeatureCli(["create", flag, "fable", "do", "thing"], {
+        stateDir,
+        cwd: repoDir,
+      });
+      expect(code).toBe(0);
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+      );
+      expect(raw[field]).toBe("fable");
+      // Per-phase models are consumed by the supervisor, NOT passed to claude
+      // at launch — only the session --model reaches the argv.
+      const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+      expect(command).not.toContain(flag);
+      expect(command).not.toContain("--model");
+    },
+  );
+
+  it.each(PHASE_MODEL_FLAGS)(
+    "runFeatureCli %s strips the flag and its value token from the slug",
+    ({ flag }) => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      freshWindowOk();
+      const code = runFeatureCli(["create", flag, "haiku", "do", "thing"], {
+        stateDir,
+        cwd: repoDir,
+      });
+      expect(code).toBe(0);
+      expect(fs.existsSync(path.join(stateDir, "do-thing.json"))).toBe(true);
+    },
+  );
+
+  it.each(PHASE_MODEL_FLAGS)(
+    "runFeatureCli %s with an invalid value returns non-zero and writes no state",
+    ({ flag }) => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      const code = runFeatureCli(["create", flag, "gpt4", "do", "thing"], {
+        stateDir,
+        cwd: repoDir,
+      });
+      expect(code).toBe(1);
+      expect(fs.readdirSync(stateDir)).toEqual([]);
+      expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+      expect(errors.join("\n")).toMatch(/opus, haiku, sonnet, fable/);
+    },
+  );
+
+  it.each(PHASE_MODEL_FLAGS)(
+    "runFeatureCli %s followed by another flag returns non-zero (missing-value guard)",
+    ({ flag }) => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      const code = runFeatureCli(
+        ["create", flag, "--no-auto-merge", "do", "thing"],
+        { stateDir, cwd: repoDir },
+      );
+      expect(code).toBe(1);
+      expect(fs.readdirSync(stateDir)).toEqual([]);
+      expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    },
+  );
+
+  it("runFeatureCli persists multiple --model-<phase> flags independently and strips them all from the slug", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(
+      [
+        "create",
+        "--model-planning",
+        "fable",
+        "--model-verify",
+        "haiku",
+        "--model",
+        "sonnet",
+        "add",
+        "feature",
+      ],
+      { stateDir, cwd: repoDir },
+    );
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "add-feature.json"), "utf8"),
+    );
+    expect(raw.modelPlanning).toBe("fable");
+    expect(raw.modelVerify).toBe("haiku");
+    // The session --model DOES reach the launch argv; the per-phase ones do not.
+    expect(raw.model).toBe("sonnet");
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).toContain("--model");
+    expect(command).not.toContain("--model-planning");
+    expect(command).not.toContain("--model-verify");
+  });
+
+  it("runFeatureCli without any --model-<phase> flag leaves every per-phase field undefined", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(0);
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    for (const { field } of PHASE_MODEL_FLAGS) {
+      expect(raw).not.toHaveProperty(field);
+    }
+  });
+
+  // --- Whole-session default via config models.default (Task 3) -----------
+
+  it("runFeatureCli threads config models.default into the launch argv when no --model flag is passed, and persists it", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ models: { default: "sonnet" } }),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).toContain("--model");
+    expect(command[command.indexOf("--model") + 1]).toBe("sonnet");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.model).toBe("sonnet");
+  });
+
+  it("runFeatureCli --model wins over config models.default", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "--model", "opus", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ models: { default: "sonnet" } }),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--model") + 1]).toBe("opus");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw.model).toBe("opus");
+  });
+
+  it("runFeatureCli omits --model when neither flag nor config default is set", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).not.toContain("--model");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("model");
+  });
+
+  it("runFeatureCli warns and falls back when config models.default is present-but-invalid", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "do", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ models: { default: "gpt4" } }),
+    });
+    expect(code).toBe(0);
+    expect(errors.join("\n")).toMatch(
+      /models\.default.*not a valid model alias/,
+    );
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command).not.toContain("--model");
+    const raw = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "do-thing.json"), "utf8"),
+    );
+    expect(raw).not.toHaveProperty("model");
   });
 
   it("runNew --resume re-applies the saved model into the respawn argv", () => {

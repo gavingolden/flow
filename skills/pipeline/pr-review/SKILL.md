@@ -178,7 +178,13 @@ The fan-out's value is its cost-routing override (Sonnet → Haiku) and its cont
    ```
 
    The `model: "haiku"` per-spawn override is the load-bearing
-   cost-routing knob — do not omit it.
+   cost-routing knob — do not omit it. The gatekeeper is deliberately
+   **pinned** to `haiku`: there is **no** `--model-gatekeeper` flag, and it
+   never inherits the session model. A `config.models.gatekeeper` key is
+   *reachable but loudly discouraged* — overriding it defeats the very
+   cost-routing that makes the gatekeeper cheap. Do not resolve a per-phase
+   model here (see `../flow-pipeline/references/model-routing.md` "The
+   gatekeeper is pinned").
 
 4. When the subagent returns, treat its 3–5 sentence summary as the chat
    output. Then do a cheap existence check against `$ARTIFACT_PATH`
@@ -331,6 +337,8 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
    description:   Fix-applier for /pr-review
    prompt:        <the prompt template below, with variables filled in>
    ```
+
+   **Per-phase model (fixApplier) resolution.** Field `state.modelFixApplier`; precedence `--model-fix-applier > config.models.fixApplier > inherited` (see `../flow-pipeline/references/model-routing.md`). Resolve via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); FIX_APPLIER_MODEL=$(jq -r '.modelFixApplier // empty' ~/.flow/state/"$SLUG".json); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL=$(jq -r '.models.fixApplier // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit).
 
 4. When the subagent returns, treat its 3–5 sentence summary as the chat
    output. Do **not** read the artifact body at the spawn boundary —
@@ -705,7 +713,10 @@ subagent rather than landing in the supervisor's transcript.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 
-**Spawn 6 agents in parallel**, each as a subagent. For each agent:
+**Per-phase model (review) resolution.** Field `state.modelReview`; precedence `--model-review > config.models.review > inherited` (see `../flow-pipeline/references/model-routing.md`). Resolve once via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); REVIEW_MODEL=$(jq -r '.modelReview // empty' ~/.flow/state/"$SLUG".json); [ -z "$REVIEW_MODEL" ] && REVIEW_MODEL=$(jq -r '.models.review // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as each agent's per-spawn `model:` (empty ⇒ omit on every agent ⇒ inherit).
+
+**Spawn 6 agents in parallel**, each as a subagent (each with the resolved
+`model: "$REVIEW_MODEL"` when non-empty). For each agent:
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
@@ -843,8 +854,10 @@ flow-pr-diff "$PR_NUMBER" > "$DIFF_PATH"
 gh pr view "$PR_NUMBER" --json number,title,headRefName,baseRefName,headRefOid > "$PR_METADATA_PATH"
 ```
 
+**Per-phase model (consolidator) resolution.** Field `state.modelConsolidator`; precedence `--model-consolidator > config.models.consolidator > inherited` (see `../flow-pipeline/references/model-routing.md`). This spawn does **not** use a `model: "haiku"` pin (unlike the Gatekeeper) — the second-opinion validation needs the larger model. Resolve via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); CONSOLIDATOR_MODEL=$(jq -r '.modelConsolidator // empty' ~/.flow/state/"$SLUG".json); [ -z "$CONSOLIDATOR_MODEL" ] && CONSOLIDATOR_MODEL=$(jq -r '.models.consolidator // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit).
+
 Then make exactly one Task-tool call with `subagent_type:
-general-purpose`. The prompt cites
+general-purpose` (plus the resolved `model:` above when non-empty). The prompt cites
 `references/consolidator-instructions.md` as the absolute-path
 instructions and passes `$WORKTREE`, `$SKILL_DIR`, the six per-agent
 paths at `$WORKTREE/.flow-tmp/agent-output-<lens>.json` (lenses:

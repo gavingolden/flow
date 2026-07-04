@@ -31,6 +31,27 @@ export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 export const MODEL_ALIASES = ["opus", "haiku", "sonnet", "fable"] as const;
 export type ModelAlias = (typeof MODEL_ALIASES)[number];
 
+/**
+ * The seven per-phase model override fields on `PipelineState`, paired with the
+ * `flow feature create --model-<phase>` flag that sets each. Single source of
+ * truth for the parse loop (`feature.ts`), the state validator
+ * (`isPipelineState`), and the tests. The gatekeeper is deliberately absent —
+ * it stays pinned to `model: "haiku"` and gets no flag. `scout`/`coder` are
+ * config-only fine-grain (no flags), so they are not here either.
+ */
+export const PHASE_MODEL_FLAGS = [
+  { flag: "--model-planning", field: "modelPlanning" },
+  { flag: "--model-implement", field: "modelImplement" },
+  { flag: "--model-review", field: "modelReview" },
+  { flag: "--model-verify", field: "modelVerify" },
+  { flag: "--model-fix-applier", field: "modelFixApplier" },
+  { flag: "--model-consolidator", field: "modelConsolidator" },
+  { flag: "--model-merge-resolver", field: "modelMergeResolver" },
+] as const;
+export const PHASE_MODEL_FIELDS = PHASE_MODEL_FLAGS.map(
+  (f) => f.field,
+) as readonly string[];
+
 export type PipelineState = {
   slug: string;
   phase: string;
@@ -78,6 +99,23 @@ export type PipelineState = {
    * the Claude Code default model (no `--model` flag passed).
    */
   model?: ModelAlias;
+  /**
+   * Per-phase Claude model overrides for this pipeline's fan-out sub-agents,
+   * set via `flow feature create --model-<phase> <alias>`. Each is resolved by
+   * the supervisor at its named Task-spawn site as
+   * `state.<field> // config.models.<phase> // inherited session model`
+   * (with the verify `sonnet`-default and scout/coder config-only-fine-grain
+   * exceptions documented at their spawn sites). All optional-additive: absent
+   * ≡ inherit (no migration; AGENTS.md forbids back-compat shims). The gatekeeper
+   * has no field — it stays pinned to `model: "haiku"` by design.
+   */
+  modelPlanning?: ModelAlias;
+  modelImplement?: ModelAlias;
+  modelReview?: ModelAlias;
+  modelVerify?: ModelAlias;
+  modelFixApplier?: ModelAlias;
+  modelConsolidator?: ModelAlias;
+  modelMergeResolver?: ModelAlias;
   /**
    * Claude Code session ID captured by `flow-open-pr` at PR-open time.
    * Carries the ID to `/flow-pipeline` step 10, which emits it as a
@@ -312,6 +350,14 @@ function isPipelineState(x: unknown): x is PipelineState {
     !(MODEL_ALIASES as readonly string[]).includes(o.model as string)
   )
     return false;
+  for (const field of PHASE_MODEL_FIELDS) {
+    const v = o[field];
+    if (
+      v !== undefined &&
+      !(MODEL_ALIASES as readonly string[]).includes(v as string)
+    )
+      return false;
+  }
   if (o.sessionId !== undefined && typeof o.sessionId !== "string")
     return false;
   if (o.answer !== undefined && typeof o.answer !== "string") return false;

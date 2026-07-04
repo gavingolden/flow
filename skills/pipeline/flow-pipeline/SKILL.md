@@ -859,6 +859,24 @@ alone. Discovery still validates the supplied goal against the codebase
 and surfaces an Open Question if it disagrees rather than accepting it
 blindly — see `discovery-instructions.md` §3 ("User intent").
 
+**Per-phase model (planning) threading.** The Discovery Subagent is the
+`planning` fan-out — resolution field `state.modelPlanning`, precedence
+`--model-planning > config.models.planning > inherited` (see
+[references/model-routing.md](references/model-routing.md)). Resolve it and,
+when non-empty, append a `MODEL_PLANNING: <alias>` marker line to the
+`/product-planning` invocation through the **same append channel** as the
+ultimate goal below; `/product-planning` forwards it to the Discovery
+Subagent's Task spawn as its per-spawn `model:` (empty ⇒ omit ⇒ inherit). This
+adds **no** new fan-out site — it is a `model:` override on the existing
+Discovery exemption:
+
+```bash
+SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+PLANNING_MODEL=$(jq -r '.modelPlanning // empty' ~/.flow/state/"$SLUG".json)
+[ -z "$PLANNING_MODEL" ] && PLANNING_MODEL=$(jq -r '.models.planning // empty' ~/.flow/config.json 2>/dev/null)
+# When non-empty, append `MODEL_PLANNING: $PLANNING_MODEL` to the invocation.
+```
+
 **Force-on threading (mandatory).** BEFORE invoking `/product-planning`,
 you MUST run `jq -r '.forceResearch // empty' ~/.flow/state/<slug>.json`
 (the same idiom step 7 uses for `waitForCopilot`). When the value is the
@@ -1443,6 +1461,15 @@ ARTIFACT_PATH="$WORKTREE/.flow-tmp/verify-loop-result.json"
 INSTRUCTIONS_PATH="$SKILL_DIR/references/verify-loop-instructions.md"
 mkdir -p "$WORKTREE/.flow-tmp"
 rm -f "$ARTIFACT_PATH"   # clear any stale artifact from a prior verify cycle
+
+# Per-phase model (verify) — resolution field: state.modelVerify.
+# Precedence (verify is the ONE asymmetry): --model-verify > config.models.verify
+# > "sonnet" — verify does NOT inherit the session model (a mechanical gate
+# rarely earns an expensive model). See references/model-routing.md.
+SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+VERIFY_MODEL=$(jq -r '.modelVerify // empty' ~/.flow/state/"$SLUG".json)
+[ -z "$VERIFY_MODEL" ] && VERIFY_MODEL=$(jq -r '.models.verify // empty' ~/.flow/config.json 2>/dev/null)
+[ -z "$VERIFY_MODEL" ] && VERIFY_MODEL="sonnet"
 ```
 
 Spawn-prompt template (fill the `{{...}}` placeholders before passing to
@@ -1480,7 +1507,10 @@ entry, or the failing check on exhaustion). Do not paste the artifact or
 the /verify transcript back; the artifact on disk is the durable record.
 ```
 
-Make the Task call with `subagent_type: general-purpose` and the filled
+Make the Task call with `subagent_type: general-purpose`, the per-spawn
+`model: "$VERIFY_MODEL"` argument resolved above (verify precedence
+`--model-verify > config.models.verify > "sonnet"`, NOT inherited — see
+[references/model-routing.md](references/model-routing.md)), and the filled
 prompt. After it returns:
 
 1. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
@@ -2111,6 +2141,12 @@ ARTIFACT_PATH="$WORKTREE/.flow-tmp/merge-resolver-result.json"
 INSTRUCTIONS_PATH="$SKILL_DIR/references/merge-resolver-instructions.md"
 BASE_BRANCH=$(gh pr view "$PR" --json baseRefName -q .baseRefName)
 mkdir -p "$WORKTREE/.flow-tmp"
+# Per-phase model (mergeResolver) — resolution field: state.modelMergeResolver.
+# Precedence: --model-merge-resolver > config.models.mergeResolver > inherited.
+# Empty ⇒ omit model: from the Task call (inherit). See references/model-routing.md.
+SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+MERGE_RESOLVER_MODEL=$(jq -r '.modelMergeResolver // empty' ~/.flow/state/"$SLUG".json)
+[ -z "$MERGE_RESOLVER_MODEL" ] && MERGE_RESOLVER_MODEL=$(jq -r '.models.mergeResolver // empty' ~/.flow/config.json 2>/dev/null)
 # Best-effort conflicting-file list. The wrapper does not initiate
 # `git rebase` itself — the resolver runs the rebase as Step 2 of its
 # instructions. So this list is only non-empty when an outer process
@@ -2174,8 +2210,12 @@ artifact, the diff, or the rebase output back; the artifact on disk
 is the durable record.
 ```
 
-Make the Task call with `subagent_type: general-purpose` and the
-filled prompt. After it returns:
+Make the Task call with `subagent_type: general-purpose`, the per-spawn
+`model: "$MERGE_RESOLVER_MODEL"` argument resolved above (precedence
+`--model-merge-resolver > config.models.mergeResolver > inherited`; when
+`$MERGE_RESOLVER_MODEL` is empty, omit `model:` so the resolver inherits the
+session model — see [references/model-routing.md](references/model-routing.md)),
+and the filled prompt. After it returns:
 
 1. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: merge-resolver-missing-artifact` and end. (Do not

@@ -168,10 +168,26 @@ For **each** halted id:
 1. **Load the Task tool** (the `ToolSearch query="select:Task"` guard from the
    `## Named Task surface: judgment sub-agent` section above; escalate
    `NEEDS HUMAN: task-tool-unavailable: epic-run-judgment` on a miss).
-2. **Spawn exactly ONE** Task sub-agent to DECIDE:
+   1a. **Resolve the per-phase model (judge).** Resolution: the `MODEL_JUDGE`
+   value (persisted on `EpicRunState.modelJudge`, jq-readable, and mirrored in
+   the seed's `MODEL_JUDGE:` line); precedence `MODEL_JUDGE > config.models.epicJudge
+
+   > inherited`(see`../flow-pipeline/references/model-routing.md`). Resolve via
+`jq`and pass the non-empty result as the Task call's per-spawn`model:`
+   > (empty ⇒ omit ⇒ inherit):
+
+   ```bash
+   JUDGE_MODEL=$(jq -r '.modelJudge // empty' ~/.flow/epics/<slug>/run.json 2>/dev/null)
+   [ -z "$JUDGE_MODEL" ] && JUDGE_MODEL=$(jq -r '.models.epicJudge // empty' ~/.flow/config.json 2>/dev/null)
+   # If run.json is unreadable, fall back to the seed's MODEL_JUDGE: line value.
+   ```
+
+2. **Spawn exactly ONE** Task sub-agent to DECIDE (with the resolved
+   `model: "$JUDGE_MODEL"` when non-empty; omit ⇒ inherit):
 
    ```
    subagent_type: general-purpose
+   model: <$JUDGE_MODEL — omit this line entirely when empty>
    description:   Judgment for /epic-run halt
    prompt: |
      Read references/judgment-instructions.md and follow it.
@@ -302,10 +318,21 @@ flag) moves entirely into the sub-agent's `references/judgment-instructions.md`
 
 1. **Load the Task tool** (the same `ToolSearch query="select:Task"` guard;
    escalate `NEEDS HUMAN: task-tool-unavailable: epic-run-judgment` on a miss).
-2. **Spawn exactly ONE** judgment sub-agent to DECIDE:
+   1a. **Resolve the per-phase model (judge)** — same resolution as the halt
+   branch above (`state.modelJudge // config.models.epicJudge // inherited`; see
+   `../flow-pipeline/references/model-routing.md`):
+
+   ```bash
+   JUDGE_MODEL=$(jq -r '.modelJudge // empty' ~/.flow/epics/<slug>/run.json 2>/dev/null)
+   [ -z "$JUDGE_MODEL" ] && JUDGE_MODEL=$(jq -r '.models.epicJudge // empty' ~/.flow/config.json 2>/dev/null)
+   ```
+
+2. **Spawn exactly ONE** judgment sub-agent to DECIDE (with the resolved
+   `model: "$JUDGE_MODEL"` when non-empty; omit ⇒ inherit):
 
    ```
    subagent_type: general-purpose
+   model: <$JUDGE_MODEL — omit this line entirely when empty>
    description:   Judgment for /epic-run deadlock
    prompt: |
      Read references/judgment-instructions.md and follow it.

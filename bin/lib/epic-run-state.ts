@@ -18,6 +18,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { FLOW_EPICS_DIR } from "./paths";
+import { MODEL_ALIASES, type ModelAlias } from "./state";
 
 export const EPIC_RUN_STATE_FILENAME = "run.json";
 
@@ -65,6 +66,14 @@ export type EpicRunState = {
    * started.
    */
   runnerPhase?: "running" | "blocked" | "done";
+  /**
+   * Per-halt/deadlock judgment sub-agent model, set via `flow epic run
+   * --model-judge <alias>`. jq-readable so the `/epic-run` supervisor can
+   * resolve `modelJudge // config.models.epicJudge // inherited` at its judgment
+   * Task-spawn; also mirrored into the supervisor seed as a `MODEL_JUDGE:` line.
+   * Absent ⇒ inherit (no override). Additive-optional; no migration.
+   */
+  modelJudge?: ModelAlias;
 };
 
 export function epicRunStatePath(slug: string, dir = FLOW_EPICS_DIR): string {
@@ -133,6 +142,11 @@ export function isEpicRunState(x: unknown): x is EpicRunState {
     o.runnerPhase !== "running" &&
     o.runnerPhase !== "blocked" &&
     o.runnerPhase !== "done"
+  )
+    return false;
+  if (
+    o.modelJudge !== undefined &&
+    !(MODEL_ALIASES as readonly string[]).includes(o.modelJudge as string)
   )
     return false;
   return true;

@@ -70,6 +70,11 @@ import {
   MODEL_ALIASES,
   type ModelAlias,
 } from "./state";
+import {
+  readDefaultModel,
+  collectModelConfigWarnings,
+  type ReadConfigFile,
+} from "./models-config";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
@@ -241,6 +246,13 @@ export type EpicOptions = {
    * developer's real `~/.flow/config.json`.
    */
   readAutoRedirect?: () => boolean;
+  /**
+   * Injectable `~/.flow/config.json` reader (test seam only). Threaded into
+   * `readDefaultModel` / `collectModelConfigWarnings` at epic-create launch so
+   * the `models.default` resolution can be exercised without touching the real
+   * config. Production uses the module default (reads FLOW_CONFIG).
+   */
+  readConfig?: ReadConfigFile;
 };
 
 export function runEpicCli(args: string[], options: EpicOptions = {}): number {
@@ -354,6 +366,31 @@ PR → review checkpoint), and writes initial epic state under
   }
   const modelValueToken = modelIdx >= 0 ? rest[modelIdx + 1] : undefined;
 
+  // --model-planning is the epic-create per-phase override. The epic DESIGN
+  // phase and the feature PLANNING phase share ONE flag/field (the shared
+  // `modelPlanning` PipelineState field from Task 1) — there is no separate
+  // --model-design. Same enum-before-side-effect + exit-2 contract as --model.
+  let modelPlanning: ModelAlias | undefined;
+  const modelPlanningIdx = rest.indexOf("--model-planning");
+  if (modelPlanningIdx >= 0) {
+    const value = rest[modelPlanningIdx + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error("flow epic create: --model-planning requires a value.");
+      console.error("  expected one of: opus, haiku, sonnet, fable");
+      return 2;
+    }
+    if (!(MODEL_ALIASES as readonly string[]).includes(value)) {
+      console.error(
+        `flow epic create: invalid --model-planning value '${value}'.`,
+      );
+      console.error("  expected one of: opus, haiku, sonnet, fable");
+      return 2;
+    }
+    modelPlanning = value as ModelAlias;
+  }
+  const modelPlanningValueToken =
+    modelPlanningIdx >= 0 ? rest[modelPlanningIdx + 1] : undefined;
+
   let skipNext = false;
   const promptTokens = rest.filter((a) => {
     if (skipNext) {
@@ -368,6 +405,12 @@ PR → review checkpoint), and writes initial epic state under
     if (a === "--model") {
       skipNext =
         modelValueToken !== undefined && !modelValueToken.startsWith("--");
+      return false;
+    }
+    if (a === "--model-planning") {
+      skipNext =
+        modelPlanningValueToken !== undefined &&
+        !modelPlanningValueToken.startsWith("--");
       return false;
     }
     return true;
@@ -411,8 +454,18 @@ PR → review checkpoint), and writes initial epic state under
   const epicDir = epicDirRelative(slug);
   const seed = epicCreateSeed(prompt, epicDir, PRODUCT_PLANNING_SKILL_DIR);
   const settingsPath = launchSettingsPathFor(options);
+
+  // Whole-session model resolved at launch: --model wins over config
+  // models.default; absent both, no --model reaches claude. Best-effort-warn
+  // on any present-but-invalid models.* config value, then fall back.
+  for (const w of collectModelConfigWarnings(options.readConfig)) {
+    console.error(dim(`flow epic create: ${w}`));
+  }
+  const sessionModel = model ?? readDefaultModel(options.readConfig);
+
   const command =
-    options.command ?? createCommand(worktree, effort, settingsPath, model);
+    options.command ??
+    createCommand(worktree, effort, settingsPath, sessionModel);
 
   // Persist-then-verify-then-delete-on-failure (mirrors feature.ts runFresh): write
   // epic state(phase=starting) BEFORE the verified launch so the /epic-create
@@ -438,7 +491,8 @@ PR → review checkpoint), and writes initial epic state under
         repo,
         worktree: existing?.worktree,
         effort,
-        model,
+        model: sessionModel,
+        modelPlanning,
         updatedAt: nowIso(),
       },
       options.stateDir,
@@ -622,14 +676,27 @@ type RunArgs = {
   /** `--no-auto-redirect` — force autonomous redirect off for this run (default on). */
   noAutoRedirect: boolean;
   maxParallel?: number;
+  /**
+   * `--model <alias>` — the epic-run supervisor session model (parity with
+   * `flow feature create --model`). Threaded into `createCommand` at launch.
+   */
+  model?: ModelAlias;
+  /**
+   * `--model-judge <alias>` — the per-halt/deadlock judgment sub-agent model.
+   * Persisted onto `EpicRunState.modelJudge` and threaded into the supervisor
+   * seed as a `MODEL_JUDGE:` line for the supervisor to resolve at its
+   * judgment Task-spawn.
+   */
+  modelJudge?: ModelAlias;
   error?: string;
 };
 
 /**
  * Parse `<slug>` + `--once` + `--json` + `--no-judgment` + `--no-auto-redirect`
- * + `--max-parallel <N>` from the run arm's args. `--json` is rejected without
- * `--once` (the continuous loop stays human-rendered; only a single tick emits
- * JSON). Exported so a unit test can assert the flag parse directly.
+ * + `--max-parallel <N>` + `--model <alias>` + `--model-judge <alias>` from the
+ * run arm's args. `--json` is rejected without `--once` (the continuous loop
+ * stays human-rendered; only a single tick emits JSON). Exported so a unit test
+ * can assert the flag parse directly.
  */
 export function parseRunArgs(rest: string[]): RunArgs {
   let once = false;
@@ -637,11 +704,40 @@ export function parseRunArgs(rest: string[]): RunArgs {
   let noJudgment = false;
   let noAutoRedirect = false;
   let maxParallel: number | undefined;
+  let model: ModelAlias | undefined;
+  let modelJudge: ModelAlias | undefined;
   const positionals: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
     if (a === "--once") {
       once = true;
+      continue;
+    }
+    if (a === "--model" || a === "--model-judge") {
+      const v = rest[i + 1];
+      if (v === undefined || v.startsWith("-")) {
+        return {
+          slug: "",
+          once,
+          json,
+          noJudgment,
+          noAutoRedirect,
+          error: `${a} requires a value`,
+        };
+      }
+      if (!(MODEL_ALIASES as readonly string[]).includes(v)) {
+        return {
+          slug: "",
+          once,
+          json,
+          noJudgment,
+          noAutoRedirect,
+          error: `invalid ${a} value '${v}' (expected one of: opus, haiku, sonnet, fable)`,
+        };
+      }
+      if (a === "--model") model = v as ModelAlias;
+      else modelJudge = v as ModelAlias;
+      i++;
       continue;
     }
     if (a === "--json") {
@@ -712,6 +808,8 @@ export function parseRunArgs(rest: string[]): RunArgs {
     noJudgment,
     noAutoRedirect,
     maxParallel,
+    model,
+    modelJudge,
   };
 }
 
@@ -757,7 +855,7 @@ function loadCommittedManifest(
 }
 
 const RUN_USAGE =
-  "usage: flow epic run <slug> [--once] [--json] [--no-judgment] [--no-auto-redirect] [--max-parallel <N>]";
+  "usage: flow epic run <slug> [--once] [--json] [--no-judgment] [--no-auto-redirect] [--max-parallel <N>] [--model <alias>] [--model-judge <alias>]";
 
 function runEpicRun(rest: string[], options: EpicOptions): number {
   const parsed = parseRunArgs(rest);
@@ -804,7 +902,11 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
   // every path, before any window is spawned.
   const judgmentOn = (options.readJudgment ?? readEpicJudgment)();
   if (!once && !noJudgment && judgmentOn) {
-    return spawnEpicRunSupervisor(slug, repo, parsed.noAutoRedirect, options);
+    return spawnEpicRunSupervisor(slug, repo, parsed.noAutoRedirect, options, {
+      runModel: parsed.model,
+      modelJudge: parsed.modelJudge,
+      manifestSha: loaded.sha,
+    });
   }
 
   const now = options.now ?? nowIso;
@@ -854,6 +956,14 @@ function spawnEpicRunSupervisor(
   repo: string,
   noAutoRedirect: boolean,
   options: EpicOptions,
+  models: {
+    /** `--model` parity: the epic-run supervisor session model. */
+    runModel?: ModelAlias;
+    /** `--model-judge`: persisted to run-state + threaded into the seed. */
+    modelJudge?: ModelAlias;
+    /** sha of the committed manifest, for the pre-launch run-state seed. */
+    manifestSha: string;
+  },
 ): number {
   if (windowExists(slug)) {
     console.error(
@@ -872,15 +982,21 @@ function spawnEpicRunSupervisor(
   const effectiveAutoRedirect = noAutoRedirect
     ? false
     : (options.readAutoRedirect ?? readEpicAutoRedirect)();
-  const seed = epicRunSeed(slug, epicDir, effectiveAutoRedirect);
+  const seed = epicRunSeed(
+    slug,
+    epicDir,
+    effectiveAutoRedirect,
+    models.modelJudge,
+  );
   // Mirror runCreate's launch: resolve the flow-scoped settings file (registers
   // the seed-ingested hook the consumed() predicate below relies on) and build
-  // the verified-launch argv through the shared builder. `flow epic run` has no
-  // --effort/--model surface in v1, so both default to undefined.
+  // the verified-launch argv through the shared builder. The supervisor session
+  // model is the run-parity `--model` (models.runModel); absent, no --model
+  // reaches claude. `--effort` has no epic-run flag surface (defaults undefined).
   const settingsPath = launchSettingsPathFor(options);
   const command =
     options.command ??
-    createCommand(worktree, options.effort, settingsPath, options.model);
+    createCommand(worktree, options.effort, settingsPath, models.runModel);
 
   // Consumption = the supervisor advanced run-state `runnerPhase` to `running`
   // on first entry (its documented first action). Clear any pre-existing
@@ -896,9 +1012,45 @@ function spawnEpicRunSupervisor(
   // falsely reports "supervisor started" over an idle orphan window.
   const launch = () => {
     const existing = readEpicRunState(slug, options.epicsDir);
-    if (existing && existing.runnerPhase !== undefined) {
-      existing.runnerPhase = undefined;
-      writeEpicRunState(existing, options.epicsDir);
+    if (existing) {
+      // Clear the stale runnerPhase (per-attempt reset, see above) and refresh
+      // modelJudge so a jq read sees the --model-judge alias this run passed.
+      let dirty = false;
+      if (existing.runnerPhase !== undefined) {
+        existing.runnerPhase = undefined;
+        dirty = true;
+      }
+      if (existing.modelJudge !== models.modelJudge) {
+        existing.modelJudge = models.modelJudge;
+        dirty = true;
+      }
+      if (dirty) writeEpicRunState(existing, options.epicsDir);
+    } else if (models.modelJudge !== undefined) {
+      // No run-state yet (the common first-run case): seed a minimal VALID
+      // run-state carrying modelJudge so the supervisor's jq read sees it
+      // immediately. The supervisor's first --once tick refreshes the drift
+      // fields (repo / manifestPath / manifestSha / maxParallel), preserving
+      // modelJudge. Only written when there IS a modelJudge to persist — absent
+      // it, the supervisor's own first tick creates the run-state as before.
+      const now = options.now ?? nowIso;
+      writeEpicRunState(
+        {
+          epicSlug: slug,
+          repo,
+          manifestPath: path.join(
+            repo,
+            epicDirRelative(slug),
+            EPIC_MANIFEST_FILENAME,
+          ),
+          manifestSha: models.manifestSha,
+          maxParallel: (options.readMaxParallel ?? readEpicMaxParallel)(),
+          createdAt: now(),
+          updatedAt: now(),
+          features: {},
+          modelJudge: models.modelJudge,
+        },
+        options.epicsDir,
+      );
     }
     return createWindowVerified(slug, repo, command, seed, {
       consumed: () => {
@@ -1440,14 +1592,19 @@ function buildLaunchCommand(
 // SKILL parses this prefix to enter the tick loop. The AUTO_REDIRECT line
 // (on|off) tells the supervisor whether autonomous redirect is actuated this
 // run; an absent line the SKILL treats as `on` (the default) for back-safety.
+// The MODEL_JUDGE line (mirroring AUTO_REDIRECT) carries the --model-judge
+// alias to the supervisor's judgment Task-spawn; it is emitted only when set,
+// and an absent line the SKILL treats as "inherit" (config/session fallback).
 function epicRunSeed(
   slug: string,
   epicDir: string,
   autoRedirect: boolean,
+  modelJudge?: ModelAlias,
 ): string {
   return (
     `Use the /epic-run skill for: ${slug}\n\nEPIC_DIR: ${epicDir}\n` +
-    `AUTO_REDIRECT: ${autoRedirect ? "on" : "off"}`
+    `AUTO_REDIRECT: ${autoRedirect ? "on" : "off"}` +
+    (modelJudge ? `\nMODEL_JUDGE: ${modelJudge}` : "")
   );
 }
 

@@ -164,6 +164,42 @@ describe("completion scripts stay in sync with VERBS", () => {
     );
   });
 
+  it("both scripts advertise every per-phase --model-<phase> feature-create flag with the alias value set", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      for (const flag of [
+        "--model-planning",
+        "--model-implement",
+        "--model-review",
+        "--model-verify",
+        "--model-fix-applier",
+        "--model-consolidator",
+        "--model-merge-resolver",
+      ]) {
+        expect(
+          script.includes(flag),
+          `flow.${shell} must advertise the ${flag} feature-create flag`,
+        ).toBe(true);
+      }
+      // The alias value set is offered for the per-phase flags.
+      expect(script).toContain("opus haiku sonnet fable");
+    }
+  });
+
+  it("both scripts advertise the epic --model-planning (create) and --model/--model-judge (run) flags", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      expect(script).toContain("--model-planning");
+      expect(script).toContain("--model-judge");
+    }
+  });
+
   it("both scripts complete the feature create/resume subcommands and drop new/setup/migrate", () => {
     // The `feature` mini-dispatcher must offer `create`/`resume` (mirroring
     // `epic`'s subcommand arm), and the removed verbs must not linger in the

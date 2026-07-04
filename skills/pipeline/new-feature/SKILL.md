@@ -148,6 +148,24 @@ Decide whether to spawn the scout subagent based on the **hybrid threshold**:
    prompt:        <the prompt template below, with variables filled in>
    ```
 
+   **Per-phase model (implement → scout) resolution.** The Scout is the
+   `implement` fan-out's read half; resolution field `state.modelImplement`
+   with the scout config-only fine-grain layered **above** it — precedence
+   `config.models.scout > state.modelImplement(--model-implement) >
+config.models.implement > inherited` (see
+   `../flow-pipeline/references/model-routing.md`). Resolve via `jq` and pass
+   the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒
+   inherit). There is **no** `--model-scout` flag — the finer grain is
+   config-only:
+
+   ```bash
+   SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+   SCOUT_MODEL=$(jq -r '.models.scout // empty' ~/.flow/config.json 2>/dev/null)
+   [ -z "$SCOUT_MODEL" ] && SCOUT_MODEL=$(jq -r '.modelImplement // empty' ~/.flow/state/"$SLUG".json)
+   [ -z "$SCOUT_MODEL" ] && SCOUT_MODEL=$(jq -r '.models.implement // empty' ~/.flow/config.json 2>/dev/null)
+   # Non-empty ⇒ pass model: "$SCOUT_MODEL" on the Task call; empty ⇒ omit.
+   ```
+
 4. When the subagent returns, treat its 3–5-sentence both-sides summary
    as the chat output. Do **not** read `.flow-tmp/scout.md` from disk in
    the wrapper — the main session will read it once at the top of Step
