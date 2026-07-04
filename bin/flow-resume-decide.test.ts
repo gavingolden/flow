@@ -48,6 +48,7 @@ function makeInputs(overrides: Partial<Inputs> = {}): Inputs {
     state: baseState(),
     worktree: PRESENT_WORKTREE,
     planExists: true,
+    checkpointExists: false,
     pr: {
       kind: "found",
       state: "OPEN",
@@ -743,5 +744,36 @@ describe("run() integration", () => {
     expect(exit).toBe(2);
     expect(errSpy.mock.calls.flat().join("\n")).toContain("@flow-slug");
     errSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkpoint / clear / resume wiring (Stories 2 & 6)
+// ---------------------------------------------------------------------------
+
+describe("decide() — checkpoint re-injection + auto-checkpoint resume", () => {
+  it("surfaces checkpointExists in the decision context when checkpoint.md is present (Story 2)", () => {
+    const r = decide(makeInputs({ checkpointExists: true }));
+    // Resume mode reads context.checkpointExists to decide whether to re-inject
+    // checkpoint.md and consume the one-shot marker.
+    expect(r.context.checkpointExists).toBe(true);
+  });
+
+  it("leaves checkpointExists false when no checkpoint.md exists", () => {
+    const r = decide(makeInputs({ checkpointExists: false }));
+    expect(r.context.checkpointExists).toBe(false);
+  });
+
+  it("resolves checkpoint-pending-clear to step-5 — the approval→implement hand-off has no PR yet (Story 6)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "checkpoint-pending-clear" }),
+        pr: { kind: "none" },
+      }),
+    );
+    // checkpoint-pending-clear is a POST_APPROVAL phase (passes Row 4), and no
+    // PR exists at the auto-checkpoint boundary, so Row 5 resumes at implement —
+    // NOT step-4 re-approval.
+    expect(r.resumeAt).toBe("step-5");
   });
 });
