@@ -1827,6 +1827,13 @@ describe("runFresh — slug auto-disambiguation + explicit --slug (Story 1-4)", 
       /slug 'csv-export' in use; using 'csv-export-2'/,
     );
     expect(logs.join("\n")).not.toMatch(/in use/);
+    // The seed's pipeline-slug marker uses the MINTED slug (csv-export-2), not
+    // slugify(description)=csv-export — proving flowPipelineSeed threaded the
+    // resolved slug on the derived+suffixed path where derived≠resolved.
+    const seed = tmuxMock.createWindowVerified.mock.calls[0]![3];
+    expect(seed).toBe(
+      "[pipeline-slug: csv-export-2]\nUse the /flow-pipeline skill for: CSV export",
+    );
   });
 
   it("treats a surviving state file (no live window) as a collision and suffixes without clobbering it (D1-B dual check)", () => {
@@ -1898,6 +1905,51 @@ describe("runFresh — slug auto-disambiguation + explicit --slug (Story 1-4)", 
     );
     expect(code).toBe(1);
     expect(errors.join("\n")).toMatch(/already exists/);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+  });
+
+  it("explicit --slug state-only collision hard-fails without clobbering the recorded pipeline", () => {
+    // Story 3 variant: the explicit slug's tmux window died but its <slug>.json
+    // survives. The dual window+state guard must hard-fail (never suffix, never
+    // supersede) so a crashed-but-recorded pipeline's phase/pr is preserved.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    writeState(
+      {
+        slug: "my-explicit-slug",
+        phase: "verifying",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(false); // window died
+    const code = runFeatureCli(
+      ["create", "--slug", "my-explicit-slug", "some", "desc"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/already exists/);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    // The recorded pipeline's phase is untouched — not reset to `starting`.
+    const preserved = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "my-explicit-slug.json"), "utf8"),
+    );
+    expect(preserved.phase).toBe("verifying");
+  });
+
+  it("derived slug exhaustion (every candidate collides) exits 1 with /no available slug/ and no side-effects", () => {
+    // Story 1 variant: base..base-100 all collide, so firstAvailableSlug returns
+    // null and runFresh bails before any window/state write.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.windowExists.mockReturnValue(true); // every candidate window taken
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/no available slug/);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
     expect(fs.readdirSync(stateDir)).toEqual([]);
   });

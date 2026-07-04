@@ -459,9 +459,15 @@ function runFresh(description: string, options: FeatureOptions): number {
   let slug: string;
   if (options.slug) {
     slug = options.slug;
-    if (windowExists(slug)) {
+    // Dual window+state collision check, mirroring the derived path's
+    // `firstAvailableSlug`: an explicit `--slug` still hard-fails (never
+    // auto-suffixes), but must also reject a slug whose tmux window died while
+    // its `<slug>.json` state survives — otherwise the launch closure's
+    // `writeState(phase:"starting")` below would silently clobber a
+    // crashed-but-recorded pipeline's `phase`/`pr`.
+    if (windowExists(slug) || readState(slug, options.stateDir) != null) {
       console.error(
-        `flow feature create: window '${FLOW_SESSION}:${slug}' already exists.`,
+        `flow feature create: pipeline '${slug}' already exists (window or recorded state).`,
       );
       console.error(
         `  attach with \`flow attach ${slug}\`, resume with \`flow feature resume ${slug}\`,`,
