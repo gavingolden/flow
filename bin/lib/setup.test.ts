@@ -953,7 +953,9 @@ describe("flow install", () => {
       );
       // Neither link resolves into the worktree.
       expect(
-        fs.realpathSync(path.join(t.binDir, "flow-helper")).startsWith(worktree),
+        fs
+          .realpathSync(path.join(t.binDir, "flow-helper"))
+          .startsWith(worktree),
       ).toBe(false);
     });
 
@@ -1016,9 +1018,9 @@ describe("flow install", () => {
         false,
       );
       // ...while the shared helper is re-linked to canonical, not reaped.
-      expect(fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink()).toBe(
-        true,
-      );
+      expect(
+        fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink(),
+      ).toBe(true);
       expect(fs.realpathSync(path.join(t.binDir, "flow-helper"))).toBe(
         fs.realpathSync(path.join(flowSource, "bin", "flow-helper.ts")),
       );
