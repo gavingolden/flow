@@ -38,7 +38,7 @@ Usage:
                                         --no-pull-canonical skips pulling the canonical source before symlinking;
                                         --repair-settings backs up and rewrites ~/.claude/settings.json when malformed;
                                         --install-deps installs missing source-root runtime deps before symlinking)
-  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>
+  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--slug <slug>] <description>
                                         start a new pipeline in a tmux window
                                         (--no-auto-merge stops at gated regardless of rubric;
                                         --wait-for-copilot forces the full 10-min Copilot wait
@@ -47,7 +47,9 @@ Usage:
                                         bypassing the relevance gate and the research.discovery config opt-in;
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session;
-                                        --model sets the Claude Code model alias for the claude session)
+                                        --model sets the Claude Code model alias for the claude session;
+                                        --slug uses an explicit slug instead of deriving one from the description;
+                                        hard-fails if that slug's window already exists)
   flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
   flow epic <create|run|status|ls|done> design and run an epic (create, run, status, ls, done)
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
@@ -71,7 +73,7 @@ export const HELP_TEXT: Record<string, string> = {
   feature: `flow feature — start or resume a pipeline in a tmux window
 
 Usage:
-  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>
+  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--slug <slug>] <description>
   flow feature resume <name> [<name> ...] [--yes]
 
 Subcommands:
@@ -93,6 +95,8 @@ Options (create):
                         Claude Code reasoning-effort level for the pipeline's claude session
   --model <opus|haiku|sonnet|fable>
                         Claude Code model alias for the pipeline's claude session (omit for the default)
+  --slug <slug>         use an explicit slug instead of deriving one from the description;
+                        hard-fails if that slug's window already exists
 
 Options (resume):
   --yes, -y             skip the multi-resume confirmation preview`,

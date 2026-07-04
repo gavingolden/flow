@@ -46,6 +46,7 @@ By default a pipeline auto-merges its PR when the merge gate is clear; pass `flo
 - `--copilot-review <auto|always|never>` (default `auto`) — control whether flow requests a Copilot review on the PR.
 - `--wait-for-copilot` — block on the Copilot review before proceeding.
 - `--research` — force web-grounded discovery research on for that pipeline, bypassing the relevance gate and the `research.discovery` config opt-in.
+- `--slug <slug>` — use an explicit slug instead of deriving one from the description; hard-fails if that slug's window already exists (a derived-slug collision instead auto-suffixes to `-2`/`-3`).
 - `--resume <name>` — re-launch a crashed supervisor session for an existing pipeline.
 
 Run `flow feature create --help` for the full surface.

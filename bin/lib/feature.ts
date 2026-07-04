@@ -18,9 +18,9 @@ import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
-import { slugify } from "./slug";
+import { slugify, isValidSlug } from "./slug";
 import { confirmStdin } from "./confirm";
-import { toDirSuffix } from "./worktree-slot";
+import { toDirSuffix, MAX_SUFFIX_ATTEMPTS } from "./worktree-slot";
 import {
   createWindowVerified,
   respawnWindowVerified,
@@ -118,6 +118,14 @@ export type FeatureOptions = {
   force?: boolean;
   /** Override the state directory (test seam). */
   stateDir?: string;
+  /**
+   * Explicit pipeline slug from `--slug <value>`. When set, `runFresh` uses it
+   * verbatim instead of deriving one via `slugify(description)`, and keeps the
+   * `windowExists` hard-fail on collision (an explicit slug is a caller's
+   * assertion of a unique id — see runFresh). Set ONLY by `runCreateCli`;
+   * `runResume` is unaffected. Absent ⇒ derive + auto-disambiguate.
+   */
+  slug?: string;
   /** Persist `autoMerge: false` so the supervisor stops at gated. */
   noAutoMerge?: boolean;
   /**
@@ -351,6 +359,33 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
   }
   const modelValueToken = modelIdx >= 0 ? args[modelIdx + 1] : undefined;
 
+  // --slug <value> is a VALUE flag mirroring --effort/--model. Validate the
+  // slug SHAPE here (via isValidSlug — not slugify round-trip, which caps at 5
+  // tokens/40 chars and would reject a legitimately longer explicit slug),
+  // before any side-effect, so a malformed value exits non-zero and writes no
+  // state. The flag + its value token are both stripped from the description.
+  let slug: string | undefined;
+  const slugIdx = args.indexOf("--slug");
+  if (slugIdx >= 0) {
+    const value = args[slugIdx + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error(
+        "flow feature create: invalid --slug — a value is required.",
+      );
+      console.error("  expected a lowercase kebab slug, e.g. my-explicit-slug");
+      return 1;
+    }
+    if (!isValidSlug(value)) {
+      console.error(`flow feature create: invalid --slug value '${value}'.`);
+      console.error(
+        "  expected lowercase kebab-case (a-z, 0-9, single hyphens), max 60 chars",
+      );
+      return 1;
+    }
+    slug = value;
+  }
+  const slugValueToken = slugIdx >= 0 ? args[slugIdx + 1] : undefined;
+
   // Drop a leading `--` end-of-options sentinel so descriptions written
   // with `flow feature create -- fix the -h crash` round-trip without the literal
   // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
@@ -381,6 +416,12 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
           modelValueToken !== undefined && !modelValueToken.startsWith("--");
         return false;
       }
+      if (a === "--slug") {
+        // Strip the flag and mark its value token for removal too.
+        skipNext =
+          slugValueToken !== undefined && !slugValueToken.startsWith("--");
+        return false;
+      }
       return (
         a !== "--no-auto-merge" &&
         a !== "--wait-for-copilot" &&
@@ -396,6 +437,7 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
     copilotReview,
     effort,
     model,
+    slug,
   });
 }
 
@@ -403,17 +445,62 @@ function runFresh(description: string, options: FeatureOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow feature create: description is required.");
     console.error(
-      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] <description>",
+      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--slug <slug>] <description>",
     );
     return 1;
   }
 
-  const slug = slugify(description);
-  if (!slug) {
-    console.error(
-      `flow feature create: '${description}' produces an empty slug.`,
-    );
-    return 1;
+  // Resolve the final slug BEFORE any state write so the persist-then-verify-
+  // then-delete-on-failure no-orphan ordering below writes exactly one file for
+  // it. An explicit --slug is used verbatim and still hard-fails on collision (a
+  // caller asserting a unique id wants that error surfaced, not papered over). A
+  // derived slug auto-disambiguates: a collided slugify(...) mints the first
+  // free -2/-3/… suffix instead of crashing.
+  let slug: string;
+  if (options.slug) {
+    slug = options.slug;
+    // Dual window+state collision check, mirroring the derived path's
+    // `firstAvailableSlug`: an explicit `--slug` still hard-fails (never
+    // auto-suffixes), but must also reject a slug whose tmux window died while
+    // its `<slug>.json` state survives — otherwise the launch closure's
+    // `writeState(phase:"starting")` below would silently clobber a
+    // crashed-but-recorded pipeline's `phase`/`pr`.
+    if (windowExists(slug) || readState(slug, options.stateDir) != null) {
+      console.error(
+        `flow feature create: pipeline '${slug}' already exists (window or recorded state).`,
+      );
+      console.error(
+        `  attach with \`flow attach ${slug}\`, resume with \`flow feature resume ${slug}\`,`,
+      );
+      console.error("  or pick a different --slug.");
+      return 1;
+    }
+  } else {
+    const derived = slugify(description);
+    if (!derived) {
+      console.error(
+        `flow feature create: '${description}' produces an empty slug.`,
+      );
+      return 1;
+    }
+    const available = firstAvailableSlug(derived, options.stateDir);
+    if (available == null) {
+      console.error(
+        `flow feature create: no available slug after ${MAX_SUFFIX_ATTEMPTS} attempts starting from '${derived}'.`,
+      );
+      console.error(
+        "  clean up stale pipelines with `flow ls` / `flow done`, or pass an explicit --slug.",
+      );
+      return 1;
+    }
+    slug = available;
+    if (slug !== derived) {
+      // Stderr ONLY — the stdout first line must stay the raw `flow:<slug>`
+      // contract token parsed by epic-launch.ts:parseMintedSlug.
+      console.error(
+        `flow feature create: slug '${derived}' in use; using '${slug}'`,
+      );
+    }
   }
 
   const cwd = options.cwd ?? process.cwd();
@@ -422,17 +509,6 @@ function runFresh(description: string, options: FeatureOptions): number {
     console.error(
       `flow feature create: ${cwd} is not inside a git repository.`,
     );
-    return 1;
-  }
-
-  if (windowExists(slug)) {
-    console.error(
-      `flow feature create: window '${FLOW_SESSION}:${slug}' already exists.`,
-    );
-    console.error(
-      `  attach with \`flow attach ${slug}\`, resume with \`flow feature resume ${slug}\`,`,
-    );
-    console.error("  or pick a different description.");
     return 1;
   }
 
@@ -452,7 +528,7 @@ function runFresh(description: string, options: FeatureOptions): number {
 
   const worktree = deriveWorktreePath(repo, slug);
   const settingsPath = launchSettingsPathFor(options);
-  const seed = flowPipelineSeed(description);
+  const seed = flowPipelineSeed(slug, description);
   const command =
     options.command ??
     buildLaunchCommand(worktree, options.effort, settingsPath, options.model);
@@ -824,8 +900,10 @@ export function ensureLaunchSettings(
 // The seed text is defined ONCE in these helpers and delivered ONLY via
 // send-keys by the verified launcher (no positional argv copy), so there is no
 // second definition to drift from.
-function flowPipelineSeed(description: string): string {
-  const slug = slugify(description);
+function flowPipelineSeed(slug: string, description: string): string {
+  // The pipeline-slug marker must be the RESOLVED slug (an explicit --slug, or a
+  // suffixed derived slug), not slugify(description) — otherwise the supervisor
+  // reads a marker that mismatches its own window/state basename.
   return `[pipeline-slug: ${slug}]\nUse the /flow-pipeline skill for: ${description}`;
 }
 
@@ -908,6 +986,24 @@ function withLaunchSlot(
       ? { timeoutMs: options.launchSemTimeoutMs, pollMs: 5 }
       : {};
   return withTestSemaphore(semDir, slots, launch, semOpts).result;
+}
+
+/**
+ * First non-colliding slug starting from the bare `base`, then `base-2`,
+ * `base-3`, …, bounded by MAX_SUFFIX_ATTEMPTS (returns null on exhaustion). A
+ * candidate collides when its tmux window exists OR a state file for it
+ * survives — the dual window+state check mirrors `worktree-slot.ts`'s
+ * `findAvailableSlot`, so a suffixed slug never clobbers a crashed-but-recorded
+ * pipeline whose window was closed but whose `<slug>.json` state remains.
+ */
+function firstAvailableSlug(base: string, stateDir?: string): string | null {
+  for (let i = 1; i <= MAX_SUFFIX_ATTEMPTS; i++) {
+    const candidate = i === 1 ? base : `${base}-${i}`;
+    if (!windowExists(candidate) && readState(candidate, stateDir) == null) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function resolveRepoRoot(cwd: string): string | null {
