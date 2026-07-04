@@ -20,11 +20,13 @@ function feat(overrides: Partial<Feature> = {}): Feature {
 const ok = (stdout: string): SpawnResult => ({ status: 0, stdout, stderr: "" });
 
 describe("buildFeatureCreateArgs", () => {
-  it("no hints → just feature create + description", () => {
+  it("no hints → feature create + description + --slug <id>", () => {
     expect(buildFeatureCreateArgs(feat())).toEqual([
       "feature",
       "create",
       "add the watchlist schema",
+      "--slug",
+      "schema",
     ]);
   });
 
@@ -36,6 +38,8 @@ describe("buildFeatureCreateArgs", () => {
       "create",
       "add the watchlist schema",
       "--no-auto-merge",
+      "--slug",
+      "schema",
     ]);
   });
 
@@ -44,13 +48,21 @@ describe("buildFeatureCreateArgs", () => {
       "feature",
       "create",
       "add the watchlist schema",
+      "--slug",
+      "schema",
     ]);
   });
 
   it("autoMerge:true → no flag (true ≡ default)", () => {
     expect(
       buildFeatureCreateArgs(feat({ flowNewHints: { autoMerge: true } })),
-    ).toEqual(["feature", "create", "add the watchlist schema"]);
+    ).toEqual([
+      "feature",
+      "create",
+      "add the watchlist schema",
+      "--slug",
+      "schema",
+    ]);
   });
 
   it("copilotReview:always → --copilot-review always", () => {
@@ -64,6 +76,8 @@ describe("buildFeatureCreateArgs", () => {
       "add the watchlist schema",
       "--copilot-review",
       "always",
+      "--slug",
+      "schema",
     ]);
   });
 
@@ -76,6 +90,8 @@ describe("buildFeatureCreateArgs", () => {
       "add the watchlist schema",
       "--effort",
       "high",
+      "--slug",
+      "schema",
     ]);
   });
 
@@ -99,6 +115,36 @@ describe("buildFeatureCreateArgs", () => {
       "never",
       "--effort",
       "max",
+      "--slug",
+      "schema",
+    ]);
+  });
+
+  it("Story 5: emits --slug slugify(id) for an id that is already a valid slug", () => {
+    expect(
+      buildFeatureCreateArgs(
+        feat({ id: "pokedex-page", description: "Re-skin the pokedex page" }),
+      ),
+    ).toEqual([
+      "feature",
+      "create",
+      "Re-skin the pokedex page",
+      "--slug",
+      "pokedex-page",
+    ]);
+  });
+
+  it("Story 5: normalizes an id needing slugification into the --slug value", () => {
+    expect(
+      buildFeatureCreateArgs(
+        feat({ id: "Search Page", description: "Re-skin the search page" }),
+      ),
+    ).toEqual([
+      "feature",
+      "create",
+      "Re-skin the search page",
+      "--slug",
+      "search-page",
     ]);
   });
 });
@@ -112,21 +158,25 @@ describe("launchFeature", () => {
     );
     const result = launchFeature(feat(), { spawn });
     expect(result).toEqual({ ok: true, slug: "watchlist-schema-2" });
-    // Spawned the bare `flow` with the built argv.
+    // Spawned the bare `flow` with the built argv (now carrying --slug <id>).
     expect(spawn).toHaveBeenCalledWith("flow", [
       "feature",
       "create",
       "add the watchlist schema",
+      "--slug",
+      "schema",
     ]);
   });
 
-  it("falls back to slugify(description) when no flow:<slug> line is present", () => {
+  it("falls back to slugify(id) when no flow:<slug> line is present (D2-B)", () => {
+    // The fallback must track the id-derived slug --slug requested, not the
+    // description (which no longer reflects the launched window/state).
     const spawn = vi.fn<SpawnFn>(() => ok("some unexpected output\n"));
     const result = launchFeature(
-      feat({ description: "Add the watchlist schema" }),
+      feat({ id: "watchlist-schema", description: "Add the watchlist schema" }),
       { spawn },
     );
-    expect(result).toEqual({ ok: true, slug: "add-watchlist-schema" });
+    expect(result).toEqual({ ok: true, slug: "watchlist-schema" });
   });
 
   it("surfaces a non-zero exit (windowExists collision) as an error result", () => {
