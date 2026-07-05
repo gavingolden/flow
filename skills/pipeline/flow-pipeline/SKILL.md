@@ -836,6 +836,21 @@ below is unchanged; this sub-step only enriches plan.md before that gate fires.
     - /Users/you/code/me/flow-my-feature/.flow-tmp/plan.md
   ```
 
+  **Plan-review clear point (auto-checkpoint arm).** After writing
+  `phase: plan-pending-review` and before ending the turn, arm a
+  lightweight checkpoint so the user can `/clear` at `plan-pending-review`
+  and approve on a fresh session. **Non-clobbering:** only when
+  `<worktree>/.flow-tmp/checkpoint.md` is absent or empty, write a minimal
+  one-line pointer; a manual `/checkpoint` wins. Then run `flow-checkpoint`
+  to arm the marker, and add a one-line nudge: **safe to `/clear` —
+  approve on a fresh session; the plan re-renders on resume.** No helper
+  change is needed: `plan-pending-review` is non-terminal, so
+  `flow-resume-decide` already resolves it to step-4 (re-prints the plan +
+  waits for approval) and the `SessionStart:clear` hook already fires on
+  it when the marker is present. The re-injected `checkpoint.md` is
+  consumed via `flow-checkpoint --consume` in Resume mode exactly like
+  every other checkpoint resume.
+
   Then end the turn. Wait for the user to attach and respond.
   The next turn re-enters at step 4.
 - Non-feature intent (`bug`/`refactor`/`docs`/`infra`/`chore`) →
@@ -937,7 +952,11 @@ below is unchanged; this sub-step only enriches plan.md before that gate fires.
     feature-intent path. The `plan-pending-review` phase value is
     reused (no new phase string is introduced); `flow-stop-guard`
     and `flow-resume-decide` both already handle this phase
-    unchanged for non-feature intents.
+    unchanged for non-feature intents. Arm the same **plan-review clear
+    point** here (non-clobbering `checkpoint.md` pointer + `flow-checkpoint`
+    to arm the marker) as the feature-intent End condition above, so a
+    `/clear` at `plan-pending-review` on a route-to-step-4 non-feature
+    pipeline also auto-resumes to the plan render.
 
 If `/product-planning` doesn't write `.flow-tmp/plan.md`, re-invoke
 once with an explicit instruction to write the consolidated artifact.
@@ -1019,6 +1038,46 @@ candidate-issues form also fires from step 3's non-feature
 it. The decision to fire the form stays here in the supervisor;
 `flow-candidate-issues` is LLM-free parse/decide/flip only — it never
 calls `AskUserQuestion`.
+
+### Auto-checkpoint sub-step
+
+Runs on the **Affirmative** branch, immediately after the
+candidate-issues sub-step above, as the last thing step 4 does before
+ending the turn. This is the sub-step the three forward-references above
+("then the auto-checkpoint sub-step", "continue to the auto-checkpoint
+sub-step below") resolve to. It is the approval → implement clear point:
+it flushes the load-bearing approval state so the user can `/clear` here
+and resume into step 5 on a fresh, low-context session.
+
+1. **Flush approval state to `checkpoint.md` (non-clobbering).** Unless
+   `<worktree>/.flow-tmp/checkpoint.md` already exists non-empty (the
+   user ran `/checkpoint` explicitly — their file wins, leave it
+   untouched), write the load-bearing conversational state the fresh
+   process would otherwise drop: the approval verdict plus any addenda or
+   conditions the user attached (e.g. an "approved with A1" note, a
+   folded-in scope change, an "ignore flake X" decision). Unlike the gate
+   auto-checkpoint (near-zero residue), this one genuinely flushes
+   approval state, so it uses the fuller `/checkpoint`-style flush.
+2. **Arm the one-shot marker:**
+
+   ```bash
+   flow-checkpoint
+   ```
+
+   (no flag — validates `checkpoint.md` and writes the
+   `checkpoint.pending` marker on a ready verdict).
+3. **Advance the phase:** `flow-state-update --phase checkpoint-pending-clear`.
+4. **Nudge and end.** Tell the user: safe to `/clear` — the pipeline
+   resumes into step 5 on a fresh session, or type `continue` to proceed
+   in this session. Then end the turn.
+
+On resume, Resume mode re-injects `checkpoint.md` and runs
+`flow-checkpoint --consume`; `flow-resume-decide` resolves
+`checkpoint-pending-clear` → step-5 (the approval → implement hand-off
+has no PR yet), so the fresh session re-enters at implement with the
+approval addenda folded in. No helper change is needed —
+`checkpoint-pending-clear` is a non-terminal phase the resume + hook
+machinery already handles.
 
 ## Step 5 — Implement
 
@@ -1672,6 +1731,35 @@ merging the PR through GitHub themselves, or (b) the fresh-confirmation
 gate-override path below. See `references/auto-merge-rubric.md` "A
 `gated` verdict is terminal, not advisory" for the full contract.
 
+### Gate auto-checkpoint sub-step
+
+After rendering the GATED block and writing `phase: gated`, arm a
+lightweight checkpoint so the user can `/clear` during manual validation
+without typing `/checkpoint` first. `gated` routinely sits through
+several rounds of validation feedback plus small bug fixes while the
+supervisor carries a huge `/pr-review` context the next fix does not
+need, so it is the highest-value context-clear point in the pipeline.
+**Non-clobbering:** only when `<worktree>/.flow-tmp/checkpoint.md` is
+absent or empty, write a minimal one-line pointer (e.g. `gated on PR
+#<pr> — feedback-mode checkpoint`); if the user already ran `/checkpoint`
+at the gate, that file wins and is left untouched. Then arm the one-shot
+marker:
+
+```bash
+flow-checkpoint
+```
+
+This is a **near-zero-residue** arm — unlike step 4's auto-checkpoint it
+flushes no approval state, only the pointer that lets the
+`SessionStart:clear` hook fire at `gated`. Add a one-line
+supervisor-prose nudge after the GATED render: **safe to `/clear` during
+validation — the pipeline auto-resumes** into feedback mode, because
+`flow-resume-decide` resolves `gated` + a checkpoint marker →
+`gated-feedback` (see Resume mode). A `gated` PR with no marker still
+`/clear`s to a blank session, unchanged. This arms a marker only; it
+grants no new merge authority — the gated verdict stays terminal per the
+paragraph above.
+
 ### Gate override (post-verdict, opt-in)
 
 A `gated` run has ended, but the tmux window stays open. If the user then
@@ -2300,6 +2388,7 @@ Branch on `.resumeAt`:
 | `step-7` | Re-enter step 7 (ci-wait). A `state.json` phase of `ci-wait` **or** `ci-wait-pending` (the yielded-while-backgrounded pending phase) both resolve here. **Read `$WORKTREE/.flow-tmp/ci-wait-result.json` first**: if it exists and parses, the backgrounded `flow-ci-wait` already reached a terminal decision — read the persisted verdict and branch on `.decision` without re-running the loop. Only when the file is absent or unparseable does the supervisor re-launch the backgrounded `flow-ci-wait` (the poll loop restarts, observing CI state fresh from GitHub). |
 | `step-8` | Re-enter step 8 (review). Re-invoke `/pr-review <PR>`. |
 | `step-9` | Re-enter step 9 (gate). Two sub-cases distinguished by `.reason`: `pr-merged-worktree-still-exists` (run step 11's MERGED branch — which re-runs `flow-pipeline-summary ... --echo-prose ...` and re-echoes the recap verbatim per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection — then render the MERGED block via `flow-gate-summary --status merged ...` (BEFORE the terminal state transition) and run `flow-remove-worktree --delete-branch`, write `phase: merged`, end; **do not** fall through to step 10's `gh pr merge` on an already-merged PR) vs. `at-auto-merge-gate` (re-evaluate the gate via `flow-gate-decide`). |
+| `gated-feedback` | Re-enter feedback mode for a `gated` PR carrying a checkpoint marker. Print `RESUMING AT: gated-feedback (gated-with-checkpoint-marker)`, re-inject `$WORKTREE/.flow-tmp/checkpoint.md` (the generic checkpoint re-injection above), then position to take a bug callout → route it through the `/coder` interactive redirect → re-verify (step 6) → re-gate (step 9). **This loop introduces no new merge path and never merges on its own authority:** its re-gate re-enters the normal step 9 gate, which routes every merge through the existing `flow-merge-guard` backstop (Decision A1) — a still-`gated` PR ends terminally at `gated`; the only merge routes are the user ticking all Test Steps boxes (gate re-reads `auto-merge`, `flow-merge-guard` confirms zero-unchecked) or the existing gate-override token. Then `flow-checkpoint --consume` to drop the one-shot marker. |
 | `terminal` | Already in a terminal state. Re-run the corresponding gate render (the same helpers every gate-emission site uses) and end without re-running anything else. On `merged`/`gated` the render re-runs `flow-pipeline-summary ... --echo-prose ...` above `flow-gate-summary --status <merged\|gated> ...`, so the echo recap re-surfaces on resume re-entry — extract the `<!-- flow-echo-recap:start -->`…`<!-- flow-echo-recap:end -->` block and echo it VERBATIM per the [Gate-stage echo-verbatim recap](#gate-stage-echo-verbatim-recap---echo-prose) subsection (re-orientation is exactly the resume use case). `cancelled` has no PR, so `--echo-prose` is a no-op there. `needs-human` re-renders the escalation via `flow-gate-summary --status needs-human ...`. The two no-in-flight-work pending phases short-circuit here pre-tree (reasons `no-change-investigation-complete` for `triaged-no-change`, `awaiting-triage-clarification` for `triage-pending-clarification`): they carry no PR/worktree and have no gate-summary status, so print a one-line note that the pipeline already completed (a no-change investigation, or one awaiting a clarification a resume can't re-ask) and end — do NOT build a worktree. On the `triaged-no-change` path, when `$ANSWER` is non-empty, re-print the saved `$ANSWER` (as markdown) so the user re-reads the original answer instead of the generic terminal note; fall back to the generic note when `$ANSWER` is empty. |
 | `escalate` | Escalate `NEEDS HUMAN: <.reason>` (e.g. `worktree-missing-on-resume`, `pr-closed-without-merge`). Leave the worktree + PR intact. |
 | `abort` | The state file is missing. Escalate `NEEDS HUMAN: state-missing-on-resume` and end. |
@@ -2614,6 +2703,20 @@ path: the supervisor composes a structured edit-set
 trivial edit (≤1 file AND ≤30 LOC AND every file named in the redirect,
 the same bar `/new-feature` step 5 uses) stays inline. Do not collapse the
 two paths. See `references/redirect-handling.md` for the per-phase matrix.
+
+**Gated is an explicit carve-out, not a sixth in-flight phase.** `gated`
+is terminal — it is deliberately NOT added to the
+`plan-pending-review`/`implementing`/`verifying`/`ci-wait`/`reviewing`
+list above. But a **bug callout at `gated`** (a code-change redirect
+arriving while the PR sits at the gate during manual validation) still
+routes through `/coder`: compose the edit-set, invoke `/coder`, then
+re-verify (step 6) and re-gate (step 9). This preserves the
+gated-is-terminal / no-new-merge-authority invariant — the re-gate
+re-enters the normal step 9 gate and merges only through
+`flow-merge-guard`; it is distinct from the post-verdict gate-override
+*merge* path (a "merge this gated PR anyway" instruction), which stays
+governed by "Gate override". The `gated-feedback` Resume-mode row above
+is the auto-resumed entry into exactly this loop after a `/clear`.
 
 # Quick reference: phase values
 

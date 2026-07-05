@@ -49,6 +49,7 @@ function makeInputs(overrides: Partial<Inputs> = {}): Inputs {
     worktree: PRESENT_WORKTREE,
     planExists: true,
     checkpointExists: false,
+    checkpointMarkerExists: false,
     pr: {
       kind: "found",
       state: "OPEN",
@@ -73,10 +74,120 @@ describe("decide() — pre-tree edge cases", () => {
     expect(r.reason).toContain("merged");
   });
 
-  it("returns terminal when state.phase is 'gated'", () => {
-    const r = decide(makeInputs({ state: baseState({ phase: "gated" }) }));
+  it("returns terminal when state.phase is 'gated' and NO checkpoint marker is present (unchanged)", () => {
+    // gated is normally terminal; without the one-shot checkpoint.pending
+    // marker it resolves to terminal exactly as before the feedback mode.
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "gated" }),
+        checkpointMarkerExists: false,
+      }),
+    );
     expect(r.resumeAt).toBe("terminal");
     expect(r.reason).toContain("gated");
+  });
+
+  it("resolves gated + checkpoint marker present → 'gated-feedback' with .context.pr populated (Story 1)", () => {
+    // A gated pipeline whose worktree carries a checkpoint.pending marker is a
+    // feedback-mode resume point: take a bug callout → /coder → re-verify →
+    // re-gate. The branch self-populates .context.pr (it precedes the general
+    // PR-population line) so Resume mode has PR context.
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "gated" }),
+        worktree: PRESENT_WORKTREE,
+        checkpointMarkerExists: true,
+        checkpointExists: true,
+        pr: {
+          kind: "found",
+          state: "OPEN",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(r.resumeAt).toBe("gated-feedback");
+    expect(r.reason).toBe("gated-with-checkpoint-marker");
+    expect(r.context.pr).toBe(100);
+    expect(r.context.prState).toBe("OPEN");
+    expect(r.context.checkpointExists).toBe(true);
+  });
+
+  it("returns terminal for gated + marker present but worktree gone (no feedback without a live worktree)", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "gated" }),
+        worktree: { kind: "absent-from-state" },
+        checkpointMarkerExists: true,
+      }),
+    );
+    expect(r.resumeAt).toBe("terminal");
+    expect(r.reason).toContain("gated");
+  });
+
+  it("routes gated + marker + worktree present to step-9 MERGED-cleanup (NOT gated-feedback) when the PR was merged externally", () => {
+    // The PR-OPEN guard: a gated pipeline whose PR is merged on GitHub still
+    // carries marker + worktree (gatherInputs de-short-circuits gated I/O), so
+    // it must fall through to the merged-worktree-cleanup resolution rather than
+    // entering feedback mode on an already-merged PR (which would leave the
+    // worktree/branch uncleaned).
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "gated" }),
+        worktree: PRESENT_WORKTREE,
+        checkpointMarkerExists: true,
+        checkpointExists: true,
+        pr: {
+          kind: "found",
+          state: "MERGED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(r.resumeAt).toBe("step-9");
+    expect(r.reason).toBe("pr-merged-worktree-still-exists");
+    expect(r.context.prState).toBe("MERGED");
+  });
+
+  it("returns terminal (pr-merged-worktree-cleaned-up) for gated + marker when the PR merged externally and the worktree is already gone", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "gated" }),
+        worktree: { kind: "absent-from-state" },
+        checkpointMarkerExists: true,
+        pr: {
+          kind: "found",
+          state: "MERGED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(r.resumeAt).toBe("terminal");
+    expect(r.reason).toBe("pr-merged-worktree-cleaned-up");
+  });
+
+  it("escalates gated + marker + worktree present (NOT gated-feedback) when the PR was closed without merge externally", () => {
+    // A gated PR closed-unmerged on GitHub must route to the closed-escalation
+    // resolution, not feedback mode.
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "gated" }),
+        worktree: PRESENT_WORKTREE,
+        checkpointMarkerExists: true,
+        checkpointExists: true,
+        pr: {
+          kind: "found",
+          state: "CLOSED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(r.resumeAt).toBe("escalate");
+    expect(r.reason).toBe("pr-closed-without-merge");
+    expect(r.context.prState).toBe("CLOSED");
   });
 
   it("returns terminal when state.phase is 'cancelled'", () => {

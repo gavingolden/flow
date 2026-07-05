@@ -20,7 +20,7 @@
  *   {
  *     "resumeAt": "step-2"|"step-3"|"step-4"|"step-5"|"step-5.5"
  *               | "step-6"|"step-7"|"step-8"|"step-9"
- *               | "terminal"|"escalate"|"abort",
+ *               | "gated-feedback"|"terminal"|"escalate"|"abort",
  *     "reason": "<one-line summary>",
  *     "context": {
  *       "slug": string,
@@ -51,6 +51,7 @@ import * as path from "node:path";
 import { readState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
 import { resolveSlugFromPane } from "./lib/tmux";
+import { markerPath } from "./flow-checkpoint";
 import {
   probeWorktree,
   probePr,
@@ -92,6 +93,7 @@ export type ResumeAt =
   | "step-7"
   | "step-8"
   | "step-9"
+  | "gated-feedback"
   | "terminal"
   | "escalate"
   | "abort";
@@ -113,6 +115,16 @@ export type DecisionContext = {
    * Additive/optional; absent on pipelines that never checkpointed.
    */
   checkpointExists?: boolean;
+  /**
+   * True when the one-shot `<worktree>/.flow-tmp/checkpoint.pending` marker is
+   * present — DISTINCT from `checkpointExists` (which probes the persistent
+   * `checkpoint.md`). The `gated`→feedback-vs-terminal decision gates on this
+   * marker (the same signal the SessionStart hook uses), because the marker
+   * does NOT survive `--consume`; `checkpoint.md` does. Gating on the marker
+   * preserves one-shot semantics so a stray later `/clear` at `gated` after a
+   * consumed round does not re-fire feedback mode.
+   */
+  checkpointMarkerExists?: boolean;
 };
 
 export type DecisionResult = {
@@ -132,6 +144,7 @@ export type Inputs = {
   worktree: WorktreeInfo;
   planExists: boolean;
   checkpointExists: boolean;
+  checkpointMarkerExists: boolean;
   pr: PrInfo;
   hasSkillAdditions: boolean;
   ciState: CiState;
@@ -236,6 +249,78 @@ export function decide(inputs: Inputs): DecisionResult {
   // on ctx so the triaged-no-change terminal verdict carries it for re-print.
   if (inputs.state.answer !== undefined) {
     ctx.answer = inputs.state.answer;
+  }
+
+  // Gated feedback mode: `gated` is normally terminal, but when the pipeline
+  // carries a one-shot `checkpoint.pending` marker AND a live worktree AND the
+  // PR is still OPEN, resolve it to `gated-feedback` — a fresh session
+  // positioned to take a bug callout, route it through /coder, re-verify
+  // (step 6), and re-gate (step 9) — instead of the terminal no-op. This branch
+  // MUST precede the TERMINAL_PHASE_SET short-circuit (gated is a terminal
+  // phase) and self-populate ctx.pr/prState from inputs, because the general
+  // PR-population line below is only reached by non-terminal phases; Story 1
+  // requires `.context.pr` on gated-feedback. The gate keys on the marker
+  // (one-shot, gone after --consume), NOT on checkpointExists (checkpoint.md,
+  // persistent), so a stray later /clear at gated after a consumed round does
+  // not re-fire feedback mode. The PR-OPEN guard is load-bearing: since
+  // gatherInputs de-short-circuits I/O for `gated`, a gated PR merged/closed
+  // *externally* on GitHub still carries marker + worktree, so without the guard
+  // it would enter feedback mode on an already-resolved PR instead of being
+  // cleaned up. A non-OPEN gated PR therefore routes to the same
+  // merged-cleanup / closed-escalation resolution the general precedence uses
+  // for every other phase (this branch replicates it locally because the shared
+  // precedence below sits after the TERMINAL_PHASE_SET short-circuit that would
+  // otherwise catch `gated` first). Marker-absent (or worktree-gone) gated with
+  // an OPEN PR falls through to the terminal verdict, unchanged.
+  if (inputs.state.phase === "gated") {
+    ctx.checkpointExists = inputs.checkpointExists;
+    ctx.checkpointMarkerExists = inputs.checkpointMarkerExists;
+    if (inputs.pr.kind === "found") {
+      ctx.pr = inputs.pr.number;
+      ctx.prState = inputs.pr.state;
+    }
+    const prOpen = inputs.pr.kind === "found" && inputs.pr.state === "OPEN";
+    if (
+      inputs.worktree.kind === "present" &&
+      inputs.checkpointMarkerExists &&
+      prOpen
+    ) {
+      return {
+        resumeAt: "gated-feedback",
+        reason: "gated-with-checkpoint-marker",
+        context: ctx,
+      };
+    }
+    // Externally merged gated PR: worktree still present → step-9 MERGED-cleanup
+    // (never re-run gh pr merge); worktree gone → terminal. Mirrors the
+    // PR-MERGED precedence below.
+    if (inputs.pr.kind === "found" && inputs.pr.state === "MERGED") {
+      return inputs.worktree.kind === "present"
+        ? {
+            resumeAt: "step-9",
+            reason: "pr-merged-worktree-still-exists",
+            context: ctx,
+          }
+        : {
+            resumeAt: "terminal",
+            reason: "pr-merged-worktree-cleaned-up",
+            context: ctx,
+          };
+    }
+    // Externally closed-without-merge gated PR → escalate. Mirrors the
+    // PR-CLOSED escalation below.
+    if (inputs.pr.kind === "found" && inputs.pr.state === "CLOSED") {
+      return {
+        resumeAt: "escalate",
+        reason: "pr-closed-without-merge",
+        context: ctx,
+      };
+    }
+    return {
+      resumeAt: "terminal",
+      reason: `phase: ${inputs.state.phase}`,
+      context: ctx,
+    };
   }
 
   // Edge 1.3-1.5: terminal phases — pipeline already ended.
@@ -453,6 +538,22 @@ export function probeCheckpoint(worktreePath: string): boolean {
   }
 }
 
+/**
+ * True iff the one-shot `<worktree>/.flow-tmp/checkpoint.pending` marker exists.
+ * DISTINCT from `probeCheckpoint` (which probes the persistent `checkpoint.md`):
+ * this reads the marker `flow-checkpoint` arms on a ready verdict — the same
+ * signal the SessionStart hook gates on, so the marker path is imported from
+ * `./flow-checkpoint` (single source of truth, one-way import) rather than
+ * re-derived here.
+ */
+export function probeCheckpointMarker(worktreePath: string): boolean {
+  try {
+    return fs.existsSync(markerPath(worktreePath));
+  } catch {
+    return false;
+  }
+}
+
 /** Resolves the default branch (e.g. "main", "master") from the worktree's origin/HEAD. */
 export function resolveDefaultBranch(
   worktreePath: string,
@@ -538,9 +639,12 @@ export function gatherInputs(
   // Terminal phases — and the no-in-flight-work pending phases — short-circuit
   // all I/O: decide() returns terminal from the phase check alone, so probing
   // gh/git on a completed (or pre-worktree) pipeline is wasted work (and unsafe
-  // under a stub gh/git in tests).
+  // under a stub gh/git in tests). `gated` is the one terminal phase EXCLUDED
+  // from the short-circuit: its decide() branch resolves to `gated-feedback`
+  // when a checkpoint marker is present, so it must probe worktree + checkpoint
+  // + marker + PR (the feedback session needs PR context) rather than skip I/O.
   if (
-    TERMINAL_PHASE_SET.has(state.phase) ||
+    (TERMINAL_PHASE_SET.has(state.phase) && state.phase !== "gated") ||
     NO_INFLIGHT_WORK_PHASES.has(state.phase)
   ) {
     return {
@@ -549,6 +653,7 @@ export function gatherInputs(
       worktree: { kind: "absent-from-state" },
       planExists: false,
       checkpointExists: false,
+      checkpointMarkerExists: false,
       pr: { kind: "none" },
       hasSkillAdditions: false,
       ciState: { kind: "no-checks-reported" },
@@ -562,6 +667,8 @@ export function gatherInputs(
     worktree.kind === "present" ? probePlan(worktree.path) : false;
   const checkpointExists =
     worktree.kind === "present" ? probeCheckpoint(worktree.path) : false;
+  const checkpointMarkerExists =
+    worktree.kind === "present" ? probeCheckpointMarker(worktree.path) : false;
   const hasSkillAdditions =
     worktree.kind === "present"
       ? probeSkillAdditions(worktree.path, git)
@@ -582,6 +689,7 @@ export function gatherInputs(
     worktree,
     planExists,
     checkpointExists,
+    checkpointMarkerExists,
     pr,
     hasSkillAdditions,
     ciState,

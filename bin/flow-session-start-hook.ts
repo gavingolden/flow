@@ -70,7 +70,11 @@ export async function run(deps: Deps): Promise<number> {
   if (!state) return 0;
 
   // A terminal pipeline has nothing to resume — never inject a stray seed.
-  if (TERMINAL_PHASE_SET.has(state.phase)) return 0;
+  // EXCEPT `gated`: a gated pipeline carrying a checkpoint marker is a
+  // feedback-mode resume point (flow-resume-decide resolves it to
+  // `gated-feedback`), so it falls through to the marker check below —
+  // marker present → emit the seed, marker absent → no-op like any terminal.
+  if (TERMINAL_PHASE_SET.has(state.phase) && state.phase !== "gated") return 0;
 
   // The one-shot marker is the deliberate opt-in: no /checkpoint → no marker →
   // no auto-resume, so the user keeps the choice to /clear without a checkpoint.

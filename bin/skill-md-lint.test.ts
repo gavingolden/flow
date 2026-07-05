@@ -2710,6 +2710,121 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
     ).toBe(true);
   });
 
+  it("flow-pipeline SKILL.md Resume mode has a gated-feedback row stating the never-merge / flow-merge-guard guarantee", () => {
+    expect(
+      content.includes("| `gated-feedback` |"),
+      "flow-pipeline SKILL.md Resume-mode branch table must have a " +
+        "`gated-feedback` row — the resume routing for a gated PR carrying a " +
+        "checkpoint marker (flow-resume-decide's new ResumeAt value).",
+    ).toBe(true);
+    expect(
+      content.includes(
+        "This loop introduces no new merge path and never merges on its own authority:",
+      ),
+      "the gated-feedback Resume-mode row must state the never-merge / " +
+        "no-new-merge-path guarantee verbatim — the structural guard for the " +
+        "gated-is-terminal invariant (PRD Plan risks).",
+    ).toBe(true);
+    expect(
+      content.includes(
+        "its re-gate re-enters the normal step 9 gate, which routes every merge through the existing `flow-merge-guard` backstop",
+      ),
+      "the gated-feedback Resume-mode row must state that the re-gate routes " +
+        "every merge through flow-merge-guard — so a future edit adding a " +
+        "bypass path breaks the lint, not production.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md step 9 has a Gate auto-checkpoint sub-step arming flow-checkpoint non-clobberingly", () => {
+    expect(
+      content.includes("### Gate auto-checkpoint sub-step"),
+      "flow-pipeline SKILL.md step 9 must contain a 'Gate auto-checkpoint " +
+        "sub-step' heading — the near-zero-residue checkpoint arm at the GATED " +
+        "render that lets the user /clear during validation.",
+    ).toBe(true);
+    expect(
+      content.includes(
+        "safe to `/clear` during validation — the\npipeline auto-resumes",
+      ) ||
+        content.includes(
+          "safe to `/clear` during validation — the pipeline auto-resumes",
+        ) ||
+        content.includes(
+          "safe to `/clear` during\nvalidation — the pipeline auto-resumes",
+        ),
+      "the step 9 gate auto-checkpoint sub-step must carry the 'safe to " +
+        "/clear during validation — the pipeline auto-resumes' nudge.",
+    ).toBe(true);
+    expect(
+      /### Gate auto-checkpoint sub-step[\s\S]*?\*\*Non-clobbering:\*\*[\s\S]*?flow-checkpoint/.test(
+        content,
+      ),
+      "the step 9 gate auto-checkpoint sub-step must state the non-clobber " +
+        "rule AND arm the marker with a `flow-checkpoint` call.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md documents gated as an explicit /coder redirect carve-out (not a sixth in-flight phase)", () => {
+    expect(
+      content.includes(
+        "**Gated is an explicit carve-out, not a sixth in-flight phase.**",
+      ),
+      "flow-pipeline SKILL.md 'Mid-flight code-change redirects' must carry " +
+        "gated as an EXPLICIT carve-out (bug callout → /coder → step 6 → " +
+        "step 9), NOT a blind append to the five in-flight phases.",
+    ).toBe(true);
+    expect(
+      redirectHandlingContent.includes(
+        "**Bug callout at `gated` (terminal) — explicit carve-out.**",
+      ),
+      "redirect-handling.md must document the gated /coder carve-out " +
+        "distinctly from the in-flight phases and from the gate-override " +
+        "merge path.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md step 4 has the auto-checkpoint sub-step body arming flow-checkpoint at checkpoint-pending-clear", () => {
+    expect(
+      content.includes("### Auto-checkpoint sub-step"),
+      "flow-pipeline SKILL.md step 4 must contain the 'Auto-checkpoint " +
+        "sub-step' body PR #407 referenced but never authored — the three " +
+        "forward-references resolve to this heading.",
+    ).toBe(true);
+    expect(
+      content.includes(
+        "Flush approval state to `checkpoint.md` (non-clobbering).",
+      ),
+      "the step 4 auto-checkpoint sub-step must flush approval state to " +
+        "checkpoint.md non-clobberingly (the fuller /checkpoint-style flush).",
+    ).toBe(true);
+    expect(
+      /### Auto-checkpoint sub-step[\s\S]*?flow-checkpoint[\s\S]*?flow-state-update --phase checkpoint-pending-clear/.test(
+        content,
+      ),
+      "the step 4 auto-checkpoint sub-step must arm `flow-checkpoint` and " +
+        "write `flow-state-update --phase checkpoint-pending-clear`.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline SKILL.md step 3 arms the plan-review clear point (auto-checkpoint at plan-pending-review)", () => {
+    expect(
+      content.includes("**Plan-review clear point (auto-checkpoint arm).**"),
+      "flow-pipeline SKILL.md step 3's feature-intent End condition must arm " +
+        "a plan-review clear point (non-clobbering checkpoint.md pointer + " +
+        "flow-checkpoint) so /clear at plan-pending-review auto-resumes.",
+    ).toBe(true);
+    expect(
+      content.includes(
+        "safe to `/clear` —\n  approve on a fresh session; the plan re-renders on resume.",
+      ) ||
+        content.includes(
+          "safe to `/clear` — approve on a fresh session; the plan re-renders on resume.",
+        ),
+      "the step 3 plan-review clear point must carry the 'safe to /clear — " +
+        "approve on a fresh session; the plan re-renders on resume' nudge.",
+    ).toBe(true);
+  });
+
   it("manual-test-rubric.md distinguishes functional from subjective manual checks", () => {
     expect(
       manualTestRubricContent.includes("Functional checks"),
