@@ -99,28 +99,28 @@ in-process for skills; shell out for scripts; never delegate.
 > **Task-tool exemption #1: `/pr-review` Independent Multi-Agent
 > Review.** Step 8's six parallel review agents, each writing its own
 > `agent-output-<lens>.json`; full contract in
-> `references/exemption-contracts.md`.
+> [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #2: `/product-planning` Independent Discovery
 > Subagent.** Step 3's one discovery agent, writing `.flow-tmp/plan.md`
 > + `.flow-tmp/pr-description-draft.md`; full contract in
-> `references/exemption-contracts.md`.
+> [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #3: `/new-feature` Independent Scout
 > Subagent.** Step 5's one scout agent (wider-scope path only — ≤3
 > affected files skip it), writing `.flow-tmp/scout.md`; full contract
-> in `references/exemption-contracts.md`.
+> in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #4: `/pr-review` Fix-Applier Subagent.** Step
 > 8's one fix-applier agent for the per-finding address loop +
 > commit/push, writing `.flow-tmp/fix-applier-result.json`; full
-> contract in `references/exemption-contracts.md`.
+> contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #5: Merge-Conflict Resolver Subagent.** Step
 > 10's one resolver agent for the rebase + per-file resolution +
 > force-push (per-pipeline branch only), writing
 > `.flow-tmp/merge-resolver-result.json`; full contract in
-> `references/exemption-contracts.md` and
+> [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
 > `references/merge-resolver-instructions.md`.
 >
 > **Task-tool exemption #6: `/coder` Independent Edit-Applier Subagent.**
@@ -129,25 +129,25 @@ in-process for skills; shell out for scripts; never delegate.
 > path — or the `/flow-pipeline` supervisor's interactive code-change redirect
 > path fires (see the "Mid-flight code-change redirects" section and
 > `references/redirect-handling.md`) — writing `.flow-tmp/coder-result.json`;
-> full contract in `references/exemption-contracts.md` and
+> full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
 > `skills/pipeline/coder/SKILL.md`.
 >
 > **Task-tool exemption #7: `/pr-review` Independent Gatekeeper Subagent.**
 > `/pr-review` Step 1.5's one gatekeeper agent with a `model: "haiku"`
 > cost-routing override, writing `.flow-tmp/gatekeeper-result.json`;
-> full contract in `references/exemption-contracts.md`.
+> full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #8: `/pr-review` Independent Consolidator-Validator
 > Subagent.** `/pr-review` Step 3.5's one consolidator-validator agent
 > (default Sonnet, no model override), writing
 > `.flow-tmp/consolidator-result.json`; full contract in
-> `references/exemption-contracts.md`.
+> [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #9: Verify-Retry-Loop Subagent.** Step 6's one
 > verify-retry-loop agent owning the 3-outer-attempt `/verify` loop
 > (isolating the re-pasted `flow-pre-commit --json` failure JSON),
 > writing `.flow-tmp/verify-loop-result.json`; full contract in
-> `references/exemption-contracts.md` and
+> [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
 > `references/verify-loop-instructions.md`.
 >
 > **The `/pr-review` Gemini cross-model lens is a Bash fan-out, not a
@@ -706,7 +706,7 @@ above) in its own isolated context, writing the consolidated artifact to
 `<worktree>/.flow-tmp/pr-description-draft.md`. The wrapper creates
 `.flow-tmp/` before spawning; the supervisor never sees the discovery
 transcript, only the wrapper's brief return summary. Full spawn contract
-in `references/exemption-contracts.md`; the discovery method in
+in [references/exemption-contracts.md](../../../references/exemption-contracts.md); the discovery method in
 `skills/pipeline/product-planning/references/discovery-instructions.md`.
 
 After the wrapper returns, **read `<worktree>/.flow-tmp/plan.md`** once
@@ -1508,7 +1508,7 @@ closed/merged/trivial/no-new-commits PRs cheaply without paying for the
 four-agent Sonnet review. On a skip verdict the wrapper writes a
 `status: "clean"` artifact and the supervisor proceeds to the auto-merge
 gate; on `decision: "proceed"` it falls through to the full review. Full
-contract in `references/exemption-contracts.md`.
+contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 
 The skill auto-detects Address vs Review mode from the existing PR
 state and:
