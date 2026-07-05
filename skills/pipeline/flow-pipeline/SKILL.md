@@ -1295,6 +1295,15 @@ SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
 VERIFY_MODEL=$(jq -r '.modelVerify // empty' ~/.flow/state/"$SLUG".json)
 [ -z "$VERIFY_MODEL" ] && VERIFY_MODEL=$(jq -r '.models.verify // empty' ~/.flow/config.json 2>/dev/null)
 [ -z "$VERIFY_MODEL" ] && VERIFY_MODEL="sonnet"
+
+# Subagent type: the flow-verify definition (agents/flow-verify.md) pins
+# effort: low so this mechanical loop stops burning high-effort tokens.
+# Fall back to general-purpose when the definition is not symlinked (a
+# consumer who has not re-run flow install), so the pipeline never fails
+# on an unknown agent type. The per-spawn model: below overrides the
+# definition's model, so the verify precedence is unchanged either way.
+VERIFY_SUBAGENT=flow-verify
+[ -f ~/.claude/agents/flow-verify.md ] || VERIFY_SUBAGENT=general-purpose
 ```
 
 Spawn-prompt template (fill the `{{...}}` placeholders before passing to
@@ -1332,11 +1341,14 @@ entry, or the failing check on exhaustion). Do not paste the artifact or
 the /verify transcript back; the artifact on disk is the durable record.
 ```
 
-Make the Task call with `subagent_type: general-purpose`, the per-spawn
-`model: "$VERIFY_MODEL"` argument resolved above (verify precedence
+Make the Task call with `subagent_type: $VERIFY_SUBAGENT` (resolved above —
+`flow-verify` when the definition is symlinked, else `general-purpose`), the
+per-spawn `model: "$VERIFY_MODEL"` argument resolved above (verify precedence
 `--model-verify > config.models.verify > "sonnet"`, NOT inherited — see
 [references/model-routing.md](references/model-routing.md)), and the filled
-prompt. After it returns:
+prompt. The `flow-verify` definition pins `effort: low`; the per-spawn
+`model:` overrides its model, so the precedence above is unchanged. After it
+returns:
 
 1. Existence check: `test -s "$ARTIFACT_PATH"`. If absent, escalate
    `NEEDS HUMAN: verify-loop-missing-artifact` and end (do not re-spawn
