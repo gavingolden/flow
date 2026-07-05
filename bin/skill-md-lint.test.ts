@@ -1009,6 +1009,23 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       "pr-review SKILL.md fix-applier site must still resolve the per-spawn fixApplier " +
         "model override so the per-phase model flags keep working.",
     ).toBe(true);
+    // Guard the actual per-spawn wiring — not just the state field name —
+    // mirroring the verify site's `model: "$VERIFY_MODEL"` pass-through check.
+    // The fixApplier resolution puts the model in FIX_APPLIER_MODEL and passes
+    // it as the Task call's per-spawn `model:`; a future edit that drops the
+    // pass-through while keeping the `state.modelFixApplier` field reference
+    // would otherwise leave the weaker `modelFixApplier`-only check green.
+    expect(
+      prReviewContent.includes("FIX_APPLIER_MODEL="),
+      "pr-review SKILL.md fix-applier site must resolve the per-spawn model into " +
+        "FIX_APPLIER_MODEL so it can be passed at the Task call.",
+    ).toBe(true);
+    expect(
+      /FIX_APPLIER_MODEL[\s\S]{0,500}per-spawn `model:`/.test(prReviewContent),
+      "pr-review SKILL.md fix-applier site must pass the resolved FIX_APPLIER_MODEL as " +
+        "the Task call's per-spawn `model:` — mirroring the verify site's literal " +
+        '`model: "$VERIFY_MODEL"` pass-through guard, not just naming the state field.',
+    ).toBe(true);
   });
 
   it("neither low-effort agent definition pins a model (per-spawn override must win)", () => {
