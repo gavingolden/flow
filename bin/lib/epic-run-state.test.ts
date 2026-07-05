@@ -296,6 +296,16 @@ describe("epic-run-state", () => {
     ).toBe(false);
   });
 
+  it("type-guard accepts a valid modelJudge alias, an absent field, and rejects out-of-enum", () => {
+    for (const alias of ["opus", "haiku", "sonnet", "fable"] as const) {
+      expect(isEpicRunState(fixture("mj", { modelJudge: alias }))).toBe(true);
+    }
+    expect(isEpicRunState(fixture("mj-absent"))).toBe(true);
+    expect(
+      isEpicRunState(fixture("mj-bad", { modelJudge: "gpt4" as never })),
+    ).toBe(false);
+  });
+
   it("listEpicRunStates returns every epic with a valid run.json", () => {
     writeEpicRunState(fixture("alpha"), dir);
     writeEpicRunState(fixture("beta", { maxParallel: 2 }), dir);

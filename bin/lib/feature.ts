@@ -38,7 +38,13 @@ import {
   type EffortLevel,
   MODEL_ALIASES,
   type ModelAlias,
+  PHASE_MODEL_FLAGS,
 } from "./state";
+import {
+  readDefaultModel,
+  collectModelConfigWarnings,
+  type ReadConfigFile,
+} from "./models-config";
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
@@ -126,6 +132,13 @@ export type FeatureOptions = {
    * `runResume` is unaffected. Absent ⇒ derive + auto-disambiguate.
    */
   slug?: string;
+  /**
+   * Injectable `~/.flow/config.json` reader (test seam only). Threaded into
+   * `readDefaultModel` / `collectModelConfigWarnings` so the launch-time
+   * `models.default` resolution can be exercised without touching the real
+   * config. Production uses the module default (reads FLOW_CONFIG).
+   */
+  readConfig?: ReadConfigFile;
   /** Persist `autoMerge: false` so the supervisor stops at gated. */
   noAutoMerge?: boolean;
   /**
@@ -156,6 +169,21 @@ export type FeatureOptions = {
    * absent (no `--model` flag passed to claude — Claude's default applies).
    */
   model?: ModelAlias;
+  /**
+   * Per-phase model overrides, set via `flow feature create --model-<phase>
+   * <alias>`. Each is persisted onto the matching `PipelineState.model*` field
+   * and consumed by the supervisor at its named Task-spawn site — NOT threaded
+   * into the launch argv (only the session `--model` reaches claude at launch).
+   * Omitted when absent (absent ≡ the phase inherits the session model, with the
+   * verify-`sonnet` and scout/coder exceptions documented at their spawn sites).
+   */
+  modelPlanning?: ModelAlias;
+  modelImplement?: ModelAlias;
+  modelReview?: ModelAlias;
+  modelVerify?: ModelAlias;
+  modelFixApplier?: ModelAlias;
+  modelConsolidator?: ModelAlias;
+  modelMergeResolver?: ModelAlias;
   /**
    * Backoff (ms) between bounded window-launch retries. Test seam only — when 0
    * it disables real sleep entirely (the orphan-repro harness passes 0 so its
@@ -386,6 +414,34 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
   }
   const slugValueToken = slugIdx >= 0 ? args[slugIdx + 1] : undefined;
 
+  // --model-<phase> value flags (planning / implement / review / verify /
+  // fix-applier / consolidator / merge-resolver), each mirroring --model:
+  // enum-validate here before any side-effect (invalid ⇒ exit 1, no state
+  // write), and strip flag+value from the description. Unlike --model, these
+  // are NOT threaded into the launch argv — they persist onto PipelineState
+  // for the supervisor to resolve at each named Task-spawn site. Any subset
+  // may be passed. PHASE_MODEL_FLAGS is state.ts's single source of truth,
+  // so a new phase flag is added in exactly one place.
+  const phaseModels: Partial<Record<string, ModelAlias>> = {};
+  const phaseModelValueTokens = new Map<string, string | undefined>();
+  for (const { flag, field } of PHASE_MODEL_FLAGS) {
+    const idx = args.indexOf(flag);
+    if (idx < 0) continue;
+    const value = args[idx + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error(`flow feature create: ${flag} requires a value.`);
+      console.error("  expected one of: opus, haiku, sonnet, fable");
+      return 1;
+    }
+    if (!(MODEL_ALIASES as readonly string[]).includes(value)) {
+      console.error(`flow feature create: invalid ${flag} value '${value}'.`);
+      console.error("  expected one of: opus, haiku, sonnet, fable");
+      return 1;
+    }
+    phaseModels[field] = value as ModelAlias;
+    phaseModelValueTokens.set(flag, value);
+  }
+
   // Drop a leading `--` end-of-options sentinel so descriptions written
   // with `flow feature create -- fix the -h crash` round-trip without the literal
   // `--` token. Pairs with `argsContainHelp`'s POSIX `--` stop semantics.
@@ -422,6 +478,12 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
           slugValueToken !== undefined && !slugValueToken.startsWith("--");
         return false;
       }
+      if (phaseModelValueTokens.has(a)) {
+        // A --model-<phase> flag: strip it and its value token.
+        const vt = phaseModelValueTokens.get(a);
+        skipNext = vt !== undefined && !vt.startsWith("--");
+        return false;
+      }
       return (
         a !== "--no-auto-merge" &&
         a !== "--wait-for-copilot" &&
@@ -438,6 +500,7 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
     effort,
     model,
     slug,
+    ...phaseModels,
   });
 }
 
@@ -445,7 +508,7 @@ function runFresh(description: string, options: FeatureOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow feature create: description is required.");
     console.error(
-      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--slug <slug>] <description>",
+      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] <description>",
     );
     return 1;
   }
@@ -529,9 +592,20 @@ function runFresh(description: string, options: FeatureOptions): number {
   const worktree = deriveWorktreePath(repo, slug);
   const settingsPath = launchSettingsPathFor(options);
   const seed = flowPipelineSeed(slug, description);
+
+  // Whole-session model, resolved at launch: the --model flag wins over the
+  // config `models.default`; absent both, no --model reaches claude (its
+  // default applies). Best-effort-warn on any present-but-invalid models.*
+  // config value, then fall back — mirrors ensureLaunchSettings' non-fatal
+  // warn pattern.
+  for (const w of collectModelConfigWarnings(options.readConfig)) {
+    console.error(dim(`flow feature create: ${w}`));
+  }
+  const sessionModel = options.model ?? readDefaultModel(options.readConfig);
+
   const command =
     options.command ??
-    buildLaunchCommand(worktree, options.effort, settingsPath, options.model);
+    buildLaunchCommand(worktree, options.effort, settingsPath, sessionModel);
 
   // Persist-then-verify-then-delete-on-failure: write state(phase=starting)
   // BEFORE the verified launch so the supervisor has a file to advance (its
@@ -565,7 +639,14 @@ function runFresh(description: string, options: FeatureOptions): number {
         forceResearch: options.forceResearch ? true : undefined,
         copilotReview: options.copilotReview,
         effort: options.effort,
-        model: options.model,
+        model: sessionModel,
+        modelPlanning: options.modelPlanning,
+        modelImplement: options.modelImplement,
+        modelReview: options.modelReview,
+        modelVerify: options.modelVerify,
+        modelFixApplier: options.modelFixApplier,
+        modelConsolidator: options.modelConsolidator,
+        modelMergeResolver: options.modelMergeResolver,
         updatedAt: nowIso(),
       },
       options.stateDir,

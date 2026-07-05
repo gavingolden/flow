@@ -38,7 +38,7 @@ Usage:
                                         --no-pull-canonical skips pulling the canonical source before symlinking;
                                         --repair-settings backs up and rewrites ~/.claude/settings.json when malformed;
                                         --install-deps installs missing source-root runtime deps before symlinking)
-  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--slug <slug>] <description>
+  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
                                         start a new pipeline in a tmux window
                                         (--no-auto-merge stops at gated regardless of rubric;
                                         --wait-for-copilot forces the full 10-min Copilot wait
@@ -47,7 +47,9 @@ Usage:
                                         bypassing the relevance gate and the research.discovery config opt-in;
                                         --copilot-review controls Copilot review opt-in, default auto;
                                         --effort sets the Claude Code reasoning-effort level for the claude session;
-                                        --model sets the Claude Code model alias for the claude session;
+                                        --model sets the whole-session Claude model alias;
+                                        --model-<phase> overrides just one phase — planning/implement/review/verify/
+                                        fix-applier/consolidator/merge-resolver; see 'flow help feature';
                                         --slug uses an explicit slug instead of deriving one from the description;
                                         hard-fails if that slug's window already exists)
   flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
@@ -73,7 +75,7 @@ export const HELP_TEXT: Record<string, string> = {
   feature: `flow feature — start or resume a pipeline in a tmux window
 
 Usage:
-  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--slug <slug>] <description>
+  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
   flow feature resume <name> [<name> ...] [--yes]
 
 Subcommands:
@@ -94,7 +96,14 @@ Options (create):
   --effort <low|medium|high|xhigh|max>
                         Claude Code reasoning-effort level for the pipeline's claude session
   --model <opus|haiku|sonnet|fable>
-                        Claude Code model alias for the pipeline's claude session (omit for the default)
+                        whole-session Claude model alias (omit for the default; also settable via
+                        ~/.flow/config.json models.default)
+  --model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>
+                        override the model for just that phase (alias one of opus|haiku|sonnet|fable).
+                        Precedence: --model-<phase> > config.models.<phase> > inherited session model.
+                        verify is the one exception — it defaults to sonnet, NOT the session model.
+                        scout/coder are finer-grain config-only (config.models.scout|coder, no flag);
+                        the gatekeeper stays pinned to haiku (no flag). See README 'Per-phase models'.
   --slug <slug>         use an explicit slug instead of deriving one from the description;
                         hard-fails if that slug's window already exists
 
@@ -104,8 +113,8 @@ Options (resume):
   epic: `flow epic — design and run an epic
 
 Usage:
-  flow epic create [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] "<prompt>"
-  flow epic run <slug> [--once] [--max-parallel <N>]
+  flow epic create [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning <alias>] "<prompt>"
+  flow epic run <slug> [--once] [--max-parallel <N>] [--model <alias>] [--model-judge <alias>]
   flow epic status <slug>
   flow epic ls
   flow epic done <slug> [--yes]
@@ -130,13 +139,19 @@ Options (create):
   --effort <low|medium|high|xhigh|max>
                         Claude Code reasoning-effort level for the epic-design session
   --model <opus|haiku|sonnet|fable>
-                        Claude Code model alias for the epic-design session (omit for the default)
+                        whole-session Claude model alias for the epic-design session (omit for the default)
+  --model-planning <alias>
+                        model for just the design/planning phase (the epic design phase shares the
+                        feature planning knob). Precedence: --model-planning > config.models.planning > inherited
 
 Options (run):
   --once                advance exactly one tick (launch the current frontier,
                         print the board, exit) — no watch loop
   --max-parallel <N>    cap concurrent feature windows (default 3, or
                         ~/.flow/config.json epic.maxParallel)
+  --model <alias>       whole-session Claude model alias for the /epic-run supervisor session
+  --model-judge <alias> model for the per-halt/deadlock judgment sub-agent.
+                        Precedence: --model-judge > config.models.epicJudge > inherited
 
 Options (done):
   --yes, -y             skip the confirmation prompt`,

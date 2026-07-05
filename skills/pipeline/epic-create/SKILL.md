@@ -123,8 +123,25 @@ contains either a `<function>{"name": "Task", ...}</function>` or a
 fall back to in-line execution** — escalate
 `NEEDS HUMAN: task-tool-unavailable: epic-create-designer` and exit.
 
+**Per-phase model (planning) threading.** The epic **design** phase shares the
+feature **planning** knob — resolution field `state.modelPlanning` (set via
+`flow epic create --model-planning`), precedence `--model-planning >
+config.models.planning > inherited` (see
+`../flow-pipeline/references/model-routing.md`). Resolve it and, when non-empty,
+add a `MODEL_PLANNING: <alias>` line to the Task prompt below; `/product-planning`
+forwards it to the Discovery Subagent's Task spawn as its per-spawn `model:`
+(empty ⇒ omit ⇒ inherit). This is a `model:` override on the existing designer
+fan-out — **no** new fan-out site:
+
+```bash
+SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+PLANNING_MODEL=$(jq -r '.modelPlanning // empty' ~/.flow/state/"$SLUG".json)
+[ -z "$PLANNING_MODEL" ] && PLANNING_MODEL=$(jq -r '.models.planning // empty' ~/.flow/config.json 2>/dev/null)
+```
+
 Make exactly one Task call passing the clarified prompt + `WORKTREE` +
-`SKILL_DIR` + `MODE: epic` + the literal `EPIC_DIR`:
+`SKILL_DIR` + `MODE: epic` + the literal `EPIC_DIR` (and the
+`MODEL_PLANNING:` line when non-empty):
 
 ```
 subagent_type: general-purpose
@@ -135,6 +152,7 @@ prompt: |
   WORKTREE: <$WORKTREE>
   SKILL_DIR: <the literal SKILL_DIR from the seed prompt>
   EPIC_DIR: <the literal EPIC_DIR from the seed prompt>
+  MODEL_PLANNING: <$PLANNING_MODEL>   # omit this line entirely when empty
 ```
 
 The one-shot designer writes `<EPIC_DIR>/design.md` + `<EPIC_DIR>/manifest.json`

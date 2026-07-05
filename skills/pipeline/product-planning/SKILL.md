@@ -124,6 +124,15 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
    prompt:        <the prompt template below, with variables filled in>
    ```
 
+   **Per-phase model (planning) passthrough.** When the invocation carries a
+   `MODEL_PLANNING: <alias>` marker line (threaded by `/flow-pipeline` step 3
+   or `/epic-create` step 3 — resolution field `state.modelPlanning`,
+   precedence `--model-planning > config.models.planning > inherited`, see
+   `flow-pipeline/references/model-routing.md`), pass that alias as the Task
+   call's per-spawn `model:` argument. Absent the marker, omit `model:` so the
+   Discovery Subagent inherits the session model. This rides the existing
+   single discovery Task call — **no** new fan-out site, **no** new exemption.
+
 4. When the subagent returns, treat its 3–5 sentence summary as the
    chat output. Do **not** read `.flow-tmp/plan.md` from disk in the
    wrapper — the supervisor (or downstream caller) reads that file

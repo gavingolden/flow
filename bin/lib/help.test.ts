@@ -122,6 +122,29 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.epic).toContain("--model");
     expect(HELP_TEXT.epic).toContain("opus|haiku|sonnet|fable");
   });
+
+  it("HELP_TEXT.feature documents every per-phase --model-<phase> flag", () => {
+    for (const flag of [
+      "--model-planning",
+      "--model-implement",
+      "--model-review",
+      "--model-verify",
+      "--model-fix-applier",
+      "--model-consolidator",
+      "--model-merge-resolver",
+    ]) {
+      expect(HELP_TEXT.feature).toContain(flag);
+    }
+    // The verify-sonnet asymmetry and the config-only scout/coder grain are noted.
+    expect(HELP_TEXT.feature).toMatch(/verify.*sonnet/i);
+    expect(HELP_TEXT.feature).toContain("config.models.scout|coder");
+  });
+
+  it("HELP_TEXT.epic documents --model-planning (create) and --model/--model-judge (run)", () => {
+    expect(HELP_TEXT.epic).toContain("--model-planning");
+    expect(HELP_TEXT.epic).toContain("--model-judge");
+    expect(HELP_TEXT.epic).toContain("config.models.epicJudge");
+  });
 });
 
 describe("HELP_TOP", () => {
