@@ -130,6 +130,15 @@ const FIX_APPLIER_SPAWN_PROMPT_PATH = path.resolve(
   "references",
   "fix-applier-spawn-prompt.md",
 );
+const MERGE_RESOLVER_SPAWN_PROMPT_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-pipeline",
+  "references",
+  "merge-resolver-spawn-prompt.md",
+);
 const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   HERE,
   "..",
@@ -257,6 +266,10 @@ const gatekeeperSpawnPromptContent = fs.readFileSync(
 );
 const fixApplierSpawnPromptContent = fs.readFileSync(
   FIX_APPLIER_SPAWN_PROMPT_PATH,
+  "utf8",
+);
+const mergeResolverSpawnPromptContent = fs.readFileSync(
+  MERGE_RESOLVER_SPAWN_PROMPT_PATH,
   "utf8",
 );
 const discoveryPlaybookContent = fs.readFileSync(
@@ -1512,6 +1525,30 @@ describe("Fix-Applier artifact JSON schema drift (pr-review/SKILL.md ↔ referen
         "not the default'). Without this, the subagent defaults to leaving the slots empty and " +
         "the user-redirect contract is silently broken.",
     ).toBe(true);
+  });
+
+  it("flow-pipeline/references/merge-resolver-spawn-prompt.md carries all eight spawn-prompt placeholders", () => {
+    const placeholders = [
+      "{{INSTRUCTIONS_PATH}}",
+      "{{PR}}",
+      "{{BASE_BRANCH}}",
+      "{{MERGE_STDERR}}",
+      "{{CONFLICTING_FILES}}",
+      "{{WORKTREE}}",
+      "{{PR_DESCRIPTION}}",
+      "{{ARTIFACT_PATH}}",
+    ];
+    const missing = placeholders.filter(
+      (p) => !mergeResolverSpawnPromptContent.includes(p),
+    );
+    expect(
+      missing,
+      "flow-pipeline/references/merge-resolver-spawn-prompt.md must carry every " +
+        "spawn-prompt placeholder the flow-pipeline SKILL.md Step 10 composer fills; a " +
+        "silently dropped placeholder would spawn the merge-conflict resolver with an " +
+        "unfilled template. Missing: " +
+        missing.join(", "),
+    ).toEqual([]);
   });
 
   it("references/fix-applier-instructions.md documents the per-entry 'introduced_by_this_pr' field", () => {

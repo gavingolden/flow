@@ -130,7 +130,7 @@ each retry re-invokes `/verify` and re-pastes the prior attempt's
 branch) and the UI-smoke pass. Artifact:
 `<worktree>/.flow-tmp/verify-loop-result.json` (typed fields `verify_status`
 (`pass` | `exhausted`), `attempts`, `config_authored`, `ui_smoke`,
-`final_failure_excerpt?`, `rejected_alternatives`, `anti_patterns_found`,
+`ui_smoke_reason?`, `final_failure_excerpt?`, `rejected_alternatives`, `anti_patterns_found`,
 `summary`). The supervisor reads it once and branches: `pass` continues to step
 7; `exhausted` escalates `verify-exhausted` and writes the `> [!CAUTION]` PR-body
 block from `final_failure_excerpt`. A committing subagent is consistent with the
