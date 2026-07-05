@@ -115,8 +115,12 @@ describe("flow-session-start-hook — silent no-op paths", () => {
     expect(outLines).toEqual([]);
   });
 
-  it("no-op at every terminal phase even with a marker present", async () => {
-    for (const phase of TERMINAL_PHASES) {
+  it("no-op at every terminal phase even with a marker present (EXCEPT gated)", async () => {
+    // `gated` is deliberately excluded from the terminal no-op: a gated
+    // pipeline carrying a checkpoint marker is a feedback-mode resume point,
+    // so it emits (covered by the dedicated gated cases below). Every OTHER
+    // terminal phase still no-ops even with a marker present.
+    for (const phase of TERMINAL_PHASES.filter((p) => p !== "gated")) {
       const { deps, outLines } = makeDeps({
         pane: "%1",
         slug: "demo",
@@ -126,6 +130,34 @@ describe("flow-session-start-hook — silent no-op paths", () => {
       expect(await run(deps), phase).toBe(0);
       expect(outLines, phase).toEqual([]);
     }
+  });
+
+  it("emits the envelope at gated WITH a checkpoint marker (feedback-mode resume point)", async () => {
+    const { deps, outLines } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("gated"),
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    const env = JSON.parse(outLines.join("").trim()) as {
+      hookSpecificOutput: { hookEventName: string; additionalContext: string };
+    };
+    expect(env.hookSpecificOutput.hookEventName).toBe("SessionStart");
+    expect(env.hookSpecificOutput.additionalContext).toContain(
+      "--resume mode for: demo",
+    );
+  });
+
+  it("no-op at gated WITHOUT a checkpoint marker (a plain /clear at the gate still clears)", async () => {
+    const { deps, outLines } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("gated"),
+      markerExists: false,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(outLines).toEqual([]);
   });
 
   it("no-op for a non-terminal slug when the checkpoint.pending marker is absent", async () => {
