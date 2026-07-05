@@ -17,6 +17,7 @@ import { LockTimeoutError } from "./lock";
 import { removeIfManagedSymlink } from "./symlink";
 import { countStopHook } from "./settings-merge";
 import {
+  discoverAgents,
   discoverHelpers,
   discoverValidators,
   effectiveLinkSource,
@@ -148,6 +149,22 @@ describe("flow install", () => {
     // user's PATH (tree-mutating + tag-creating). Other helpers stay present.
     expect(names).not.toContain("flow-release");
     expect(names).toContain("flow-new-worktree");
+  });
+
+  it("discovers the flow-verify and flow-fix-applier agent definitions", () => {
+    // Regression guard: discoverAgents ships every agents/*.md file as a
+    // kind: "agent" SourceEntry symlinked into ~/.claude/agents. Run against
+    // the real repo's agents/ directory (not the synthetic fixture) so this
+    // fires if a future refactor breaks discovery for the two low-effort
+    // agent definitions that pin the mechanical fan-outs.
+    const repoRoot = path.resolve(__dirname, "..", "..");
+    const agents = discoverAgents(repoRoot);
+    const names = agents.map((a) => a.displayName);
+    expect(names).toContain("flow-verify.md");
+    expect(names).toContain("flow-fix-applier.md");
+    for (const a of agents) {
+      expect(a.kind).toBe("agent");
+    }
   });
 
   it("discovers the four schema validators via the discoverValidators allowlist", () => {

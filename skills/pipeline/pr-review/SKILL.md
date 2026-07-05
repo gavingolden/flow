@@ -333,10 +333,12 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
 3. Make exactly **one** Task-tool call:
 
    ```
-   subagent_type: general-purpose
+   subagent_type: $FIX_APPLIER_SUBAGENT
    description:   Fix-applier for /pr-review
    prompt:        <the prompt template below, with variables filled in>
    ```
+
+   **Subagent type.** The `flow-fix-applier` definition (`agents/flow-fix-applier.md`) pins `effort: low` so this mechanical apply-commit-push loop stops burning high-effort tokens. Resolve `FIX_APPLIER_SUBAGENT=flow-fix-applier; [ -f ~/.claude/agents/flow-fix-applier.md ] || FIX_APPLIER_SUBAGENT=general-purpose` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
 
    **Per-phase model (fixApplier) resolution.** Field `state.modelFixApplier`; precedence `--model-fix-applier > config.models.fixApplier > inherited` (see `../flow-pipeline/references/model-routing.md`). Resolve via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); FIX_APPLIER_MODEL=$(jq -r '.modelFixApplier // empty' ~/.flow/state/"$SLUG".json); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL=$(jq -r '.models.fixApplier // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit).
 

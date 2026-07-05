@@ -163,6 +163,8 @@ The three schema validators `flow-pr-review-result-schema`, `flow-agent-finding-
 The `flow` wrapper itself is also Bun, at `bin/flow`. It dispatches every
 verb natively — there is no passthrough or legacy entry point.
 
+Static agent-type definitions live in **`agents/`** (`*.md` frontmatter), discovered by `discoverAgents` and symlinked to `~/.claude/agents/`; `flow-verify` and `flow-fix-applier` pin the two mechanical fan-outs to `effort: low` (per-spawn `model:` still wins).
+
 Conventions for any script under `bin/`:
 
 - `#!/usr/bin/env bun` shebang and `chmod +x`.
@@ -170,7 +172,7 @@ Conventions for any script under `bin/`:
 - Tests live next door as `<name>.test.ts` and run via vitest (`npm run test`). They're flow-internal: `flow install` skips `*.test.ts` files when symlinking, since consumers don't need them on PATH.
 - Source ≠ install target by design (`bin/` in flow's repo vs `~/.local/bin/` on the user's machine). Don't move scripts back to the install directory.
 
-When adding a new script, default to Bun. If you need to deviate (e.g. a Node-only dependency), confirm with the user first and document the exception inline.
+When adding a new script, default to Bun. To deviate (e.g. a Node-only dependency), confirm with the user first and document the exception inline.
 
 ## Supervisor and sub-skills: in-process only
 
