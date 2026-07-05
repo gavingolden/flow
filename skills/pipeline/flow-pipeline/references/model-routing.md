@@ -42,18 +42,24 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 | `/coder` Edit-Applier (implement)                  | `modelImplement`                | `config.models.coder // state.modelImplement // config.models.implement // inherited` |
 | Step 6 Verify-Retry-Loop (verify)                  | `modelVerify`                   | `state.modelVerify // config.models.verify // "sonnet"` **(NOT inherited)**           |
 | `/pr-review` Multi-Agent Review (review)           | `modelReview`                   | `state.modelReview // config.models.review // inherited`                              |
-| `/pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`               | `state.modelFixApplier // config.models.fixApplier // inherited`                      |
+| `/pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`               | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**   |
 | `/pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`             | `state.modelConsolidator // config.models.consolidator // inherited`                  |
 | Step 10 Merge-Conflict Resolver (mergeResolver)    | `modelMergeResolver`            | `state.modelMergeResolver // config.models.mergeResolver // inherited`                |
 | `/epic-create` designer (planning)                 | `modelPlanning`                 | `state.modelPlanning // config.models.planning // inherited`                          |
 | `/epic-run` judgment sub-agent (judge)             | `modelJudge` (run-state / seed) | `MODEL_JUDGE seed line // config.models.epicJudge // inherited`                       |
 
-## Two deliberate asymmetries
+## Three deliberate asymmetries
 
 - **verify defaults to `sonnet`, not inherited.** Verify is a mechanical gate
   that rarely benefits from an expensive model; defaulting it to inherit would
   silently spend Fable on it. So its final fallback is the literal `sonnet`,
   not the session model. Documented at the Step 6 spawn site.
+- **fixApplier defaults to `sonnet`, not inherited.** The Fix-Applier loop
+  applies already-diagnosed findings — mechanical apply-commit-push work its
+  `agents/flow-fix-applier.md` definition already pins to `effort: low` for the
+  same reason. Letting the model inherit would silently spend the session model
+  (e.g. Opus/Fable) on gate-run-and-commit work, so its final fallback is the
+  literal `sonnet`. Documented at the `/pr-review` Fix-Applier spawn site.
 - **scout / coder are config-only fine-grain (no flags).** `--model-implement`
   is the one primary grain over implementation; `config.models.scout` /
   `config.models.coder` are optional finer overrides that layer **above**
