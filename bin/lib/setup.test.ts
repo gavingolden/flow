@@ -16,7 +16,12 @@ import { readManifest } from "./manifest";
 import { LockTimeoutError } from "./lock";
 import { removeIfManagedSymlink } from "./symlink";
 import { countStopHook } from "./settings-merge";
-import { discoverHelpers, discoverValidators } from "./sources";
+import {
+  discoverHelpers,
+  discoverValidators,
+  effectiveLinkSource,
+  rebaseOntoInstallRoot,
+} from "./sources";
 
 let scratch!: string;
 let flowSource!: string;
@@ -925,6 +930,101 @@ describe("flow install", () => {
         ),
       ).toBe(false);
     });
+
+    it("points live symlinks for content present in canonical at the install-root, not the worktree (Story 1)", () => {
+      // A shared helper + skill exist in BOTH the worktree and the
+      // install-root fixture (buildFakeFlowSource builds identical trees).
+      // Their live symlinks must resolve under installRoot so they survive
+      // the worktree's post-merge removal — no re-pointing churn onto the
+      // worktree.
+      const worktree = path.join(scratch, "worktree");
+      buildFakeFlowSource(worktree);
+
+      setup({ flowSourceOverride: worktree, upgrade: true });
+
+      const t = targets();
+      // realpath both sides — /var → /private/var on macOS would otherwise
+      // yield a spurious string mismatch.
+      expect(fs.realpathSync(path.join(t.binDir, "flow-helper"))).toBe(
+        fs.realpathSync(path.join(flowSource, "bin", "flow-helper.ts")),
+      );
+      expect(fs.realpathSync(path.join(t.skillsDir, "alpha"))).toBe(
+        fs.realpathSync(path.join(flowSource, "skills", "pipeline", "alpha")),
+      );
+      // Neither link resolves into the worktree.
+      expect(
+        fs
+          .realpathSync(path.join(t.binDir, "flow-helper"))
+          .startsWith(worktree),
+      ).toBe(false);
+    });
+
+    it("keeps a genuinely worktree-only helper pointed at the worktree so it is usable during the pipeline (Story 2)", () => {
+      const worktree = path.join(scratch, "worktree");
+      buildFakeFlowSource(worktree);
+      fs.writeFileSync(
+        path.join(worktree, "bin", "flow-pipeline-only.ts"),
+        "#!/usr/bin/env bun\n// only in worktree\n",
+      );
+
+      setup({ flowSourceOverride: worktree, upgrade: true });
+
+      const t = targets();
+      const link = path.join(t.binDir, "flow-pipeline-only");
+      expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(link)).toBe(
+        fs.realpathSync(path.join(worktree, "bin", "flow-pipeline-only.ts")),
+      );
+    });
+
+    it("keeps the flow wrapper anchored to install-root under a --source install (Story 3)", () => {
+      const worktree = path.join(scratch, "worktree");
+      buildFakeFlowSource(worktree);
+
+      setup({ flowSourceOverride: worktree, upgrade: true });
+
+      const t = targets();
+      expect(fs.realpathSync(path.join(t.binDir, "flow"))).toBe(
+        fs.realpathSync(path.join(flowSource, "bin", "flow")),
+      );
+    });
+
+    it("re-links an existing helper to canonical while reaping a never-merged worktree-only helper after removal (Story 5)", () => {
+      // A worktree that adds a new-only helper on top of the shared tree.
+      const worktree = path.join(scratch, "worktree");
+      buildFakeFlowSource(worktree);
+      fs.writeFileSync(
+        path.join(worktree, "bin", "flow-pipeline-only.ts"),
+        "#!/usr/bin/env bun\n// only in worktree\n",
+      );
+
+      // Step 5.5: --source upgrade. Shared helper points at canonical; the
+      // new-only helper points at the worktree.
+      setup({ flowSourceOverride: worktree, upgrade: true });
+      const t = targets();
+      expect(fs.realpathSync(path.join(t.binDir, "flow-helper"))).toBe(
+        fs.realpathSync(path.join(flowSource, "bin", "flow-helper.ts")),
+      );
+
+      // flow-remove-worktree: the worktree is gone.
+      fs.rmSync(worktree, { recursive: true, force: true });
+
+      // Post-merge canonical upgrade (no --source).
+      const summary = setup({ upgrade: true });
+
+      // The never-merged worktree-only helper is reaped (dangling branch)...
+      expect(summary.removed).toBeGreaterThanOrEqual(1);
+      expect(fs.existsSync(path.join(t.binDir, "flow-pipeline-only"))).toBe(
+        false,
+      );
+      // ...while the shared helper is re-linked to canonical, not reaped.
+      expect(
+        fs.lstatSync(path.join(t.binDir, "flow-helper")).isSymbolicLink(),
+      ).toBe(true);
+      expect(fs.realpathSync(path.join(t.binDir, "flow-helper"))).toBe(
+        fs.realpathSync(path.join(flowSource, "bin", "flow-helper.ts")),
+      );
+    });
   });
 
   describe("canonical-tree-presence backstop (PR #115 race)", () => {
@@ -1383,6 +1483,57 @@ describe("flow install", () => {
       expect(nonWarning.join("\n")).toMatch(/already up to date/);
       void warnings;
     });
+  });
+});
+
+describe("rebaseOntoInstallRoot / effectiveLinkSource", () => {
+  const worktree = "/repo/flow-slug";
+  const canonical = "/repo/flow";
+
+  it("is identity when flowSource === installRoot", () => {
+    const p = "/repo/flow/bin/flow-helper.ts";
+    expect(rebaseOntoInstallRoot(p, canonical, canonical)).toBe(p);
+  });
+
+  it("rebases a worktree-rooted path onto installRoot when they diverge", () => {
+    expect(
+      rebaseOntoInstallRoot(
+        "/repo/flow-slug/bin/flow-helper.ts",
+        worktree,
+        canonical,
+      ),
+    ).toBe("/repo/flow/bin/flow-helper.ts");
+  });
+
+  it("is identity when the source escapes flowSource (the ..-guard)", () => {
+    // The wrapper's source is already installRoot-rooted, so relative()
+    // escapes with a leading `..`; rebasing must not double-join.
+    const wrapper = "/repo/flow/bin/flow";
+    expect(rebaseOntoInstallRoot(wrapper, worktree, canonical)).toBe(wrapper);
+  });
+
+  it("effectiveLinkSource falls back to the worktree path when no canonical file exists", () => {
+    // /repo/flow/bin/flow-newonly.ts does not exist on disk, so the live
+    // link stays worktree-pointed.
+    const wtOnly = "/repo/flow-slug/bin/flow-newonly.ts";
+    expect(effectiveLinkSource(wtOnly, worktree, canonical)).toBe(wtOnly);
+  });
+
+  it("effectiveLinkSource prefers the canonical path when it exists on disk", () => {
+    // Build a real canonical file so existsSync returns true.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "flow-els-"));
+    try {
+      const canon = path.join(root, "flow");
+      const wt = path.join(root, "flow-slug");
+      fs.mkdirSync(path.join(canon, "bin"), { recursive: true });
+      fs.writeFileSync(path.join(canon, "bin", "flow-helper.ts"), "// x\n");
+      const wtSource = path.join(wt, "bin", "flow-helper.ts");
+      expect(effectiveLinkSource(wtSource, wt, canon)).toBe(
+        path.join(canon, "bin", "flow-helper.ts"),
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

@@ -180,6 +180,24 @@ spawn:
    prompt:        <the prompt template below, with variables filled in>
    ```
 
+   **Per-phase model (implement → coder) resolution.** The Edit-Applier is the
+   `implement` fan-out's write half; resolution field `state.modelImplement`
+   with the coder config-only fine-grain layered **above** it — precedence
+   `config.models.coder > state.modelImplement(--model-implement) >
+config.models.implement > inherited` (see
+   `../flow-pipeline/references/model-routing.md`). Resolve via `jq` and pass
+   the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒
+   inherit). There is **no** `--model-coder` flag — the finer grain is
+   config-only:
+
+   ```bash
+   SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug)
+   CODER_MODEL=$(jq -r '.models.coder // empty' ~/.flow/config.json 2>/dev/null)
+   [ -z "$CODER_MODEL" ] && CODER_MODEL=$(jq -r '.modelImplement // empty' ~/.flow/state/"$SLUG".json)
+   [ -z "$CODER_MODEL" ] && CODER_MODEL=$(jq -r '.models.implement // empty' ~/.flow/config.json 2>/dev/null)
+   # Non-empty ⇒ pass model: "$CODER_MODEL" on the Task call; empty ⇒ omit.
+   ```
+
 4. When the subagent returns, treat its 3–5 sentence summary as the chat
    output. Do **not** read the artifact body in the wrapper — the caller
    (`/new-feature`, `/verify`, or `/refactoring`) reads it once when it

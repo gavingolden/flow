@@ -9,6 +9,7 @@ import {
   isPipelinePhase,
   listStates,
   PENDING_PHASES,
+  PHASE_MODEL_FIELDS,
   PHASE_SHORT,
   PIPELINE_PHASES,
   PIPELINE_PHASE_SET,
@@ -328,6 +329,44 @@ describe("state", () => {
     );
     expect(readState("model-bad", dir)).toBeNull();
   });
+
+  it.each([...PHASE_MODEL_FIELDS])(
+    "readState accepts a valid alias on per-phase field %s",
+    (field) => {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, `pm-${field}.json`),
+        JSON.stringify({
+          slug: `pm-${field}`,
+          phase: "reviewing",
+          repo: "/tmp/repo",
+          updatedAt: "2026-05-17T00:00:00Z",
+          [field]: "fable",
+        }),
+      );
+      expect(
+        (readState(`pm-${field}`, dir) as Record<string, unknown>)?.[field],
+      ).toBe("fable");
+    },
+  );
+
+  it.each([...PHASE_MODEL_FIELDS])(
+    "readState returns null when per-phase field %s is out of enum",
+    (field) => {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, `pm-bad-${field}.json`),
+        JSON.stringify({
+          slug: `pm-bad-${field}`,
+          phase: "reviewing",
+          repo: "/tmp/repo",
+          updatedAt: "2026-05-17T00:00:00Z",
+          [field]: "gpt4",
+        }),
+      );
+      expect(readState(`pm-bad-${field}`, dir)).toBeNull();
+    },
+  );
 
   it.each([
     ["slug", 42],

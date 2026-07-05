@@ -2382,12 +2382,21 @@ describe("pr-review include-by-reference structure", () => {
     // so it adds no exemption block); and (b) the Step 11b Testability nudge
     // flagging import-presence-grep-only Test Steps on wiring changes as
     // Testability: Fail (shallow). Both are new-contract prose, not regrowth.
+    //
+    // Bumped 1945 → 1965 to absorb the per-phase model-routing wiring
+    // (feature: per-phase Claude model selection): three spawn sites gain a
+    // one-paragraph `model:` resolution note (Multi-Agent Review → review,
+    // Fix-Applier → fixApplier, Consolidator-Validator → consolidator) and the
+    // Gatekeeper gains a "pinned to haiku, no flag, config.models.gatekeeper
+    // discouraged" note. Each is a `model:` override on an EXISTING named
+    // fan-out — no new exemption, no new spawn site. New-contract prose, not
+    // regrowth of previously-trimmed prose.
     expect(
       lineCount,
-      `pr-review/SKILL.md line count must stay under the post-Gemini-lens ` +
-        `budget of 1945 lines. Material regrowth past this ceiling would ` +
+      `pr-review/SKILL.md line count must stay under the post-model-routing ` +
+        `budget of 1965 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1945);
+    ).toBeLessThan(1965);
   });
 
   it("skills/pipeline/pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
@@ -3822,5 +3831,89 @@ describe("/epic-run supervisor SKILL.md literal anchors", () => {
       "AGENTS.md's /epic-run bullet must name the judgment-sub-agent Task " +
         `surface opener '${OPENER}' (bidirectional with epic-run/SKILL.md).`,
     ).toBe(true);
+  });
+});
+
+describe("per-phase model-routing wiring lint (feature: per-phase model selection)", () => {
+  // Each named Task-spawn site that gained a `model:` override must name its
+  // resolution field + precedence + reference the central model-routing doc, so
+  // a future edit can't silently drop the per-phase wiring. Adding a `model:`
+  // override to an EXISTING fan-out is NOT a new exemption — these anchors guard
+  // the wiring, not a new spawn count.
+  const skillsDir = path.resolve(HERE, "..", "skills", "pipeline");
+  const read = (rel: string) =>
+    fs.readFileSync(path.resolve(skillsDir, rel), "utf8");
+
+  it("the central model-routing reference exists with its precedence table", () => {
+    const routing = read("flow-pipeline/references/model-routing.md");
+    expect(routing).toContain("Per-phase model routing");
+    // Every phase state field is named in the precedence table.
+    for (const field of [
+      "modelPlanning",
+      "modelImplement",
+      "modelVerify",
+      "modelReview",
+      "modelFixApplier",
+      "modelConsolidator",
+      "modelMergeResolver",
+      "modelJudge",
+    ]) {
+      expect(
+        routing.includes(field),
+        `model-routing.md must name the '${field}' resolution field.`,
+      ).toBe(true);
+    }
+    // The verify-sonnet asymmetry and the gatekeeper pin are documented there.
+    expect(routing).toMatch(/verify.*sonnet/i);
+    expect(routing).toContain('model: "haiku"');
+  });
+
+  it.each([
+    ["flow-pipeline/SKILL.md", "modelVerify", "config.models.verify"],
+    [
+      "flow-pipeline/SKILL.md",
+      "modelMergeResolver",
+      "config.models.mergeResolver",
+    ],
+    ["flow-pipeline/SKILL.md", "modelPlanning", "config.models.planning"],
+    ["new-feature/SKILL.md", "modelImplement", "config.models.scout"],
+    ["coder/SKILL.md", "modelImplement", "config.models.coder"],
+    ["pr-review/SKILL.md", "modelReview", "config.models.review"],
+    ["pr-review/SKILL.md", "modelFixApplier", "config.models.fixApplier"],
+    ["pr-review/SKILL.md", "modelConsolidator", "config.models.consolidator"],
+    ["epic-create/SKILL.md", "modelPlanning", "config.models.planning"],
+    ["epic-run/SKILL.md", "modelJudge", "config.models.epicJudge"],
+  ])(
+    "%s names the %s resolution field + %s precedence key at its spawn site",
+    (skill, field, cfgKey) => {
+      const content = read(skill);
+      expect(
+        content.includes(field),
+        `${skill} must name the '${field}' resolution field at its per-phase model spawn site.`,
+      ).toBe(true);
+      expect(
+        content.includes(cfgKey),
+        `${skill} must name the '${cfgKey}' config precedence key at its per-phase model spawn site.`,
+      ).toBe(true);
+      expect(
+        content.includes("model-routing.md"),
+        `${skill} must reference the central model-routing.md at its per-phase model spawn site.`,
+      ).toBe(true);
+    },
+  );
+
+  it('the /pr-review gatekeeper stays pinned to model: "haiku" with no flag and a discouraged config key', () => {
+    const prReview = read("pr-review/SKILL.md");
+    expect(prReview).toContain('model: "haiku"');
+    // The discouraged-config-override note is present and forecloses a flag.
+    expect(prReview).toContain("config.models.gatekeeper");
+    expect(prReview.toLowerCase()).toContain("no");
+    expect(prReview).toContain("--model-gatekeeper");
+  });
+
+  it("product-planning forwards the MODEL_PLANNING marker to its discovery spawn", () => {
+    const pp = read("product-planning/SKILL.md");
+    expect(pp).toContain("MODEL_PLANNING");
+    expect(pp).toContain("model-routing.md");
   });
 });

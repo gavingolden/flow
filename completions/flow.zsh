@@ -66,7 +66,14 @@ _flow() {
                             '--research[force web-grounded discovery research on, bypassing the relevance gate]' \
                             '--copilot-review[Copilot review opt-in]:mode:(auto always never)' \
                             '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
-                            '--model[Claude Code model alias]:alias:(opus haiku sonnet fable)' \
+                            '--model[whole-session Claude model alias]:alias:(opus haiku sonnet fable)' \
+                            '--model-planning[model for the planning phase]:alias:(opus haiku sonnet fable)' \
+                            '--model-implement[model for the implement phase]:alias:(opus haiku sonnet fable)' \
+                            '--model-review[model for the review phase]:alias:(opus haiku sonnet fable)' \
+                            '--model-verify[model for the verify phase (defaults to sonnet)]:alias:(opus haiku sonnet fable)' \
+                            '--model-fix-applier[model for the fix-applier phase]:alias:(opus haiku sonnet fable)' \
+                            '--model-consolidator[model for the consolidator phase]:alias:(opus haiku sonnet fable)' \
+                            '--model-merge-resolver[model for the merge-resolver phase]:alias:(opus haiku sonnet fable)' \
                             '*::description:'
                     elif [[ "$line[2]" == resume ]]; then
                         _arguments \
@@ -90,12 +97,15 @@ _flow() {
                         _arguments \
                             '--resume[resume a crashed epic-design session]:pipeline:_flow_slugs' \
                             '--effort[Claude Code reasoning effort]:level:(low medium high xhigh max)' \
-                            '--model[Claude Code model alias]:alias:(opus haiku sonnet fable)' \
+                            '--model[whole-session Claude model alias]:alias:(opus haiku sonnet fable)' \
+                            '--model-planning[model for the design/planning phase]:alias:(opus haiku sonnet fable)' \
                             '*::prompt:'
                     elif [[ "$line[2]" == run ]]; then
                         _arguments \
                             '--once[advance exactly one tick, then exit]' \
-                            '--max-parallel[cap concurrent feature windows]:N:'
+                            '--max-parallel[cap concurrent feature windows]:N:' \
+                            '--model[whole-session model for the /epic-run supervisor]:alias:(opus haiku sonnet fable)' \
+                            '--model-judge[model for the judgment sub-agent]:alias:(opus haiku sonnet fable)'
                     else
                         local -a sub
                         sub=(

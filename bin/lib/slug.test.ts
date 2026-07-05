@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { slugify } from "./slug";
+import { slugify, isValidSlug } from "./slug";
 
 describe(slugify, () => {
   it("lowercases input", () => {
@@ -59,5 +59,44 @@ describe(slugify, () => {
 
   it("fallback differs across distinct inputs", () => {
     expect(slugify("the if and")).not.toBe(slugify("a or be"));
+  });
+});
+
+describe(isValidSlug, () => {
+  it("accepts lowercase kebab slugs", () => {
+    expect(isValidSlug("pokedex-page")).toBe(true);
+    expect(isValidSlug("csv-export")).toBe(true);
+  });
+
+  it("accepts a slug with more than 5 tokens (slugify's cap does not apply)", () => {
+    expect(isValidSlug("a-b-c-d-e-f-g")).toBe(true);
+  });
+
+  it("accepts digit-only and single-char slugs", () => {
+    expect(isValidSlug("123")).toBe(true);
+    expect(isValidSlug("a")).toBe(true);
+  });
+
+  it("accepts a slug at the 60-char length bound", () => {
+    expect(isValidSlug("a".repeat(60))).toBe(true);
+  });
+
+  it("rejects uppercase and spaces", () => {
+    expect(isValidSlug("Bad Slug")).toBe(false);
+    expect(isValidSlug("PascalCase")).toBe(false);
+  });
+
+  it("rejects leading, trailing, and double hyphens", () => {
+    expect(isValidSlug("-x")).toBe(false);
+    expect(isValidSlug("x-")).toBe(false);
+    expect(isValidSlug("x--y")).toBe(false);
+  });
+
+  it("rejects the empty string", () => {
+    expect(isValidSlug("")).toBe(false);
+  });
+
+  it("rejects an over-length (>60 char) slug", () => {
+    expect(isValidSlug("a".repeat(61))).toBe(false);
   });
 });

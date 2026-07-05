@@ -84,7 +84,7 @@ _flow() {
                         COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
                         return
                         ;;
-                    --model)
+                    --model|--model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver)
                         # shellcheck disable=SC2207
                         COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
                         return
@@ -96,7 +96,7 @@ _flow() {
                         ;;
                 esac
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--no-auto-merge --wait-for-copilot --research --copilot-review --effort --model" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--no-auto-merge --wait-for-copilot --research --copilot-review --effort --model --model-planning --model-implement --model-review --model-verify --model-fix-applier --model-consolidator --model-merge-resolver" -- "$cur") )
             elif [ "$fsub" = "resume" ]; then
                 # Every trailing non-flag token is a slug (`flow feature resume
                 # x y z`); complete slugs cur-based (like `done`) so the SECOND+
@@ -139,17 +139,26 @@ _flow() {
                         COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
                         return
                         ;;
-                    --model)
+                    --model|--model-planning)
                         # shellcheck disable=SC2207
                         COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
                         return
                         ;;
                 esac
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--resume --effort --model" -- "$cur") )
-            elif [ "$esub" = "run" ] && [[ "$cur" == -* ]]; then
-                # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "--once --max-parallel" -- "$cur") )
+                COMPREPLY=( $(compgen -W "--resume --effort --model --model-planning" -- "$cur") )
+            elif [ "$esub" = "run" ]; then
+                case "$prev" in
+                    --model|--model-judge)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
+                        return
+                        ;;
+                esac
+                if [[ "$cur" == -* ]]; then
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "--once --max-parallel --model --model-judge" -- "$cur") )
+                fi
             else
                 # shellcheck disable=SC2207
                 COMPREPLY=( $(compgen -W "create run status ls" -- "$cur") )

@@ -18,6 +18,30 @@ import { createHash } from "node:crypto";
 const MAX_LENGTH = 40;
 const MAX_TOKENS = 5;
 
+/**
+ * Max length for an explicit `--slug` value. Roomier than slugify's 40-char
+ * derivation cap because an epic id-derived slug or a deliberate human slug may
+ * legitimately run longer, and the tmux-window / state-file / branch sinks all
+ * tolerate it.
+ */
+const MAX_SLUG_LENGTH = 60;
+
+/**
+ * Canonical slug-legality check — the single source of truth for whether a
+ * string is a valid pipeline slug (tmux window name, `<slug>.json` state-file
+ * basename, git branch / worktree-dir suffix). Enforces lowercase kebab-case
+ * (`^[a-z0-9]+(?:-[a-z0-9]+)*$`: no leading/trailing/double hyphens, no
+ * uppercase or spaces) plus a MAX_SLUG_LENGTH bound.
+ *
+ * Deliberately NOT `slugify(s) === s`: slugify caps at MAX_TOKENS/MAX_LENGTH, so
+ * a legitimately longer explicit slug would round-trip to a shorter string and
+ * be wrongly rejected. Validate by shape + length only.
+ */
+export function isValidSlug(s: string): boolean {
+  if (s.length === 0 || s.length > MAX_SLUG_LENGTH) return false;
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(s);
+}
+
 const STOP_WORDS = new Set([
   "the",
   "a",

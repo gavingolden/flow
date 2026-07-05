@@ -46,11 +46,64 @@ By default a pipeline auto-merges its PR when the merge gate is clear; pass `flo
 - `--copilot-review <auto|always|never>` (default `auto`) — control whether flow requests a Copilot review on the PR.
 - `--wait-for-copilot` — block on the Copilot review before proceeding.
 - `--research` — force web-grounded discovery research on for that pipeline, bypassing the relevance gate and the `research.discovery` config opt-in.
+- `--slug <slug>` — use an explicit slug instead of deriving one from the description; hard-fails if that slug's window already exists (a derived-slug collision instead auto-suffixes to `-2`/`-3`).
+- `--effort <low|medium|high|xhigh|max>` — set the Claude Code reasoning-effort level for the pipeline's session.
+- `--model <opus|haiku|sonnet|fable>` — set the whole-session Claude model.
+- `--model-<phase> <alias>` — override the model for just one phase: `--model-planning`, `--model-implement`, `--model-review`, `--model-verify`, `--model-fix-applier`, `--model-consolidator`, `--model-merge-resolver`. See **Per-phase models** below.
 - `--resume <name>` — re-launch a crashed supervisor session for an existing pipeline.
 
 Run `flow feature create --help` for the full surface.
 
 </details>
+
+## Per-phase models
+
+A pipeline runs many distinct Claude phases — planning, implementation, review, verify, the fix-applier/consolidator tail, merge-conflict resolution — plus the epic-design and epic-run supervisors. You can concentrate an expensive model (e.g. the newly-released **Fable**) on the high-leverage reasoning phases and run cheaper models on the mechanical ones, controlled per-run (flags) or globally (config).
+
+**Per-run flags** — `flow feature create --model-planning fable --model-verify haiku "add X"` routes Fable to planning and Haiku to verify for that pipeline, leaving every other phase on the session default. Epic knobs: `flow epic create --model-planning <alias>` (the epic design phase shares the feature planning knob), and `flow epic run --model <alias>` (supervisor session) / `flow epic run --model-judge <alias>` (the per-halt/deadlock judgment sub-agent).
+
+**Global config** — set a house style once in `~/.flow/config.json`:
+
+```json
+{
+  "models": {
+    "default": "sonnet",
+    "planning": "fable",
+    "implement": "sonnet",
+    "review": "sonnet",
+    "verify": "haiku",
+    "fixApplier": "sonnet",
+    "consolidator": "sonnet",
+    "mergeResolver": "sonnet",
+    "epicJudge": "sonnet",
+    "scout": "sonnet",
+    "coder": "sonnet"
+  }
+}
+```
+
+| key             | phase                                      | flag                     |
+| --------------- | ------------------------------------------ | ------------------------ |
+| `default`       | whole-session default (consumed at launch) | `--model`                |
+| `planning`      | planning / epic design                     | `--model-planning`       |
+| `implement`     | implementation (scout + coder)             | `--model-implement`      |
+| `review`        | multi-agent PR review                      | `--model-review`         |
+| `verify`        | pre-commit verify gate                     | `--model-verify`         |
+| `fixApplier`    | PR-review fix-applier                      | `--model-fix-applier`    |
+| `consolidator`  | PR-review consolidator-validator           | `--model-consolidator`   |
+| `mergeResolver` | merge-conflict resolver                    | `--model-merge-resolver` |
+| `epicJudge`     | epic-run judgment sub-agent                | `--model-judge`          |
+| `scout`         | implementation scout (finer grain)         | _(config only, no flag)_ |
+| `coder`         | implementation edit-applier (finer grain)  | _(config only, no flag)_ |
+
+**Precedence** (highest wins):
+
+- **Session model** — `--model` > `config.models.default` > Claude's default. Read once at launch and passed to `claude --model`.
+- **Per-phase model** — `--model-<phase>` > `config.models.<phase>` > inherited session model.
+- **Two deliberate asymmetries** — (1) **verify** defaults to `sonnet`, **not** the session model (a mechanical gate rarely earns an expensive model): `--model-verify` > `config.models.verify` > `sonnet`. (2) **scout / coder** are config-only fine-grain that layer _above_ `--model-implement`: `config.models.scout|coder` > `--model-implement` > `config.models.implement` > inherited.
+- **The gatekeeper is pinned** to `haiku` — its whole job is cheap cost-routing. There is no `--model-gatekeeper` flag; a `config.models.gatekeeper` key is reachable but strongly discouraged (overriding it defeats the cost-routing).
+
+Aliases are `opus`, `haiku`, `sonnet`, `fable`; flow forwards the alias verbatim to `claude --model`. An invalid alias in a flag exits non-zero writing no state; an invalid value in `config.models.*` emits a best-effort warning at create time and falls back.
 
 ## How it works
 
