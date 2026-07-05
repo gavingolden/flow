@@ -125,6 +125,71 @@ describe("decide() — pre-tree edge cases", () => {
     expect(r.reason).toContain("gated");
   });
 
+  it("routes gated + marker + worktree present to step-9 MERGED-cleanup (NOT gated-feedback) when the PR was merged externally", () => {
+    // The PR-OPEN guard: a gated pipeline whose PR is merged on GitHub still
+    // carries marker + worktree (gatherInputs de-short-circuits gated I/O), so
+    // it must fall through to the merged-worktree-cleanup resolution rather than
+    // entering feedback mode on an already-merged PR (which would leave the
+    // worktree/branch uncleaned).
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "gated" }),
+        worktree: PRESENT_WORKTREE,
+        checkpointMarkerExists: true,
+        checkpointExists: true,
+        pr: {
+          kind: "found",
+          state: "MERGED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(r.resumeAt).toBe("step-9");
+    expect(r.reason).toBe("pr-merged-worktree-still-exists");
+    expect(r.context.prState).toBe("MERGED");
+  });
+
+  it("returns terminal (pr-merged-worktree-cleaned-up) for gated + marker when the PR merged externally and the worktree is already gone", () => {
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "gated" }),
+        worktree: { kind: "absent-from-state" },
+        checkpointMarkerExists: true,
+        pr: {
+          kind: "found",
+          state: "MERGED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(r.resumeAt).toBe("terminal");
+    expect(r.reason).toBe("pr-merged-worktree-cleaned-up");
+  });
+
+  it("escalates gated + marker + worktree present (NOT gated-feedback) when the PR was closed without merge externally", () => {
+    // A gated PR closed-unmerged on GitHub must route to the closed-escalation
+    // resolution, not feedback mode.
+    const r = decide(
+      makeInputs({
+        state: baseState({ phase: "gated" }),
+        worktree: PRESENT_WORKTREE,
+        checkpointMarkerExists: true,
+        checkpointExists: true,
+        pr: {
+          kind: "found",
+          state: "CLOSED",
+          number: 100,
+          url: "https://x/y/pull/100",
+        },
+      }),
+    );
+    expect(r.resumeAt).toBe("escalate");
+    expect(r.reason).toBe("pr-closed-without-merge");
+    expect(r.context.prState).toBe("CLOSED");
+  });
+
   it("returns terminal when state.phase is 'cancelled'", () => {
     const r = decide(makeInputs({ state: baseState({ phase: "cancelled" }) }));
     expect(r.resumeAt).toBe("terminal");

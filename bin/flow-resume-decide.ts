@@ -252,17 +252,26 @@ export function decide(inputs: Inputs): DecisionResult {
   }
 
   // Gated feedback mode: `gated` is normally terminal, but when the pipeline
-  // carries a one-shot `checkpoint.pending` marker AND a live worktree, resolve
-  // it to `gated-feedback` — a fresh session positioned to take a bug callout,
-  // route it through /coder, re-verify (step 6), and re-gate (step 9) — instead
-  // of the terminal no-op. This branch MUST precede the TERMINAL_PHASE_SET
-  // short-circuit (gated is a terminal phase) and self-populate ctx.pr/prState
-  // from inputs, because the general PR-population line below is only reached by
-  // non-terminal phases; Story 1 requires `.context.pr` on gated-feedback. The
-  // gate keys on the marker (one-shot, gone after --consume), NOT on
-  // checkpointExists (checkpoint.md, persistent), so a stray later /clear at
-  // gated after a consumed round does not re-fire feedback mode. Marker-absent
-  // (or worktree-gone) gated falls through to the terminal verdict, unchanged.
+  // carries a one-shot `checkpoint.pending` marker AND a live worktree AND the
+  // PR is still OPEN, resolve it to `gated-feedback` — a fresh session
+  // positioned to take a bug callout, route it through /coder, re-verify
+  // (step 6), and re-gate (step 9) — instead of the terminal no-op. This branch
+  // MUST precede the TERMINAL_PHASE_SET short-circuit (gated is a terminal
+  // phase) and self-populate ctx.pr/prState from inputs, because the general
+  // PR-population line below is only reached by non-terminal phases; Story 1
+  // requires `.context.pr` on gated-feedback. The gate keys on the marker
+  // (one-shot, gone after --consume), NOT on checkpointExists (checkpoint.md,
+  // persistent), so a stray later /clear at gated after a consumed round does
+  // not re-fire feedback mode. The PR-OPEN guard is load-bearing: since
+  // gatherInputs de-short-circuits I/O for `gated`, a gated PR merged/closed
+  // *externally* on GitHub still carries marker + worktree, so without the guard
+  // it would enter feedback mode on an already-resolved PR instead of being
+  // cleaned up. A non-OPEN gated PR therefore routes to the same
+  // merged-cleanup / closed-escalation resolution the general precedence uses
+  // for every other phase (this branch replicates it locally because the shared
+  // precedence below sits after the TERMINAL_PHASE_SET short-circuit that would
+  // otherwise catch `gated` first). Marker-absent (or worktree-gone) gated with
+  // an OPEN PR falls through to the terminal verdict, unchanged.
   if (inputs.state.phase === "gated") {
     ctx.checkpointExists = inputs.checkpointExists;
     ctx.checkpointMarkerExists = inputs.checkpointMarkerExists;
@@ -270,10 +279,40 @@ export function decide(inputs: Inputs): DecisionResult {
       ctx.pr = inputs.pr.number;
       ctx.prState = inputs.pr.state;
     }
-    if (inputs.worktree.kind === "present" && inputs.checkpointMarkerExists) {
+    const prOpen = inputs.pr.kind === "found" && inputs.pr.state === "OPEN";
+    if (
+      inputs.worktree.kind === "present" &&
+      inputs.checkpointMarkerExists &&
+      prOpen
+    ) {
       return {
         resumeAt: "gated-feedback",
         reason: "gated-with-checkpoint-marker",
+        context: ctx,
+      };
+    }
+    // Externally merged gated PR: worktree still present → step-9 MERGED-cleanup
+    // (never re-run gh pr merge); worktree gone → terminal. Mirrors the
+    // PR-MERGED precedence below.
+    if (inputs.pr.kind === "found" && inputs.pr.state === "MERGED") {
+      return inputs.worktree.kind === "present"
+        ? {
+            resumeAt: "step-9",
+            reason: "pr-merged-worktree-still-exists",
+            context: ctx,
+          }
+        : {
+            resumeAt: "terminal",
+            reason: "pr-merged-worktree-cleaned-up",
+            context: ctx,
+          };
+    }
+    // Externally closed-without-merge gated PR → escalate. Mirrors the
+    // PR-CLOSED escalation below.
+    if (inputs.pr.kind === "found" && inputs.pr.state === "CLOSED") {
+      return {
+        resumeAt: "escalate",
+        reason: "pr-closed-without-merge",
         context: ctx,
       };
     }
