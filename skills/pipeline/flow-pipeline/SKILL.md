@@ -1272,7 +1272,7 @@ own transcript (the one measured unbounded supervisor-context
 offender). The supervisor keeps only the spawn, a single artifact read,
 and the terminal branch.
 
-**Automated UI-smoke pass (before/alongside `/verify`).** The verify-loop subagent runs the browser-driven UI-smoke pass as part of the loop when the diff touches a meaningful UI surface and the MCP is present — a hand-authored `.flow/ui-validation.json` manifest is no longer required; when none exists the helper returns a mechanical `action: "bootstrap"` verdict the subagent branches on (infer `launch`/`baseUrl`/`routes`/`loginUrl` + credential NAMES → empirically verify → write the verified NAMES/config back into the manifest, names and non-secret config only — never a secret value, and commit it). It follows the shared procedure in [references/ui-smoke-pass.md](references/ui-smoke-pass.md): probe the `chrome-devtools` MCP (`ToolSearch query="select:mcp__chrome-devtools__navigate_page"`) → on missing schema run `flow-ui-validate --mcp-absent` (a quiet `ran:false` skip, never a failure) → otherwise `flow-ui-validate --changed-files <diff>` → on `bootstrap` self-complete the manifest, on `ran:true` (ready) `meta.env`-injected launch on dedicated ports → open a per-pipeline isolated page (`new_page` with `isolatedContext` keyed on the pipeline slug) → drive the MCP per route → assemble a captures JSON → `flow-ui-validate --captures`. A shared-profile lock — another pipeline holding chrome-devtools-mcp's default `~/.cache/chrome-devtools-mcp/chrome-profile` (the `already running` / `Use --isolated` error) — is treated as a loud-but-clean skip via `flow-ui-validate --browser-busy` (`ran:false` / `skipped_reason: browser-profile-busy`, loud recovery nudge), never a hard failure, mirroring the MCP-absent degrade; the operator-side cross-pipeline fix is registering the MCP with `--isolated`, while the per-call `isolatedContext` is same-server defense-in-depth only. A `ran:true` result with `ok:false` is a verify failure that feeds the **existing 3-attempt fix loop** above, exactly like any failed `flow-pre-commit` check; headless / MCP-absent runs stay green. **Adaptive noise filter:** when an `ok:false` flags a console error or failed request that is benign noise unrelated to the diff (a favicon 404, a third-party beacon/analytics request, browser-extension noise), do **not** consume a fix-loop attempt on it — add the offending substring to the manifest's `ignoreRequestPatterns` / `ignoreConsolePatterns` in `.flow/ui-validation.json` and **commit that manifest change** (it lands in the reviewable PR diff), then re-run; reserve the 3-attempt fix loop for post-filter errors that the diff actually introduced. **Self-completing + self-maintaining manifest (CRITICAL):** the agent completes and maintains EVERYTHING the smoketest needs, not just the launch — when it adapts the launch on the fly, fixes a 404'd route or a failed launch field, or records a verified `loginUrl` + credential NAMES, it persists the launch adaptation back into `.flow/ui-validation.json` (env/launch/baseUrl/routes/loginUrl/credentialEnvVars) and commits it into the reviewable PR diff, so the next run starts deterministic; runtime credential VALUES resolve from the local `.env`/shell env and are never persisted. When a UI diff goes unverified (MCP absent, launch/creds unresolvable) the subagent records `ui_smoke: skipped` + a `ui_smoke_reason`, which the supervisor surfaces as the user-visible "UI changed; browser validation did not run — <reason>" line (below); when a bootstrap can't resolve creds it escalates `NEEDS HUMAN: smoketest-needs-creds`. See [references/ui-smoke-pass.md](references/ui-smoke-pass.md) for the full probe → bootstrap → launch → drive → assemble → fix-loop body, the screenshot save-path cascade, and the LLM-free / no-`claude -p` / no-Task constraint.
+**Automated UI-smoke pass (before/alongside `/verify`).** The verify-loop subagent runs the browser-driven UI-smoke pass as part of the loop when the diff touches a meaningful UI surface and the `chrome-devtools` MCP is present, following the shared procedure in [references/ui-smoke-pass.md](references/ui-smoke-pass.md): probe the MCP → skip cleanly when absent or profile-busy (`flow-ui-validate --mcp-absent` / `--browser-busy`, both a quiet `ran:false`, never a failure) → self-complete a missing manifest on a `bootstrap` verdict → launch on dedicated ports, open a per-pipeline isolated page, drive each route, and `flow-ui-validate --captures`. A `ran:true` result with `ok:false` is a verify failure that feeds the **existing 3-attempt fix loop** above, exactly like any failed `flow-pre-commit` check; headless / MCP-absent runs stay green. **Adaptive noise filter:** when an `ok:false` flags benign noise unrelated to the diff (a favicon 404, a third-party beacon/analytics request, browser-extension noise), do **not** consume a fix-loop attempt on it — add the offending substring to the manifest's `ignoreRequestPatterns` / `ignoreConsolePatterns` and **commit that manifest change**, then re-run. The subagent also self-completes and self-maintains the manifest: it **persists the launch adaptation back into** `.flow/ui-validation.json` (env/launch/baseUrl/routes/loginUrl/credentialEnvVars — names and non-secret config only, never a secret value) and commits it; when a UI diff goes unverified it records `ui_smoke: skipped` + a `ui_smoke_reason` (surfaced as the user-visible "UI changed; browser validation did not run — <reason>" line below), and a bootstrap that can't resolve creds escalates `NEEDS HUMAN: smoketest-needs-creds`. See [references/ui-smoke-pass.md](references/ui-smoke-pass.md) for the full probe → bootstrap → launch → drive → assemble → fix-loop body, the screenshot save-path cascade, and the LLM-free / no-`claude -p` / no-Task constraint.
 
 ### Independent Verify-Retry-Loop Subagent
 
@@ -1993,55 +1993,7 @@ CONFLICTING_FILES=$(cd "$WORKTREE" && git diff --name-only --diff-filter=U)
 PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
 ```
 
-Spawn-prompt template (fill the `{{...}}` placeholders before passing
-to the Task tool):
-
-```
-You are the Independent Merge-Conflict Resolver Subagent for /flow-pipeline
-step 10. You run in an isolated context and return an artifact on disk
-plus a brief summary.
-
-Read the full instructions at:
-  {{INSTRUCTIONS_PATH}}
-
-PR number:
-  {{PR}}
-
-Base branch:
-  {{BASE_BRANCH}}
-
-`gh pr merge --squash` stderr that triggered this resolver:
-  {{MERGE_STDERR}}
-
-Conflicting file paths (may be empty if rebase has not yet been
-initiated; resolver runs the rebase itself in that case):
-  {{CONFLICTING_FILES}}
-
-Working directory (cd here before running any git command):
-  {{WORKTREE}}
-
-Plan path (read for PR intent context):
-  {{WORKTREE}}/.flow-tmp/plan.md
-
-PR description (verbatim):
-  {{PR_DESCRIPTION}}
-
-Write the artifact to (absolute path):
-  {{ARTIFACT_PATH}}
-
-Follow the merge-resolver-instructions.md steps in order. You are
-one-shot — do not ask the user clarifying questions. When a
-resolution requires judgment no defensible default exists for,
-record it in `ambiguous_resolutions` with the alternatives you
-considered and let the supervisor escalate.
-
-Return a 3–5-sentence summary surfacing both sides — at least one
-positive (resolved file count + dominant strategy + force-push
-outcome) AND at least one negative (top entry from
-`ambiguous_resolutions` or `rejected_strategies`). Do not paste the
-artifact, the diff, or the rebase output back; the artifact on disk
-is the durable record.
-```
+See [references/merge-resolver-spawn-prompt.md](references/merge-resolver-spawn-prompt.md) for the verbatim spawn-prompt template (eight `{{...}}` placeholders). Fill the placeholders from the resolve-inputs block above before passing it to the Task tool.
 
 Make the Task call with `subagent_type: general-purpose`, the per-spawn
 `model: "$MERGE_RESOLVER_MODEL"` argument resolved above (precedence
@@ -2426,7 +2378,7 @@ plan.md while away), continue to step 5 — then remove the marker once
 resolved. A feature pipeline at the same phase (no marker) is
 unaffected.
 
-## Edge cases (verbatim from `references/failure-recovery.md` section (b))
+## Edge cases (condensed from `references/failure-recovery.md` section (b))
 
 These mirror the resume-table rows above; the full per-row precondition
 table lives in `references/failure-recovery.md` section (b).
