@@ -44,7 +44,10 @@ export function renderBoard(
     [
       { header: "FEATURE", get: (r) => r.id },
       { header: "STATUS", get: (r) => r.status },
-      { header: "SLUG", get: (r) => r.slug ?? DASH },
+      {
+        header: "SLUG",
+        get: (r) => r.slug ?? (r.external ? "(external)" : DASH),
+      },
       { header: "PR", get: (r) => (r.pr ? `#${r.pr}` : DASH) },
       { header: "PHASE", get: (r) => r.phase ?? DASH },
       {

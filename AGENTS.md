@@ -510,10 +510,10 @@ shell).
     **cross-model design review** is a
     **Bash fan-out, not a tenth exemption** — `review.gemini`-gated
     `flow-plan-review` over `design.md`; no Task, no form; graceful skip sans agy.
-  - **`/epic-run` is a separate sanctioned supervisor session.**
-    `flow epic run <slug>` spawns a fresh top-level `/epic-run` session, so
-    `/flow-pipeline`'s nine-Task-exemption / two-AskUserQuestion invariants are
-    unaffected. Its ONE named surface —
-    **Task-tool fan-out: /epic-run → judgment sub-agent (per halt/deadlock event).**
-    — fires no `AskUserQuestion` form; `gated ⇒ escalate-only`, never merges a
-    feature PR. Full contract in the SKILL.
+  - **`/epic-run` is a separate sanctioned playbook session.**
+    `flow epic run <slug>` opens a fresh `/epic-run` playbook session
+    (invariants unaffected) — a playbook, not a loop: an LLM reconciles the
+    manifest against GitHub/git truth and repairs run.json drift via `flow epic
+    bind` / `flow epic launch`, one human-in-the-loop step at a time. Zero named
+    fan-out: **no** Task/Agent sub-agent, **no** `AskUserQuestion` form. `gated
+    ⇒ escalate-only`, never merges a feature PR.

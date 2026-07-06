@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   run,
   parseArgs,
-  recordJudgment,
   tailBound,
   fetchCiFailure,
   fetchPrReview,
@@ -13,11 +12,7 @@ import {
   CI_LOG_TAIL_BYTES,
 } from "./flow-epic-judge-context";
 import { writeState, type PipelineState } from "./lib/state";
-import {
-  writeEpicRunState,
-  readEpicRunState,
-  type EpicRunState,
-} from "./lib/epic-run-state";
+import { writeEpicRunState, type EpicRunState } from "./lib/epic-run-state";
 import type { GhRunner } from "./lib/resume-probes";
 
 // ---------------------------------------------------------------------------
@@ -25,7 +20,6 @@ import type { GhRunner } from "./lib/resume-probes";
 // ---------------------------------------------------------------------------
 
 const ISO = "2026-06-30T00:00:00Z";
-const FIXED_NOW = "2026-06-30T12:00:00Z";
 
 let stateDir!: string;
 let epicsDir!: string;
@@ -238,16 +232,16 @@ describe(fetchPrReview, () => {
 });
 
 // ---------------------------------------------------------------------------
-// context mode — feature
+// context mode — feature evidence
 // ---------------------------------------------------------------------------
 
-describe("context mode — feature flags", () => {
-  it("marks a gated feature overridable:false", () => {
+describe("context mode — feature evidence", () => {
+  it("marks a gated feature overridable:false (escalate-only)", () => {
     writeEpicRunState(baseRunState(), epicsDir);
     seedFeatureState("foundation-slug", "gated");
     const { exit, out } = runJson(
       ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
+      { stateDir, epicsDir, gh: ghNone },
     );
     expect(exit).toBe(0);
     expect(out.mode).toBe("feature");
@@ -260,63 +254,10 @@ describe("context mode — feature flags", () => {
     seedFeatureState("foundation-slug", "needs-human");
     const { out } = runJson(
       ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
+      { stateDir, epicsDir, gh: ghNone },
     );
     expect(out.status).toBe("needs-human");
     expect((out.flags as Record<string, unknown>).overridable).toBe(true);
-  });
-
-  it("budgetExhausted:true when retryCount >= maxRetries", () => {
-    const rs = baseRunState();
-    rs.features.foundation.retryCount = 2;
-    writeEpicRunState(rs, epicsDir);
-    seedFeatureState("foundation-slug", "needs-human");
-    const { out } = runJson(
-      ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
-    );
-    expect(out.retryCount).toBe(2);
-    expect((out.flags as Record<string, unknown>).budgetExhausted).toBe(true);
-  });
-
-  it("budgetExhausted:false when retryCount < maxRetries", () => {
-    const rs = baseRunState();
-    rs.features.foundation.retryCount = 1;
-    writeEpicRunState(rs, epicsDir);
-    seedFeatureState("foundation-slug", "needs-human");
-    const { out } = runJson(
-      ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
-    );
-    expect((out.flags as Record<string, unknown>).budgetExhausted).toBe(false);
-  });
-
-  it("redirectExhausted:false when redirectCount < maxRedirects", () => {
-    const rs = baseRunState();
-    rs.features.foundation.redirectCount = 0;
-    writeEpicRunState(rs, epicsDir);
-    seedFeatureState("foundation-slug", "needs-human");
-    const { out } = runJson(
-      ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
-    );
-    expect(out.redirectCount).toBe(0);
-    expect((out.flags as Record<string, unknown>).redirectExhausted).toBe(
-      false,
-    );
-  });
-
-  it("redirectExhausted:true when redirectCount >= maxRedirects", () => {
-    const rs = baseRunState();
-    rs.features.foundation.redirectCount = 1;
-    writeEpicRunState(rs, epicsDir);
-    seedFeatureState("foundation-slug", "needs-human");
-    const { out } = runJson(
-      ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
-    );
-    expect(out.redirectCount).toBe(1);
-    expect((out.flags as Record<string, unknown>).redirectExhausted).toBe(true);
   });
 
   it("includes the manifest neighbourhood (node + direct dependents)", () => {
@@ -324,7 +265,7 @@ describe("context mode — feature flags", () => {
     seedFeatureState("foundation-slug", "needs-human");
     const { out } = runJson(
       ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
+      { stateDir, epicsDir, gh: ghNone },
     );
     const nb = out.neighbourhood as Record<string, unknown>;
     expect(nb.dependents).toEqual(["shell"]);
@@ -359,7 +300,7 @@ describe("context mode — feature flags", () => {
     };
     const { out } = runJson(
       ["context", "--slug", "epic-x", "--feature", "foundation"],
-      { stateDir, epicsDir, gh, maxRetries: 2, maxRedirects: 1 },
+      { stateDir, epicsDir, gh },
     );
     expect(out.pr).toBe(42);
     const ci = out.ciFailure as Record<string, unknown>;
@@ -367,423 +308,29 @@ describe("context mode — feature flags", () => {
     expect(ci.truncated).toBe(true);
   });
 
+  it("tolerates an external-completion record (no live slug) without throwing", () => {
+    const rs = baseRunState();
+    rs.features.foundation = { external: "PR #99", completedAt: ISO };
+    writeEpicRunState(rs, epicsDir);
+    const { exit, out } = runJson(
+      ["context", "--slug", "epic-x", "--feature", "foundation"],
+      { stateDir, epicsDir, gh: ghNone },
+    );
+    expect(exit).toBe(0);
+    expect(out.ok).toBe(true);
+    expect(out.status).toBe("merged");
+    // No live slug ⇒ no pipeline state read.
+    expect(out.featureState).toBe(null);
+  });
+
   it("tolerantly reports run-state-missing without throwing", () => {
     const { exit, out } = runJson(
       ["context", "--slug", "no-such-epic", "--feature", "foundation"],
-      { stateDir, epicsDir, gh: ghNone, maxRetries: 2, maxRedirects: 1 },
+      { stateDir, epicsDir, gh: ghNone },
     );
     expect(exit).toBe(0);
     expect(out.ok).toBe(false);
     expect(out.reason).toBe("run-state-missing");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// context mode — deadlock
-// ---------------------------------------------------------------------------
-
-describe("context mode — deadlock", () => {
-  it("assembles the board + run-state + neighbourhoods + drift flag", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    seedFeatureState("foundation-slug", "needs-human");
-    const { exit, out } = runJson(
-      ["context", "--slug", "epic-x", "--deadlock"],
-      {
-        stateDir,
-        epicsDir,
-        gh: ghNone,
-      },
-    );
-    expect(exit).toBe(0);
-    expect(out.mode).toBe("deadlock");
-    expect(Array.isArray(out.board)).toBe(true);
-    expect((out.board as unknown[]).length).toBe(2);
-    expect(Array.isArray(out.neighbourhoods)).toBe(true);
-    // manifestSha "deadbeef" never matches the real file hash → drift true.
-    expect(typeof out.manifestDrift).toBe("boolean");
-    expect(out.manifestDrift).toBe(true);
-    const rs = out.runState as Record<string, unknown>;
-    expect(rs.features).toBeDefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// record mode
-// ---------------------------------------------------------------------------
-
-describe("record mode", () => {
-  it("increments retryCount and writes lastJudgment with the injected clock", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const { exit, out } = runJson(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "foundation",
-        "--action",
-        "retry",
-        "--reason",
-        "transient flake",
-        "--increment-retry",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    expect(exit).toBe(0);
-    expect(out.ok).toBe(true);
-    const record = out.record as Record<string, unknown>;
-    expect(record.retryCount).toBe(1);
-    const lj = record.lastJudgment as Record<string, unknown>;
-    expect(lj.action).toBe("retry");
-    expect(lj.reason).toBe("transient flake");
-    expect(lj.at).toBe(FIXED_NOW);
-
-    // Persisted back to disk.
-    const persisted = readEpicRunState("epic-x", epicsDir);
-    expect(persisted?.features.foundation.retryCount).toBe(1);
-    expect(persisted?.features.foundation.lastJudgment?.at).toBe(FIXED_NOW);
-    expect(persisted?.updatedAt).toBe(FIXED_NOW);
-  });
-
-  it("does NOT increment retryCount without --increment-retry", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const { out } = runJson(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "foundation",
-        "--action",
-        "escalate",
-        "--reason",
-        "budget exhausted",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    const record = out.record as Record<string, unknown>;
-    expect(record.retryCount).toBeUndefined();
-    expect((record.lastJudgment as Record<string, unknown>).action).toBe(
-      "escalate",
-    );
-  });
-
-  it("sets runnerPhase when --runner-phase is passed", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const { out } = runJson(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "foundation",
-        "--action",
-        "escalate",
-        "--reason",
-        "blocked",
-        "--runner-phase",
-        "blocked",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    expect(out.runnerPhase).toBe("blocked");
-    expect(readEpicRunState("epic-x", epicsDir)?.runnerPhase).toBe("blocked");
-  });
-
-  it("runner-phase-only record stamps runnerPhase and touches no feature", () => {
-    const rs = baseRunState();
-    rs.features.foundation.retryCount = 1;
-    rs.features.foundation.lastJudgment = {
-      action: "retry",
-      reason: "pre-seeded",
-      at: ISO,
-    };
-    writeEpicRunState(rs, epicsDir);
-    const { exit, out } = runJson(
-      ["record", "--slug", "epic-x", "--runner-phase", "running"],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    expect(exit).toBe(0);
-    expect(out.ok).toBe(true);
-    expect(out.runnerPhase).toBe("running");
-    expect(out.featureId).toBe(null);
-    expect(out.record).toBe(null);
-
-    // Persisted runnerPhase, and the pre-seeded feature record is untouched.
-    const persisted = readEpicRunState("epic-x", epicsDir);
-    expect(persisted?.runnerPhase).toBe("running");
-    expect(persisted?.features.foundation.retryCount).toBe(1);
-    expect(persisted?.features.foundation.lastJudgment?.reason).toBe(
-      "pre-seeded",
-    );
-    expect(persisted?.updatedAt).toBe(FIXED_NOW);
-  });
-
-  it("repoints the slug on --action redirect --relaunch-slug and appends the old slug to priorSlugs", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const { exit, out } = runJson(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "foundation",
-        "--action",
-        "redirect",
-        "--reason",
-        "wrong approach; changed strategy",
-        "--relaunch-slug",
-        "foundation-slug-v2",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    expect(exit).toBe(0);
-    expect(out.ok).toBe(true);
-    const record = out.record as Record<string, unknown>;
-    expect(record.slug).toBe("foundation-slug-v2");
-    expect(record.priorSlugs).toEqual(["foundation-slug"]);
-    expect(record.redirectCount).toBe(1);
-    expect((record.lastJudgment as Record<string, unknown>).action).toBe(
-      "redirect",
-    );
-
-    // Persisted back to disk: reconciler keys on the repointed slug.
-    const persisted = readEpicRunState("epic-x", epicsDir);
-    expect(persisted?.features.foundation.slug).toBe("foundation-slug-v2");
-    expect(persisted?.features.foundation.priorSlugs).toEqual([
-      "foundation-slug",
-    ]);
-    expect(persisted?.features.foundation.redirectCount).toBe(1);
-  });
-
-  it("exits 2 when --relaunch-slug is paired with --action retry (usage error)", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const exit = run(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "foundation",
-        "--action",
-        "retry",
-        "--reason",
-        "x",
-        "--relaunch-slug",
-        "foundation-slug-v2",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    errSpy.mockRestore();
-    expect(exit).toBe(2);
-  });
-
-  it("downgrades retry→escalate when --budget-exhausted, and does NOT increment retry", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const { exit, out } = runJson(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "foundation",
-        "--action",
-        "retry",
-        "--reason",
-        "looks flaky",
-        "--budget-exhausted",
-        "--increment-retry",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    expect(exit).toBe(0);
-    expect(out.downgraded).toBe(true);
-    const record = out.record as Record<string, unknown>;
-    const lj = record.lastJudgment as Record<string, unknown>;
-    expect(lj.action).toBe("escalate");
-    expect(lj.reason).toContain("budgetExhausted");
-    // A downgraded escalate is not a retry — no increment even with the flag.
-    expect(record.retryCount).toBeUndefined();
-  });
-
-  it("downgrades retry→escalate when --overridable false (gated)", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const { out } = runJson(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "foundation",
-        "--action",
-        "retry",
-        "--reason",
-        "wants a rerun",
-        "--overridable",
-        "false",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    expect(out.downgraded).toBe(true);
-    const lj = (out.record as Record<string, unknown>).lastJudgment as Record<
-      string,
-      unknown
-    >;
-    expect(lj.action).toBe("escalate");
-    expect(lj.reason).toContain("gated");
-  });
-
-  it("REGRESSION: a plain retry record with no new flags stays retry", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const { out } = runJson(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "foundation",
-        "--action",
-        "retry",
-        "--reason",
-        "transient",
-        "--increment-retry",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    expect(out.downgraded).toBeFalsy();
-    const record = out.record as Record<string, unknown>;
-    expect((record.lastJudgment as Record<string, unknown>).action).toBe(
-      "retry",
-    );
-    expect(record.retryCount).toBe(1);
-  });
-
-  it("keeps retry when --overridable true and not budget-exhausted", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const { out } = runJson(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "foundation",
-        "--action",
-        "retry",
-        "--reason",
-        "legit retry",
-        "--overridable",
-        "true",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    expect(out.downgraded).toBeFalsy();
-    expect(
-      (
-        (out.record as Record<string, unknown>).lastJudgment as Record<
-          string,
-          unknown
-        >
-      ).action,
-    ).toBe("retry");
-  });
-
-  it("parseArgs rejects a non-boolean --overridable value", () => {
-    const r = parseArgs([
-      "record",
-      "--slug",
-      "e",
-      "--feature",
-      "f",
-      "--action",
-      "retry",
-      "--reason",
-      "x",
-      "--overridable",
-      "maybe",
-    ]);
-    expect("error" in r && r.error).toBe(
-      "record: --overridable must be true or false",
-    );
-  });
-
-  it("returns invalid-judgment when the decision fails validateEpicJudgment", () => {
-    // Direct call: parseArgs pre-validates action/reason on the public `run`
-    // path, so the `!valid.ok` early-return is only reachable by driving
-    // recordJudgment directly with an off-shape decision (here an empty reason).
-    writeEpicRunState(baseRunState(), epicsDir);
-    const out = recordJudgment(
-      {
-        slug: "epic-x",
-        feature: "foundation",
-        action: "retry",
-        reason: "",
-        incrementRetry: false,
-      },
-      {
-        gh: ghNone,
-        stateDir,
-        epicsDir,
-        maxRetries: 2,
-        maxRedirects: 1,
-        now: () => FIXED_NOW,
-      },
-    ) as Record<string, unknown>;
-    expect(out.ok).toBe(false);
-    expect(out.reason).toBe(
-      "invalid-judgment: 'reason' must be a non-empty string",
-    );
-    // No write happened: the pre-seeded feature record is untouched.
-    expect(
-      readEpicRunState("epic-x", epicsDir)?.features.foundation.lastJudgment,
-    ).toBeUndefined();
-  });
-
-  it("tolerantly reports feature-not-in-run-state", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const { exit, out } = runJson(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "ghost",
-        "--action",
-        "retry",
-        "--reason",
-        "x",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    expect(exit).toBe(0);
-    expect(out.ok).toBe(false);
-    expect(out.reason).toBe("feature-not-in-run-state");
-  });
-
-  it("treats a '__proto__' feature key as not-found and does not pollute Object.prototype", () => {
-    writeEpicRunState(baseRunState(), epicsDir);
-    const { exit, out } = runJson(
-      [
-        "record",
-        "--slug",
-        "epic-x",
-        "--feature",
-        "__proto__",
-        "--action",
-        "retry",
-        "--reason",
-        "x",
-        "--increment-retry",
-      ],
-      { stateDir, epicsDir, now: () => FIXED_NOW },
-    );
-    expect(exit).toBe(0);
-    expect(out.ok).toBe(false);
-    expect(out.reason).toBe("feature-not-in-run-state");
-    // The Object.hasOwn guard means the bracket lookup never resolved to
-    // Object.prototype, so the record-write below never fired against it.
-    expect(({} as Record<string, unknown>).lastJudgment).toBeUndefined();
-    expect(({} as Record<string, unknown>).retryCount).toBeUndefined();
   });
 });
 
@@ -797,15 +344,14 @@ describe(parseArgs, () => {
       mode: "context",
       slug: "e",
       feature: "f",
-      deadlock: false,
     });
   });
 
-  it("parses --deadlock as a context variant", () => {
-    expect(parseArgs(["--slug", "e", "--deadlock"])).toEqual({
+  it("parses an explicit context subcommand", () => {
+    expect(parseArgs(["context", "--slug", "e", "--feature", "f"])).toEqual({
       mode: "context",
       slug: "e",
-      deadlock: true,
+      feature: "f",
     });
   });
 
@@ -815,82 +361,9 @@ describe(parseArgs, () => {
     });
   });
 
-  it("errors on a bad record --action", () => {
-    const r = parseArgs([
-      "record",
-      "--slug",
-      "e",
-      "--feature",
-      "f",
-      "--action",
-      "merge",
-      "--reason",
-      "x",
-    ]);
-    expect("error" in r && r.error).toMatch(/--action/);
-  });
-
-  it("parses --relaunch-slug with --action redirect", () => {
-    expect(
-      parseArgs([
-        "record",
-        "--slug",
-        "e",
-        "--feature",
-        "f",
-        "--action",
-        "redirect",
-        "--reason",
-        "x",
-        "--relaunch-slug",
-        "f-v2",
-      ]),
-    ).toEqual({
-      mode: "record",
-      args: {
-        slug: "e",
-        feature: "f",
-        action: "redirect",
-        reason: "x",
-        incrementRetry: false,
-        relaunchSlug: "f-v2",
-        runnerPhase: undefined,
-        overridable: undefined,
-        budgetExhausted: false,
-      },
-    });
-  });
-
-  it("errors when --relaunch-slug is paired with a non-redirect action", () => {
-    const r = parseArgs([
-      "record",
-      "--slug",
-      "e",
-      "--feature",
-      "f",
-      "--action",
-      "escalate",
-      "--reason",
-      "x",
-      "--relaunch-slug",
-      "f-v2",
-    ]);
-    expect("error" in r && r.error).toMatch(/--relaunch-slug/);
-  });
-
-  it("parses a runner-phase-only record (no feature/action/reason)", () => {
-    expect(
-      parseArgs(["record", "--slug", "e", "--runner-phase", "running"]),
-    ).toEqual({
-      mode: "record",
-      args: { slug: "e", incrementRetry: false, runnerPhase: "running" },
-    });
-  });
-
-  it("errors on record with neither --feature nor --runner-phase", () => {
-    const r = parseArgs(["record", "--slug", "e"]);
+  it("errors when --feature is missing", () => {
+    const r = parseArgs(["--slug", "e"]);
     expect("error" in r && r.error).toMatch(/--feature/);
-    expect("error" in r && r.error).toMatch(/--runner-phase/);
   });
 
   it("run() exits 2 on a CLI usage error", () => {

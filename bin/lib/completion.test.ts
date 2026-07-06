@@ -189,14 +189,19 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
-  it("both scripts advertise the epic --model-planning (create) and --model/--model-judge (run) flags", () => {
+  it("both scripts advertise the epic --model-planning (create) + --model (run), the bind/launch subcommands, and drop --model-judge", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(
         path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
         "utf8",
       );
       expect(script).toContain("--model-planning");
-      expect(script).toContain("--model-judge");
+      // The loop-era judgment knob is gone from both scripts.
+      expect(script).not.toContain("--model-judge");
+      // The new safe-write actuators complete (zsh uses `bind:<desc>`, bash a
+      // bare word in the subcommand list — both contain the bare tokens).
+      expect(script).toContain("bind");
+      expect(script).toContain("launch");
     }
   });
 

@@ -1,54 +1,40 @@
 #!/usr/bin/env bun
 /**
- * Deterministic judgment-context helper for the `/epic-run` supervisor.
+ * Deterministic evidence helper for the `/epic-run` playbook supervisor.
  *
  * The supervisor runs cwd'd in a consumer worktree where flow's `bin/lib` is
- * absent, so the bounded evidence the in-process LLM reasons over is assembled
- * HERE — a bare-name PATH command (auto-discovered by `discoverHelpers`,
- * symlinked by `flow install`), invoked like `flow-epic-resume-decide`. This
- * helper is flow's INSTALLED code (resolved through the symlink to the
- * canonical source), so its `./lib` imports are fine — R1 forbids `bin/lib`
- * imports only inside the spawned consumer-worktree window.
+ * absent, so the bounded evidence the LLM reasons over about a single halted
+ * feature is assembled HERE — a bare-name PATH command (auto-discovered by
+ * `discoverHelpers`, symlinked by `flow install`), invoked like
+ * `flow-epic-resume-decide`. This helper is flow's INSTALLED code (resolved
+ * through the symlink to the canonical source), so its `./lib` imports are
+ * fine — R1 forbids `bin/lib` imports only inside the spawned consumer-worktree
+ * window.
  *
  * LLM-FREE and TOLERANT: every path is wrapped so a missing/corrupt input
  * collapses to a tolerant JSON object on stdout (exit 0 for every decision).
  * Only a genuine CLI-usage error exits 2.
  *
- * Two subcommands:
+ * ONE subcommand (the `record` writer and the `--deadlock` mode were removed
+ * with the tick loop + judgment machinery — the playbook reconciles drift with
+ * `flow epic bind` / `flow epic launch` and reads the board with
+ * `flow epic status --json`):
  *
  *   context  (default)
- *     --slug <epic-slug> --feature <feature-id>   feature judgment evidence
- *     --slug <epic-slug> --deadlock               deadlock diagnosis evidence
- *     Feature context surfaces flags.overridable (gated ⇒ escalate-only),
- *     flags.budgetExhausted (retryCount >= maxRetries), and
- *     flags.redirectExhausted (redirectCount >= maxRedirects).
+ *     --slug <epic-slug> --feature <feature-id>   feature evidence
+ *     Surfaces status, runRecord, featureState, pr, prReview, a tail-bounded
+ *     ciFailure, the manifest neighbourhood, and flags.overridable (a gated
+ *     feature is escalate-only — the playbook may never override it).
  *
- *   record
- *     --slug <epic-slug> --feature <id> --action <retry|redirect|escalate>
- *       --reason <text> [--increment-retry] [--relaunch-slug <new-slug>]
- *       [--runner-phase <phase>]
- *     --slug <epic> --runner-phase <phase>    runner-phase-only stamp
- *     Writes the decision back to epic run-state (lastJudgment, retryCount,
- *     runnerPhase) and echoes the updated record. With --runner-phase but no
- *     --feature it stamps ONLY runnerPhase, touching no feature record.
- *     --relaunch-slug (valid only with --action redirect) repoints the
- *     feature record: it pushes the current slug onto priorSlugs, sets slug to
- *     the relaunched pipeline, and increments redirectCount.
- *
- * The gh/git/clock seams mirror `flow-epic-resume-decide.ts` /
- * `bin/lib/resume-probes.ts` so the helper is fully unit-testable.
+ * The gh seam mirrors `flow-epic-resume-decide.ts` / `bin/lib/resume-probes.ts`
+ * so the helper is fully unit-testable.
  */
 
 import * as fs from "node:fs";
 import { createHash } from "node:crypto";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR, FLOW_EPICS_DIR } from "./lib/paths";
-import {
-  readEpicRunState,
-  writeEpicRunState,
-  type FeatureRunRecord,
-} from "./lib/epic-run-state";
-import { readEpicMaxRedirects, readEpicMaxRetries } from "./lib/epic-config";
+import { readEpicRunState, type FeatureRunRecord } from "./lib/epic-run-state";
 import {
   validateEpicManifest,
   type EpicManifest,
@@ -60,7 +46,6 @@ import {
   type FeatureStatus,
 } from "./lib/epic-reconcile";
 import { defaultGh, type GhRunner, type GitRunner } from "./lib/resume-probes";
-import { validateEpicJudgment } from "./lib/epic-judgment-schema";
 
 // --- Budgets ----------------------------------------------------------------
 
@@ -230,21 +215,12 @@ export type Deps = {
   stateDir?: string;
   /** Epic run-state root (`~/.flow/epics`). Test seam. */
   epicsDir?: string;
-  /** Override the retry budget (else `readEpicMaxRetries`). Test seam. */
-  maxRetries?: number;
-  /** Override the redirect budget (else `readEpicMaxRedirects`). Test seam. */
-  maxRedirects?: number;
-  /** Clock seam for the `record` mode `at` timestamp. Test seam. */
-  now?: () => string;
 };
 
 type Resolved = {
   gh: GhRunner;
   stateDir: string;
   epicsDir: string;
-  maxRetries: number;
-  maxRedirects: number;
-  now: () => string;
 };
 
 // --- Context assembly -------------------------------------------------------
@@ -261,7 +237,7 @@ export function assembleFeatureContext(
   const loaded = loadManifest(runState.manifestPath);
   const runRecord: FeatureRunRecord | null =
     runState.features[featureId] ?? null;
-  const featureState = runRecord
+  const featureState = runRecord?.slug
     ? readState(runRecord.slug, deps.stateDir)
     : null;
 
@@ -272,14 +248,12 @@ export function assembleFeatureContext(
       manifest: loaded.manifest,
       runState,
       readFeatureState: (s) => readState(s, deps.stateDir),
-      maxParallel: runState.maxParallel,
+      maxParallel: runState.maxParallel ?? 3,
     });
     board = result.board;
     status = board.find((r) => r.id === featureId)?.status;
   }
 
-  const retryCount = runRecord?.retryCount ?? 0;
-  const redirectCount = runRecord?.redirectCount ?? 0;
   const pr =
     board.find((r) => r.id === featureId)?.pr ??
     featureState?.pr ??
@@ -291,10 +265,8 @@ export function assembleFeatureContext(
     : { feature: null, dependsOn: [], dependents: [] };
 
   // `gated` is escalate-only (AGENTS.md hard rule: a gated verdict is
-  // terminal, not advisory) — the judgment layer may never override it.
+  // terminal, not advisory) — the playbook may never override it.
   const overridable = status !== "gated";
-  const budgetExhausted = retryCount >= deps.maxRetries;
-  const redirectExhausted = redirectCount >= deps.maxRedirects;
 
   return {
     ok: true,
@@ -308,156 +280,7 @@ export function assembleFeatureContext(
     prReview,
     ciFailure,
     neighbourhood,
-    retryCount,
-    maxRetries: deps.maxRetries,
-    redirectCount,
-    maxRedirects: deps.maxRedirects,
-    flags: { overridable, budgetExhausted, redirectExhausted },
-  };
-}
-
-export function assembleDeadlockContext(
-  epicSlug: string,
-  deps: Resolved,
-): unknown {
-  const runState = readEpicRunState(epicSlug, deps.epicsDir);
-  if (!runState) {
-    return { ok: false, mode: "deadlock", reason: "run-state-missing" };
-  }
-  const loaded = loadManifest(runState.manifestPath);
-
-  let board: BoardRow[] = [];
-  let epicStatus: string | null = null;
-  let neighbourhoods: Neighbourhood[] = [];
-  let manifestDrift: boolean | null = null;
-  if (loaded) {
-    const result = reconcile({
-      manifest: loaded.manifest,
-      runState,
-      readFeatureState: (s) => readState(s, deps.stateDir),
-      maxParallel: runState.maxParallel,
-    });
-    board = result.board;
-    epicStatus = result.epicStatus;
-    neighbourhoods = loaded.manifest.features.map((f) =>
-      manifestNeighbourhood(loaded.manifest, f.id),
-    );
-    manifestDrift = loaded.sha !== runState.manifestSha;
-  }
-
-  return {
-    ok: true,
-    mode: "deadlock",
-    epicSlug,
-    epicStatus,
-    board,
-    runState: {
-      features: runState.features,
-      runnerPhase: runState.runnerPhase ?? null,
-      maxParallel: runState.maxParallel,
-      manifestSha: runState.manifestSha,
-    },
-    neighbourhoods,
-    manifestDrift,
-  };
-}
-
-// --- Record mode ------------------------------------------------------------
-
-export type RecordArgs = {
-  slug: string;
-  /** Absent on a runner-phase-only stamp (no feature record is touched). */
-  feature?: string;
-  action?: "retry" | "redirect" | "escalate";
-  reason?: string;
-  incrementRetry: boolean;
-  /** New slug the feature was relaunched under (redirect actuation); valid only with `--action redirect`. */
-  relaunchSlug?: string;
-  runnerPhase?: "running" | "blocked" | "done";
-  /** Supervisor-passed gate flags driving the retry→escalate downgrade. */
-  overridable?: boolean;
-  budgetExhausted?: boolean;
-};
-
-export function recordJudgment(args: RecordArgs, deps: Resolved): unknown {
-  const runState = readEpicRunState(args.slug, deps.epicsDir);
-  if (!runState) {
-    return { ok: false, mode: "record", reason: "run-state-missing" };
-  }
-
-  const at = deps.now();
-  let record: FeatureRunRecord | null = null;
-  let downgraded = false;
-  if (args.feature !== undefined) {
-    // Guard the bracket lookup with Object.hasOwn so an unvalidated CLI
-    // `--feature __proto__`/`constructor` resolves to not-found rather than
-    // Object.prototype (which is truthy, bypassing the guard, and would then
-    // pollute the prototype via the `record.lastJudgment = …` write below).
-    record = Object.hasOwn(runState.features, args.feature)
-      ? runState.features[args.feature]
-      : null;
-    if (!record) {
-      return { ok: false, mode: "record", reason: "feature-not-in-run-state" };
-    }
-    // parseArgs guarantees action/reason when feature is present. Validate the
-    // typed decision through the same seam the sub-agent's artifact is checked
-    // against before touching run-state — a malformed decision writes nothing.
-    const valid = validateEpicJudgment({
-      action: args.action!,
-      reason: args.reason!,
-    });
-    if (!valid.ok) {
-      return {
-        ok: false,
-        mode: "record",
-        reason: `invalid-judgment: ${valid.reason}`,
-      };
-    }
-    // Retry→escalate downgrade backstop: a gated feature (overridable:false)
-    // or a budget-exhausted one can never be recorded as a retry, even if the
-    // sub-agent's honest read was retry. The supervisor passes the flags; this
-    // seam enforces the downgrade and skips the retry increment.
-    let action = args.action!;
-    let reason = args.reason!;
-    if (
-      action === "retry" &&
-      (args.budgetExhausted === true || args.overridable === false)
-    ) {
-      const cause =
-        args.overridable === false
-          ? "gated (overridable:false)"
-          : "budgetExhausted";
-      action = "escalate";
-      reason = `[downgraded retry→escalate: ${cause}] ${reason}`;
-      downgraded = true;
-    }
-    record.lastJudgment = { action, reason, at };
-    // A downgraded escalate is not a retry — never increment on it.
-    if (args.incrementRetry && !downgraded) {
-      record.retryCount = (record.retryCount ?? 0) + 1;
-    }
-    // Redirect repoint: retire the current slug into the lineage array and
-    // point the record at the relaunched pipeline. parseArgs guarantees
-    // relaunchSlug arrives only with `--action redirect`.
-    if (args.relaunchSlug !== undefined) {
-      record.priorSlugs = [...(record.priorSlugs ?? []), record.slug];
-      record.slug = args.relaunchSlug;
-      record.redirectCount = (record.redirectCount ?? 0) + 1;
-    }
-  }
-  if (args.runnerPhase) {
-    runState.runnerPhase = args.runnerPhase;
-  }
-  runState.updatedAt = at;
-  writeEpicRunState(runState, deps.epicsDir);
-
-  return {
-    ok: true,
-    mode: "record",
-    featureId: args.feature ?? null,
-    record,
-    downgraded,
-    runnerPhase: runState.runnerPhase ?? null,
+    flags: { overridable },
   };
 }
 
@@ -465,12 +288,7 @@ export function recordJudgment(args: RecordArgs, deps: Resolved): unknown {
 
 type Parsed =
   | { error: string }
-  | { mode: "context"; slug: string; feature: string; deadlock: false }
-  | { mode: "context"; slug: string; deadlock: true }
-  | { mode: "record"; args: RecordArgs };
-
-const RUNNER_PHASES = new Set(["running", "blocked", "done"]);
-const JUDGMENT_ACTIONS = new Set(["retry", "redirect", "escalate"]);
+  | { mode: "context"; slug: string; feature: string };
 
 function getFlag(flags: string[], name: string): string | undefined {
   const i = flags.indexOf(name);
@@ -483,109 +301,23 @@ export function parseArgs(argv: string[]): Parsed {
   if (argv.includes("--help") || argv.includes("-h")) {
     return { error: "help" };
   }
-  let subcommand: "context" | "record" = "context";
   let flags = argv;
-  if (argv[0] === "context" || argv[0] === "record") {
-    subcommand = argv[0];
+  if (argv[0] === "context") {
     flags = argv.slice(1);
   }
 
   const slug = getFlag(flags, "--slug");
   if (!slug) return { error: "--slug <epic-slug> is required" };
 
-  if (subcommand === "record") {
-    const feature = getFlag(flags, "--feature");
-    const runnerPhase = getFlag(flags, "--runner-phase");
-    if (runnerPhase !== undefined && !RUNNER_PHASES.has(runnerPhase)) {
-      return {
-        error: "record: --runner-phase must be one of running|blocked|done",
-      };
-    }
-    const incrementRetry = flags.includes("--increment-retry");
-
-    const relaunchSlug = getFlag(flags, "--relaunch-slug");
-
-    if (feature) {
-      const action = getFlag(flags, "--action");
-      if (!action || !JUDGMENT_ACTIONS.has(action)) {
-        return {
-          error: "record: --action must be one of retry|redirect|escalate",
-        };
-      }
-      // --relaunch-slug repoints the record to a relaunched pipeline; it is
-      // only meaningful for a redirect actuation. Reject it with any other
-      // action (usage error) rather than silently ignoring it.
-      if (relaunchSlug !== undefined && action !== "redirect") {
-        return {
-          error: "record: --relaunch-slug requires --action redirect",
-        };
-      }
-      const reason = getFlag(flags, "--reason");
-      if (!reason) return { error: "record: --reason <text> is required" };
-      const overridableRaw = getFlag(flags, "--overridable");
-      let overridable: boolean | undefined;
-      if (overridableRaw === "true") overridable = true;
-      else if (overridableRaw === "false") overridable = false;
-      else if (overridableRaw !== undefined) {
-        return { error: "record: --overridable must be true or false" };
-      }
-      const budgetExhausted = flags.includes("--budget-exhausted");
-      return {
-        mode: "record",
-        args: {
-          slug,
-          feature,
-          action: action as RecordArgs["action"],
-          reason,
-          incrementRetry,
-          relaunchSlug,
-          runnerPhase: runnerPhase as RecordArgs["runnerPhase"],
-          overridable,
-          budgetExhausted,
-        },
-      };
-    }
-
-    // --relaunch-slug is meaningless without a --feature to repoint.
-    if (relaunchSlug !== undefined) {
-      return {
-        error:
-          "record: --relaunch-slug requires --feature and --action redirect",
-      };
-    }
-
-    // Runner-phase-only stamp: no --feature, so no feature record is touched.
-    if (runnerPhase === undefined) {
-      return {
-        error: "record: --feature <id> or --runner-phase <phase> is required",
-      };
-    }
-    return {
-      mode: "record",
-      args: {
-        slug,
-        incrementRetry,
-        runnerPhase: runnerPhase as RecordArgs["runnerPhase"],
-      },
-    };
-  }
-
-  // context
-  if (flags.includes("--deadlock")) {
-    return { mode: "context", slug, deadlock: true };
-  }
   const feature = getFlag(flags, "--feature");
   if (!feature) {
-    return { error: "context: --feature <id> or --deadlock is required" };
+    return { error: "context: --feature <id> is required" };
   }
-  return { mode: "context", slug, feature, deadlock: false };
+  return { mode: "context", slug, feature };
 }
 
 const USAGE =
-  "usage: flow-epic-judge-context [context] --slug <epic> (--feature <id> | --deadlock)\n" +
-  "       flow-epic-judge-context record --slug <epic> --feature <id> --action <retry|redirect|escalate> --reason <text> [--increment-retry] [--relaunch-slug <new-slug>] [--runner-phase <phase>] [--overridable <true|false>] [--budget-exhausted]\n" +
-  "       flow-epic-judge-context record --slug <epic> --runner-phase <phase>\n" +
-  "  (--relaunch-slug repoints the feature to a relaunched pipeline; valid only with --action redirect)";
+  "usage: flow-epic-judge-context [context] --slug <epic> --feature <id>";
 
 export function run(argv: string[], deps: Deps = {}): number {
   const parsed = parseArgs(argv);
@@ -603,20 +335,11 @@ export function run(argv: string[], deps: Deps = {}): number {
     gh: deps.gh ?? defaultGh,
     stateDir: deps.stateDir ?? FLOW_STATE_DIR,
     epicsDir: deps.epicsDir ?? FLOW_EPICS_DIR,
-    maxRetries: deps.maxRetries ?? readEpicMaxRetries(),
-    maxRedirects: deps.maxRedirects ?? readEpicMaxRedirects(),
-    now: deps.now ?? (() => new Date().toISOString()),
   };
 
   let result: unknown;
   try {
-    if (parsed.mode === "record") {
-      result = recordJudgment(parsed.args, resolved);
-    } else if (parsed.deadlock) {
-      result = assembleDeadlockContext(parsed.slug, resolved);
-    } else {
-      result = assembleFeatureContext(parsed.slug, parsed.feature, resolved);
-    }
+    result = assembleFeatureContext(parsed.slug, parsed.feature, resolved);
   } catch (e) {
     // Tolerant: never throw — emit a tolerant JSON on any failure, exit 0.
     result = {

@@ -18,12 +18,16 @@
  * spawned window (cwd'd in a consumer worktree where `bin/lib/*` does not
  * exist) never re-derives the path nor imports `bin/lib`.
  *
- * The orchestrator RUN phase: `run` drives an epic to completion via a
- * foreground watch loop (tick → launch the ready frontier as parallel `flow
- * feature create` windows → sleep → re-tick, exiting on done/blocked), `status` renders
- * the live board read-only, and `ls` lists every epic under `~/.flow/epics/`.
- * All three read the committed `.flow/epics/<slug>/manifest.json` READ-ONLY and
- * keep per-machine runtime state at `~/.flow/epics/<slug>/run.json`.
+ * The orchestrator RUN phase: `run` opens a per-pipeline tmux window running
+ * the `/epic-run` playbook supervisor (an LLM that reconciles the committed
+ * manifest against GitHub/git truth and takes one deliberate step at a time —
+ * no tick loop, no judgment sub-agent). `bind` / `launch` are the safe-write
+ * primitives the playbook actuates with (repoint a drifted binding; atomic
+ * create+bind). `status` renders the live board read-only (or a machine-readable
+ * hypothesis with `--json`), and `ls` lists every epic under `~/.flow/epics/`.
+ * All read the committed `.flow/epics/<slug>/manifest.json` READ-ONLY and keep
+ * per-machine runtime state at `~/.flow/epics/<slug>/run.json` — a recomputable
+ * cache, never the source of truth.
  */
 
 import * as fs from "node:fs";
@@ -81,7 +85,6 @@ import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
 import {
   reconcile,
   classifyEvent,
-  HALT_STATUSES,
   type ReadFeatureState,
 } from "./epic-reconcile";
 import { launchFeature, type SpawnFn } from "./epic-launch";
@@ -91,30 +94,10 @@ import {
   listEpicRunStates,
   deleteEpicRunState,
   type EpicRunState,
+  type FeatureRunRecord,
 } from "./epic-run-state";
-import {
-  readEpicMaxParallel,
-  readEpicJudgment,
-  readEpicAutoRedirect,
-} from "./epic-config";
-import {
-  renderBoard,
-  renderEpicList,
-  renderTickSummary,
-  type EpicListRow,
-} from "./epic-render";
-
-/** Watch-loop poll interval (the launchd seam for v2 is `--once`). */
-const EPIC_POLL_INTERVAL_MS = 30_000;
-
-/**
- * Consecutive all-frontier-launch-failure ticks tolerated before the watch loop
- * bails to `blocked`. A single transient `flow feature create` failure self-heals on the
- * next tick, but a persistent one (e.g. a minted slug colliding with a
- * pre-existing tmux window) would otherwise spin the loop forever with no
- * progress and no terminal state.
- */
-const LAUNCH_STALL_BUDGET = 3;
+import { readEpicMaxParallel } from "./epic-config";
+import { renderBoard, renderEpicList, type EpicListRow } from "./epic-render";
 
 /**
  * Bounded retry budget for the verified window create — mirrors feature.ts. A
@@ -212,10 +195,6 @@ export type EpicOptions = {
   epicsDir?: string;
   /** Confirmation prompt seam (default reads stdin synchronously); test seam. */
   confirm?: (prompt: string) => boolean;
-  /** Watch-loop sleep seam (default `sleepSync`); keeps `runEpicCli` synchronous. */
-  sleep?: (ms: number) => void;
-  /** Watch-loop poll interval in ms (default `EPIC_POLL_INTERVAL_MS`). */
-  pollIntervalMs?: number;
   /** Feature-launch spawn seam (default spawns the bare `flow feature create`). */
   spawn?: SpawnFn;
   /** Per-feature live-state read seam (default `state.ts` readState). */
@@ -230,22 +209,6 @@ export type EpicOptions = {
    * developer's real config; this seam closes that isolation leak.
    */
   readMaxParallel?: () => number;
-  /**
-   * `epic.judgment` config-default reader seam (default `readEpicJudgment`).
-   * When it returns `true` (the default) AND neither `--once` nor
-   * `--no-judgment` is passed, `flow epic run <slug>` spawns the `/epic-run`
-   * supervisor window; otherwise it stays on the foreground deterministic loop.
-   */
-  readJudgment?: () => boolean;
-  /**
-   * `epic.autoRedirect` config-default reader seam (default `readEpicAutoRedirect`).
-   * Resolves the effective autonomous-redirect setting threaded into the
-   * supervisor seed (`AUTO_REDIRECT: on|off`); the `--no-auto-redirect` flag
-   * forces it off. Same test-isolation rationale as `readMaxParallel` /
-   * `readJudgment`: without the seam the run unit tests would read the
-   * developer's real `~/.flow/config.json`.
-   */
-  readAutoRedirect?: () => boolean;
   /**
    * Injectable `~/.flow/config.json` reader (test seam only). Threaded into
    * `readDefaultModel` / `collectModelConfigWarnings` at epic-create launch so
@@ -278,17 +241,21 @@ export function runEpicCli(args: string[], options: EpicOptions = {}): number {
       return runEpicRun(args.slice(1), options);
     case "status":
       return runEpicStatus(args.slice(1), options);
+    case "bind":
+      return runEpicBind(args.slice(1), options);
+    case "launch":
+      return runEpicLaunch(args.slice(1), options);
     case "ls":
       return runEpicLs(options);
     case "done":
       return runEpicDone(args.slice(1), options);
     case undefined:
       console.error("flow epic: a subcommand is required.");
-      console.error("usage: flow epic <create|run|status|ls|done>");
+      console.error("usage: flow epic <create|run|status|bind|launch|ls|done>");
       return 2;
     default:
       console.error(`flow epic: unknown epic subcommand: ${sub}`);
-      console.error("usage: flow epic <create|run|status|ls|done>");
+      console.error("usage: flow epic <create|run|status|bind|launch|ls|done>");
       return 2;
   }
 }
@@ -668,149 +635,46 @@ function runEpicResume(name: string, options: EpicOptions): number {
 
 type RunArgs = {
   slug: string;
-  once: boolean;
-  /** `--json` — structured single-tick output. VALID ONLY with `--once`. */
-  json: boolean;
-  /** `--no-judgment` — keep the foreground LLM-free loop (no supervisor spawn). */
-  noJudgment: boolean;
-  /** `--no-auto-redirect` — force autonomous redirect off for this run (default on). */
-  noAutoRedirect: boolean;
-  maxParallel?: number;
   /**
    * `--model <alias>` — the epic-run supervisor session model (parity with
    * `flow feature create --model`). Threaded into `createCommand` at launch.
    */
   model?: ModelAlias;
-  /**
-   * `--model-judge <alias>` — the per-halt/deadlock judgment sub-agent model.
-   * Persisted onto `EpicRunState.modelJudge` and threaded into the supervisor
-   * seed as a `MODEL_JUDGE:` line for the supervisor to resolve at its
-   * judgment Task-spawn.
-   */
-  modelJudge?: ModelAlias;
   error?: string;
 };
 
 /**
- * Parse `<slug>` + `--once` + `--json` + `--no-judgment` + `--no-auto-redirect`
- * + `--max-parallel <N>` + `--model <alias>` + `--model-judge <alias>` from the
- * run arm's args. `--json` is rejected without `--once` (the continuous loop
- * stays human-rendered; only a single tick emits JSON). Exported so a unit test
- * can assert the flag parse directly.
+ * Parse `<slug>` + `--model <alias>` from the run arm's args. Every loop-era
+ * flag (`--once`, `--json`, `--no-judgment`, `--no-auto-redirect`,
+ * `--max-parallel`, `--model-judge`) is gone — an unknown option is a usage
+ * error (exit 2). Exported so a unit test can assert the flag parse directly.
  */
 export function parseRunArgs(rest: string[]): RunArgs {
-  let once = false;
-  let json = false;
-  let noJudgment = false;
-  let noAutoRedirect = false;
-  let maxParallel: number | undefined;
   let model: ModelAlias | undefined;
-  let modelJudge: ModelAlias | undefined;
   const positionals: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
-    if (a === "--once") {
-      once = true;
-      continue;
-    }
-    if (a === "--model" || a === "--model-judge") {
+    if (a === "--model") {
       const v = rest[i + 1];
       if (v === undefined || v.startsWith("-")) {
-        return {
-          slug: "",
-          once,
-          json,
-          noJudgment,
-          noAutoRedirect,
-          error: `${a} requires a value`,
-        };
+        return { slug: "", error: `${a} requires a value` };
       }
       if (!(MODEL_ALIASES as readonly string[]).includes(v)) {
         return {
           slug: "",
-          once,
-          json,
-          noJudgment,
-          noAutoRedirect,
           error: `invalid ${a} value '${v}' (expected one of: opus, haiku, sonnet, fable)`,
         };
       }
-      if (a === "--model") model = v as ModelAlias;
-      else modelJudge = v as ModelAlias;
-      i++;
-      continue;
-    }
-    if (a === "--json") {
-      json = true;
-      continue;
-    }
-    if (a === "--no-judgment") {
-      noJudgment = true;
-      continue;
-    }
-    if (a === "--no-auto-redirect") {
-      noAutoRedirect = true;
-      continue;
-    }
-    if (a === "--max-parallel") {
-      const v = rest[i + 1];
-      if (v === undefined || v.startsWith("-")) {
-        return {
-          slug: "",
-          once,
-          json,
-          noJudgment,
-          noAutoRedirect,
-          error: "--max-parallel requires a value",
-        };
-      }
-      const n = Number(v);
-      if (!Number.isInteger(n) || n < 1) {
-        return {
-          slug: "",
-          once,
-          json,
-          noJudgment,
-          noAutoRedirect,
-          error: `--max-parallel must be a positive integer (got '${v}')`,
-        };
-      }
-      maxParallel = n;
+      model = v as ModelAlias;
       i++;
       continue;
     }
     if (a.startsWith("-")) {
-      return {
-        slug: "",
-        once,
-        json,
-        noJudgment,
-        noAutoRedirect,
-        error: `unknown option '${a}'`,
-      };
+      return { slug: "", error: `unknown option '${a}'` };
     }
     positionals.push(a);
   }
-  if (json && !once) {
-    return {
-      slug: "",
-      once,
-      json,
-      noJudgment,
-      noAutoRedirect,
-      error: "--json requires --once",
-    };
-  }
-  return {
-    slug: positionals.join(" ").trim(),
-    once,
-    json,
-    noJudgment,
-    noAutoRedirect,
-    maxParallel,
-    model,
-    modelJudge,
-  };
+  return { slug: positionals.join(" ").trim(), model };
 }
 
 /**
@@ -854,8 +718,7 @@ function loadCommittedManifest(
   };
 }
 
-const RUN_USAGE =
-  "usage: flow epic run <slug> [--once] [--json] [--no-judgment] [--no-auto-redirect] [--max-parallel <N>] [--model <alias>] [--model-judge <alias>]";
+const RUN_USAGE = "usage: flow epic run <slug> [--model <alias>]";
 
 function runEpicRun(rest: string[], options: EpicOptions): number {
   const parsed = parseRunArgs(rest);
@@ -869,7 +732,7 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
     console.error(RUN_USAGE);
     return 2;
   }
-  const { slug, once, json, noJudgment } = parsed;
+  const { slug } = parsed;
 
   const cwd = options.cwd ?? process.cwd();
   const repo = resolveRepoRoot(cwd);
@@ -895,101 +758,43 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
     return 2;
   }
 
-  // Default path (judgment on, no --once, no --no-judgment): spawn the
-  // /epic-run supervisor window. --once / --no-judgment / `epic.judgment:false`
-  // all keep the existing foreground LLM-free loop. The manifest is loaded
-  // FIRST (above) so a missing/invalid design surfaces the same usage error on
-  // every path, before any window is spawned.
-  const judgmentOn = (options.readJudgment ?? readEpicJudgment)();
-  if (!once && !noJudgment && judgmentOn) {
-    return spawnEpicRunSupervisor(slug, repo, parsed.noAutoRedirect, options, {
-      runModel: parsed.model,
-      modelJudge: parsed.modelJudge,
-      manifestSha: loaded.sha,
-    });
-  }
-
-  const now = options.now ?? nowIso;
-  const maxParallel =
-    parsed.maxParallel ?? (options.readMaxParallel ?? readEpicMaxParallel)();
-
-  // Load-or-init runtime state; refresh drift-tracking fields on resume.
-  const existing = readEpicRunState(slug, options.epicsDir);
-  const runState: EpicRunState = existing ?? {
-    epicSlug: slug,
-    repo,
-    manifestPath,
-    manifestSha: loaded.sha,
-    maxParallel,
-    createdAt: now(),
-    updatedAt: now(),
-    features: {},
-  };
-  runState.repo = repo;
-  runState.manifestPath = manifestPath;
-  runState.manifestSha = loaded.sha;
-  runState.maxParallel = maxParallel;
-
-  return runWatchLoop(
-    slug,
-    loaded.manifest,
-    runState,
-    maxParallel,
-    once,
-    json,
-    options,
-    now,
-  );
+  // The manifest is loaded FIRST (above) so a missing/invalid design surfaces
+  // the usage error before any window is spawned. Then open the /epic-run
+  // playbook window — that is the only run path now (the deterministic tick
+  // loop + judgment machinery are gone).
+  return spawnEpicRunSupervisor(slug, repo, options, parsed.model);
 }
 
 /**
- * Spawn the `/epic-run` supervisor in a per-pipeline tmux window — the default
- * `flow epic run <slug>` path when judgment is on. Mirrors `runCreate`'s
- * verify-then-delete-on-failure launch scaffolding, but keyed on the epic
- * run-state `runnerPhase` (the supervisor stamps it `running` on first entry)
- * rather than a `state.json` phase machine (epic run has none). The supervisor
- * itself drives ticks via `flow epic run <slug> --once --json`; this function
- * only opens the window and proves it consumed the seed.
+ * Open the `/epic-run` playbook supervisor in a per-pipeline tmux window.
+ * Mirrors `runCreate`'s launch scaffolding but keeps NO per-machine phase
+ * machine — with `runnerPhase` gone, the launch uses `createWindowVerified`'s
+ * default fail-closed never-consumed predicate: a dead pane still retries/fails
+ * loudly, a live pane returns `launched-not-confirmed` (a non-retry success).
+ * Weaker than the old seed-consumption proof, but zero new machinery — the
+ * playbook is human-in-the-loop (the user attaches to the window they opened).
  */
 function spawnEpicRunSupervisor(
   slug: string,
   repo: string,
-  noAutoRedirect: boolean,
   options: EpicOptions,
-  models: {
-    /** `--model` parity: the epic-run supervisor session model. */
-    runModel?: ModelAlias;
-    /** `--model-judge`: persisted to run-state + threaded into the seed. */
-    modelJudge?: ModelAlias;
-    /** sha of the committed manifest, for the pre-launch run-state seed. */
-    manifestSha: string;
-  },
+  runModel?: ModelAlias,
 ): number {
   if (windowExists(slug)) {
     console.error(
       `flow epic run: window '${FLOW_SESSION}:${slug}' already exists.`,
     );
     console.error(
-      `  attach with \`flow attach ${slug}\`, or run \`flow epic run ${slug} --no-judgment\``,
+      `  attach with \`flow attach ${slug}\`, or drive the playbook directly`,
     );
-    console.error("  for the foreground deterministic loop instead.");
+    console.error(`  in any existing session with \`/epic-run ${slug}\`.`);
     return 2;
   }
 
   const worktree = deriveWorktreePath(repo, slug);
   const epicDir = epicDirRelative(slug);
-  // Flag forces off; else the config default (which itself defaults on).
-  const effectiveAutoRedirect = noAutoRedirect
-    ? false
-    : (options.readAutoRedirect ?? readEpicAutoRedirect)();
-  const seed = epicRunSeed(
-    slug,
-    epicDir,
-    effectiveAutoRedirect,
-    models.modelJudge,
-  );
-  // Mirror runCreate's launch: resolve the flow-scoped settings file (registers
-  // the seed-ingested hook the consumed() predicate below relies on) and build
+  const seed = epicRunSeed(slug, epicDir);
+  // Mirror runCreate's launch: resolve the flow-scoped settings file and build
   // the verified-launch argv through the shared builder. The supervisor session
   // model is `--model > config.models.default > inherited` (parity with
   // `flow feature create` / `flow epic create`); absent both, no --model reaches
@@ -998,73 +803,16 @@ function spawnEpicRunSupervisor(
   for (const w of collectModelConfigWarnings(options.readConfig)) {
     console.error(dim(`flow epic run: ${w}`));
   }
-  const runSessionModel =
-    models.runModel ?? readDefaultModel(options.readConfig);
+  const runSessionModel = runModel ?? readDefaultModel(options.readConfig);
   const command =
     options.command ??
     createCommand(worktree, options.effort, settingsPath, runSessionModel);
 
-  // Consumption = the supervisor advanced run-state `runnerPhase` to `running`
-  // on first entry (its documented first action). Clear any pre-existing
-  // `runnerPhase` at the START of EVERY launch attempt — mirroring how
-  // runFresh/runCreate rewrite `phase: "starting"` per attempt — so consumed()
-  // only latches on a `running` stamp THIS run's supervisor makes. Re-reading
-  // alone is insufficient: a supervisor that died abnormally (crash / closed
-  // window / reboot) before its graceful `blocked`/`done` stamp leaves
-  // `runnerPhase: "running"` in run.json; with the window gone, the `already
-  // exists` refusal doesn't fire, and on re-run the fresh window's FIRST
-  // consumed() probe would read that stale marker and short-circuit true —
-  // the seed is never sent (tmux guards it behind `!consumed()`) and the CLI
-  // falsely reports "supervisor started" over an idle orphan window.
-  const launch = () => {
-    const existing = readEpicRunState(slug, options.epicsDir);
-    if (existing) {
-      // Clear the stale runnerPhase (per-attempt reset, see above) and refresh
-      // modelJudge so a jq read sees the --model-judge alias this run passed.
-      let dirty = false;
-      if (existing.runnerPhase !== undefined) {
-        existing.runnerPhase = undefined;
-        dirty = true;
-      }
-      if (existing.modelJudge !== models.modelJudge) {
-        existing.modelJudge = models.modelJudge;
-        dirty = true;
-      }
-      if (dirty) writeEpicRunState(existing, options.epicsDir);
-    } else if (models.modelJudge !== undefined) {
-      // No run-state yet (the common first-run case): seed a minimal VALID
-      // run-state carrying modelJudge so the supervisor's jq read sees it
-      // immediately. The supervisor's first --once tick refreshes the drift
-      // fields (repo / manifestPath / manifestSha / maxParallel), preserving
-      // modelJudge. Only written when there IS a modelJudge to persist — absent
-      // it, the supervisor's own first tick creates the run-state as before.
-      const now = options.now ?? nowIso;
-      writeEpicRunState(
-        {
-          epicSlug: slug,
-          repo,
-          manifestPath: path.join(
-            repo,
-            epicDirRelative(slug),
-            EPIC_MANIFEST_FILENAME,
-          ),
-          manifestSha: models.manifestSha,
-          maxParallel: (options.readMaxParallel ?? readEpicMaxParallel)(),
-          createdAt: now(),
-          updatedAt: now(),
-          features: {},
-          modelJudge: models.modelJudge,
-        },
-        options.epicsDir,
-      );
-    }
-    return createWindowVerified(slug, repo, command, seed, {
-      consumed: () => {
-        const rs = readEpicRunState(slug, options.epicsDir);
-        return rs != null && rs.runnerPhase === "running";
-      },
-    });
-  };
+  // No run.json pre-seed and no `runnerPhase` reset — the default never-consumed
+  // predicate (`createWindowVerified` with no `consumed`) verifies pane survival
+  // only. A dead pane is `failed` (retry via launchWithRetry, then a loud
+  // error); a live pane is `launched-not-confirmed` (a non-retry success).
+  const launch = () => createWindowVerified(slug, repo, command, seed);
   const result = launchWithRetry(launch, options.retrySleepMs);
   if (result.status === "failed") {
     console.error(
@@ -1099,205 +847,6 @@ function spawnEpicRunSupervisor(
   return 0;
 }
 
-/**
- * One reconcile tick: classify, terminate on done/blocked, else launch the
- * capped frontier and persist. Returns `{ done, code }` — `done` true means the
- * caller should stop the loop and return `code`.
- */
-function runEpicTick(
-  slug: string,
-  manifest: EpicManifest,
-  runState: EpicRunState,
-  maxParallel: number,
-  json: boolean,
-  options: EpicOptions,
-  now: () => string,
-): {
-  done: boolean;
-  code: number;
-  running: number;
-  attempted: number;
-  launched: number;
-  launchFailedIds: string[];
-} {
-  const result = reconcile({
-    manifest,
-    runState,
-    readFeatureState: options.readFeatureState,
-    maxParallel,
-  });
-
-  // `--once --json`: emit the structured tick the /epic-run supervisor parses
-  // (board/summary/epicStatus/toLaunch + the event classification, plus the
-  // per-feature deadlock evidence). Human renders are suppressed below so
-  // stdout carries exactly this one JSON object the supervisor `jq`s.
-  if (json) {
-    const event = classifyEvent(result);
-    const payload: Record<string, unknown> = {
-      epicSlug: slug,
-      event,
-      epicStatus: result.epicStatus,
-      summary: result.summary,
-      board: result.board,
-      toLaunch: result.toLaunch,
-    };
-    if (event.kind === "deadlock") {
-      // A deadlock has no halted blocker, so the actionable evidence is the
-      // set of non-merged features + their unsatisfied deps the supervisor
-      // reasons over to name a probable cause.
-      payload.deadlock = result.board
-        .filter((r) => r.status !== "merged")
-        .map((r) => ({ id: r.id, status: r.status, dependsOn: r.dependsOn }));
-    }
-    console.log(JSON.stringify(payload));
-  }
-
-  if (result.epicStatus === "done") {
-    if (!json) {
-      console.log(renderBoard(result.board, result.summary));
-      console.log(
-        `epic complete: ${result.summary.merged}/${result.summary.total} features merged.`,
-      );
-    }
-    return {
-      done: true,
-      code: 0,
-      running: result.summary.running,
-      attempted: 0,
-      launched: 0,
-      launchFailedIds: [],
-    };
-  }
-
-  if (result.epicStatus === "blocked") {
-    if (!json) {
-      const blockers = result.board
-        .filter((r) => HALT_STATUSES.has(r.status))
-        .map((r) => r.id);
-      console.error(renderBoard(result.board, result.summary));
-      console.error(
-        blockers.length > 0
-          ? `epic blocked — ${blockers.join(", ")} halted (gated/needs-human/orphan); clear via their own pipelines, then re-run \`flow epic run ${slug}\`.`
-          : `epic blocked — the frontier is empty but not all features merged; re-run \`flow epic run ${slug}\` after resolving.`,
-      );
-    }
-    return {
-      done: true,
-      code: 1,
-      running: result.summary.running,
-      attempted: 0,
-      launched: 0,
-      launchFailedIds: [],
-    };
-  }
-
-  // Running: launch the capped frontier, recording each minted slug.
-  const launched: { id: string; slug: string }[] = [];
-  const launchFailedIds: string[] = [];
-  for (const feature of result.toLaunch) {
-    const lr = launchFeature(feature, { spawn: options.spawn });
-    if (!lr.ok) {
-      // Surface, never swallow (the slug-drift stall is the #1 failure mode).
-      // Stays on stderr so it never corrupts the stdout JSON in --json mode.
-      console.error(
-        `flow epic run: could not launch ${feature.id}: ${lr.error}`,
-      );
-      launchFailedIds.push(feature.id);
-      continue;
-    }
-    runState.features[feature.id] = { slug: lr.slug, launchedAt: now() };
-    launched.push({ id: feature.id, slug: lr.slug });
-  }
-  runState.updatedAt = now();
-  writeEpicRunState(runState, options.epicsDir);
-
-  if (!json) {
-    const line = renderTickSummary(launched, {
-      used: result.summary.running + launched.length,
-      max: maxParallel,
-    });
-    if (line) console.log(line);
-  }
-
-  return {
-    done: false,
-    code: 0,
-    running: result.summary.running + launched.length,
-    attempted: result.toLaunch.length,
-    launched: launched.length,
-    launchFailedIds,
-  };
-}
-
-function runWatchLoop(
-  slug: string,
-  manifest: EpicManifest,
-  runState: EpicRunState,
-  maxParallel: number,
-  once: boolean,
-  json: boolean,
-  options: EpicOptions,
-  now: () => string,
-): number {
-  if (once) {
-    return runEpicTick(
-      slug,
-      manifest,
-      runState,
-      maxParallel,
-      json,
-      options,
-      now,
-    ).code;
-  }
-
-  const sleep = options.sleep ?? sleepSync;
-  const pollMs = options.pollIntervalMs ?? EPIC_POLL_INTERVAL_MS;
-
-  // Ctrl-C terminates the watch loop via the runtime's DEFAULT SIGINT handling —
-  // no handler is registered on purpose. A synchronous `sleepSync` loop
-  // (`Atomics.wait`) never yields to the event loop, so a registered SIGINT
-  // listener could never be dispatched AND would suppress the default
-  // terminate-on-Ctrl-C, leaving the process uninterruptible. Letting the
-  // default fire keeps Ctrl-C working: already-launched features keep running in
-  // their own tmux windows (separate processes), run-state is persisted every
-  // tick, so re-running `flow epic run <slug>` resumes from disk — an abrupt
-  // interrupt is functionally equivalent to a graceful stop here.
-  let stalledTicks = 0;
-  for (;;) {
-    // The continuous loop is always human-rendered (--json is rejected without
-    // --once), so the tick never emits JSON here.
-    const r = runEpicTick(
-      slug,
-      manifest,
-      runState,
-      maxParallel,
-      false,
-      options,
-      now,
-    );
-    if (r.done) return r.code;
-
-    // No-progress guard: a tick that launches nothing, has nothing already
-    // running, yet still wanted to launch (frontier non-empty) means every
-    // frontier feature failed to launch. A transient failure self-heals on the
-    // next tick; a persistent one would otherwise spin forever, so bail to
-    // `blocked` after LAUNCH_STALL_BUDGET consecutive stalled ticks.
-    if (r.running === 0 && r.launched === 0 && r.attempted > 0) {
-      if (++stalledTicks >= LAUNCH_STALL_BUDGET) {
-        console.error(
-          `epic blocked — ${r.launchFailedIds.join(", ")} failed to launch ${LAUNCH_STALL_BUDGET} consecutive ticks with nothing else in flight; fix the underlying \`flow feature create\` failure (e.g. a window-name collision), then re-run \`flow epic run ${slug}\`.`,
-        );
-        return 1;
-      }
-    } else {
-      stalledTicks = 0;
-    }
-
-    sleep(pollMs);
-  }
-}
-
 /** An empty-features runtime state for an epic that has a manifest but no run yet. */
 function ephemeralRunState(
   slug: string,
@@ -1316,14 +865,23 @@ function ephemeralRunState(
   };
 }
 
+/**
+ * The fixed hypothesis-framing sentence the `--json` payload carries so the
+ * playbook LLM never mistakes the board for verified truth: run.json is a
+ * per-machine, possibly-stale cache to reconcile against GitHub/git.
+ */
+const STATUS_SOURCE_NOTE =
+  "run.json is a per-machine, recomputable cache (a stale hint, never the source of truth). Reconcile this board against GitHub (merged/open PRs) and git (branches, worktrees) before acting on it.";
+
 function runEpicStatus(rest: string[], options: EpicOptions): number {
+  const json = rest.includes("--json");
   const slug = rest
     .filter((a) => !a.startsWith("-"))
     .join(" ")
     .trim();
   if (!slug) {
     console.error("flow epic status: a slug is required.");
-    console.error("usage: flow epic status <slug>");
+    console.error("usage: flow epic status <slug> [--json]");
     return 2;
   }
 
@@ -1373,12 +931,375 @@ function runEpicStatus(rest: string[], options: EpicOptions): number {
     manifest,
     runState: rs,
     readFeatureState: options.readFeatureState,
-    maxParallel: rs.maxParallel,
+    maxParallel:
+      rs.maxParallel ?? (options.readMaxParallel ?? readEpicMaxParallel)(),
   });
+
+  if (json) {
+    // Exactly ONE JSON object on stdout (jq-parseable). `event` is the board
+    // summary hint; `source` is the machine-visible hypothesis framing.
+    console.log(
+      JSON.stringify({
+        epicSlug: slug,
+        epicStatus: result.epicStatus,
+        event: classifyEvent(result),
+        summary: result.summary,
+        board: result.board,
+        source: STATUS_SOURCE_NOTE,
+      }),
+    );
+    return 0;
+  }
+
   console.log(
     `EPIC ${slug} — ${result.epicStatus} (${result.summary.merged}/${result.summary.total} merged)`,
   );
   console.log(renderBoard(result.board, result.summary));
+  return 0;
+}
+
+// ── bind / launch: the safe-write actuators ─────────────────────────────────
+
+/**
+ * Reject a slug that isn't a single safe path segment before it feeds
+ * `path.join(epicsDir, slug)` (mirrors runEpicDone's traversal guard).
+ */
+function isSafeEpicSlug(slug: string): boolean {
+  return !(
+    slug.includes("/") ||
+    slug.includes("\\") ||
+    slug === "." ||
+    slug === ".." ||
+    path.basename(slug) !== slug
+  );
+}
+
+/**
+ * Resolve + read + shape/DAG-validate the committed manifest for an actuator
+ * (`bind` / `launch`), READ-ONLY. Prints its own `flow epic <verb>:` errors and
+ * returns the failure code so the caller just `return`s it.
+ */
+function loadActuatorManifest(
+  slug: string,
+  verb: "bind" | "launch",
+  options: EpicOptions,
+):
+  | {
+      ok: true;
+      repo: string;
+      manifestPath: string;
+      manifest: EpicManifest;
+      sha: string;
+    }
+  | { ok: false; code: number } {
+  const cwd = options.cwd ?? process.cwd();
+  const repo = resolveRepoRoot(cwd);
+  if (!repo) {
+    console.error(`flow epic ${verb}: ${cwd} is not inside a git repository.`);
+    return { ok: false, code: 2 };
+  }
+  const manifestPath = path.join(
+    repo,
+    epicDirRelative(slug),
+    EPIC_MANIFEST_FILENAME,
+  );
+  const loaded = loadCommittedManifest(manifestPath);
+  if (!loaded.ok) {
+    if (loaded.reason === "not-found") {
+      console.error(
+        `flow epic ${verb}: manifest not found at ${manifestPath} — merge the design PR first.`,
+      );
+    } else {
+      console.error(`flow epic ${verb}: ${loaded.reason}`);
+    }
+    return { ok: false, code: 2 };
+  }
+  return {
+    ok: true,
+    repo,
+    manifestPath,
+    manifest: loaded.manifest,
+    sha: loaded.sha,
+  };
+}
+
+/**
+ * Load the per-machine run-state, or initialize a fresh one from the committed
+ * manifest when absent. run.json is a recomputable per-machine cache, so a new
+ * machine or a `flow epic done`-swept epic is a normal starting state — bind /
+ * launch init rather than erroring.
+ */
+function loadOrInitRunState(
+  slug: string,
+  repo: string,
+  manifestPath: string,
+  sha: string,
+  options: EpicOptions,
+): EpicRunState {
+  const existing = readEpicRunState(slug, options.epicsDir);
+  if (existing) return existing;
+  const now = options.now ?? nowIso;
+  return {
+    epicSlug: slug,
+    repo,
+    manifestPath,
+    manifestSha: sha,
+    maxParallel: (options.readMaxParallel ?? readEpicMaxParallel)(),
+    createdAt: now(),
+    updatedAt: now(),
+    features: {},
+  };
+}
+
+function runEpicBind(rest: string[], options: EpicOptions): number {
+  if (argsContainHelp(rest)) {
+    console.log(`flow epic bind — repoint or adopt a feature's run.json binding
+
+Usage:
+  flow epic bind <epic-slug> <feature-id> <feature-slug> [--force]
+  flow epic bind <epic-slug> <feature-id> --external "<pr-or-issue-ref>" [--force]
+
+Repoints (or adopts) the run.json binding for a feature without hand-editing
+JSON. The slug form binds the feature to a live \`flow feature create\` pipeline;
+the --external form records a completed out-of-band feature (a PR/issue that
+merged with no flow pipeline) with no live slug.
+
+Refuses to overwrite a DIFFERING existing binding without --force. On a forced
+repoint the old slug moves to priorSlugs (audit lineage). The slug form also
+refuses a target slug with no ~/.flow/state/<slug>.json unless --force (a typo
+guard for a cleaned-up pipeline).
+
+Options:
+  --external "<ref>"    record a completed out-of-band feature (mutually
+                        exclusive with the <feature-slug> positional)
+  --force               overwrite a differing binding / bypass the slug guard`);
+    return 0;
+  }
+
+  const force = rest.includes("--force");
+  let external: string | undefined;
+  const extIdx = rest.indexOf("--external");
+  if (extIdx >= 0) {
+    const v = rest[extIdx + 1];
+    if (v === undefined || v.startsWith("--")) {
+      console.error("flow epic bind: --external requires a value.");
+      return 2;
+    }
+    external = v;
+  }
+  const positionals = rest.filter((a, i) => {
+    if (a.startsWith("-")) return false;
+    // drop the --external value token from the positional stream
+    if (external !== undefined && rest[i - 1] === "--external") return false;
+    return true;
+  });
+
+  const [epicSlug, featureId, featureSlug] = positionals;
+  if (!epicSlug || !featureId) {
+    console.error("flow epic bind: <epic-slug> and <feature-id> are required.");
+    console.error(
+      "usage: flow epic bind <epic-slug> <feature-id> <feature-slug> [--force]",
+    );
+    console.error(
+      '       flow epic bind <epic-slug> <feature-id> --external "<ref>" [--force]',
+    );
+    return 2;
+  }
+  if (external !== undefined && featureSlug !== undefined) {
+    console.error(
+      "flow epic bind: <feature-slug> and --external are mutually exclusive.",
+    );
+    return 2;
+  }
+  if (external === undefined && featureSlug === undefined) {
+    console.error(
+      'flow epic bind: a <feature-slug> or --external "<ref>" is required.',
+    );
+    return 2;
+  }
+  if (!isSafeEpicSlug(epicSlug)) {
+    console.error(`flow epic bind: invalid epic slug '${epicSlug}'.`);
+    return 2;
+  }
+
+  const loaded = loadActuatorManifest(epicSlug, "bind", options);
+  if (!loaded.ok) return loaded.code;
+  if (!loaded.manifest.features.some((f) => f.id === featureId)) {
+    console.error(
+      `flow epic bind: feature '${featureId}' is not in the manifest.`,
+    );
+    return 2;
+  }
+
+  const runState = loadOrInitRunState(
+    epicSlug,
+    loaded.repo,
+    loaded.manifestPath,
+    loaded.sha,
+    options,
+  );
+  const now = options.now ?? nowIso;
+  const record: FeatureRunRecord | undefined = runState.features[featureId];
+
+  let next: FeatureRunRecord;
+  if (external !== undefined) {
+    // External form: a differing binding is any existing record (slug-bound, or
+    // an external ref that isn't this one). An identical external ref is a
+    // no-op-safe re-record.
+    const differs = record
+      ? record.slug
+        ? true
+        : record.external !== external
+      : false;
+    if (differs && !force) {
+      console.error(
+        `flow epic bind: '${featureId}' is already bound${record?.slug ? ` to slug '${record.slug}'` : ` (external '${record?.external}')`}; pass --force to overwrite.`,
+      );
+      return 2;
+    }
+    const priorSlugs = [...(record?.priorSlugs ?? [])];
+    if (record?.slug) priorSlugs.push(record.slug);
+    next = {
+      external,
+      completedAt: now(),
+      ...(priorSlugs.length > 0 ? { priorSlugs } : {}),
+      ...(record?.pr !== undefined ? { pr: record.pr } : {}),
+      ...(record?.lastStatus !== undefined
+        ? { lastStatus: record.lastStatus }
+        : {}),
+    };
+  } else {
+    // Slug form. A differing binding is a record whose slug differs, or one that
+    // is external.
+    const slug = featureSlug!;
+    const differs = record
+      ? record.external
+        ? true
+        : record.slug !== slug
+      : false;
+    if (differs && !force) {
+      console.error(
+        `flow epic bind: '${featureId}' is already bound${record?.slug ? ` to slug '${record.slug}'` : ` (external '${record?.external}')`}; pass --force to overwrite.`,
+      );
+      return 2;
+    }
+    // Typo guard: a target slug with no pipeline state is likely a typo unless
+    // the user explicitly forces (a legitimately cleaned-up pipeline).
+    if (readState(slug, options.stateDir) === null && !force) {
+      console.error(
+        `flow epic bind: no pipeline state for slug '${slug}' (~/.flow/state/${slug}.json).`,
+      );
+      console.error(
+        "  pass --force if the pipeline was cleaned up, or check the slug for a typo.",
+      );
+      return 2;
+    }
+    const priorSlugs = [...(record?.priorSlugs ?? [])];
+    if (record?.slug && record.slug !== slug) priorSlugs.push(record.slug);
+    next = {
+      slug,
+      launchedAt: now(),
+      ...(priorSlugs.length > 0 ? { priorSlugs } : {}),
+      ...(record?.pr !== undefined ? { pr: record.pr } : {}),
+      ...(record?.lastStatus !== undefined
+        ? { lastStatus: record.lastStatus }
+        : {}),
+    };
+  }
+
+  runState.features[featureId] = next;
+  runState.updatedAt = now();
+  writeEpicRunState(runState, options.epicsDir);
+  console.log(JSON.stringify({ featureId, record: next }));
+  return 0;
+}
+
+function runEpicLaunch(rest: string[], options: EpicOptions): number {
+  if (argsContainHelp(rest)) {
+    console.log(`flow epic launch — atomically create + bind a feature
+
+Usage:
+  flow epic launch <epic-slug> <feature-id> [--force]
+
+Reads the committed manifest, resolves the feature node, spawns
+\`flow feature create\` for it, and records the minted slug in run.json before
+exiting — so a launch can never half-succeed into a lost binding. Refuses when
+the feature is already bound (or recorded external) without --force.
+
+Options:
+  --force               relaunch even when the feature is already bound`);
+    return 0;
+  }
+
+  const force = rest.includes("--force");
+  const positionals = rest.filter((a) => !a.startsWith("-"));
+  const [epicSlug, featureId] = positionals;
+  if (!epicSlug || !featureId) {
+    console.error(
+      "flow epic launch: <epic-slug> and <feature-id> are required.",
+    );
+    console.error("usage: flow epic launch <epic-slug> <feature-id> [--force]");
+    return 2;
+  }
+  if (!isSafeEpicSlug(epicSlug)) {
+    console.error(`flow epic launch: invalid epic slug '${epicSlug}'.`);
+    return 2;
+  }
+
+  const loaded = loadActuatorManifest(epicSlug, "launch", options);
+  if (!loaded.ok) return loaded.code;
+  const feature = loaded.manifest.features.find((f) => f.id === featureId);
+  if (!feature) {
+    console.error(
+      `flow epic launch: feature '${featureId}' is not in the manifest.`,
+    );
+    return 2;
+  }
+
+  const runState = loadOrInitRunState(
+    epicSlug,
+    loaded.repo,
+    loaded.manifestPath,
+    loaded.sha,
+    options,
+  );
+  const existing = runState.features[featureId];
+  if (existing && !force) {
+    console.error(
+      `flow epic launch: '${featureId}' is already ${existing.slug ? `bound to slug '${existing.slug}'` : `recorded external ('${existing.external}')`}; pass --force to relaunch.`,
+    );
+    return 2;
+  }
+
+  const lr = launchFeature(feature, { spawn: options.spawn });
+  if (!lr.ok) {
+    // Write nothing on failure — the binding is only recorded once the pipeline
+    // actually exists (acceptance scenario 3: a launch never loses its binding).
+    console.error(
+      `flow epic launch: could not launch ${featureId}: ${lr.error}`,
+    );
+    return 2;
+  }
+
+  const now = options.now ?? nowIso;
+  const priorSlugs = [...(existing?.priorSlugs ?? [])];
+  if (existing?.slug && existing.slug !== lr.slug)
+    priorSlugs.push(existing.slug);
+  runState.features[featureId] = {
+    slug: lr.slug,
+    launchedAt: now(),
+    ...(priorSlugs.length > 0 ? { priorSlugs } : {}),
+  };
+  runState.updatedAt = now();
+  writeEpicRunState(runState, options.epicsDir);
+  // First line is the machine-read contract token (the minted slug), mirroring
+  // `flow feature create` — the playbook parses it to record/verify the binding.
+  console.log(`${FLOW_SESSION}:${lr.slug}`);
+  console.log(
+    dim(
+      `flow epic launch: launched ${featureId} → ${lr.slug} (bound in run.json)`,
+    ),
+  );
   return 0;
 }
 
@@ -1407,7 +1328,8 @@ function runEpicLs(options: EpicOptions): number {
       manifest: loaded.manifest,
       runState: rs,
       readFeatureState: options.readFeatureState,
-      maxParallel: rs.maxParallel,
+      maxParallel:
+        rs.maxParallel ?? (options.readMaxParallel ?? readEpicMaxParallel)(),
     });
     return {
       slug: rs.epicSlug,
@@ -1595,23 +1517,11 @@ function buildLaunchCommand(
 // The /epic-run supervisor's seed. Mirrors epicCreateSeed: the slug after
 // `for:` + the literal EPIC_DIR (R1) on its own line, so the spawned window
 // (cwd'd in a consumer worktree without bin/lib) consumes them directly. The
-// SKILL parses this prefix to enter the tick loop. The AUTO_REDIRECT line
-// (on|off) tells the supervisor whether autonomous redirect is actuated this
-// run; an absent line the SKILL treats as `on` (the default) for back-safety.
-// The MODEL_JUDGE line (mirroring AUTO_REDIRECT) carries the --model-judge
-// alias to the supervisor's judgment Task-spawn; it is emitted only when set,
-// and an absent line the SKILL treats as "inherit" (config/session fallback).
-function epicRunSeed(
-  slug: string,
-  epicDir: string,
-  autoRedirect: boolean,
-  modelJudge?: ModelAlias,
-): string {
-  return (
-    `Use the /epic-run skill for: ${slug}\n\nEPIC_DIR: ${epicDir}\n` +
-    `AUTO_REDIRECT: ${autoRedirect ? "on" : "off"}` +
-    (modelJudge ? `\nMODEL_JUDGE: ${modelJudge}` : "")
-  );
+// SKILL parses this prefix to enter the playbook. No AUTO_REDIRECT / MODEL_JUDGE
+// lines — the playbook has no tick loop, no judgment sub-agent, and no
+// autonomous redirect to gate.
+function epicRunSeed(slug: string, epicDir: string): string {
+  return `Use the /epic-run skill for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
 }
 
 function createCommand(

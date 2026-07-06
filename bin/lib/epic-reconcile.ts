@@ -44,6 +44,8 @@ export type BoardRow = {
   pr?: number;
   phase?: string;
   dependsOn: string[];
+  /** True when the row's `merged` status came from an external completion record (no live slug). */
+  external?: boolean;
 };
 
 export type ReconcileSummary = {
@@ -64,16 +66,16 @@ export type ReconcileResult = {
 };
 
 /**
- * The `/epic-run` event taxonomy the LLM-judgment layer branches on, derived
- * purely from a `ReconcileResult` — NOT a recomputation of the frontier or any
- * change to `reconcile()`:
+ * A `ReconcileResult` summary label, derived purely from the result — NOT a
+ * recomputation of the frontier or any change to `reconcile()`. With the tick
+ * loop gone this is a **board-summary hypothesis hint** the `flow epic status
+ * --json` payload surfaces for the playbook LLM to weigh against GitHub/git
+ * truth — a hint, never a control signal:
  *
- *   - `green`    — in-flight/ready work, nothing halted (no judgment needed).
- *   - `halt`     — one or more features sit in a `HALT_STATUSES` state; the
- *                  judgment layer interprets each halted id.
+ *   - `green`    — in-flight/ready work, nothing halted.
+ *   - `halt`     — one or more features sit in a `HALT_STATUSES` state.
  *   - `deadlock` — `epicStatus === "blocked"` with NO halted blockers and not
- *                  all merged (the frontier is empty but the epic is not done —
- *                  today's `blockers.length === 0` blocked branch in epic.ts).
+ *                  all merged (the frontier is empty but the epic is not done).
  *   - `done`     — all features merged.
  */
 export type EpicEvent =
@@ -136,13 +138,22 @@ export function reconcile(input: {
   const launchedIds = new Set(Object.keys(runState.features));
 
   // Pass 1: status of every launched feature (the rest are ready/blocked,
-  // resolved after the frontier is known).
+  // resolved after the frontier is known). An external-completion record (an
+  // out-of-band PR/issue ref, no live slug) classifies as `merged` without
+  // reading any pipeline state — it is verified-done truth recorded in the
+  // cache.
   const launchedStatus = new Map<string, FeatureStatus>();
   const liveState = new Map<string, PipelineState | null>();
+  const externalIds = new Set<string>();
   for (const f of features) {
     const record = runState.features[f.id];
     if (!record) continue;
-    const state = readFeatureState(record.slug);
+    if (record.external && !record.slug) {
+      externalIds.add(f.id);
+      launchedStatus.set(f.id, "merged");
+      continue;
+    }
+    const state = record.slug ? readFeatureState(record.slug) : null;
     liveState.set(f.id, state);
     launchedStatus.set(f.id, classifyLaunched(state));
   }
@@ -166,6 +177,15 @@ export function reconcile(input: {
   const board: BoardRow[] = features.map((f) => {
     const record = runState.features[f.id];
     if (record) {
+      if (externalIds.has(f.id)) {
+        return {
+          id: f.id,
+          status: "merged" as const,
+          pr: record.pr,
+          dependsOn: f.dependsOn,
+          external: true,
+        };
+      }
       const state = liveState.get(f.id) ?? null;
       return {
         id: f.id,

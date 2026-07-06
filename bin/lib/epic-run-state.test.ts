@@ -98,14 +98,14 @@ describe("epic-run-state", () => {
     expect(readEpicRunState("offshape", dir)).toBeNull();
   });
 
-  it("type-guard rejects a features map whose value is off-shape", () => {
+  it("type-guard rejects a features map whose value has neither slug nor external", () => {
     fs.mkdirSync(path.join(dir, "bad-feat"), { recursive: true });
     fs.writeFileSync(
       path.join(dir, "bad-feat", "run.json"),
       JSON.stringify(
         fixture("bad-feat", {
-          // launchedAt missing → not a FeatureRunRecord.
-          features: { x: { slug: "x" } } as never,
+          // neither slug nor external → not a FeatureRunRecord.
+          features: { x: { pr: 5 } } as never,
         }),
       ),
     );
@@ -118,7 +118,7 @@ describe("epic-run-state", () => {
     expect(isEpicRunState("nope")).toBe(false);
   });
 
-  it("type-guard accepts a feature record with optional pr + lastStatus omitted", () => {
+  it("type-guard accepts a slug-bound record with optional pr + lastStatus omitted", () => {
     expect(
       isEpicRunState(
         fixture("ok", {
@@ -128,56 +128,48 @@ describe("epic-run-state", () => {
     ).toBe(true);
   });
 
-  it("type-guard accepts a feature record carrying retryCount + lastJudgment", () => {
+  it("type-guard accepts a slug-bound record WITHOUT launchedAt (now optional)", () => {
     expect(
       isEpicRunState(
-        fixture("judged", {
+        fixture("nolaunch", { features: { a: { slug: "nolaunch-a" } } }),
+      ),
+    ).toBe(true);
+  });
+
+  it("type-guard accepts an external-completion record (external, no slug)", () => {
+    expect(
+      isEpicRunState(
+        fixture("ext", {
           features: {
-            a: {
-              slug: "judged-a",
-              launchedAt: "2026-06-28T00:00:00Z",
-              retryCount: 1,
-              lastJudgment: {
-                action: "retry",
-                reason: "transient CI flake",
-                at: "2026-06-29T00:00:00Z",
-              },
-            },
+            a: { external: "PR #123", completedAt: "2026-06-28T00:00:00Z" },
           },
         }),
       ),
     ).toBe(true);
   });
 
-  it("type-guard accepts a feature record WITHOUT the new judgment fields (back-compat)", () => {
+  it("type-guard rejects a record with NEITHER a slug NOR an external ref", () => {
     expect(
       isEpicRunState(
-        fixture("legacy", {
-          features: {
-            a: { slug: "legacy-a", launchedAt: "2026-06-28T00:00:00Z" },
-          },
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("type-guard rejects a wrong-typed retryCount (string)", () => {
-    expect(
-      isEpicRunState(
-        fixture("bad-retry", {
-          features: {
-            a: {
-              slug: "bad-retry-a",
-              launchedAt: "2026-06-28T00:00:00Z",
-              retryCount: "1",
-            },
-          } as never,
-        }),
+        fixture("neither", { features: { a: { pr: 9 } } as never }),
       ),
     ).toBe(false);
   });
 
-  it("type-guard accepts a feature record carrying redirectCount + priorSlugs", () => {
+  it("type-guard rejects wrong-typed slug / external (present but not a string)", () => {
+    expect(
+      isEpicRunState(
+        fixture("bad-slug", { features: { a: { slug: 5 } } as never }),
+      ),
+    ).toBe(false);
+    expect(
+      isEpicRunState(
+        fixture("bad-ext", { features: { a: { external: 5 } } as never }),
+      ),
+    ).toBe(false);
+  });
+
+  it("type-guard accepts a record carrying priorSlugs (audit lineage)", () => {
     expect(
       isEpicRunState(
         fixture("redirected", {
@@ -185,44 +177,12 @@ describe("epic-run-state", () => {
             a: {
               slug: "redirected-a-v2",
               launchedAt: "2026-06-28T00:00:00Z",
-              redirectCount: 1,
               priorSlugs: ["redirected-a"],
             },
           },
         }),
       ),
     ).toBe(true);
-  });
-
-  it("type-guard accepts a feature record WITHOUT redirectCount/priorSlugs (back-compat)", () => {
-    expect(
-      isEpicRunState(
-        fixture("legacy-redirect", {
-          features: {
-            a: {
-              slug: "legacy-redirect-a",
-              launchedAt: "2026-06-28T00:00:00Z",
-            },
-          },
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("type-guard rejects a wrong-typed redirectCount (string)", () => {
-    expect(
-      isEpicRunState(
-        fixture("bad-redirect", {
-          features: {
-            a: {
-              slug: "bad-redirect-a",
-              launchedAt: "2026-06-28T00:00:00Z",
-              redirectCount: "1",
-            },
-          } as never,
-        }),
-      ),
-    ).toBe(false);
   });
 
   it("type-guard rejects a non-string-array priorSlugs (numbers)", () => {
@@ -257,53 +217,52 @@ describe("epic-run-state", () => {
     ).toBe(false);
   });
 
-  it.each([
-    ["non-object lastJudgment", "escalate" as never],
-    [
-      "wrong-typed action (number)",
-      { action: 1, reason: "x", at: "t" } as never,
-    ],
-    ["missing at field", { action: "retry", reason: "x" } as never],
-    [
-      "invalid action literal",
-      { action: "merge", reason: "x", at: "t" } as never,
-    ],
-  ])("type-guard rejects a wrong-typed lastJudgment: %s", (_label, bad) => {
-    expect(
-      isEpicRunState(
-        fixture("bad-judgment", {
-          features: {
-            a: {
-              slug: "bad-judgment-a",
-              launchedAt: "2026-06-28T00:00:00Z",
-              lastJudgment: bad,
-            },
-          } as never,
-        }),
-      ),
-    ).toBe(false);
+  it("type-guard accepts a state WITHOUT maxParallel (now optional)", () => {
+    const s = fixture("nomax");
+    delete (s as Partial<EpicRunState>).maxParallel;
+    expect(isEpicRunState(s)).toBe(true);
   });
 
-  it("type-guard accepts a valid top-level runnerPhase and rejects a wrong literal", () => {
-    for (const phase of ["running", "blocked", "done"] as const) {
-      expect(isEpicRunState(fixture("rp", { runnerPhase: phase }))).toBe(true);
-    }
-    // Absent is fine (back-compat).
-    expect(isEpicRunState(fixture("rp-absent"))).toBe(true);
-    // A value outside the three literals is rejected.
-    expect(
-      isEpicRunState(fixture("rp-bad", { runnerPhase: "paused" as never })),
-    ).toBe(false);
-  });
+  it("tolerates an OLD run.json carrying dropped judgment-era fields and preserves them on rewrite", () => {
+    // An old file from the tick-loop era: obsolete top-level runnerPhase/
+    // modelJudge and per-feature retryCount/lastJudgment. The guard never checks
+    // unknown keys and never strips them, so it validates and a read-modify-write
+    // round-trips the obsolete keys untouched.
+    const legacy = {
+      ...fixture("legacy"),
+      runnerPhase: "running",
+      modelJudge: "sonnet",
+      features: {
+        a: {
+          slug: "legacy-a",
+          launchedAt: "2026-06-28T00:00:00Z",
+          retryCount: 2,
+          redirectCount: 1,
+          lastJudgment: { action: "retry", reason: "flake", at: "t" },
+        },
+      },
+    };
+    fs.mkdirSync(path.join(dir, "legacy"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "legacy", "run.json"),
+      JSON.stringify(legacy),
+    );
 
-  it("type-guard accepts a valid modelJudge alias, an absent field, and rejects out-of-enum", () => {
-    for (const alias of ["opus", "haiku", "sonnet", "fable"] as const) {
-      expect(isEpicRunState(fixture("mj", { modelJudge: alias }))).toBe(true);
-    }
-    expect(isEpicRunState(fixture("mj-absent"))).toBe(true);
-    expect(
-      isEpicRunState(fixture("mj-bad", { modelJudge: "gpt4" as never })),
-    ).toBe(false);
+    const read = readEpicRunState("legacy", dir);
+    expect(read).not.toBeNull();
+    // The obsolete keys survived the read (guard never strips them).
+    const readRaw = read as unknown as Record<string, unknown>;
+    expect(readRaw.runnerPhase).toBe("running");
+
+    // Rewrite (a bind-style read-modify-write) and confirm they persist.
+    writeEpicRunState(read!, dir);
+    const reread = JSON.parse(
+      fs.readFileSync(path.join(dir, "legacy", "run.json"), "utf8"),
+    );
+    expect(reread.runnerPhase).toBe("running");
+    expect(reread.modelJudge).toBe("sonnet");
+    expect(reread.features.a.retryCount).toBe(2);
+    expect(reread.features.a.lastJudgment.reason).toBe("flake");
   });
 
   it("listEpicRunStates returns every epic with a valid run.json", () => {

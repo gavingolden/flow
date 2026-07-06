@@ -140,10 +140,16 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.feature).toContain("config.models.scout|coder");
   });
 
-  it("HELP_TEXT.epic documents --model-planning (create) and --model/--model-judge (run)", () => {
+  it("HELP_TEXT.epic documents --model-planning (create), --model (run), and the bind/launch surfaces", () => {
     expect(HELP_TEXT.epic).toContain("--model-planning");
-    expect(HELP_TEXT.epic).toContain("--model-judge");
-    expect(HELP_TEXT.epic).toContain("config.models.epicJudge");
+    expect(HELP_TEXT.epic).toContain("--model <alias>");
+    // The loop-era judgment knob is gone.
+    expect(HELP_TEXT.epic).not.toContain("--model-judge");
+    expect(HELP_TEXT.epic).not.toContain("epicJudge");
+    // The new safe-write actuators are documented.
+    expect(HELP_TEXT.epic).toContain("bind");
+    expect(HELP_TEXT.epic).toContain("launch");
+    expect(HELP_TEXT.epic).toContain("--external");
   });
 });
 
