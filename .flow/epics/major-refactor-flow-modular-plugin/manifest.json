@@ -239,7 +239,12 @@
       "id": "p6-distribution-impl",
       "title": "Distribution end-state implementation (winner only)",
       "description": "Implement the distribution end-state chosen by p6-distribution-eval, contracted to the winning candidate only. IF plugins: package all modules per the eval's evidence/spike — flow-core (pipeline/universal skills plus the named agents/*.md definitions from p4-review-agents and p4-pipeline-agents bundled as plugin agents), the stack/integration modules, the decided helper-binary strategy (PATH symlinks stay the always-global CLI's job vs ${CLAUDE_PLUGIN_ROOT}-relative invocation), marketplace docs + versioning, and the flow install switchover/coexistence story (the first sanctioned break with the --all byte-parity guarantee, stated explicitly in the PR). IF launcher + standalone-dir: versioned ~/.flow payload with an update/rollback story, per-repo granularity per the p2-per-repo-activation-eval verdict, and the agents/hooks final placement. IF filtered symlinks: hardening + uninstall/upgrade polish + consumer onboarding docs as the ratified end-state. In every branch the distributed skill surface is the flow--prefixed set from p2-flow-prefix-rename. Expect this node to be re-decomposed against the eval verdict before execution (recorded in the epic design's Open Questions).",
-      "dependsOn": ["p6-distribution-eval", "p4-review-agents", "p4-pipeline-agents", "p2-flow-prefix-rename"],
+      "dependsOn": [
+        "p6-distribution-eval",
+        "p4-review-agents",
+        "p4-pipeline-agents",
+        "p2-flow-prefix-rename"
+      ],
       "rationale": "Closes D9 (implementation half) — the diamond-closing integration; consumes the eval verdict, the named agent files the core distribution carries, and the renamed skill surface.",
       "acceptanceCriteria": [
         "WHEN the implementation completes THE SYSTEM SHALL distribute every module via the chosen mechanism with the enablement granularity and helper-binary strategy the verdict specifies, documented for consumers",
