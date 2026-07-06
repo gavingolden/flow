@@ -80,20 +80,23 @@ describe("flow-session-start-hook — dispatches the resume seed", () => {
     // A dispatchResume that never resolves anything (records synchronously and
     // returns void) must not delay run()'s resolution — run() dispatches and
     // returns, it never awaits the delivery.
-    let delivered = false;
+    let dispatchedSlug: string | null = null;
     const deps: Deps = {
       readStdin: async () => "",
       tmuxPane: "%1",
       showFlowSlug: () => "demo",
       loadState: () => fakeState("checkpoint-pending-clear"),
       markerExists: () => true,
-      dispatchResume: () => {
+      dispatchResume: (slug) => {
         // Simulate the real detached-child dispatch: returns immediately,
         // delivery happens out-of-band and is NOT awaited by run().
+        dispatchedSlug = slug;
       },
     };
     await expect(run(deps)).resolves.toBe(0);
-    expect(delivered).toBe(false);
+    // Dispatch was actually invoked (proves run() didn't skip it) AND run()
+    // already resolved above without this test awaiting any delivery promise.
+    expect(dispatchedSlug).toBe("demo");
   });
 });
 
@@ -275,7 +278,55 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       attempts: 20,
     };
     expect(deliverResumeSeed("demo", seams)).toBe(false);
-    // It still attempted both sends (literal seed + Enter) before reporting.
-    expect(sends.length).toBeGreaterThanOrEqual(1);
+    // The literal seed send failed, so the separate Enter send is guarded off
+    // — only the one (failed) send is attempted, never a stale/partial submit.
+    expect(sends).toEqual([
+      { text: flowPipelineResumeSeed("demo"), literal: true },
+    ]);
+  });
+
+  it("uses the fallback-settle path (no observable transition) to still deliver", () => {
+    // capturePane returns the SAME non-empty frame from the very first call —
+    // the clear completed before our first capture, so `sawChange` never
+    // flips true and the fast path (transition + STABLE_PROBES) can't fire.
+    // With enough attempts, the longer fallback settle
+    // (STABLE_PROBES + FALLBACK_EXTRA_PROBES consecutive identical captures)
+    // must still return true and the seed must still be sent.
+    const capture = () => "already-settled prompt";
+    const { seams, sends } = makeSeams(capture, /* attempts */ 10);
+    expect(deliverResumeSeed("demo", seams)).toBe(true);
+    expect(sends).toEqual([
+      { text: flowPipelineResumeSeed("demo"), literal: true },
+      { text: "Enter", literal: false },
+    ]);
+  });
+
+  it("delivers on the one bounded retry when the first pass fails to settle", () => {
+    // First pass (budget = attempts) sees alternating content that never
+    // stabilises, so the first paneClearedAndSettled call returns false. The
+    // retry pass's capture calls (continuing from the same stateful frames
+    // generator) then settle into a stable, changed frame.
+    const capture = frames([
+      "old pre-clear prompt", // pass 1 initial snapshot
+      "a",
+      "b",
+      "a",
+      "b",
+      "a",
+      "b", // pass 1's 6 loop attempts: alternates forever, never settles
+      "old pre-clear prompt", // pass 2 (retry) initial snapshot
+      "fresh",
+      "fresh",
+      "fresh", // pass 2 settles: transitioned + 2 consecutive stable ⇒ ready
+      "fresh",
+      "fresh",
+      "fresh",
+    ]);
+    const { seams, sends } = makeSeams(capture, /* attempts */ 6);
+    expect(deliverResumeSeed("demo", seams)).toBe(true);
+    expect(sends).toEqual([
+      { text: flowPipelineResumeSeed("demo"), literal: true },
+      { text: "Enter", literal: false },
+    ]);
   });
 });

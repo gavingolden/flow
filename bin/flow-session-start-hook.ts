@@ -166,8 +166,12 @@ export function deliverResumeSeed(slug: string, seams: DeliverSeams): boolean {
   if (!ready) return false;
   const seed = flowPipelineResumeSeed(slug);
   const sent = seams.sendKeys(seed, true);
+  // Never send the separate submit Enter when the literal seed send itself
+  // failed — doing so could submit stale/partial pane content on a still-live
+  // pane.
+  if (!sent.ok) return false;
   const submitted = seams.sendKeys("Enter", false);
-  return sent.ok && submitted.ok;
+  return submitted.ok;
 }
 
 /** Reads the window's `@flow-slug` user option — mirrors flow-stop-guard. */
