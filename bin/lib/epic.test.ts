@@ -1505,6 +1505,57 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(rec?.priorSlugs).toEqual(["old-slug"]);
   });
 
+  it.each<[string, string[]]>([
+    ["missing", []],
+    ["empty", [""]],
+  ])(
+    "bind: rejects a %s --external value (exit 2, writes nothing)",
+    (_label, extraArg) => {
+      // An empty ref (a shell var that expanded empty) must NOT write a
+      // `{ external: "" }` record — that fails the run-state guard on read and
+      // collapses the whole run.json to "missing", losing every binding.
+      gitInit();
+      writeManifest("bind-empty-ext", [{ id: "feat-a" }]);
+      const code = runEpicCli(
+        ["bind", "bind-empty-ext", "feat-a", "--external", ...extraArg],
+        { cwd: repoDir, epicsDir, stateDir },
+      );
+      expect(code).toBe(2);
+      expect(errors.join("\n")).toMatch(/--external requires a non-empty/);
+      // Nothing written.
+      expect(readEpicRunState("bind-empty-ext", epicsDir)).toBeNull();
+    },
+  );
+
+  it("bind --force: carries pr + lastStatus forward onto the rebound record", () => {
+    // A rebind must not blank the board's PR/PHASE columns — the audit fields
+    // survive the repoint.
+    gitInit();
+    const manifestPath = writeManifest("bind-carry", [{ id: "feat-a" }]);
+    writeEpicRunState(
+      seedRunState("bind-carry", manifestPath, {
+        features: {
+          "feat-a": {
+            slug: "old-slug",
+            launchedAt: "x",
+            pr: 77,
+            lastStatus: "reviewing",
+          },
+        },
+      }),
+      epicsDir,
+    );
+    const code = runEpicCli(
+      ["bind", "bind-carry", "feat-a", "new-slug", "--force"],
+      { cwd: repoDir, epicsDir, stateDir },
+    );
+    expect(code).toBe(0);
+    const rec = readEpicRunState("bind-carry", epicsDir)?.features["feat-a"];
+    expect(rec?.slug).toBe("new-slug");
+    expect(rec?.pr).toBe(77);
+    expect(rec?.lastStatus).toBe("reviewing");
+  });
+
   it("bind: refuses a target slug with no pipeline state unless --force (typo guard)", () => {
     gitInit();
     writeManifest("bind-typo", [{ id: "feat-a" }]);
@@ -1649,6 +1700,33 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(code).toBe(2);
     expect(spawn).not.toHaveBeenCalled();
     expect(errors.join("\n")).toMatch(/already bound/);
+  });
+
+  it("launch --force: relaunches an already-bound feature and appends the old slug to priorSlugs", () => {
+    gitInit();
+    const manifestPath = writeManifest("launch-relaunch", [{ id: "feat-c" }]);
+    writeEpicRunState(
+      seedRunState("launch-relaunch", manifestPath, {
+        features: { "feat-c": { slug: "stale-slug", launchedAt: "x" } },
+      }),
+      epicsDir,
+    );
+    const spawn = okSpawn("relaunched-slug");
+    const code = runEpicCli(
+      ["launch", "launch-relaunch", "feat-c", "--force"],
+      {
+        cwd: repoDir,
+        epicsDir,
+        spawn,
+      },
+    );
+    expect(code).toBe(0);
+    expect(spawn).toHaveBeenCalledTimes(1);
+    const rec = readEpicRunState("launch-relaunch", epicsDir)?.features[
+      "feat-c"
+    ];
+    expect(rec?.slug).toBe("relaunched-slug");
+    expect(rec?.priorSlugs).toEqual(["stale-slug"]);
   });
 });
 

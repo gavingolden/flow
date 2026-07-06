@@ -1081,8 +1081,13 @@ Options:
   const extIdx = rest.indexOf("--external");
   if (extIdx >= 0) {
     const v = rest[extIdx + 1];
-    if (v === undefined || v.startsWith("--")) {
-      console.error("flow epic bind: --external requires a value.");
+    // Reject a missing, flag-shaped, OR empty/whitespace value. An empty ref
+    // (realistic when a shell var expands empty: `--external "$REF"`) would
+    // otherwise write a `{ external: "" }` record that fails the run-state type
+    // guard on the next read — collapsing the WHOLE run.json to "missing" and
+    // silently losing every other feature's binding on the next init.
+    if (v === undefined || v.startsWith("--") || v.trim() === "") {
+      console.error("flow epic bind: --external requires a non-empty value.");
       return 2;
     }
     external = v;
