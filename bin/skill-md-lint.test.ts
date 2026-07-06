@@ -148,6 +148,15 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "discovery-instructions.md",
 );
+const EPIC_DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "product-planning",
+  "references",
+  "epic-discovery-instructions.md",
+);
 const DISCOVERY_PLAYBOOK_PATH = path.resolve(
   HERE,
   "..",
@@ -278,6 +287,10 @@ const discoveryPlaybookContent = fs.readFileSync(
 );
 const discoveryInstructionsContent = fs.readFileSync(
   DISCOVERY_INSTRUCTIONS_PATH,
+  "utf8",
+);
+const epicDiscoveryInstructionsContent = fs.readFileSync(
+  EPIC_DISCOVERY_INSTRUCTIONS_PATH,
   "utf8",
 );
 const newFeatureContent = fs.readFileSync(NEW_FEATURE_SKILL_MD_PATH, "utf8");
@@ -1472,6 +1485,51 @@ describe("cross-model plan review doc symmetry (AGENTS.md ↔ flow-pipeline/SKIL
   });
 });
 
+describe("cross-model design review doc symmetry (AGENTS.md ↔ epic-create/SKILL.md)", () => {
+  /**
+   * The /epic-create Step 4.5 cross-model design review is a flow-plan-review
+   * Bash fan-out (NOT a Task, NOT a tenth exemption). Its "not a tenth exemption"
+   * sibling note must appear in BOTH AGENTS.md `## Don'ts` and epic-create/SKILL.md,
+   * using the SAME shared phrase as the /flow-pipeline plan-review note so a rename
+   * can't silently drift one doc out of sync. A DISTINCT design-review phrase (not
+   * the feature "cross-model plan review") independently anchors the epic note. A
+   * separately-anchored guard — it does NOT touch the two-named-surface count.
+   */
+  const DESIGN_REVIEW_PHRASE = "cross-model design review";
+  const FANOUT_PHRASE = "Bash fan-out, not a tenth exemption";
+  const EPIC_CREATE_PATH = path.resolve(
+    HERE,
+    "..",
+    "skills",
+    "pipeline",
+    "epic-create",
+    "SKILL.md",
+  );
+  const epicCreateSkillContent = fs.readFileSync(EPIC_CREATE_PATH, "utf8");
+
+  it("AGENTS.md names the cross-model design review Bash-fan-out sibling note", () => {
+    expect(
+      agentsContent.includes(DESIGN_REVIEW_PHRASE),
+      `AGENTS.md ## Don'ts must name the '${DESIGN_REVIEW_PHRASE}' /epic-create gate.`,
+    ).toBe(true);
+    expect(
+      agentsContent.includes(FANOUT_PHRASE),
+      `AGENTS.md must carry the shared '${FANOUT_PHRASE}' phrase for the /epic-create design-review note.`,
+    ).toBe(true);
+  });
+
+  it("epic-create/SKILL.md names the cross-model design review Bash-fan-out sibling note", () => {
+    expect(
+      epicCreateSkillContent.includes(DESIGN_REVIEW_PHRASE),
+      `epic-create/SKILL.md must name the '${DESIGN_REVIEW_PHRASE}' Step 4.5 gate.`,
+    ).toBe(true);
+    expect(
+      epicCreateSkillContent.includes(FANOUT_PHRASE),
+      `epic-create/SKILL.md must carry the shared '${FANOUT_PHRASE}' phrase for the design-review note.`,
+    ).toBe(true);
+  });
+});
+
 describe("Fix-Applier artifact JSON schema drift (pr-review/SKILL.md ↔ references/fix-applier-instructions.md)", () => {
   const REQUIRED_KEYS = [
     "commits",
@@ -2147,6 +2205,49 @@ describe("New planning-discipline contract anchors", () => {
         "ultimate-goal rule reference individual lenses by name. One combined " +
         "assertion (not a per-lens regex battery, per the plan's chosen single-anchor " +
         "granularity); restore the lens or update this lint in the same commit.",
+    ).toBe(true);
+  });
+});
+
+describe("Epic planning-discipline parity anchors (epic-discovery-instructions.md ↔ feature discovery)", () => {
+  // This PR ports the feature-grain critique/framing layer one altitude up into
+  // the epic-grain discovery contract: an always-present `## Recommendation`
+  // verdict + `## Plan risks` decomposition pre-mortem, an omit-when-empty
+  // `## Decision analysis`, the `Reject — do nothing` first-class verdict, the
+  // discovery-playbook.md framing-lens load, and a cross-link back to the
+  // feature `discovery-instructions.md`. Without an anchor here a future edit
+  // could silently drop any of them — reverting to the pre-port "six-section"
+  // shape — with nothing failing in CI. Rename any pinned phrase in lock-step
+  // with this lint in the same commit (AGENTS.md anchored-phrase rule).
+  it.each([
+    "## Recommendation",
+    "## Plan risks",
+    "## Decision analysis",
+    "Reject — do nothing",
+    "discovery-playbook.md",
+  ])(
+    "epic-discovery-instructions.md carries the ported critique/framing anchor '%s'",
+    (phrase) => {
+      expect(
+        epicDiscoveryInstructionsContent.includes(phrase),
+        `skills/pipeline/product-planning/references/epic-discovery-instructions.md ` +
+          `must contain the verbatim critique/framing anchor '${phrase}'. This PR ports ` +
+          `the feature-grain critique layer to epic grain; dropping or renaming it here ` +
+          `silently breaks the epic↔feature planning-discipline parity with nothing ` +
+          `failing in CI. Restore it or update this anchor in the same commit ` +
+          `(AGENTS.md anchored-phrase rule).`,
+      ).toBe(true);
+    },
+  );
+
+  it("epic-discovery-instructions.md cross-links the feature discovery-instructions.md", () => {
+    expect(
+      epicDiscoveryInstructionsContent.includes("discovery-instructions.md"),
+      "epic-discovery-instructions.md must reference discovery-instructions.md — the " +
+        "epic `## Plan risks` / `## Recommendation` critique sections byte-mirror the " +
+        "feature file's counterparts and cross-link to it as the port source. Severing " +
+        "the cross-link orphans the ported discipline; restore the reference or update " +
+        "this lint in the same commit (AGENTS.md anchored-phrase rule).",
     ).toBe(true);
   });
 });
@@ -3902,6 +4003,10 @@ describe("/epic-create supervisor SKILL.md literal anchors", () => {
     ["flow-new-worktree", "the per-pipeline worktree creation"],
     ["flow-remove-worktree", "the cancel-path worktree cleanup"],
     ["never import", "the R1 no-bin/lib-import constraint"],
+    // Step 4.5 cross-model design-review gate literals
+    ["flow-plan-review", "the cross-model design-review Bash fan-out"],
+    ["review.gemini", "the shared cross-model opt-in key"],
+    ["Bash fan-out, not a tenth exemption", "the not-a-Task sibling note"],
     // Resume-mode literals
     [
       "Use the /epic-create skill in --resume mode for:",

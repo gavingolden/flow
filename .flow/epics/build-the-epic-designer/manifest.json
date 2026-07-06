@@ -56,11 +56,11 @@
     {
       "id": "f4-designer-logic",
       "title": "Epic-grain designer logic → design.md + manifest.json",
-      "description": "Add the one-shot epic-grain /product-planning discovery methodology (sibling references/epic-discovery-instructions.md, selected by a MODE: epic spawn flag) implementing 02 §4 pipeline ①: EARS acceptance criteria, ADR-shaped design decisions = the Parnas volatile-decision list, Parnas/Simon vertical-slice decomposition, a Mermaid DAG, and Open Questions; emit a six-section design.md + a schema-valid manifest.json to the F1 path, self-validating via both checkers in a fix-and-re-run loop. Runnable as one flow new PR.",
+      "description": "Add the one-shot epic-grain /product-planning discovery methodology (sibling references/epic-discovery-instructions.md, selected by a MODE: epic spawn flag) implementing 02 §4 pipeline ①: EARS acceptance criteria, ADR-shaped design decisions = the Parnas volatile-decision list, Parnas/Simon vertical-slice decomposition, a Mermaid DAG, and Open Questions; emit a design.md (six numbered backbone sections plus an always-present critique layer) + a schema-valid manifest.json to the F1 path, self-validating via both checkers in a fix-and-re-run loop. Runnable as one flow new PR.",
       "dependsOn": ["f1-manifest-schema", "f2-dag-validator"],
       "rationale": "Hides D4 (the design methodology) — the most volatile part, isolated behind the stable manifest contract; where MVP value lands. Consumes F1 (emits a schema-valid manifest) and F2 (self-checks its own DAG).",
       "acceptanceCriteria": [
-        "WHEN run on an epic prompt THE SYSTEM SHALL write a six-section design.md and a manifest.json that passes both validators (exit 0)",
+        "WHEN run on an epic prompt THE SYSTEM SHALL write a design.md (six numbered backbone sections plus an always-present critique layer) and a manifest.json that passes both validators (exit 0)",
         "WHEN the decomposition is inspected THE SYSTEM SHALL contain only vertical-slice features with produced/consumed edges"
       ],
       "flowNewHints": {

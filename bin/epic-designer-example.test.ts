@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 /**
  * F4 acceptance surface. The committed worked example under
  * `.flow/epics/build-the-epic-designer/` IS the proof the one-shot epic-grain
- * designer produces a six-section, schema-valid, well-formed-DAG design; the
+ * designer produces a backbone-plus-critique, schema-valid, well-formed-DAG design; the
  * cyclic fixture is the single negative-path proof that F4 relies on the DAG
  * gate (not a re-test of F2's internals, which `flow-epic-dag.test.ts` owns).
  * Paths resolve via __dirname because spawnSync's cwd is the vitest runner's,
@@ -43,19 +43,21 @@ function runCli(
   };
 }
 
-const SIX_HEADINGS = [
+const REQUIRED_HEADINGS = [
   "## 1. Problem & intent",
   "## 2. Clarified requirements",
   "## 3. High-level design",
   "## 4. Feature decomposition",
   "## 5. Dependency DAG",
   "## 6. Open Questions",
+  "## Recommendation",
+  "## Plan risks",
 ];
 
-describe("committed design.md — the six-section review surface", () => {
+describe("committed design.md — the backbone + critique review surface", () => {
   const design = readFileSync(COMMITTED_DESIGN, "utf8");
 
-  it.each(SIX_HEADINGS)("contains the heading %s", (heading) => {
+  it.each(REQUIRED_HEADINGS)("contains the heading %s", (heading) => {
     expect(design).toContain(heading);
   });
 

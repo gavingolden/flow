@@ -216,7 +216,7 @@ caller-provided epic-output directory and writes **no** `plan.md` /
 `pr-description-draft.md`:
 
 ```
-Write the six-section epic design (design.md) to (absolute path):
+Write the epic design (design.md) to (absolute path):
   {{DESIGN_PATH}}
 
 Write the typed epic manifest (manifest.json) to (absolute path):

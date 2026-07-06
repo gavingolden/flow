@@ -5,8 +5,9 @@
 > designer methodology it documents (`skills/pipeline/product-planning/references/epic-discovery-instructions.md`).
 > It is the golden artifact the acceptance test reads — `manifest.json`
 > (next to this file) passes both validators (`flow-epic-manifest-schema`
-> and `flow-epic-dag`, exit 0), and this `design.md` carries all six
-> sections. If this DAG were a flat list, the methodology would have failed
+> and `flow-epic-dag`, exit 0), and this `design.md` carries the six numbered
+> backbone sections plus an always-present critique layer. If this DAG were a
+> flat list, the methodology would have failed
 > its own test; it is not — it has a walking-skeleton root, a parallel pair,
 > a core-value feature, and a diamond-closing integration.
 
@@ -137,9 +138,9 @@ consumed dependency edges, and its EARS acceptance criteria (full text in
   self-checks its own DAG before writing._
 - **Produces:** the one-shot epic-grain discovery methodology
   (`references/epic-discovery-instructions.md` + the `MODE: epic` spawn
-  branch) that writes a six-section `design.md` + a schema-valid
-  `manifest.json`, self-validating via both checkers in a fix-and-re-run
-  loop.
+  branch) that writes a `design.md` (six numbered backbone sections plus an
+  always-present critique layer) + a schema-valid `manifest.json`,
+  self-validating via both checkers in a fix-and-re-run loop.
 - **MVP marker:** **f1 + f2 + f4 is the minimal valuable designer** —
   invokable as a skill, producing a reviewed, validated decomposition,
   before any `flow epic` CLI ergonomics exist.
@@ -202,3 +203,20 @@ graph TD
 - **`design.md` requirements granularity.** Assumed epic-level EARS here in
   §2 and per-feature acceptance in each manifest feature's
   `acceptanceCriteria[]`. Confirm the split.
+
+## Recommendation
+
+**Proceed** — the five-feature decomposition has a clean walking-skeleton root
+(f1), a genuinely-parallel pair (f2 ∥ f3), the core value landing at f4, and a
+diamond-closing integration (f5); the DAG validates (5 nodes, 6 edges, acyclic,
+no orphans) and every feature is a vertical slice that passes its own gate.
+Build it as scoped.
+
+## Plan risks
+
+The single weakest assumption is that **f2 and f3 are genuinely independent** —
+the `f2 ∥ f3` parallel pair assumes no hidden coupling between the DAG validator
+and the `flow epic` CLI verb. If f3's verb turns out to need f2's DAG validator
+(e.g. to report a ready-set at invocation time), the parallelism collapses: f3
+gains a `dependsOn: [f2-dag-validator]` edge and the DAG re-cuts. A
+decomposition-grain pre-mortem, not a restatement of the Open Questions above.
