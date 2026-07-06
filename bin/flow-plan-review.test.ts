@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  computeDecisionHash,
+  extractDecisionAnalysisBody,
   hasDecisionAnalysis,
   isPlanReviewEnabled,
+  normalizeDecisionBody,
   parseArgs,
+  readPriorHash,
   run,
   type DelegateEnvelope,
   type Deps,
@@ -289,6 +293,7 @@ describe("run — happy path", () => {
       ran: true,
       feedbackPath: OUT,
       skipReason: null,
+      decisionAnalysisHash: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
     // The finalized feedback file holds AGY's raw prose verbatim.
     expect(deps.files.get(OUT)).toBe(AGY_PROSE);
@@ -304,6 +309,157 @@ describe("run — happy path", () => {
     expect(argv[argv.indexOf("--model") + 1]).toBe("Gemini 3.1 Pro (High)");
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe("/wt/.flow-tmp");
     expect(argv[argv.indexOf("--task") + 1]).toBe("plan-review");
+  });
+});
+
+// --- decision-analysis-unchanged skip (revision-pass re-fire guard) --------
+
+describe("decision-analysis hash helpers (pure)", () => {
+  it("extractDecisionAnalysisBody bounds the section and excludes the AGY subsection", () => {
+    const plan = [
+      "## Decision analysis",
+      "body line one",
+      "body line two",
+      "### Cross-model review (AGY)",
+      "- excluded point",
+      "## Recommendation",
+      "proceed",
+    ].join("\n");
+    const body = extractDecisionAnalysisBody(plan);
+    expect(body).toContain("body line one");
+    expect(body).toContain("body line two");
+    expect(body).not.toContain("excluded point");
+    expect(body).not.toContain("Recommendation");
+  });
+
+  it("returns '' when the section is absent", () => {
+    expect(extractDecisionAnalysisBody("# PRD\n\nno section")).toBe("");
+  });
+
+  it("hash is UNCHANGED by appending only the `### Cross-model review (AGY)` subsection + marker", () => {
+    const bare = [
+      "## Decision analysis",
+      "**A** verdict X",
+      "## Recommendation",
+      "go",
+    ].join("\n");
+    const withReview = [
+      "## Decision analysis",
+      "**A** verdict X",
+      "### Cross-model review (AGY)",
+      "- point — accepted",
+      `<!-- flow-plan-review-hash: ${"a".repeat(64)} -->`,
+      "## Recommendation",
+      "go",
+    ].join("\n");
+    expect(computeDecisionHash(withReview)).toBe(computeDecisionHash(bare));
+  });
+
+  it("normalization holds: trailing ws, `*`-vs-`-` bullets, and blank-run churn hash equal", () => {
+    const a = [
+      "## Decision analysis",
+      "- point one",
+      "",
+      "- point two",
+      "## Recommendation",
+    ].join("\n");
+    const b = [
+      "## Decision analysis",
+      "* point one   ",
+      "",
+      "",
+      "* point two",
+      "## Recommendation",
+    ].join("\n");
+    expect(normalizeDecisionBody(extractDecisionAnalysisBody(b))).toBe(
+      normalizeDecisionBody(extractDecisionAnalysisBody(a)),
+    );
+    expect(computeDecisionHash(b)).toBe(computeDecisionHash(a));
+  });
+
+  it("a SEMANTIC change to the body DOES change the hash", () => {
+    const a = ["## Decision analysis", "verdict X", "## Recommendation"].join(
+      "\n",
+    );
+    const b = ["## Decision analysis", "verdict Y", "## Recommendation"].join(
+      "\n",
+    );
+    expect(computeDecisionHash(b)).not.toBe(computeDecisionHash(a));
+  });
+
+  it("readPriorHash is tolerant: null on absent or malformed marker", () => {
+    expect(readPriorHash("no marker here")).toBeNull();
+    expect(readPriorHash("<!-- flow-plan-review-hash: xyz -->")).toBeNull();
+    const valid = "b".repeat(64);
+    expect(readPriorHash(`<!-- flow-plan-review-hash: ${valid} -->`)).toBe(
+      valid,
+    );
+  });
+});
+
+describe("run — decision-analysis-unchanged skip", () => {
+  // A plan whose embedded marker matches its own Decision-analysis hash. The
+  // marker sits inside the excluded `### Cross-model review (AGY)` subsection,
+  // so injecting it does not change the hash it records.
+  function planWithMatchingMarker(): string {
+    const noMarker = [
+      "# PRD",
+      "## Decision analysis",
+      "**Decision A — X vs Y?** Verdict: X.",
+      "### Cross-model review (AGY)",
+      "- point one — accepted",
+      "## Recommendation",
+      "**Proceed**",
+    ].join("\n");
+    const h = computeDecisionHash(noMarker);
+    return noMarker.replace(
+      "- point one — accepted",
+      `- point one — accepted\n<!-- flow-plan-review-hash: ${h} -->`,
+    );
+  }
+
+  it("skips (no delegate) when the prior hash matches the current body", () => {
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, planWithMatchingMarker());
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(envelope(deps)).toEqual({
+      ran: false,
+      skipReason: "decision-analysis-unchanged",
+    });
+    expect(deps.calls.delegate).toHaveLength(0);
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("re-fires (delegate invoked, hash in envelope) when NO prior marker exists", () => {
+    const deps = makeDeps(); // default PLAN_WITH_SECTION has no marker
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(deps.calls.delegate).toHaveLength(1);
+    expect(envelope(deps).ran).toBe(true);
+    expect(envelope(deps).decisionAnalysisHash).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("re-fires when the prior marker's hash differs from the current body", () => {
+    const stale = PLAN_WITH_SECTION.replace(
+      "## Recommendation",
+      `<!-- flow-plan-review-hash: ${"c".repeat(64)} -->\n## Recommendation`,
+    );
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, stale);
+    expect(run(BASE_ARGV, deps)).toBe(0);
+    expect(deps.calls.delegate).toHaveLength(1);
+    expect(envelope(deps).ran).toBe(true);
+  });
+
+  it("re-fires (never throws) on a malformed prior marker", () => {
+    const malformed = PLAN_WITH_SECTION.replace(
+      "## Recommendation",
+      "<!-- flow-plan-review-hash: not-a-real-hash -->\n## Recommendation",
+    );
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, malformed);
+    expect(() => run(BASE_ARGV, deps)).not.toThrow();
+    expect(deps.calls.delegate).toHaveLength(1);
+    expect(envelope(deps).ran).toBe(true);
   });
 });
 

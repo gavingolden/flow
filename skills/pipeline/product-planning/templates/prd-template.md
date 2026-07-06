@@ -155,3 +155,27 @@
 - **Plausibility estimate:** [your honest read on whether the named methods reach the target, with evidence]
 - **Recommended path:** [one of four enum values; see discovery-instructions.md for the verbatim strings]
 <!-- Machine-parsed by bin/flow-step3-route.ts: keep this exact one-line form (colon, value on the SAME line). Do not reformat to a label-on-its-own-line shape. -->
+
+## Candidate follow-up issues
+
+<!-- Omit-when-empty: include ONLY when discovery surfaced ≥1 orthogonal idea worth
+     tracking as a separate follow-up (its own user goal/surface, shippable alone);
+     otherwise omit the heading entirely (never an empty heading). When step 8 assembles
+     the consolidated plan.md this becomes a TOP-LEVEL `# Candidate follow-up issues`
+     sibling of `# PRD` / `# Task breakdown` (h1) — the h2 here matches the template's
+     rhythm. Two parts in order: a MANDATORY value-vs-complexity ranking table, then the
+     machine-readable `- [ ]` list (flow-candidate-issues parses ONLY the `- [ ]` lines).
+     The `Pull into this pipeline?` column is plain Yes/No text, NEVER a checkbox. Full
+     contract — ranking-table mandate, the Recommendation verdict-line rule for a
+     high-value + trivial-complexity candidate, and the follow-up-reference consistency
+     rubric — lives in
+     skills/pipeline/product-planning/references/discovery-instructions.md
+     "Candidate follow-up issues (optional)" — the single source of truth. Do NOT inline
+     the contract here; this is a thin sketch.
+     Columns (exact, keep verbatim): Candidate | Value | Complexity | Rationale | Pull into this pipeline? -->
+
+| Candidate         | Value             | Complexity                   | Rationale      | Pull into this pipeline? |
+| ----------------- | ----------------- | ---------------------------- | -------------- | ------------------------ |
+| [orthogonal idea] | [High/Medium/Low] | [Trivial/Small/Medium/Large] | [one-line why] | [Yes/No]                 |
+
+- [ ] [orthogonal idea] — [one-line body; the machine-readable candidate the post-merge sweep files]

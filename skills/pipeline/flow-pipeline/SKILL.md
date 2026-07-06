@@ -690,6 +690,24 @@ forcing discovery Step 1.5's web-grounded research on (bypassing the
 relevance gate and the `research.discovery` opt-in). Absent or non-`true` ≡
 not forced — append nothing.
 
+**Revision-pass threading (on step-3 re-entry).** When you re-enter step 3
+with an existing `<worktree>/.flow-tmp/plan.md` already on disk — a
+`plan-pending-review` redirect looped back here per step 4's imperative-redirect
+branch — append a `REVISION: <n>` marker line to the `/product-planning`
+invocation through the **same append channel** as the `MODEL_PLANNING:` /
+`RESEARCH:` markers above. `<n>` is the in-context pass counter (2 on the first
+revision, 3 on the next, …); it carries no payload — the redirect text itself
+rides the normal `USER REDIRECT (received during plan-pending-review): <verbatim>`
+channel. The spawn template forwards the marker via `{{REVISION_OVERRIDE}}` and
+the discovery subagent runs its **Revision pass mode**
+(`discovery-instructions.md` "Revision pass mode"): read the existing plan.md
+first, update in place, preserve untouched sections and the embedded
+`### Cross-model review (AGY)` subsection + `<!-- flow-plan-review-hash: <sha> -->`
+marker verbatim, do NOT re-run Step 1.5 research when findings already exist, and
+extend `## Open Questions` with the redirect's questions. Absent an existing
+plan.md (the first step-3 pass), append nothing — this adds **no** new fan-out
+site, only a marker on the existing Discovery exemption.
+
 **Deterministic forced research (mandatory on the forced path).** The
 discovery subagent's own Step 1.5 was observed to skip the fan-out even
 when forced, so on the `forceResearch == true` path you MUST ALSO run the
@@ -750,6 +768,26 @@ dormant, and when the subagent already wrote a note. When its stdout is
 non-empty, include that line **verbatim** in the 3-5 line chat summary so
 the user always sees the research skip note.
 
+**Follow-up-reference consistency backstop (advisory, deterministic).**
+After the note backstop and BEFORE the cross-model plan review below, run the
+`flow-candidate-issues --lint` guard so a plan whose prose references a
+follow-up that is missing from `# Candidate follow-up issues` never ships
+silently — the exact drift an external reviewer caught in the econ-data run:
+
+```bash
+flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
+LINT_RC=$?
+```
+
+Exit 1 signals drift (the stdout JSON's `references[]` names each unresolved
+reference line); exit 0 is clean; exit 2 is a read error. This is
+**advisory and non-blocking** — on a non-zero exit, surface a one-line note in
+the 3-5 line chat summary (e.g. "follow-up-reference drift: plan prose
+references a follow-up missing from `# Candidate follow-up issues`") so the
+user can redirect at `plan-pending-review`; never block planning on it (the
+same "research/plan-review never block planning" invariant the cross-model
+review below honors).
+
 **Cross-model plan review (Layer 2, optional, config-gated).** After the
 note backstop above and BEFORE the End conditions branch below, run one
 independent cross-model review of the plan's consequential decisions. This
@@ -790,11 +828,27 @@ flow-plan-review --plan-file "$WORKTREE/.flow-tmp/plan.md" \
   `### Cross-model review (AGY)` subsection under `## Decision analysis`
   recording each material point as **accepted** (naming the revision made) or
   **overridden** (with a one-line rationale — exactly how Step 1.5 treats
-  refuted research claims).
+  refuted research claims). Read the helper's `ran:true` envelope for
+  `decisionAnalysisHash` and embed it as a `<!-- flow-plan-review-hash: <sha> -->`
+  marker line inside that appended subsection, so a later revision pass can detect
+  whether `## Decision analysis` materially changed.
 
-This is a **bounded single-pass**: one review, at most one revision — NOT an
-unbounded critic/revise loop. The plan-pending-review / advance end-condition
-below is unchanged; this sub-step only enriches plan.md before that gate fires.
+This is a **bounded single-pass per step-3 pass**: at most one review and one
+revision each pass — NOT an unbounded critic/revise loop within a pass.
+**Re-fire across passes (revision/redirect).** On a step-3 re-entry you re-run
+`flow-plan-review` unconditionally, but the helper re-fires the (agy-spending)
+review ONLY when `## Decision analysis` **materially changed** since the last
+reviewed revision: it hashes a normalized `## Decision analysis` body (excluding
+the `### Cross-model review (AGY)` subsection) and compares it to the
+`<!-- flow-plan-review-hash: <sha> -->` marker embedded on the prior pass,
+emitting `{ran:false, skipReason:"decision-analysis-unchanged"}` when they match
+(normalized, so incidental whitespace / bullet churn from an unrelated revision
+edit does not needlessly re-fire). On that skip, record a one-line rationale in
+the chat summary (e.g. "cross-model plan review skipped — `## Decision analysis`
+unchanged since the last reviewed revision") and proceed; do NOT hand-force a
+re-review. A missing/malformed marker re-fires (safe) and self-heals as the run
+re-embeds the hash. The plan-pending-review / advance end-condition below is
+unchanged; this sub-step only enriches plan.md before that gate fires.
 
 **End conditions:**
 
