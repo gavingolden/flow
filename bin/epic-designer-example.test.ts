@@ -61,16 +61,28 @@ describe("committed design.md — the backbone + critique review surface", () =>
     expect(design).toContain(heading);
   });
 
-  // Beyond bare headings: a headings-only design.md (all six `## N.` lines,
-  // empty bodies) would pass the grep above. These minimal content assertions
-  // pin the load-bearing artifacts §4d/§4a require so the six-heading grep
-  // can't go green on an empty shell.
+  // Beyond bare headings: REQUIRED_HEADINGS is eight entries — the six
+  // `## N.` backbone headings plus `## Recommendation` and `## Plan risks` —
+  // so an empty shell with only the six numbered lines now FAILS the grep
+  // above (it's missing the two critique headings). These minimal content
+  // assertions further pin the load-bearing artifacts §4d/§4a require, so
+  // even a shell carrying all eight bare headings with empty bodies can't
+  // go green.
   it("renders the §5 dependency DAG as an inline Mermaid fence", () => {
     expect(design).toContain("```mermaid");
   });
 
   it("expresses at least one EARS acceptance criterion (THE SYSTEM SHALL)", () => {
     expect(design).toContain("SHALL");
+  });
+
+  // The worked example deliberately OMITS `## Decision analysis` to demo the
+  // omit-when-empty convention plus the consumer-side gate's graceful skip
+  // (epic-create Step 4.5). Pin the omission so a future edit that adds the
+  // section back is caught rather than silently changing what this example
+  // demonstrates.
+  it("omits `## Decision analysis` (demoing the omit-when-empty convention)", () => {
+    expect(design).not.toContain("## Decision analysis");
   });
 });
 

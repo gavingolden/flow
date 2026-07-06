@@ -2242,7 +2242,9 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
 
   it("epic-discovery-instructions.md cross-links the feature discovery-instructions.md", () => {
     expect(
-      epicDiscoveryInstructionsContent.includes("discovery-instructions.md"),
+      /(?<!epic-)discovery-instructions\.md/.test(
+        epicDiscoveryInstructionsContent,
+      ),
       "epic-discovery-instructions.md must reference discovery-instructions.md — the " +
         "epic `## Plan risks` / `## Recommendation` critique sections byte-mirror the " +
         "feature file's counterparts and cross-link to it as the port source. Severing " +
@@ -4007,6 +4009,7 @@ describe("/epic-create supervisor SKILL.md literal anchors", () => {
     ["flow-plan-review", "the cross-model design-review Bash fan-out"],
     ["review.gemini", "the shared cross-model opt-in key"],
     ["Bash fan-out, not a tenth exemption", "the not-a-Task sibling note"],
+    ["^## Decision analysis", "the consumer-side Decision-analysis gate grep"],
     // Resume-mode literals
     [
       "Use the /epic-create skill in --resume mode for:",

@@ -206,17 +206,8 @@ graph TD
 
 ## Recommendation
 
-**Proceed** — the five-feature decomposition has a clean walking-skeleton root
-(f1), a genuinely-parallel pair (f2 ∥ f3), the core value landing at f4, and a
-diamond-closing integration (f5); the DAG validates (5 nodes, 6 edges, acyclic,
-no orphans) and every feature is a vertical slice that passes its own gate.
-Build it as scoped.
+**Proceed** — the five-feature decomposition has a clean walking-skeleton root, a genuinely-parallel pair, the core value landing at f4, and a validated, acyclic, orphan-free DAG.
 
 ## Plan risks
 
-The single weakest assumption is that **f2 and f3 are genuinely independent** —
-the `f2 ∥ f3` parallel pair assumes no hidden coupling between the DAG validator
-and the `flow epic` CLI verb. If f3's verb turns out to need f2's DAG validator
-(e.g. to report a ready-set at invocation time), the parallelism collapses: f3
-gains a `dependsOn: [f2-dag-validator]` edge and the DAG re-cuts. A
-decomposition-grain pre-mortem, not a restatement of the Open Questions above.
+The single weakest assumption is that **f2 and f3 are genuinely independent** — if f3's CLI verb turns out to need f2's DAG validator (e.g. to report a ready-set at invocation time), the `f2 ∥ f3` parallelism collapses into a dependency edge.
