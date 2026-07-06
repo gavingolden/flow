@@ -70,8 +70,10 @@ Per-feature acceptance lives in each feature's `acceptanceCriteria[]` in
   correctly under every launcher via a crash-safe file-based liveness signal
   (PID + process-start-time), not window existence.
 - **R5** — WHEN a recurring pipeline fan-out fires THE SYSTEM SHALL spawn a
-  named `agents/*.md` custom-agent definition with pinned model/effort
-  routing, not an inline anonymous spawn prompt.
+  named `agents/*.md` custom-agent definition with declarative routing per
+  the D7 frontmatter policy (`effort` pinned only for mechanical roles;
+  judgment roles inherit session effort), not an inline anonymous spawn
+  prompt.
 - **R6** — WHEN the context-economy phase completes THE SYSTEM SHALL have a
   measured per-phase token baseline and a re-measured before/after delta for
   each diet change, recorded in a committed report.
@@ -173,12 +175,40 @@ measure/act; evaluate/implement), stated per decision.
 - **D7 — Agent topology: recurring fan-outs become named custom agents.**
   _Context:_ only 2 of ~9 recurring fan-out roles are `agents/*.md`
   (`flow-verify`, `flow-fix-applier`); the rest are inline spawn prompts
-  with model pins buried in prose. _Decision:_ promote them to named
-  definitions with frontmatter model/effort/tools pins, artifact contracts
-  unchanged, exemption set renamed in place and never widened.
-  _Consequences:_ routing is declarative and auditable; whichever
-  distribution end-state wins can carry the agent files as first-class
-  artifacts. Split along the two skill surfaces:
+  with model pins buried in prose — and they were left generic
+  *deliberately*, on the belief that generic = tunable, custom = pinned.
+  Verified routing-knob semantics (live Agent tool schema +
+  code.claude.com/docs/en/sub-agents, fetched 2026-07-05) show the premise
+  about effort is right but the conclusion doesn't follow: (1) the
+  Task/Agent tool's per-invocation parameters include `model` but NO
+  `effort` — effort cannot be set at spawn time; (2) definition frontmatter
+  `effort` ("Overrides the session effort level. Default: inherits from
+  session. Options: low, medium, high, xhigh, max") is the ONLY place to
+  pin effort, and omitting the field inherits session effort; (3) model
+  resolution order is `CLAUDE_CODE_SUBAGENT_MODEL` env > per-invocation
+  `model` param > frontmatter `model` > main conversation's model — a
+  per-spawn `model:` ALWAYS beats frontmatter, so promotion loses zero
+  model tunability (flow already exploits this: `agents/flow-verify.md`
+  pins `effort: low` while the step-6 spawn still passes per-spawn
+  `model:` per config precedence); (4) generic subagents inherit the main
+  conversation's model and effort by default. _Decision:_ promote the
+  recurring roles to named definitions under the per-role frontmatter
+  policy these facts derive: pin `effort` ONLY for mechanical roles
+  (verify + fix-applier already do); judgment roles (discovery, scout, the
+  review lenses, consolidator, merge-resolver, edit-applier) OMIT `effort`
+  so they scale with session effort; omit frontmatter `model` wherever
+  flow's per-phase config threading passes per-spawn `model:` (which wins
+  anyway), so definitions never fight the config — the gatekeeper's fixed
+  haiku cost pin (mechanical, not config-threaded) moves INTO frontmatter.
+  Artifact contracts unchanged, exemption set renamed in place and never
+  widened. _Consequences:_ routing is declarative and auditable with no
+  tunability loss; the one legitimate cost of promotion is an install
+  dependency — each custom agent requires `~/.claude/agents/<name>.md` to
+  be symlinked — so every promoted spawn site ships the existing
+  `[ -f ~/.claude/agents/<name>.md ] || fall back to general-purpose`
+  guard (as step 6's verify spawn does today); whichever distribution
+  end-state wins can carry the agent files as first-class artifacts. Split
+  along the two skill surfaces:
   → **p4-review-agents** (pr-review's lenses/gatekeeper/consolidator),
   **p4-pipeline-agents** (scout/discovery/merge-resolver).
 - **D8 — Context economy: measure, then tighten.** _Context:_ the in-process
@@ -399,8 +429,14 @@ match `manifest.json` exactly; full acceptance criteria live there.
 - _Depends on:_ **p1-design-doc** — _edge artifact: the Roadmap's Phase-4
   consolidation map (which fan-out → which agent, which model pin)._
 - _Produces:_ `agents/*.md` for the six review lenses, the gatekeeper
-  (haiku pin), and the consolidator-validator, following the
-  `flow-verify`/`flow-fix-applier` pattern; spawn sites reference them;
+  (haiku frontmatter pin — mechanical, not config-threaded), and the
+  consolidator-validator, following the `flow-verify`/`flow-fix-applier`
+  pattern under the D7 frontmatter policy (lenses + consolidator are
+  judgment roles: `effort` omitted so they inherit session effort;
+  frontmatter `model` omitted wherever the spawn site threads per-spawn
+  `model:` from config, which wins anyway per the verified resolution
+  order); every promoted spawn site keeps the
+  `[ -f ~/.claude/agents/<name>.md ] || general-purpose fallback` guard;
   artifact contracts unchanged.
 
 **p4-pipeline-agents · Named custom agents for pipeline-side fan-outs**
@@ -408,7 +444,11 @@ match `manifest.json` exactly; full acceptance criteria live there.
 - _Depends on:_ **p1-design-doc** — _edge artifact: the same Phase-4
   consolidation map._
 - _Produces:_ `agents/*.md` for scout, discovery (feature + epic modes), and
-  the merge-conflict resolver (edit-applier and epic-judgment evaluated);
+  the merge-conflict resolver (edit-applier and epic-judgment evaluated) —
+  all judgment roles under the D7 policy: `effort` omitted (inherits
+  session effort), frontmatter `model` omitted where per-spawn `model:`
+  config threading exists; every promoted spawn site keeps the
+  `[ -f ~/.claude/agents/<name>.md ] || general-purpose fallback` guard;
   bidirectional exemption docs updated; the nine-exemption set renamed in
   place, never widened.
 
@@ -582,11 +622,21 @@ graph TD
   cannot be honestly decomposed until the eval's verdict exists; expect a
   re-decomposition (potentially its own epic) once it does. Expect a
   redirect there, not here.
-- **Phase-4 split is by skill surface** (pr-review vs pipeline-side), and
-  assumes model pins move verbatim from prose to agent frontmatter
-  (gatekeeper haiku, consolidator sonnet, verify/fix-applier low effort
-  unchanged). The `/coder` edit-applier and `/epic-run` judgment agent are
-  *evaluated* in `p4-pipeline-agents`, not committed.
+- **Phase-4 split is by skill surface** (pr-review vs pipeline-side).
+  CLOSED at the amendment round: the original "keep the model-tuned roles
+  generic to stay tunable" rationale is superseded by the verified
+  resolution order (per-spawn `model:` always beats frontmatter; omitting
+  frontmatter `effort` inherits session effort — live Agent tool schema +
+  code.claude.com/docs/en/sub-agents, 2026-07-05), so promotion costs no
+  tunability. The remaining generic-vs-custom criterion is purely: is
+  there a reusable pinned system prompt + tool constraint worth shipping,
+  weighed against the install-dependency cost (each agent file must be
+  symlinked; every promoted spawn site keeps the file-exists →
+  general-purpose fallback guard). Frontmatter pins follow the D7 policy
+  (gatekeeper haiku; verify/fix-applier `effort: low` unchanged; judgment
+  roles inherit session effort). The `/coder` edit-applier and `/epic-run`
+  judgment agent are *evaluated* in `p4-pipeline-agents` against exactly
+  that criterion, not committed.
 - **Scope check:** genuinely epic-sized — six phases, 15 PR-sized nodes,
   code + docs + skills + naming + distribution surfaces; not a single
   feature.
