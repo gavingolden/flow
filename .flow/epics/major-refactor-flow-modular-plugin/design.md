@@ -1,17 +1,28 @@
-# Epic design — major refactor: flow → modular plugin design
+# Epic design — major refactor: flow → modular "plugin" design
 
-> **Prior art, reused not re-derived.** A completed `/flow-pipeline` discovery
-> for this same request produced, in this worktree, a Phase-1-scoped PRD
-> (`.flow-tmp/plan.md`) with a design-blind ideal-flow section, a gap-analysis
-> table with file evidence, a six-phase roadmap, an AGY-cross-reviewed decision
-> analysis (D1 module-layer-now-plugins-later, D2 global-selectable-now,
-> D3 tmux-optional-backend-default-on, D4 measure-then-tighten), and a full
-> feature-grain task breakdown for Phase 1 — plus web-grounded research
-> findings (`.flow-tmp/research-findings.md`). This design treats those
-> artifacts as ratified inputs and does only what they did not: the epic-grain
-> decomposition of the six-phase roadmap into PR-sized feature nodes with a
-> dependency DAG. `.flow-tmp/` is worktree-transient — the first node
-> (`p1-design-doc`) lands the durable carrier, `docs/plugin-architecture.md`.
+> **"Plugin" is conceptual, not Claude-plugin.** Per the user's design-review
+> redirect: "plugin" in this epic means a modular, plugin-*style* architecture —
+> not a commitment to Claude Code plugins. Claude-plugin/marketplace packaging
+> is one of three candidate distribution end-states evaluated in Phase 6 (D9),
+> no longer the assumed terminus.
+
+> **Prior art, reused not re-derived — with redirect deltas.** A completed
+> `/flow-pipeline` discovery for this same request produced, in this worktree, a
+> Phase-1-scoped PRD (`.flow-tmp/plan.md`) with a design-blind ideal-flow
+> section, a gap-analysis table with file evidence, a six-phase roadmap, an
+> AGY-cross-reviewed decision analysis, and a full feature-grain task breakdown
+> for Phase 1 — plus web-grounded research findings
+> (`.flow-tmp/research-findings.md`). This design treats those artifacts as
+> ratified inputs **except where the user's redirect (2026-07-05) amends
+> them**: Claude plugins de-assumed as the end-state (D1/D2/D9), a standalone
+> skills home + `flow` launcher added (D10), a global `flow-` skill rename +
+> testing-skill split added (D11 + module map), and the tmux default **flipped**
+> to plain-shell (D6 — an explicit user override of the prior PRD's
+> tmux-default assumption). D4 measure-then-tighten is upheld unchanged.
+> `.flow-tmp/` is worktree-transient — the first node (`p1-design-doc`) lands
+> the durable carrier, `docs/target-architecture.md` (renamed from the PRD's
+> draft name `plugin-architecture.md` so the seam artifact doesn't bake in an
+> unratified end-state).
 
 ## 1. Problem & intent
 
@@ -19,17 +30,21 @@ flow today is a personal, hard-wired toolchain: `flow install` symlinks all
 20 skills, 2 agents, ~40 PATH helpers, and 4 validators globally and
 unconditionally — a Go-only user gets the Svelte/Tailwind/Supabase/Cloudflare
 skills in every Claude session's routing table, a user without agy inherits
-the research stack, and tmux is a hard prerequisite even for a single
-pipeline in a plain terminal. There is no module boundary, no install-time
-choice, and no written statement of core vs stack-specific. The underlying
-need: turn flow into a **professional, modular product** — each user installs
-only what their stack needs (conditional stack/integration modules), tmux
-becomes an optional launcher backend, context usage is aggressively
-optimized, remaining recurring fan-outs become named Claude Code custom
-sub-agents with pinned model routing, and the end-state is Claude Code
-plugin/marketplace packaging with per-repo enablement. This epic covers the
-full redesign, Phase 1 included; execution of the DAG is the orchestrator's
-job, not this design's.
+the research stack, every plain `claude` session on the machine pays flow's
+skill-frontmatter tax whether or not the session has anything to do with flow,
+and tmux is a hard prerequisite even for a single pipeline in a plain
+terminal. There is no module boundary, no install-time choice, and no written
+statement of core vs stack-specific. The underlying need: turn flow into a
+**professional, modular product** — each user installs only what their stack
+needs (conditional stack/integration modules), flow skills load only in
+flow-launched sessions (plain `claude` stays flow-free), skills carry a
+`flow-` provenance prefix, the default runtime is a plain shell with tmux as
+an installer-selected opt-in, context usage is aggressively optimized,
+remaining recurring fan-outs become named Claude Code custom sub-agents with
+pinned model routing, and the distribution end-state (Claude plugins vs
+launcher + standalone dir vs filtered symlinks) is **chosen on evidence, not
+assumed**. This epic covers the full redesign, Phase 1 included; execution of
+the DAG is the orchestrator's job, not this design's.
 
 ## 2. Clarified requirements
 
@@ -46,57 +61,78 @@ Per-feature acceptance lives in each feature's `acceptanceCriteria[]` in
   SYSTEM SHALL ask once per optional module and persist the answer to
   `~/.flow/config.json` `modules`; non-TTY SHALL default to core with a
   one-line notice; `--upgrade` SHALL never re-ask.
-- **R3** — WHEN a pipeline step needs a deselected (or, post-plugins,
-  repo-absent) module THE SYSTEM SHALL skip gracefully with a named notice
-  instead of failing mid-pipeline.
-- **R4** — WHEN a pipeline is launched with `--no-tmux` (or tmux is absent)
-  THE SYSTEM SHALL run it without tmux, and `flow ls` / `flow done` /
-  collision detection SHALL report correctly via a crash-safe file-based
-  liveness signal (PID + process-start-time), not window existence.
+- **R3** — WHEN a pipeline step needs a deselected (or repo-absent) module
+  THE SYSTEM SHALL skip gracefully with a named notice instead of failing
+  mid-pipeline.
+- **R4** — WHEN a pipeline is launched with no tmux opt-in in effect (no
+  flag, no recorded install-time choice) THE SYSTEM SHALL run it in a plain
+  shell, and `flow ls` / `flow done` / collision detection SHALL report
+  correctly under every launcher via a crash-safe file-based liveness signal
+  (PID + process-start-time), not window existence.
 - **R5** — WHEN a recurring pipeline fan-out fires THE SYSTEM SHALL spawn a
   named `agents/*.md` custom-agent definition with pinned model/effort
   routing, not an inline anonymous spawn prompt.
 - **R6** — WHEN the context-economy phase completes THE SYSTEM SHALL have a
   measured per-phase token baseline and a re-measured before/after delta for
   each diet change, recorded in a committed report.
-- **R7** — WHEN plugin packaging lands THE SYSTEM SHALL let a user enable a
-  module per-repo via Claude Code plugin/marketplace machinery with
-  namespaced skills.
+- **R7** — WHEN the distribution end-state evaluation completes THE SYSTEM
+  SHALL have recorded an evidence-backed ADR verdict choosing among
+  (a) Claude Code plugin/marketplace packaging, (b) launcher +
+  standalone-dir distribution, (c) module-filtered symlinks — and the
+  implementation node SHALL deliver the winning mechanism.
 - **R8** — WHEN `flow install --all` runs at any point before the Phase-6
   switchover THE SYSTEM SHALL produce the same artifact set as today's
   unconditional install (no regression for the existing user).
+- **R9** — WHEN a user runs plain `claude` THE SYSTEM SHALL contribute zero
+  flow skills to the session's routing table; WHEN a session is launched via
+  the `flow` launcher verb THE SYSTEM SHALL load the installed flow skills
+  from the standalone home via `--add-dir`.
+- **R10** — WHEN flow skills are installed THE SYSTEM SHALL expose every
+  skill under a `flow-`-prefixed name (directory name = command name), with
+  zero stale references to old names in shipped artifacts.
 
 ## 3. High-level design
 
 ADR-shaped key decisions (Context / Decision / Consequences). This list IS
 the Parnas volatile-decision list — each secret is a feature boundary in §4.
-Nine decisions map to thirteen features: D7–D9 each split across two features
-along a natural internal seam (two skill surfaces; measure/act; pilot/rollout),
-stated per decision.
+Eleven decisions map to fifteen features: D6–D9 each split across two
+features along a natural internal seam (backend/docs; two skill surfaces;
+measure/act; evaluate/implement), stated per decision.
 
 - **D1 — Target architecture recorded design-first.** _Context:_ five later
   phases need one authoritative statement of the ideal, the gaps, the module
-  map, and the roadmap; `.flow-tmp` prior art is transient. _Decision:_ land
-  `docs/plugin-architecture.md` first, carrying the ratified PRD content
-  forward durably. _Consequences:_ the doc is the epic's seam artifact — its
-  Module map and per-phase specs are the consumed edge for every
-  phase-opening node; content is the most-tuned-at-review part, so it is
-  isolated in a docs-only PR. → **p1-design-doc**
-- **D2 — Distribution mechanism: flow-native module layer now, plugins
-  last.** _Context:_ plugins don't manage arbitrary PATH binaries; migrating
-  ~40 bare-name helper invocations now is a heavy, ecosystem-tracking lift
-  (AGY-ratified). _Decision:_ a typed, pure-data module registry
-  (`bin/lib/modules.ts`) + selection-aware `flow install` on the existing
-  symlink/manifest machinery; module boundaries are drawn to become the
-  plugin boundaries. _Consequences:_ conditionality lands early; Phase 6
-  becomes a re-packaging, not a redesign; `--all` stays byte-identical.
+  map, and the roadmap; `.flow-tmp` prior art is transient — and the user's
+  redirect amends parts of it (plugins de-assumed, tmux flipped, standalone
+  home + rename + testing split added). _Decision:_ land
+  `docs/target-architecture.md` first, carrying the ratified PRD content
+  forward durably **with the redirect deltas applied** — Claude plugins
+  appear as one candidate end-state, never the ratified one.
+  _Consequences:_ the doc is the epic's seam artifact — its Module map
+  (including target `flow-` names and the testing split) and per-phase specs
+  are the consumed edge for every phase-opening node; content is the
+  most-tuned-at-review part, so it is isolated in a docs-only PR.
+  → **p1-design-doc**
+- **D2 — Module layer now; distribution end-state deferred to evidence.**
+  _Context:_ plugins don't manage arbitrary PATH binaries; migrating ~40
+  bare-name helper invocations now is a heavy, ecosystem-tracking lift
+  (AGY-ratified) — and per the redirect, the user never mandated Claude
+  plugins at all ("plugin" = conceptual modularity). _Decision:_ a typed,
+  pure-data module registry (`bin/lib/modules.ts`) + selection-aware
+  `flow install` on the existing symlink/manifest machinery now; module
+  boundaries are drawn so they can *become* plugin boundaries IF the Phase-6
+  evaluation picks plugins. _Consequences:_ conditionality lands early;
+  Phase 6 becomes evaluate-then-implement, not a foregone re-packaging;
+  `--all` stays byte-identical until a ratified switchover.
   → **p1-module-registry-install**
-- **D3 — Install scope: global-selectable now, per-repo granularity
-  evaluated before plugins.** _Context:_ per-repo copies rot on update;
-  pipeline state/helpers are machine-global; AGY surfaced a middle branch —
-  global install, per-repo *activation*. _Decision:_ selection is
-  global-per-machine now; the activation middle branch gets an explicit
-  Phase-2 evaluation with a recorded verdict. _Consequences:_ the
+- **D3 — Install scope: global-selectable now; session scoping via the
+  launcher; per-repo granularity evaluated.** _Context:_ per-repo copies rot
+  on update; pipeline state/helpers are machine-global; AGY surfaced a
+  middle branch — global install, per-repo *activation*. The new standalone
+  home (D10) changes the calculus: plain sessions pay zero, so the residual
+  question is only per-repo *module* granularity inside flow sessions.
+  _Decision:_ selection stays global-per-machine now; the activation
+  evaluation is rewired to run after (and on top of) the standalone-home
+  launcher, its remit narrowed to per-repo granularity. _Consequences:_ the
   multi-stack context-tax question is answered by evidence, not deferred
   silently. → **p2-per-repo-activation-eval**
 - **D4 — Module-absence behaviour: graceful, named degradation.** _Context:_
@@ -105,32 +141,44 @@ stated per decision.
   step skips cleanly with a named notice (mirroring the existing
   graceful-skip-sans-agy pattern), plus a doctor-style summary naming what
   is off and why. _Consequences:_ deselection (and later per-repo absence)
-  is safe end-to-end; Phase 6 reuses this contract unchanged.
+  is safe end-to-end; the Phase-6 winner reuses this contract unchanged.
   → **p2-conditional-degradation**
-- **D5 — Liveness representation: crash-safe file signal, not window
-  existence.** _Context:_ state is already fully file-based; the only
+- **D5 — Liveness representation: crash-safe file signal, canonical for
+  every launcher.** _Context:_ state is already fully file-based; the only
   tmux-coupled semantics are liveness/collision (`windowExists` in
-  `bin/lib/feature.ts`, `bin/lib/done.ts`) and launch/attach. AGY pre-mortem:
+  `bin/lib/feature.ts`, `bin/lib/done.ts`) and launch/attach. With plain
+  mode now the DEFAULT experience (D6), file liveness is no longer a
+  transition aid — it is the primary signal for everyone. AGY pre-mortem:
   bare heartbeats go stale. _Decision:_ PID + process-start-time in
-  `~/.flow/state/<slug>.json` with an alive/dead/stale helper.
-  _Consequences:_ liveness works under any launcher; the recycled-PID case
-  is testable in isolation. → **p3-file-liveness**
-- **D6 — Launch mechanics: backend abstraction, tmux default, plain
-  fallback.** _Context:_ removing tmux loses parallel-pipeline supervision
-  and walk-away/attach (the signature UX); requiring it blocks plain-shell
-  users. _Decision:_ a launcher-backend interface with tmux (default) and
-  plain-terminal implementations, selected by `--no-tmux` / config / tmux
-  absence. _Consequences:_ tmux demotes to one implementation; the
-  user-facing docs/UX surface follows once the backend ships.
-  → **p3-launcher-backend**, docs/UX completed by **p3-plain-mode-docs**
+  `~/.flow/state/<slug>.json` with an alive/dead/stale helper, consulted by
+  `flow ls`/`done`/collision under every launcher; `windowExists` demotes to
+  a tmux-mode-only nicety, never the source of truth. _Consequences:_
+  liveness works identically under any launcher; the recycled-PID case is
+  testable in isolation. → **p3-file-liveness**
+- **D6 — Launch mechanics: plain shell DEFAULT, tmux installer-selected
+  opt-in.** _Context:_ the prior PRD assumed tmux stays the default backend.
+  **The user explicitly flipped this at the design review**: flow is meant
+  for anyone, most adopters won't use tmux, so the default must be no-tmux;
+  tmux is chosen at install Q&A (default-off) and becomes the default
+  launcher only for users who selected it. _Decision:_ a launcher-backend
+  interface with plain-terminal (default) and tmux (opt-in) implementations,
+  precedence flag (`--tmux`/`--no-tmux`) > recorded config > default-plain;
+  the install Q&A gains a default-off tmux question (shipped with the
+  backend node, since asking before the backend exists would record a
+  preference nothing honors). _Consequences:_ the plain path is the primary
+  path and must be rock-solid (launch, monitor, resume, collision — full
+  coverage); tmux remains fully supported for parallel-pipeline power users;
+  docs lead with plain. → **p3-launcher-backend**, docs/UX completed by
+  **p3-plain-mode-docs**
 - **D7 — Agent topology: recurring fan-outs become named custom agents.**
   _Context:_ only 2 of ~9 recurring fan-out roles are `agents/*.md`
   (`flow-verify`, `flow-fix-applier`); the rest are inline spawn prompts
   with model pins buried in prose. _Decision:_ promote them to named
   definitions with frontmatter model/effort/tools pins, artifact contracts
   unchanged, exemption set renamed in place and never widened.
-  _Consequences:_ routing is declarative and auditable; plugins can later
-  bundle agents as first-class files. Split along the two skill surfaces:
+  _Consequences:_ routing is declarative and auditable; whichever
+  distribution end-state wins can carry the agent files as first-class
+  artifacts. Split along the two skill surfaces:
   → **p4-review-agents** (pr-review's lenses/gatekeeper/consolidator),
   **p4-pipeline-agents** (scout/discovery/merge-resolver).
 - **D8 — Context economy: measure, then tighten.** _Context:_ the in-process
@@ -140,28 +188,108 @@ stated per decision.
   then execute the highest-value cuts and re-measure. _Consequences:_ the
   diet is falsifiable; the edit-cap alternative (AGY branch) is judged on
   evidence. Split measure/act: → **p5-token-audit**, **p5-context-diet**
-- **D9 — Plugin packaging: pilot one module, then roll out by playbook.**
-  _Context:_ the plugin/marketplace surface is still moving; a mass
-  migration bet is the epic's biggest rework risk (PRD `## Plan risks`).
-  _Decision:_ package exactly one stack module end-to-end first (manifest,
-  marketplace repo, namespacing, per-repo enablement, symlink-coexistence
-  rules), land a written playbook, then migrate the rest including
-  flow-core + the named agents and the helper-binary strategy.
-  _Consequences:_ ecosystem drift is discovered on one module, not ten;
-  the rollout is mechanical. Split pilot/rollout: → **p6-plugin-pilot**,
-  **p6-plugin-rollout**
+- **D9 — Distribution end-state: evaluate three candidates, then implement
+  the winner.** _Context:_ the redirect de-assumed Claude plugins; the
+  plugin/marketplace surface is still moving (the prior PRD's
+  `## Plan risks`); and by Phase 6 the launcher + standalone home (D10) may
+  already deliver most of the value plugins promised. A mass-migration bet
+  on an unratified mechanism is the epic's biggest rework risk. _Decision:_
+  an explicit evaluation node records an evidence-backed ADR verdict among
+  (a) Claude plugins/marketplace, (b) launcher + standalone-dir
+  distribution, (c) module-filtered symlinks — optionally spiking a
+  throwaway one-module plugin package for evidence — and a separate
+  implementation node is contracted to whichever wins. _Consequences:_
+  ecosystem drift is discovered before commitment, not after; the
+  implementation node is expected to be re-decomposed against the verdict.
+  Split evaluate/implement: → **p6-distribution-eval**,
+  **p6-distribution-impl**
+- **D10 — Standalone skills home + `flow` launcher: session-scoped skill
+  exposure.** _Context:_ every installed skill's frontmatter (~100 tokens
+  each) taxes EVERY Claude session on the machine. Skill discovery locations
+  are fixed (Enterprise / `~/.claude/skills/` / `.claude/skills/` / plugins)
+  with no custom-top-level-dir flag — BUT `.claude/skills/` inside a
+  directory added via `--add-dir` loads automatically (a documented
+  exception, verified against code.claude.com/docs/en/skills, fetched
+  2026-07-05; skill entries may be symlinks). _Decision:_ `flow install`
+  retargets skill links to `~/.flow/.claude/skills/`; a new bare `flow`
+  launcher verb runs `claude --add-dir ~/.flow`; pipeline seed sessions get
+  the same wiring. Plain `claude` carries zero flow skills; `flow` carries
+  them all. Whether agents/hooks load from an added dir is NOT documented
+  (commands/output-styles explicitly do not) — an in-node investigation with
+  named fallbacks: agents stay globally linked in `~/.claude/agents/`, the
+  Stop hook stays global (it already self-detects non-flow contexts), and
+  repo-local `.claude/skills` linking / on-demand symlinking are the hybrid
+  fallbacks. _Consequences:_ the biggest single context-tax win lands
+  mid-epic, independent of the Phase-6 verdict; the per-repo eval (D3)
+  narrows to granularity. → **p2-standalone-skills-home**
+- **D11 — Skill naming: `flow-` prefix on every skill directory.**
+  _Context:_ command name = directory name for personal/project skills
+  (frontmatter `name` is display-only), so prefixing means renaming skill
+  directories. In mixed sessions (a flow-launched session inside a consumer
+  repo with its own skills), unprefixed names like `verify`, `testing`,
+  `coder` invite collisions and hide provenance. _Decision:_ rename all
+  shipped skills to `flow-`-prefixed directory names (already-prefixed
+  `flow-pipeline`/`flow-research` unchanged), with the full cross-reference
+  sweep in one PR; the Svelte-specific `testing` skill splits in the same
+  sweep (module map, D1). Trade-off recorded honestly: pro —
+  collision-proofing, clear provenance in mixed sessions, greppability; con
+  — longer invocations, and IF the Phase-6 eval picks Claude plugins,
+  auto-namespacing (`/plugin:skill`) arrives free, making the prefix
+  partially redundant. Sequenced BEFORE the distribution eval because:
+  (a) the launcher path (D10) benefits immediately regardless of the
+  verdict; (b) the cross-reference sweep only grows as later phases add
+  references — cheapest now; (c) the rename is mechanical and reversible;
+  (d) even under plugins the prefix is harmless. _Consequences:_ one
+  mechanical sweep PR (skill dirs, AGENTS.md, bin/ helpers, skill-md-lint
+  anchors, templates, docs, registry rows); lint anchors update in the same
+  commit. → **p2-flow-prefix-rename**
 
 **Why these cuts (Parnas + Simon):** each feature hides one volatile decision
 (or one half of a decision along its stated internal seam) behind a stable
 interface — the module map, the registry table, the selection contract, the
-liveness helper, the backend interface, the agent-definition files, the audit
-report, the packaging playbook. Every edge in §4/§5 is a concrete
-produced/consumed artifact; the five strands that unlock after the root are
-mutually edge-free by construction.
+standalone home + launcher, the naming scheme, the liveness helper, the
+backend interface, the agent-definition files, the audit report, the
+distribution verdict. Every edge in §4/§5 is a concrete produced/consumed
+artifact; the strands that unlock after the root are mutually edge-free by
+construction.
+
+### Gap-analysis residuals (redirect-mandated elaboration)
+
+The prior PRD's gap table marked four axes "aligned"/"largely aligned"; per
+the redirect, the concrete residual shortcomings and their owning nodes:
+
+- **Pipeline mechanics, PRD shape, review gate — "already aligned":** no
+  residual structural shortcoming identified; no epic node re-touches this
+  surface. (The p5 audit still measures planning-artifact context transit as
+  part of per-phase attribution; if that surfaces a residual, it routes to
+  **p5-context-diet**.)
+- **Sub-agent isolation — "largely aligned":** residuals are (a) small
+  in-process supervisor edits below the `/coder` routing threshold still
+  land their diffs + tool_results in the supervisor's context, and (b) that
+  threshold is prose-judged, not mechanically enforced. Covered by
+  **p5-token-audit** (measures the in-process edit-size distribution) and
+  **p5-context-diet** (tightens the threshold or adopts the hook-enforced
+  mechanical edit cap if the data supports it).
+- **Model routing — "largely aligned":** residual is that only 2 of ~9
+  recurring fan-out roles (`flow-verify`, `flow-fix-applier`) are named
+  `agents/*.md` definitions with frontmatter pins; the rest (six review
+  lenses, gatekeeper, consolidator, scout, discovery, merge-resolver) are
+  inline spawn prompts whose model/effort pins live in prose and can
+  silently drift. Covered by **p4-review-agents** + **p4-pipeline-agents**.
+- **Skill loading — "aligned" per-skill only:** Claude Code's
+  frontmatter-routing/body-on-demand mechanism is the routing table and flow
+  conforms per-skill; the residual is that every *installed* skill's
+  frontmatter taxes EVERY session on the machine — 20 skills × ~100 tokens
+  in every plain `claude` session, flow-relevant or not, and stack skills
+  tax non-stack work. Covered by **p2-standalone-skills-home** (plain
+  sessions drop to zero flow skills), **p1-module-registry-install**
+  (never-relevant modules aren't installed at all), and
+  **p2-per-repo-activation-eval** (per-repo granularity for multi-stack
+  machines).
 
 ## 4. Feature decomposition
 
-Thirteen features. Each is one `flow feature create` pipeline = one mergeable
+Fifteen features. Each is one `flow feature create` pipeline = one mergeable
 PR = one vertical slice that passes its own gate. Ids, titles, and edges
 match `manifest.json` exactly; full acceptance criteria live there.
 
@@ -170,25 +298,31 @@ match `manifest.json` exactly; full acceptance criteria live there.
 **p1-design-doc · Target-architecture doc (ideal, gap analysis, module map, roadmap) — [MVP · walking-skeleton root]**
 - _Secret hidden (D1):_ the target-architecture content itself.
 - _Depends on:_ nothing (root).
-- _Produces:_ `docs/plugin-architecture.md` — `## Ideal flow`,
-  `## Gap analysis`, `## Module map` (every skill/agent/helper → exactly one
-  module; v1 set: `core`, `stack-svelte` (incl. `testing`),
-  `stack-tailwind-shadcn`, `stack-supabase`, `stack-cloudflare-pages`,
-  `copilot`, `research`), `## Roadmap` (phases 1–6 with entry/exit criteria,
-  incl. the D5 crash-safe-liveness requirement and the D7 consolidation map).
-  Reuses `.flow-tmp/plan.md` content directly (see Open Questions).
+- _Produces:_ `docs/target-architecture.md` — `## Ideal flow`,
+  `## Gap analysis` (incl. the elaborated residuals above), `## Module map`
+  (every skill/agent/helper → exactly one module; v1 set: `core`
+  (incl. the generic testing skill post-split), `stack-svelte`
+  (incl. `flow-testing-svelte` post-split), `stack-tailwind-shadcn`,
+  `stack-supabase`, `stack-cloudflare-pages`, `copilot`, `research`; target
+  `flow-`-prefixed directory names recorded per skill), `## Roadmap`
+  (phases 1–6 with entry/exit criteria: plain-default runtime for Phase 3,
+  the D7 consolidation map for Phase 4, the three-candidate distribution
+  evaluation for Phase 6). Reuses `.flow-tmp/plan.md` content with the
+  redirect deltas applied (see Open Questions).
 
 **p1-module-registry-install · Module registry + selection-aware flow install — [MVP]**
-- _Secret hidden (D2):_ the distribution mechanism (module layer as pure data).
+- _Secret hidden (D2):_ the conditionality mechanism (module layer as pure data).
 - _Depends on:_ **p1-design-doc** — _edge artifact: the `## Module map`
   section it encodes as the registry table._
 - _Produces:_ `bin/lib/modules.ts` (pure-data registry + completeness lint:
-  no orphan, no double assignment), selection-aware `flow install`
-  (`--modules`/`--all`/`--core-only`, TTY Q&A via the `confirm.ts` seam,
-  persisted `~/.flow/config.json` `modules`, `--upgrade` no-re-ask, prune via
-  the existing manifest), `--all` byte-identical to today.
+  no orphan, no double assignment; current dir names at merge time —
+  p2-flow-prefix-rename rewrites rows in its sweep), selection-aware
+  `flow install` (`--modules`/`--all`/`--core-only`, TTY Q&A via the
+  `confirm.ts` seam, persisted `~/.flow/config.json` `modules`, `--upgrade`
+  no-re-ask, prune via the existing manifest), `--all` byte-identical to
+  today.
 
-### Phase 2 — conditional behaviour
+### Phase 2 — conditionality, session scoping, skill surface
 
 **p2-conditional-degradation · Graceful degradation for deselected modules**
 - _Secret hidden (D4):_ module-absence behaviour.
@@ -198,16 +332,37 @@ match `manifest.json` exactly; full acceptance criteria live there.
   (copilot request/classify, research/AGY paths, plan review), a
   doctor-style "what's off and why" summary, tests per skip path.
 
-**p2-per-repo-activation-eval · Per-repo activation evaluation (global install, repo-local activation)**
-- _Secret hidden (D3):_ per-repo granularity before plugins.
-- _Depends on:_ **p1-module-registry-install** — _edge artifact: the registry
-  as the unit of activation the eval prototypes against._
-- _Produces:_ a Context/Decision/Consequences addendum to
-  `docs/plugin-architecture.md` with a verdict; if affirmative, the minimal
-  activation mechanism + tests; if negative, the recorded requirement on
-  Phase 6. May resolve docs-only (see Open Questions).
+**p2-standalone-skills-home · Standalone flow skills home + `flow` launcher verb**
+- _Secret hidden (D10):_ where flow skills live and which sessions see them.
+- _Depends on:_ **p1-module-registry-install** — _edge artifact: the
+  selection-aware link/prune machinery + recorded selection it retargets._
+- _Produces:_ `~/.flow/.claude/skills/` as the skill link target (migration
+  out of `~/.claude/skills/`), the bare `flow` launcher verb
+  (`claude --add-dir ~/.flow` — mechanism verified supported; distinct from
+  the Phase-3 *pipeline* launcher backend), pipeline seed sessions wired the
+  same way, the agents/hooks-under-`--add-dir` investigation record with
+  named fallbacks, tests + docs for the plain-vs-flow session story.
 
-### Phase 3 — tmux-optional runtime
+**p2-flow-prefix-rename · `flow-` skill prefix rename + testing-skill split**
+- _Secret hidden (D11):_ the skill naming scheme.
+- _Depends on:_ **p1-module-registry-install** — _edge artifact: the registry
+  rows (skill ids) the rename rewrites._
+- _Produces:_ every skill dir renamed to its `flow-`-prefixed target name
+  from the module map, the full cross-reference sweep (skills, AGENTS.md,
+  bin/ helpers + tests, `bin/skill-md-lint.test.ts` anchors, templates,
+  docs, registry rows), the `testing` split into a generic core testing
+  skill + `flow-testing-svelte`, zero stale old-name references.
+
+**p2-per-repo-activation-eval · Per-repo module-granularity evaluation**
+- _Secret hidden (D3):_ per-repo granularity on top of the launcher.
+- _Depends on:_ **p2-standalone-skills-home** — _edge artifact: the launcher
+  + standalone-home mechanism the eval extends or filters._
+- _Produces:_ a Context/Decision/Consequences addendum to
+  `docs/target-architecture.md` with a verdict; if affirmative, the minimal
+  per-repo mechanism + tests; if negative, the recorded requirement on the
+  Phase-6 winner. May resolve docs-only (see Open Questions).
+
+### Phase 3 — plain-default runtime (tmux opt-in)
 
 **p3-file-liveness · Crash-safe file-based pipeline liveness signal**
 - _Secret hidden (D5):_ the liveness representation.
@@ -215,23 +370,27 @@ match `manifest.json` exactly; full acceptance criteria live there.
   spec (crash-safe PID + process-start-time design, per the AGY pre-mortem)._
 - _Produces:_ liveness fields in `~/.flow/state/<slug>.json`, an
   alive/dead/stale helper, `flow ls`/`done`/collision checks consulting the
-  file signal (windowExists retained as secondary during transition), tests
-  incl. recycled-PID.
+  file signal as the canonical source under every launcher (`windowExists`
+  demoted to a tmux-mode nicety), tests incl. recycled-PID.
 
-**p3-launcher-backend · Launcher backend abstraction + --no-tmux**
+**p3-launcher-backend · Launcher backend abstraction — plain default, tmux opt-in**
 - _Secret hidden (D6):_ launch mechanics.
 - _Depends on:_ **p3-file-liveness** — _edge artifact: the liveness-helper
   API both backends share for ls/done/collision._
-- _Produces:_ backend interface + tmux (default) and plain-terminal
-  implementations, `flow feature create --no-tmux`, selection precedence
-  (flag > config > tmux absence), tests.
+- _Produces:_ backend interface + plain-terminal (default) and tmux (opt-in)
+  implementations, precedence flag (`--tmux`/`--no-tmux`) > config >
+  default-plain, the install-Q&A default-off tmux question persisted to
+  `~/.flow/config.json`, tmux-absent degrading to plain with a named notice,
+  tests (plain default, precedence, opt-in tmux byte-compatible with today).
 
-**p3-plain-mode-docs · tmux-optional docs + plain-mode UX polish**
+**p3-plain-mode-docs · Plain-default docs + UX polish**
 - _Secret hidden (D6, user-facing half):_ the onboarding story.
 - _Depends on:_ **p3-launcher-backend** — _edge artifact: the shipped
-  backend surface (flags, notices) it documents._
-- _Produces:_ README quickstart with tmux as recommended default (not
-  prerequisite), plain-shell run/monitor/resume doc, notice copy polish.
+  backend surface (flags, Q&A, notices) it documents._
+- _Produces:_ README quickstart presenting the plain shell as the default
+  experience (tmux never a prerequisite), plain-shell run/monitor/resume doc
+  as the primary path, tmux documented as the opt-in power option (parallel
+  pipelines, walk-away/attach), notice copy polish.
 
 ### Phase 4 — custom-agent consolidation
 
@@ -262,7 +421,7 @@ match `manifest.json` exactly; full acceptance criteria live there.
 - _Produces:_ a transcript-analysis helper (tested on a fixture) attributing
   spend per phase and tool-call class, a real-pipeline baseline report
   (`docs/context-economy-audit.md`) incl. the in-process edit-size
-  distribution and the cost of installed-but-irrelevant skill frontmatter.
+  distribution and the measured frontmatter cost of installed skills.
 
 **p5-context-diet · Context diet: AGENTS.md + skill splits + edit-threshold tuning**
 - _Secret hidden (D8, action half):_ which cuts are worth making.
@@ -274,28 +433,33 @@ match `manifest.json` exactly; full acceptance criteria live there.
   data supports it, re-measured before/after delta; structural lints stay
   green.
 
-### Phase 6 — plugin packaging
+### Phase 6 — distribution end-state
 
-**p6-plugin-pilot · Plugin packaging pilot: one stack module end-to-end**
-- _Secret hidden (D9, pilot half):_ the packaging mechanics.
-- _Depends on:_ **p1-module-registry-install** — _edge artifact: the module
-  boundary (registry rows) being packaged;_ **p2-conditional-degradation** —
-  _edge artifact: the absence-behaviour contract per-repo enablement relies
-  on._
-- _Produces:_ one stack module (recommend `stack-svelte`) as a Claude Code
-  plugin — `.claude-plugin/plugin.json`, `marketplace.json` repo, namespaced
-  skills, per-repo enablement, symlink-coexistence precedence rules — plus a
-  written packaging playbook.
+**p6-distribution-eval · Distribution end-state evaluation (three candidates)**
+- _Secret hidden (D9, evaluation half):_ which distribution mechanism wins.
+- _Depends on:_ **p2-standalone-skills-home** — _edge artifact: the shipped
+  launcher + standalone home (candidate b's operating evidence);_
+  **p2-conditional-degradation** — _edge artifact: the absence-behaviour
+  contract any per-repo/per-selection mechanism relies on._
+- _Produces:_ an evidence-backed ADR addendum to
+  `docs/target-architecture.md` choosing among Claude plugins/marketplace,
+  launcher + standalone-dir distribution, and module-filtered symlinks
+  (optionally a throwaway one-module plugin spike as evidence), plus the
+  contracted scope statement for **p6-distribution-impl**.
 
-**p6-plugin-rollout · Plugin rollout: all modules, marketplace, helper strategy**
-- _Secret hidden (D9, rollout half):_ the full-migration + switchover story.
-- _Depends on:_ **p6-plugin-pilot** — _edge artifact: the proven playbook;_
-  **p4-review-agents** and **p4-pipeline-agents** — _edge artifacts: the
-  named `agents/*.md` files flow-core's plugin bundles._
-- _Produces:_ remaining modules + flow-core as plugins, the decided
-  helper-binary strategy (PATH vs `${CLAUDE_PLUGIN_ROOT}`), marketplace
-  docs/versioning, the `flow install` switchover/coexistence story (the
-  first sanctioned break with `--all` byte-parity).
+**p6-distribution-impl · Distribution end-state implementation (winner only)**
+- _Secret hidden (D9, implementation half):_ the migration + switchover story.
+- _Depends on:_ **p6-distribution-eval** — _edge artifact: the verdict +
+  contracted scope;_ **p4-review-agents** and **p4-pipeline-agents** — _edge
+  artifacts: the named `agents/*.md` files the core distribution carries;_
+  **p2-flow-prefix-rename** — _edge artifact: the renamed skill surface
+  being distributed._
+- _Produces:_ the winning mechanism end-to-end (plugins: all-module
+  packaging, helper-binary strategy, marketplace docs, switchover — the
+  first sanctioned `--all` byte-parity break; launcher+dir: versioned
+  payload, update/rollback, per-repo granularity per the p2 eval verdict;
+  symlinks: hardening + consumer onboarding as the ratified end-state).
+  Expected to be re-decomposed against the verdict before execution.
 
 ## 5. Dependency DAG
 
@@ -304,45 +468,51 @@ graph TD
     n1["p1-design-doc<br/>target-architecture doc<br/>MVP · root"]
     n2["p1-module-registry-install<br/>registry + selection-aware install<br/>MVP"]
     n3["p2-conditional-degradation<br/>graceful degradation"]
-    n4["p2-per-repo-activation-eval<br/>per-repo activation eval"]
-    n5["p3-file-liveness<br/>file-based liveness"]
-    n6["p3-launcher-backend<br/>backend abstraction + --no-tmux"]
-    n7["p3-plain-mode-docs<br/>tmux-optional docs/UX"]
-    n8["p4-review-agents<br/>pr-review named agents"]
-    n9["p4-pipeline-agents<br/>pipeline named agents"]
-    n10["p5-token-audit<br/>context audit + tooling"]
-    n11["p5-context-diet<br/>context diet"]
-    n12["p6-plugin-pilot<br/>plugin pilot"]
-    n13["p6-plugin-rollout<br/>plugin rollout"]
+    n4["p2-standalone-skills-home<br/>standalone home + flow launcher"]
+    n5["p2-flow-prefix-rename<br/>flow- rename + testing split"]
+    n6["p2-per-repo-activation-eval<br/>per-repo granularity eval"]
+    n7["p3-file-liveness<br/>file-based liveness"]
+    n8["p3-launcher-backend<br/>plain default · tmux opt-in"]
+    n9["p3-plain-mode-docs<br/>plain-default docs/UX"]
+    n10["p4-review-agents<br/>pr-review named agents"]
+    n11["p4-pipeline-agents<br/>pipeline named agents"]
+    n12["p5-token-audit<br/>context audit + tooling"]
+    n13["p5-context-diet<br/>context diet"]
+    n14["p6-distribution-eval<br/>distribution eval (3 candidates)"]
+    n15["p6-distribution-impl<br/>distribution impl (winner)"]
     n1 --> n2
-    n1 --> n5
-    n1 --> n8
-    n1 --> n9
+    n1 --> n7
     n1 --> n10
+    n1 --> n11
+    n1 --> n12
     n2 --> n3
     n2 --> n4
-    n2 --> n12
-    n3 --> n12
-    n5 --> n6
-    n6 --> n7
-    n8 --> n13
-    n9 --> n13
-    n10 --> n11
+    n2 --> n5
+    n4 --> n6
+    n3 --> n14
+    n4 --> n14
+    n7 --> n8
+    n8 --> n9
     n12 --> n13
+    n14 --> n15
+    n10 --> n15
+    n11 --> n15
+    n5 --> n15
 ```
 
-- **Shape:** 13 nodes, 15 edges, one root (`p1-design-doc`). After the root,
+- **Shape:** 15 nodes, 18 edges, one root (`p1-design-doc`). After the root,
   **five strands unlock in parallel** (Simon near-decomposability — no edges
-  between them until Phase 6 closes the diamond): the module strand
-  (n2 → n3/n4), the tmux strand (n5 → n6 → n7), the two agent nodes
-  (n8 ∥ n9), and the audit strand (n10 → n11).
-- **Longest chain:** `p1-design-doc → p1-module-registry-install →
-  p2-conditional-degradation → p6-plugin-pilot → p6-plugin-rollout`
-  (5 nodes).
+  between them until Phase 6 closes the diamond): the module/skill-surface
+  strand (n2 → n3 ∥ n4 ∥ n5, n4 → n6), the runtime strand (n7 → n8 → n9),
+  the two agent nodes (n10 ∥ n11), and the audit strand (n12 → n13).
+- **Longest chains (5 nodes):** `p1-design-doc → p1-module-registry-install →
+  p2-standalone-skills-home → p6-distribution-eval → p6-distribution-impl`
+  and the sibling path through `p2-conditional-degradation`.
 - **MVP path (thinnest valuable slice):** `p1-design-doc →
   p1-module-registry-install` — Phase 1 exactly: a stated target
   architecture plus an installer that acts on it; every later strand is
-  independent value on top.
+  independent value on top. The next-biggest single win is
+  `p2-standalone-skills-home` (plain `claude` goes flow-free).
 - **Phases are labels, not sequencing:** the DAG is the truth — e.g. Phase-4
   and Phase-5 strands can land before Phase 3 finishes.
 - **Well-formedness:** every `dependsOn` id resolves, no cycles (the topo
@@ -351,43 +521,72 @@ graph TD
 
 ## 6. Open Questions
 
-- **Phase-1 prior art reuse (supervisor-directed, surfaced for the
-  reviewer).** Phase-1 scope was already planned at *feature grain* in this
-  worktree's `.flow-tmp/plan.md` (full 6-task breakdown with acceptance
-  criteria, AGY-reviewed decision analysis, PR-description draft). The first
-  two nodes must **reuse it, not re-derive it** — their descriptions say so
-  explicitly. `.flow-tmp/` does not survive the worktree, so
-  `p1-design-doc`'s whole job is landing that content durably as
-  `docs/plugin-architecture.md`; until it merges, this design.md carries the
-  summary. Confirm the reuse pointer is acceptable as the handoff.
-- **D1/D2 assumptions ratified-by-plan, reviewable here.** Plugins deferred
-  to the last phase (module layer now; boundaries drawn to become plugin
-  boundaries) and selection global-per-machine now (per-repo enablement
-  arrives with plugins; the activation middle branch gets a Phase-2 eval).
-  Both were pressure-tested by the AGY cross-model review in the prior PRD;
-  redirect at this design PR if you want plugins earlier or per-repo
-  granularity sooner.
+- **Phase-1 prior art reuse — with redirect deltas.** Phase-1 scope was
+  already planned at *feature grain* in this worktree's `.flow-tmp/plan.md`
+  (full 6-task breakdown, AGY-reviewed decision analysis, PR-description
+  draft). The first two nodes must **reuse it, not re-derive it** — but with
+  the redirect deltas applied: the doc lands as
+  `docs/target-architecture.md` (not `plugin-architecture.md`), plugins
+  appear as one candidate end-state, the Roadmap's Phase 3 is plain-default,
+  and the module map records the `flow-` target names + testing split.
+  `.flow-tmp/` does not survive the worktree; until `p1-design-doc` merges,
+  this design.md carries the summary. Confirm the reuse-with-deltas pointer
+  is acceptable as the handoff.
+- **Distribution end-state is genuinely open (redirect-ratified).** The
+  module-layer-now decision stands, but Claude plugins are no longer the
+  assumed terminus — `p6-distribution-eval` chooses among plugins, launcher
+  + standalone dir, and filtered symlinks on evidence. If you already have a
+  leaning, redirect here and the eval narrows or disappears.
 - **Phase-1 grain.** Per supervisor guidance, Phase 1 splits into exactly
   two nodes (doc; registry + selection-aware install). The second node
   covers Tasks 2–6 of the prior PRD — plausibly large. If its feature
   pipeline finds it oversized, the natural sub-split is registry+flags vs
   Q&A+prune; deliberately not pre-split here to keep the walking skeleton
   thin.
-- **`p2-per-repo-activation-eval` is spike-shaped.** Its scope is
-  conditional: a decision addendum always, an implementation only on an
-  affirmative verdict. It may resolve docs-only; that is intended, not a
-  scoping failure.
-- **Phase-6 decomposition is deliberately coarse and speculative.** The
-  plugin/marketplace surface is still moving (the prior PRD's `## Plan
-  risks`); the pilot/rollout cut de-risks it, but `p6-plugin-rollout` may
-  warrant re-decomposition (potentially its own epic) once the pilot's
-  playbook exists. Expect a redirect there, not here.
-- **tmux stays the default backend; plain mode is opt-in** (ratified D3).
-  Redirect if you want plain-terminal as the default.
+- **Agents/hooks under `--add-dir` are unverified.** The docs confirm skills
+  load from an added dir's `.claude/skills/` and that commands/output-styles
+  do NOT load; agents and hooks are undocumented either way. flow's 2 custom
+  agents (`~/.claude/agents/`) and Stop hook (`~/.claude/settings.json`)
+  stay global today; `p2-standalone-skills-home` carries the investigation
+  and the named fallbacks (agents stay global — low routing tax; hook
+  already self-detects non-flow contexts; repo-local `.claude/skills`
+  linking or on-demand symlinks as hybrids). Worst case is a hybrid that
+  still achieves flow-free plain sessions for skills. Confirm acceptable.
+- **Rename sequencing (D11) is a judgment call.** The `flow-` rename runs
+  BEFORE the distribution eval — reasoning in D11 (launcher benefits
+  immediately; the sweep only grows; mechanical + reversible) — accepting
+  that IF plugins win, auto-namespacing makes the prefix partially
+  redundant. Redirect if you'd rather defer it until after the eval.
+  Naming details (e.g. the `flow-verify` *skill* coexisting with the
+  existing `flow-verify` *agent* name in a different namespace) are decided
+  at that node's planning, recorded in the module map.
+- **Testing-skill split ratified (redirect).** The Svelte-specific `testing`
+  skill splits into a framework-agnostic core testing skill plus
+  `flow-testing-svelte` (Svelte/vitest/testing-library specifics), executed
+  in `p2-flow-prefix-rename`'s sweep and recorded in the module map. The
+  exact generic-vs-svelte content boundary is decided at that node's
+  planning.
+- **tmux flip is recorded as user-directed, not open.** Plain shell is the
+  default everywhere; tmux is an install-Q&A opt-in (default-off) that
+  becomes the selecting user's default launcher. One residual sequencing
+  choice: the tmux question ships with `p3-launcher-backend` (not Phase 1's
+  Q&A), because asking before the backend exists would record a preference
+  nothing honors — confirm that's acceptable (existing tmux users keep
+  today's behaviour until Phase 3 by default flag/config).
+- **`p2-per-repo-activation-eval` is spike-shaped, remit narrowed.** With
+  session scoping owned by the launcher, this eval covers only per-repo
+  *module* granularity (a Go repo inside a flow session still sees svelte
+  skills). It may resolve docs-only; that is intended, not a scoping
+  failure.
+- **Phase-6 implementation is deliberately coarse.** `p6-distribution-impl`
+  cannot be honestly decomposed until the eval's verdict exists; expect a
+  re-decomposition (potentially its own epic) once it does. Expect a
+  redirect there, not here.
 - **Phase-4 split is by skill surface** (pr-review vs pipeline-side), and
   assumes model pins move verbatim from prose to agent frontmatter
   (gatekeeper haiku, consolidator sonnet, verify/fix-applier low effort
   unchanged). The `/coder` edit-applier and `/epic-run` judgment agent are
   *evaluated* in `p4-pipeline-agents`, not committed.
-- **Scope check:** genuinely epic-sized — six phases, 13 PR-sized nodes,
-  code + docs + skills + distribution surfaces; not a single feature.
+- **Scope check:** genuinely epic-sized — six phases, 15 PR-sized nodes,
+  code + docs + skills + naming + distribution surfaces; not a single
+  feature.
