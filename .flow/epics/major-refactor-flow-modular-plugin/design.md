@@ -27,7 +27,7 @@
 ## 1. Problem & intent
 
 flow today is a personal, hard-wired toolchain: `flow install` symlinks all
-20 skills, 2 agents, ~40 PATH helpers, and 4 validators globally and
+20 skills, 2 agents, ~45 PATH helpers, and 4 validators globally and
 unconditionally — a Go-only user gets the Svelte/Tailwind/Supabase/Cloudflare
 skills in every Claude session's routing table, a user without agy inherits
 the research stack, every plain `claude` session on the machine pays flow's
@@ -69,11 +69,16 @@ Per-feature acceptance lives in each feature's `acceptanceCriteria[]` in
   shell, and `flow ls` / `flow done` / collision detection SHALL report
   correctly under every launcher via a crash-safe file-based liveness signal
   (PID + process-start-time), not window existence.
-- **R5** — WHEN a recurring pipeline fan-out fires THE SYSTEM SHALL spawn a
-  named `agents/*.md` custom-agent definition with declarative routing per
-  the D7 frontmatter policy (`effort` pinned only for mechanical roles;
-  judgment roles inherit session effort), not an inline anonymous spawn
-  prompt.
+- **R5** — WHEN a recurring pipeline fan-out fires for a role committed to
+  the Phase-4 promotion set THE SYSTEM SHALL spawn a named `agents/*.md`
+  custom-agent definition with declarative routing per the D7 frontmatter
+  policy (`effort` pinned only for mechanical roles; judgment roles inherit
+  session effort), not an inline anonymous spawn prompt — exempting roles
+  the Phase-4 consolidation map records as deliberately left generic (with
+  recorded rationale, e.g. the `/coder` edit-applier and `/epic-run`
+  judgment agent, which `p4-pipeline-agents` evaluates rather than commits),
+  and permitting the `general-purpose` fallback for any promoted role on a
+  machine where its `agents/*.md` file isn't installed.
 - **R6** — WHEN the context-economy phase completes THE SYSTEM SHALL have a
   measured per-phase token baseline and a re-measured before/after delta for
   each diet change, recorded in a committed report.
@@ -82,9 +87,17 @@ Per-feature acceptance lives in each feature's `acceptanceCriteria[]` in
   (a) Claude Code plugin/marketplace packaging, (b) launcher +
   standalone-dir distribution, (c) module-filtered symlinks — and the
   implementation node SHALL deliver the winning mechanism.
-- **R8** — WHEN `flow install --all` runs at any point before the Phase-6
-  switchover THE SYSTEM SHALL produce the same artifact set as today's
-  unconditional install (no regression for the existing user).
+- **R8** — WHEN `flow install --all` runs against Phase 1's module layer
+  (the `p1-module-registry-install` PR) THE SYSTEM SHALL produce a symlink
+  set byte-identical to today's unconditional install (no regression for
+  the existing user). Later phases intentionally change the installed
+  set/paths under their own gated acceptance criteria before the Phase-6
+  switchover — `p2-flow-prefix-rename` renames skill directories and
+  `p2-standalone-skills-home` retargets the skill link location — so the
+  byte-identical guarantee binds Phase 1's `--all` only, not every
+  pre-Phase-6 state; the Phase-6 winner's implementation
+  (`p6-distribution-impl`) is the first sanctioned break of that guarantee
+  entirely, per D2/D9.
 - **R9** — WHEN a user runs plain `claude` THE SYSTEM SHALL contribute zero
   flow skills to the session's routing table; WHEN a session is launched via
   the `flow` launcher verb THE SYSTEM SHALL load the installed flow skills
@@ -115,7 +128,7 @@ measure/act; evaluate/implement), stated per decision.
   most-tuned-at-review part, so it is isolated in a docs-only PR.
   → **p1-design-doc**
 - **D2 — Module layer now; distribution end-state deferred to evidence.**
-  _Context:_ plugins don't manage arbitrary PATH binaries; migrating ~40
+  _Context:_ plugins don't manage arbitrary PATH binaries; migrating ~45
   bare-name helper invocations now is a heavy, ecosystem-tracking lift
   (AGY-ratified) — and per the redirect, the user never mandated Claude
   plugins at all ("plugin" = conceptual modularity). _Decision:_ a typed,
@@ -146,17 +159,25 @@ measure/act; evaluate/implement), stated per decision.
   is safe end-to-end; the Phase-6 winner reuses this contract unchanged.
   → **p2-conditional-degradation**
 - **D5 — Liveness representation: crash-safe file signal, canonical for
-  every launcher.** _Context:_ state is already fully file-based; the only
-  tmux-coupled semantics are liveness/collision (`windowExists` in
-  `bin/lib/feature.ts`, `bin/lib/done.ts`) and launch/attach. With plain
-  mode now the DEFAULT experience (D6), file liveness is no longer a
+  every launcher.** _Context:_ state is already fully file-based; the
+  tmux-coupled semantics span three classes, not one — liveness/collision
+  (`windowExists` in `bin/lib/feature.ts`, `bin/lib/done.ts`);
+  launch/attach; and pipeline session-identity resolution (~17 helpers plus
+  the supervisor SKILL.md read the pipeline slug via the tmux `@flow-slug`
+  window option, e.g. `tmux show-options -t "$TMUX_PANE" -v -w @flow-slug`),
+  which also gates `flow-stop-guard`'s Stop hook (it self-detects and
+  no-ops outside tmux) — so a plain-shell default (D6) silently drops the
+  turn-end guard unless slug identity is re-threaded another way. With
+  plain mode now the DEFAULT experience (D6), file liveness is no longer a
   transition aid — it is the primary signal for everyone. AGY pre-mortem:
   bare heartbeats go stale. _Decision:_ PID + process-start-time in
   `~/.flow/state/<slug>.json` with an alive/dead/stale helper, consulted by
   `flow ls`/`done`/collision under every launcher; `windowExists` demotes to
   a tmux-mode-only nicety, never the source of truth. _Consequences:_
   liveness works identically under any launcher; the recycled-PID case is
-  testable in isolation. → **p3-file-liveness**
+  testable in isolation; slug propagation and Stop-hook plain-mode coverage
+  are carried forward as an explicit p3-launcher-backend deliverable (not a
+  D5 concern — D5 hides liveness representation only). → **p3-file-liveness**
 - **D6 — Launch mechanics: plain shell DEFAULT, tmux installer-selected
   opt-in.** _Context:_ the prior PRD assumed tmux stays the default backend.
   **The user explicitly flipped this at the design review**: flow is meant
@@ -206,9 +227,14 @@ measure/act; evaluate/implement), stated per decision.
   dependency — each custom agent requires `~/.claude/agents/<name>.md` to
   be symlinked — so every promoted spawn site ships the existing
   `[ -f ~/.claude/agents/<name>.md ] || fall back to general-purpose`
-  guard (as step 6's verify spawn does today); whichever distribution
-  end-state wins can carry the agent files as first-class artifacts. Split
-  along the two skill surfaces:
+  guard (as step 6's verify spawn does today) — the fallback MUST emit a
+  named notice when it fires, since a silent swap to `general-purpose`
+  discards a tool-restricted role's tool-allowlist containment (a
+  prompt-injection concern for roles like the review lenses/gatekeeper
+  that should stay tool-constrained); for tool-restricted roles, prefer an
+  explicit tool allowlist on the promoted definition over relying on the
+  fallback's absence; whichever distribution end-state wins can carry the
+  agent files as first-class artifacts. Split along the two skill surfaces:
   → **p4-review-agents** (pr-review's lenses/gatekeeper/consolidator),
   **p4-pipeline-agents** (scout/discovery/merge-resolver).
 - **D8 — Context economy: measure, then tighten.** _Context:_ the in-process
@@ -241,10 +267,17 @@ measure/act; evaluate/implement), stated per decision.
   directory added via `--add-dir` loads automatically (a documented
   exception, verified against code.claude.com/docs/en/skills, fetched
   2026-07-05; skill entries may be symlinks). _Decision:_ `flow install`
-  retargets skill links to `~/.flow/.claude/skills/`; a new bare `flow`
-  launcher verb runs `claude --add-dir ~/.flow`; pipeline seed sessions get
-  the same wiring. Plain `claude` carries zero flow skills; `flow` carries
-  them all. Whether agents/hooks load from an added dir is NOT documented
+  retargets skill links to `~/.flow/claude-home/.claude/skills/` (nested one
+  level below `~/.flow`, not directly under it); a new bare `flow` launcher
+  verb runs `claude --add-dir ~/.flow/claude-home`; pipeline seed sessions
+  get the same wiring. The nesting matters: `--add-dir` grants the session
+  workspace access to everything under the added directory, and `~/.flow`
+  itself holds `config.json`, every pipeline's `state/`, and
+  `research-cache/` — granting `--add-dir ~/.flow` directly would widen a
+  prompt-injected session's reach to all of that; scoping the grant to the
+  nested `claude-home/` subdirectory keeps config/state/cache outside the
+  session's workspace while still exposing the skills. Plain `claude`
+  carries zero flow skills; `flow` carries them all. Whether agents/hooks load from an added dir is NOT documented
   (commands/output-styles explicitly do not) — an in-node investigation with
   named fallbacks: agents stay globally linked in `~/.claude/agents/`, the
   Stop hook stays global (it already self-detects non-flow contexts), and
@@ -359,8 +392,9 @@ match `manifest.json` exactly; full acceptance criteria live there.
 **p2-conditional-degradation · Graceful degradation for deselected modules**
 
 - _Secret hidden (D4):_ module-absence behaviour.
-- _Depends on:_ **p1-module-registry-install** — \_edge artifact: the registry
-  - recorded-selection contract it reads to decide what is active.\_
+- _Depends on:_ **p1-module-registry-install** — _edge artifact: the
+  registry-plus-recorded-selection contract it reads to decide what is
+  active._
 - _Produces:_ named skip-notices on every module-dependent pipeline path
   (copilot request/classify, research/AGY paths, plan review), a
   doctor-style "what's off and why" summary, tests per skip path.
@@ -370,12 +404,15 @@ match `manifest.json` exactly; full acceptance criteria live there.
 - _Secret hidden (D10):_ where flow skills live and which sessions see them.
 - _Depends on:_ **p1-module-registry-install** — _edge artifact: the
   selection-aware link/prune machinery + recorded selection it retargets._
-- _Produces:_ `~/.flow/.claude/skills/` as the skill link target (migration
-  out of `~/.claude/skills/`), the bare `flow` launcher verb
-  (`claude --add-dir ~/.flow` — mechanism verified supported; distinct from
-  the Phase-3 _pipeline_ launcher backend), pipeline seed sessions wired the
-  same way, the agents/hooks-under-`--add-dir` investigation record with
-  named fallbacks, tests + docs for the plain-vs-flow session story.
+- _Produces:_ `~/.flow/claude-home/.claude/skills/` as the skill link target
+  (migration out of `~/.claude/skills/`; nested under a dedicated
+  `claude-home/` subdirectory rather than `~/.flow` directly, so the
+  `--add-dir` grant excludes `config.json`/`state/`/`research-cache/`), the
+  bare `flow` launcher verb (`claude --add-dir ~/.flow/claude-home` —
+  mechanism verified supported; distinct from the Phase-3 _pipeline_
+  launcher backend), pipeline seed sessions wired the same way, the
+  agents/hooks-under-`--add-dir` investigation record with named fallbacks,
+  tests + docs for the plain-vs-flow session story.
 
 **p2-flow-prefix-rename · `flow-` skill prefix rename + testing-skill split**
 
@@ -391,8 +428,8 @@ match `manifest.json` exactly; full acceptance criteria live there.
 **p2-per-repo-activation-eval · Per-repo module-granularity evaluation**
 
 - _Secret hidden (D3):_ per-repo granularity on top of the launcher.
-- _Depends on:_ **p2-standalone-skills-home** — \_edge artifact: the launcher
-  - standalone-home mechanism the eval extends or filters.\_
+- _Depends on:_ **p2-standalone-skills-home** — _edge artifact: the
+  launcher-plus-standalone-home mechanism the eval extends or filters._
 - _Produces:_ a Context/Decision/Consequences addendum to
   `docs/target-architecture.md` with a verdict; if affirmative, the minimal
   per-repo mechanism + tests; if negative, the recorded requirement on the
@@ -419,7 +456,12 @@ match `manifest.json` exactly; full acceptance criteria live there.
   implementations, precedence flag (`--tmux`/`--no-tmux`) > config >
   default-plain, the install-Q&A default-off tmux question persisted to
   `~/.flow/config.json`, tmux-absent degrading to plain with a named notice,
-  tests (plain default, precedence, opt-in tmux byte-compatible with today).
+  slug propagation for session-identity resolution (e.g. a `FLOW_SLUG` env
+  var threaded by the launcher backend, consumed by the ~17 helpers and the
+  supervisor SKILL.md that read `@flow-slug` today, with `@flow-slug` kept
+  as the tmux-mode fallback) plus `flow-stop-guard` Stop-hook coverage under
+  the plain backend (not just its existing outside-tmux no-op), tests (plain
+  default, precedence, opt-in tmux byte-compatible with today).
 
 **p3-plain-mode-docs · Plain-default docs + UX polish**
 
@@ -429,7 +471,10 @@ match `manifest.json` exactly; full acceptance criteria live there.
 - _Produces:_ README quickstart presenting the plain shell as the default
   experience (tmux never a prerequisite), plain-shell run/monitor/resume doc
   as the primary path, tmux documented as the opt-in power option (parallel
-  pipelines, walk-away/attach), notice copy polish.
+  pipelines, walk-away/attach), notice copy polish, and AGENTS.md's
+  tmux self-description (the responsibilities intro, the "What flow is not"
+  section, and the state prose that assume tmux today) updated so it
+  doesn't go stale once plain shell is the default.
 
 ### Phase 4 — custom-agent consolidation
 
@@ -589,9 +634,9 @@ p1-module-registry-install` — Phase 1 exactly: a stated target
   is acceptable as the handoff.
 - **Distribution end-state is genuinely open (redirect-ratified).** The
   module-layer-now decision stands, but Claude plugins are no longer the
-  assumed terminus — `p6-distribution-eval` chooses among plugins, launcher
-  - standalone dir, and filtered symlinks on evidence. If you already have a
-    leaning, redirect here and the eval narrows or disappears.
+  assumed terminus — `p6-distribution-eval` chooses among plugins,
+  launcher+standalone dir, and filtered symlinks on evidence. If you
+  already have a leaning, redirect here and the eval narrows or disappears.
 - **Phase-1 grain.** Per supervisor guidance, Phase 1 splits into exactly
   two nodes (doc; registry + selection-aware install). The second node
   covers Tasks 2–6 of the prior PRD — plausibly large. If its feature
