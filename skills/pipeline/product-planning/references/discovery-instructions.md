@@ -317,15 +317,49 @@ the user should confirm; candidate follow-up issues are _next-time_ work the use
 opt into.
 
 When (and only when) such ideas exist, add a top-level `# Candidate follow-up issues`
-section to `plan.md`, placed between `# PRD` and `# Task breakdown` (see step 8). Each
-entry is a single-line markdown checkbox with a title and one-line body, in the form:
+section to `plan.md`, placed between `# PRD` and `# Task breakdown` (see step 8). The
+section has **two parts, in this order**: a value-vs-complexity **ranking table**, then
+the machine-readable `- [ ]` checkbox list. Each checkbox is a single-line entry with a
+title and one-line body:
 
 ```markdown
 # Candidate follow-up issues
 
+| Candidate                       | Value | Complexity | Rationale                             | Pull into this pipeline? |
+| ------------------------------- | ----- | ---------- | ------------------------------------- | ------------------------ |
+| OAuth refresh path leaks tokens | High  | Medium     | real security gap but its own session | No                       |
+| Pin `gh-action-cache` to v4     | Low   | Trivial    | one-line CI bump, unblocks nothing    | No                       |
+
 - [ ] OAuth refresh path leaks tokens — separate concern; needs a dedicated session.
 - [ ] `gh-action-cache@v3` is deprecated — pin to v4 in CI.
 ```
+
+**The ranking table is mandatory whenever the section is present** (it is not itself
+omit-when-present — only the whole section is omit-when-empty). It forces an explicit
+value/complexity judgment per candidate so a cheap-and-valuable item is never silently
+parked as a follow-up when it should have been pulled into the current pipeline. Columns
+are exactly `Candidate | Value | Complexity | Rationale | Pull into this pipeline?`. The
+`Pull into this pipeline?` column carries **plain `Yes` / `No` text — never a `- [ ]`
+checkbox**: the checkbox list BELOW the table is the sole machine-readable candidate
+contract (`flow-candidate-issues` parses only `- [ ]` / `- [x]` lines, so a checkbox in a
+table cell would be a parser-mis-read hazard). Value and Complexity are coarse buckets
+(`High`/`Medium`/`Low` and `Trivial`/`Small`/`Medium`/`Large`).
+
+**Recommendation verdict line.** When any candidate clears the **high-value AND
+trivial-complexity** bar, the `## Recommendation` section MUST carry an explicit
+pull-into-this-pipeline verdict line naming that candidate — the cheap-and-valuable case
+is exactly the one that should not wait for a follow-up, so the recommendation states it
+outright rather than leaving it buried in the table. When no candidate clears the bar,
+state that too (e.g. "Pull-into-this-pipeline candidate: none clears the high-value +
+trivial-complexity bar").
+
+**Consistency rubric (follow-up references must resolve).** Any item the plan prose refers
+to as "listed as a follow-up" / "tracked as a follow-up" / "deferred to a follow-up" (or a
+sibling phrasing) MUST actually appear as a checkbox in this section — a prose reference to
+a follow-up that does not exist in the list is the exact drift an external reviewer caught
+in the econ-data run. After the plan lands, the supervisor runs
+`flow-candidate-issues --lint --plan-md-file <plan.md>` as a deterministic advisory
+backstop; author the section so that check passes (every referenced follow-up is listed).
 
 Leave every checkbox **unticked** (`- [ ]`). The supervisor will pop an
 `AskUserQuestion` form to let the user pick which to file (1–4 candidates) or fall back to
@@ -790,6 +824,43 @@ path was active but no research ran, also append the one-line skip-note from
 fully dormant. Do not paste the PRD or task list back — the wrapper only forwards your summary to the caller, and
 the artifacts on disk are the durable record. Keeping the return value
 short is the whole point of the subagent fan-out.
+
+## Revision pass mode
+
+When the invocation carries a `REVISION: <n>` marker (threaded by `/flow-pipeline`
+step 3 through the same append channel as `RESEARCH:` / `MODEL_PLANNING:`, and forwarded
+by the `{{REVISION_OVERRIDE}}` block in `product-planning/SKILL.md`), you are **revising an
+existing `plan.md` in place**, not drafting a fresh one. A `plan-pending-review` redirect
+looped back to step 3: the user approved neither a blank slate nor a full re-plan — they
+asked for a targeted change. Regenerating the whole document drifts every section the
+redirect did not touch and destroys embedded markers. Follow this contract:
+
+1. **Read the existing `plan.md` first** (at the plan path the wrapper passed) before
+   writing anything. It is the base you edit, not a reference you replace.
+2. **Update in place.** Change only the sections the redirect actually affects (scope,
+   a task, a decision, an acceptance criterion). Leave every untouched section
+   **byte-for-byte as it was** — do not re-word, re-order, or re-flow prose the redirect
+   did not ask you to change.
+3. **Preserve embedded markers verbatim.** The `### Cross-model review (AGY)` subsection
+   under `## Decision analysis` AND its `<!-- flow-plan-review-hash: <sha> -->` marker are
+   **MUST-NOT-REGENERATE**: leave them exactly as written unless the redirect materially
+   changes `## Decision analysis` itself. (If it does, edit the analysis body and leave the
+   stale marker — `flow-plan-review` recomputes the hash and the supervisor re-embeds it;
+   the tolerant hash-read self-heals a lost marker, but needlessly rewriting it forces a
+   wasteful re-review.)
+4. **Do NOT re-run Step 1.5 research** when web-grounded research findings already exist in
+   the plan (or in `.flow-tmp/research-findings.md`). The redirect is a scope/decision
+   change, not a new research question — re-running the fan-out double-spends agy quota for
+   no new signal. Reuse the prior findings as-is.
+5. **Extend, don't replace, `## Open Questions`.** Append the redirect's new questions;
+   mark any prior question the redirect resolves with a short decision note (the same
+   "mark resolved with a decision note" convention the section already uses) rather than
+   deleting it, so the Q&A record of the plan's evolution stays intact across revisions.
+
+The `<n>` is a simple pass counter the supervisor tracks in-context (pass 2, 3, …); it
+carries no payload beyond "this is a revision" — the redirect text itself arrives through
+the normal `USER REDIRECT` channel. Absent the marker, ignore this section entirely and
+draft fresh per steps 1–9.
 
 # Troubleshooting
 

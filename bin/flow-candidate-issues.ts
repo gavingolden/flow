@@ -23,6 +23,7 @@
  *   flow-candidate-issues --plan-md-file <path> [--json]
  *   flow-candidate-issues --plan-md-file <path> --tick <1-based,comma,indices>
  *   flow-candidate-issues --plan-md-file <path> --ticked
+ *   flow-candidate-issues --plan-md-file <path> --lint
  *
  * `--json` (the default) emits the decision object on stdout:
  *   { action, candidates, untickedCount, tickedCount }
@@ -36,8 +37,18 @@
  * `--ticked` emits { ticked: [{ title, body }] } — the already-`- [x]`
  * items (empty array when the section is absent or has zero ticked items).
  *
+ * `--lint` is the follow-up-reference consistency guard: it scans plan.md
+ * for prose that references a follow-up ("tracked as a follow-up", etc.)
+ * and flags DRIFT when such a reference exists but the
+ * `# Candidate follow-up issues` section is absent or empty — the exact
+ * inconsistency an external reviewer caught in the econ-data run. Emits
+ * { references, candidateCount, drift } and exits 1 on drift, 0 clean.
+ * Advisory-only: the supervisor surfaces drift in chat, never blocks
+ * planning. Tolerant — never throws on malformed input.
+ *
  * Exit codes:
- *   0 — read / decision / tick / ticked succeeded
+ *   0 — read / decision / tick / ticked / lint(no-drift) succeeded
+ *   1 — --lint detected follow-up-reference drift
  *   2 — bad CLI args (file read failure, out-of-range tick index, etc.)
  */
 
@@ -163,6 +174,60 @@ export function extractTicked(planMd: string): Candidate[] {
     .map((it) => splitCandidate(it.text));
 }
 
+/**
+ * The follow-up-reference phrase set the `--lint` consistency guard scans
+ * for. Seeded from the phrasings observed in the econ-data run PLUS the
+ * broader set the AGY cross-model review flagged (a static regex that
+ * misses a real phrasing is a silent false-negative — the plan's named
+ * dominant ship-and-fail). Kept as ONE named exported constant so it is
+ * cheap to extend; every entry is covered by a per-phrase test. Match is
+ * case-insensitive and stateless (no `g` flag, so `.test()` is reentrant).
+ * Overlap between the specific (`listed as a follow-up`) and the generic
+ * (`as a follow-up`) entries is intentional and harmless — a line matches
+ * at most one reference regardless.
+ */
+export const FOLLOWUP_REFERENCE_RES: RegExp[] = [
+  /listed as a follow-up/i,
+  /tracked as a follow-up/i,
+  /as a (?:candidate )?follow-up/i,
+  /deferred to a follow-up/i,
+  /deferred to a future/i,
+  /will be addressed in a future PR/i,
+  /added to the backlog/i,
+  /candidate for (?:a )?future iteration/i,
+];
+
+export type LintReport = {
+  references: { line: number; text: string }[];
+  candidateCount: number;
+  drift: boolean;
+};
+
+/**
+ * Pure follow-up-reference consistency check. Scans plan.md line-by-line
+ * for any `FOLLOWUP_REFERENCE_RES` phrase (one reference recorded per
+ * matching line, 1-based), counts candidate items via the same
+ * `extractCandidateSection` parser the decision path uses, and reports
+ * DRIFT when a reference exists but no candidate items do. Presence-check
+ * only (not a semantic match of each reference to a specific candidate);
+ * `drift` fires ONLY when `candidateCount === 0`, so a reference phrase
+ * that appears inside a populated candidate section never trips it.
+ * Tolerant by construction — pure string work, never throws.
+ */
+export function lintFollowUpReferences(planMd: string): LintReport {
+  const lines = planMd.split("\n");
+  const references: { line: number; text: string }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (FOLLOWUP_REFERENCE_RES.some((re) => re.test(lines[i]))) {
+      references.push({ line: i + 1, text: lines[i].trim() });
+    }
+  }
+  const section = extractCandidateSection(planMd);
+  const candidateCount = section ? section.items.length : 0;
+  const drift = references.length > 0 && candidateCount === 0;
+  return { references, candidateCount, drift };
+}
+
 export type TickResult = { tickedIndices: number[]; tickedCount: number };
 
 /**
@@ -202,7 +267,7 @@ export function tickCandidates(
 
 // --- CLI -------------------------------------------------------------------
 
-type Mode = "json" | "tick" | "ticked";
+type Mode = "json" | "tick" | "ticked" | "lint";
 
 type Args = {
   planMdFile: string;
@@ -227,6 +292,8 @@ export function parseArgs(argv: string[]): Args | { error: string } {
       mode = "json";
     } else if (flag === "--ticked") {
       mode = "ticked";
+    } else if (flag === "--lint") {
+      mode = "lint";
     } else if (flag === "--tick") {
       const v = argv[i + 1];
       if (!v || v.startsWith("--"))
@@ -257,7 +324,7 @@ export function run(argv: string[]): number {
   if ("error" in parsed) {
     console.error(`flow-candidate-issues: ${parsed.error}`);
     console.error(
-      "usage: flow-candidate-issues --plan-md-file <path> [--json | --tick <indices> | --ticked]",
+      "usage: flow-candidate-issues --plan-md-file <path> [--json | --tick <indices> | --ticked | --lint]",
     );
     return 2;
   }
@@ -277,6 +344,12 @@ export function run(argv: string[]): number {
       JSON.stringify({ ticked: extractTicked(planMd) }) + "\n",
     );
     return 0;
+  }
+
+  if (parsed.mode === "lint") {
+    const report = lintFollowUpReferences(planMd);
+    process.stdout.write(JSON.stringify(report) + "\n");
+    return report.drift ? 1 : 0;
   }
 
   if (parsed.mode === "tick") {

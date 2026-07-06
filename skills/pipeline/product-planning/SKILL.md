@@ -156,9 +156,10 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 Fill in the `{{...}}` placeholders before passing to the Task tool. The
 `{{OUTPUT_PATHS}}` block is **mode-dependent** — substitute the feature-mode
 text by default, the epic-mode text under `MODE: epic` (both shown after the
-template). The `{{RESEARCH_OVERRIDE}}` block is **omit-when-absent** (shown
-after the template). The other placeholders (`{{INSTRUCTIONS_PATH}}`,
-`{{USER_DESCRIPTION}}`, `{{WORKTREE}}`, `{{SKILL_DIR}}`) are mode-independent:
+template). The `{{RESEARCH_OVERRIDE}}` and `{{REVISION_OVERRIDE}}` blocks are
+both **omit-when-absent** (shown after the template). The other placeholders
+(`{{INSTRUCTIONS_PATH}}`, `{{USER_DESCRIPTION}}`, `{{WORKTREE}}`,
+`{{SKILL_DIR}}`) are mode-independent:
 
 ```
 You are the Independent Discovery Subagent for `/product-planning`. You run
@@ -170,6 +171,7 @@ Read the full instructions at:
 User feature description (verbatim):
   {{USER_DESCRIPTION}}
 {{RESEARCH_OVERRIDE}}
+{{REVISION_OVERRIDE}}
 Working directory (cd here before reading any project files):
   {{WORKTREE}}
 
@@ -243,6 +245,31 @@ When the caller passed **no** marker, substitute the **empty string** —
 omit the block entirely (consistent with the mode-dependent blocks
 above). This passthrough rides the existing single discovery Task call; it
 adds **no** new Task-tool spawn and **no** new exemption.
+
+### `{{REVISION_OVERRIDE}}` — optional revision-pass passthrough
+
+On a `plan-pending-review` redirect, `/flow-pipeline` step 3 re-enters this
+skill with an existing `.flow-tmp/plan.md` on disk and threads a `REVISION: <n>`
+marker (see `/flow-pipeline` step 3 "Revision-pass threading"). The discovery
+subagent cannot see the supervisor's state, so this block is the only way the
+revision signal reaches it. When the caller passed a `REVISION: <n>` marker,
+substitute this block verbatim for `{{REVISION_OVERRIDE}}`:
+
+```
+REVISION: <n>
+  This is a REVISION pass on an existing plan.md, not a fresh draft. Run
+  discovery-instructions.md "Revision pass mode": read the existing plan.md
+  first, update in place, preserve untouched sections and the embedded
+  `### Cross-model review (AGY)` subsection + `<!-- flow-plan-review-hash: <sha> -->`
+  marker verbatim, do NOT re-run Step 1.5 research when findings already exist,
+  and extend `## Open Questions` with the redirect's questions (marking prior
+  ones resolved with a decision note).
+```
+
+When the caller passed **no** marker, substitute the **empty string** — omit
+the block entirely (consistent with `{{RESEARCH_OVERRIDE}}` and the
+mode-dependent blocks above). This passthrough rides the existing single
+discovery Task call; it adds **no** new Task-tool spawn and **no** new exemption.
 
 # Constraints
 

@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   decideCandidateIssues,
   extractTicked,
+  FOLLOWUP_REFERENCE_RES,
+  lintFollowUpReferences,
   parseArgs,
   run,
   splitCandidate,
@@ -204,6 +206,98 @@ describe(extractTicked, () => {
   });
 });
 
+// --- lintFollowUpReferences (pure) -----------------------------------------
+
+describe(lintFollowUpReferences, () => {
+  it("flags drift when a follow-up reference exists but no candidate section does", () => {
+    const r = lintFollowUpReferences(
+      "## Decision D\n\nThis is tracked as a follow-up.\n",
+    );
+    expect(r.drift).toBe(true);
+    expect(r.candidateCount).toBe(0);
+    expect(r.references).toHaveLength(1);
+    expect(r.references[0].line).toBe(3);
+    expect(r.references[0].text).toContain("tracked as a follow-up");
+  });
+
+  it("flags drift when the candidate section is present but empty", () => {
+    const r = lintFollowUpReferences(
+      `Decision references it, listed as a follow-up.\n\n${HEADING}\n\nprose only, no checkboxes.\n`,
+    );
+    expect(r.drift).toBe(true);
+    expect(r.candidateCount).toBe(0);
+  });
+
+  it("reports no drift when references AND a populated candidate section coexist", () => {
+    const r = lintFollowUpReferences(
+      `Decision D — deferred to a follow-up.\n\n${HEADING}\n\n- [ ] the follow-up — its body\n`,
+    );
+    expect(r.drift).toBe(false);
+    expect(r.candidateCount).toBe(1);
+    expect(r.references.length).toBeGreaterThan(0);
+  });
+
+  it("reports no drift when there are no follow-up references at all", () => {
+    const r = lintFollowUpReferences("# PRD\n\njust some ordinary prose.\n");
+    expect(r.drift).toBe(false);
+    expect(r.references).toEqual([]);
+  });
+
+  it("records at most one reference per matching line (overlapping phrases)", () => {
+    // "listed as a follow-up" matches both the specific and the generic
+    // `as a follow-up` regex — the line is still one reference.
+    const r = lintFollowUpReferences("It is listed as a follow-up here.\n");
+    expect(r.references).toHaveLength(1);
+  });
+
+  it("never throws on malformed / empty input", () => {
+    expect(() => lintFollowUpReferences("")).not.toThrow();
+    expect(() => lintFollowUpReferences(" \n|||\n- [ ")).not.toThrow();
+    expect(lintFollowUpReferences("").drift).toBe(false);
+  });
+
+  it("does NOT count a ranking-table row (plain Yes/No cells) as a candidate", () => {
+    // The additive value/complexity table sits above the `- [ ]` list; its
+    // rows must never be mis-parsed as checkbox candidates (AGY pre-mortem C).
+    const withTable = `${HEADING}\n\n| Candidate | Value | Complexity | Rationale | Pull into this pipeline? |\n| --- | --- | --- | --- | --- |\n| Some idea | High | Trivial | worth it | Yes |\n| Other idea | Low | Medium | later | No |\n\n- [ ] Some idea — the one real candidate\n`;
+    const r = lintFollowUpReferences(withTable);
+    // Exactly one candidate (the single `- [ ]` line), NOT three (table rows
+    // excluded). A phrase-in-a-Rationale-cell reference does not trip drift
+    // because the checkbox item keeps candidateCount > 0.
+    expect(r.candidateCount).toBe(1);
+    expect(r.drift).toBe(false);
+    // Cross-check the decision path agrees on the same count.
+    expect(decideCandidateIssues(withTable).untickedCount).toBe(1);
+  });
+});
+
+// Per-phrase guard: every seed phrase in FOLLOWUP_REFERENCE_RES must be
+// matched by lintFollowUpReferences, so broadening the set never silently
+// regresses a phrase (the plan's named dominant ship-and-fail).
+describe("FOLLOWUP_REFERENCE_RES seed coverage", () => {
+  const PHRASES: string[] = [
+    "listed as a follow-up",
+    "tracked as a follow-up",
+    "as a candidate follow-up",
+    "as a follow-up",
+    "deferred to a follow-up",
+    "deferred to a future release",
+    "will be addressed in a future PR",
+    "added to the backlog",
+    "candidate for a future iteration",
+    "candidate for future iteration",
+  ];
+
+  it("covers at least eight distinct seed phrasings", () => {
+    expect(FOLLOWUP_REFERENCE_RES.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it.each(PHRASES)("matches the phrasing %j as a reference", (phrase) => {
+    const r = lintFollowUpReferences(`Decision X — ${phrase}.\n`);
+    expect(r.references).toHaveLength(1);
+  });
+});
+
 // --- parseArgs -------------------------------------------------------------
 
 describe(parseArgs, () => {
@@ -217,6 +311,14 @@ describe(parseArgs, () => {
     expect(parseArgs(["--plan-md-file", "p.md"])).toEqual({
       planMdFile: "p.md",
       mode: "json",
+      tickIndices: undefined,
+    });
+  });
+
+  it("parses --lint into lint mode", () => {
+    expect(parseArgs(["--plan-md-file", "p.md", "--lint"])).toEqual({
+      planMdFile: "p.md",
+      mode: "lint",
       tickIndices: undefined,
     });
   });
@@ -350,6 +452,37 @@ describe("run() integration", () => {
     );
     expect(exit).toBe(0);
     expect(JSON.parse(out)).toEqual({ ticked: [] });
+  });
+
+  it("--lint exits 1 and names the unresolved reference on drift", () => {
+    writePlan("## Decision D\n\nThis is tracked as a follow-up.\n");
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--lint"]),
+    );
+    expect(exit).toBe(1);
+    const parsed = JSON.parse(out);
+    expect(parsed.drift).toBe(true);
+    expect(parsed.references[0].text).toContain("tracked as a follow-up");
+  });
+
+  it("--lint exits 0 when references resolve to a populated section", () => {
+    writePlan(
+      `Decision D — deferred to a follow-up.\n\n${HEADING}\n\n- [ ] the follow-up — body\n`,
+    );
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--lint"]),
+    );
+    expect(exit).toBe(0);
+    expect(JSON.parse(out).drift).toBe(false);
+  });
+
+  it("--lint exits 0 when there are no follow-up references", () => {
+    writePlan("# PRD\n\nordinary prose, no references.\n");
+    const { exit, out } = captureStdout(() =>
+      run(["--plan-md-file", planFile, "--lint"]),
+    );
+    expect(exit).toBe(0);
+    expect(JSON.parse(out).references).toEqual([]);
   });
 
   it("returns 2 when --plan-md-file points at a missing file", () => {

@@ -4171,3 +4171,79 @@ describe("per-phase model-routing wiring lint (feature: per-phase model selectio
     expect(pp).toContain("model-routing.md");
   });
 });
+
+describe("discovery-process improvements anchors (candidate ranking table, REVISION marker, --lint, plan-review re-fire)", () => {
+  // Structural anchors for the four consumer-run lessons baked into
+  // /product-planning: the mandatory value-vs-complexity ranking table, the
+  // first-class REVISION marker + its {{REVISION_OVERRIDE}} spawn block, the
+  // flow-candidate-issues --lint consistency backstop, and the
+  // decision-analysis-materially-changed re-fire rule for flow-plan-review.
+  // These close the CLAUDE.md "renames must update the lint in the same commit"
+  // loop: the exact contract strings live in the docs, so an edit that drops or
+  // renames one goes red here on `npm run verify`.
+  const skillsDir = path.resolve(HERE, "..", "skills", "pipeline");
+  const read = (rel: string) =>
+    fs.readFileSync(path.resolve(skillsDir, rel), "utf8");
+
+  const RANKING_TABLE_HEADER =
+    "Candidate | Value | Complexity | Rationale | Pull into this pipeline?";
+
+  it("discovery-instructions.md mandates the ranking-table columns and the plain-Yes/No pull rule", () => {
+    const di = read("product-planning/references/discovery-instructions.md");
+    expect(
+      di.includes(RANKING_TABLE_HEADER),
+      "discovery-instructions.md must name the exact candidate ranking-table " +
+        "columns — the prd-template sketch anchors on the same header.",
+    ).toBe(true);
+    expect(di).toContain("plain `Yes` / `No`");
+  });
+
+  it("discovery-instructions.md carries the Revision pass mode section and the --lint consistency rubric", () => {
+    const di = read("product-planning/references/discovery-instructions.md");
+    expect(
+      di.includes("## Revision pass mode"),
+      "discovery-instructions.md must carry the top-level 'Revision pass mode' " +
+        "section — the single source of truth the REVISION marker forwards to.",
+    ).toBe(true);
+    expect(di).toContain("flow-candidate-issues --lint");
+    // The revision contract names the MUST-NOT-regenerate embedded marker.
+    expect(di).toContain("flow-plan-review-hash");
+  });
+
+  it("prd-template.md carries the ranking-table sketch header", () => {
+    const tpl = read("product-planning/templates/prd-template.md");
+    expect(
+      tpl.includes(RANKING_TABLE_HEADER),
+      "prd-template.md must carry the candidate ranking-table sketch with the " +
+        "exact column header — kept in lockstep with discovery-instructions.md.",
+    ).toBe(true);
+  });
+
+  it("product-planning/SKILL.md defines the {{REVISION_OVERRIDE}} spawn block", () => {
+    const pp = read("product-planning/SKILL.md");
+    expect(
+      pp.includes("{{REVISION_OVERRIDE}}"),
+      "product-planning/SKILL.md must define the {{REVISION_OVERRIDE}} " +
+        "omit-when-absent spawn block that forwards the REVISION marker.",
+    ).toBe(true);
+    expect(pp).toContain("Revision pass mode");
+  });
+
+  it("flow-pipeline/SKILL.md step 3 threads the REVISION marker, the --lint backstop, and the re-fire rule", () => {
+    const fp = read("flow-pipeline/SKILL.md");
+    expect(
+      fp.includes("Revision-pass threading"),
+      "flow-pipeline/SKILL.md must thread the REVISION marker on step-3 re-entry.",
+    ).toBe(true);
+    expect(fp).toContain("REVISION: <n>");
+    expect(
+      fp.includes("flow-candidate-issues --lint --plan-md-file"),
+      "flow-pipeline/SKILL.md step 3 must run the --lint consistency backstop.",
+    ).toBe(true);
+    expect(
+      fp.includes("decision-analysis-unchanged"),
+      "flow-pipeline/SKILL.md must state the flow-plan-review re-fire rule keyed " +
+        "on the decision-analysis-unchanged skip.",
+    ).toBe(true);
+  });
+});

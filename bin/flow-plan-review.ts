@@ -12,15 +12,30 @@
  * copied straight to `--out` with no JSON extraction/validation tail.
  *
  * Skip vocabulary: `plan-review-disabled` (gate off), `plan-unreadable`,
- * `no-decision-analysis` (omit-when-empty ⇒ nothing to review), `agy-not-found`
- * (propagated from a `ran:false` delegate), `agy-error` (delegate output
- * unparseable), and the local IO-throw defensive skips `plan-prep-failed`,
- * `plan-output-unreadable`, `plan-finalize-failed`. Exit 2 only on a usage error.
+ * `no-decision-analysis` (omit-when-empty ⇒ nothing to review),
+ * `decision-analysis-unchanged` (the `## Decision analysis` body is
+ * byte-identical modulo formatting to the last reviewed revision — see the
+ * hash helpers below), `agy-not-found` (propagated from a `ran:false`
+ * delegate), `agy-error` (delegate output unparseable), and the local
+ * IO-throw defensive skips `plan-prep-failed`, `plan-output-unreadable`,
+ * `plan-finalize-failed`. Exit 2 only on a usage error.
+ *
+ * Revision-pass re-fire: on a step-3 re-entry the supervisor re-runs this
+ * helper unconditionally; the `decision-analysis-unchanged` skip is what makes
+ * the re-fire cost-free when the reviewed decisions did not change. The
+ * `ran:true` envelope carries `decisionAnalysisHash` so the supervisor can
+ * embed a `<!-- flow-plan-review-hash: <sha> -->` marker for the next pass to
+ * compare against. The hash is over a NORMALIZED body (not raw bytes) so
+ * incidental whitespace / bullet-char churn during an unrelated revision edit
+ * does not needlessly re-fire the review; a missing or malformed prior marker
+ * re-fires (safe/wasteful) and self-heals (the run re-emits the hash), never a
+ * wrong-skip.
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { homedir } from "node:os";
+import { createHash } from "node:crypto";
 
 const MODEL = "Gemini 3.1 Pro (High)";
 const DEFAULT_TASK = "plan-review";
@@ -98,6 +113,87 @@ export function isPlanReviewEnabled(rawConfigText: string): boolean {
 // diverging decision worth cross-reviewing. Its absence ⇒ nothing to review.
 export function hasDecisionAnalysis(planText: string): boolean {
   return /^## Decision analysis/m.test(planText);
+}
+
+// --- Decision-analysis-unchanged skip (revision-pass re-fire guard) ---------
+
+/**
+ * Extracts the `## Decision analysis` section BODY — from the heading to the
+ * next `## ` heading (Recommendation follows it) or EOF — EXCLUDING any
+ * `### Cross-model review (AGY)` subsection this helper appends on a prior
+ * run. Excluding the subsection is load-bearing: it is what lets a revision
+ * that only appends/edits the review output hash equal, so the review does
+ * not re-fire on its own footprint. Returns "" when the section is absent.
+ */
+export function extractDecisionAnalysisBody(planText: string): string {
+  const lines = planText.split("\n");
+  const startIdx = lines.findIndex((l) => /^## Decision analysis/.test(l));
+  if (startIdx === -1) return "";
+  let endIdx = lines.length;
+  for (let i = startIdx + 1; i < lines.length; i++) {
+    if (/^## /.test(lines[i])) {
+      endIdx = i;
+      break;
+    }
+  }
+  let bodyEnd = endIdx;
+  for (let i = startIdx + 1; i < endIdx; i++) {
+    if (/^### Cross-model review \(AGY\)/.test(lines[i])) {
+      bodyEnd = i;
+      break;
+    }
+  }
+  return lines.slice(startIdx + 1, bodyEnd).join("\n");
+}
+
+/**
+ * Normalizes a Decision-analysis body before hashing so only a SEMANTIC
+ * change re-fires the review — a byte-for-byte SHA over LLM-generated markdown
+ * is fragile (the AGY cross-model review flagged this). Normalization: trim
+ * per-line trailing whitespace, normalize a leading `*`/`+` bullet marker to
+ * `-`, collapse blank-line runs to one, and strip leading/trailing blank
+ * lines. Pure string work — never throws.
+ */
+export function normalizeDecisionBody(body: string): string {
+  const normed = body
+    .split("\n")
+    .map((l) => l.replace(/\s+$/, ""))
+    .map((l) => l.replace(/^(\s*)[*+](\s)/, "$1-$2"));
+  const collapsed: string[] = [];
+  let prevBlank = false;
+  for (const l of normed) {
+    const blank = l.trim() === "";
+    if (blank && prevBlank) continue;
+    collapsed.push(l);
+    prevBlank = blank;
+  }
+  while (collapsed.length && collapsed[0].trim() === "") collapsed.shift();
+  while (collapsed.length && collapsed[collapsed.length - 1].trim() === "")
+    collapsed.pop();
+  return collapsed.join("\n");
+}
+
+/**
+ * sha256 (hex) of the NORMALIZED Decision-analysis body. The stable content
+ * key the revision-pass re-fire guard compares against the embedded marker.
+ */
+export function computeDecisionHash(planText: string): string {
+  const body = normalizeDecisionBody(extractDecisionAnalysisBody(planText));
+  return createHash("sha256").update(body).digest("hex");
+}
+
+/**
+ * Parses the `<!-- flow-plan-review-hash: <sha> -->` marker a prior run's
+ * supervisor embedded. Tolerant: returns null when the marker is absent or
+ * malformed (a truncated / non-64-hex value), which re-fires the review — the
+ * safe direction (wasteful, never a wrong-skip). Lowercased for a stable
+ * compare against `computeDecisionHash`'s output.
+ */
+export function readPriorHash(planText: string): string | null {
+  const m = planText.match(
+    /<!--\s*flow-plan-review-hash:\s*([0-9a-fA-F]{64})\s*-->/,
+  );
+  return m ? m[1].toLowerCase() : null;
 }
 
 function buildPrompt(plan: string): string {
@@ -190,6 +286,16 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     return skip("no-decision-analysis");
   }
 
+  // Revision-pass re-fire guard: skip the (expensive) delegate when the
+  // Decision-analysis body is unchanged (modulo formatting) since the last
+  // reviewed revision. Computed BEFORE the prompt/delegate so a matching hash
+  // never spends agy quota. A missing/malformed prior marker re-fires.
+  const decisionAnalysisHash = computeDecisionHash(plan);
+  const priorHash = readPriorHash(plan);
+  if (priorHash !== null && priorHash === decisionAnalysisHash) {
+    return skip("decision-analysis-unchanged");
+  }
+
   try {
     deps.mkdirp(dirname(parsed.out));
     deps.writeFile(promptPath, buildPrompt(plan));
@@ -233,6 +339,7 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     ran: true,
     feedbackPath: parsed.out,
     skipReason: null,
+    decisionAnalysisHash,
   });
 }
 
