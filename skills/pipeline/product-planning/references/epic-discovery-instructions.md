@@ -9,8 +9,9 @@ file decomposes one PR into intra-feature tasks; this file decomposes an
 **features**, where **one node (one entry in the manifest's `features[]`) =
 one PR-sized feature** that each becomes a single ordinary `flow feature create` pipeline.
 
-The designer **produces artifacts and stops**. It emits a six-section
-`design.md` plus a typed `manifest.json` under `.flow/epics/<slug>/`,
+The designer **produces artifacts and stops**. It emits a `design.md` (six
+numbered backbone sections plus an always-present critique layer) plus a typed
+`manifest.json` under `.flow/epics/<slug>/`,
 self-validates both against the two committed checkers, and halts. It does
 not launch, schedule, watch, or merge anything — that is the deferred
 orchestrator's job (out of scope).
@@ -36,8 +37,9 @@ they pass both validators) is the canonical exemplar. It is **not** distributed
 to consumer repos (`flow install` ships only `skills/` + `bin/`), so when you run
 in a consumer `WORKTREE` that path won't exist — treat it as **optional: read
 it if present, skip it if absent**, mirroring the `if exists` guard this file
-uses for the `example-prd.md` reference below. The six-section shape required of
-your own output is fully specified in §5a regardless.
+uses for the `example-prd.md` reference below. The `design.md` shape required of
+your own output — six numbered backbone sections plus an always-present critique
+layer — is fully specified in §5a regardless.
 
 ## 1. Load Project Context
 
@@ -55,6 +57,11 @@ grounded in the real codebase, not a guess:
   see which patterns apply.
 - If `<SKILL_DIR>/references/example-prd.md` exists, load it to see what
   "good" prose looks like for this project (tone precedent for `design.md`).
+- Load `<SKILL_DIR>/references/discovery-playbook.md` for the **framing
+  lenses** (bounded internal heuristics — JTBD, first-principles, inversion,
+  pre-mortem, second-order effects), mirroring the feature file's §1 reference.
+  You apply them while reasoning in §3–§4, never as a performed `design.md`
+  section (§3).
 
 This is read-only background — these reads stay in your context and don't
 propagate.
@@ -68,8 +75,9 @@ Open Questions and still emit the artifacts, but with a single-feature (or
 small) DAG, so the caller can redirect rather than over-decompose a small
 change into artificial slices.
 
-The output shape is fixed regardless of size: a six-section `design.md` +
-a typed `manifest.json`, both written under `.flow/epics/<slug>/`. The
+The output shape is fixed regardless of size: a `design.md` (six numbered
+backbone sections plus an always-present critique layer) + a typed
+`manifest.json`, both written under `.flow/epics/<slug>/`. The
 difference between a large epic and a small one is the number of features
 (the manifest's `features[]` entries) in the DAG, not the artifact set.
 
@@ -105,6 +113,28 @@ Signals to lean on when forming assumptions: existing code patterns (cite by
 file path), `AGENTS.md` / `CLAUDE.md` rules, and the verbatim epic prompt
 (quote load-bearing phrasing rather than paraphrasing).
 
+**Necessity check (feeds `## Recommendation`).** Before decomposing, weigh
+whether the whole epic is **needed at all** — could doing nothing, an existing
+capability the user overlooked, or a single already-planned feature serve just
+as well? An epic is a **multi-PR commitment**, so this is a sharper question
+than §2's right-sizing note: §2 asks _how big_, this asks _at all?_. Treat
+`Reject — do nothing` as a **first-class verdict** to weigh, not a non-answer;
+the prompt invited the epic, but inviting it is not the same as needing it.
+Feed the verdict into the `## Recommendation` critique section (§5a). Framing
+lens: **first-principles** — strip inherited constraints to what is necessarily
+true (see `discovery-playbook.md`, internal-only).
+
+**Framing-lens application (internal-only, never a performed section).** Apply
+`discovery-playbook.md`'s bounded internal heuristics at epic grain as you
+reason — never emit them as a `design.md` section: **JTBD** sharpens the
+`## 1. Problem & intent` backbone section; **first-principles** sharpens the
+necessity check above and the `## 3. High-level design` section;
+**second-order effects** sharpen the `## 4. Feature decomposition` cut's
+downstream ripple (across features, the DAG, and consumer repos); **inversion**
+and **pre-mortem** sharpen the `## Plan risks` self-critique (§5a). These are
+internal reasoning that feeds _into_ the backbone sections, matching the feature
+discipline in `discovery-instructions.md`.
+
 ## 4. Design the epic — the methodology (pipeline ① from `02` §4)
 
 Apply one coherent, expert-grounded method per backbone stage, at minimum
@@ -113,6 +143,15 @@ artifact weight. The backbone is:
 ```
 epic prompt → clarified requirements → high-level design → feature decomposition → dependency DAG (+ artifacts)
 ```
+
+**Risk-side framing lenses (internal, feed `## Plan risks`).** Before writing
+the `## Plan risks` line (§5a), run the risk-side lenses at **decomposition
+grain**: a **pre-mortem** (assume this decomposition shipped and a feature came
+out mis-cut — narrate the most likely reason) and **inversion** (what would make
+pursuing this epic actively harmful), and fold what they surface into
+`## Plan risks`. **Second-order effects** feed the §4c decomposition cut — where
+a seam ripples across features, the DAG, and consumer repos. Bounded internal
+heuristics, never a performed section; see `discovery-playbook.md`.
 
 ### 4a. Clarified requirements — EARS
 
@@ -212,10 +251,13 @@ from `bin/lib/epic-manifest-schema.ts`:
 - Design doc: `EPIC_DESIGN_FILENAME` (`design.md`).
 - Manifest: `EPIC_MANIFEST_FILENAME` (`manifest.json`).
 
-### 5a. `design.md` — the six sections (the human review surface)
+### 5a. `design.md` — six numbered backbone sections + an always-present critique layer (the human review surface)
 
-Write `design.md` with **all six** of these section headings, in order
-(tone precedent: `<SKILL_DIR>/references/example-prd.md`):
+Write `design.md` with the **six numbered backbone sections** (`## 1.`–`## 6.`,
+in order) **plus** an always-present unnumbered **critique layer** appended
+after `## 6. Open Questions` (tone precedent:
+`<SKILL_DIR>/references/example-prd.md`). The six numbered backbone sections, in
+order:
 
 1. `## 1. Problem & intent` — the epic's underlying need (JTBD-lite), not
    solution language.
@@ -230,6 +272,47 @@ Write `design.md` with **all six** of these section headings, in order
    (§4c).
 5. `## 5. Dependency DAG` — the fenced Mermaid `graph` (§4d).
 6. `## 6. Open Questions` — the residue for the checkpoint (§4e).
+
+Then append the **critique layer**, in this order after `## 6. Open Questions`
+(byte-mirroring the feature file's `discovery-instructions.md` Recommendation /
+Plan risks / Decision analysis sub-sections, one altitude up — the epic-grain
+consequence-simulation, verdict, and self-critique of the _decomposition_):
+
+- `## Decision analysis` (**omit-when-empty**) — for a consequential
+  **decomposition** fork whose branches genuinely diverge (e.g. "split feature
+  B into read/write, or keep it one feature?"), simulate each branch's
+  downstream (system-perspective) DAG/decomposition flow, mark the branches
+  **exclusive vs complementary**, **rank** the viable combinations, and give a
+  **verdict** that feeds `## Recommendation`. **Omit the heading entirely** when
+  the decomposition seams are obvious and no fork genuinely diverges — the same
+  omit-when-empty discipline the feature file's `## Decision analysis` uses.
+  **Anti-ceremony guard:** do NOT manufacture a contrived or trivial fork to
+  fill the section; a fork qualifies only when the branches diverge in
+  downstream DAG/decomposition consequences, not merely in surface phrasing (a
+  language or naming choice is **not** a decomposition fork). The section earns
+  its place by feeding the verdict, not by being performed.
+- `## Recommendation` (**always-present**) — a single line: one verdict from
+  `Proceed` / `Reconsider scope` / `Defer` / `Reject — do nothing`, plus a
+  one-line rationale. `Reject — do nothing` is a **first-class verdict** (the §3
+  necessity check can land here); when the verdict is anything other than
+  `Proceed`, reference the relevant Open Question. Byte-mirrors the feature
+  file's `## Recommendation` verdict enum.
+- `## Plan risks` (**always-present**) — a single line naming the single weakest
+  assumption whose failure would most likely sink the **decomposition** (a
+  decomposition-grain pre-mortem). Adversarial self-critique — "if this
+  decomposition is wrong, here is the most likely reason" — **not** a
+  restatement of Open Questions. Cross-linked to the feature `## Plan risks` in
+  `discovery-instructions.md` and `new-feature/SKILL.md` Step 2, the counterpart
+  self-critique sites.
+
+**Visible-dependency note (load-bearing — read before renumbering).** The three
+critique headings are emitted **unnumbered** at top-level `##` (not `## 7.` /
+`## 8.`) **specifically because** `/epic-create`'s Step 4.5 cross-model design
+review gates on `flow-plan-review`'s anchored `^## Decision analysis` regex.
+Renumbering them to `## 7. Decision analysis` (etc.) to "tidy" the file would
+**silently disable** that gate — the anchored regex would no longer match. Keep
+them unnumbered; the `bin/skill-md-lint.test.ts` epic-parity anchor is the CI
+backstop.
 
 ### 5b. `manifest.json` — the machine contract (typed `EpicManifest`)
 
@@ -280,8 +363,11 @@ artifacts on disk are the record.
 
 Before returning, self-check:
 
-- `design.md` exists at `.flow/epics/<slug>/design.md` with all six section
-  headings (`## 1. Problem & intent` … `## 6. Open Questions`).
+- `design.md` exists at `.flow/epics/<slug>/design.md` with the six numbered
+  backbone headings (`## 1. Problem & intent` … `## 6. Open Questions`) AND the
+  two always-present critique sections (`## Recommendation`, `## Plan risks`);
+  `## Decision analysis` is omit-when-empty (present only when a decomposition
+  fork genuinely diverges).
 - `manifest.json` exists at `.flow/epics/<slug>/manifest.json`, is internally
   consistent with `design.md` (same ids/titles/edges), and **both**
   `flow-epic-manifest-schema --validate` and `flow-epic-dag --validate` exit

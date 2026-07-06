@@ -503,17 +503,17 @@ shell).
     `bin/flow-create-issue.ts`.
   - **`/epic-create` is a separate sanctioned supervisor session.**
     `flow epic create` spawns a fresh top-level `/epic-create` session, so
-    `/flow-pipeline`'s exactly-9 and two-form rules are unaffected by its two
-    named surfaces (distinct openers, in `skills/pipeline/epic-create/SKILL.md`):
+    `/flow-pipeline`'s exactly-9 and two-form rules are unaffected by its
+    two named surfaces (distinct openers, in `skills/pipeline/epic-create/SKILL.md`):
     **Task-tool fan-out: `/epic-create` → /product-planning MODE: epic designer.**
-    and **AskUserQuestion form: `/epic-create` clarification round.**
+    and **AskUserQuestion form: `/epic-create` clarification round.** Its
+    **cross-model design review** is a
+    **Bash fan-out, not a tenth exemption** — `review.gemini`-gated
+    `flow-plan-review` over `design.md`; no Task, no form; graceful skip sans agy.
   - **`/epic-run` is a separate sanctioned supervisor session.**
     `flow epic run <slug>` spawns a fresh top-level `/epic-run` session, so
     `/flow-pipeline`'s nine-Task-exemption / two-AskUserQuestion invariants are
-    unaffected. Its ONE named surface (in the SKILL) —
+    unaffected. Its ONE named surface —
     **Task-tool fan-out: /epic-run → judgment sub-agent (per halt/deadlock event).**
-    — runs judgment in a one-shot sub-agent isolating CI-log context, and
-    fires no `AskUserQuestion` form. It judges only on a halt
-    (retry / redirect / escalate) or deadlock; `gated ⇒ escalate-only` and it
-    never merges a feature PR. Invariant set + config gates + opt-outs
-    live in the SKILL.
+    — fires no `AskUserQuestion` form; `gated ⇒ escalate-only`, never merges a
+    feature PR. Full contract in the SKILL.

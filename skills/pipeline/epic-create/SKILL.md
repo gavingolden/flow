@@ -29,6 +29,14 @@ fan-out (the `MODE: epic` designer). Those are NOT among `/flow-pipeline`'s
 two `AskUserQuestion` forms / nine Task-tool exemptions — a different supervisor
 in a different window is a different session.
 
+The Step 4.5 **cross-model design review** is a
+**Bash fan-out, not a tenth exemption** — it shells `flow-plan-review` (via
+`flow-delegate`/AGY), reusing the SAME `review.gemini` gate as
+`/flow-pipeline`'s Step-3 plan review. It spawns no Task and fires no
+`AskUserQuestion` form, so `/epic-create`'s
+**two named surfaces** (the clarification form + the `MODE: epic` designer
+fan-out) are unchanged; documented bidirectionally in `AGENTS.md` `## Don'ts`.
+
 ## EPIC_DIR comes from the seed prompt (R1 — never import `bin/lib`)
 
 The CLI (`flow epic create`) is the SOLE evaluator of the epic path contract.
@@ -172,6 +180,66 @@ Each exits `0` valid / `1` off-shape-or-bad-graph / `2` usage. On any non-zero
 exit, loop back to **Step 3**: re-spawn the designer with the validator's
 stderr appended as guidance, then re-validate. Do not proceed to the PR until
 both validators exit 0.
+
+## Step 4.5 — Cross-model design review (Layer 2, optional, config-gated)
+
+Before committing/opening the PR, run one independent **cross-model design
+review** of the epic decomposition's consequential forks, mirroring
+`/flow-pipeline`'s Step-3 plan-review sub-step. This is a Bash `flow-delegate`
+(AGY) fan-out — the same mechanism as `/pr-review`'s Gemini lens — and spawns
+**no Task** (see the named-surface note above: a **Bash fan-out, not a tenth
+exemption**).
+
+It gets **no dedicated phase** — it rides within the `epic-validating` →
+`epic-pr-open` transition, so a crash mid-review resumes at `validate` (Step 4)
+and re-runs the idempotent validators + the idempotent `flow-plan-review` before
+Step 5. The Step-7 redirect path (re-spawn designer → re-validate → push a new
+commit) naturally re-traverses this step, so a redirect that changes the
+decomposition re-fires the review.
+
+Two-part gate, both human-readable:
+
+```bash
+jq -e '(.review | type == "object") and (.review.gemini == true)' ~/.flow/config.json \
+  && grep -q '^## Decision analysis' "$WORKTREE/<EPIC_DIR>/design.md"
+```
+
+The config half reuses the SAME `review.gemini` opt-in that gates
+`/flow-pipeline`'s Step-3 plan review (**no new config key**); the section half
+is the omit-when-empty `## Decision analysis` critique section — its absence
+means the designer found no genuinely-diverging decomposition fork, so there is
+nothing to cross-review. When **either** half fails, skip this step and proceed
+to Step 5 unchanged.
+
+When both fire, run ONE review and branch on the helper's `{ran}` envelope
+(NEVER the exit code):
+
+```bash
+flow-plan-review --plan-file "$WORKTREE/<EPIC_DIR>/design.md" \
+  --out "$WORKTREE/.flow-tmp/design-review.md" --task epic-design-review
+```
+
+- `ran:false` → record the `skipReason` in scrollback and proceed to Step 5
+  unchanged (a graceful no-op — e.g. `agy-not-found` when agy is absent or
+  logged out). No revision, no reconciliation subsection.
+- `ran:true` → read `design-review.md` and weigh EACH material AGY point against
+  the codebase context you hold. AGY is a different model with less context —
+  its output is **INPUT you weigh, NOT a verdict**. Revise `design.md` **once**
+  where a point is warranted, then append a `### Cross-model review (AGY)`
+  subsection under `## Decision analysis` recording each material point as
+  **accepted** (naming the revision made) or **overridden** (with a one-line
+  rationale). Bounded single-pass — one review, at most one revision.
+
+**Design ↔ manifest lock-step (read before revising).** A **prose-level**
+reconciliation (the accept/override notes appended under `## Decision analysis`,
+wording tweaks that do not change the decomposition) is a simple in-place
+`design.md` edit. But a reconciliation that would **structurally** change the
+decomposition (split/merge a feature, re-cut a seam, add/remove a node or edge)
+must NOT be hand-applied to `design.md` prose alone — it routes through the
+normal **Step-7 designer re-spawn** so `design.md` **and** `manifest.json`
+regenerate coherently. Step-4 re-validation fails on any design↔manifest
+mismatch and would otherwise trap the pipeline pre-PR, so never hand-edit prose
+into a design/manifest divergence.
 
 ## Step 5 — Commit + open the design PR
 

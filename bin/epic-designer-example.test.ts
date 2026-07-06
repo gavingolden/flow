@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 /**
  * F4 acceptance surface. The committed worked example under
  * `.flow/epics/build-the-epic-designer/` IS the proof the one-shot epic-grain
- * designer produces a six-section, schema-valid, well-formed-DAG design; the
+ * designer produces a backbone-plus-critique, schema-valid, well-formed-DAG design; the
  * cyclic fixture is the single negative-path proof that F4 relies on the DAG
  * gate (not a re-test of F2's internals, which `flow-epic-dag.test.ts` owns).
  * Paths resolve via __dirname because spawnSync's cwd is the vitest runner's,
@@ -43,32 +43,46 @@ function runCli(
   };
 }
 
-const SIX_HEADINGS = [
+const REQUIRED_HEADINGS = [
   "## 1. Problem & intent",
   "## 2. Clarified requirements",
   "## 3. High-level design",
   "## 4. Feature decomposition",
   "## 5. Dependency DAG",
   "## 6. Open Questions",
+  "## Recommendation",
+  "## Plan risks",
 ];
 
-describe("committed design.md — the six-section review surface", () => {
+describe("committed design.md — the backbone + critique review surface", () => {
   const design = readFileSync(COMMITTED_DESIGN, "utf8");
 
-  it.each(SIX_HEADINGS)("contains the heading %s", (heading) => {
+  it.each(REQUIRED_HEADINGS)("contains the heading %s", (heading) => {
     expect(design).toContain(heading);
   });
 
-  // Beyond bare headings: a headings-only design.md (all six `## N.` lines,
-  // empty bodies) would pass the grep above. These minimal content assertions
-  // pin the load-bearing artifacts §4d/§4a require so the six-heading grep
-  // can't go green on an empty shell.
+  // Beyond bare headings: REQUIRED_HEADINGS is eight entries — the six
+  // `## N.` backbone headings plus `## Recommendation` and `## Plan risks` —
+  // so an empty shell with only the six numbered lines now FAILS the grep
+  // above (it's missing the two critique headings). These minimal content
+  // assertions further pin the load-bearing artifacts §4d/§4a require, so
+  // even a shell carrying all eight bare headings with empty bodies can't
+  // go green.
   it("renders the §5 dependency DAG as an inline Mermaid fence", () => {
     expect(design).toContain("```mermaid");
   });
 
   it("expresses at least one EARS acceptance criterion (THE SYSTEM SHALL)", () => {
     expect(design).toContain("SHALL");
+  });
+
+  // The worked example deliberately OMITS `## Decision analysis` to demo the
+  // omit-when-empty convention plus the consumer-side gate's graceful skip
+  // (epic-create Step 4.5). Pin the omission so a future edit that adds the
+  // section back is caught rather than silently changing what this example
+  // demonstrates.
+  it("omits `## Decision analysis` (demoing the omit-when-empty convention)", () => {
+    expect(design).not.toContain("## Decision analysis");
   });
 });
 

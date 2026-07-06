@@ -5,8 +5,9 @@
 > designer methodology it documents (`skills/pipeline/product-planning/references/epic-discovery-instructions.md`).
 > It is the golden artifact the acceptance test reads — `manifest.json`
 > (next to this file) passes both validators (`flow-epic-manifest-schema`
-> and `flow-epic-dag`, exit 0), and this `design.md` carries all six
-> sections. If this DAG were a flat list, the methodology would have failed
+> and `flow-epic-dag`, exit 0), and this `design.md` carries the six numbered
+> backbone sections plus an always-present critique layer. If this DAG were a
+> flat list, the methodology would have failed
 > its own test; it is not — it has a walking-skeleton root, a parallel pair,
 > a core-value feature, and a diamond-closing integration.
 
@@ -137,9 +138,9 @@ consumed dependency edges, and its EARS acceptance criteria (full text in
   self-checks its own DAG before writing._
 - **Produces:** the one-shot epic-grain discovery methodology
   (`references/epic-discovery-instructions.md` + the `MODE: epic` spawn
-  branch) that writes a six-section `design.md` + a schema-valid
-  `manifest.json`, self-validating via both checkers in a fix-and-re-run
-  loop.
+  branch) that writes a `design.md` (six numbered backbone sections plus an
+  always-present critique layer) + a schema-valid `manifest.json`,
+  self-validating via both checkers in a fix-and-re-run loop.
 - **MVP marker:** **f1 + f2 + f4 is the minimal valuable designer** —
   invokable as a skill, producing a reviewed, validated decomposition,
   before any `flow epic` CLI ergonomics exist.
@@ -202,3 +203,11 @@ graph TD
 - **`design.md` requirements granularity.** Assumed epic-level EARS here in
   §2 and per-feature acceptance in each manifest feature's
   `acceptanceCriteria[]`. Confirm the split.
+
+## Recommendation
+
+**Proceed** — the five-feature decomposition has a clean walking-skeleton root, a genuinely-parallel pair, the core value landing at f4, and a validated, acyclic, orphan-free DAG.
+
+## Plan risks
+
+The single weakest assumption is that **f2 and f3 are genuinely independent** — if f3's CLI verb turns out to need f2's DAG validator (e.g. to report a ready-set at invocation time), the `f2 ∥ f3` parallelism collapses into a dependency edge.
