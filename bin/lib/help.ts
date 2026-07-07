@@ -180,7 +180,7 @@ Subcommands:
   models                print the effective Claude model + reasoning effort for
                         every pipeline phase and fan-out sub-agent (session,
                         planning, scout, coder, verify, review, fix-applier,
-                        consolidator, merge-resolver, gatekeeper, epic-judge),
+                        consolidator, merge-resolver, gatekeeper),
                         with a SOURCE column showing where each value resolved
                         from (per-run flag/state, global config, built-in
                         fallback, pinned, or inherited-session)

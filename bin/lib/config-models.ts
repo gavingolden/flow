@@ -10,7 +10,11 @@
  */
 
 import { argsContainHelp, printVerbHelp } from "./help";
-import { readPhaseModel, type ReadConfigFile } from "./models-config";
+import {
+  readPhaseModel,
+  defaultReadConfigFile,
+  type ReadConfigFile,
+} from "./models-config";
 import {
   CONFIG_KEYS,
   resolveRouting,
@@ -75,7 +79,20 @@ export function runConfigModelsCli(
     }
   }
 
-  const read = options.read;
+  // Read + parse `~/.flow/config.json` once and reuse across every
+  // `CONFIG_KEYS` entry — `readPhaseModel`'s default reader otherwise
+  // re-reads/re-parses the file from scratch per phase (~10x per invocation).
+  let cached: unknown;
+  let cachedRead = false;
+  const baseRead = options.read ?? defaultReadConfigFile;
+  const read: ReadConfigFile = () => {
+    if (!cachedRead) {
+      cached = baseRead();
+      cachedRead = true;
+    }
+    return cached;
+  };
+
   const config: ConfigModels = {};
   for (const key of CONFIG_KEYS) {
     config[key] = readPhaseModel(key, read);

@@ -25,11 +25,11 @@ export function runConfigCli(
       return runConfigModelsCli(args.slice(1), options);
     case undefined:
       console.error("flow config: a subcommand is required.");
-      console.error("usage: flow config <models>");
+      console.error("usage: flow config models");
       return 2;
     default:
       console.error(`flow config: unknown config subcommand: ${sub}`);
-      console.error("usage: flow config <models>");
+      console.error("usage: flow config models");
       return 2;
   }
 }
