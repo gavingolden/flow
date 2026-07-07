@@ -1,0 +1,261 @@
+{
+  "epicId": "major-refactor-flow-modular-plugin",
+  "prompt": "Major refactor of flow to a modular \"plugin\" design — turn flow from a personal, hard-wired toolchain into a professional, modular product: each user installs only what their stack needs (conditional stack/integration modules: svelte, tailwind, supabase, cloudflare, copilot, agy/research), tmux becomes an optional launcher backend (everything can run in a plain claude shell), context usage is aggressively optimized, remaining recurring fan-outs become named Claude Code custom sub-agents with pinned model routing, and the end-state is Claude Code plugin/marketplace packaging with per-repo enablement.",
+  "createdAt": "2026-07-06T01:39:59Z",
+  "features": [
+    {
+      "id": "p1-design-doc",
+      "title": "Target-architecture doc (ideal, gap analysis, module map, roadmap)",
+      "description": "Author docs/target-architecture.md, the single source of truth for flow's modular redesign (drafted as plugin-architecture.md in the prior PRD; renamed so the seam artifact doesn't bake in an unratified end-state — per user redirect, 'plugin' means a modular plugin-STYLE design, and Claude-plugin packaging is one candidate end-state among three, not the assumed terminus): `## Ideal flow` (design-blind target: distribution mechanism left open pending the Phase-6 evaluation, file-based runtime state with the plain shell as the default launcher and tmux as an opt-in backend, three-tier progressive disclosure with session-scoped skill exposure, named custom agents with pinned model routing, problem-first planning artifacts), `## Gap analysis` (ideal vs current flow with file evidence, e.g. liveness = windowExists in bin/lib/feature.ts and bin/lib/done.ts — including, per redirect, the elaborated residuals for every aligned/largely-aligned axis: in-process supervisor edits below the /coder threshold (-> Phase 5), ~7 of 9 fan-out roles as inline spawn prompts without frontmatter pins (-> Phase 4), and every installed skill's frontmatter taxing every session (-> the standalone home + module selection)), `## Module map` (every skill under skills/*/, every agents/*.md, every PATH-bound helper and validator assigned to exactly one module; v1 module set: core (mandatory; incl. the generic framework-agnostic testing skill post-split), stack-svelte (incl. flow-testing-svelte post-split), stack-tailwind-shadcn, stack-supabase, stack-cloudflare-pages, copilot, research (agy delegation + research helpers + flow-plan-review); the map also records each skill's target flow--prefixed directory name, consumed by the rename node), and `## Roadmap` (phases 1-6 with entry/exit criteria: Phase 3 = plain-default runtime with tmux as an install-Q&A opt-in (user-directed flip of the prior tmux-default assumption) and the crash-safe liveness requirement (PID + process-start-time, per AGY pre-mortem) as the canonical signal for every launcher; Phase 4 = the fan-out-to-agent consolidation map with model pins; Phase 6 = the distribution end-state evaluation across Claude plugins/marketplace vs launcher+standalone-dir vs module-filtered symlinks, then implementation of the winner). PRIOR ART — reuse with redirect deltas, do not re-derive: the ratified feature-grain PRD for Phase 1 (.flow-tmp/plan.md in the epic-design worktree, summarized durably in .flow/epics/major-refactor-flow-modular-plugin/design.md) already contains the ideal-flow prose, the gap-analysis table, the v1 module set, and the AGY-reviewed decision analysis; this PR lands that content with the redirect's amendments applied (plugins de-assumed, tmux flipped to plain-default, standalone skills home added, flow- rename + testing split recorded), it does not re-plan.",
+      "dependsOn": [],
+      "rationale": "Hides D1 (the target-architecture content — the most review-tuned part); the seam artifact every phase-opening node consumes; the walking-skeleton root.",
+      "acceptanceCriteria": [
+        "WHEN docs/target-architecture.md is merged THE SYSTEM SHALL contain the four sections ## Ideal flow, ## Gap analysis, ## Module map, ## Roadmap (grep-checkable) and pass flow-md-validate",
+        "WHEN the module map is inspected THE SYSTEM SHALL list every shipped skill, agent, PATH-bound helper, and validator exactly once (no orphans, no double assignment) with each skill's target flow--prefixed name recorded",
+        "WHEN the gap analysis is read THE SYSTEM SHALL spell out the residual shortcomings for every aligned/largely-aligned axis and name the covering roadmap phase"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "medium"
+      },
+      "mvp": true
+    },
+    {
+      "id": "p1-module-registry-install",
+      "title": "Module registry + selection-aware flow install",
+      "description": "Add bin/lib/modules.ts — a typed, pure-data module registry (module id -> skills[], agents[], helpers[], validators[]; core mandatory; no behaviour, so a later distribution re-cut edits rows not logic) encoding the ## Module map from docs/target-architecture.md, with a completeness lint in bin/lib/modules.test.ts proving every dir under skills/*/, every agents/*.md, and every PATH-bound helper maps to exactly one module — and make flow install selection-aware: --modules <csv> / --all / --core-only flags with mutual-exclusion and unknown-id validation (exit non-zero naming the id, link nothing), a TTY-gated first-run Q&A via the existing confirm.ts injection seam, selection persisted at ~/.flow/config.json `modules` (tolerant boundary reader mirroring models-config.ts), --upgrade preserving the recorded selection without re-asking, non-TTY defaulting to core with a one-line notice naming --modules/--all, and pruning of deselected modules' symlinks via the existing manifest machinery. --all must remain byte-identical to today's unconditional install (set-equality spec). Registry rows encode CURRENT skill directory names at merge time; the p2-flow-prefix-rename node rewrites the rows in its cross-reference sweep. PRIOR ART: this node corresponds to Tasks 2-6 of the ratified Phase-1 feature-grain PRD, carried durably in section 7 (Phase-1 feature-grain task breakdown) of .flow/epics/major-refactor-flow-modular-plugin/design.md — reuse that task breakdown and its acceptance criteria rather than re-planning.",
+      "dependsOn": ["p1-design-doc"],
+      "rationale": "Hides D2 (the conditionality mechanism: module layer as pure data now, distribution end-state chosen later on evidence). Consumes p1-design-doc's ## Module map as the registry's source of truth.",
+      "acceptanceCriteria": [
+        "WHEN flow install --modules core,research runs on a fresh target THE SYSTEM SHALL link only those modules' artifacts, and a later narrower selection SHALL prune previously-linked others (vitest, injectable targets)",
+        "WHEN flow install --all runs THE SYSTEM SHALL produce a symlink set byte-identical to today's unconditional install (set-equality spec)",
+        "WHEN an unknown module id is passed THE SYSTEM SHALL exit non-zero naming it and link nothing",
+        "WHEN a selection is recorded THE SYSTEM SHALL have flow install --upgrade re-link the same set without prompting"
+      ],
+      "flowNewHints": {
+        "autoMerge": true,
+        "copilotReview": "auto",
+        "effort": "high"
+      },
+      "mvp": true
+    },
+    {
+      "id": "p2-conditional-degradation",
+      "title": "Graceful degradation for deselected modules",
+      "description": "Make module deselection safe end-to-end: when a module is not in the recorded selection (read via the bin/lib/modules.ts registry + ~/.flow/config.json modules key), every pipeline path that depends on it degrades gracefully with a named notice instead of failing or silently misbehaving — copilot deselected: flow-request-copilot / copilot-classify steps skip with a notice; research deselected: the forced-research Step-1.5 path, flow-research-cache/run/note, and flow-plan-review skip cleanly (mirroring the existing graceful-skip-sans-agy pattern); stack modules deselected: their skills are simply absent from the routing table; and supervisor/static skill prose (e.g. SKILL.md references from core skills to optional-module skills) degrades cleanly — a reference to a deselected module's skill is skipped with a named notice rather than the supervisor treating an absent skill as a hard failure. Add a doctor-style summary to flow install output naming which optional modules are inactive and why. Tests assert each skip path emits its named notice and exits 0, and that a full selection changes nothing.",
+      "dependsOn": ["p1-module-registry-install"],
+      "rationale": "Hides D4 (module-absence behaviour) behind the selection contract; the Phase-6 winner reuses this contract unchanged.",
+      "acceptanceCriteria": [
+        "WHEN a pipeline step needs a deselected module THE SYSTEM SHALL skip with a named notice and exit 0 (a test per skip path)",
+        "WHEN flow install completes THE SYSTEM SHALL print a doctor-style summary naming inactive optional modules and why"
+      ],
+      "flowNewHints": {
+        "autoMerge": true,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
+    },
+    {
+      "id": "p2-standalone-skills-home",
+      "title": "Standalone flow skills home + flow launcher verb",
+      "description": "Give flow skills a standalone home so plain `claude` sessions carry zero flow skills: flow install retargets skill symlinks from ~/.claude/skills/ to ~/.flow/claude-home/.claude/skills/ (selection-aware, reusing the link/prune/manifest machinery from p1-module-registry-install, migrating previously-linked skills out of ~/.claude/skills/), and a new bare `flow` launcher verb starts an interactive Claude session with `--add-dir ~/.flow/claude-home`. The skills home is nested one level below ~/.flow under a dedicated claude-home/ subdirectory rather than passed --add-dir ~/.flow directly: --add-dir grants the session workspace access to everything under the added directory, and ~/.flow also holds config.json, every pipeline's state/, and research-cache/ — a privilege widening exploitable by a prompt-injected session if granted directly. Nesting the skills home keeps config/state/cache outside the session's granted workspace. Mechanism VERIFIED supported (code.claude.com/docs/en/skills, fetched 2026-07-05): skill discovery locations are otherwise fixed with no custom-top-level-dir flag, but `.claude/skills/` inside a directory added via --add-dir is a documented exception that loads automatically, and skill entries may be symlinks; a dir created after session start needs a restart — irrelevant for a launcher passing --add-dir at startup. Pipeline seed sessions (flow feature create et al.) get the same --add-dir wiring so supervisor sessions keep their skills; this verb is distinct from the Phase-3 PIPELINE launcher backend (interactive sessions vs pipeline processes). INVESTIGATION ITEM (record findings in docs/target-architecture.md): whether agents/ and hooks load from an added dir is NOT documented — the docs confirm only that commands/output-styles do NOT; flow's 2 custom agents live in ~/.claude/agents/ and its Stop hook in ~/.claude/settings.json, both global today. Named fallbacks if coverage is absent: agents stay globally linked via flow install (low routing tax), the Stop hook stays global (already self-detects non-flow contexts), and repo-local .claude/skills linking or on-demand symlinking remain hybrid options. Tests cover retarget + prune + migration + launcher arg construction + the scoped --add-dir path; docs cover the plain-vs-flow session story.",
+      "dependsOn": ["p1-module-registry-install"],
+      "rationale": "Hides D10 (session-scoped skill exposure: where flow skills live and which sessions see them); consumes the selection-aware link/prune machinery and recorded selection it retargets.",
+      "acceptanceCriteria": [
+        "WHEN flow install completes THE SYSTEM SHALL leave zero flow-owned symlinks under the old ~/.claude/skills/ location (deterministic proxy for 'a plain claude session lists zero flow skills') and link every selected skill under the standalone home (~/.flow/claude-home/.claude/skills/, nested below ~/.flow so config.json/state/research-cache stay outside the launcher's --add-dir grant)",
+        "WHEN the `flow` launcher verb constructs its argv THE SYSTEM SHALL include --add-dir ~/.flow/claude-home (deterministic proxy for 'the session loads the installed flow skills'); MANUAL: a human confirms via an actual `flow` launcher session that the installed skills appear in that session's routing table and a plain `claude` session shows none",
+        "WHEN the agents/hooks --add-dir investigation concludes THE SYSTEM SHALL record the finding in docs/target-architecture.md and ship the named fallback for any uncovered surface"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "high"
+      }
+    },
+    {
+      "id": "p2-flow-prefix-rename",
+      "title": "flow- skill prefix rename + testing-skill split",
+      "description": "Rename every shipped skill directory to its flow--prefixed target name from the module map (command name = directory name for personal/project skills; frontmatter `name` is display-only; already-prefixed flow-pipeline and flow-research unchanged) — e.g. new-feature -> flow-new-feature, pr-review -> flow-pr-review — and execute the full cross-reference sweep in the same PR: skill-to-skill references, AGENTS.md/CLAUDE.md, bin/ helpers and their tests, bin/skill-md-lint.test.ts structural anchors (renamed anchors update their lints in the same commit), templates/, docs/, and the bin/lib/modules.ts registry rows. In the same sweep, split the Svelte-specific `testing` skill into a framework-agnostic core testing skill (generic test-writing/coverage guidance; `core` module) plus flow-testing-svelte (Svelte/vitest/testing-library specifics; `stack-svelte` module), per the module map (user-ratified). Trade-off recorded in the epic design (D11): collision-proofing + provenance in mixed sessions + greppability, vs longer invocations and partial redundancy IF the Phase-6 distribution eval later picks Claude plugins (auto-namespaced /plugin:skill); sequenced BEFORE the eval because the launcher path benefits immediately regardless of verdict, the sweep only grows with time, and the rename is mechanical + reversible. Zero stale old-name references (grep-checked) and all structural lints green.",
+      "dependsOn": ["p1-module-registry-install"],
+      "rationale": "Hides D11 (the skill naming scheme) behind one mechanical sweep; consumes the registry rows (skill ids) it rewrites.",
+      "acceptanceCriteria": [
+        "WHEN skills are installed THE SYSTEM SHALL expose every flow skill under a flow--prefixed directory name (already-prefixed skills unchanged)",
+        "WHEN the cross-reference sweep completes THE SYSTEM SHALL leave zero stale references to old skill names in shipped artifacts (grep-checked) and every structural lint green",
+        "WHEN the testing skill is split THE SYSTEM SHALL ship a framework-agnostic core testing skill and flow-testing-svelte, each assigned to its module in the registry"
+      ],
+      "flowNewHints": {
+        "autoMerge": true,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
+    },
+    {
+      "id": "p2-per-repo-activation-eval",
+      "title": "Per-repo module-granularity evaluation",
+      "description": "Evaluate per-repo module granularity on top of the standalone-home launcher (which already delivers machine-wide session scoping: plain `claude` is flow-free): with skills served from ~/.flow/claude-home/.claude/skills/ via the `flow` launcher's --add-dir, every flow session still sees ALL selected modules' skills regardless of the repo's stack — a multi-stack machine's Go repo still pays the svelte/tailwind frontmatter tax inside flow sessions. Evaluate repo-local mechanisms: repo-local .claude/skills linking of a module subset, a per-repo activation file consumed by the `flow` launcher (choosing or filtering the --add-dir target), or per-repo standalone homes. Deliverable: a Context/Decision/Consequences addendum to docs/target-architecture.md recording the verdict with evidence (incl. the measured frontmatter token cost of installed-but-irrelevant skills, via a quick measurement if the Phase-5 audit has not yet produced it); if affirmative, ship the minimal activation mechanism with tests; if negative, record exactly what the Phase-6 distribution winner must deliver instead. This node is spike-shaped and may legitimately resolve docs-only.",
+      "dependsOn": ["p2-standalone-skills-home"],
+      "rationale": "Hides D3's open branch (per-repo granularity) behind a recorded decision + optional mechanism; consumes the launcher + standalone-home mechanism it extends or filters.",
+      "acceptanceCriteria": [
+        "WHEN the evaluation completes THE SYSTEM SHALL have a Context/Decision/Consequences addendum in docs/target-architecture.md recording the per-repo-granularity verdict with evidence",
+        "WHEN the verdict is affirmative THE SYSTEM SHALL include the minimal activation mechanism with tests; WHEN negative THE SYSTEM SHALL record the requirement the Phase-6 winner must satisfy instead"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
+    },
+    {
+      "id": "p3-file-liveness",
+      "title": "Crash-safe file-based pipeline liveness signal",
+      "description": "Add a crash-safe, stale-tolerant file-based liveness signal for pipelines, per the Phase-3 spec in docs/target-architecture.md's roadmap (AGY pre-mortem: bare heartbeats go stale): record PID + process-start-time in ~/.flow/state/<slug>.json at launch (process-start-time recorded as absolute epoch time, not an OS-relative uptime/tick counter, so the signal survives a host reboot), and add a small helper returning alive/dead/stale verdicts (PID exists AND start-time matches = alive; PID recycled = dead). Wire flow ls, flow done's completion checks, and flow feature create's collision detection to consult the file signal as the CANONICAL liveness source under every launcher — with plain-shell as the default runtime (user-directed flip), this is the primary signal for everyone, not a transition aid; windowExists (bin/lib/feature.ts, bin/lib/done.ts) demotes to a tmux-mode-only supplementary nicety (window naming/attach hints), never the source of truth. Old state files without the new fields must degrade to today's behaviour, not crash. Tests cover: live process, dead PID, recycled PID (start-time mismatch), and missing fields.",
+      "dependsOn": ["p1-design-doc"],
+      "rationale": "Hides D5 (the liveness representation) behind an alive/dead/stale helper; the precondition for the plain-default launcher.",
+      "acceptanceCriteria": [
+        "WHEN a pipeline is launched THE SYSTEM SHALL record PID + process-start-time in ~/.flow/state/<slug>.json",
+        "WHEN the liveness helper checks a dead or recycled PID THE SYSTEM SHALL report not-alive (tests cover live, dead, recycled-PID, and missing-field cases)",
+        "WHEN flow ls / flow done / collision checks run THE SYSTEM SHALL consult the file signal as the canonical source under every launcher"
+      ],
+      "flowNewHints": {
+        "autoMerge": true,
+        "copilotReview": "auto",
+        "effort": "high"
+      }
+    },
+    {
+      "id": "p3-launcher-backend",
+      "title": "Launcher backend abstraction — plain default, tmux opt-in",
+      "description": "Introduce a launcher-backend abstraction with the PLAIN SHELL as the default (user-directed flip of the prior PRD's tmux-default assumption: flow targets users who mostly won't use tmux): a backend interface (launch, attach-hint; liveness already handled by the shared file signal from p3-file-liveness) with two implementations — plain-terminal (default: runs the pipeline's claude session without tmux) and tmux (opt-in: current windowed behaviour, byte-compatible with today for users who select it) — selected with precedence flag (--tmux / --no-tmux) > recorded config > default-plain. Extend the flow install Q&A with a default-off tmux question ('use tmux as your pipeline launcher? recommended for parallel pipelines and walk-away/attach'), persisted at ~/.flow/config.json so tmux becomes the selecting user's default launcher; choosing tmux when it is absent from PATH degrades to plain with a named notice. Beyond liveness/collision and launch/attach, tmux also carries pipeline session-identity resolution today (~17 helpers plus the supervisor SKILL.md read the pipeline slug via the tmux @flow-slug window option) and gates flow-stop-guard's Stop hook (it no-ops outside tmux) — so this node must also thread slug propagation under the plain backend (e.g. a FLOW_SLUG env var consumed by those helpers/hooks, with @flow-slug kept as the tmux-mode fallback) and extend flow-stop-guard's Stop-hook coverage to the plain backend rather than leaving it a tmux-only guard. The plain path is the PRIMARY path and must be rock-solid: full test coverage for launch, monitor (flow ls), completion (flow done), collision detection via the file-based signal, and slug-identity resolution, behaving identically under both backends. Tests also cover selection precedence and the opt-in tmux path.",
+      "dependsOn": ["p3-file-liveness"],
+      "rationale": "Hides D6 (launch mechanics) behind a backend interface; plain-terminal is the default implementation, tmux demotes to an opt-in. Consumes p3-file-liveness's helper API.",
+      "acceptanceCriteria": [
+        "WHEN a pipeline is launched with no tmux opt-in in effect THE SYSTEM SHALL run it in the plain shell and flow ls/done SHALL report it via the file-based signal",
+        "WHEN the user opted into tmux at install Q&A (or passes --tmux) THE SYSTEM SHALL launch in a tmux window with today's behaviour unchanged; tmux absent from PATH SHALL degrade to plain with a named notice",
+        "WHEN a pipeline runs under the plain backend THE SYSTEM SHALL resolve session identity (the slug helpers/hooks read via @flow-slug under tmux) via the plain-mode propagation mechanism, and flow-stop-guard's Stop hook SHALL apply under the plain backend, not just no-op as it does outside tmux today"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "always",
+        "effort": "high"
+      }
+    },
+    {
+      "id": "p3-plain-mode-docs",
+      "title": "Plain-default docs + UX polish",
+      "description": "Document and polish the plain-default runtime shipped by p3-launcher-backend: the README install/quickstart presents the plain shell as THE default experience — tmux is not a prerequisite and does not appear until the power-user section — a short doc section covers running pipelines in a plain shell as the primary path (launch, monitor via flow ls, the resume story), and tmux is documented as the opt-in power option (parallel-pipeline supervision, walk-away/attach) selected at install Q&A or per-run --tmux. The plain-mode notice copy surfaced by the launcher backend gets a UX pass. This sweep also updates AGENTS.md's own tmux self-description (the responsibilities intro, the \"What flow is not\" section, and the state prose), which otherwise still describes tmux as the default and goes stale the moment the flip lands. Docs-scope checks (flow-md-validate, prettier) pass; any CLI copy changes are covered by existing-style tests.",
+      "dependsOn": ["p3-launcher-backend"],
+      "rationale": "Completes D6's user-facing half (the onboarding story) once the backend surface it documents has shipped; plain mode leads.",
+      "acceptanceCriteria": [
+        "WHEN the README quickstart is read THE SYSTEM SHALL present the plain shell as the default experience and tmux as an opt-in launcher, not a prerequisite",
+        "WHEN docs-scope checks run THE SYSTEM SHALL pass flow-md-validate and lint"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "low"
+      }
+    },
+    {
+      "id": "p4-review-agents",
+      "title": "Named custom agents for /pr-review fan-outs",
+      "description": "Promote /pr-review's recurring fan-outs from inline spawn prompts to named custom-agent definitions under agents/ (discovered by discoverAgents, symlinked by flow install, module-assigned in the bin/lib/modules.ts registry), per the Phase-4 consolidation map in docs/target-architecture.md's roadmap: the six review lenses, the Step-1.5 gatekeeper (its documented model: haiku cost-routing override moves into frontmatter — mechanical, not config-threaded), and the Step-3.5 consolidator-validator, following the existing agents/flow-verify.md / agents/flow-fix-applier.md pattern. Frontmatter policy per the VERIFIED routing-knob semantics (live Agent tool schema + code.claude.com/docs/en/sub-agents, fetched 2026-07-05: per-invocation params include model but NO effort, so effort cannot be set at spawn time; frontmatter effort is the only effort pin and omitting it inherits session effort; model resolution is CLAUDE_CODE_SUBAGENT_MODEL env > per-spawn model > frontmatter model > session model, so per-spawn model always wins and promotion loses zero model tunability): the lenses and consolidator are judgment roles — OMIT effort so they scale with session effort, and omit frontmatter model wherever the spawn site threads per-spawn model: from config (which wins anyway), so definitions never fight the config. Each promoted spawn site ships the existing '[ -f ~/.claude/agents/<name>.md ] || fall back to general-purpose' guard (the step-6 verify pattern), since each custom agent adds an install dependency — the guard MUST emit a named notice when the fallback fires, since a silent swap to general-purpose discards a tool-restricted role's tool-allowlist containment (a prompt-injection concern for the review lenses/gatekeeper); prefer an explicit tool allowlist on the promoted definition over relying on the fallback's absence. Update pr-review's SKILL.md/references to spawn by agent name, keep every artifact contract unchanged (agent-output-<lens>.json, gatekeeper-result.json, consolidator-result.json), and update the bidirectional exemption docs. The nine-Task-exemption set is renamed in place where needed, never widened.",
+      "dependsOn": ["p1-design-doc"],
+      "rationale": "Hides D7 for the /pr-review surface: routing pins move from prose to auditable agent frontmatter, artifact contracts stable.",
+      "acceptanceCriteria": [
+        "WHEN /pr-review fans out THE SYSTEM SHALL spawn the six lenses, gatekeeper, and consolidator as named agents/*.md definitions with their documented model pins (gatekeeper: haiku)",
+        "WHEN the artifact contracts are inspected THE SYSTEM SHALL show unchanged output paths and shapes"
+      ],
+      "flowNewHints": {
+        "autoMerge": true,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
+    },
+    {
+      "id": "p4-pipeline-agents",
+      "title": "Named custom agents for pipeline-side fan-outs",
+      "description": "Promote the remaining pipeline-side recurring fan-outs to named agents/*.md custom-agent definitions, mirroring p4-review-agents' pattern on its skill surfaces, per the Phase-4 consolidation map in docs/target-architecture.md's roadmap: /new-feature's scout, /product-planning's discovery subagent (feature + epic modes), and /flow-pipeline step 10's merge-conflict resolver; evaluate (do not blindly convert) the /coder edit-applier and /epic-run judgment subagent for the same treatment — the generic-vs-custom criterion, per the verified routing-knob semantics (per-spawn model: always beats frontmatter model; omitting frontmatter effort inherits session effort — Agent tool schema + code.claude.com/docs/en/sub-agents, 2026-07-05), is purely whether a reusable pinned system prompt + tool constraint is worth shipping against the install-dependency cost, NOT tunability (promotion loses none). All these are judgment roles under the D7 frontmatter policy: OMIT effort (inherits session effort; effort is pinned only for mechanical roles like verify/fix-applier), omit frontmatter model where per-spawn model: config threading exists so definitions never fight the config. Each promoted spawn site ships the existing '[ -f ~/.claude/agents/<name>.md ] || fall back to general-purpose' guard. Keep every documented contract unchanged (artifact paths like .flow-tmp/scout.md and .flow-tmp/merge-resolver-result.json, model overrides), update each spawn site plus the bidirectional exemption docs (AGENTS.md, exemption-contracts.md, each skill's SKILL.md). The nine-Task-exemption set is renamed in place, never widened.",
+      "dependsOn": ["p1-design-doc"],
+      "rationale": "Hides D7 for the pipeline-side surfaces; keeps the exemption contracts stable while making routing declarative.",
+      "acceptanceCriteria": [
+        "WHEN scout, discovery, or the merge-conflict resolver fires THE SYSTEM SHALL spawn a named agents/*.md definition with artifact paths and contracts unchanged",
+        "WHEN AGENTS.md and exemption-contracts.md are read THE SYSTEM SHALL document the named agents bidirectionally with the nine-exemption set unwidened"
+      ],
+      "flowNewHints": {
+        "autoMerge": true,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
+    },
+    {
+      "id": "p5-token-audit",
+      "title": "Per-phase context/token audit + measurement tooling",
+      "description": "Measure before tightening (ratified decision D4 of the prior PRD, per the Phase-5 plan in docs/target-architecture.md's roadmap): build a small transcript-analysis helper (reads Claude Code session JSONL under ~/.claude/projects/<encoded-cwd>/) that attributes context/token spend per pipeline phase and per tool-call class (diffs, verify/failure logs, skill bodies, sub-agent returns, in-process edits), run it on at least one real completed pipeline, and land the method + findings as docs/context-economy-audit.md — including the in-process edit-size distribution needed to judge the /coder routing threshold (the supervisor edit-threshold and context-optimization asks of the original request) and the measured frontmatter cost of installed skills (informing both the per-repo granularity eval and the standalone-home story). Deliverable is the helper (tested on a committed fixture transcript) plus the baseline report; no pipeline behaviour changes in this PR. Privacy: this is a public repo, so the committed fixture transcript MUST be synthetic or mechanically scrubbed of any verbatim real-session content (no real prompts, file contents, or secrets), and the real-pipeline baseline report MUST report aggregate numbers only (token counts per phase/tool-call class), never quoted transcript excerpts.",
+      "dependsOn": ["p1-design-doc"],
+      "rationale": "Hides D8's measurement half (where context is actually spent); makes the diet falsifiable instead of dogmatic.",
+      "acceptanceCriteria": [
+        "WHEN the audit helper runs on the fixture transcript THE SYSTEM SHALL attribute token spend per phase and per tool-call class (tested)",
+        "WHEN the audit report lands THE SYSTEM SHALL include a real-pipeline baseline and the in-process edit-size distribution"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "medium"
+      }
+    },
+    {
+      "id": "p5-context-diet",
+      "title": "Context diet: AGENTS.md + skill splits + edit-threshold tuning",
+      "description": "Act on the audit data in docs/context-economy-audit.md (from p5-token-audit): execute the highest-value context reductions it identifies — diet flow's AGENTS.md (519 lines at epic-design time) toward the <200-line research guidance by moving procedural detail into lazily-loaded references, continue the lean-body + lazy-reference splits for the largest SKILL.md bodies (the supervisor split at PR #411 is the pattern), and tighten the in-process edit-routing threshold toward /coder — or adopt the mechanical edit-size guard (hook-enforced cap forcing delegation, the AGY D4 alternative branch) — if and only if the data shows in-process edits are a material spend. Re-run the audit helper after the diet and record the before/after delta in the report. All structural lints (bin/skill-md-lint.test.ts anchors, flow-md-validate) must stay green; renamed anchors update their lints in the same commit.",
+      "dependsOn": ["p5-token-audit"],
+      "rationale": "Hides D8's action half (which cuts are worth making); consumes the audit report that ranks them.",
+      "acceptanceCriteria": [
+        "WHEN the diet lands THE SYSTEM SHALL keep every structural lint green and record a re-measured before/after token delta in the audit report",
+        "WHEN AGENTS.md is measured THE SYSTEM SHALL be at or under the <=200-line target set in the audit report (or, if it stops above that line, carry a recorded data-backed justification for stopping there), with moved content reachable via lazy references"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "always",
+        "effort": "high"
+      }
+    },
+    {
+      "id": "p6-distribution-eval",
+      "title": "Distribution end-state evaluation (three candidates)",
+      "description": "Choose flow's distribution end-state on evidence, not assumption (per user redirect: 'plugin' in the epic prompt means a modular plugin-STYLE design; Claude plugins were never mandated). Evaluate three candidates: (a) Claude Code plugin/marketplace packaging — .claude-plugin/plugin.json per module, marketplace.json git-repo registry, auto-namespaced /plugin-name:skill-name (collision-proof across levels), native per-repo enablement; costs: arbitrary PATH binaries unmanaged (~45 bare-name helper invocations are the binding constraint), a still-moving ecosystem surface; (b) launcher + standalone-dir distribution — extend the shipped p2-standalone-skills-home mechanism into full distribution (versioned ~/.flow payload, update/rollback story, per-repo granularity per the p2-per-repo-activation-eval verdict); costs: flow-owned update machinery, the agents/hooks --add-dir coverage caveats; (c) status-quo module-filtered symlinks hardened as the end-state; costs: no per-repo enablement beyond the p2 eval's mechanism. May include a THROWAWAY one-module plugin packaging spike (e.g. stack-svelte) as evidence for (a). The evaluation's criteria SHALL explicitly weigh each candidate's supply-chain/security surface (e.g. plugin-marketplace registry trust and update provenance vs the launcher+standalone-home model's simpler local-symlink trust boundary vs status-quo's unchanged surface) alongside cost/migration effort. Deliverable: an evidence-backed Context/Decision/Consequences addendum to docs/target-architecture.md recording the verdict, plus the contracted scope statement for p6-distribution-impl (which is expected to be re-decomposed against the verdict). Consumes the operating experience of the module layer, the degradation contract, and the launcher.",
+      "dependsOn": ["p2-standalone-skills-home", "p2-conditional-degradation"],
+      "rationale": "Hides D9's evaluation half: the distribution end-state is chosen on evidence — plugins are one candidate, not ratified; consumes the launcher's operating evidence and the absence-behaviour contract.",
+      "acceptanceCriteria": [
+        "WHEN the evaluation completes THE SYSTEM SHALL record an evidence-backed ADR verdict in docs/target-architecture.md choosing among plugin packaging, launcher+standalone-dir distribution, and module-filtered symlinks",
+        "WHEN the verdict lands THE SYSTEM SHALL state p6-distribution-impl's contracted scope for the winning candidate"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "auto",
+        "effort": "high"
+      }
+    },
+    {
+      "id": "p6-distribution-impl",
+      "title": "Distribution end-state implementation (winner only)",
+      "description": "Implement the distribution end-state chosen by p6-distribution-eval, contracted to the winning candidate only. IF plugins: package all modules per the eval's evidence/spike — flow-core (pipeline/universal skills plus the named agents/*.md definitions from p4-review-agents and p4-pipeline-agents bundled as plugin agents), the stack/integration modules, the decided helper-binary strategy (PATH symlinks stay the always-global CLI's job vs ${CLAUDE_PLUGIN_ROOT}-relative invocation), marketplace docs + versioning, and the flow install switchover/coexistence story (the first sanctioned break with the --all byte-parity guarantee, stated explicitly in the PR). IF launcher + standalone-dir: versioned ~/.flow payload with an update/rollback story, per-repo granularity per the p2-per-repo-activation-eval verdict, and the agents/hooks final placement. IF filtered symlinks: hardening + uninstall/upgrade polish + consumer onboarding docs as the ratified end-state. In every branch the distributed skill surface is the flow--prefixed set from p2-flow-prefix-rename. Expect this node to be re-decomposed against the eval verdict before execution (recorded in the epic design's Open Questions).",
+      "dependsOn": [
+        "p6-distribution-eval",
+        "p4-review-agents",
+        "p4-pipeline-agents",
+        "p2-flow-prefix-rename"
+      ],
+      "rationale": "Closes D9 (implementation half) — the diamond-closing integration; consumes the eval verdict, the named agent files the core distribution carries, and the renamed skill surface.",
+      "acceptanceCriteria": [
+        "WHEN the implementation completes THE SYSTEM SHALL distribute every module via the chosen mechanism with the enablement granularity and helper-binary strategy the verdict specifies, documented for consumers",
+        "WHEN a consumer follows the published install docs THE SYSTEM SHALL get flow-core plus their chosen modules via the chosen mechanism"
+      ],
+      "flowNewHints": {
+        "autoMerge": false,
+        "copilotReview": "always",
+        "effort": "xhigh"
+      }
+    }
+  ]
+}
