@@ -60,7 +60,7 @@ Run `flow feature create --help` for the full surface.
 
 A pipeline runs many distinct Claude phases — planning, implementation, review, verify, the fix-applier/consolidator tail, merge-conflict resolution — plus the epic-design and epic-run supervisors. You can concentrate an expensive model (e.g. the newly-released **Fable**) on the high-leverage reasoning phases and run cheaper models on the mechanical ones, controlled per-run (flags) or globally (config).
 
-**Per-run flags** — `flow feature create --model-planning fable --model-verify haiku "add X"` routes Fable to planning and Haiku to verify for that pipeline, leaving every other phase on the session default. Epic knobs: `flow epic create --model-planning <alias>` (the epic design phase shares the feature planning knob), and `flow epic run --model <alias>` (supervisor session) / `flow epic run --model-judge <alias>` (the per-halt/deadlock judgment sub-agent).
+**Per-run flags** — `flow feature create --model-planning fable --model-verify haiku "add X"` routes Fable to planning and Haiku to verify for that pipeline, leaving every other phase on the session default. Epic knobs: `flow epic create --model-planning <alias>` (the epic design phase shares the feature planning knob), and `flow epic run --model <alias>` (the /epic-run playbook supervisor session).
 
 **Global config** — set a house style once in `~/.flow/config.json`:
 
@@ -75,7 +75,6 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
     "fixApplier": "sonnet",
     "consolidator": "sonnet",
     "mergeResolver": "sonnet",
-    "epicJudge": "sonnet",
     "scout": "sonnet",
     "coder": "sonnet"
   }
@@ -92,7 +91,6 @@ A pipeline runs many distinct Claude phases — planning, implementation, review
 | `fixApplier`    | PR-review fix-applier                      | `--model-fix-applier`    |
 | `consolidator`  | PR-review consolidator-validator           | `--model-consolidator`   |
 | `mergeResolver` | merge-conflict resolver                    | `--model-merge-resolver` |
-| `epicJudge`     | epic-run judgment sub-agent                | `--model-judge`          |
 | `scout`         | implementation scout (finer grain)         | _(config only, no flag)_ |
 | `coder`         | implementation edit-applier (finer grain)  | _(config only, no flag)_ |
 

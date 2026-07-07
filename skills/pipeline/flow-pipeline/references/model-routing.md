@@ -35,18 +35,17 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 
 ## Precedence table (highest wins)
 
-| Spawn site                                         | state field                     | precedence                                                                            |
-| -------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------- |
-| Step 3 Discovery (planning)                        | `modelPlanning`                 | `state.modelPlanning // config.models.planning // inherited`                          |
-| `/new-feature` Scout (implement)                   | `modelImplement`                | `config.models.scout // state.modelImplement // config.models.implement // inherited` |
-| `/coder` Edit-Applier (implement)                  | `modelImplement`                | `config.models.coder // state.modelImplement // config.models.implement // inherited` |
-| Step 6 Verify-Retry-Loop (verify)                  | `modelVerify`                   | `state.modelVerify // config.models.verify // "sonnet"` **(NOT inherited)**           |
-| `/pr-review` Multi-Agent Review (review)           | `modelReview`                   | `state.modelReview // config.models.review // inherited`                              |
-| `/pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`               | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**   |
-| `/pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`             | `state.modelConsolidator // config.models.consolidator // inherited`                  |
-| Step 10 Merge-Conflict Resolver (mergeResolver)    | `modelMergeResolver`            | `state.modelMergeResolver // config.models.mergeResolver // inherited`                |
-| `/epic-create` designer (planning)                 | `modelPlanning`                 | `state.modelPlanning // config.models.planning // inherited`                          |
-| `/epic-run` judgment sub-agent (judge)             | `modelJudge` (run-state / seed) | `MODEL_JUDGE seed line // config.models.epicJudge // inherited`                       |
+| Spawn site                                         | state field          | precedence                                                                            |
+| -------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------- |
+| Step 3 Discovery (planning)                        | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
+| `/new-feature` Scout (implement)                   | `modelImplement`     | `config.models.scout // state.modelImplement // config.models.implement // inherited` |
+| `/coder` Edit-Applier (implement)                  | `modelImplement`     | `config.models.coder // state.modelImplement // config.models.implement // inherited` |
+| Step 6 Verify-Retry-Loop (verify)                  | `modelVerify`        | `state.modelVerify // config.models.verify // "sonnet"` **(NOT inherited)**           |
+| `/pr-review` Multi-Agent Review (review)           | `modelReview`        | `state.modelReview // config.models.review // inherited`                              |
+| `/pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**   |
+| `/pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`  | `state.modelConsolidator // config.models.consolidator // inherited`                  |
+| Step 10 Merge-Conflict Resolver (mergeResolver)    | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                |
+| `/epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
 
 ## Three deliberate asymmetries
 

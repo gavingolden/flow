@@ -102,16 +102,25 @@ _flow() {
                             '*::prompt:'
                     elif [[ "$line[2]" == run ]]; then
                         _arguments \
-                            '--once[advance exactly one tick, then exit]' \
-                            '--max-parallel[cap concurrent feature windows]:N:' \
-                            '--model[whole-session model for the /epic-run supervisor]:alias:(opus haiku sonnet fable)' \
-                            '--model-judge[model for the judgment sub-agent]:alias:(opus haiku sonnet fable)'
+                            '--model[whole-session model for the /epic-run supervisor]:alias:(opus haiku sonnet fable)'
+                    elif [[ "$line[2]" == status ]]; then
+                        _arguments \
+                            '--json[emit a machine-readable board (hypothesis to verify)]'
+                    elif [[ "$line[2]" == bind ]]; then
+                        _arguments \
+                            '--external[record a completed out-of-band feature]:ref:' \
+                            '--force[overwrite a differing binding / bypass the slug guard]'
+                    elif [[ "$line[2]" == launch ]]; then
+                        _arguments \
+                            '--force[relaunch an already-bound feature]'
                     else
                         local -a sub
                         sub=(
                             'create:design an epic'
-                            'run:drive a merged epic to completion'
+                            'run:open the /epic-run playbook window'
                             'status:render the live epic board (read-only)'
+                            'bind:repoint or adopt a feature run.json binding'
+                            'launch:atomically create + bind a feature'
                             'ls:list epics with per-state feature counts'
                         )
                         _describe 'subcommand' sub

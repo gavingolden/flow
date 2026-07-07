@@ -384,3 +384,99 @@ describe("flow-epic-dag CLI — shape and error cases", () => {
     );
   });
 });
+
+describe("flow-epic-dag CLI — --frontier", () => {
+  // a → b → c (linear); plus an independent d.
+  const chain = manifest([
+    feat("a"),
+    feat("b", ["a"]),
+    feat("c", ["b"]),
+    feat("d"),
+  ]);
+
+  it("prints the ready frontier for the given completed set", () => {
+    withTmpFile(chain, (filePath) => {
+      // Nothing completed → in-degree-0 nodes a and d are ready.
+      const r0 = runCli(["--frontier", filePath, "--completed", ""]);
+      expect(r0.status).toBe(0);
+      const p0 = JSON.parse(r0.stdout.trim());
+      expect(p0.ok).toBe(true);
+      expect(p0.frontier.map((f: { id: string }) => f.id).sort()).toEqual([
+        "a",
+        "d",
+      ]);
+      // Each frontier entry carries id + title.
+      expect(p0.frontier.find((f: { id: string }) => f.id === "a").title).toBe(
+        "A",
+      );
+
+      // a completed → b unblocks (d still ready).
+      const r1 = runCli(["--frontier", filePath, "--completed", "a"]);
+      expect(
+        JSON.parse(r1.stdout.trim())
+          .frontier.map((f: { id: string }) => f.id)
+          .sort(),
+      ).toEqual(["b", "d"]);
+    });
+  });
+
+  it("excludes features already in --launched (no duplicate launch)", () => {
+    withTmpFile(chain, (filePath) => {
+      const r = runCli([
+        "--frontier",
+        filePath,
+        "--completed",
+        "a",
+        "--launched",
+        "b",
+      ]);
+      expect(r.status).toBe(0);
+      // b is launched → withheld; only d remains ready.
+      expect(
+        JSON.parse(r.stdout.trim()).frontier.map((f: { id: string }) => f.id),
+      ).toEqual(["d"]);
+    });
+  });
+
+  it("tolerates unknown ids in --completed (they simply never satisfy deps)", () => {
+    withTmpFile(chain, (filePath) => {
+      const r = runCli(["--frontier", filePath, "--completed", "ghost,a"]);
+      expect(r.status).toBe(0);
+      // The unknown 'ghost' is ignored; a is completed so b unblocks.
+      expect(
+        JSON.parse(r.stdout.trim())
+          .frontier.map((f: { id: string }) => f.id)
+          .sort(),
+      ).toEqual(["b", "d"]);
+    });
+  });
+
+  it("fails DAG validation first with the same error contract as --validate", () => {
+    // A cycle: --frontier must run the shape+DAG gate before computing anything.
+    withTmpFile(manifest([feat("x", ["y"]), feat("y", ["x"])]), (filePath) => {
+      const r = runCli(["--frontier", filePath, "--completed", ""]);
+      expect(r.status).toBe(1);
+      expect(r.stdout).toBe("");
+      expect(r.stderr).toMatch(/cycle/i);
+    });
+  });
+
+  it("fails the shape gate for an off-shape manifest (same JSON error contract)", () => {
+    withTmpFile(
+      JSON.stringify({ prompt: "p", createdAt: "2026-06-22", features: [] }),
+      (filePath) => {
+        const r = runCli(["--frontier", filePath]);
+        expect(r.status).toBe(1);
+        const parsed = JSON.parse(r.stderr.trim());
+        expect(parsed.ok).toBe(false);
+        expect(parsed.reason).toContain("epicId");
+      },
+    );
+  });
+
+  it("exits 2 with usage when --frontier has no path", () => {
+    const r = runCli(["--frontier"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("usage:");
+  });
+});

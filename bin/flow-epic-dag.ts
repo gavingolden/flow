@@ -13,10 +13,18 @@
  * `kind`/`offendingIds` rather than parse prose. It does NOT fail-fast; the CLI
  * is the only layer that exits early.
  *
- * CLI mode: `flow-epic-dag --validate <path>` runs F1's shape gate first
- * (exit 1 with `{ok:false,reason,path}` on read/parse/shape failure, mirroring
- * F1), then the DAG checks — exit 0 (well-formed) / non-zero (printing each
- * violation message to stderr) / 2 (usage).
+ * CLI modes:
+ *   `flow-epic-dag --validate <path>` runs F1's shape gate first (exit 1 with
+ *   `{ok:false,reason,path}` on read/parse/shape failure, mirroring F1), then
+ *   the DAG checks — exit 0 (well-formed) / non-zero (printing each violation
+ *   message to stderr) / 2 (usage).
+ *
+ *   `flow-epic-dag --frontier <path> --completed <ids> [--launched <ids>]` runs
+ *   the SAME shape + DAG gate first (identical error contract), then prints the
+ *   ready frontier `{ ok: true, frontier: [{ id, title }] }` for the given
+ *   completed/launched sets (comma-separated; absent flag = empty set). The LLM
+ *   supplies these sets from its own reconciliation — they are deliberately NOT
+ *   read from run.json (a stale hint).
  *
  * Kahn's in-degree machinery is used INTERNALLY by `topoSort` to prove
  * acyclicity. The orchestrator's ready frontier is now exported as the pure
@@ -233,15 +241,34 @@ export function computeFrontier(
   );
 }
 
-async function cliMain(argv: string[]): Promise<number> {
-  const flagIdx = argv.indexOf("--validate");
-  if (flagIdx === -1 || flagIdx === argv.length - 1) {
-    process.stderr.write(
-      "usage: flow-epic-dag --validate <path-to-manifest.json>\n",
-    );
-    return 2;
-  }
-  const path = argv[flagIdx + 1];
+const USAGE =
+  "usage: flow-epic-dag --validate <path-to-manifest.json>\n" +
+  "       flow-epic-dag --frontier <path-to-manifest.json> --completed <id,id,...> [--launched <id,id,...>]\n";
+
+/** Read the value token after `--flag`, or undefined when absent/at end. */
+function flagValue(argv: string[], flag: string): string | undefined {
+  const i = argv.indexOf(flag);
+  if (i === -1 || i === argv.length - 1) return undefined;
+  return argv[i + 1];
+}
+
+/** Split a comma-separated id list into a trimmed, empty-dropping array. */
+function parseIdList(csv: string | undefined): string[] {
+  if (csv === undefined) return [];
+  return csv
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/**
+ * Load + shape-gate + DAG-validate the manifest at `path`, printing the SAME
+ * `{ok:false,...}`-on-stderr contract `--validate` uses. Returns the validated
+ * features on success, or the exit code on failure.
+ */
+async function loadValidatedFeatures(
+  path: string,
+): Promise<{ ok: true; features: Feature[] } | { ok: false; code: number }> {
   let raw: string;
   try {
     raw = await Bun.file(path).text();
@@ -251,7 +278,7 @@ async function cliMain(argv: string[]): Promise<number> {
       JSON.stringify({ ok: false, reason: `read failed: ${reason}`, path }) +
         "\n",
     );
-    return 1;
+    return { ok: false, code: 1 };
   }
   let parsed: unknown;
   try {
@@ -265,7 +292,7 @@ async function cliMain(argv: string[]): Promise<number> {
         path,
       }) + "\n",
     );
-    return 1;
+    return { ok: false, code: 1 };
   }
 
   const shape = validateEpicManifest(parsed);
@@ -273,18 +300,50 @@ async function cliMain(argv: string[]): Promise<number> {
     process.stderr.write(
       JSON.stringify({ ok: false, reason: shape.reason, path }) + "\n",
     );
-    return 1;
+    return { ok: false, code: 1 };
   }
 
-  const result = validateDag(shape.value.features);
-  if (result.ok) {
-    process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+  const dag = validateDag(shape.value.features);
+  if (!dag.ok) {
+    for (const v of dag.violations) {
+      process.stderr.write(v.message + "\n");
+    }
+    return { ok: false, code: 1 };
+  }
+  return { ok: true, features: shape.value.features };
+}
+
+async function cliMain(argv: string[]): Promise<number> {
+  if (argv.includes("--frontier")) {
+    const path = flagValue(argv, "--frontier");
+    if (path === undefined) {
+      process.stderr.write(USAGE);
+      return 2;
+    }
+    const loaded = await loadValidatedFeatures(path);
+    if (!loaded.ok) return loaded.code;
+    const completed = parseIdList(flagValue(argv, "--completed"));
+    const launched = parseIdList(flagValue(argv, "--launched"));
+    const frontier = computeFrontier(loaded.features, { completed, launched });
+    process.stdout.write(
+      JSON.stringify({
+        ok: true,
+        frontier: frontier.map((f) => ({ id: f.id, title: f.title })),
+      }) + "\n",
+    );
     return 0;
   }
-  for (const v of result.violations) {
-    process.stderr.write(v.message + "\n");
+
+  const flagIdx = argv.indexOf("--validate");
+  if (flagIdx === -1 || flagIdx === argv.length - 1) {
+    process.stderr.write(USAGE);
+    return 2;
   }
-  return 1;
+  const path = argv[flagIdx + 1];
+  const loaded = await loadValidatedFeatures(path);
+  if (!loaded.ok) return loaded.code;
+  process.stdout.write(JSON.stringify({ ok: true }) + "\n");
+  return 0;
 }
 
 if (import.meta.main) {

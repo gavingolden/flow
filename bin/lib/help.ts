@@ -53,7 +53,7 @@ Usage:
                                         --slug uses an explicit slug instead of deriving one from the description;
                                         hard-fails if that slug's window already exists)
   flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
-  flow epic <create|run|status|ls|done> design and run an epic (create, run, status, ls, done)
+  flow epic <create|run|status|bind|launch|ls|done> design and run an epic
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
   flow done <name> [<name> ...]         close one or more pipeline windows
@@ -114,21 +114,31 @@ Options (resume):
 
 Usage:
   flow epic create [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning <alias>] "<prompt>"
-  flow epic run <slug> [--once] [--max-parallel <N>] [--model <alias>] [--model-judge <alias>]
-  flow epic status <slug>
+  flow epic run <slug> [--model <alias>]
+  flow epic status <slug> [--json]
+  flow epic bind <epic-slug> <feature-id> <feature-slug> [--force]
+  flow epic bind <epic-slug> <feature-id> --external "<ref>" [--force]
+  flow epic launch <epic-slug> <feature-id> [--force]
   flow epic ls
   flow epic done <slug> [--yes]
 
 Subcommands:
   create "<prompt>"     design an epic — open a tmux window running /epic-create
                         (clarify → design → validate → open the design PR)
-  run <slug>            drive a merged epic to completion: read the committed
-                        manifest, launch ready features as parallel
-                        \`flow feature create\` windows in dependency order, and
-                        watch for merges to advance the frontier until the epic
-                        finishes or blocks
+  run <slug>            open the /epic-run playbook window: an LLM reconciles the
+                        committed manifest against GitHub/git truth and takes one
+                        deliberate step at a time (no tick loop, no sub-agents).
+                        Also invocable directly as \`/epic-run <slug>\` in any
+                        existing Claude session
   status <slug>         render the live board (read-only): per-feature status,
-                        launched slug + PR + phase, and the current frontier
+                        launched slug + PR + phase, and the current frontier.
+                        --json emits a machine-readable board framed as a
+                        hypothesis to verify against GitHub/git
+  bind <epic> <id> ...  repoint or adopt a feature's run.json binding safely:
+                        \`<feature-slug>\` binds a live pipeline; \`--external
+                        "<ref>"\` records a completed out-of-band feature
+  launch <epic> <id>    atomically create + bind a feature (manifest read →
+                        \`flow feature create\` → binding recorded)
   ls                    list every epic under ~/.flow/epics with per-state
                         feature counts and overall status
   done <slug>           remove the recomputable per-machine ~/.flow/epics/<slug>/
@@ -145,13 +155,14 @@ Options (create):
                         feature planning knob). Precedence: --model-planning > config.models.planning > inherited
 
 Options (run):
-  --once                advance exactly one tick (launch the current frontier,
-                        print the board, exit) — no watch loop
-  --max-parallel <N>    cap concurrent feature windows (default 3, or
-                        ~/.flow/config.json epic.maxParallel)
   --model <alias>       whole-session Claude model alias for the /epic-run supervisor session
-  --model-judge <alias> model for the per-halt/deadlock judgment sub-agent.
-                        Precedence: --model-judge > config.models.epicJudge > inherited
+
+Options (bind / launch):
+  --external "<ref>"    (bind) record a completed out-of-band feature (a PR/issue
+                        that merged with no flow pipeline); no live slug
+  --force               overwrite a differing existing binding (bind) / relaunch
+                        an already-bound feature (launch); on bind also bypasses
+                        the target-slug typo guard
 
 Options (done):
   --yes, -y             skip the confirmation prompt`,

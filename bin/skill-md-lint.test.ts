@@ -4072,16 +4072,16 @@ describe("/epic-create supervisor SKILL.md literal anchors", () => {
   });
 });
 
-describe("/epic-run supervisor SKILL.md literal anchors", () => {
-  // Durable structural guards for the /epic-run supervisor (Task 5). These go
-  // red on `npm run verify` if any load-bearing literal — the two byte-exact
-  // judgment contracts (gated ⇒ escalate-only, escalate-on-exhaustion), the
-  // seed-prefix it parses, the EPIC_DIR/R1 no-bin/lib constraint, the bare-name
-  // judgment-context helper, the sanctioned retry actuator, OR the four hard
-  // invariants — is dropped from the skill. STANDALONE block so it does NOT
-  // disturb the "exactly 9 Task-tool exemptions" / two-AskUserQuestion-forms
-  // assertions (which are /flow-pipeline-anchored and must stay green): /epic-run
-  // is a SEPARATE sanctioned supervisor session, not a /flow-pipeline exemption.
+describe("/epic-run playbook SKILL.md literal anchors", () => {
+  // Durable structural guards for the /epic-run PLAYBOOK (the rebuild). These go
+  // red on `npm run verify` if any load-bearing literal — the four recipe
+  // headings, the hard invariants, the seed-prefix, the EPIC_DIR/R1 no-bin/lib
+  // constraint, the hypothesis framing, the safe-write actuators, or the
+  // duplicate-check commands — is dropped; and if any loop-era literal (the tick
+  // primitive, AUTO_REDIRECT, --relaunch-slug, the judgment Task opener)
+  // reappears. STANDALONE block so it does NOT disturb the "exactly 9 Task-tool
+  // exemptions" / two-AskUserQuestion-forms assertions: /epic-run is a SEPARATE
+  // sanctioned session that spawns NO Task fan-out and fires NO AskUserQuestion.
   const EPIC_RUN_SKILL_MD_PATH = path.resolve(
     HERE,
     "..",
@@ -4093,52 +4093,39 @@ describe("/epic-run supervisor SKILL.md literal anchors", () => {
   const epicRunContent = fs.readFileSync(EPIC_RUN_SKILL_MD_PATH, "utf8");
 
   const REQUIRED_LITERALS: Array<[string, string]> = [
-    // The two byte-exact judgment contracts the plan's Stories 2 + 3 lint.
+    // The four recipe headings the playbook teaches.
+    ["reconcile-drift", "the reconcile-cache-against-truth recipe heading"],
+    [
+      "launch-next",
+      "the frontier-then-duplicate-check-then-launch recipe heading",
+    ],
+    ["amend-manifest", "the edit-and-validate-the-manifest recipe heading"],
+    ["delete-when-done", "the flow-epic-done cleanup recipe heading"],
+    // The byte-exact hard invariants.
     [
       "gated ⇒ escalate-only, never override",
       "the gated-escalate-only hard invariant (a gated verdict is terminal)",
     ],
-    [
-      "escalate-on-exhaustion",
-      "the bounded-retry contract (budget reached ⇒ escalate, not retry)",
-    ],
-    // The deterministic-tick + judgment-context wiring.
-    [
-      "flow epic run <slug> --once --json",
-      "the deterministic JSON tick primitive",
-    ],
-    ["flow-epic-judge-context", "the bare-name judgment-context helper"],
+    ["escalate-on-exhaustion", "the human-in-the-loop bounded-retry contract"],
+    // The hypothesis framing + the deterministic hands.
+    ["flow epic status <slug> --json", "the machine-readable hypothesis board"],
+    ["hypothesis", "the framing that the board is a hypothesis to verify"],
+    ["flow-epic-dag --frontier", "the exact ready-frontier math hand"],
+    ["flow-epic-judge-context", "the bare-name feature-evidence helper"],
+    ["flow epic bind", "the #1 drift-repair safe-write primitive"],
+    ["flow epic launch", "the atomic create+bind primitive"],
     [
       "flow feature resume <feature-slug> --force",
       "the sanctioned clean-respawn retry actuator (never send-keys)",
     ],
-    ["budgetExhausted", "the run-state retry-budget flag the contract reads"],
-    [
-      "redirectExhausted",
-      "the run-state redirect-budget flag the gated-autonomous-redirect contract reads",
-    ],
-    [
-      "AUTO_REDIRECT",
-      "the seed line (producer bin/lib/epic.ts) the supervisor parses to gate autonomous redirect",
-    ],
-    [
-      "--relaunch-slug",
-      "the sanctioned redirect actuator flag that repoints the feature to the relaunched slug",
-    ],
+    // The duplicate-check recipe commands.
+    ["gh pr list", "a duplicate-check truth probe"],
+    ["git worktree list", "a duplicate-check truth probe"],
     // The seed-prefix it parses + the R1 no-bin/lib constraint.
     ["Use the /epic-run skill for:", "the seed-prompt prefix it parses"],
     ["EPIC_DIR", "the literal epic path embedded by the CLI (R1)"],
     ["never import", "the R1 no-bin/lib-import constraint"],
-    // The judgment sub-agent Task surface (this PR).
-    [
-      "Task-tool fan-out: /epic-run → judgment sub-agent (per halt/deadlock event)",
-      "the named judgment-sub-agent Task surface opener",
-    ],
-    [
-      "task-tool-unavailable: epic-run-judgment",
-      "the escalate-on-Task-miss NEEDS HUMAN tag",
-    ],
-    ['ToolSearch query="select:Task"', "the Task-schema load preamble"],
+    ["never hand-edit run.json", "the safe-write-only invariant"],
   ];
 
   it.each(REQUIRED_LITERALS)(
@@ -4147,51 +4134,75 @@ describe("/epic-run supervisor SKILL.md literal anchors", () => {
       expect(
         epicRunContent.includes(literal),
         `skills/pipeline/epic-run/SKILL.md must contain '${literal}'. ` +
-          `Dropping it breaks the /epic-run supervisor's contract (the judgment ` +
-          `acceptance lints this literal); restore it or update this anchor in ` +
-          `lockstep.`,
+          `Dropping it breaks the /epic-run playbook's contract; restore it or ` +
+          `update this anchor in lockstep.`,
       ).toBe(true);
     },
   );
 
-  it("names the four hard invariants (no merge / no override / no send-keys / gated-autonomous-redirect corollary)", () => {
+  const ABSENT_LITERALS: Array<[string, string]> = [
+    ["--once --json", "the removed deterministic tick primitive"],
+    ["AUTO_REDIRECT", "the removed autonomous-redirect seed line"],
+    ["--relaunch-slug", "the removed redirect-actuator flag"],
+    [
+      "Task-tool fan-out: /epic-run → judgment sub-agent",
+      "the removed judgment sub-agent Task surface opener",
+    ],
+  ];
+
+  it.each(ABSENT_LITERALS)(
+    "epic-run/SKILL.md no longer contains the loop-era literal %j (%s)",
+    (literal) => {
+      expect(
+        epicRunContent.includes(literal),
+        `skills/pipeline/epic-run/SKILL.md must NOT contain '${literal}' — the ` +
+          `tick loop + judgment machinery were removed in the playbook rebuild.`,
+      ).toBe(false);
+    },
+  );
+
+  it("names the four hard invariants (no merge / no gated override / no send-keys / no hand-edit)", () => {
     expect(
       /never\s+merge\s+a\s+feature\s+PR/i.test(epicRunContent),
-      "epic-run/SKILL.md must state the supervisor NEVER merges a feature PR.",
+      "epic-run/SKILL.md must state the playbook NEVER merges a feature PR.",
     ).toBe(true);
     expect(
       /never\s+override\s+a\s+gated\s+verdict/i.test(epicRunContent),
-      "epic-run/SKILL.md must state the supervisor NEVER overrides a gated verdict.",
+      "epic-run/SKILL.md must state the playbook NEVER overrides a gated verdict.",
     ).toBe(true);
     expect(
       /send-keys/i.test(epicRunContent),
       "epic-run/SKILL.md must forbid send-keys into a feature window (retry is a " +
         "clean respawn).",
     ).toBe(true);
-    // The 4th invariant flipped from "no autonomous redirect in v1" to the
-    // gated autonomous-redirect contract: autonomous redirect IS actuated when
-    // enabled, but NEVER on a gated feature (the corollary of gated ⇒
-    // escalate-only). Assert the gated-corollary literal, not the old ban.
     expect(
-      /redirect\s+never\s+fires\s+on\s+a\s+gated\s+feature/i.test(
-        epicRunContent,
-      ),
-      "epic-run/SKILL.md must state the gated-autonomous-redirect corollary " +
-        "'redirect never fires on a gated feature' (autonomous redirect is " +
-        "actuated when enabled but never overrides a gated verdict).",
+      /never\s+hand-edit\s+run\.json/i.test(epicRunContent),
+      "epic-run/SKILL.md must forbid hand-editing run.json (use flow epic bind).",
     ).toBe(true);
   });
 
-  it("registers the judgment-sub-agent surface bidirectionally in AGENTS.md", () => {
-    // The named Task surface must appear with the same opener literal in both
-    // the SKILL and AGENTS.md, mirroring the /epic-create bidirectional
-    // registration — so neither doc can drift out of sync with the other.
-    const OPENER =
-      "Task-tool fan-out: /epic-run → judgment sub-agent (per halt/deadlock event)";
+  it("agrees bidirectionally with AGENTS.md that the session spawns NO Task fan-out and fires NO AskUserQuestion", () => {
+    // The rebuilt /epic-run session has ZERO named fan-out surfaces. Both docs
+    // must state it spawns no Task/Agent and fires no AskUserQuestion form, so
+    // neither can drift into re-introducing one.
     expect(
-      agentsContent.includes(OPENER),
-      "AGENTS.md's /epic-run bullet must name the judgment-sub-agent Task " +
-        `surface opener '${OPENER}' (bidirectional with epic-run/SKILL.md).`,
+      /spawns?\s+(NO|no)\s+Task/i.test(epicRunContent) ||
+        /NO\s+Task\/Agent/i.test(epicRunContent),
+      "epic-run/SKILL.md must state it spawns NO Task/Agent sub-agent.",
+    ).toBe(true);
+    expect(
+      /AskUserQuestion/i.test(epicRunContent),
+      "epic-run/SKILL.md must state it fires NO AskUserQuestion form.",
+    ).toBe(true);
+    expect(
+      agentsContent.includes("/epic-run") &&
+        /epic-run[\s\S]{0,600}?(no|zero)[\s\S]{0,80}?Task/i.test(agentsContent),
+      "AGENTS.md's /epic-run bullet must state the playbook session spawns no " +
+        "Task fan-out (bidirectional with epic-run/SKILL.md).",
+    ).toBe(true);
+    expect(
+      /epic-run[\s\S]{0,600}?AskUserQuestion/i.test(agentsContent),
+      "AGENTS.md's /epic-run bullet must state it fires no AskUserQuestion form.",
     ).toBe(true);
   });
 });
@@ -4218,7 +4229,6 @@ describe("per-phase model-routing wiring lint (feature: per-phase model selectio
       "modelFixApplier",
       "modelConsolidator",
       "modelMergeResolver",
-      "modelJudge",
     ]) {
       expect(
         routing.includes(field),
@@ -4244,7 +4254,6 @@ describe("per-phase model-routing wiring lint (feature: per-phase model selectio
     ["pr-review/SKILL.md", "modelFixApplier", "config.models.fixApplier"],
     ["pr-review/SKILL.md", "modelConsolidator", "config.models.consolidator"],
     ["epic-create/SKILL.md", "modelPlanning", "config.models.planning"],
-    ["epic-run/SKILL.md", "modelJudge", "config.models.epicJudge"],
   ])(
     "%s names the %s resolution field + %s precedence key at its spawn site",
     (skill, field, cfgKey) => {

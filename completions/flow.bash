@@ -149,7 +149,7 @@ _flow() {
                 COMPREPLY=( $(compgen -W "--resume --effort --model --model-planning" -- "$cur") )
             elif [ "$esub" = "run" ]; then
                 case "$prev" in
-                    --model|--model-judge)
+                    --model)
                         # shellcheck disable=SC2207
                         COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
                         return
@@ -157,11 +157,26 @@ _flow() {
                 esac
                 if [[ "$cur" == -* ]]; then
                     # shellcheck disable=SC2207
-                    COMPREPLY=( $(compgen -W "--once --max-parallel --model --model-judge" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "--model" -- "$cur") )
+                fi
+            elif [ "$esub" = "status" ]; then
+                if [[ "$cur" == -* ]]; then
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "--json" -- "$cur") )
+                fi
+            elif [ "$esub" = "bind" ]; then
+                if [[ "$cur" == -* ]]; then
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "--external --force" -- "$cur") )
+                fi
+            elif [ "$esub" = "launch" ]; then
+                if [[ "$cur" == -* ]]; then
+                    # shellcheck disable=SC2207
+                    COMPREPLY=( $(compgen -W "--force" -- "$cur") )
                 fi
             else
                 # shellcheck disable=SC2207
-                COMPREPLY=( $(compgen -W "create run status ls" -- "$cur") )
+                COMPREPLY=( $(compgen -W "create run status bind launch ls" -- "$cur") )
             fi
             ;;
         ls)

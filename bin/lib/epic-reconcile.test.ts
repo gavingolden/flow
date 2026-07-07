@@ -303,3 +303,62 @@ describe("classifyEvent — the /epic-run event taxonomy (derived from Reconcile
     expect(classifyEvent(result)).toEqual({ kind: "done" });
   });
 });
+
+describe("reconcile — external completion", () => {
+  /** A runState with an explicit external record (no slug) for `id`. */
+  function externalRunState(
+    id: string,
+    ref: string,
+    others: Record<string, FeatureRunRecord> = {},
+  ): EpicRunState {
+    return {
+      epicSlug: "watchlist",
+      repo: "/tmp/repo",
+      manifestPath: "/tmp/repo/.flow/epics/watchlist/manifest.json",
+      manifestSha: "sha",
+      maxParallel: 3,
+      createdAt: "2026-06-28T00:00:00Z",
+      updatedAt: "2026-06-28T00:00:00Z",
+      features: {
+        [id]: { external: ref, completedAt: "2026-06-28T00:00:00Z" },
+        ...others,
+      },
+    };
+  }
+
+  it("classifies an external record as merged without reading any pipeline state", () => {
+    const m = manifest([feat("a")]);
+    // readFeatureState throws if called — an external record must not touch it.
+    const throwingState: ReadFeatureState = () => {
+      throw new Error(
+        "readFeatureState must not be called for an external record",
+      );
+    };
+    const result = reconcile({
+      manifest: m,
+      runState: externalRunState("a", "PR #123"),
+      readFeatureState: throwingState,
+      maxParallel: 3,
+    });
+    const row = result.board.find((r) => r.id === "a")!;
+    expect(row.status).toBe("merged");
+    expect(row.external).toBe(true);
+    expect(row.slug).toBeUndefined();
+    expect(result.summary.merged).toBe(1);
+    expect(result.epicStatus).toBe("done");
+  });
+
+  it("an external-completed dependency unblocks its dependents (they become ready)", () => {
+    const m = manifest([feat("a"), feat("b", ["a"])]);
+    const result = reconcile({
+      manifest: m,
+      // a completed external; b not launched → b should be ready (dep satisfied).
+      runState: externalRunState("a", "PR #7"),
+      readFeatureState: noState,
+      maxParallel: 3,
+    });
+    const b = result.board.find((r) => r.id === "b")!;
+    expect(b.status).toBe("ready");
+    expect(result.toLaunch.map((f) => f.id)).toContain("b");
+  });
+});

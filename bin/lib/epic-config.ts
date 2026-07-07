@@ -7,8 +7,10 @@
  * to the built-in default. `paths.ts`'s private `FlowConfig` type only knows
  * `source?`, so this is a net-new key reader, not an extension of `readConfig`.
  *
- * Consumed by `epic.ts`'s run arm as the `--max-parallel` fallback (the flag,
- * when present, overrides this).
+ * Consumed by `epic.ts`'s status/ls board as the concurrency-capacity hint.
+ * (The judgment-layer readers — `epic.judgment` / `epic.autoRedirect` /
+ * `epic.maxRetries` / `epic.maxRedirects` — were removed with the tick loop;
+ * `maxParallel` is the only `epic.*` config key still read.)
  */
 
 import * as fs from "node:fs";
@@ -16,18 +18,6 @@ import { FLOW_CONFIG } from "./paths";
 
 /** Concurrency cap default when `epic.maxParallel` is unset/invalid. */
 export const DEFAULT_MAX_PARALLEL = 3;
-
-/** `/epic-run` judgment-layer default when `epic.judgment` is unset/invalid. */
-export const DEFAULT_EPIC_JUDGMENT = true;
-
-/** Per-feature retry-budget default when `epic.maxRetries` is unset/invalid. */
-export const DEFAULT_EPIC_MAX_RETRIES = 2;
-
-/** `/epic-run` autonomous-redirect default when `epic.autoRedirect` is unset/invalid. */
-export const DEFAULT_EPIC_AUTO_REDIRECT = true;
-
-/** Per-feature redirect-budget default when `epic.maxRedirects` is unset/invalid. */
-export const DEFAULT_EPIC_MAX_REDIRECTS = 1;
 
 /**
  * Config-read seam. Returns the raw parsed JSON, or `undefined` when the file
@@ -61,87 +51,4 @@ export function readEpicMaxParallel(
   read: ReadConfigFile = defaultReadConfigFile,
 ): number {
   return extractEpicMaxParallel(read()) ?? DEFAULT_MAX_PARALLEL;
-}
-
-function extractEpicJudgment(raw: unknown): boolean | undefined {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const epic = (raw as Record<string, unknown>).epic;
-  if (typeof epic !== "object" || epic === null) return undefined;
-  const b = (epic as Record<string, unknown>).judgment;
-  return typeof b === "boolean" ? b : undefined;
-}
-
-/**
- * The configured `epic.judgment` when it is a boolean, else the default `true`
- * (the LLM-judgment layer is on by default). A valid `false` is honoured — the
- * `??` falls through only on `undefined` (absent/malformed/wrong-typed).
- */
-export function readEpicJudgment(
-  read: ReadConfigFile = defaultReadConfigFile,
-): boolean {
-  return extractEpicJudgment(read()) ?? DEFAULT_EPIC_JUDGMENT;
-}
-
-function extractEpicMaxRetries(raw: unknown): number | undefined {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const epic = (raw as Record<string, unknown>).epic;
-  if (typeof epic !== "object" || epic === null) return undefined;
-  const n = (epic as Record<string, unknown>).maxRetries;
-  // A budget of 0 (escalate on first halt) is a legitimate cost-conscious
-  // value, so — unlike maxParallel's `n > 0` — we accept any non-negative
-  // integer; negative / float / wrong-typed collapse to the default.
-  return typeof n === "number" && Number.isInteger(n) && n >= 0 ? n : undefined;
-}
-
-/**
- * The configured `epic.maxRetries` when it is a non-negative integer, else the
- * default 2. Never throws — a missing/corrupt config collapses to the default
- * through the boundary reader's `catch`.
- */
-export function readEpicMaxRetries(
-  read: ReadConfigFile = defaultReadConfigFile,
-): number {
-  return extractEpicMaxRetries(read()) ?? DEFAULT_EPIC_MAX_RETRIES;
-}
-
-function extractEpicAutoRedirect(raw: unknown): boolean | undefined {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const epic = (raw as Record<string, unknown>).epic;
-  if (typeof epic !== "object" || epic === null) return undefined;
-  const b = (epic as Record<string, unknown>).autoRedirect;
-  return typeof b === "boolean" ? b : undefined;
-}
-
-/**
- * The configured `epic.autoRedirect` when it is a boolean, else the default
- * `true` (autonomous redirect is on by default). A valid `false` is honoured —
- * the `??` falls through only on `undefined` (absent/malformed/wrong-typed).
- */
-export function readEpicAutoRedirect(
-  read: ReadConfigFile = defaultReadConfigFile,
-): boolean {
-  return extractEpicAutoRedirect(read()) ?? DEFAULT_EPIC_AUTO_REDIRECT;
-}
-
-function extractEpicMaxRedirects(raw: unknown): number | undefined {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  const epic = (raw as Record<string, unknown>).epic;
-  if (typeof epic !== "object" || epic === null) return undefined;
-  const n = (epic as Record<string, unknown>).maxRedirects;
-  // A budget of 0 (escalate instead of redirecting on first halt) is a
-  // legitimate cost-conscious value, so — unlike maxParallel's `n > 0` — we
-  // accept any non-negative integer; negative / float / wrong-typed collapse
-  // to the default.
-  return typeof n === "number" && Number.isInteger(n) && n >= 0 ? n : undefined;
-}
-
-/**
- * The configured `epic.maxRedirects` when it is a non-negative integer, else
- * the default 1. Never throws — a missing/corrupt config collapses to the
- * default through the boundary reader's `catch`.
- */
-export function readEpicMaxRedirects(
-  read: ReadConfigFile = defaultReadConfigFile,
-): number {
-  return extractEpicMaxRedirects(read()) ?? DEFAULT_EPIC_MAX_REDIRECTS;
 }
