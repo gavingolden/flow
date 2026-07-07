@@ -30,7 +30,7 @@ export type SpawnSite = {
   /**
    * The `PipelineState` field a `--model-<phase>` (or `--model`) flag writes,
    * when this site has one. `scout`/`coder` share `modelImplement`; the
-   * gatekeeper and epic-judge have none (pinned / run-state respectively).
+   * gatekeeper has none (pinned).
    */
   stateField?: keyof PipelineState & string;
   /** The `config.models.<key>` this site's primary config grain reads. */
@@ -115,9 +115,6 @@ export const SPAWN_SITES: readonly SpawnSite[] = [
   // config grain, never inherits. config.models.gatekeeper is reachable but
   // deliberately NOT wired here.
   { phase: "gatekeeper", fallback: "pinned-haiku" },
-  // epic-judge's per-run override lives in ~/.flow/epics/<slug>/run.json, not
-  // feature state.json — so it has no feature-state field here.
-  { phase: "epic-judge", configKey: "epicJudge", fallback: "inherited" },
 ] as const;
 
 /** Deduped list of every `config.models.<key>` the sites read. */

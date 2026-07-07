@@ -60,7 +60,6 @@ describe("runConfigModelsCli", () => {
       "consolidator",
       "merge-resolver",
       "gatekeeper",
-      "epic-judge",
     ]) {
       expect(table).toContain(phase);
     }
@@ -91,7 +90,7 @@ describe("runConfigModelsCli", () => {
     expect(out.length).toBe(1);
     const parsed = JSON.parse(out[0]);
     expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed.length).toBeGreaterThanOrEqual(11);
+    expect(parsed.length).toBeGreaterThanOrEqual(10);
     for (const r of parsed) {
       expect(r).toHaveProperty("phase");
       expect(r).toHaveProperty("model");

@@ -60,7 +60,6 @@ describe("resolveRouting — fallback branches (empty config + state)", () => {
       "review",
       "consolidator",
       "merge-resolver",
-      "epic-judge",
     ]) {
       expect(row(rows, phase)).toMatchObject({
         model: "",
@@ -223,8 +222,8 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
   );
   const parsed = parsePrecedenceTable(md);
 
-  it("parses the ten precedence-table rows", () => {
-    expect(parsed.length).toBe(10);
+  it("parses the nine precedence-table rows", () => {
+    expect(parsed.length).toBe(9);
     for (const r of parsed) expect(r.fallback).not.toBe("unknown");
   });
 
@@ -232,13 +231,7 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
     for (const r of parsed) {
       const site = matchSite(r);
       expect(site, `no site for ${JSON.stringify(r)}`).toBeDefined();
-      // epic-judge's `modelJudge` lives in run-state, not feature state.json —
-      // its site carries no feature-state field (table-field is exempt).
-      if (r.stateField === "modelJudge") {
-        expect(site!.stateField).toBeUndefined();
-      } else {
-        expect(site!.stateField).toBe(r.stateField);
-      }
+      expect(site!.stateField).toBe(r.stateField);
     }
   });
 
@@ -273,7 +266,6 @@ describe("drift lint: SPAWN_SITES agrees with model-routing.md", () => {
     expect(CONFIG_KEYS).toContain("default");
     expect(CONFIG_KEYS).toContain("implement");
     expect(CONFIG_KEYS).toContain("scout");
-    expect(CONFIG_KEYS).toContain("epicJudge");
     expect(new Set(CONFIG_KEYS).size).toBe(CONFIG_KEYS.length);
   });
 });
