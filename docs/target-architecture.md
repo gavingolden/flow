@@ -249,6 +249,19 @@ the PATH-bound schema validators. Always installed.
 | `skills/universal/skill-creator`           | `flow-skill-creator`    | authoring new skills                                                       |
 | `skills/universal/testing` (generic split) | `flow-testing`          | framework-agnostic testing skill (the generic half of the `testing` split) |
 
+> **`testing` split is a Phase-2 materialization — the Phase-1 registry
+> assigns the pre-split dir wholly to `core`.** The single current
+> `skills/universal/testing` directory appears in two rows above — `core`
+> (`flow-testing`) and `stack-svelte` (`flow-testing-svelte`) — because those
+> rows describe the **post-split** target the `p2-flow-prefix-rename` sweep
+> produces (D11). Until that sweep lands, the one dir cannot map to two
+> modules, so **at Phase 1 the completeness lint (which scopes to current
+> `skills/*/` dirs) assigns the whole `skills/universal/testing` dir to
+> `core`**; the `stack-svelte` `flow-testing-svelte` row activates only once
+> the split materializes in Phase 2. This keeps the one-artifact-one-module
+> partition true at every phase: exactly one owner pre-split (`core`), exactly
+> one owner for each half post-split.
+
 **Agents**
 
 | Current                      | Role                    | Frontmatter pin            |
