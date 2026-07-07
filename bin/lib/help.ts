@@ -54,6 +54,10 @@ Usage:
                                         hard-fails if that slug's window already exists)
   flow feature resume <name> [<name> ...]  resume one or more crashed pipelines (>=2 prompts to confirm; -y/--yes bypasses)
   flow epic <create|run|status|bind|launch|ls|done> design and run an epic
+  flow config models [--slug <name>] [--json]
+                                        show the resolved model + effort + source for every
+                                        pipeline phase and fan-out sub-agent (--slug overlays a
+                                        pipeline's per-run overrides; --json emits machine-readable rows)
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
   flow done <name> [<name> ...]         close one or more pipeline windows
@@ -166,6 +170,29 @@ Options (bind / launch):
 
 Options (done):
   --yes, -y             skip the confirmation prompt`,
+
+  config: `flow config — inspect flow configuration
+
+Usage:
+  flow config models [--slug <name>] [--json]
+
+Subcommands:
+  models                print the effective Claude model + reasoning effort for
+                        every pipeline phase and fan-out sub-agent (session,
+                        planning, scout, coder, verify, review, fix-applier,
+                        consolidator, merge-resolver, gatekeeper, epic-judge),
+                        with a SOURCE column showing where each value resolved
+                        from (per-run flag/state, global config, built-in
+                        fallback, pinned, or inherited-session)
+
+Options (models):
+  --slug <name>         overlay a specific pipeline's ~/.flow/state/<name>.json
+                        per-run overrides on top of the global-defaults view;
+                        a name with no state file exits non-zero (no table)
+  --json                emit the rows as a machine-readable JSON array
+                        ({phase, model, source, effort}) with no color or footer
+
+Read-only: reports routing, not spend — see 'flow ls --cost' for realized cost.`,
 
   ls: `flow ls — list active pipelines
 

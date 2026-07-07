@@ -22,6 +22,7 @@ import { runCompletion } from "./lib/completion";
 import { printTopHelp, runHelpVerb } from "./lib/help";
 import { runDoneCli } from "./lib/done";
 import { runEpicCli } from "./lib/epic";
+import { runConfigCli } from "./lib/config";
 import { runLsCli } from "./lib/ls";
 import { runFeatureCli } from "./lib/feature";
 import { runSetupCli } from "./lib/setup-args";
@@ -57,6 +58,8 @@ async function runVerb(verb: string, args: string[]): Promise<number> {
       return runFeatureCli(args);
     case "epic":
       return runEpicCli(args);
+    case "config":
+      return runConfigCli(args);
     case "attach":
     case "a":
       return runAttachCli(args);

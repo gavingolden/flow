@@ -21,6 +21,10 @@ describe("VERBS / isVerb", () => {
     }
   });
 
+  it("recognises the config verb group", () => {
+    expect(isVerb("config")).toBe(true);
+  });
+
   it("VERBS contains no removed entry", () => {
     for (const removed of ["new", "setup", "migrate"]) {
       expect(VERBS).not.toContain(removed);
