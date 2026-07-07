@@ -371,8 +371,9 @@ match `manifest.json` exactly; full acceptance criteria live there.
   `flow-`-prefixed directory names recorded per skill), `## Roadmap`
   (phases 1–6 with entry/exit criteria: plain-default runtime for Phase 3,
   the D7 consolidation map for Phase 4, the three-candidate distribution
-  evaluation for Phase 6). Reuses `.flow-tmp/plan.md` content with the
-  redirect deltas applied (see Open Questions).
+  evaluation for Phase 6). Reuses the Phase-1 PRD content (task breakdown
+  carried durably in § 7 below) with the redirect deltas applied (see
+  Open Questions).
 
 **p1-module-registry-install · Module registry + selection-aware flow install — [MVP]**
 
@@ -624,14 +625,15 @@ p1-module-registry-install` — Phase 1 exactly: a stated target
 - **Phase-1 prior art reuse — with redirect deltas.** Phase-1 scope was
   already planned at _feature grain_ in this worktree's `.flow-tmp/plan.md`
   (full 6-task breakdown, AGY-reviewed decision analysis, PR-description
-  draft). The first two nodes must **reuse it, not re-derive it** — but with
-  the redirect deltas applied: the doc lands as
+  draft). Because `.flow-tmp/` does not survive the worktree, the Tasks 2–6
+  breakdown + acceptance criteria are now carried durably in **§ 7** of this
+  doc, so `p1-module-registry-install`'s feature pipeline **reuses it, not
+  re-derives it** — with the redirect deltas applied: the doc lands as
   `docs/target-architecture.md` (not `plugin-architecture.md`), plugins
   appear as one candidate end-state, the Roadmap's Phase 3 is plain-default,
   and the module map records the `flow-` target names + testing split.
-  `.flow-tmp/` does not survive the worktree; until `p1-design-doc` merges,
-  this design.md carries the summary. Confirm the reuse-with-deltas pointer
-  is acceptable as the handoff.
+  (Resolved from the earlier open handoff question by pasting the breakdown
+  into § 7.)
 - **Distribution end-state is genuinely open (redirect-ratified).** The
   module-layer-now decision stands, but Claude plugins are no longer the
   assumed terminus — `p6-distribution-eval` chooses among plugins,
@@ -700,3 +702,65 @@ p1-module-registry-install` — Phase 1 exactly: a stated target
 - **Scope check:** genuinely epic-sized — six phases, 15 PR-sized nodes,
   code + docs + skills + naming + distribution surfaces; not a single
   feature.
+
+## 7. Phase-1 feature-grain task breakdown (durable carrier)
+
+This section carries the Phase-1 feature-grain task breakdown forward
+durably, so `p1-module-registry-install`'s feature pipeline reuses it
+rather than re-planning. It was authored at feature grain in the
+epic-design worktree's transient `.flow-tmp/plan.md` (which does not
+survive the worktree); the tasks below are the Tasks 2–6 that
+`p1-module-registry-install` covers (Task 1 is `p1-design-doc`, this doc
+itself). Each task's acceptance criteria are machine-checkable exit
+conditions the child pipeline's Test Steps inherit. Registry rows encode
+the CURRENT skill directory names at merge time; `p2-flow-prefix-rename`
+rewrites them in its sweep.
+
+**Task 2 — Module registry `bin/lib/modules.ts`.** Typed, pure-data
+registry: `MODULES` table (id, description, `skills[]`, `agents[]`,
+`helpers[]`, `validators[]`); `core` mandatory; no behaviour, so a later
+distribution re-cut edits rows not logic. Export lookup +
+"resolve selection → artifact set" functions. Completeness lint in
+`bin/lib/modules.test.ts`. _Depends on:_ the `## Module map` (§ above).
+_Acceptance:_ `npm run test -- bin/lib/modules.test.ts` green, including
+the no-orphan / no-double-assignment lint proving every dir under
+`skills/*/`, every `agents/*.md`, and every PATH-bound helper maps to
+exactly one module.
+
+**Task 3 — Selection persistence + flags.** Tolerant boundary
+reader/writer for `~/.flow/config.json` `modules` (array of ids; absent ≡
+unset; wrong type → warn + unset — mirror `models-config.ts`). Extend
+`setup-args.ts`: `--modules <csv>`, `--all`, `--core-only`, with
+mutual-exclusion + unknown-id validation. _Depends on:_ Task 2.
+_Acceptance:_ arg-parse and config round-trip specs pass; an unknown id
+exits non-zero naming it and links nothing.
+
+**Task 4 — Interactive Q&A + defaults.** In `setup.ts`, resolution order
+flag > recorded config > (TTY ? per-optional-module Q&A via the
+`confirm.ts` injection seam : core-only + a one-line notice naming
+`--modules`/`--all`). Persist the resolved selection; `--upgrade` never
+re-asks. _Depends on:_ Task 3. _Acceptance:_ a TTY-and-no-recorded-config
+run prompts once per optional module and writes the selection; a recorded
+selection re-links without prompting; a non-TTY run defaults to core with
+the notice (all three asserted in `setup.test.ts` via the confirm seam).
+
+**Task 5 — Selection-aware discovery + prune.** Filter `discoverAll`
+output by the resolved artifact set (wrapper, completions, validators stay
+core). Prune: diff the recorded manifest against the new selection and
+remove symlinks the selection no longer owns, via the existing manifest
+removal machinery. _Depends on:_ Tasks 2–4. _Acceptance:_ a `--modules
+core,research` install links only those modules' artifacts (svelte/tailwind
+skills absent from the target); a prior `--all` install narrowed to
+`--modules core` removes the previously-linked non-core symlinks (user's own
+non-flow files untouched); a set-equality spec pins `--all` ≡ pre-change
+install output byte-for-byte.
+
+**Task 6 — Docs + install UX polish.** README `## Install` section (Q&A,
+flags, how to change selection later), CONTRIBUTING pointer, and a `flow
+install` summary output that groups links by module. _Depends on:_ Tasks
+1–5 landed. _Acceptance:_ docs-scope checks (`flow-md-validate .`, lint)
+pass; the summary output is covered by an existing-style setup test.
+
+_Deferred-to-node-planning:_ whether Task 2's registry+flags and Tasks
+4–5's Q&A+prune warrant a sub-split if the node proves oversized (the
+"Phase-1 grain" Open Question above).
