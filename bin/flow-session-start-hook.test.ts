@@ -1,11 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { buildEnvelope, run, type Deps } from "./flow-session-start-hook";
+import {
+  deliverResumeSeed,
+  run,
+  type DeliverSeams,
+  type Deps,
+} from "./flow-session-start-hook";
 import { flowPipelineResumeSeed } from "./lib/feature";
 import { TERMINAL_PHASES, type PipelineState } from "./lib/state";
 
 type Stub = {
   deps: Deps;
-  outLines: string[];
+  dispatched: string[];
   loadCalls: string[];
 };
 
@@ -16,7 +21,7 @@ function makeDeps(opts: {
   state?: PipelineState | null;
   markerExists?: boolean;
 }): Stub {
-  const outLines: string[] = [];
+  const dispatched: string[] = [];
   const loadCalls: string[] = [];
   const deps: Deps = {
     readStdin: async () => opts.stdin ?? "",
@@ -27,11 +32,11 @@ function makeDeps(opts: {
       return opts.state ?? null;
     },
     markerExists: () => opts.markerExists ?? false,
-    writeOut: (s) => {
-      outLines.push(s);
+    dispatchResume: (slug) => {
+      dispatched.push(slug);
     },
   };
-  return { deps, outLines, loadCalls };
+  return { deps, dispatched, loadCalls };
 }
 
 function fakeState(
@@ -47,21 +52,9 @@ function fakeState(
   };
 }
 
-describe("buildEnvelope", () => {
-  it("wraps the resume seed in the SessionStart additionalContext envelope", () => {
-    const env = JSON.parse(buildEnvelope("csv-export")) as {
-      hookSpecificOutput: { hookEventName: string; additionalContext: string };
-    };
-    expect(env.hookSpecificOutput.hookEventName).toBe("SessionStart");
-    expect(env.hookSpecificOutput.additionalContext).toBe(
-      flowPipelineResumeSeed("csv-export"),
-    );
-  });
-});
-
-describe("flow-session-start-hook — emits the resume seed", () => {
-  it("emits the envelope for a non-terminal flow slug WITH a checkpoint.pending marker", async () => {
-    const { deps, outLines } = makeDeps({
+describe("flow-session-start-hook — dispatches the resume seed", () => {
+  it("dispatches for a non-terminal flow slug WITH a checkpoint.pending marker", async () => {
+    const { deps, dispatched } = makeDeps({
       stdin: JSON.stringify({ hook_event_name: "SessionStart" }),
       pane: "%1",
       slug: "demo",
@@ -69,119 +62,271 @@ describe("flow-session-start-hook — emits the resume seed", () => {
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
-    const joined = outLines.join("");
-    const env = JSON.parse(joined.trim()) as {
-      hookSpecificOutput: { hookEventName: string; additionalContext: string };
+    expect(dispatched).toEqual(["demo"]);
+  });
+
+  it("dispatches at gated WITH a checkpoint marker (feedback-mode resume point)", async () => {
+    const { deps, dispatched } = makeDeps({
+      pane: "%1",
+      slug: "demo",
+      state: fakeState("gated"),
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual(["demo"]);
+  });
+
+  it("run() returns without awaiting delivery (dispatchResume is fire-and-forget)", async () => {
+    // A dispatchResume that never resolves anything (records synchronously and
+    // returns void) must not delay run()'s resolution — run() dispatches and
+    // returns, it never awaits the delivery.
+    let dispatchedSlug: string | null = null;
+    const deps: Deps = {
+      readStdin: async () => "",
+      tmuxPane: "%1",
+      showFlowSlug: () => "demo",
+      loadState: () => fakeState("checkpoint-pending-clear"),
+      markerExists: () => true,
+      dispatchResume: (slug) => {
+        // Simulate the real detached-child dispatch: returns immediately,
+        // delivery happens out-of-band and is NOT awaited by run().
+        dispatchedSlug = slug;
+      },
     };
-    expect(env.hookSpecificOutput.hookEventName).toBe("SessionStart");
-    expect(env.hookSpecificOutput.additionalContext).toContain(
-      "--resume mode for: demo",
-    );
+    await expect(run(deps)).resolves.toBe(0);
+    // Dispatch was actually invoked (proves run() didn't skip it) AND run()
+    // already resolved above without this test awaiting any delivery promise.
+    expect(dispatchedSlug).toBe("demo");
   });
 });
 
 describe("flow-session-start-hook — silent no-op paths", () => {
-  it("no-op (empty stdout, exit 0) when TMUX_PANE is undefined (unresolved slug)", async () => {
-    const { deps, outLines, loadCalls } = makeDeps({
+  it("no-op (no dispatch, exit 0) when TMUX_PANE is undefined (unresolved slug)", async () => {
+    const { deps, dispatched, loadCalls } = makeDeps({
       pane: undefined,
       state: fakeState("implementing"),
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
-    expect(outLines).toEqual([]);
+    expect(dispatched).toEqual([]);
     expect(loadCalls).toEqual([]);
   });
 
   it("no-op when @flow-slug is empty (non-flow window)", async () => {
-    const { deps, outLines, loadCalls } = makeDeps({
+    const { deps, dispatched, loadCalls } = makeDeps({
       pane: "%1",
       slug: "",
       state: fakeState("implementing"),
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
-    expect(outLines).toEqual([]);
+    expect(dispatched).toEqual([]);
     expect(loadCalls).toEqual([]);
   });
 
   it("no-op when state.json is missing for the slug", async () => {
-    const { deps, outLines } = makeDeps({
+    const { deps, dispatched } = makeDeps({
       pane: "%1",
       slug: "ghost",
       state: null,
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
-    expect(outLines).toEqual([]);
+    expect(dispatched).toEqual([]);
   });
 
   it("no-op at every terminal phase even with a marker present (EXCEPT gated)", async () => {
     // `gated` is deliberately excluded from the terminal no-op: a gated
     // pipeline carrying a checkpoint marker is a feedback-mode resume point,
-    // so it emits (covered by the dedicated gated cases below). Every OTHER
-    // terminal phase still no-ops even with a marker present.
+    // so it dispatches (covered above). Every OTHER terminal phase still
+    // no-ops even with a marker present.
     for (const phase of TERMINAL_PHASES.filter((p) => p !== "gated")) {
-      const { deps, outLines } = makeDeps({
+      const { deps, dispatched } = makeDeps({
         pane: "%1",
         slug: "demo",
         state: fakeState(phase),
         markerExists: true,
       });
       expect(await run(deps), phase).toBe(0);
-      expect(outLines, phase).toEqual([]);
+      expect(dispatched, phase).toEqual([]);
     }
   });
 
-  it("emits the envelope at gated WITH a checkpoint marker (feedback-mode resume point)", async () => {
-    const { deps, outLines } = makeDeps({
-      pane: "%1",
-      slug: "demo",
-      state: fakeState("gated"),
-      markerExists: true,
-    });
-    expect(await run(deps)).toBe(0);
-    const env = JSON.parse(outLines.join("").trim()) as {
-      hookSpecificOutput: { hookEventName: string; additionalContext: string };
-    };
-    expect(env.hookSpecificOutput.hookEventName).toBe("SessionStart");
-    expect(env.hookSpecificOutput.additionalContext).toContain(
-      "--resume mode for: demo",
-    );
-  });
-
   it("no-op at gated WITHOUT a checkpoint marker (a plain /clear at the gate still clears)", async () => {
-    const { deps, outLines } = makeDeps({
+    const { deps, dispatched } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("gated"),
       markerExists: false,
     });
     expect(await run(deps)).toBe(0);
-    expect(outLines).toEqual([]);
+    expect(dispatched).toEqual([]);
   });
 
   it("no-op for a non-terminal slug when the checkpoint.pending marker is absent", async () => {
-    const { deps, outLines } = makeDeps({
+    const { deps, dispatched } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: fakeState("checkpoint-pending-clear"),
       markerExists: false,
     });
     expect(await run(deps)).toBe(0);
-    expect(outLines).toEqual([]);
+    expect(dispatched).toEqual([]);
   });
 
   it("no-op for a non-terminal slug whose state carries no worktree", async () => {
     // Explicit `undefined` still triggers fakeState's `worktree = "/tmp/wt"`
     // default param, so override the field directly to get a genuinely
     // worktree-less state (no worktree ⇒ no marker path ⇒ hard no-op).
-    const { deps, outLines } = makeDeps({
+    const { deps, dispatched } = makeDeps({
       pane: "%1",
       slug: "demo",
       state: { ...fakeState("checkpoint-pending-clear"), worktree: undefined },
       markerExists: true,
     });
     expect(await run(deps)).toBe(0);
-    expect(outLines).toEqual([]);
+    expect(dispatched).toEqual([]);
+  });
+});
+
+// A capturePane stub that yields the given frames in order, then repeats the
+// last frame forever (so a stable post-clear prompt keeps returning identically).
+function frames(seq: string[]): () => string {
+  let i = 0;
+  return () => {
+    const v = seq[Math.min(i, seq.length - 1)] ?? "";
+    i++;
+    return v;
+  };
+}
+
+type SendCall = { text: string; literal: boolean };
+
+function makeSeams(
+  capture: () => string,
+  attempts = 20,
+): {
+  seams: DeliverSeams;
+  sends: SendCall[];
+} {
+  const sends: SendCall[] = [];
+  const seams: DeliverSeams = {
+    capturePane: capture,
+    sendKeys: (text, literal) => {
+      sends.push({ text, literal });
+      return { ok: true, stderr: "" };
+    },
+    sleep: () => {},
+    attempts,
+  };
+  return { seams, sends };
+}
+
+describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
+  it("sends the literal seed then a SEPARATE Enter once the pane settles post-clear", () => {
+    // initial snapshot = pre-clear prompt; then it transitions to a fresh
+    // prompt that stays stable → clear-aware ready.
+    const capture = frames([
+      "old pre-clear prompt",
+      "fresh",
+      "fresh",
+      "fresh",
+      "fresh",
+    ]);
+    const { seams, sends } = makeSeams(capture);
+    expect(deliverResumeSeed("demo", seams)).toBe(true);
+    expect(sends).toEqual([
+      { text: flowPipelineResumeSeed("demo"), literal: true },
+      { text: "Enter", literal: false },
+    ]);
+    // The literal seed is the exact reused resume-seed string, multi-line.
+    expect(sends[0]?.text).toContain("--resume mode for: demo");
+    expect(sends[0]?.text).toContain("\n");
+  });
+
+  it("does NOT fire into the stale pre-clear prompt (False-Positive-Poll guard)", () => {
+    // The pre-clear prompt is non-empty and briefly stable, but it is the
+    // SAME as the initial snapshot — a settle with no transition must not be
+    // treated as ready on the fast path (only the longer fallback would, and
+    // here the budget ends before the clear ever completes).
+    const capture = frames(["stale prompt"]); // never changes, never clears
+    const { seams, sends } = makeSeams(capture, /* attempts */ 3);
+    // With 3 attempts and no transition, the fast path (needs a change) never
+    // fires and the fallback (STABLE_PROBES + EXTRA = 6) is not reached → no send.
+    expect(deliverResumeSeed("demo", seams)).toBe(false);
+    expect(sends).toEqual([]);
+  });
+
+  it("returns false without sending when the pane never becomes ready", () => {
+    // Alternating content never stabilises → never ready within budget.
+    const capture = frames(["a", "b", "a", "b", "a", "b"]);
+    const { seams, sends } = makeSeams(capture, 6);
+    expect(deliverResumeSeed("demo", seams)).toBe(false);
+    expect(sends).toEqual([]);
+  });
+
+  it("reports failure when a send-keys call fails", () => {
+    const capture = frames(["old", "fresh", "fresh", "fresh", "fresh"]);
+    const sends: SendCall[] = [];
+    const seams: DeliverSeams = {
+      capturePane: capture,
+      sendKeys: (text, literal) => {
+        sends.push({ text, literal });
+        return { ok: false, stderr: "window not found" };
+      },
+      sleep: () => {},
+      attempts: 20,
+    };
+    expect(deliverResumeSeed("demo", seams)).toBe(false);
+    // The literal seed send failed, so the separate Enter send is guarded off
+    // — only the one (failed) send is attempted, never a stale/partial submit.
+    expect(sends).toEqual([
+      { text: flowPipelineResumeSeed("demo"), literal: true },
+    ]);
+  });
+
+  it("uses the fallback-settle path (no observable transition) to still deliver", () => {
+    // capturePane returns the SAME non-empty frame from the very first call —
+    // the clear completed before our first capture, so `sawChange` never
+    // flips true and the fast path (transition + STABLE_PROBES) can't fire.
+    // With enough attempts, the longer fallback settle
+    // (STABLE_PROBES + FALLBACK_EXTRA_PROBES consecutive identical captures)
+    // must still return true and the seed must still be sent.
+    const capture = () => "already-settled prompt";
+    const { seams, sends } = makeSeams(capture, /* attempts */ 10);
+    expect(deliverResumeSeed("demo", seams)).toBe(true);
+    expect(sends).toEqual([
+      { text: flowPipelineResumeSeed("demo"), literal: true },
+      { text: "Enter", literal: false },
+    ]);
+  });
+
+  it("delivers on the one bounded retry when the first pass fails to settle", () => {
+    // First pass (budget = attempts) sees alternating content that never
+    // stabilises, so the first paneClearedAndSettled call returns false. The
+    // retry pass's capture calls (continuing from the same stateful frames
+    // generator) then settle into a stable, changed frame.
+    const capture = frames([
+      "old pre-clear prompt", // pass 1 initial snapshot
+      "a",
+      "b",
+      "a",
+      "b",
+      "a",
+      "b", // pass 1's 6 loop attempts: alternates forever, never settles
+      "old pre-clear prompt", // pass 2 (retry) initial snapshot
+      "fresh",
+      "fresh",
+      "fresh", // pass 2 settles: transitioned + 2 consecutive stable ⇒ ready
+      "fresh",
+      "fresh",
+      "fresh",
+    ]);
+    const { seams, sends } = makeSeams(capture, /* attempts */ 6);
+    expect(deliverResumeSeed("demo", seams)).toBe(true);
+    expect(sends).toEqual([
+      { text: flowPipelineResumeSeed("demo"), literal: true },
+      { text: "Enter", literal: false },
+    ]);
   });
 });

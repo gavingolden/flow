@@ -320,16 +320,23 @@ export function buildSendKeysArgs(
     : ["send-keys", "-t", paneId, keysOrText];
 }
 
-/** Default readPane seam: capture the slug's first pane's rendered text. */
-function capturePaneBySlug(slug: string, session = FLOW_SESSION): string {
+/** Default readPane seam: capture the slug's first pane's rendered text.
+ * Exported so `flow-session-start-hook`'s detached resume-delivery child can
+ * reuse the same session-based capture rather than re-deriving the window. */
+export function capturePaneBySlug(
+  slug: string,
+  session = FLOW_SESSION,
+): string {
   const window = findWindowBySlug(listWindows(session), slug);
   if (!window) return "";
   const r = tmux(["capture-pane", "-p", "-t", window.id]);
   return r.exitCode === 0 ? r.stdout : "";
 }
 
-/** Default sendKeys seam: resolve the pane by slug, send keys/text to it. */
-function sendKeysBySlug(
+/** Default sendKeys seam: resolve the pane by slug, send keys/text to it.
+ * Exported so `flow-session-start-hook`'s detached resume-delivery child can
+ * reuse the same session-based send rather than re-deriving the window. */
+export function sendKeysBySlug(
   slug: string,
   keysOrText: string,
   literal: boolean,
