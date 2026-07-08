@@ -845,9 +845,9 @@ redirect did not touch and destroys embedded markers. Follow this contract:
    under `## Decision analysis` AND its `<!-- flow-plan-review-hash: <sha> -->` marker are
    **MUST-NOT-REGENERATE**: leave them exactly as written unless the redirect materially
    changes `## Decision analysis` itself. (If it does, edit the analysis body and leave the
-   stale marker — `flow-plan-review` recomputes the hash and the supervisor re-embeds it;
-   the tolerant hash-read self-heals a lost marker, but needlessly rewriting it forces a
-   wasteful re-review.)
+   stale marker — after the re-review the supervisor recomputes the hash over the final
+   revised plan via `flow-plan-review --print-hash` and re-embeds it; the tolerant hash-read
+   self-heals a lost marker, but needlessly rewriting it forces a wasteful re-review.)
 4. **Do NOT re-run Step 1.5 research** when web-grounded research findings already exist in
    the plan (or in `.flow-tmp/research-findings.md`). The redirect is a scope/decision
    change, not a new research question — re-running the fan-out double-spends agy quota for

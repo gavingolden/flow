@@ -4362,5 +4362,13 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
       "flow-pipeline/SKILL.md must state the flow-plan-review re-fire rule keyed " +
         "on the decision-analysis-unchanged skip.",
     ).toBe(true);
+    // The marker hash MUST be sourced from `--print-hash` on the final revised
+    // plan, not the `ran:true` envelope's pre-revision hash (else the embedded
+    // marker is stale and falsely re-fires the next pass). Lock in the fix.
+    expect(
+      fp.includes("flow-plan-review --print-hash"),
+      "flow-pipeline/SKILL.md step 3 must embed the marker from " +
+        "`flow-plan-review --print-hash` run on the final revised plan.",
+    ).toBe(true);
   });
 });
