@@ -23,13 +23,22 @@
  * Revision-pass re-fire: on a step-3 re-entry the supervisor re-runs this
  * helper unconditionally; the `decision-analysis-unchanged` skip is what makes
  * the re-fire cost-free when the reviewed decisions did not change. The
- * `ran:true` envelope carries `decisionAnalysisHash` so the supervisor can
- * embed a `<!-- flow-plan-review-hash: <sha> -->` marker for the next pass to
- * compare against. The hash is over a NORMALIZED body (not raw bytes) so
- * incidental whitespace / bullet-char churn during an unrelated revision edit
- * does not needlessly re-fire the review; a missing or malformed prior marker
- * re-fires (safe/wasteful) and self-heals (the run re-emits the hash), never a
+ * supervisor embeds a `<!-- flow-plan-review-hash: <sha> -->` marker for the
+ * next pass to compare against — but it must source that hash from the
+ * compute-only `--print-hash` mode run on the FINAL plan AFTER it revises the
+ * `## Decision analysis` body per AGY feedback, NOT from the `ran:true`
+ * envelope's `decisionAnalysisHash` (which is computed over the pre-revision
+ * body and would embed a stale marker that falsely re-fires the next pass). The
+ * hash is over a NORMALIZED body (not raw bytes) so incidental whitespace /
+ * bullet-char churn during an unrelated revision edit does not needlessly
+ * re-fire the review; a missing or malformed prior marker re-fires
+ * (safe/wasteful) and self-heals (the run re-emits the hash), never a
  * wrong-skip.
+ *
+ * --print-hash: a compute-only mode that prints `computeDecisionHash` of the
+ * plan named by `--plan-file` with NO agy call and NO config gate — tolerant
+ * (an unreadable plan or an absent section prints the empty-body hash, exit 0).
+ * It is how the supervisor re-embeds a fresh marker over the final revised body.
  */
 
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -45,12 +54,19 @@ export type Args = {
   out: string;
   config: string;
   task: string;
+  printHash: boolean;
 };
 
 export function parseArgs(argv: string[]): Args | { error: string } {
   const out: Partial<Args> = {};
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
+    // --print-hash is a valueless boolean (compute-only mode); handle it before
+    // the value-required check every other flag falls through to.
+    if (flag === "--print-hash") {
+      out.printHash = true;
+      continue;
+    }
     const value = argv[i + 1];
     if (value === undefined || value.startsWith("--")) {
       return { error: `${flag} requires a value` };
@@ -73,19 +89,19 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     }
     i++;
   }
-  const REQUIRED_FLAG = {
-    planFile: "--plan-file",
-    out: "--out",
-  } as const;
-  for (const k of ["planFile", "out"] as const) {
-    if (out[k] === undefined)
-      return { error: `${REQUIRED_FLAG[k]} is required` };
+  if (out.planFile === undefined) {
+    return { error: "--plan-file is required" };
+  }
+  // --out gates the review mode only; --print-hash needs just --plan-file.
+  if (!out.printHash && out.out === undefined) {
+    return { error: "--out is required" };
   }
   return {
-    planFile: out.planFile as string,
-    out: out.out as string,
+    planFile: out.planFile,
+    out: out.out ?? "",
     config: out.config ?? `${homedir()}/.flow/config.json`,
     task: out.task ?? DEFAULT_TASK,
+    printHash: out.printHash ?? false,
   };
 }
 
@@ -248,7 +264,24 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
     console.error(
       "usage: flow-plan-review --plan-file <path> --out <path> [--config <path>] [--task <name>]",
     );
+    console.error("       flow-plan-review --print-hash --plan-file <path>");
     return 2;
+  }
+
+  // Compute-only mode: print the current plan's decision-analysis hash with no
+  // agy call and no config gate. Tolerant — an unreadable plan hashes the empty
+  // body (exit 0). The supervisor runs this on the FINAL plan (after it revises
+  // `## Decision analysis` per AGY feedback) so the embedded marker reflects the
+  // revised body, not the pre-revision body the ran:true envelope captured.
+  if (parsed.printHash) {
+    let plan = "";
+    try {
+      plan = deps.readFile(parsed.planFile);
+    } catch {
+      plan = "";
+    }
+    deps.writeOut(computeDecisionHash(plan));
+    return 0;
   }
 
   // Gate: read the config tolerantly and enable only on strict boolean true.
@@ -290,9 +323,8 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   // Decision-analysis body is unchanged (modulo formatting) since the last
   // reviewed revision. Computed BEFORE the prompt/delegate so a matching hash
   // never spends agy quota. A missing/malformed prior marker re-fires.
-  const decisionAnalysisHash = computeDecisionHash(plan);
   const priorHash = readPriorHash(plan);
-  if (priorHash !== null && priorHash === decisionAnalysisHash) {
+  if (priorHash !== null && priorHash === computeDecisionHash(plan)) {
     return skip("decision-analysis-unchanged");
   }
 
@@ -335,11 +367,13 @@ export function run(argv: string[], depsOverride?: Partial<Deps>): number {
   }
 
   cleanScratch();
+  // Deliberately NOT emitting the pre-revision decision hash: the supervisor
+  // re-embeds the marker from `--print-hash` run on the FINAL (revised) plan, so
+  // a hash of the pre-revision body here would only invite a stale-marker embed.
   return emit(deps, {
     ran: true,
     feedbackPath: parsed.out,
     skipReason: null,
-    decisionAnalysisHash,
   });
 }
 

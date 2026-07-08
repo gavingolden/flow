@@ -97,6 +97,20 @@ describe("parseArgs", () => {
       planFile: "/p.md",
       out: "/wt/.flow-tmp/plan-review.md",
       task: "plan-review",
+      printHash: false,
+    });
+  });
+
+  it("--print-hash needs only --plan-file (no --out required)", () => {
+    expect(parseArgs(["--print-hash", "--plan-file", "/p.md"])).toMatchObject({
+      planFile: "/p.md",
+      printHash: true,
+    });
+  });
+
+  it("still requires --plan-file under --print-hash", () => {
+    expect(parseArgs(["--print-hash"])).toEqual({
+      error: "--plan-file is required",
     });
   });
 });
@@ -289,11 +303,12 @@ describe("run — happy path", () => {
   it("copies AGY raw prose to --out and reports ran:true with skipReason null", () => {
     const deps = makeDeps();
     expect(run(BASE_ARGV, deps)).toBe(0);
+    // The pre-revision hash is deliberately NOT emitted — the supervisor sources
+    // the marker from `--print-hash` on the final revised plan instead.
     expect(envelope(deps)).toEqual({
       ran: true,
       feedbackPath: OUT,
       skipReason: null,
-      decisionAnalysisHash: expect.stringMatching(/^[0-9a-f]{64}$/),
     });
     // The finalized feedback file holds AGY's raw prose verbatim.
     expect(deps.files.get(OUT)).toBe(AGY_PROSE);
@@ -430,12 +445,12 @@ describe("run — decision-analysis-unchanged skip", () => {
     expect(deps.files.has(OUT)).toBe(false);
   });
 
-  it("re-fires (delegate invoked, hash in envelope) when NO prior marker exists", () => {
+  it("re-fires (delegate invoked) when NO prior marker exists", () => {
     const deps = makeDeps(); // default PLAN_WITH_SECTION has no marker
     expect(run(BASE_ARGV, deps)).toBe(0);
     expect(deps.calls.delegate).toHaveLength(1);
     expect(envelope(deps).ran).toBe(true);
-    expect(envelope(deps).decisionAnalysisHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(envelope(deps)).not.toHaveProperty("decisionAnalysisHash");
   });
 
   it("re-fires when the prior marker's hash differs from the current body", () => {
@@ -469,5 +484,92 @@ describe("run — usage errors", () => {
     expect(run(["--plan-file", PLAN_FILE], makeDeps())).toBe(2);
     expect(run(["--out", OUT], makeDeps())).toBe(2);
     errSpy.mockRestore();
+  });
+});
+
+describe("run — --print-hash compute-only mode", () => {
+  const PRINT_ARGV = ["--print-hash", "--plan-file", PLAN_FILE];
+
+  it("prints computeDecisionHash of the current plan, no delegate, no config gate", () => {
+    // Config gate OFF: --print-hash must ignore it entirely.
+    const deps = makeDeps({ readConfig: () => JSON.stringify({}) });
+    expect(run(PRINT_ARGV, deps)).toBe(0);
+    expect(deps.calls.delegate).toHaveLength(0);
+    expect(deps.calls.out).toHaveLength(1);
+    expect(deps.calls.out[0]).toBe(computeDecisionHash(PLAN_WITH_SECTION));
+    // No feedback file, no scratch writes.
+    expect(deps.files.has(OUT)).toBe(false);
+  });
+
+  it("is tolerant: an unreadable plan prints the empty-body hash (exit 0, no throw)", () => {
+    const deps = makeDeps({
+      readFile: () => {
+        throw new Error("EIO");
+      },
+    });
+    expect(() => run(PRINT_ARGV, deps)).not.toThrow();
+    expect(run(PRINT_ARGV, deps)).toBe(0);
+    expect(deps.calls.out.at(-1)).toBe(computeDecisionHash(""));
+  });
+
+  it("ignores the `<!-- flow-plan-review-hash -->` marker itself when hashing", () => {
+    // A plan carrying its own marker (inside the excluded AGY subsection) prints
+    // the SAME hash as the marker-free body — the round-trip invariant below.
+    const marked = [
+      "# PRD",
+      "## Decision analysis",
+      "**Decision A** verdict X",
+      "### Cross-model review (AGY)",
+      "- point one — accepted",
+      `<!-- flow-plan-review-hash: ${"d".repeat(64)} -->`,
+      "## Recommendation",
+      "go",
+    ].join("\n");
+    const deps = makeDeps();
+    deps.files.set(PLAN_FILE, marked);
+    run(PRINT_ARGV, deps);
+    expect(deps.calls.out[0]).toBe(computeDecisionHash(marked));
+  });
+});
+
+describe("round-trip: --print-hash marker makes the next run skip", () => {
+  // The bug this closes: the supervisor must embed the hash of the FINAL revised
+  // plan. Simulate that end-to-end — compute the hash of the revised plan via
+  // --print-hash, embed it as a marker inside the AGY subsection, then assert a
+  // subsequent review run skips with decision-analysis-unchanged.
+  it("printed hash, once embedded, yields a decision-analysis-unchanged skip", () => {
+    const revisedNoMarker = [
+      "# PRD",
+      "## Decision analysis",
+      "**Decision A — X vs Y?** Verdict: X (revised per AGY).",
+      "### Cross-model review (AGY)",
+      "- point one — accepted: tightened the verdict wording",
+      "## Recommendation",
+      "**Proceed**",
+    ].join("\n");
+
+    // 1) Supervisor runs --print-hash on the final revised plan.
+    const printDeps = makeDeps();
+    printDeps.files.set(PLAN_FILE, revisedNoMarker);
+    run(["--print-hash", "--plan-file", PLAN_FILE], printDeps);
+    const printedHash = printDeps.calls.out[0]!;
+    expect(printedHash).toMatch(/^[0-9a-f]{64}$/);
+
+    // 2) Supervisor embeds it as a marker inside the AGY subsection (excluded
+    //    from the hash, so embedding does not invalidate it).
+    const embedded = revisedNoMarker.replace(
+      "- point one — accepted: tightened the verdict wording",
+      `- point one — accepted: tightened the verdict wording\n<!-- flow-plan-review-hash: ${printedHash} -->`,
+    );
+
+    // 3) Next step-3 pass re-runs the review unconditionally → must skip.
+    const reviewDeps = makeDeps();
+    reviewDeps.files.set(PLAN_FILE, embedded);
+    expect(run(BASE_ARGV, reviewDeps)).toBe(0);
+    expect(envelope(reviewDeps)).toEqual({
+      ran: false,
+      skipReason: "decision-analysis-unchanged",
+    });
+    expect(reviewDeps.calls.delegate).toHaveLength(0);
   });
 });
