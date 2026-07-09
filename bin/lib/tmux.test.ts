@@ -29,23 +29,58 @@ import {
 const READY_CAPTURE = "❯ a rendered claude pane";
 
 /**
- * A `consumed` predicate + matching sendKeys spy modelling the real lifecycle:
- * `consumed()` reads false until the seed is SUBMITTED (the Enter send-keys call
- * flips the latch), after which it reads true. This is independent of the
- * private poll-budget constants — consumption (the state-file phase advancing)
- * appears exactly when the launcher submits, never before — so the double-submit
- * guard and the separate-text-then-Enter ordering are exercised faithfully.
+ * Paste-chip frame: what capture-pane shows once a long multi-line paste lands —
+ * the marker is collapsed into `[Pasted text …]` chips and never rendered as
+ * text. deliverSeed must therefore verify the leading line BEFORE the remainder.
  */
-function makeConsumedSeam() {
+const CHIP_CAPTURE = "❯ [Pasted text #1 +9 lines][Pasted text #2 +8 lines]";
+
+/**
+ * Models the delivery lifecycle through the launcher seams so the chunked
+ * leading-line handshake in deliverSeed is exercised end to end: readPane echoes
+ * the seed's leading line only AFTER a literal chunk lands, and `consumed()`
+ * flips once the submit Enter is sent. Options drive the branches:
+ *   - `blankDraws`: N empty captures first (late draw), ridden out by readiness.
+ *   - `dropLeadingEchoes`: the first N post-send captures echo a TRUNCATED
+ *     leading line ⇒ the C-u + resend branch fires.
+ * Once the remainder is typed the capture collapses to a paste chip (no marker),
+ * so a re-verification there would falsely fail — proving verify ran earlier.
+ */
+function makeLaunchSeam(
+  seed: string,
+  opts: { blankDraws?: number; dropLeadingEchoes?: number } = {},
+) {
+  const leadingLine = seed.split("\n")[0] ?? seed;
+  let blank = opts.blankDraws ?? 0;
+  let leadingSent = false;
+  let leadingVerified = false;
+  let remainderSent = false;
+  let echoChecks = 0;
   let submitted = false;
   const sendKeys = vi.fn((_slug: string, keys: string, literal: boolean) => {
-    // The literal seed text comes first, then a separate non-literal "Enter"
-    // that submits — only the Enter advances the state-file phase (consumed).
+    if (literal) {
+      if (leadingVerified) remainderSent = true;
+      else leadingSent = true;
+    }
     if (!literal && keys === "Enter") submitted = true;
     return { ok: true, stderr: "" };
   });
+  const readPane = () => {
+    if (blank > 0) {
+      blank--;
+      return "";
+    }
+    if (!leadingSent) return READY_CAPTURE; // settle-gate / pre-send
+    if (remainderSent) return CHIP_CAPTURE; // long paste collapsed to chips
+    echoChecks++;
+    if (echoChecks <= (opts.dropLeadingEchoes ?? 0)) {
+      return `${READY_CAPTURE}\n${leadingLine.slice(3)}`; // dropped prefix
+    }
+    leadingVerified = true;
+    return `${READY_CAPTURE}\n${leadingLine}`;
+  };
   const consumed = () => submitted;
-  return { sendKeys, consumed };
+  return { sendKeys, readPane, consumed };
 }
 
 /** A capturing fake `tmux` spawn: records every argv, returns the queued result. */
@@ -354,7 +389,7 @@ describe(createWindowVerified, () => {
 
   it("Case B: create ok, pane ready (non-empty), seed delivered + consumed → status 'started' and never kills", () => {
     const kill = vi.fn(() => true);
-    const { sendKeys, consumed } = makeConsumedSeam();
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
     const result = createWindowVerified(
       "csv-export",
       "/repo",
@@ -365,7 +400,7 @@ describe(createWindowVerified, () => {
         isAlive: () => true,
         kill,
         sleep: noopSleep,
-        readPane: () => READY_CAPTURE,
+        readPane,
         consumed,
         sendKeys,
         ...budget,
@@ -427,10 +462,11 @@ describe(createWindowVerified, () => {
   });
 
   it("sends the seed only after ready, with text and Enter as two SEPARATE ordered calls", () => {
-    // consumed() reads false during the ready poll + the double-submit guard,
-    // then true once the seed is submitted — so send-keys fires exactly twice,
-    // in order, pinning the single literal-text-then-separate-Enter path.
-    const { sendKeys, consumed } = makeConsumedSeam();
+    // SEED is single-line (leading line === whole seed, no remainder), so the
+    // chunked handshake collapses to one literal leading-line send that echoes
+    // intact, then a separate submit Enter — send-keys fires exactly twice, in
+    // order, pinning the literal-text-then-separate-Enter path (no C-u).
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
     const kill = vi.fn(() => true);
     const result = createWindowVerified(
       "csv-export",
@@ -442,7 +478,7 @@ describe(createWindowVerified, () => {
         isAlive: () => true,
         kill,
         sleep: noopSleep,
-        readPane: () => READY_CAPTURE,
+        readPane,
         consumed,
         sendKeys,
         ...budget,
@@ -486,11 +522,12 @@ describe(createWindowVerified, () => {
   });
 
   it("short-budget consume-timeout with an ALIVE pane → 'launched-not-confirmed' and NEVER kills (non-destructive)", () => {
-    // The KEY new behaviour: the pane is ready and stays alive but the supervisor
-    // never advances the phase within the short consume budget (its first phase
-    // write lands ~60s out). The timeout is NON-DESTRUCTIVE: status
-    // 'launched-not-confirmed', and the window is NEVER killed.
+    // The KEY new behaviour: the pane is ready, the seed is delivered, and the
+    // pane stays alive, but the supervisor never advances the phase within the
+    // short consume budget (its first phase write lands ~60s out). The timeout
+    // is NON-DESTRUCTIVE: status 'launched-not-confirmed', window NEVER killed.
     const kill = vi.fn(() => true);
+    const { sendKeys, readPane } = makeLaunchSeam(SEED);
     const result = createWindowVerified(
       "csv-export",
       "/repo",
@@ -501,9 +538,9 @@ describe(createWindowVerified, () => {
         isAlive: () => true,
         kill,
         sleep: noopSleep,
-        readPane: () => READY_CAPTURE, // ready but never consumed
+        readPane, // delivered, but the state-file phase never advances
         consumed: () => false,
-        sendKeys: vi.fn(() => ({ ok: true, stderr: "" })),
+        sendKeys,
         ...budget,
       },
     );
@@ -519,7 +556,7 @@ describe(createWindowVerified, () => {
     // "started"` never fires — the fallback yields started because
     // everConsumed=true and aliveAtEnd=true.
     const kill = vi.fn(() => true);
-    const sendKeys = vi.fn(() => ({ ok: true, stderr: "" }));
+    const { sendKeys, readPane } = makeLaunchSeam(SEED);
     let consumeProbe = 0;
     const consumed = () => consumeProbe++ >= 2;
     const result = createWindowVerified(
@@ -532,7 +569,7 @@ describe(createWindowVerified, () => {
         isAlive: () => true,
         kill,
         sleep: noopSleep,
-        readPane: () => READY_CAPTURE,
+        readPane,
         consumed,
         sendKeys,
         ...budget,
@@ -548,7 +585,7 @@ describe(createWindowVerified, () => {
     // (monotonic) but the FINAL liveness reading is false → status 'failed' and
     // the create path kills.
     const kill = vi.fn(() => true);
-    const { sendKeys, consumed } = makeConsumedSeam();
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
     let aliveAfterConsumed = 1;
     const isAlive = () => {
       if (!consumed()) return true;
@@ -564,7 +601,7 @@ describe(createWindowVerified, () => {
         isAlive,
         kill,
         sleep: noopSleep,
-        readPane: () => READY_CAPTURE,
+        readPane,
         consumed,
         sendKeys,
         ...budget,
@@ -631,9 +668,11 @@ describe(createWindowVerified, () => {
   it("widened ready budget rides out a late draw (empty captures first, then drawn) → status 'started'", () => {
     // The pane is alive but draws nothing for the first two probes, then renders.
     // The wide readiness budget rides that out and readiness passes without
-    // failing the launch; consumption then latches → started.
-    const { sendKeys, consumed } = makeConsumedSeam();
-    let draws = 0;
+    // failing the launch; the seed is then delivered and consumption latches →
+    // started.
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED, {
+      blankDraws: 2,
+    });
     const result = createWindowVerified(
       "csv-export",
       "/repo",
@@ -644,7 +683,7 @@ describe(createWindowVerified, () => {
         isAlive: () => true,
         kill: vi.fn(() => true),
         sleep: noopSleep,
-        readPane: () => (draws++ < 2 ? "" : READY_CAPTURE), // late draw
+        readPane, // "" for the first two probes (late draw), then renders
         consumed,
         sendKeys,
         readyAttempts: 10,
@@ -660,7 +699,7 @@ describe(createWindowVerified, () => {
     // large consumeAttempts budget and a pane that consumes on the first probe,
     // the liveness probe count must stay far below the budget — pre-fix the loop
     // ran the full `consumeAttempts` even on the happy path (issue #80).
-    const { sendKeys, consumed } = makeConsumedSeam();
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
     let aliveProbes = 0;
     const isAlive = () => {
       aliveProbes++;
@@ -676,7 +715,7 @@ describe(createWindowVerified, () => {
         isAlive,
         kill: vi.fn(() => true),
         sleep: noopSleep,
-        readPane: () => READY_CAPTURE,
+        readPane,
         consumed,
         sendKeys,
         readyAttempts: 1,
@@ -687,6 +726,226 @@ describe(createWindowVerified, () => {
     // 1 ready probe + 1 latch probe + a short alive-confirm window — a handful,
     // not the injected 500-attempt budget.
     expect(aliveProbes).toBeLessThan(20);
+  });
+
+  // --- chunked leading-line delivery (the seed-truncation hardening) ---
+
+  const MULTI =
+    "[pipeline-slug: csv-export]\nUse the /flow-pipeline skill for: csv export";
+  const MULTI_LEAD = "[pipeline-slug: csv-export]";
+  const MULTI_REMAINDER = "\nUse the /flow-pipeline skill for: csv export";
+
+  it("chunked healthy path: leading-line send + remainder send + exactly one Enter, no C-u, no re-send", () => {
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(MULTI);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      MULTI,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill: vi.fn(() => true),
+        sleep: noopSleep,
+        readPane,
+        consumed,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result).toEqual({ status: "started", stderr: "" });
+    const literals = sendKeys.mock.calls
+      .filter((c) => c[2] === true)
+      .map((c) => c[1]);
+    expect(literals).toEqual([MULTI_LEAD, MULTI_REMAINDER]);
+    expect(sendKeys.mock.calls.filter((c) => c[1] === "Enter")).toHaveLength(1);
+    expect(sendKeys.mock.calls.some((c) => c[1] === "C-u")).toBe(false);
+  });
+
+  it("dropped-leading-prefix: sends C-u and re-sends the leading line ONLY (never the whole seed), then Enter", () => {
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(MULTI, {
+      dropLeadingEchoes: 1,
+    });
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      MULTI,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill: vi.fn(() => true),
+        sleep: noopSleep,
+        readPane,
+        consumed,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result.status).toBe("started");
+    const keyed = sendKeys.mock.calls.map((c) => [c[1], c[2]]);
+    expect(keyed).toContainEqual(["C-u", false]);
+    // The leading line is re-sent (twice total); the whole seed is never sent.
+    expect(
+      keyed.filter((c) => c[0] === MULTI_LEAD && c[1] === true),
+    ).toHaveLength(2);
+    expect(keyed.some((c) => c[0] === MULTI)).toBe(false);
+    expect(keyed[keyed.length - 1]).toEqual(["Enter", false]);
+  });
+
+  it("chip-safety: verification runs before the remainder, so a post-remainder chip capture never triggers a re-send or exhaust", () => {
+    // makeLaunchSeam's capture collapses to a paste chip (no marker) once the
+    // remainder is typed. deliverSeed must not capture there, so the launcher
+    // neither re-sends the leading line nor exhausts its budget.
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(MULTI);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      MULTI,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill: vi.fn(() => true),
+        sleep: noopSleep,
+        readPane,
+        consumed,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result.status).toBe("started");
+    expect(sendKeys.mock.calls.some((c) => c[1] === "C-u")).toBe(false);
+    expect(
+      sendKeys.mock.calls.filter((c) => c[1] === MULTI_LEAD && c[2] === true),
+    ).toHaveLength(1);
+  });
+
+  it("bounded exhaustion: leading line never echoes ⇒ Enter is NEVER sent and the live pane stays non-destructive", () => {
+    const kill = vi.fn(() => true);
+    const { sendKeys, readPane } = makeLaunchSeam(MULTI, {
+      dropLeadingEchoes: 99,
+    });
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      MULTI,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill,
+        sleep: noopSleep,
+        readPane,
+        consumed: () => false,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result.status).toBe("launched-not-confirmed");
+    expect(sendKeys.mock.calls.some((c) => c[1] === "Enter")).toBe(false);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("failed literal send: Enter is NEVER sent, the pane stays non-destructive, and the tmux stderr is surfaced", () => {
+    const kill = vi.fn(() => true);
+    const sendKeys = vi.fn((_s: string, keys: string, literal: boolean) =>
+      literal
+        ? { ok: false, stderr: "command too long" }
+        : { ok: true, stderr: "" },
+    );
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      MULTI,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill,
+        sleep: noopSleep,
+        readPane: () => READY_CAPTURE,
+        consumed: () => false,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result.status).toBe("launched-not-confirmed");
+    expect(result.stderr).toBe("command too long");
+    expect(sendKeys.mock.calls.some((c) => c[1] === "Enter")).toBe(false);
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("oversized seed: the remainder is delivered as multiple bounded literal sends followed by exactly one Enter", () => {
+    const body = "x".repeat(9000); // remainder exceeds one send-keys chunk
+    const seed = `[pipeline-slug: csv-export]\n${body}`;
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(seed);
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      seed,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill: vi.fn(() => true),
+        sleep: noopSleep,
+        readPane,
+        consumed,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result).toEqual({ status: "started", stderr: "" });
+    const literals = sendKeys.mock.calls.filter((c) => c[2] === true);
+    expect(literals.length).toBeGreaterThan(1);
+    for (const c of literals) {
+      expect(Buffer.byteLength(c[1] as string, "utf8")).toBeLessThanOrEqual(
+        8192,
+      );
+    }
+    expect(sendKeys.mock.calls.filter((c) => c[1] === "Enter")).toHaveLength(1);
+  });
+
+  it("settle gate: no send fires until the pane capture is stable across probes", () => {
+    const leadingLine = "[pipeline-slug: csv-export]";
+    const seed = `${leadingLine}\nbody`;
+    let probes = 0;
+    let firstSendAtProbe = -1;
+    let leadingSent = false;
+    let submitted = false;
+    const readPane = () => {
+      probes++;
+      if (probes <= 2) return `changing-${probes}`; // unstable
+      if (!leadingSent) return READY_CAPTURE; // stable
+      return `${READY_CAPTURE}\n${leadingLine}`; // echo after the send
+    };
+    const sendKeys = vi.fn((_s: string, keys: string, literal: boolean) => {
+      if (firstSendAtProbe < 0) firstSendAtProbe = probes;
+      if (literal) leadingSent = true;
+      if (!literal && keys === "Enter") submitted = true;
+      return { ok: true, stderr: "" };
+    });
+    const result = createWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      seed,
+      {
+        create: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        kill: vi.fn(() => true),
+        sleep: noopSleep,
+        readPane,
+        consumed: () => submitted,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result.status).toBe("started");
+    // The first send must not fire until the capture has stabilised past the
+    // two changing frames (probe ≥ 3).
+    expect(firstSendAtProbe).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -706,7 +965,7 @@ describe(respawnWindowVerified, () => {
   const budget = { readyAttempts: 3, consumeAttempts: 3 };
 
   it("respawn ok, pane ready, seed delivered + consumed → status 'started'", () => {
-    const { sendKeys, consumed } = makeConsumedSeam();
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
     const result = respawnWindowVerified(
       "csv-export",
       "/repo",
@@ -716,7 +975,7 @@ describe(respawnWindowVerified, () => {
         respawn: () => ({ ok: true, stderr: "" }),
         isAlive: () => true,
         sleep: noopSleep,
-        readPane: () => READY_CAPTURE,
+        readPane,
         consumed,
         sendKeys,
         ...budget,
@@ -851,7 +1110,7 @@ describe(respawnWindowVerified, () => {
     // create path, the window is NOT killed — it pre-existed the resume
     // (cast-threaded kill spy locks the no-kill invariant).
     const kill = vi.fn(() => true);
-    const { sendKeys, consumed } = makeConsumedSeam();
+    const { sendKeys, readPane, consumed } = makeLaunchSeam(SEED);
     // Alive through the entire ready poll, then alive for exactly the FIRST
     // consume probe (so consumption LATCHES) and dead thereafter.
     let aliveAfterConsumed = 1;
@@ -868,7 +1127,7 @@ describe(respawnWindowVerified, () => {
         respawn: () => ({ ok: true, stderr: "" }),
         isAlive,
         sleep: noopSleep,
-        readPane: () => READY_CAPTURE,
+        readPane,
         consumed,
         sendKeys,
         ...budget,
@@ -877,6 +1136,36 @@ describe(respawnWindowVerified, () => {
     );
     expect(result.status).toBe("failed");
     expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("failed literal send: Enter is NEVER sent and the tmux stderr is surfaced (resume path)", () => {
+    // The resume analogue of the create-path failed-literal-send guard: a
+    // rejected literal send must not be followed by a submit Enter, and the
+    // tmux stderr must reach VerifiedLaunchResult.stderr on the live pane.
+    const MULTI = "[pipeline-slug: csv-export]\nresume body";
+    const sendKeys = vi.fn((_s: string, keys: string, literal: boolean) =>
+      literal
+        ? { ok: false, stderr: "command too long" }
+        : { ok: true, stderr: "" },
+    );
+    const result = respawnWindowVerified(
+      "csv-export",
+      "/repo",
+      ["claude", "x"],
+      MULTI,
+      {
+        respawn: () => ({ ok: true, stderr: "" }),
+        isAlive: () => true,
+        sleep: noopSleep,
+        readPane: () => READY_CAPTURE,
+        consumed: () => false,
+        sendKeys,
+        ...budget,
+      },
+    );
+    expect(result.status).toBe("launched-not-confirmed");
+    expect(result.stderr).toBe("command too long");
+    expect(sendKeys.mock.calls.some((c) => c[1] === "Enter")).toBe(false);
   });
 });
 

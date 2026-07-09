@@ -15,6 +15,7 @@
 import * as path from "node:path";
 import { shortPhase } from "./state";
 import { sleepSync } from "./sleep";
+import { deliverSeed } from "./seed-delivery";
 
 export const FLOW_SESSION = "flow";
 const FLOW_SLUG_OPTION = "@flow-slug";
@@ -608,14 +609,24 @@ export function createWindowVerified(
     };
   }
 
-  // Phase 2 — deliver the seed via send-keys. The `if (!consumed())` guard is now
-  // vestigial (the positional auto-run path is gone): it only skips a redundant
-  // send-keys when the seed-ingested marker / resume baseline is already
-  // satisfied at ready-time. Literal text, then a SEPARATE Enter — keeps the path
-  // shell-free and a newline in the seed can't pre-submit.
+  // Phase 2 — deliver the seed via the shared chunked leading-line handshake
+  // (checks every literal send, verifies the leading line echoed, chunks below
+  // tmux's send-keys byte cap). The `if (!consumed())` guard is vestigial (the
+  // positional auto-run path is gone): it only skips a redundant delivery when
+  // the seed-ingested marker / resume baseline is already satisfied at
+  // ready-time. The SEPARATE Enter is sent ONLY when delivery verified — a
+  // failed/exhausted send must never submit a corrupt box; it falls through to
+  // the non-destructive Phase-3 timeout.
+  let deliverStderr = "";
   if (!consumed()) {
-    sendKeys(slug, seed, true, session);
-    sendKeys(slug, "Enter", false, session);
+    const result = deliverSeed(seed, {
+      capture: () => readPane(slug, session),
+      send: (keysOrText, literal) =>
+        sendKeys(slug, keysOrText, literal, session),
+      sleep,
+    });
+    deliverStderr = result.stderr;
+    if (result.delivered) sendKeys(slug, "Enter", false, session);
   }
 
   // Phase 3 — short, non-destructive consume probe. `started` and
@@ -636,7 +647,7 @@ export function createWindowVerified(
         "tmux window created but claude died before the seed was confirmed consumed (pane not alive)",
     };
   }
-  return { status: consumeResult, stderr: "" };
+  return { status: consumeResult, stderr: deliverStderr };
 }
 
 /**
@@ -691,13 +702,22 @@ export function respawnWindowVerified(
     };
   }
 
-  // Phase 2 — deliver the resume seed via send-keys. The `if (!consumed())`
-  // guard is now vestigial (positional auto-run path gone): it only skips a
-  // redundant send-keys when the resume baseline / seed-ingested marker is
-  // already satisfied at ready-time. Literal text, then a SEPARATE Enter.
+  // Phase 2 — deliver the resume seed via the shared chunked leading-line
+  // handshake. The `if (!consumed())` guard is vestigial (positional auto-run
+  // path gone): it only skips a redundant delivery when the resume baseline /
+  // seed-ingested marker is already satisfied at ready-time. The SEPARATE Enter
+  // is sent ONLY when delivery verified — a failed/exhausted send falls through
+  // to the non-destructive Phase-3 timeout rather than submitting a corrupt box.
+  let deliverStderr = "";
   if (!consumed()) {
-    sendKeys(slug, seed, true, session);
-    sendKeys(slug, "Enter", false, session);
+    const result = deliverSeed(seed, {
+      capture: () => readPane(slug, session),
+      send: (keysOrText, literal) =>
+        sendKeys(slug, keysOrText, literal, session),
+      sleep,
+    });
+    deliverStderr = result.stderr;
+    if (result.delivered) sendKeys(slug, "Enter", false, session);
   }
 
   // Phase 3 — short, non-destructive consume probe. `started` /
@@ -710,7 +730,12 @@ export function respawnWindowVerified(
     consumeAttempts,
     onProgress,
   );
-  return { status: consumeResult, stderr: consumeFailStderr(consumeResult) };
+  // On a dead pane surface the fixed 'failed' string; otherwise surface any
+  // delivery stderr (failed/exhausted send) so it isn't silently dropped.
+  return {
+    status: consumeResult,
+    stderr: consumeFailStderr(consumeResult) || deliverStderr,
+  };
 }
 
 /** Stderr for the resume consume outcome — empty unless the pane died. */
