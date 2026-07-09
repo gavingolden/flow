@@ -79,13 +79,33 @@
 - **Description:** What to implement
 - **Inputs:** What must exist first
 - **Outputs:** What this produces
-- **Acceptance:** How to verify
+- **Contract:**
+  - **Files:** [repo-relative paths to create/edit]
+  - **Interfaces:** [exact signatures + exported symbols this task decides]
+  - **Call-site edits:** [each consumer edit, named as file + symbol]
+- **Acceptance criteria:** [runnable command whose exit code verifies the task]
+
+<!-- The Contract block is required on every task. For change types without
+     callable boundaries (UI/visual, config/infra, docs/prose, schema),
+     substitute the change-type surgical form — the table lives in
+     skills/pipeline/product-planning/references/discovery-instructions.md
+     step 6 ("Task Breakdown"), the single source of truth. Do NOT inline the
+     table here; this is a thin sketch. -->
 
 ### Task 2: [Short Title]
 
-- …
+- **Skill:** `skill-name`
+- **Description:** What to implement
+- **Inputs:** What must exist first
+- **Outputs:** What this produces
+- **Contract:**
+  - **Files:** [repo-relative paths to create/edit]
+  - **Interfaces:** [exact signatures + exported symbols this task decides]
+  - **Call-site edits:** [each consumer edit, named as file + symbol]
+- **Acceptance criteria:** [runnable command whose exit code verifies the task]
 
-<!-- For >3 tasks, add a dependency table or short Mermaid graph:
+<!-- Dependency table: REQUIRED whenever ≥2 tasks have dependencies (advisory
+     otherwise — still useful for >3 tasks). Table or short Mermaid graph:
      | Task | Depends on |
      |---|---|
      | 1 | — |

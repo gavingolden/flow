@@ -166,6 +166,24 @@ const DISCOVERY_PLAYBOOK_PATH = path.resolve(
   "references",
   "discovery-playbook.md",
 );
+const PRD_TEMPLATE_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "product-planning",
+  "templates",
+  "prd-template.md",
+);
+const EXAMPLE_PRD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "product-planning",
+  "references",
+  "example-prd.md",
+);
 const NEW_FEATURE_SKILL_MD_PATH = path.resolve(
   HERE,
   "..",
@@ -173,6 +191,15 @@ const NEW_FEATURE_SKILL_MD_PATH = path.resolve(
   "pipeline",
   "new-feature",
   "SKILL.md",
+);
+const SCOUT_INSTRUCTIONS_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "new-feature",
+  "references",
+  "scout-instructions.md",
 );
 const AGENT_PROMPTS_PATH = path.resolve(
   HERE,
@@ -293,7 +320,13 @@ const epicDiscoveryInstructionsContent = fs.readFileSync(
   EPIC_DISCOVERY_INSTRUCTIONS_PATH,
   "utf8",
 );
+const prdTemplateContent = fs.readFileSync(PRD_TEMPLATE_PATH, "utf8");
+const examplePrdContent = fs.readFileSync(EXAMPLE_PRD_PATH, "utf8");
 const newFeatureContent = fs.readFileSync(NEW_FEATURE_SKILL_MD_PATH, "utf8");
+const scoutInstructionsContent = fs.readFileSync(
+  SCOUT_INSTRUCTIONS_PATH,
+  "utf8",
+);
 const agentPromptsContent = fs.readFileSync(AGENT_PROMPTS_PATH, "utf8");
 const verifyContent = fs.readFileSync(VERIFY_SKILL_MD_PATH, "utf8");
 const uiUxContent = fs.readFileSync(UI_UX_SKILL_MD_PATH, "utf8");
@@ -2205,6 +2238,227 @@ describe("New planning-discipline contract anchors", () => {
         "ultimate-goal rule reference individual lenses by name. One combined " +
         "assertion (not a per-lens regex battery, per the plan's chosen single-anchor " +
         "granularity); restore the lens or update this lint in the same commit.",
+    ).toBe(true);
+  });
+});
+
+describe("Surgical task-contract anchors (discovery-instructions.md ↔ prd-template.md ↔ example-prd.md)", () => {
+  // The per-task Contract block (Files / Interfaces / Call-site edits +
+  // runnable Acceptance criteria) is what lets a cheaper implementer execute
+  // to the planner's interface decisions instead of re-deriving them.
+  // discovery-instructions.md step 6 is the single source of truth; the
+  // prd-template sketch and example-prd.md's worked example both mirror the
+  // field names. example-prd.md is the file discovery runs imitate, so a
+  // one-sided rename there is arguably a stronger silent-drift risk than in
+  // the template. A rename in any one file but not the others silently
+  // breaks the downstream consumers (/new-feature Step 2's contract read,
+  // /coder's contract pre-check) that grep these labels.
+  const CONTRACT_FIELDS = [
+    "- **Contract:**",
+    "**Files:**",
+    "**Interfaces:**",
+    "**Call-site edits:**",
+    "- **Acceptance criteria:**",
+  ];
+  const CONTRACT_FIELD_SITES: Array<[string, string]> = [
+    ["discovery-instructions.md", discoveryInstructionsContent],
+    ["prd-template.md", prdTemplateContent],
+    ["example-prd.md", examplePrdContent],
+  ];
+
+  it.each(CONTRACT_FIELDS)(
+    "discovery-instructions.md, prd-template.md, and example-prd.md all carry the Contract-block field '%s'",
+    (field) => {
+      for (const [label, docContent] of CONTRACT_FIELD_SITES) {
+        expect(
+          docContent.includes(field),
+          `${label} must carry the Contract-block field '${field}' verbatim — ` +
+            `discovery-instructions.md step 6 is the single source of truth for the ` +
+            `surgical task format; prd-template.md and example-prd.md mirror it. ` +
+            `Rename in lock-step across all three plus this lint in the same commit.`,
+        ).toBe(true);
+      }
+    },
+  );
+
+  it("discovery-instructions.md carries the strong-prior guardrail, change-type table, and dependency-table mandate", () => {
+    expect(
+      /strong prior/i.test(discoveryInstructionsContent),
+      "discovery-instructions.md step 6 must state the 'strong prior, not a straitjacket' " +
+        "guardrail — the deviation-handling contract the scout and coder both anchor on.",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("| Change type"),
+      "discovery-instructions.md step 6 must carry the per-change-type surgical-form " +
+        "table header row (`| Change type`) — not just the prose word 'change-type', " +
+        "which survives the table itself being deleted — so non-code tasks get an " +
+        "equally exact Contract slot.",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("| Task | Depends on |"),
+      "discovery-instructions.md step 6 must mandate the `| Task | Depends on |` " +
+        "dependency table whenever ≥2 tasks have dependencies.",
+    ).toBe(true);
+  });
+
+  it("prd-template.md points at discovery-instructions.md for the change-type table instead of inlining it", () => {
+    expect(
+      prdTemplateContent.includes("references/discovery-instructions.md"),
+      "prd-template.md must reference discovery-instructions.md as the single source " +
+        "of truth for the change-type surgical-form table — inlining the table in the " +
+        "template is the duplication-drift failure mode the thin-sketch discipline exists " +
+        "to prevent.",
+    ).toBe(true);
+  });
+});
+
+describe("Optional edit-set field symmetry (coder/SKILL.md ↔ coder-instructions.md ↔ new-feature/SKILL.md)", () => {
+  // The optional `contract` / `acceptance` edit-set fields extend the required
+  // {file, intent, expected_outcome} triple. Three docs carry the field names:
+  // coder/SKILL.md (the wrapper contract), coder-instructions.md (the subagent
+  // procedure), and new-feature/SKILL.md Step 5 (the composing caller). A
+  // one-sided rename silently severs the plan-contract channel — the caller
+  // composes a field the subagent no longer honors, or vice versa. Mirrors the
+  // five-key artifact symmetry lint above.
+  const OPTIONAL_FIELDS = ["`contract`", "`acceptance`"];
+  const SITES: Array<[string, string]> = [
+    ["coder/SKILL.md", coderContent],
+    ["coder/references/coder-instructions.md", coderInstructionsContent],
+    ["new-feature/SKILL.md", newFeatureContent],
+  ];
+
+  it.each(OPTIONAL_FIELDS)(
+    "all three edit-set docs name the optional edit-set field %s",
+    (field) => {
+      for (const [label, docContent] of SITES) {
+        expect(
+          docContent.includes(field),
+          `${label} must name the optional edit-set field ${field}. The field is ` +
+            `documented in lock-step across coder/SKILL.md, coder-instructions.md, and ` +
+            `new-feature/SKILL.md Step 5; a one-sided drop silently severs the ` +
+            `plan-contract channel between the composing caller and the edit-applier.`,
+        ).toBe(true);
+      }
+    },
+  );
+
+  it("coder-instructions.md states the strong-prior mechanical pre-check", () => {
+    expect(
+      /strong prior/i.test(coderInstructionsContent),
+      "coder-instructions.md must state that the `contract` field is a strong prior, " +
+        "not a straitjacket — the deviation-handling half of the contract channel.",
+    ).toBe(true);
+    expect(
+      coderInstructionsContent.includes("MECHANICAL PRE-CHECK"),
+      "coder-instructions.md must state the contract check as a MECHANICAL PRE-CHECK " +
+        "(files/symbols/signatures vs actual code), not a judgment call — the wording " +
+        "that keeps cheaper coder models from fixating on stale literal signatures.",
+    ).toBe(true);
+  });
+});
+
+describe("Scout plan-verification anchors (PLAN wiring + PLAN-DEVIATION channel)", () => {
+  // The plan reaches the implementer through three prose hops: /flow-pipeline
+  // Step 5 appends the PLAN: line, /new-feature Step 1b forwards it into the
+  // scout spawn as {{PLAN_PATH}}, and scout-instructions.md's
+  // verify-not-rederive mode reports contradictions as PLAN-DEVIATION: bullets
+  // inside the UNCHANGED six-section artifact. Any hop silently dropped means
+  // plans are authored surgically but never consumed.
+  it("scout-instructions.md carries the PLAN-DEVIATION: prefix", () => {
+    expect(
+      scoutInstructionsContent.includes("PLAN-DEVIATION:"),
+      "scout-instructions.md must instruct the scout to record contract " +
+        "contradictions as 'PLAN-DEVIATION:'-prefixed bullets in ## open_questions — " +
+        "the drift-visibility channel /new-feature Step 2 reconciles.",
+    ).toBe(true);
+  });
+
+  it("new-feature/SKILL.md and scout-instructions.md agree on the `absent` PLAN_PATH sentinel", () => {
+    for (const [label, docContent] of [
+      ["new-feature/SKILL.md", newFeatureContent],
+      ["scout-instructions.md", scoutInstructionsContent],
+    ] as Array<[string, string]>) {
+      expect(
+        /the literal string\s+`absent`/.test(docContent),
+        `${label} must define the PLAN_PATH no-plan sentinel as 'the literal string ` +
+          "`absent`' verbatim — a one-sided rename (e.g. to `none`) leaves the scout " +
+          "treating the new literal as a real path, silently breaking or misfiring " +
+          "verify-not-rederive mode. Rename in lock-step across both docs and this lint.",
+      ).toBe(true);
+    }
+  });
+
+  it("discovery-instructions.md's plan.md persist format pins the `# Task breakdown` heading byte-exactly", () => {
+    expect(
+      discoveryInstructionsContent.includes("# Task breakdown"),
+      "discovery-instructions.md step 8's plan.md persist skeleton must emit the " +
+        "literal heading `# Task breakdown` — this is the PRODUCER side every " +
+        "downstream consumer (/new-feature Step 1b, scout-instructions.md, " +
+        "flow-pipeline/SKILL.md, coder/SKILL.md) gates on. Consumers match this " +
+        "heading tolerantly (any level, case-insensitive), but the producer must " +
+        "still emit this exact string so the tolerant match has something to find.",
+    ).toBe(true);
+    for (const [label, docContent] of [
+      ["new-feature/SKILL.md", newFeatureContent],
+      ["scout-instructions.md", scoutInstructionsContent],
+      ["flow-pipeline/SKILL.md", content],
+      ["coder/SKILL.md", coderContent],
+    ] as Array<[string, string]>) {
+      expect(
+        /task\s+breakdown/i.test(docContent),
+        `${label} must reference the plan's Task breakdown section — the tolerant ` +
+          "(case-insensitive, any heading level) match consistent with the gating " +
+          "wording in new-feature/SKILL.md Step 1b and scout-instructions.md.",
+      ).toBe(true);
+    }
+  });
+
+  it("scout-instructions.md six-section artifact list is unchanged (no seventh section)", () => {
+    const SECTIONS = [
+      "## affected_modules",
+      "## relevant_tests",
+      "## public_api_surface",
+      "## open_questions",
+      "## recommended_strategy",
+      "## anti_patterns",
+    ];
+    for (const section of SECTIONS) {
+      expect(
+        scoutInstructionsContent.includes(section),
+        `scout-instructions.md must keep the artifact section '${section}' — the ` +
+          `consumer reads the six sections positionally, and the plan-verification ` +
+          `mode explicitly reuses ## open_questions rather than adding a section.`,
+      ).toBe(true);
+    }
+    expect(
+      scoutInstructionsContent.includes("## plan_deviations"),
+      "scout-instructions.md must NOT add a seventh '## plan_deviations' section — " +
+        "PLAN-DEVIATION: bullets live inside the existing ## open_questions so the " +
+        "positionally-read six-section contract stays intact.",
+    ).toBe(false);
+  });
+
+  it("new-feature/SKILL.md passes {{PLAN_PATH}} into the scout spawn and reconciles PLAN-DEVIATION findings", () => {
+    expect(
+      newFeatureContent.includes("{{PLAN_PATH}}"),
+      "new-feature/SKILL.md's scout spawn template must carry the {{PLAN_PATH}} " +
+        "placeholder — without it the plan path never reaches the scout and " +
+        "verify-not-rederive mode is dead prose.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("PLAN-DEVIATION"),
+      "new-feature/SKILL.md Step 2 must reconcile the scout's PLAN-DEVIATION: " +
+        "findings as contract adjustments — dropping the reconciliation leaves " +
+        "deviations unread and stale contracts flowing into the Step 5 edit-set.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline/SKILL.md Step 5 carries the PLAN: line on the first-entry invocation", () => {
+    expect(
+      content.includes("PLAN: $WORKTREE/.flow-tmp/plan.md"),
+      "flow-pipeline/SKILL.md Step 5 must append 'PLAN: $WORKTREE/.flow-tmp/plan.md' " +
+        "to the first-entry /new-feature invocation — the wiring hop that hands the " +
+        "approved plan's task contracts to the implementer.",
     ).toBe(true);
   });
 });

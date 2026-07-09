@@ -47,8 +47,11 @@ At the five worktree-existing phases — `plan-pending-review`,
 `implementing`, `verifying`, `ci-wait`, `reviewing` — a NON-trivial
 code-change redirect is the **interactive code-change redirect** path:
 the supervisor composes the edit-set `{file, intent, expected_outcome}`
-from the verbatim redirect text, invokes `/coder` in-process, and reads
-`.flow-tmp/coder-result.json` once (never the per-edit diff). A trivial
+from the verbatim redirect text (bare triples — the optional
+`contract` / `acceptance` edit-set fields are composed only when a plan
+contract is available, which a free-form redirect is not), invokes
+`/coder` in-process, and reads `.flow-tmp/coder-result.json` once (never
+the per-edit diff). A trivial
 edit (≤1 file AND ≤30 LOC AND every file named in the redirect) stays
 inline. This does NOT replace the scope/plan re-run path — that path
 still re-runs `/product-planning` or re-prompts the sub-skill for
