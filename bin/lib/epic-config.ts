@@ -14,7 +14,7 @@
  */
 
 import * as fs from "node:fs";
-import { FLOW_CONFIG } from "./paths";
+import { flowConfigPath } from "./paths";
 
 /** Concurrency cap default when `epic.maxParallel` is unset/invalid. */
 export const DEFAULT_MAX_PARALLEL = 3;
@@ -28,7 +28,7 @@ export type ReadConfigFile = () => unknown;
 
 const defaultReadConfigFile: ReadConfigFile = () => {
   try {
-    return JSON.parse(fs.readFileSync(FLOW_CONFIG, "utf8"));
+    return JSON.parse(fs.readFileSync(flowConfigPath(), "utf8"));
   } catch {
     return undefined;
   }

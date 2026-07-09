@@ -19,7 +19,7 @@
  */
 
 import * as fs from "node:fs";
-import { FLOW_CONFIG } from "./paths";
+import { flowConfigPath } from "./paths";
 import { MODEL_ALIASES, type ModelAlias } from "./state";
 
 /**
@@ -31,7 +31,7 @@ export type ReadConfigFile = () => unknown;
 
 export const defaultReadConfigFile: ReadConfigFile = () => {
   try {
-    return JSON.parse(fs.readFileSync(FLOW_CONFIG, "utf8"));
+    return JSON.parse(fs.readFileSync(flowConfigPath(), "utf8"));
   } catch {
     return undefined;
   }
