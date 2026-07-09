@@ -125,6 +125,13 @@ Decide whether to spawn the scout subagent based on the **hybrid threshold**:
    `WORKTREE` value (typical when invoked from `/flow-pipeline`), use it.
    Otherwise use `pwd`. Define:
    - `SCOUT_PATH = <workdir>/.flow-tmp/scout.md`
+   - `PLAN_PATH` — the absolute plan path when the invocation carried a
+     `PLAN: <path>` line AND that file exists AND contains a
+     `# Task breakdown` heading; the literal string `absent` otherwise.
+     A supplied plan does not change the hybrid threshold above — it
+     neither forces nor skips the scout spawn; it only switches a
+     spawned scout into verify-not-rederive mode (see
+     `references/scout-instructions.md`).
 2. Resolve the skill base directory absolutely. The Skill tool prints
    the "Base directory for this skill" at the top of this SKILL.md when
    loaded — capture it as `SKILL_DIR`. Then derive:
@@ -177,9 +184,9 @@ config.models.implement > inherited` (see
 
 ### Spawn prompt template
 
-Fill in the five `{{...}}` placeholders before passing to the Task tool:
+Fill in the six `{{...}}` placeholders before passing to the Task tool:
 `INSTRUCTIONS_PATH`, `USER_DESCRIPTION`, `WORKTREE`, `SKILL_DIR`,
-`SCOUT_PATH`.
+`SCOUT_PATH`, `PLAN_PATH`.
 
 ```
 You are the Independent Scout Subagent for `/new-feature`. You run in an
@@ -200,6 +207,11 @@ path — they do not exist relative to {{WORKTREE}}):
 
 Write the scout report to (absolute path):
   {{SCOUT_PATH}}
+
+Approved plan path (when not the literal `absent`, verify the plan's
+`# Task breakdown` contracts against the code instead of re-deriving —
+see scout-instructions.md "Verify-not-rederive"):
+  {{PLAN_PATH}}
 
 Follow the scout-instructions.md steps in order. You are one-shot — do
 not ask the user clarifying questions. When the user description leaves
@@ -320,6 +332,16 @@ interpretation` section, or the section's Recommended path is
     the verdict still holds or update it if scouting changed the downstream picture, mirroring the
     `## Plan risks` reconciliation above. Omit this reconciliation entirely when plan.md has no
     `## Decision analysis` section.
+  - **Read the plan's task contracts and reconcile scout deviations.** When Step 1b resolved a
+    non-`absent` `PLAN_PATH`, read the plan's `# Task breakdown` per-task Contract blocks as part
+    of the same single plan.md read as the `## Prompt interpretation` / `## Plan risks` /
+    `## Decision analysis` sections above — never a second open. Reconcile any
+    `PLAN-DEVIATION:`-prefixed bullets in the scout's `## open_questions` as **contract
+    adjustments** — implement to the corrected interface the scout verified against the code —
+    not as product risks; only a deviation that guts a task's intent escalates into the
+    assessment table's risk rows. The reconciled contracts feed Step 5's edit-set composition
+    (the optional `contract` / `acceptance` fields). Skip this bullet entirely when `PLAN_PATH`
+    is `absent`.
 
 ## 3. Write `it.todo()` Test Specs
 
@@ -574,13 +596,27 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
 
 ### Spawn procedure (wider-scope path only)
 
-1. Compose the **edit-set** from the `it.todo()` list and the scout's
-   `## affected_modules`. Each entry is a JSON-shaped object with three
-   fields:
+1. Compose the **edit-set**. When Step 1b resolved a non-`absent`
+   `PLAN_PATH`, compose it from the plan's per-task Contract blocks (as
+   adjusted by Step 2's `PLAN-DEVIATION:` reconciliation); when no plan
+   applies, fall back to composing from the `it.todo()` list and the
+   scout's `## affected_modules` exactly as before. Each entry is a
+   JSON-shaped object with three required fields:
    - `file` — repo-relative path of the file to edit.
    - `intent` — 1–2 lines naming what the edit is meant to achieve.
    - `expected_outcome` — 1–2 lines naming the observable post-edit
      state (what test should pass, what behaviour should change).
+
+   On the plan-contract path each entry also carries two optional
+   fields:
+   - `contract` — the task's interface spec copied verbatim from its
+     Contract block (Files / Interfaces / Call-site edits, or the
+     change-type surgical form), with Step 2's contract adjustments
+     applied.
+   - `acceptance` — the task's runnable acceptance command.
+
+   Both fields are optional and absent on the no-plan fallback path —
+   `/coder` treats a bare triple exactly as today.
 
    Render the edit-set as a single JSON array — pass it to `/coder` as
    the `EDIT_SET` argument.
