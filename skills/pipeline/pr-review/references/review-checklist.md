@@ -1414,6 +1414,50 @@ it guards, with nothing failing in CI.
 
 ---
 
+## SECURITY DEFINER `search_path` Pinning Judged Against the Copied File, Not the Repo
+
+A new `SECURITY DEFINER` function copied from one precedent migration can silently omit a
+hardening convention (`SET search_path = public`) that other migrations in the same repo do
+apply. Schema-qualifying the statements inside the function reduces the risk but does not
+replace pinning — and "the file I copied didn't pin it" is not evidence the repo lacks the
+convention.
+
+### What to look for
+
+- Any new `CREATE [OR REPLACE] FUNCTION ... SECURITY DEFINER` in a migration without
+  `SET search_path`.
+- Unqualified table names (`billing_accounts` vs `public.billing_accounts`) inside migration
+  SQL that otherwise qualifies names — especially backfill DML and trigger bodies.
+
+### How to check
+
+1. `grep -rn "SECURITY DEFINER" supabase/migrations/` and compare: do OTHER migrations append
+   `SET search_path = public` (or similar)? If any do, the convention exists — flag the new
+   function for pinning even when the nearest-copied precedent omits it.
+2. Inside the new function/backfill, check every table reference is schema-qualified
+   consistently with the rest of the same file.
+
+### Example — billing signup trigger omitted the pin (econ-data PR #423)
+
+```sql
+-- BAD: copied handle_new_user's shape (create_profiles_schema.sql), which
+--      predates the convention
+CREATE OR REPLACE FUNCTION handle_new_user_billing()
+...
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- GOOD: matches the repo's hardened precedent (create_dashboard_shares.sql)
+CREATE OR REPLACE FUNCTION handle_new_user_billing()
+...
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+```
+
+**General rule:** For security-hardening conventions, the standard is the strictest precedent
+in the repo, not the file the author happened to copy — dropping a candidate finding because
+"the copied pattern also lacks it" requires checking that NO sibling applies the convention.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue
