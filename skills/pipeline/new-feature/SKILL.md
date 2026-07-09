@@ -91,6 +91,24 @@ disk + a brief summary.
 
 ## 1b. Scout the Codebase
 
+**Resolve `PLAN_PATH` first**, before the hybrid threshold below — this
+runs on every entry to Step 1b, not only the wider-scope spawn path, so a
+supplied plan is never silently dropped when a feature is judged
+description-trivial (Step 5's `/coder` threshold is independent and can
+still take the wider path at implement time). Resolve the working
+directory absolutely: if the caller passed a `WORKTREE` value (typical
+when invoked from `/flow-pipeline`), use it; otherwise use `pwd`. Define:
+
+- `PLAN_PATH` — the absolute plan path when the invocation carried a
+  `PLAN: <path>` line AND that file exists AND contains a heading (any
+  level, case-insensitive) matching `Task breakdown`; the literal string
+  `absent` otherwise. A supplied plan does not change the hybrid
+  threshold below — it neither forces nor skips the scout spawn; on the
+  skip-scout path it still feeds Step 2's contract read and Step 5's
+  edit-set composition. On the spawn path it additionally switches the
+  spawned scout into verify-not-rederive mode (see
+  `references/scout-instructions.md`).
+
 Decide whether to spawn the scout subagent based on the **hybrid threshold**:
 
 - **Trivially scoped features** (≤3 affected files, judged from the
@@ -121,17 +139,10 @@ Decide whether to spawn the scout subagent based on the **hybrid threshold**:
 
 **Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: new-feature-scout` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
 
-1. Resolve the working directory absolutely. If the caller passed a
-   `WORKTREE` value (typical when invoked from `/flow-pipeline`), use it.
-   Otherwise use `pwd`. Define:
+1. Resolve the working directory absolutely (same resolution as above,
+   reused rather than re-derived). Define:
    - `SCOUT_PATH = <workdir>/.flow-tmp/scout.md`
-   - `PLAN_PATH` — the absolute plan path when the invocation carried a
-     `PLAN: <path>` line AND that file exists AND contains a
-     `# Task breakdown` heading; the literal string `absent` otherwise.
-     A supplied plan does not change the hybrid threshold above — it
-     neither forces nor skips the scout spawn; it only switches a
-     spawned scout into verify-not-rederive mode (see
-     `references/scout-instructions.md`).
+   - `PLAN_PATH` — already resolved above; do not re-derive it here.
 2. Resolve the skill base directory absolutely. The Skill tool prints
    the "Base directory for this skill" at the top of this SKILL.md when
    loaded — capture it as `SKILL_DIR`. Then derive:
@@ -615,7 +626,15 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
      applied.
    - `acceptance` — the task's runnable acceptance command.
 
-   Both fields are optional and absent on the no-plan fallback path —
+   A task's `Files:` list routinely names more than one file — split
+   such a task into one edit-set entry per file (each carrying that
+   file's own `contract` slice). `acceptance` is task-grained, not
+   file-grained: attach it only to the task's **final** entry (the
+   `/coder` edit-applier runs it once, after that last entry, not
+   per-edit — see `references/coder-instructions.md` step 4). Earlier
+   entries for the same task omit `acceptance` entirely.
+
+   Both optional fields are absent on the no-plan fallback path —
    `/coder` treats a bare triple exactly as today.
 
    Render the edit-set as a single JSON array — pass it to `/coder` as

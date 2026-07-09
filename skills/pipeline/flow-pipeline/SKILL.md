@@ -1159,14 +1159,18 @@ PLAN: $WORKTREE/.flow-tmp/plan.md
 ```
 
 The `PLAN:` line (same append convention as the `mode:fix` /
-`PRIOR FAILURE LOG:` re-entry below) is feature-intent, first-entry
-only: it hands `/new-feature` the approved plan so its scout verifies
-the plan's `# Task breakdown` contracts against the code instead of
-re-deriving them, and its edit-set composition inherits the per-task
-Contract blocks. `/new-feature` tolerates plan absence — a missing
-file or a plan with no `# Task breakdown` leaves its behaviour exactly
-as it is without the line — and `mode:fix` re-entries do NOT carry
-the `PLAN:` line.
+`PRIOR FAILURE LOG:` re-entry below) is appended on every first-entry
+invocation when `.flow-tmp/plan.md` exists — feature and non-feature
+intents alike, since discovery's Contract block is required on every
+task regardless of intent and step 3's non-feature `advance-to-step-5`
+branch already keeps plan.md on disk for traceability. It hands
+`/new-feature` the approved plan so its scout verifies the plan's Task
+breakdown contracts against the code instead of re-deriving them, and
+its edit-set composition inherits the per-task Contract blocks.
+`/new-feature` tolerates plan absence — a missing file or a plan with
+no heading matching `Task breakdown` leaves its behaviour exactly as it
+is without the line — and `mode:fix` re-entries do NOT carry the
+`PLAN:` line.
 
 `/new-feature` is itself a thin wrapper that spawns one **Independent
 Scout Subagent** via the Task tool (the third of the nine named

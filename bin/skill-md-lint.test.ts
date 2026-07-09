@@ -175,6 +175,15 @@ const PRD_TEMPLATE_PATH = path.resolve(
   "templates",
   "prd-template.md",
 );
+const EXAMPLE_PRD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "product-planning",
+  "references",
+  "example-prd.md",
+);
 const NEW_FEATURE_SKILL_MD_PATH = path.resolve(
   HERE,
   "..",
@@ -312,6 +321,7 @@ const epicDiscoveryInstructionsContent = fs.readFileSync(
   "utf8",
 );
 const prdTemplateContent = fs.readFileSync(PRD_TEMPLATE_PATH, "utf8");
+const examplePrdContent = fs.readFileSync(EXAMPLE_PRD_PATH, "utf8");
 const newFeatureContent = fs.readFileSync(NEW_FEATURE_SKILL_MD_PATH, "utf8");
 const scoutInstructionsContent = fs.readFileSync(
   SCOUT_INSTRUCTIONS_PATH,
@@ -2232,14 +2242,17 @@ describe("New planning-discipline contract anchors", () => {
   });
 });
 
-describe("Surgical task-contract anchors (discovery-instructions.md ↔ prd-template.md)", () => {
+describe("Surgical task-contract anchors (discovery-instructions.md ↔ prd-template.md ↔ example-prd.md)", () => {
   // The per-task Contract block (Files / Interfaces / Call-site edits +
   // runnable Acceptance criteria) is what lets a cheaper implementer execute
   // to the planner's interface decisions instead of re-deriving them.
   // discovery-instructions.md step 6 is the single source of truth; the
-  // prd-template sketch mirrors the field names. A rename in one file but not
-  // the other silently breaks the downstream consumers (/new-feature Step 2's
-  // contract read, /coder's contract pre-check) that grep these labels.
+  // prd-template sketch and example-prd.md's worked example both mirror the
+  // field names. example-prd.md is the file discovery runs imitate, so a
+  // one-sided rename there is arguably a stronger silent-drift risk than in
+  // the template. A rename in any one file but not the others silently
+  // breaks the downstream consumers (/new-feature Step 2's contract read,
+  // /coder's contract pre-check) that grep these labels.
   const CONTRACT_FIELDS = [
     "- **Contract:**",
     "**Files:**",
@@ -2247,22 +2260,24 @@ describe("Surgical task-contract anchors (discovery-instructions.md ↔ prd-temp
     "**Call-site edits:**",
     "- **Acceptance criteria:**",
   ];
+  const CONTRACT_FIELD_SITES: Array<[string, string]> = [
+    ["discovery-instructions.md", discoveryInstructionsContent],
+    ["prd-template.md", prdTemplateContent],
+    ["example-prd.md", examplePrdContent],
+  ];
 
   it.each(CONTRACT_FIELDS)(
-    "discovery-instructions.md and prd-template.md both carry the Contract-block field '%s'",
+    "discovery-instructions.md, prd-template.md, and example-prd.md all carry the Contract-block field '%s'",
     (field) => {
-      expect(
-        discoveryInstructionsContent.includes(field),
-        `discovery-instructions.md step 6 must carry the Contract-block field '${field}' ` +
-          `verbatim — it is the single source of truth for the surgical task format. ` +
-          `Rename it in lock-step with prd-template.md and this lint in the same commit.`,
-      ).toBe(true);
-      expect(
-        prdTemplateContent.includes(field),
-        `prd-template.md's Task Breakdown sketch must carry the Contract-block field ` +
-          `'${field}' verbatim, in lock-step with discovery-instructions.md step 6. ` +
-          `Drift here teaches discovery runs a divergent task format.`,
-      ).toBe(true);
+      for (const [label, docContent] of CONTRACT_FIELD_SITES) {
+        expect(
+          docContent.includes(field),
+          `${label} must carry the Contract-block field '${field}' verbatim — ` +
+            `discovery-instructions.md step 6 is the single source of truth for the ` +
+            `surgical task format; prd-template.md and example-prd.md mirror it. ` +
+            `Rename in lock-step across all three plus this lint in the same commit.`,
+        ).toBe(true);
+      }
     },
   );
 
@@ -2273,9 +2288,10 @@ describe("Surgical task-contract anchors (discovery-instructions.md ↔ prd-temp
         "guardrail — the deviation-handling contract the scout and coder both anchor on.",
     ).toBe(true);
     expect(
-      discoveryInstructionsContent.includes("change-type"),
+      discoveryInstructionsContent.includes("| Change type"),
       "discovery-instructions.md step 6 must carry the per-change-type surgical-form " +
-        "table (UI/visual, config/infra, docs/prose, schema) so non-code tasks get an " +
+        "table header row (`| Change type`) — not just the prose word 'change-type', " +
+        "which survives the table itself being deleted — so non-code tasks get an " +
         "equally exact Contract slot.",
     ).toBe(true);
     expect(
@@ -2355,6 +2371,46 @@ describe("Scout plan-verification anchors (PLAN wiring + PLAN-DEVIATION channel)
         "contradictions as 'PLAN-DEVIATION:'-prefixed bullets in ## open_questions — " +
         "the drift-visibility channel /new-feature Step 2 reconciles.",
     ).toBe(true);
+  });
+
+  it("new-feature/SKILL.md and scout-instructions.md agree on the `absent` PLAN_PATH sentinel", () => {
+    for (const [label, docContent] of [
+      ["new-feature/SKILL.md", newFeatureContent],
+      ["scout-instructions.md", scoutInstructionsContent],
+    ] as Array<[string, string]>) {
+      expect(
+        /the literal string\s+`absent`/.test(docContent),
+        `${label} must define the PLAN_PATH no-plan sentinel as 'the literal string ` +
+          "`absent`' verbatim — a one-sided rename (e.g. to `none`) leaves the scout " +
+          "treating the new literal as a real path, silently breaking or misfiring " +
+          "verify-not-rederive mode. Rename in lock-step across both docs and this lint.",
+      ).toBe(true);
+    }
+  });
+
+  it("discovery-instructions.md's plan.md persist format pins the `# Task breakdown` heading byte-exactly", () => {
+    expect(
+      discoveryInstructionsContent.includes("# Task breakdown"),
+      "discovery-instructions.md step 8's plan.md persist skeleton must emit the " +
+        "literal heading `# Task breakdown` — this is the PRODUCER side every " +
+        "downstream consumer (/new-feature Step 1b, scout-instructions.md, " +
+        "flow-pipeline/SKILL.md, coder/SKILL.md) gates on. Consumers match this " +
+        "heading tolerantly (any level, case-insensitive), but the producer must " +
+        "still emit this exact string so the tolerant match has something to find.",
+    ).toBe(true);
+    for (const [label, docContent] of [
+      ["new-feature/SKILL.md", newFeatureContent],
+      ["scout-instructions.md", scoutInstructionsContent],
+      ["flow-pipeline/SKILL.md", content],
+      ["coder/SKILL.md", coderContent],
+    ] as Array<[string, string]>) {
+      expect(
+        /task\s+breakdown/i.test(docContent),
+        `${label} must reference the plan's Task breakdown section — the tolerant ` +
+          "(case-insensitive, any heading level) match consistent with the gating " +
+          "wording in new-feature/SKILL.md Step 1b and scout-instructions.md.",
+      ).toBe(true);
+    }
   });
 
   it("scout-instructions.md six-section artifact list is unchanged (no seventh section)", () => {

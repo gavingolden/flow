@@ -22,8 +22,9 @@ the wrapper's brief return summary and reads the artifact once.
 
 - `/new-feature` step 5 (Implement) on the wider-scope path of its hybrid
   threshold — the caller composes an edit-set from the approved plan's
-  per-task Contract blocks when a plan with a `# Task breakdown` was
-  supplied (entries then carry the optional `contract` / `acceptance`
+  per-task Contract blocks when a plan with a Task breakdown heading
+  (any level, case-insensitive) was supplied (entries then carry the
+  optional `contract` / `acceptance`
   fields), falling back to the `it.todo()` list and the scout's
   `## affected_modules` when no plan applies.
 - `/verify` step 3 (Fix Failures) per outer attempt — the caller composes

@@ -94,7 +94,15 @@
 
 ### Task 2: [Short Title]
 
-- …
+- **Skill:** `skill-name`
+- **Description:** What to implement
+- **Inputs:** What must exist first
+- **Outputs:** What this produces
+- **Contract:**
+  - **Files:** [repo-relative paths to create/edit]
+  - **Interfaces:** [exact signatures + exported symbols this task decides]
+  - **Call-site edits:** [each consumer edit, named as file + symbol]
+- **Acceptance criteria:** [runnable command whose exit code verifies the task]
 
 <!-- Dependency table: REQUIRED whenever ≥2 tasks have dependencies (advisory
      otherwise — still useful for >3 tasks). Table or short Mermaid graph:

@@ -24,9 +24,9 @@ The wrapper passes you these inputs in its spawn prompt:
   `<flow-checkout>/skills/pipeline/new-feature/`).
 - The absolute path to write `scout.md` (`SCOUT_PATH`).
 - The approved plan path (`PLAN_PATH`) — an absolute path when an approved
-  plan with a `# Task breakdown` exists, the literal string `absent`
-  otherwise. A non-`absent` value switches step 2 into verify-not-rederive
-  mode (see step 2b).
+  plan with a heading (any level, case-insensitive) matching `Task
+breakdown` exists, the literal string `absent` otherwise. A non-`absent`
+  value switches step 2 into verify-not-rederive mode (see step 2b).
 
 Follow the steps below in order.
 
@@ -72,12 +72,19 @@ When `PLAN_PATH` is not `absent`, an approved plan has already made the
 interface-level decisions, and your step-2 job shifts from re-deriving the
 affected surface to **verifying the plan's contract against the code**:
 
-- Read ONLY the plan's `# Task breakdown` section — not the PRD prose. The
+- Read ONLY the plan's Task breakdown section (the heading matching
+  `Task breakdown`, any level, case-insensitive) — not the PRD prose. The
   upstream rationale dilutes your codebase focus; the per-task Contract
   blocks (Files / Interfaces / Call-site edits / acceptance command) are
   the claims you verify.
-- Verify each Contract claim against the codebase: the named file exists,
-  the named symbol exists, the stated signature matches.
+- Verify each Contract claim against the codebase, per the Files list's
+  create-vs-edit marking: for an **edit**-type claim, verify the named
+  file exists, the named symbol exists, and the stated signature matches;
+  for a **create**-type claim the file and symbol don't exist yet by
+  design — verify non-collision instead (the path isn't already taken,
+  the symbol isn't already exported elsewhere). Also verify `Call-site
+edits:` claims (named existing file + symbol) the same way as edit-type
+  claims.
 - Fill genuine gaps the plan left unspecified — adjacent files, tests,
   public-API fan-out — exactly as steps 2–3 describe.
 - Record each contradiction as a `PLAN-DEVIATION:`-prefixed bullet in
