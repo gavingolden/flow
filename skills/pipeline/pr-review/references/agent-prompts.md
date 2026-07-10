@@ -483,8 +483,8 @@ user-facing flow?**
    deletions (`bin`, `main`, `exports`, `types`, `engines`, `files`,
    `scripts.prepare`, `scripts.postinstall`); (d) license field changes.
 3. Walk the review checklist's **Part 3 § "Removing a Top-Level `package.json`
-   Field Breaks an Install Pathway"** (`references/review-checklist.md` lines
-   1093–1142) for the field-deletion sub-case. Its "How to check" walkthrough
+   Field Breaks an Install Pathway"** (`references/review-checklist.md`) for
+   the field-deletion sub-case. Its "How to check" walkthrough
    instructs: list every top-level field removed; for each, identify what
    install/invocation pathway it enabled (`bin` → `npm i -g`, `main` → bare
    imports, `prepare` → fresh-clone build); `grep -rn 'npm link\|npm i -g\|npm
