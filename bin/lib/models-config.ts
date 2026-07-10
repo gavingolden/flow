@@ -2,7 +2,7 @@
  * Tolerant boundary reader for `~/.flow/config.json`'s `models` table.
  *
  * Mirrors `copilot-config.ts` / `epic-config.ts`: reads the same
- * `~/.flow/config.json` off `FLOW_CONFIG` through an injectable
+ * `~/.flow/config.json` off `flowConfigPath()` through an injectable
  * `ReadConfigFile` seam (so tests never touch the real file), and collapses
  * anything unreadable / malformed / wrong-typed / out-of-enum to `undefined`.
  *

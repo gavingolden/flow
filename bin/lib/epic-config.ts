@@ -2,7 +2,7 @@
  * Tolerant boundary reader for `~/.flow/config.json` `epic.maxParallel`.
  *
  * Mirrors `copilot-config.ts`: reads the same `~/.flow/config.json` off
- * `FLOW_CONFIG` through an injectable `ReadConfigFile` seam (so tests never
+ * `flowConfigPath()` through an injectable `ReadConfigFile` seam (so tests never
  * touch the real file), and collapses anything unreadable/malformed/wrong-typed
  * to the built-in default. `paths.ts`'s private `FlowConfig` type only knows
  * `source?`, so this is a net-new key reader, not an extension of `readConfig`.

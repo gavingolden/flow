@@ -23,15 +23,15 @@ export const FLOW_STATE_DIR = path.join(FLOW_DIR, "state");
 export const FLOW_EPICS_DIR = path.join(FLOW_DIR, "epics");
 export const FLOW_COMPLETIONS_DIR = path.join(FLOW_DIR, "completions");
 export const FLOW_MANIFEST = path.join(FLOW_DIR, "installed.json");
-export const FLOW_CONFIG = path.join(FLOW_DIR, "config.json");
 
 /**
- * Same path as `FLOW_CONFIG`, resolved at call time rather than import time.
- * `HOME` above is captured when this module is first imported — which happens
- * before vitest's setup file swaps `$HOME` for a sandbox — so the constant
- * still points at the developer's real `~/.flow/config.json`. Every reader of
- * the config file must go through this function, or the test suite silently
- * depends on whatever the author happens to have configured globally.
+ * Resolves `~/.flow/config.json` at call time rather than import time. `HOME`
+ * above is captured when this module is first imported — which happens
+ * before vitest's setup file swaps `$HOME` for a sandbox — so an eager
+ * `path.join(FLOW_DIR, "config.json")` constant would still point at the
+ * developer's real `~/.flow/config.json`. Every reader of the config file
+ * must go through this function, or the test suite silently depends on
+ * whatever the author happens to have configured globally.
  */
 export function flowConfigPath(): string {
   return path.join(os.homedir(), ".flow", "config.json");

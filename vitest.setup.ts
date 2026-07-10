@@ -18,7 +18,7 @@ import { afterAll, beforeAll } from "vitest";
 // homedir lazily and is fully covered. The `~/.flow/config.json` readers
 // (models-config, copilot-config, epic-config, update-check) are covered too:
 // they resolve the path via paths.ts's `flowConfigPath()` at call time rather
-// than the import-time `FLOW_CONFIG` constant. A test that consumes another
+// than an import-time constant. A test that consumes another
 // paths.ts default like `dir = FLOW_STATE_DIR` without a DI override would
 // still touch the real ~/.flow/; tightening the remaining constants to lazy
 // evaluation is tracked as a followup in PR #86.

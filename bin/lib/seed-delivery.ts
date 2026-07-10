@@ -28,10 +28,8 @@ export interface DeliverSeedResult {
 }
 
 export interface DeliverSeedOpts {
+  /** Skip the settle poll (e.g. a caller that already settled the pane itself). */
   settleAttempts?: number;
-  settleIntervalMs?: number;
-  verifyAttempts?: number;
-  verifySettleMs?: number;
   maxSendBytes?: number;
 }
 
@@ -101,6 +99,11 @@ function settleGate(
   }
 }
 
+/** Strips all whitespace so a wrapped/indented pane capture still matches. */
+function squash(s: string): string {
+  return s.replace(/\s+/g, "");
+}
+
 /**
  * Send the leading line, verify it echoed intact, then send the remainder.
  * NEVER sends Enter — the caller submits, and only when `delivered` is true.
@@ -112,15 +115,11 @@ export function deliverSeed(
 ): DeliverSeedResult {
   if (seed.length === 0) return { delivered: false, stderr: "empty seed" };
 
-  const verifyAttempts = opts.verifyAttempts ?? VERIFY_ATTEMPTS;
-  const verifySettleMs = opts.verifySettleMs ?? VERIFY_SETTLE_MS;
+  const verifyAttempts = VERIFY_ATTEMPTS;
+  const verifySettleMs = VERIFY_SETTLE_MS;
   const maxSendBytes = opts.maxSendBytes ?? MAX_SEND_KEYS_BYTES;
 
-  settleGate(
-    seams,
-    opts.settleAttempts ?? SETTLE_ATTEMPTS,
-    opts.settleIntervalMs ?? SETTLE_INTERVAL_MS,
-  );
+  settleGate(seams, opts.settleAttempts ?? SETTLE_ATTEMPTS, SETTLE_INTERVAL_MS);
 
   const { leadingLine, remainder } = splitSeed(seed);
 
@@ -131,7 +130,11 @@ export function deliverSeed(
       if (!r.ok) return { delivered: false, stderr: r.stderr };
     }
     seams.sleep(verifySettleMs);
-    if (seams.capture().includes(leadingLine)) {
+    // Whitespace-normalize both sides: a long leading line (up to ~77 chars for
+    // a max-length explicit --slug) can wrap across rows in a default 80-column
+    // pane, inserting a physical newline/indent that would otherwise defeat a
+    // raw substring match and false-fail verification.
+    if (squash(seams.capture()).includes(squash(leadingLine))) {
       verified = true;
       break;
     }

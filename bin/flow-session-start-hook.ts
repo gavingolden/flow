@@ -170,11 +170,18 @@ export function deliverResumeSeed(slug: string, seams: DeliverSeams): boolean {
   let ready = paneClearedAndSettled(seams, attempts);
   if (!ready) ready = paneClearedAndSettled(seams, attempts); // one bounded retry
   if (!ready) return false;
-  const result = deliverSeed(flowPipelineResumeSeed(slug), {
-    capture: seams.capturePane,
-    send: seams.sendKeys,
-    sleep: seams.sleep,
-  });
+  // settleAttempts: 0 skips deliverSeed's generic settle poll — paneClearedAndSettled
+  // above already waited for the pane to clear and stabilise, so the redundant
+  // gate would only cost one wasted sleep interval.
+  const result = deliverSeed(
+    flowPipelineResumeSeed(slug),
+    {
+      capture: seams.capturePane,
+      send: seams.sendKeys,
+      sleep: seams.sleep,
+    },
+    { settleAttempts: 0 },
+  );
   if (!result.delivered) return false;
   const submitted = seams.sendKeys("Enter", false);
   return submitted.ok;

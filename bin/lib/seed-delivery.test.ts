@@ -113,6 +113,14 @@ describe("chunkByBytes", () => {
     const text = "héllo wörld 😀 with mixed bytes ".repeat(50);
     expect(chunkByBytes(text, 17).join("")).toBe(text);
   });
+
+  it("should emit a single over-budget chunk when maxBytes is smaller than one code point's byte length, rather than looping or dropping it", () => {
+    // "😀" is 4 bytes; a 2-byte budget can never fit it. The guard only splits
+    // when `current.length > 0`, so an empty `current` still takes the char —
+    // production never reaches this (MAX_SEND_KEYS_BYTES is 8192), but the
+    // behavior is pinned here so a future change to loop/throw/drop is caught.
+    expect(chunkByBytes("😀", 2)).toEqual(["😀"]);
+  });
 });
 
 describe("deliverSeed — settle gate", () => {
@@ -133,6 +141,23 @@ describe("deliverSeed — settle gate", () => {
     // The first send must not fire before the capture stabilised (≥3 probes:
     // two changing + the first "STABLE", then a matching repeat).
     expect(firstSendAtProbe).toBeGreaterThanOrEqual(3);
+  });
+
+  it("should still attempt delivery when the pane never settles (settleGate exhausts its attempts)", () => {
+    // Capture returns a distinct non-empty string every probe during the
+    // settle phase — it never stabilises across two consecutive calls. Pins
+    // the documented "never settles ⇒ deliver anyway" fall-through.
+    const { seams, sends } = makeSeams(SEED);
+    let settleProbe = 0;
+    const originalCapture = seams.capture;
+    seams.capture = vi.fn((): string => {
+      settleProbe++;
+      if (settleProbe <= 3) return `unstable-${settleProbe}`;
+      return originalCapture();
+    });
+    const result = deliverSeed(SEED, seams, { settleAttempts: 3 });
+    expect(result).toEqual({ delivered: true, stderr: "" });
+    expect(sends.some((s) => s.text === MARKER)).toBe(true);
   });
 });
 
