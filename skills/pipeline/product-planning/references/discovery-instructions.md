@@ -618,8 +618,49 @@ and can be verified with a single check. Split a task if:
 - **Description:** What to implement
 - **Inputs:** What must exist before this task starts
 - **Outputs:** What this task produces
-- **Acceptance criteria:** How to verify it's done
+- **Contract:**
+  - **Files:** repo-relative paths to create/edit (mark create vs edit)
+  - **Interfaces:** exact function/type/interface signatures + exported symbols this task decides
+  - **Call-site edits:** each consumer edit, named as file + symbol (what changes at every call site)
+- **Acceptance criteria:** a runnable command whose exit code verifies the task (e.g. `npm run test -- <file>`, `grep -q '<anchor>' <path>`), not prose
 ```
+
+The `- **Contract:**` block is **required on every task** — it is the surgical
+half of the breakdown that lets a downstream implementer execute to the
+planner's interface decisions instead of re-deriving them. The
+`- **Acceptance criteria:**` bullet is a **runnable command** (a deterministic
+check that exits 0 when the task is done), not a prose description; reserve
+prose only for a genuinely subjective criterion.
+
+**Per-change-type surgical forms.** The `Interfaces:` / `Call-site edits:`
+sub-bullets assume callable boundaries. When a task's change type has none,
+substitute the change-type-appropriate surgical form — the same Contract slot,
+equally exact:
+
+| Change type    | Surgical form for the Contract block                                                     |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| Code / API     | Exact signatures, exported symbols, and named call-site edits (the default above)        |
+| UI / visual    | Exact selectors/components, design tokens, and before → after values per visual property |
+| Config / infra | Exact file + key path + before → after values for every key touched                      |
+| Docs / prose   | Exact insertion anchor (heading or verbatim phrase) + what is inserted/replaced at it    |
+| Schema         | Exact DDL (CREATE/ALTER statements, column types, constraints, policies)                 |
+
+**Strong prior, not a straitjacket.** The Contract block is a strong prior for
+the implementer, not a straitjacket: it is authored before any code exists in
+the worktree, so a named file, symbol, or signature may be contradicted by the
+actual code at implement time. Downstream consumers verify each claim against
+the codebase and, on contradiction, prefer the code, adapt, and record the
+deviation explicitly (the scout as a `PLAN-DEVIATION:` bullet in its
+`## open_questions`; the coder in `rejected_alternatives`) rather than silently
+following or silently rewriting the plan. Specify signatures and symbols for
+the code the plan _decides_; do not spell out private helper internals — the
+depth bound is "enough that the implementer fills in bodies rather than
+designing interfaces".
+
+**Dependency table.** After the task list, a `| Task | Depends on |` table is
+**required whenever ≥2 tasks have dependencies** (advisory for smaller or fully
+linear breakdowns). The single sequential implementer executes tasks in this
+order; the table is the cheap 80% of a task DAG at zero new format cost.
 
 List the skill directory before recommending — do not hardcode a static list.
 
@@ -907,9 +948,9 @@ redirect did not touch and destroys embedded markers. Follow this contract:
    under `## Decision analysis` AND its `<!-- flow-plan-review-hash: <sha> -->` marker are
    **MUST-NOT-REGENERATE**: leave them exactly as written unless the redirect materially
    changes `## Decision analysis` itself. (If it does, edit the analysis body and leave the
-   stale marker — `flow-plan-review` recomputes the hash and the supervisor re-embeds it;
-   the tolerant hash-read self-heals a lost marker, but needlessly rewriting it forces a
-   wasteful re-review.)
+   stale marker — after the re-review the supervisor recomputes the hash over the final
+   revised plan via `flow-plan-review --print-hash` and re-embeds it; the tolerant hash-read
+   self-heals a lost marker, but needlessly rewriting it forces a wasteful re-review.)
 4. **Do NOT re-run Step 1.5 research** when web-grounded research findings already exist in
    the plan (or in `.flow-tmp/research-findings.md`). The redirect is a scope/decision
    change, not a new research question — re-running the fan-out double-spends agy quota for
@@ -947,6 +988,11 @@ Common failure modes during planning:
 - Every assumption you made under ambiguity appears as an Open Question.
 - Task breakdown covers all PRD requirements with no gaps.
 - Each task has a recommended skill, inputs, outputs, and acceptance criteria.
+- Each task carries a `- **Contract:**` block (Files / Interfaces / Call-site
+  edits, or the change-type surgical form from the step-6 table), and its
+  acceptance criteria is a runnable command, not prose.
+- When ≥2 tasks have dependencies, the `| Task | Depends on |` dependency
+  table follows the task list.
 - Tasks are ordered by dependency (no task references an output that hasn't been
   produced yet).
 - No task is too large for a single focused session (if it seems large, split it).

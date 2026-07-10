@@ -189,6 +189,21 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
+  it("both scripts advertise the config-group models subcommand + --slug/--json tokens", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      for (const token of ["models", "--slug", "--json"]) {
+        expect(
+          script.includes(token),
+          `flow.${shell} must advertise the config-group ${token} token`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it("both scripts advertise the epic --model-planning (create) + --model (run), the bind/launch subcommands, and drop --model-judge", () => {
     for (const shell of ["bash", "zsh"] as const) {
       const script = fs.readFileSync(

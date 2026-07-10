@@ -36,7 +36,7 @@ _flow() {
         cword=$COMP_CWORD
     fi
 
-    local verbs="install feature epic ls attach a done completion version help --version -v --help -h"
+    local verbs="install feature epic config ls attach a done completion version help --version -v --help -h"
 
     # Find the verb (first non-flag token after `flow`).
     local verb="" i
@@ -177,6 +177,33 @@ _flow() {
             else
                 # shellcheck disable=SC2207
                 COMPREPLY=( $(compgen -W "create run status bind launch ls" -- "$cur") )
+            fi
+            ;;
+        config)
+            # Find the config subcommand (first non-flag token after `config`).
+            # `i` is the verb index from the scan above, so the subcommand starts
+            # at i+1. The only subcommand is `models`; complete its --slug/--json
+            # flags. Mirrors the `epic)` arm.
+            local csub="" k
+            for ((k=i+1; k < cword; k++)); do
+                case "${words[k]}" in
+                    -*) ;;
+                    *) csub="${words[k]}"; break ;;
+                esac
+            done
+            if [ "$csub" = "models" ]; then
+                case "$prev" in
+                    --slug)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "$(_flow_slugs)" -- "$cur") )
+                        return
+                        ;;
+                esac
+                # shellcheck disable=SC2207
+                COMPREPLY=( $(compgen -W "--slug --json --help" -- "$cur") )
+            else
+                # shellcheck disable=SC2207
+                COMPREPLY=( $(compgen -W "models" -- "$cur") )
             fi
             ;;
         ls)

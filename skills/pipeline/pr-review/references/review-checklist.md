@@ -1358,6 +1358,106 @@ documented contract.
 
 ---
 
+## Exact-string anchor gating between producer and consumer docs
+
+A producer doc authors a specific artifact (a heading, a sentinel literal, a field name)
+and one or more consumer docs gate behavior on matching that exact string. When the
+gate is a byte-exact match and the design is "tolerant of absence" (a missing/renamed
+anchor degrades gracefully rather than erroring loudly), a one-sided rename on the
+producer side silently degrades the whole feature the gate exists to guard — the
+consumer falls back to its no-anchor behavior instead of failing.
+
+### What to look for
+
+- Prose like `contains a \`# Heading\` heading`or`matches the literal string
+  \`sentinel\`` gating a conditional branch, paired with "tolerant of absence"
+  framing elsewhere in the same doc.
+- The same literal string repeated verbatim across producer and 2+ consumer files
+  with no shared constant (prose-only pipelines have no compiler to catch drift).
+- No lint/test asserting the literal appears in all the sites that gate on it.
+
+### How to check
+
+1. Grep the exact literal across every file in the hop chain (producer + all
+   consumers); confirm it's byte-identical everywhere it's used as a gate.
+2. Ask whether heading level / casing variations at any hop would silently
+   degrade rather than error — if so, either pin the anchor with a lint that
+   checks all sites in lock-step, or make the consumer match tolerantly
+   (case-insensitive, any heading level) and pin only the producer's exact
+   emission.
+3. Verify the lint/test actually asserts on the anchor itself, not just a
+   loosely-related substring that survives the anchor's deletion.
+
+### Example — `# Task breakdown` heading gating plan-contract wiring (PR #424)
+
+```markdown
+<!-- BAD: consumer gates on exact-match; producer heading text has no lint
+     pinning it in lock-step with the consumers -->
+
+`PLAN_PATH` — ... AND that file exists AND contains a
+`# Task breakdown` heading; the literal string `absent` otherwise.
+
+<!-- GOOD: consumer gate is tolerant of heading level/casing; the producer's
+     exact emission is separately pinned by a lint so the tolerant match has
+     something reliable to find -->
+
+`PLAN_PATH` — ... AND that file exists AND contains a heading (any level,
+case-insensitive) matching `Task breakdown`; the literal string `absent`
+otherwise.
+```
+
+**General rule:** When a consumer contract gates on an exact-match anchor authored by
+a separate producer doc, either match the anchor tolerantly (heading level/casing) or
+pin the anchor with a lint that checks producer and every consumer in lock-step — a
+strict-match gate on a "tolerant of absence" design silently degrades the very feature
+it guards, with nothing failing in CI.
+
+---
+
+## SECURITY DEFINER `search_path` Pinning Judged Against the Copied File, Not the Repo
+
+A new `SECURITY DEFINER` function copied from one precedent migration can silently omit a
+hardening convention (`SET search_path = public`) that other migrations in the same repo do
+apply. Schema-qualifying the statements inside the function reduces the risk but does not
+replace pinning — and "the file I copied didn't pin it" is not evidence the repo lacks the
+convention.
+
+### What to look for
+
+- Any new `CREATE [OR REPLACE] FUNCTION ... SECURITY DEFINER` in a migration without
+  `SET search_path`.
+- Unqualified table names (`billing_accounts` vs `public.billing_accounts`) inside migration
+  SQL that otherwise qualifies names — especially backfill DML and trigger bodies.
+
+### How to check
+
+1. `grep -rn "SECURITY DEFINER" supabase/migrations/` and compare: do OTHER migrations append
+   `SET search_path = public` (or similar)? If any do, the convention exists — flag the new
+   function for pinning even when the nearest-copied precedent omits it.
+2. Inside the new function/backfill, check every table reference is schema-qualified
+   consistently with the rest of the same file.
+
+### Example — billing signup trigger omitted the pin (econ-data PR #423)
+
+```sql
+-- BAD: copied handle_new_user's shape (create_profiles_schema.sql), which
+--      predates the convention
+CREATE OR REPLACE FUNCTION handle_new_user_billing()
+...
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- GOOD: matches the repo's hardened precedent (create_dashboard_shares.sql)
+CREATE OR REPLACE FUNCTION handle_new_user_billing()
+...
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+```
+
+**General rule:** For security-hardening conventions, the standard is the strictest precedent
+in the repo, not the file the author happened to copy — dropping a candidate finding because
+"the copied pattern also lacks it" requires checking that NO sibling applies the convention.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue

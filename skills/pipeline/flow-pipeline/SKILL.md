@@ -828,10 +828,23 @@ flow-plan-review --plan-file "$WORKTREE/.flow-tmp/plan.md" \
   `### Cross-model review (AGY)` subsection under `## Decision analysis`
   recording each material point as **accepted** (naming the revision made) or
   **overridden** (with a one-line rationale — exactly how Step 1.5 treats
-  refuted research claims). Read the helper's `ran:true` envelope for
-  `decisionAnalysisHash` and embed it as a `<!-- flow-plan-review-hash: <sha> -->`
-  marker line inside that appended subsection, so a later revision pass can detect
-  whether `## Decision analysis` materially changed.
+  refuted research claims). Then compute the marker hash over the **FINAL**
+  plan — after the revision and the appended subsection are written — by running
+
+  ```bash
+  flow-plan-review --print-hash --plan-file "$WORKTREE/.flow-tmp/plan.md"
+  ```
+
+  and embed its stdout as a `<!-- flow-plan-review-hash: <sha> -->` marker line
+  inside that appended subsection, so a later revision pass can detect whether
+  `## Decision analysis` materially changed. Use `--print-hash`, **not** the
+  `ran:true` envelope's hash: the envelope hash is computed over the
+  pre-revision body, so embedding it would leave a stale marker that falsely
+  re-fires the review on the very next pass (safe direction — never a wrong-skip
+  — but it defeats the `decision-analysis-unchanged` skip for exactly the plans
+  that got a cross-model review plus a revision). The marker sits inside the
+  `### Cross-model review (AGY)` subsection, which the hash **excludes**, so
+  embedding it after computing the hash does not invalidate it.
 
 This is a **bounded single-pass per step-3 pass**: at most one review and one
 revision each pass — NOT an unbounded critic/revise loop within a pass.
@@ -1138,11 +1151,26 @@ machinery already handles.
 **Phase:** `implementing`
 
 Invoke `/new-feature` in-process. On the first entry to this step,
-pass the user's request:
+pass the user's request plus the approved plan's path:
 
 ```
 /new-feature <verbatim user description>
+PLAN: $WORKTREE/.flow-tmp/plan.md
 ```
+
+The `PLAN:` line (same append convention as the `mode:fix` /
+`PRIOR FAILURE LOG:` re-entry below) is appended on every first-entry
+invocation when `.flow-tmp/plan.md` exists — feature and non-feature
+intents alike, since discovery's Contract block is required on every
+task regardless of intent and step 3's non-feature `advance-to-step-5`
+branch already keeps plan.md on disk for traceability. It hands
+`/new-feature` the approved plan so its scout verifies the plan's Task
+breakdown contracts against the code instead of re-deriving them, and
+its edit-set composition inherits the per-task Contract blocks.
+`/new-feature` tolerates plan absence — a missing file or a plan with
+no heading matching `Task breakdown` leaves its behaviour exactly as it
+is without the line — and `mode:fix` re-entries do NOT carry the
+`PLAN:` line.
 
 `/new-feature` is itself a thin wrapper that spawns one **Independent
 Scout Subagent** via the Task tool (the third of the nine named

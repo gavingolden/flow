@@ -71,8 +71,11 @@ collaborative editing, share analytics (who viewed when), expiring links.
   `get_shared_dashboard` SECURITY DEFINER RPC function
 - **Inputs:** Existing `dashboards` table schema
 - **Outputs:** Migration file, generated TypeScript DB types
-- **Acceptance criteria:** Migration applies cleanly; RLS prevents non-owners from querying
-  the table; RPC returns full dashboard+graphs+expressions payload for valid tokens
+- **Contract:** _(schema change type — exact DDL, per the change-type table)_
+  - **Files:** create `supabase/migrations/<ts>_dashboard_shares.sql`; regenerate `src/lib/database/types.ts`
+  - **Interfaces:** `CREATE TABLE dashboard_shares (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), dashboard_id uuid NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE UNIQUE, token uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE, is_active boolean NOT NULL DEFAULT true, created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now())`; RLS policies `dashboard_shares_owner_all` (ALL, `auth.uid()` owns the referenced dashboard); function `get_shared_dashboard(share_token uuid) RETURNS jsonb SECURITY DEFINER SET search_path = public` returning the dashboard+graphs+expressions payload for an active token, `null` otherwise
+  - **Call-site edits:** none (first task; consumers arrive in Task 2)
+- **Acceptance criteria:** `npm run db:reset && npm run db:types && git diff --exit-code src/lib/database/types.ts` — migration applies cleanly and generated types are current
 
 ### Task 2: Build share domain model
 
@@ -81,9 +84,11 @@ collaborative editing, share analytics (who viewed when), expiring links.
   RPC call), SharedDashboardPayload type, DB types, and barrel exports
 - **Inputs:** Generated DB types from Task 1
 - **Outputs:** Domain module with repository, entity, and payload type
-- **Acceptance criteria:** Repository methods return `Result<T, ShareError>`; Share entity
-  exposes a `shareUrl` computed property; SharedDashboardPayload correctly types the nested
-  dashboard+graphs+expressions structure
+- **Contract:**
+  - **Files:** create `src/lib/domain/share/share.ts`, `src/lib/domain/share/share-repository.ts`, `src/lib/domain/share/types.ts`, `src/lib/domain/share/index.ts` (barrel)
+  - **Interfaces:** `export class Share { readonly id: string; readonly dashboardId: string; readonly token: string; isActive: boolean; get shareUrl(): string }`; `export class ShareRepository { getForDashboard(dashboardId: string): Promise<Result<Share | null, ShareError>>; create(dashboardId: string): Promise<Result<Share, ShareError>>; setActive(id: string, isActive: boolean): Promise<Result<Share, ShareError>>; getSharedDashboard(token: string): Promise<Result<SharedDashboardPayload, ShareError>> }`; `export type SharedDashboardPayload = { dashboard: Dashboard; graphs: Graph[]; expressions: Expression[] }`; `export type ShareError = "not-found" | "db-error"`
+  - **Call-site edits:** `src/lib/domain/index.ts` — add `export * from "./share"` to the domain barrel
+- **Acceptance criteria:** `npm run test -- src/lib/domain/share && npm run typecheck` — module compiles and its unit tests pass
 
 ### Task 3: Build share dialog UI
 
@@ -92,8 +97,11 @@ collaborative editing, share analytics (who viewed when), expiring links.
   with copy button, toggle to activate/deactivate the link
 - **Inputs:** Share domain model from Task 2
 - **Outputs:** ShareDialog component, integration into dashboard page header
-- **Acceptance criteria:** Dialog creates share on first open; copy button works; toggle
-  updates is_active; disabled state shows "Link is inactive"
+- **Contract:**
+  - **Files:** create `src/lib/components/share/ShareDialog.svelte`; edit `src/routes/dashboards/[id]/+page.svelte` (header)
+  - **Interfaces:** `ShareDialog` props `{ dashboardId: string; open: boolean }`; uses the existing `$lib/components/ui/dialog` primitive; active state renders the URL + a `Copy` button, inactive state renders the literal text "Link is inactive" with the toggle still enabled
+  - **Call-site edits:** `src/routes/dashboards/[id]/+page.svelte` — add a "Share" button to the header action group that opens `ShareDialog`
+- **Acceptance criteria:** `npm run test -- src/lib/components/share` — dialog specs pass (create-on-first-open, copy, toggle, inactive state)
 
 ### Task 4: Build shared dashboard viewer page
 
@@ -103,8 +111,11 @@ collaborative editing, share analytics (who viewed when), expiring links.
 - **Inputs:** SharedDashboardPayload type from Task 2, existing dashboard/graph/expression
   rendering components
 - **Outputs:** Shared view page with read-only rendering, 404 handling for invalid tokens
-- **Acceptance criteria:** Valid token renders full dashboard; invalid token shows 404; no
-  editing UI is visible; all expressions evaluate and charts render
+- **Contract:**
+  - **Files:** create `src/routes/s/[token]/+page.svelte`, `src/routes/s/[token]/+page.ts`
+  - **Interfaces:** `+page.ts` `load` returns `{ payload: SharedDashboardPayload }` via `ShareRepository.getSharedDashboard(params.token)`, throwing SvelteKit `error(404)` on `"not-found"`; the page renders existing `DashboardGrid` with a new `readonly: boolean` prop defaulting to `false`
+  - **Call-site edits:** `src/lib/components/dashboard/DashboardGrid.svelte` — add the optional `readonly` prop and gate all editing affordances behind `!readonly` (existing callers unchanged by the default)
+- **Acceptance criteria:** `npm run test -- src/routes/s` — valid-token render and 404 specs pass
 
 ### Task 5: Write tests
 
@@ -113,8 +124,19 @@ collaborative editing, share analytics (who viewed when), expiring links.
   SharedDashboardPayload deserialization
 - **Inputs:** Share domain module from Task 2
 - **Outputs:** Test files with full coverage of repository methods and entity behavior
-- **Acceptance criteria:** Tests pass; cover create, get, toggle, and RPC call paths; cover
-  error cases (DB errors, not found)
+- **Contract:**
+  - **Files:** create `src/lib/domain/share/share.test.ts`, `src/lib/domain/share/share-repository.test.ts`
+  - **Interfaces:** none new — tests target the Task 2 exports (`Share`, `ShareRepository`, `SharedDashboardPayload`) with a mocked Supabase client
+  - **Call-site edits:** none
+- **Acceptance criteria:** `npm run test -- src/lib/domain/share` — create, get, toggle, RPC, and error-path (db-error, not-found) specs all pass
+
+| Task | Depends on |
+| ---- | ---------- |
+| 1    | —          |
+| 2    | 1          |
+| 3    | 2          |
+| 4    | 2          |
+| 5    | 2          |
 
 ## Open Questions
 

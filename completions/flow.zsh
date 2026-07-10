@@ -27,6 +27,7 @@ _flow() {
                 'install:install skills, agents, helpers globally'
                 'feature:start or resume a pipeline'
                 'epic:design or run an epic'
+                'config:inspect flow configuration'
                 'ls:list active pipelines'
                 'attach:attach to a pipeline window'
                 'a:alias for attach'
@@ -122,6 +123,23 @@ _flow() {
                             'bind:repoint or adopt a feature run.json binding'
                             'launch:atomically create + bind a feature'
                             'ls:list epics with per-state feature counts'
+                        )
+                        _describe 'subcommand' sub
+                    fi
+                    ;;
+                config)
+                    # Second-level dispatch mirroring `epic`: after `models`,
+                    # offer its --slug/--json flags; otherwise complete the
+                    # subcommand list. ($line[1] is `config`; $line[2] is the
+                    # subcommand.)
+                    if [[ "$line[2]" == models ]]; then
+                        _arguments \
+                            '--slug[overlay a pipeline'\''s per-run overrides]:pipeline:_flow_slugs' \
+                            '--json[emit machine-readable JSON rows]'
+                    else
+                        local -a sub
+                        sub=(
+                            'models:show resolved model + effort per phase/agent'
                         )
                         _describe 'subcommand' sub
                     fi

@@ -29,7 +29,7 @@ import { MODEL_ALIASES, type ModelAlias } from "./state";
  */
 export type ReadConfigFile = () => unknown;
 
-const defaultReadConfigFile: ReadConfigFile = () => {
+export const defaultReadConfigFile: ReadConfigFile = () => {
   try {
     return JSON.parse(fs.readFileSync(FLOW_CONFIG, "utf8"));
   } catch {
