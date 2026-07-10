@@ -41,6 +41,23 @@
 
 - [ ] …
 
+## Visual Spec
+
+<!-- Omit-when-empty: include ONLY when the request references a design artifact
+     (mock URL, artifact HTML path, PDF/image mock) and discovery's design-artifact
+     fidelity pre-pass froze `.flow-tmp/design/spec.json`; otherwise omit the heading
+     entirely (never an empty heading). Per-surface element-level assertion bullets,
+     each tagged with its spec.json assertion id + mechanical/judged tier — every
+     mechanical bullet mirrors a spec assertion 1:1. Full contract lives in
+     skills/pipeline/product-planning/references/discovery-instructions.md
+     "Visual Spec" — the single source of truth. Do NOT inline the contract here;
+     this is a thin sketch. -->
+
+### Surface: [name] (`[route]`)
+
+- [`assertion-id`] (mechanical) — `[selector]` renders `[css-prop]: [expected value]`.
+- [`assertion-id`] (judged) — [the measured judgment, per the reference snapshot].
+
 ## Architecture Decisions
 
 <!-- Name the existing pattern, or justify a new one. Load

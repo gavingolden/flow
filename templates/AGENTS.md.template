@@ -99,9 +99,15 @@ systems, prod writes, or secrets.
 
 **A non-trivial UI appearance change must author a subjective approval step the
 agent can never tick.** A net-new or materially-changed UI surface REQUIRES at
-least one authored subjective human-approval Test Step — and **one per distinct
-facet** (layout, animation, empty state, color/theme); do not collapse facets
-into one representative step. The include-vs-exempt test is "would a reasonable
+least one authored subjective human-approval Test Step — and, for **artifact-less**
+UI changes, **one per distinct facet** (layout, animation, empty state,
+color/theme); do not collapse facets into one representative step. An
+**artifact-referencing** PR whose plan carries a `## Visual Spec` authors
+**exactly one** overall sign-off instead — the mechanical Visual Spec
+assertions already gate each facet, so per-facet human sign-offs would
+double-gate what the diff envelope asserts. See
+`skills/pipeline/pr-review/references/manual-test-rubric.md`'s "Subjective
+checks" scoping for the canonical contract. The include-vs-exempt test is "would a reasonable
 person want to eyeball this before it ships?" — trivial tweaks (copy fix, padding
 nudge, icon swap) are exempt, so no subjective step is manufactured where none is
 warranted. Each such step carries a literal `SUBJECTIVE: ` prefix (uppercase,
@@ -248,6 +254,40 @@ so these are the operator's responsibility.
 may add a `jq empty .flow/ui-validation.json` check to its
 `.flow/pre-commit.json` flow-config scope to lint the manifest's JSON on
 commit.
+
+### Design foundation (`.flow/design/foundation.md`, optional)
+
+When a flow pipeline builds UI against a referenced design artifact (a mock
+URL, an artifact HTML page, a PDF/image mock), it may create — and from then
+on maintain — a committed `.flow/design/foundation.md` in this repo. The file
+is a **small, human-legible design-foundation contract**: prose plus a
+semantic token map that names how type, surface, elevation, and chrome roles
+map onto this repo's existing CSS tokens. It is not a wireframe and not a
+value dump — it records the recurring rules ("card surfaces use
+`--surface-raised`; page chrome text is `--text-muted`") that every later
+UI-touching pipeline reads as required context, so styling decisions stay
+consistent across features instead of being re-derived per PR.
+
+Conventions the agent follows (and a human editor should too):
+
+- **Agent-maintained, committed.** The pipeline creates and extends the file
+  through reviewable PR diffs — the same discipline as the self-completing
+  `.flow/ui-validation.json` manifest above.
+- **Extend only on a recurring rule.** A new entry is added only when a
+  feature surfaces a NEW rule that will recur across surfaces; one-off values
+  stay in the component that uses them. Existing rules are never rewritten in
+  passing.
+- **No secrets, ever.** The file is a design contract; nothing in it may be a
+  credential, token, or private URL.
+- **Re-freeze is explicit-only.** The per-pipeline design spec and reference
+  snapshot are re-extracted from the artifact only when a user redirect
+  supplies a changed artifact or explicitly asks — never silently.
+- **Deleting it degrades gracefully.** Removing the file returns design
+  handling to fully-ephemeral, per-pipeline behavior; nothing breaks.
+- **Ephemeral siblings are never committed.** The machine-readable
+  `spec.json` and the frozen artifact snapshot live under
+  `.flow-tmp/design/` for the duration of one pipeline and never land in the
+  repo — the committed foundation is the only durable artifact.
 
 ### Clean up spawned resources
 

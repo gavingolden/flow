@@ -54,6 +54,27 @@ const tmuxMock = vi.hoisted(() => ({
 }));
 vi.mock("./tmux", () => tmuxMock);
 
+// Mock ./models-config so the reader functions' `read` parameter defaults to
+// a no-config stub instead of defaultReadConfigFile: the host's real
+// ~/.flow/config.json (e.g. models.default: "opus") must never leak into
+// tests that omit deps.readConfig. Tests that DO pass readConfig still
+// exercise the real logic through the explicit argument.
+vi.mock("./models-config", async () => {
+  const actual =
+    await vi.importActual<typeof import("./models-config")>("./models-config");
+  type ReadConfigFile = typeof actual.defaultReadConfigFile;
+  const noConfig: ReadConfigFile = () => undefined;
+  return {
+    ...actual,
+    readPhaseModel: (phase: string, read: ReadConfigFile = noConfig) =>
+      actual.readPhaseModel(phase, read),
+    readDefaultModel: (read: ReadConfigFile = noConfig) =>
+      actual.readDefaultModel(read),
+    collectModelConfigWarnings: (read: ReadConfigFile = noConfig) =>
+      actual.collectModelConfigWarnings(read),
+  };
+});
+
 import { runNew, runFeatureCli, deriveWorktreePath } from "./feature";
 import { writeState, PHASE_MODEL_FLAGS } from "./state";
 

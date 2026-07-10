@@ -2887,12 +2887,20 @@ describe("pr-review include-by-reference structure", () => {
     // discouraged" note. Each is a `model:` override on an EXISTING named
     // fan-out — no new exemption, no new spawn site. New-contract prose, not
     // regrowth of previously-trimmed prose.
+    //
+    // Bumped 1965 → 1985 to absorb the design-fidelity per-assertion walk
+    // pointer (feature: design-artifact fidelity): 8c.iii gains one terse
+    // paragraph naming the walk and deferring the full body to
+    // references/ui-validation-evidence.md ("Design-fidelity per-assertion
+    // walk"), restating it runs inside the already-exempt Fix-Applier surface
+    // (no new Task-tool exemption, no new spawn site). New-contract prose,
+    // not regrowth of previously-trimmed prose.
     expect(
       lineCount,
-      `pr-review/SKILL.md line count must stay under the post-model-routing ` +
-        `budget of 1965 lines. Material regrowth past this ceiling would ` +
+      `pr-review/SKILL.md line count must stay under the post-design-fidelity ` +
+        `budget of 1985 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1965);
+    ).toBeLessThan(1985);
   });
 
   it("skills/pipeline/pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
@@ -3560,9 +3568,11 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       manualTestRubricContent.includes("SUBJECTIVE: "),
       "manual-test-rubric.md must contain the literal `SUBJECTIVE: ` marker " +
         "string (uppercase, colon, single space) — the single source of truth " +
-        "for the subjective-approval contract: a non-trivial UI appearance " +
-        "change must author one `SUBJECTIVE: `-prefixed Test Step per facet that " +
-        "the agent can never tick. Six sites defer to this marker " +
+        "for the subjective-approval contract: a non-trivial artifact-less UI " +
+        "appearance change must author one `SUBJECTIVE: `-prefixed Test Step per " +
+        "facet (an artifact-referencing PR with a `## Visual Spec` authors " +
+        "exactly one overall sign-off instead) that the agent can never tick. " +
+        "Six sites defer to this marker " +
         "(new-feature/SKILL.md Step 4b, product-planning discovery-instructions.md " +
         "Step 7, pr-review/SKILL.md Step 8c + Step 11, pr-review " +
         "references/agent-prompts.md, AGENTS.md, templates/AGENTS.md.template); " +
@@ -3577,7 +3587,9 @@ describe("gate-hardening structural anchors (gated verdict is terminal)", () => 
       discoveryInstructionsContent.includes("SUBJECTIVE: "),
       "product-planning discovery-instructions.md Step 7 must reference the " +
         "literal `SUBJECTIVE: ` marker — the authoring site emits one " +
-        "`SUBJECTIVE: `-prefixed step per UI facet, deferring to " +
+        "`SUBJECTIVE: `-prefixed step per UI facet for artifact-less changes " +
+        "(exactly one overall sign-off for artifact-referencing PRs whose plan " +
+        "carries `## Visual Spec`), deferring to " +
         "manual-test-rubric.md ('Subjective checks') by name. Dropping it " +
         "silently orphans the requirement.",
     ).toBe(true);
@@ -4623,6 +4635,170 @@ describe("discovery-process improvements anchors (candidate ranking table, REVIS
       fp.includes("flow-plan-review --print-hash"),
       "flow-pipeline/SKILL.md step 3 must embed the marker from " +
         "`flow-plan-review --print-hash` run on the final revised plan.",
+    ).toBe(true);
+  });
+});
+
+describe("design-artifact fidelity structural anchors", () => {
+  // Freezes the cross-file design-fidelity contract: the per-site gate
+  // phrases, the {{DESIGN_CONTEXT}} producer/consumer symmetry, and the
+  // spec-shape symmetry between the schema module and the documented shape.
+  // The two run-time consumer sites gate on the EPHEMERAL spec file's
+  // existence; discovery is a PRODUCER — its gate is the
+  // request-references-an-artifact judgment (spec.json does not exist at plan
+  // time), so the three sites deliberately do NOT share one literal string.
+  const designSpecSchemaContent = fs.readFileSync(
+    path.resolve(HERE, "lib", "design-spec-schema.ts"),
+    "utf8",
+  );
+  const prdTemplateContent = fs.readFileSync(
+    path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "product-planning",
+      "templates",
+      "prd-template.md",
+    ),
+    "utf8",
+  );
+
+  const SPEC_GATE_PHRASE = "worktree-local `.flow-tmp/design/spec.json` exists";
+
+  it("ui-smoke-pass.md opens the design-fidelity sub-pass with the spec-existence gate", () => {
+    expect(
+      uiSmokePassContent.includes(SPEC_GATE_PHRASE),
+      "flow-pipeline references/ui-smoke-pass.md must gate its design-fidelity " +
+        `sub-pass on the phrase '${SPEC_GATE_PHRASE}' — the zero-cost contract: ` +
+        "no spec.json → the sub-pass does not exist. Renaming the phrase must " +
+        "update this lint in the same commit (AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      uiSmokePassContent.includes("flow-design-spec"),
+      "ui-smoke-pass.md must name the flow-design-spec helper.",
+    ).toBe(true);
+  });
+
+  it("ui-validation-evidence.md opens the per-assertion walk with the spec-existence gate", () => {
+    expect(
+      uiValidationEvidenceContent.includes(SPEC_GATE_PHRASE),
+      "pr-review references/ui-validation-evidence.md must gate its " +
+        `design-fidelity per-assertion walk on the phrase '${SPEC_GATE_PHRASE}'.`,
+    ).toBe(true);
+    expect(
+      uiValidationEvidenceContent.includes("flow-design-spec"),
+      "ui-validation-evidence.md must name the flow-design-spec helper.",
+    ).toBe(true);
+    expect(
+      uiValidationEvidenceContent.includes(".flow/design/foundation.md"),
+      "ui-validation-evidence.md must document the model-C degradation to " +
+        "foundation-conformance against the committed .flow/design/foundation.md.",
+    ).toBe(true);
+  });
+
+  it("discovery-instructions.md carries the producer gate + the zero-cost-when-absent contract", () => {
+    expect(
+      discoveryInstructionsContent.includes(
+        "the request references a design artifact",
+      ),
+      "product-planning discovery-instructions.md must gate the design-artifact " +
+        "fidelity pre-pass on 'the request references a design artifact' — the " +
+        "producer-side judgment gate (spec.json does not exist at plan time).",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("Zero-cost-when-absent"),
+      "discovery-instructions.md must name the 'Zero-cost-when-absent' contract " +
+        "— no artifact reference → no section, no files, no browser pass.",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("Re-freeze is explicit-only"),
+      "discovery-instructions.md must state the explicit-only re-freeze policy " +
+        "(a user redirect is the only trigger).",
+    ).toBe(true);
+  });
+
+  it("{{DESIGN_CONTEXT}} is wired symmetrically across producer and consumers", () => {
+    expect(
+      coderContent.includes("{{DESIGN_CONTEXT}}"),
+      "coder/SKILL.md's spawn prompt template must carry the {{DESIGN_CONTEXT}} " +
+        "placeholder (optional; the whole block omitted when the caller passed " +
+        "none, so non-UI spawn prompts stay byte-identical).",
+    ).toBe(true);
+    expect(
+      coderInstructionsContent.includes("DESIGN_CONTEXT"),
+      "coder references/coder-instructions.md must consume DESIGN_CONTEXT as " +
+        "REQUIRED context (read foundation.md/spec.json BEFORE the first UI " +
+        "edit; conform every edit).",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("DESIGN_CONTEXT"),
+      "new-feature/SKILL.md Step 5 must produce the DESIGN_CONTEXT argument " +
+        "(two-tier: foundation+spec / foundation-only; omit-when-absent).",
+    ).toBe(true);
+  });
+
+  it("design-spec-schema.ts and the documented spec shape agree on field names and tiers", () => {
+    for (const key of [
+      "surfaces",
+      "assertions",
+      "selector",
+      "tier",
+      "properties",
+      "tolerancePx",
+    ]) {
+      expect(
+        designSpecSchemaContent.includes(key),
+        `bin/lib/design-spec-schema.ts must declare the '${key}' field.`,
+      ).toBe(true);
+      expect(
+        discoveryInstructionsContent.includes(key),
+        `discovery-instructions.md's documented spec shape must carry '${key}' ` +
+          "— drift between the schema module and the documented shape silently " +
+          "breaks the producer/consumer contract.",
+      ).toBe(true);
+    }
+    for (const tier of ['"mechanical"', '"judged"']) {
+      expect(
+        designSpecSchemaContent.includes(tier),
+        `design-spec-schema.ts must declare the ${tier} tier literal.`,
+      ).toBe(true);
+      expect(
+        discoveryInstructionsContent.includes(tier),
+        `discovery-instructions.md's spec shape must carry the ${tier} tier.`,
+      ).toBe(true);
+    }
+  });
+
+  it("prd-template.md carries the omit-when-empty ## Visual Spec sketch", () => {
+    expect(
+      /^## Visual Spec$/m.test(prdTemplateContent),
+      "prd-template.md must carry the '## Visual Spec' section (omit-when-empty " +
+        "sketch, placed after User Stories / Acceptance Criteria).",
+    ).toBe(true);
+  });
+
+  it("manual-test-rubric.md forbids SUBJECTIVE-relabelling a Visual Spec assertion", () => {
+    expect(
+      manualTestRubricContent.includes("never `SUBJECTIVE: `-relabelled"),
+      "manual-test-rubric.md must extend the prohibited-move guard: a Visual " +
+        "Spec assertion is never `SUBJECTIVE: `-relabelled — its verdict belongs " +
+        "to the flow-design-spec diff envelope or the side-by-side comparison.",
+    ).toBe(true);
+    expect(
+      manualTestRubricContent.includes("author **exactly one** overall"),
+      "manual-test-rubric.md must scope the SUBJECTIVE contract: exactly one " +
+        "overall sign-off for artifact-referencing PRs; per-facet stays for " +
+        "artifact-less non-trivial UI changes.",
+    ).toBe(true);
+  });
+
+  it("pr-review/SKILL.md 8c.iii points at the per-assertion walk", () => {
+    expect(
+      prReviewContent.includes("design-fidelity per-assertion walk"),
+      "pr-review/SKILL.md 8c.iii must point at the design-fidelity " +
+        "per-assertion walk in references/ui-validation-evidence.md (terse " +
+        "pointer; the walk body lives in the reference).",
     ).toBe(true);
   });
 });

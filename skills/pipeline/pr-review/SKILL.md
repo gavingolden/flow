@@ -1232,6 +1232,14 @@ no regression. Adds **no new Task-tool exemption**: Step 8c (MCP or the ordinary
 headless-browser Bash invocation alike) runs inside the already-exempt Fix-Applier
 surface.
 
+When the worktree-local `.flow-tmp/design/spec.json` exists, this bucket also
+runs the **design-fidelity per-assertion walk** — mechanical Visual Spec items
+ticked per the `flow-design-spec diff` envelope, judged items compared
+side-by-side against the ephemeral reference snapshot — documented in
+[references/ui-validation-evidence.md](references/ui-validation-evidence.md)
+("Design-fidelity per-assertion walk"). It too runs inside the already-exempt
+Fix-Applier surface: no new Task-tool exemption.
+
 ### 8c.i. Inject evidence under each runnable item
 
 Use `flow-inject-evidence` (installed by `flow install` and on PATH) to perform

@@ -225,8 +225,15 @@ config.models.implement > inherited` (see
 
 ## Spawn prompt template
 
-Fill in the five `{{...}}` placeholders before passing to the Task tool:
-`INSTRUCTIONS_PATH`, `EDIT_SET`, `WORKTREE`, `SKILL_DIR`, `ARTIFACT_PATH`.
+Fill in the six `{{...}}` placeholders before passing to the Task tool:
+`INSTRUCTIONS_PATH`, `EDIT_SET`, `DESIGN_CONTEXT`, `WORKTREE`, `SKILL_DIR`,
+`ARTIFACT_PATH`. `{{DESIGN_CONTEXT}}` is **optional**: it renders the
+caller's optional `DESIGN_CONTEXT` Skill argument (authored by
+`/new-feature` Step 5's "Design context (omit-when-absent)" sub-step —
+the wrapper only renders it, never composes it). When the caller passed
+no `DESIGN_CONTEXT`, **omit the entire "Design context" block below —
+the two label lines and the placeholder — so non-UI spawn prompts stay
+byte-identical to the pre-design-context shape.**
 
 ```
 You are the Independent Edit-Applier Subagent for `/coder`. You run in an
@@ -237,6 +244,10 @@ Read the full instructions at:
 
 Edit-set (verbatim, JSON-shaped):
   {{EDIT_SET}}
+
+Design context (REQUIRED reading before the first UI edit; this block is
+omitted entirely when the caller passed none):
+  {{DESIGN_CONTEXT}}
 
 Working directory (cd here before reading any project files):
   {{WORKTREE}}
