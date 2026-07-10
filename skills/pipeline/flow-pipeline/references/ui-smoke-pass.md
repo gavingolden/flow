@@ -29,7 +29,7 @@ On a `ran:true` ready envelope, read `meta.env` from the envelope and inject it 
 When the spec exists, after the existing per-route capture loop:
 
 1. For each surface declared in the spec, on that surface's route run `flow-design-spec probe-script --spec .flow-tmp/design/spec.json --surface <name>` and evaluate the emitted JS via `evaluate_script` in the same isolated page.
-2. Persist each surface's returned capture to `.flow-tmp/design/capture-<surface>.json` **with the harness file-write tool (Write), NEVER via bash `echo`/heredoc string interpolation** — shell-interpolating arbitrary JSON is an escaping hazard (quotes, backticks, `$` in captured values).
+2. The evaluated script returns a bare array of `{selector, found, properties}` — wrap it as `{"surface": "<name>", "captured": <returned array>}` before persisting. Persist that envelope to `.flow-tmp/design/capture-<surface>.json` **with the harness file-write tool (Write), NEVER via bash `echo`/heredoc string interpolation** — shell-interpolating arbitrary JSON is an escaping hazard (quotes, backticks, `$` in captured values).
 3. Run `flow-design-spec diff --spec .flow-tmp/design/spec.json --captured .flow-tmp/design/capture-<surface>.json --json` per surface. Judged-tier assertions report `skipped-judged` here (they are review-time judgment, not gate-time mechanics).
 4. Route any `ok:false` envelope through the **existing fix loop as a verify failure** — same loop as a failed `flow-pre-commit` check. **Fix-loop context re-injection:** a fidelity-failure entry carries the absolute paths of the committed `.flow/design/foundation.md` and the ephemeral `.flow-tmp/design/spec.json` alongside the failing assertion ids, so the fix pass re-reads the contract rather than patching blind.
 

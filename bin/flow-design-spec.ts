@@ -41,7 +41,7 @@ export const PROBE_PROPERTIES = [
 
 export const DEFAULT_TOLERANCE_PX = 1;
 
-/** Selectors a browser probe should extract for: mechanical, computed-style. */
+/** Selectors a browser probe should extract for: every mechanical assertion. */
 export function probeSelectorsFromSpec(
   spec: DesignSpec,
   surface?: string,
@@ -50,7 +50,12 @@ export function probeSelectorsFromSpec(
   for (const s of spec.surfaces) {
     if (surface !== undefined && s.name !== surface) continue;
     for (const a of s.assertions) {
-      if (a.tier !== "mechanical" || a.method === "source-read") continue;
+      // `source-read` only records how the expected value was originally
+      // discovered (markup vs DOM probe) — it remains a mechanical
+      // constraint that must be verified against the rendered DOM, so it
+      // is probed exactly like a computed-style assertion. Only `judged`
+      // (subjective) assertions are excluded.
+      if (a.tier !== "mechanical") continue;
       if (!out.includes(a.selector)) out.push(a.selector);
     }
   }
@@ -140,15 +145,56 @@ function splitTopLevel(value: string, sep: "," | " "): string[] {
 
 const PX_RE = /^-?\d*\.?\d+px$/;
 
+type ColorParts = { r: number; g: number; b: number; a: number };
+
+/**
+ * Parse a color to {r,g,b,a} with alpha rounded to its 8-bit byte value
+ * (0-255). Comparing colors on this shape — rather than on `normalizeColor`'s
+ * decimal-string alpha — avoids false divergence: Chrome's CSSOM serializes
+ * an 8-bit alpha of 128 as the shortest round-tripping decimal "0.5", while a
+ * naive 3-decimal round of 128/255 yields "0.502"; string comparison would
+ * flag the identical alpha byte as a mismatch.
+ */
+function parseColorParts(v: string): ColorParts | null {
+  const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.exec(v);
+  if (hex) {
+    let h = hex[1];
+    if (h.length <= 4) h = [...h].map((c) => c + c).join("");
+    const n = (i: number) => parseInt(h.slice(i, i + 2), 16);
+    return { r: n(0), g: n(2), b: n(4), a: h.length === 8 ? n(6) : 255 };
+  }
+  const fn =
+    /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)$/.exec(
+      v,
+    );
+  if (fn) {
+    const [r, g, b] = [fn[1], fn[2], fn[3]].map((x) =>
+      Math.round(parseFloat(x)),
+    );
+    const a = fn[4] === undefined ? 255 : Math.round(parseFloat(fn[4]) * 255);
+    return { r, g, b, a };
+  }
+  return null;
+}
+
 function tokensMatch(exp: string, act: string, tolerancePx: number): boolean {
   const e = exp.trim().toLowerCase();
   const a = act.trim().toLowerCase();
   if (PX_RE.test(e) && PX_RE.test(a)) {
     return Math.abs(parseFloat(e) - parseFloat(a)) <= tolerancePx;
   }
-  const ec = normalizeColor(e);
-  const ac = normalizeColor(a);
-  if (ec !== null || ac !== null) return ec !== null && ec === ac;
+  const ecParts = parseColorParts(e);
+  const acParts = parseColorParts(a);
+  if (ecParts !== null || acParts !== null) {
+    return (
+      ecParts !== null &&
+      acParts !== null &&
+      ecParts.r === acParts.r &&
+      ecParts.g === acParts.g &&
+      ecParts.b === acParts.b &&
+      ecParts.a === acParts.a
+    );
+  }
   const en = Number(e);
   const an = Number(a);
   if (!Number.isNaN(en) && !Number.isNaN(an) && e !== "" && a !== "") {
@@ -277,9 +323,20 @@ export async function main(argv: string[]): Promise<number> {
     if (specPath !== undefined) {
       const spec = validateDesignSpec(await readJson(specPath, "spec"));
       if (!spec.ok) fail2(`invalid spec: ${spec.reason}`);
-      selectors.push(
-        ...probeSelectorsFromSpec(spec.value, flagValue(argv, "--surface")),
-      );
+      const surface = flagValue(argv, "--surface");
+      const specSelectors = probeSelectorsFromSpec(spec.value, surface);
+      if (specSelectors.length === 0) {
+        // Every assertion in the spec/surface is judged and/or source-read-
+        // now-mechanical-but-still-empty — a valid spec can legitimately have
+        // nothing to probe. This is not the missing-flags case below.
+        process.stderr.write(
+          `flow-design-spec: no mechanical computed-style assertions to ` +
+            `probe for surface "${surface ?? "(all)"}"\n`,
+        );
+        process.stdout.write(buildProbeScript([]) + "\n");
+        return 0;
+      }
+      selectors.push(...specSelectors);
     }
     if (selectors.length === 0) {
       fail2(`probe-script needs --selectors or --spec\n${USAGE}`);

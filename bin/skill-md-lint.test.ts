@@ -4745,6 +4745,7 @@ describe("design-artifact fidelity structural anchors", () => {
       "selector",
       "tier",
       "properties",
+      "tolerancePx",
     ]) {
       expect(
         designSpecSchemaContent.includes(key),
@@ -4785,7 +4786,7 @@ describe("design-artifact fidelity structural anchors", () => {
         "to the flow-design-spec diff envelope or the side-by-side comparison.",
     ).toBe(true);
     expect(
-      manualTestRubricContent.includes("exactly one"),
+      manualTestRubricContent.includes("author **exactly one** overall"),
       "manual-test-rubric.md must scope the SUBJECTIVE contract: exactly one " +
         "overall sign-off for artifact-referencing PRs; per-facet stays for " +
         "artifact-less non-trivial UI changes.",

@@ -99,9 +99,15 @@ systems, prod writes, or secrets.
 
 **A non-trivial UI appearance change must author a subjective approval step the
 agent can never tick.** A net-new or materially-changed UI surface REQUIRES at
-least one authored subjective human-approval Test Step — and **one per distinct
-facet** (layout, animation, empty state, color/theme); do not collapse facets
-into one representative step. The include-vs-exempt test is "would a reasonable
+least one authored subjective human-approval Test Step — and, for **artifact-less**
+UI changes, **one per distinct facet** (layout, animation, empty state,
+color/theme); do not collapse facets into one representative step. An
+**artifact-referencing** PR whose plan carries a `## Visual Spec` authors
+**exactly one** overall sign-off instead — the mechanical Visual Spec
+assertions already gate each facet, so per-facet human sign-offs would
+double-gate what the diff envelope asserts. See
+`skills/pipeline/pr-review/references/manual-test-rubric.md`'s "Subjective
+checks" scoping for the canonical contract. The include-vs-exempt test is "would a reasonable
 person want to eyeball this before it ships?" — trivial tweaks (copy fix, padding
 nudge, icon swap) are exempt, so no subjective step is manufactured where none is
 warranted. Each such step carries a literal `SUBJECTIVE: ` prefix (uppercase,

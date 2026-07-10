@@ -1,4 +1,3 @@
-#!/usr/bin/env bun
 /**
  * Schema validator for the pipeline-ephemeral design-fidelity artifacts under
  * `.flow-tmp/design/` — the frozen `spec.json` discovery authors when a

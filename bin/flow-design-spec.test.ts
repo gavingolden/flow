@@ -34,6 +34,12 @@ function runCli(args: string[]) {
   return spawnSync("bun", [CLI, ...args], { encoding: "utf8" });
 }
 
+describe("CLI executable bit", () => {
+  it("ships tracked and executable, so discoverHelpers auto-picks it up", () => {
+    expect(fs.statSync(CLI).mode & 0o111).not.toBe(0);
+  });
+});
+
 describe("probe-script emission", () => {
   it("emits getComputedStyle over exactly the declared selectors", () => {
     const script = buildProbeScript([".nav a.active"]);
@@ -57,14 +63,36 @@ describe("probe-script emission", () => {
     expect(script).toContain(JSON.stringify(['a[href="/x"]']));
   });
 
-  it("derives probe selectors from the spec, skipping judged and source-read assertions", () => {
+  it("derives probe selectors from the spec, skipping only judged assertions", () => {
     const spec = readFixture<DesignSpec>(SPEC_PATH);
-    // `.nav` still probes (nav-surface-bg is computed-style); judged/source-read
-    // entries add no selector of their own.
+    // `.nav` still probes (nav-surface-bg is computed-style, nav-source-token
+    // is source-read but mechanical); only the judged `nav-feel` assertion
+    // contributes no selector of its own.
     expect(probeSelectorsFromSpec(validated(spec))).toEqual([
       ".nav a.active",
       ".nav",
     ]);
+  });
+
+  it("probes a source-read assertion even when its selector is not shared with any computed-style assertion", () => {
+    const spec = validated({
+      surfaces: [
+        {
+          name: "isolated",
+          route: "/",
+          assertions: [
+            {
+              id: "hero-token",
+              selector: ".hero",
+              tier: "mechanical",
+              method: "source-read",
+              properties: { "font-size": "24px" },
+            },
+          ],
+        },
+      ],
+    });
+    expect(probeSelectorsFromSpec(spec)).toEqual([".hero"]);
   });
 });
 
@@ -84,6 +112,17 @@ describe("normalization", () => {
     expect(normalizeColor("600")).toBeNull();
     expect(compareValue("color", "#1a2b3c", "rgb(26, 43, 60)")).toBe(true);
     expect(compareValue("color", "#1a2b3c", "rgb(26, 43, 61)")).toBe(false);
+  });
+
+  it("treats a hex-alpha expected value as equal to its browser-serialized rgba() actual", () => {
+    // Chrome's CSSOM serializes the 8-bit alpha byte 128 as the shortest
+    // round-tripping decimal "0.5", not a naive 3-decimal round ("0.502").
+    expect(compareValue("color", "#ffffff80", "rgba(255, 255, 255, 0.5)")).toBe(
+      true,
+    );
+    expect(compareValue("color", "#ffffff80", "rgba(255, 255, 255, 0.4)")).toBe(
+      false,
+    );
   });
 
   it("resolves a font stack to its first family", () => {
@@ -128,6 +167,38 @@ describe("normalization", () => {
 
 describe("diff verdicts on the fixtures", () => {
   const spec = validated(readFixture(SPEC_PATH));
+
+  it("honors a tolerancePx: 0 override in the diff path (not just the compareValue unit)", () => {
+    // nav-source-token pins tolerancePx: 0 on a 13px expectation. A 13.5px
+    // capture must fail under the override even though it would pass under
+    // the ±1px default — guards against `a.tolerancePx || DEFAULT` (falsy-
+    // zero swallow) or dropping the argument entirely.
+    const capture = validCapture({
+      surface: "nav",
+      captured: [
+        {
+          selector: ".nav a.active",
+          properties: {
+            "font-weight": "600",
+            color: "rgb(26, 43, 60)",
+            "font-family": "Inter",
+            "font-size": "15px",
+          },
+        },
+        {
+          selector: ".nav",
+          properties: {
+            "background-color": "rgb(255, 255, 255)",
+            "box-shadow": "0px 1px 2px rgba(0, 0, 0, 0.05)",
+            "font-size": "13.5px",
+          },
+        },
+      ],
+    });
+    const envelope = diffSpecCapture(spec, capture);
+    const token = envelope.assertions.find((a) => a.id === "nav-source-token");
+    expect(token?.status).toBe("fail");
+  });
 
   it("passes every mechanical assertion on the matching capture", () => {
     const capture = readFixture<DesignCapture>(MATCHING_PATH);
@@ -219,6 +290,46 @@ describe("tolerant validate", () => {
         },
         /properties/,
       ],
+      [
+        {
+          surfaces: [
+            {
+              name: "n",
+              route: "/",
+              assertions: [
+                {
+                  id: "a",
+                  selector: ".x",
+                  tier: "mechanical",
+                  properties: { "font-size": "1px" },
+                  tolerancePx: -1,
+                },
+              ],
+            },
+          ],
+        },
+        /tolerancePx/,
+      ],
+      [
+        {
+          surfaces: [
+            {
+              name: "n",
+              route: "/",
+              assertions: [
+                {
+                  id: "a",
+                  selector: ".x",
+                  tier: "mechanical",
+                  method: "screenshot",
+                  properties: { "font-size": "1px" },
+                },
+              ],
+            },
+          ],
+        },
+        /method/,
+      ],
     ];
     for (const [input, re] of cases) {
       const r = validateDesignSpec(input);
@@ -252,6 +363,56 @@ describe("CLI exit codes", () => {
     const r = runCli(["probe-script", "--selectors", ".nav a.active"]);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain("getComputedStyle");
+  });
+
+  it("probe-script --spec derives selectors from the spec fixture", () => {
+    const r = runCli(["probe-script", "--spec", SPEC_PATH]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(".nav a.active");
+  });
+
+  it("probe-script exits 2 when --selectors and --spec are both passed", () => {
+    const r = runCli([
+      "probe-script",
+      "--selectors",
+      ".x",
+      "--spec",
+      SPEC_PATH,
+    ]);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toMatch(/not both/);
+  });
+
+  it("probe-script --spec --surface filters to that surface's selectors only", () => {
+    const r = runCli(["probe-script", "--spec", SPEC_PATH, "--surface", "nav"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(".nav a.active");
+  });
+
+  it("probe-script --spec exits 0 (not the missing-flags error) when every assertion is non-probeable", () => {
+    const specPath = path.join(FIXTURES, "spec-judged-only.json");
+    fs.writeFileSync(
+      specPath,
+      JSON.stringify({
+        surfaces: [
+          {
+            name: "empty",
+            route: "/",
+            assertions: [
+              { id: "vibe", selector: ".x", tier: "judged", note: "n/a" },
+            ],
+          },
+        ],
+      }),
+    );
+    try {
+      const r = runCli(["probe-script", "--spec", specPath]);
+      expect(r.status).toBe(0);
+      expect(r.stderr).toMatch(/no mechanical computed-style assertions/);
+      expect(r.stdout).not.toMatch(/needs --selectors or --spec/);
+    } finally {
+      fs.unlinkSync(specPath);
+    }
   });
 
   it("diff exits 0 on the matching fixture", () => {
