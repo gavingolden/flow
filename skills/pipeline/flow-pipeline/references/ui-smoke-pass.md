@@ -22,6 +22,19 @@ On a `ran:true` ready envelope, read `meta.env` from the envelope and inject it 
 
 **Shared-profile lock (parallel pipelines).** chrome-devtools-mcp backs every browser with a single default on-disk Chrome profile (`~/.cache/chrome-devtools-mcp/chrome-profile`), so two pipelines that both reach this pass under one un-isolated MCP registration contend for it — the second to launch errors with `The browser is already running for ~/.cache/chrome-devtools-mcp/chrome-profile. Use --isolated to run multiple browser instances`. On detecting the lock, drive `flow-ui-validate --browser-busy` — a loud-but-clean `ran:false` / `skipped_reason: browser-profile-busy` skip that degrades exactly like an absent MCP, never a hard failure. The cross-process fix is operator-side: register the chrome-devtools MCP with `--isolated` in `~/.claude.json` so each server process gets its own auto-cleaned throwaway profile. The per-call `isolatedContext` above is same-server defense-in-depth only — it isolates pages within one MCP server but does NOT resolve the cross-process on-disk-profile lock.
 
+## Design-fidelity sub-pass (spec-gated)
+
+**Gate: this sub-pass exists only when the worktree-local `.flow-tmp/design/spec.json` exists.** No `spec.json` → the sub-pass does not exist — zero cost, zero prose, zero tool calls; the smoke pass above is byte-for-byte unchanged. (The spec is pipeline-ephemeral, frozen by discovery's design-artifact fidelity pre-pass and never committed.)
+
+When the spec exists, after the existing per-route capture loop:
+
+1. For each surface declared in the spec, on that surface's route run `flow-design-spec probe-script --spec .flow-tmp/design/spec.json --surface <name>` and evaluate the emitted JS via `evaluate_script` in the same isolated page.
+2. Persist each surface's returned capture to `.flow-tmp/design/capture-<surface>.json` **with the harness file-write tool (Write), NEVER via bash `echo`/heredoc string interpolation** — shell-interpolating arbitrary JSON is an escaping hazard (quotes, backticks, `$` in captured values).
+3. Run `flow-design-spec diff --spec .flow-tmp/design/spec.json --captured .flow-tmp/design/capture-<surface>.json --json` per surface. Judged-tier assertions report `skipped-judged` here (they are review-time judgment, not gate-time mechanics).
+4. Route any `ok:false` envelope through the **existing fix loop as a verify failure** — same loop as a failed `flow-pre-commit` check. **Fix-loop context re-injection:** a fidelity-failure entry carries the absolute paths of the committed `.flow/design/foundation.md` and the ephemeral `.flow-tmp/design/spec.json` alongside the failing assertion ids, so the fix pass re-reads the contract rather than patching blind.
+
+Degradation is exactly the existing pass's: on MCP-absent or browser-busy, take the loud skip via the same `ui_smoke` reason carrier ("design-fidelity spec present; browser validation did not run — <reason>") — never a hard failure.
+
 ## Teardown (servers and browser, symmetric)
 
 Tearing the launched server(s) down on completion is only half the cleanup —

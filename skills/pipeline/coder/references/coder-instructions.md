@@ -17,6 +17,11 @@ expected_outcome}` entries. Each entry names a file (repo-relative
   meant to achieve), and the expected outcome (1–2 lines naming the
   observable post-edit state — what test should pass, what error
   should disappear, what behaviour should change).
+- An **optional** "Design context" block (the `{{DESIGN_CONTEXT}}`
+  placeholder in the wrapper's spawn prompt template) naming the absolute
+  paths of a committed `.flow/design/foundation.md` and, when the plan
+  froze one, the ephemeral `.flow-tmp/design/spec.json`. The block is
+  omitted entirely on non-UI invocations.
 - The absolute worktree path (your working directory).
 - The absolute skill base directory (`SKILL_DIR`). Resolve every sibling
   reference path under it. Those files do not exist relative to the
@@ -39,6 +44,16 @@ Before drafting any edit, load the inputs:
 - Read the project's `AGENTS.md` (or `CLAUDE.md`) to understand commit
   conventions, comment policy, and any project-specific constraints
   relevant to the edits you're about to make.
+- When the spawn prompt carries a "Design context" block
+  (`DESIGN_CONTEXT`), it is **REQUIRED context, not advisory**: read the
+  named `foundation.md` (and `spec.json` when supplied) BEFORE the first
+  UI edit, and **conform every edit to them** — use the foundation's
+  semantic token roles (type/surface/elevation/chrome) rather than ad-hoc
+  values, and implement toward the spec's expected computed values. When
+  an edit cannot conform (a token is missing, the spec conflicts with the
+  edit-set's intent), apply the best conforming approximation and record
+  the deviation in `anti_patterns_found` (see step 2). Absent the block,
+  skip this bullet entirely.
 - For each edit-set entry, read the named file enough times to understand
   the surrounding context (typically ±20 lines around the area the intent
   describes). These reads stay in your context — they are read-only
@@ -91,6 +106,12 @@ For each entry in the edit-set:
    bar is illegal: it should have been a commit, not a note. The slot is
    for pre-existing brittleness you cannot fix in scope, not a release
    valve for brittleness this edit-set itself adds.
+
+   When a `DESIGN_CONTEXT` block was supplied, `anti_patterns_found` is
+   also where you record every **conformance deviation**: any edit that
+   could not follow the named `foundation.md` roles or `spec.json`
+   expected values (missing token, conflicting intent), with the
+   deviation and the approximation you applied.
 
 Skip edits whose `applied` is `false` for downstream verify purposes —
 the failed Edit/Write tool result is the canonical signal, but record

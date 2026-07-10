@@ -170,6 +170,37 @@ flow-research-cache put --question "<the same sharp question from 1.5(b)>" --syn
 
 (swap the reason for `not a researchable question` on the not-researchable path). **Also append the same one-liner to your Step-9 discovery return summary** so it reaches the supervisor's chat. **ALSO** write a best-effort machine-readable status file at the worktree's `.flow-tmp/research-status.json` (sibling of `plan.md`) as `{"active": <bool>, "ran": <bool>, "reason": "not-researchable"|"agy-unavailable"|"ran"}` so the supervisor's deterministic `flow-research-note` backstop can prefer the precise reason over its generic fallback. This write is best-effort and never blocks discovery; when you omit it the supervisor backstop still emits a generic note. Stay **silent** in the fully-dormant case (config off AND not forced — `RESEARCH_ON` and `FORCE_RESEARCH` both `false`): the path was never active, so no note is written and the return summary says nothing about research. This mirrors the omit-when-empty discipline the `# Candidate follow-up issues` and `## Prompt interpretation` sections already use — a run that actually DID research never emits a misleading "skipped" line either.
 
+## 1.6. Design-artifact fidelity pre-pass
+
+**Gate: the request references a design artifact.** Engage this step only when the user's description references a concrete design artifact — a mock URL, an artifact HTML path, a PDF or image mock. This is a discovery judgment in the same worked-examples checklist style as the Step 1.5 research pre-check:
+
+- **Fires:** "match this mock: `https://…/artifact.html`"; "make the dashboard look like `designs/dashboard-v2.html`"; "here's a PDF of the new brand page — build it"; "replicate the attached screenshot's card layout".
+- **Does NOT fire:** "make this feel less cluttered" (pure judgment, no artifact); "add a delete button to the card footer" (a plain UI change); "use the same style as our settings page" (an in-repo reference read as normal context, not a frozen external artifact); any backend/CLI feature with no UI surface.
+
+**Zero-cost-when-absent contract:** no artifact reference → no `## Visual Spec` section, no `.flow-tmp/design/` files, no browser pass — a non-artifact pipeline produces a byte-identical plan to today's. When the gate does not fire, skip past (a)–(d) — only obligation (e) below (the committed-foundation read) still applies to ANY UI-touching plan.
+
+When the gate fires:
+
+**(a) Snapshot the artifact.** Persist the referenced artifact into `.flow-tmp/design/reference.<ext>` (`mkdir -p .flow-tmp/design` first): `curl -fsSL` / WebFetch for URLs, a plain copy for local paths. The snapshot freezes what was agreed — later drift in the live artifact never silently moves the target.
+
+**(b) Extract expected values.**
+
+- **HTML artifacts:** open the snapshot in a browser page (`file://`) and, per element of interest, evaluate the JS emitted by the MCP-driven `flow-design-spec probe-script --selectors '<selector>'` — the canonical fixed computed-style set (font, color, background, border, box-shadow, position/rect) for exactly the declared selectors. When the chrome-devtools MCP is absent, fall back to **source-read** extraction: read the artifact's markup/CSS directly, mark each such assertion's `method` as `source-read` (confidence-marked), and downgrade layout-positional assertions (position/rect) to the `judged` tier — a source read cannot compute layout.
+- **PDF/image artifacts:** extract via multimodal `Read` — per crop, record measured judgments (type scale, weights, colors as closest hex, spacing rhythm); assertions whose values are estimated from pixels stay `judged` unless the artifact states exact values.
+
+**(c) Freeze the two drafts under `.flow-tmp/design/`.**
+
+- `foundation.md` (draft) — prose plus a **semantic token map**: type/surface/elevation/chrome roles mapped onto the repo's existing CSS tokens (read the repo's token source first). Never a wireframe or a raw value dump. Pin a raw value only where the repo has no token for it, and flag each such pin as an **add-a-token smell** in the `## Visual Spec` section.
+- `spec.json` — the machine contract with expected values embedded: `{surfaces: [{name, route, assertions: [{id, selector, tier: "mechanical"|"judged", method?, properties?, note?}]}]}`, validated by `flow-design-spec validate`. Like the snapshot, the spec is pipeline-ephemeral under `.flow-tmp/design/` — never committed.
+
+**(d) Re-freeze is explicit-only.** Once frozen, the snapshot + spec are re-extracted only when a user redirect supplies a changed artifact or explicitly asks for a re-freeze — never implicitly on a revision pass or a crash-resume.
+
+**(e) Committed foundation is REQUIRED context for ANY UI-touching plan.** When the repo carries a committed `.flow/design/foundation.md`, read it as REQUIRED context for any plan that touches UI — artifact-referencing or not — and fold its rules into the UI tasks' descriptions and acceptance criteria. Draft an extension (in the `.flow-tmp/design/foundation.md` draft) only when this feature surfaces a NEW recurring rule; never rewrite existing rules.
+
+**(f) Author the omit-when-empty `## Visual Spec` PRD section** — see the "Visual Spec" sub-section under step 5 — and mirror its assertions into step 7's Test Steps per the artifact-referencing authoring rule there.
+
+Discovery stays no-code throughout: this pre-pass writes only the `.flow-tmp/design/` drafts (plus the PRD section); committing the repo-wide foundation into the PR diff is `/new-feature` Step 5's job.
+
 ## 2. Scope Check
 
 After loading context, decide whether the idea warrants a full PRD. Not every feature
@@ -287,6 +318,7 @@ format. Sections:
 - **Problem Statement** — what problem this solves and why it matters (not solution language).
 - **Scope Boundary** — what's in and what's explicitly out.
 - **User Stories / Acceptance Criteria** — testable criteria as "Given/When/Then". Each acceptance criterion must name an externally-failable check — something that can fail without a human looking at it: `a test that runs`, `a file in the expected shape`, or `a command exit code`. "It looks right" is not a check — a criterion a machine cannot falsify provides no regression signal and degrades into manual prose at the `## Test Steps` gate (step 7). This is a strong default, not an absolute MUST: it defers to the genuinely-manual carve-out one stage downstream (subjective UX, cross-browser rendering, performance-under-load criteria are legitimately human-judgment and cannot name an exit code — see the manual-prose carve-out in step 7's automation test), so do not force an author to fake an exit-code check for an irreducibly subjective item.
+- **Visual Spec** (omit-when-empty) — only when the step 1.6 design-artifact gate fired: per-surface element-level assertion bullets, each tagged with its `spec.json` assertion id and `mechanical`/`judged` tier, placed immediately after User Stories / Acceptance Criteria. See the "Visual Spec" sub-section below for the full contract; omit the heading entirely otherwise.
 - **Architecture Decisions** — from the checkpoint above.
 - **Technical Constraints** — framework, security, performance needs.
 - **Open Questions** — every assumption you made plus anything still unresolved.
@@ -385,6 +417,23 @@ belongs in the `# Task breakdown`, built now. Per the AGENTS.md `## Output style
 test is cohesion, not size; do not use this section as a hedge to defer cohesive in-scope
 work. Keep the bar high — backlogs full of low-confidence candidates are noise, and so is
 a feature shipped with its cohesive other half parked in a follow-up.
+
+### Visual Spec
+
+When (and only when) the step 1.6 design-artifact gate fired, add an omit-when-empty `## Visual Spec` section to the PRD, placed immediately after `## User Stories / Acceptance Criteria`. Per surface, emit element-level assertion bullets — each tagged with its assertion id from the frozen `.flow-tmp/design/spec.json` and its tier:
+
+```markdown
+## Visual Spec
+
+### Surface: nav (`/`)
+
+- [`nav-active-weight`] (mechanical) — `.nav a.active` renders `font-weight: 600`, `color: #1a2b3c`.
+- [`nav-feel`] (judged) — the nav reads as quiet, low-elevation chrome, per the reference snapshot.
+```
+
+Every mechanical bullet mirrors a `spec.json` assertion 1:1 (same id) — a bullet with no spec assertion, or a spec assertion with no bullet, is drift. Raw values pinned where the repo has no token are flagged here as **add-a-token smells** (step 1.6(c)).
+
+**Omit-when-empty (load-bearing).** When the design-artifact gate did not fire, **omit the `## Visual Spec` heading entirely; do not write an empty heading.** Same rule as `## Decision analysis` below: an empty heading implies a frozen artifact exists when none does, adds noise to plan review, and — because the section's presence is the trigger for `/new-feature` Step 5's foundation-commit + `DESIGN_CONTEXT` pass-through and step 7's per-assertion Test Steps authoring — would falsely trigger the design-fidelity machinery with nothing to verify against.
 
 ### Decision analysis
 
@@ -691,6 +740,19 @@ Always emit the heading. Decide the body based on the PRD:
   tweaks (copy fix, padding nudge, icon swap) are exempt. Defer to
   `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Subjective checks") for the
   full contract, the include-vs-exempt test, and a worked example — do not inline the rule body.
+
+  **Artifact-referencing PRs (the plan carries `## Visual Spec`) scope the two rules above
+  differently — state the scoping explicitly:** emit one enumerated `- [ ]` Test Step per
+  Visual Spec assertion, tagged with its assertion id (e.g. `- [ ] [nav-active-weight]
+  .nav a.active renders font-weight: 600 — verified by flow-design-spec diff`), plus
+  **exactly one** overall `SUBJECTIVE: ` sign-off for the artifact-referenced surface. The
+  per-assertion enumeration subsumes the per-facet breakdown, so do NOT also author
+  per-facet `SUBJECTIVE: ` steps; the per-facet rule in the paragraph above remains the
+  contract for artifact-less non-trivial UI changes. A Visual Spec assertion is never
+  `SUBJECTIVE: `-relabelled — mechanical assertions are ticked (or left unticked) by the
+  `flow-design-spec diff` envelope, judged ones by the review-time side-by-side walk. See
+  `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Subjective checks") for the
+  scoped contract.
 
   Before writing any item as a browser-manual step, apply the layered-decomposition check:
   route a backend/API contract to a deterministic integration test, reserve the browser tier

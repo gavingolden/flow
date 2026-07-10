@@ -469,6 +469,17 @@ Always emit the heading. Decide the body based on the change:
   `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Subjective checks") for the
   full contract, the include-vs-exempt test, and a worked example — do not inline the rule body.
 
+  **Artifact-referencing PRs (the plan carries `## Visual Spec`) scope the two rules above
+  differently** — mirroring discovery step 7's authoring rule in
+  `skills/pipeline/product-planning/references/discovery-instructions.md`: emit one enumerated
+  `- [ ]` Test Step per Visual Spec assertion, tagged with its assertion id (e.g.
+  `- [ ] [nav-active-weight] .nav a.active renders font-weight: 600 — verified by
+  flow-design-spec diff`), plus **exactly one** overall `SUBJECTIVE: ` sign-off for the
+  artifact-referenced surface. The per-assertion enumeration subsumes the per-facet breakdown,
+  so do NOT also author per-facet `SUBJECTIVE: ` steps; the per-facet rule in the paragraph
+  above is unchanged for artifact-less non-trivial UI changes, and a Visual Spec assertion is
+  never `SUBJECTIVE: `-relabelled.
+
   Before writing any item as a browser-manual step, apply the layered-decomposition check:
   route a backend/API contract to a deterministic integration test, reserve the browser tier
   for assertions only a browser can make, and split a step that bundles the two — pushing each
@@ -585,14 +596,40 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
    Render the edit-set as a single JSON array — pass it to `/coder` as
    the `EDIT_SET` argument.
 
-2. Invoke `/coder` in-process via the Skill tool, passing the edit-set
-   plus the worktree path:
+2. **Design context (omit-when-absent).** When `.flow-tmp/plan.md`
+   carries a `## Visual Spec` section, first **commit ONLY the
+   foundation**: create-or-extend the repo-wide
+   `.flow/design/foundation.md` from the `.flow-tmp/design/foundation.md`
+   draft and commit it into the PR diff (the self-completing-manifest
+   precedent — an agent-maintained committed contract). `spec.json` and
+   the reference snapshot stay under `.flow-tmp/design/` (excluded via
+   `.git/info/exclude`), never committed. Then pass the optional
+   `DESIGN_CONTEXT` argument on the `/coder` invocation (alongside
+   `EDIT_SET`/`WORKTREE`), in one of two tiers:
+   - **foundation+spec mode** (plan carries `## Visual Spec`): the
+     absolute paths of the committed `.flow/design/foundation.md` AND the
+     ephemeral `.flow-tmp/design/spec.json`, plus the conform-every-edit
+     instruction ("read both BEFORE the first UI edit and conform every
+     edit to them").
+   - **foundation-only mode** (no `## Visual Spec`, but a committed
+     `.flow/design/foundation.md` exists AND the edit-set touches UI):
+     the foundation path alone, same conform instruction.
+
+   Omit `DESIGN_CONTEXT` entirely in every other case — non-UI pipelines
+   see byte-identical spawn prompts. `/new-feature` is the content source
+   for the argument; `/coder`'s wrapper only renders it into the
+   `{{DESIGN_CONTEXT}}` placeholder of its spawn prompt.
+
+3. Invoke `/coder` in-process via the Skill tool, passing the edit-set
+   plus the worktree path (and `DESIGN_CONTEXT` when step 2 produced
+   one — omit the line entirely otherwise):
 
 ```
 
 /coder
 EDIT_SET: [{...}, {...}]
 WORKTREE: <absolute path>
+DESIGN_CONTEXT: <optional — step 2's two-tier content, or omitted>
 
 ````
 
@@ -604,7 +641,7 @@ runs `flow-pre-commit --json` against the post-edit worktree, and
 writes the structured artifact at
 `<worktree>/.flow-tmp/coder-result.json`.
 
-3. After `/coder` returns, do a cheap existence check on the artifact:
+4. After `/coder` returns, do a cheap existence check on the artifact:
 
 ```bash
 test -s "$WORKTREE/.flow-tmp/coder-result.json" \
@@ -615,7 +652,7 @@ On missing or empty artifact, surface the failure to the caller —
 the supervisor escalates `NEEDS HUMAN: coder-failed` rather than
 retrying past the 1-retry cap.
 
-4. Read the artifact body once and parse into a typed object. Reuse
+5. Read the artifact body once and parse into a typed object. Reuse
    the parsed object across Step 6 (test implementation, when it needs
    to know which files were edited) and Step 7 (skills-used summary).
    Do not re-read.

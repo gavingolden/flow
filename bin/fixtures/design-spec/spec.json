@@ -1,0 +1,48 @@
+{
+  "_comment": "Test fixture: a valid design spec with mixed mechanical + judged assertions. Expected values embed a hex color and a font stack to exercise the diff normalizer.",
+  "surfaces": [
+    {
+      "name": "nav",
+      "route": "/",
+      "assertions": [
+        {
+          "id": "nav-active-weight",
+          "selector": ".nav a.active",
+          "tier": "mechanical",
+          "properties": {
+            "font-weight": "600",
+            "color": "#1a2b3c",
+            "font-family": "Inter, ui-sans-serif, sans-serif",
+            "font-size": "14.5px"
+          }
+        },
+        {
+          "id": "nav-surface-bg",
+          "selector": ".nav",
+          "tier": "mechanical",
+          "method": "computed-style",
+          "properties": {
+            "background-color": "rgb(255, 255, 255)",
+            "box-shadow": "0px 1px 2px rgba(0,0,0,0.05)"
+          }
+        },
+        {
+          "id": "nav-source-token",
+          "selector": ".nav",
+          "tier": "mechanical",
+          "method": "source-read",
+          "tolerancePx": 0,
+          "properties": {
+            "font-size": "13px"
+          }
+        },
+        {
+          "id": "nav-feel",
+          "selector": ".nav",
+          "tier": "judged",
+          "note": "The nav reads as quiet, low-elevation chrome — not a heavy app bar."
+        }
+      ]
+    }
+  ]
+}

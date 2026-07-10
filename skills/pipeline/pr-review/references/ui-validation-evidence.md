@@ -107,6 +107,15 @@ Fix-Applier subagent surface, and the MCP calls are harness-level tool calls in
 that context. See `references/manual-test-rubric.md` "Caveat: browser-validation
 flakiness".
 
+## Design-fidelity per-assertion walk (spec-gated)
+
+**Gate: this walk exists only when the worktree-local `.flow-tmp/design/spec.json` exists** (frozen by discovery's design-artifact fidelity pre-pass; pipeline-ephemeral, never committed). When it does, the PR's Test Steps carry enumerated Visual Spec assertion items (one `- [ ]` per assertion, tagged with its assertion id) — walk them **individually**, per tier:
+
+- **Mechanical tier:** on each declared surface's route, evaluate the JS from `flow-design-spec probe-script --spec .flow-tmp/design/spec.json --surface <name>`, persist the capture to `.flow-tmp/design/capture-<surface>.json` **with the harness file-write tool (Write), never bash `echo`/heredoc string interpolation** (escaping hazard on arbitrary captured JSON), and run `flow-design-spec diff --spec … --captured … --json`. Tick each mechanical item — or leave it unticked — per its entry in the diff envelope, injecting the envelope entry + captured values as evidence via the **unchanged** `flow-inject-evidence` interface (8c.i). A `fail` entry never gets a tick and never gets `SUBJECTIVE: `-relabelled.
+- **Judged tier:** assess **side-by-side against the ephemeral reference snapshot** — navigate `file://<worktree>/.flow-tmp/design/reference.html` in the same per-pipeline isolated page (for a PDF/image reference, `Read` the snapshot instead), capture it, then capture the app surface, and compare the two via the `ui-ux` skill's authorities — rather than judging the app page in isolation. The judged item stays a human-taste call only where the rubric says so; the side-by-side gives the judgment a target.
+
+**Model-C degradation (be honest about it):** a standalone `/pr-review` on a fresh clone has no worktree-local spec — `.flow-tmp/` is per-pipeline and never committed. In that case **degrade, never hard-fail**: fall back to **foundation-conformance** — judge the UI against the committed `.flow/design/foundation.md` when present (token roles honored, no ad-hoc values) — plus the judged walk above; mechanical per-assertion diffs simply don't run, and the corresponding items stay unticked with an honest "no local spec — reviewed against committed foundation" note.
+
 ## Teardown (servers and browser, symmetric)
 
 Step 0's "Tear the launched server(s) down on completion" is only half the
