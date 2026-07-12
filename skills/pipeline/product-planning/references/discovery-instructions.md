@@ -193,6 +193,24 @@ When the gate fires:
 - `foundation.md` (draft) — prose plus a **semantic token map**: type/surface/elevation/chrome roles mapped onto the repo's existing CSS tokens (read the repo's token source first). Never a wireframe or a raw value dump. Pin a raw value only where the repo has no token for it, and flag each such pin as an **add-a-token smell** in the `## Visual Spec` section.
 - `spec.json` — the machine contract with expected values embedded: `{surfaces: [{name, route, assertions: [{id, selector, tier: "mechanical"|"judged", method?, properties?, tolerancePx?, note?}]}]}`, validated by `flow-design-spec validate`. Like the snapshot, the spec is pipeline-ephemeral under `.flow-tmp/design/` — never committed.
 
+  A mechanical `source-read` assertion's `properties` is a **map** of CSS property → extracted expected value, not a list of property names. Worked example:
+
+  ```json
+  {
+    "id": "sets-grid-cols",
+    "selector": ".sets-grid",
+    "tier": "mechanical",
+    "method": "source-read",
+    "properties": {
+      "grid-template-columns": "repeat(auto-fill, minmax(240px, 1fr))"
+    }
+  }
+  ```
+
+  **Anti-pattern.** Writing `properties` as a bare array of property names (e.g. `"properties": ["grid-template-columns"]`) is the natural misread and is REJECTED by `flow-design-spec validate` (the `isStringRecord` check + the mechanical-tier-needs-properties rule in `bin/lib/design-spec-schema.ts`). A bare array carries no expected value, so the mechanical tier would be inert. `properties` MUST be a map of CSS property → extracted expected value.
+
+  Immediately after freezing `spec.json`, run `flow-design-spec validate .flow-tmp/design/spec.json` (bare PATH name — discovery runs in the consumer worktree, never a `bin/lib` import) and fix the spec until it exits 0; never proceed to (d)/(f) with an invalid spec.
+
 **(d) Re-freeze is explicit-only.** Once frozen, the snapshot + spec are re-extracted only when a user redirect supplies a changed artifact or explicitly asks for a re-freeze — never implicitly on a revision pass or a crash-resume.
 
 **(e) Committed foundation is REQUIRED context for ANY UI-touching plan.** When the repo carries a committed `.flow/design/foundation.md`, read it as REQUIRED context for any plan that touches UI — artifact-referencing or not — and fold its rules into the UI tasks' descriptions and acceptance criteria. Draft an extension (in the `.flow-tmp/design/foundation.md` draft) only when this feature surfaces a NEW recurring rule; never rewrite existing rules.
@@ -319,6 +337,7 @@ format. Sections:
 - **Scope Boundary** — what's in and what's explicitly out.
 - **User Stories / Acceptance Criteria** — testable criteria as "Given/When/Then". Each acceptance criterion must name an externally-failable check — something that can fail without a human looking at it: `a test that runs`, `a file in the expected shape`, or `a command exit code`. "It looks right" is not a check — a criterion a machine cannot falsify provides no regression signal and degrades into manual prose at the `## Test Steps` gate (step 7). This is a strong default, not an absolute MUST: it defers to the genuinely-manual carve-out one stage downstream (subjective UX, cross-browser rendering, performance-under-load criteria are legitimately human-judgment and cannot name an exit code — see the manual-prose carve-out in step 7's automation test), so do not force an author to fake an exit-code check for an irreducibly subjective item.
 - **Visual Spec** (omit-when-empty) — only when the step 1.6 design-artifact gate fired: per-surface element-level assertion bullets, each tagged with its `spec.json` assertion id and `mechanical`/`judged` tier, placed immediately after User Stories / Acceptance Criteria. See the "Visual Spec" sub-section below for the full contract; omit the heading entirely otherwise.
+- **Layout Intent** (omit-when-empty) — only when the plan touches UI: per-surface structural layout the user ratifies at plan-pending-review (see the `### Layout Intent` sub-section below). Omit the heading entirely for non-UI plans.
 - **Architecture Decisions** — from the checkpoint above.
 - **Technical Constraints** — framework, security, performance needs.
 - **Open Questions** — every assumption you made plus anything still unresolved.
@@ -434,6 +453,44 @@ When (and only when) the step 1.6 design-artifact gate fired, add an omit-when-e
 Every mechanical bullet mirrors a `spec.json` assertion 1:1 (same id) — a bullet with no spec assertion, or a spec assertion with no bullet, is drift. Raw values pinned where the repo has no token are flagged here as **add-a-token smells** (step 1.6(c)).
 
 **Omit-when-empty (load-bearing).** When the design-artifact gate did not fire, **omit the `## Visual Spec` heading entirely; do not write an empty heading.** Same rule as `## Decision analysis` below: an empty heading implies a frozen artifact exists when none does, adds noise to plan review, and — because the section's presence is the trigger for `/new-feature` Step 5's foundation-commit + `DESIGN_CONTEXT` pass-through and step 7's per-assertion Test Steps authoring — would falsely trigger the design-fidelity machinery with nothing to verify against.
+
+### Layout Intent
+
+**Gate: the plan is UI-touching.** Engage this sub-section only when the plan's Task breakdown adds, moves, or restructures a UI region — a judgment gate in the same worked-examples style as the Step 1.6 design-artifact gate:
+
+- **Fires:** "re-theme the `/sets` page"; "add a sidebar filter panel"; any plan whose Task breakdown adds/moves UI regions (a new panel, a relocated nav, a restructured page layout).
+- **Does NOT fire:** backend/CLI/docs/infra plans with no UI surface; a copy-only tweak with no structural change (e.g. "fix a typo in the button label", "change the toast copy").
+
+When the gate fires, add an omit-when-empty `## Layout Intent` section to the PRD, authored per surface. Required pre-read: read the ui-ux skill's layout-composition heuristics at `~/.claude/skills/ui-ux/references/layout.md` (grids, Gestalt grouping, responsive strategy, archetypes) before authoring, so the reasoning is informed, not just recorded; fall back to the facet checklist below when the file is absent (a manual run on a host without flow's skills must not crash).
+
+Per surface, author all six required facets:
+
+1. **Regions and nesting** — what regions exist and how they nest (e.g. "a page shell containing a header, a two-column body, and a footer; the body's left column nests a filter panel").
+2. **Source order** — the DOM/markup order of regions, independent of visual position (screen-reader and keyboard-tab order).
+3. **Sizing policy per region** — for each region, state whether it is viewport-fill vs intrinsic vs scroll container (e.g. "the results list is a scroll container capped at the remaining viewport height; the filter panel is intrinsic to its content"). Every region needs an explicit sizing policy — an unstated one is exactly the ambiguity this section exists to remove.
+4. **Relative positioning of components** — what sits above/below/beside what (e.g. "the filter panel sits beside the results grid on wide viewports, above it on narrow ones").
+5. **Responsive breakpoints and reflow** — the breakpoints that matter for this surface and what reflows (collapses, stacks, hides, reveals) at each.
+6. **Overflow/sticky/z-order rules** — which regions scroll independently, which are sticky/fixed, and the stacking order when regions can overlap.
+
+**Optional topology diagram.** A per-surface fenced ASCII diagram MAY accompany the prose as a quick-scan aid:
+
+```
++----------------------------------+
+| header                            |
++----------+-------------------------+
+| filters  | results (scroll)        |
++----------+-------------------------+
+```
+
+The diagram is topology-only, not proportion — box sizes carry no meaning about relative dimensions. If the diagram and the prose ever disagree, the prose is normative; the diagram is an aid — resolve any diagram/prose conflict to the prose.
+
+**Scope boundary.** Layout Intent covers layout relationships and behaviors ONLY — regions, order, sizing policy, relative positioning, breakpoints, overflow/sticky/z-order. Absolute aesthetic values (colors, type scale, spacing values, shadows) stay with `.flow/design/foundation.md` tokens, a referenced design artifact (`## Visual Spec`), or the judged/SUBJECTIVE tier — do not duplicate them here.
+
+**Placement.** Place `## Layout Intent` after `## Visual Spec` when that section is present, else after `## User Stories / Acceptance Criteria`.
+
+**Omit-when-empty (load-bearing).** When the UI-touching gate does not fire, **omit the `## Layout Intent` heading entirely; do not write an empty heading.** Same rule as `## Visual Spec` and `## Decision analysis`: an empty heading would falsely trigger `/new-feature` Step 5's `DESIGN_CONTEXT` threading with nothing to thread.
+
+**Forward pointer.** The section is ratified by the user at `plan-pending-review` and threaded verbatim into `/coder` edit-sets via the `DESIGN_CONTEXT` block (fenced ASCII diagrams stripped), so the implementer treats it as a constraint it cannot silently drop.
 
 ### Decision analysis
 
