@@ -68,7 +68,7 @@ export const defaultReadConfigFile: ReadConfigFile = () => {
  * falls back to its default independently — a present-but-invalid `ratio`
  * doesn't invalidate a valid `ceiling` alongside it, and vice versa.
  */
-export function resolveCapConfig(
+export function readCapConfig(
   read: ReadConfigFile = defaultReadConfigFile,
 ): CapConfig {
   const raw = read();
@@ -493,7 +493,7 @@ function fetchDiff(): string {
 // --- CLI ---
 
 function printHelp(): void {
-  const capConfig = resolveCapConfig();
+  const capConfig = readCapConfig();
   console.log(`
 Usage: flow-annotate-pr <pr-number>
 
@@ -549,7 +549,7 @@ function main(): void {
 
   const diff = fetchDiff();
   const files = parseDiff(diff);
-  const capConfig = resolveCapConfig();
+  const capConfig = readCapConfig();
   const envelope = buildEnvelope(files, capConfig);
   console.log(JSON.stringify(envelope, null, 2));
 }
