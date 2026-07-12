@@ -5,7 +5,7 @@
  * Reads `git diff -U0 <merge-base>...HEAD` against the resolved default
  * branch, parses hunks per file, evaluates three trigger rules, ranks the
  * resulting candidates by priority, caps the result via a floor/ratio/ceiling
- * formula (operator-overridable per-repo), and emits
+ * formula (operator-overridable machine-wide), and emits
  * a single JSON envelope on stdout:
  *
  *   {
@@ -80,7 +80,8 @@ export function resolveCapConfig(
       const r = (section as Record<string, unknown>).ratio;
       const c = (section as Record<string, unknown>).ceiling;
       if (typeof r === "number" && r > 0 && r <= 1) ratio = r;
-      if (typeof c === "number" && c >= ANNOTATION_FLOOR) ceiling = c;
+      if (typeof c === "number" && Number.isInteger(c) && c >= ANNOTATION_FLOOR)
+        ceiling = c;
     }
   }
   return { ratio, ceiling };
@@ -517,7 +518,7 @@ Trigger rules:
 Cap: floor ${ANNOTATION_FLOOR}, scaling to ~${Math.round(capConfig.ratio * 100)}% of matched hunks above
 the floor, ceiling ${capConfig.ceiling}; surplus rolls into overflowBullet for the calling
 agent to append under \`## Why\` in the PR body. Override ratio/ceiling
-per-repo via a \`flowAnnotatePr\` object in ~/.flow/config.json.
+machine-wide via a \`flowAnnotatePr\` object in ~/.flow/config.json.
 
 The helper does NOT call gh — its only job is local diff + trigger eval +
 JSON emit. The PR number arg is accepted for symmetry with other helpers

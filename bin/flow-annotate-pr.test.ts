@@ -4,6 +4,9 @@
  */
 
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   buildEnvelope,
   countHunkLoc,
@@ -456,6 +459,72 @@ describe(resolveCapConfig, () => {
   it("rejects an out-of-range ratio (> 1), falling back to the default ratio", () => {
     const result = resolveCapConfig(reader({ flowAnnotatePr: { ratio: 1.5 } }));
     expect(result.ratio).toBe(ANNOTATION_CAP_RATIO);
+  });
+
+  it("rejects a fractional ceiling override, falling back to the default ceiling", () => {
+    const result = resolveCapConfig(
+      reader({ flowAnnotatePr: { ceiling: 20.5 } }),
+    );
+    expect(Number.isInteger(result.ceiling)).toBe(true);
+    expect(result.ceiling).toBe(ANNOTATION_CEILING);
+  });
+
+  it("keeps kept+surplus summing to the true candidate count when a would-be fractional ceiling is rejected", () => {
+    const capConfig = resolveCapConfig(
+      reader({ flowAnnotatePr: { ceiling: 8.5 } }),
+    );
+    const parts: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const name = `c${String(i).padStart(2, "0")}.ts`;
+      parts.push(pureAddition(name, 1, 12));
+    }
+    const files = parseDiff(parts.join("\n"));
+    const envelope = buildEnvelope(files, capConfig);
+    const kept = envelope.candidates.length;
+    const surplus = 12 - kept;
+    expect(Number.isInteger(kept)).toBe(true);
+    expect(Number.isInteger(surplus)).toBe(true);
+    expect(envelope.overflowBullet).toBe(
+      surplus > 0 ? overflowPointer(surplus) : undefined,
+    );
+  });
+});
+
+// Guards the hermeticity fix directly: resolveCapConfig's DEFAULT reader
+// (defaultReadConfigFile, the only caller of paths.ts's flowConfigPath())
+// must resolve $HOME at CALL time, not import time. Every other spec above
+// injects the `read` seam and would stay green even if the default reader
+// regressed to an import-time-captured path constant.
+describe("resolveCapConfig — hermeticity (no injected seam)", () => {
+  it("reads the sandboxed $HOME's real config.json when no reader is injected", () => {
+    const originalHome = process.env.HOME;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flow-hermetic-"));
+    try {
+      process.env.HOME = tmp;
+      fs.mkdirSync(path.join(tmp, ".flow"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmp, ".flow", "config.json"),
+        JSON.stringify({ flowAnnotatePr: { ratio: 0.9, ceiling: 30 } }),
+      );
+      expect(resolveCapConfig()).toEqual({ ratio: 0.9, ceiling: 30 });
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to DEFAULT_CAP_CONFIG when the sandboxed $HOME has no config.json", () => {
+    const originalHome = process.env.HOME;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flow-hermetic-empty-"));
+    try {
+      process.env.HOME = tmp;
+      expect(resolveCapConfig()).toEqual(DEFAULT_CAP_CONFIG);
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 
