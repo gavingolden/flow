@@ -213,7 +213,7 @@ export type EpicOptions = {
    * Injectable `~/.flow/config.json` reader (test seam only). Threaded into
    * `readDefaultModel` / `collectModelConfigWarnings` at epic-create launch so
    * the `models.default` resolution can be exercised without touching the real
-   * config. Production uses the module default (reads FLOW_CONFIG).
+   * config. Production uses the module default (reads via flowConfigPath()).
    */
   readConfig?: ReadConfigFile;
 };

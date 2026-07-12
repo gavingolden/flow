@@ -42,6 +42,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { readState, TERMINAL_PHASE_SET, type PipelineState } from "./lib/state";
 import { flowPipelineResumeSeed } from "./lib/feature";
 import { capturePaneBySlug, sendKeysBySlug } from "./lib/tmux";
+import { deliverSeed } from "./lib/seed-delivery";
 import { sleepSync } from "./lib/sleep";
 import { markerPath } from "./flow-checkpoint";
 
@@ -150,26 +151,38 @@ function paneClearedAndSettled(seams: DeliverSeams, attempts: number): boolean {
 }
 
 /**
- * Delivers the resume seed to the pipeline window as a real user turn. Waits
- * for the clear-aware readiness gate (with ONE bounded retry — the plan's
- * mitigation for the timing race), then sends the seed via `send-keys -l --`
- * (literal, so the embedded newline is a soft newline, not a submit) followed
- * by a SEPARATE `Enter` — mirroring the proven launcher delivery in
- * `tmux.ts`'s createWindowVerified/respawnWindowVerified. Returns false (never
- * fires blind) when the pane never becomes ready within the budget. Exported
- * for unit testing.
+ * Delivers the resume seed to the pipeline window as a real user turn. Waits for
+ * the clear-aware readiness gate (with ONE bounded retry — the plan's mitigation
+ * for the timing race), then delegates to the shared `deliverSeed`: it sends the
+ * seed's leading line, verifies it echoed intact (re-sending on a dropped
+ * prefix), chunks below tmux's send-keys byte cap, and checks every literal
+ * send. The SEPARATE submit `Enter` fires ONLY when delivery verified —
+ * preserving this path's discipline of never submitting after a failed literal
+ * send (which could submit stale/partial pane content on a live pane). Returns
+ * false (never fires blind) when the pane never becomes ready or delivery fails.
+ * Exported for unit testing.
  */
 export function deliverResumeSeed(slug: string, seams: DeliverSeams): boolean {
   const attempts = seams.attempts ?? DELIVER_POLL_ATTEMPTS;
+  // paneClearedAndSettled owns the CLEAR-aware gate (its transitioned-away-from-
+  // the-pre-clear-snapshot semantics are distinct from deliverSeed's generic
+  // content-settle), so it stays here rather than folding into deliverSeed.
   let ready = paneClearedAndSettled(seams, attempts);
   if (!ready) ready = paneClearedAndSettled(seams, attempts); // one bounded retry
   if (!ready) return false;
-  const seed = flowPipelineResumeSeed(slug);
-  const sent = seams.sendKeys(seed, true);
-  // Never send the separate submit Enter when the literal seed send itself
-  // failed — doing so could submit stale/partial pane content on a still-live
-  // pane.
-  if (!sent.ok) return false;
+  // settleAttempts: 0 skips deliverSeed's generic settle poll — paneClearedAndSettled
+  // above already waited for the pane to clear and stabilise, so the redundant
+  // gate would only cost one wasted sleep interval.
+  const result = deliverSeed(
+    flowPipelineResumeSeed(slug),
+    {
+      capture: seams.capturePane,
+      send: seams.sendKeys,
+      sleep: seams.sleep,
+    },
+    { settleAttempts: 0 },
+  );
+  if (!result.delivered) return false;
   const submitted = seams.sendKeys("Enter", false);
   return submitted.ok;
 }

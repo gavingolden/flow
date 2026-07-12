@@ -26,7 +26,7 @@ import { friendlyName } from "./cost-pricing";
 import { dim } from "./color";
 
 export type ConfigModelsOptions = {
-  /** Injectable config reader (test seam); defaults to the real FLOW_CONFIG read. */
+  /** Injectable config reader (test seam); defaults to the real flowConfigPath() read. */
   read?: ReadConfigFile;
   /** Injectable feature-state reader (test seam); defaults to `readState`. */
   loadState?: (slug: string) => PipelineState | null;
