@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildEnvelope,
   HUNK_LOC_THRESHOLD,
-  MAX_ANNOTATIONS_PER_PR,
+  ANNOTATION_FLOOR,
   parseDiff,
   rankAndCap,
   dedupPerFile,
@@ -57,7 +57,7 @@ describe("integration: full annotator flow", () => {
     }
     const files = parseDiff(parts.join("\n"));
     const envelope = buildEnvelope(files);
-    expect(envelope.candidates).toHaveLength(MAX_ANNOTATIONS_PER_PR);
+    expect(envelope.candidates).toHaveLength(ANNOTATION_FLOOR);
     expect(envelope.overflowBullet).toBeDefined();
     expect(envelope.overflowBullet).toContain("4 additional hunks");
   });
@@ -126,7 +126,7 @@ describe("integration: full annotator flow", () => {
     const candidates = dedupPerFile(files);
     expect(candidates).toHaveLength(10);
     const { kept, surplus } = rankAndCap(candidates);
-    expect(kept).toHaveLength(MAX_ANNOTATIONS_PER_PR);
+    expect(kept).toHaveLength(ANNOTATION_FLOOR);
     expect(surplus).toBe(2);
     // The first six (largest) must be present in the kept set.
     const keptFiles = new Set(kept.map((c) => c.file));
