@@ -7,6 +7,7 @@
 import { argsContainHelp, printVerbHelp } from "./help";
 import { resolveFlowSource } from "./paths";
 import { runSetup, type SetupOptions } from "./setup";
+import { MANDATORY_MODULE, isKnownModule } from "./modules";
 
 export type ParsedSetupArgs = {
   upgrade: boolean;
@@ -17,12 +18,18 @@ export type ParsedSetupArgs = {
   repairSettings: boolean;
   installDeps: boolean;
   flowSource?: string;
+  /** Resolved module selection from `--modules <csv>` or `--core-only` (sugar for `--modules core`). `undefined` when neither flag was passed. */
+  modules?: string[];
+  /** `--all`: select every module. Mutually exclusive with `modules`/`coreOnly`. */
+  all?: boolean;
+  /** True when `--core-only` was passed (informational — `modules` already carries `["core"]`). */
+  coreOnly?: boolean;
 };
 
 export type SetupArgsResult = ParsedSetupArgs | { error: string };
 
 const USAGE =
-  "usage: flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]";
+  "usage: flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps] [--modules <csv>|--all|--core-only]";
 const FLAGS = new Set([
   "--upgrade",
   "--force",
@@ -31,6 +38,8 @@ const FLAGS = new Set([
   "--no-pull-canonical",
   "--repair-settings",
   "--install-deps",
+  "--all",
+  "--core-only",
 ]);
 
 export function parseSetupArgs(args: string[]): SetupArgsResult {
@@ -43,6 +52,10 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
     repairSettings: false,
     installDeps: false,
   };
+  let sawModules = false;
+  let sawAll = false;
+  let sawCoreOnly = false;
+  let modulesRaw: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--upgrade") {
@@ -59,6 +72,21 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
       out.repairSettings = true;
     } else if (arg === "--install-deps") {
       out.installDeps = true;
+    } else if (arg === "--all") {
+      sawAll = true;
+    } else if (arg === "--core-only") {
+      sawCoreOnly = true;
+    } else if (arg === "--modules") {
+      const value = args[i + 1];
+      if (!value || FLAGS.has(value) || value === "--modules") {
+        return {
+          error:
+            "flow install: --modules requires a comma-separated list of module ids",
+        };
+      }
+      sawModules = true;
+      modulesRaw = value;
+      i++;
     } else if (arg === "--source") {
       const value = args[i + 1];
       if (!value || FLAGS.has(value) || value === "--source") {
@@ -79,6 +107,31 @@ export function parseSetupArgs(args: string[]): SetupArgsResult {
       error:
         "flow install: --no-hooks and --repair-settings are mutually exclusive",
     };
+  }
+  // --modules / --all / --core-only select the same thing three ways; any
+  // two together is an ambiguous request, so reject before touching any
+  // symlink (mirrors the --no-hooks/--repair-settings guard above).
+  if ([sawModules, sawAll, sawCoreOnly].filter(Boolean).length > 1) {
+    return {
+      error:
+        "flow install: --modules, --all, and --core-only are mutually exclusive",
+    };
+  }
+  if (sawCoreOnly) {
+    out.coreOnly = true;
+    out.modules = [MANDATORY_MODULE];
+  } else if (sawAll) {
+    out.all = true;
+  } else if (sawModules) {
+    const ids = modulesRaw!
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+    const unknown = ids.find((id) => !isKnownModule(id));
+    if (unknown) {
+      return { error: `flow install: unknown module id '${unknown}'` };
+    }
+    out.modules = ids;
   }
   return out;
 }
@@ -114,7 +167,9 @@ export function runSetupCli(
   // would re-derive installRoot after the wrapper symlink was already
   // poisoned by a prior --source run, collapsing it onto the worktree and
   // stranding the manifest on the next worktree removal.
-  const { pullCanonical, ...rest } = parsed;
+  // coreOnly is discarded here — it's fully resolved into `modules: ["core"]`
+  // at parse time and setup.ts has no use for the raw flag.
+  const { pullCanonical, coreOnly: _coreOnly, ...rest } = parsed;
   const opts: SetupOptions = {
     ...rest,
     pullCanonicalFirst: pullCanonical,

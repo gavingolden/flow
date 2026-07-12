@@ -21,7 +21,15 @@ npm install
 bun bin/flow install
 ```
 
-`flow install` symlinks the skills, the helper binaries, and the `flow` wrapper itself into place. Verify it worked by running `flow ls` (it should print an empty pipeline list, not "command not found"). The most common failure is `~/.local/bin` not being on your `PATH` — add it and open a fresh shell. Setup internals (symlink mechanics, shell completions, the Copilot escape hatch) live in [CONTRIBUTING.md](CONTRIBUTING.md).
+`flow install` symlinks a **selected set of modules** — the pipeline core plus whichever stack/integration skills you pick — into place. `core` (the pipeline itself) is always installed; everything else (Svelte, Tailwind/shadcn, Supabase, Cloudflare Pages, GitHub Copilot review, and the AI-Ultra research tooling) is opt-in. Run it from an interactive terminal and it asks once per optional module; run it non-interactively (CI, a script) and it installs `core` only, printing a one-line notice naming how to widen the selection. Skip the Q&A with a flag:
+
+```sh
+bun bin/flow install --modules stack-svelte,stack-tailwind-shadcn   # exactly the modules you name (core is always folded in)
+bun bin/flow install --all                              # every module (today's original unconditional behavior)
+bun bin/flow install --core-only                         # core only, no prompt
+```
+
+The resolved selection persists to `~/.flow/config.json`'s `modules` array, so `flow install --upgrade` never re-asks. To change your selection later, re-run `flow install` with one of the flags above — narrowing prunes the now-deselected symlinks, widening adds the new ones. Verify it worked by running `flow ls` (it should print an empty pipeline list, not "command not found"). The most common failure is `~/.local/bin` not being on your `PATH` — add it and open a fresh shell. Setup internals (symlink mechanics, shell completions, the Copilot escape hatch) live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 To come current, run `flow install --upgrade`: it self-pulls (fast-forwards your canonical checkout to `origin`) and reports what changed, so a non-contributor needs only that one command. flow also surfaces a non-blocking staleness notice at `flow ls` and `flow version` when your checkout is behind origin, naming the exact upgrade command to run. Opt out by setting `update.checkFor` to `"off"` in `~/.flow/config.json` (or exporting `FLOW_UPDATE_CHECK=off`). A reserved `update.autoUpgrade` flag (default off, not yet executing) is parsed for a future opt-in that upgrades automatically.
 
