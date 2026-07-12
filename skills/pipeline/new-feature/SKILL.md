@@ -660,7 +660,7 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
    the reference snapshot stay under `.flow-tmp/design/` (excluded via
    `.git/info/exclude`), never committed. Then pass the optional
    `DESIGN_CONTEXT` argument on the `/coder` invocation (alongside
-   `EDIT_SET`/`WORKTREE`), in one of two tiers:
+   `EDIT_SET`/`WORKTREE`), in one of these modes:
    - **foundation+spec mode** (plan carries `## Visual Spec`): the
      absolute paths of the committed `.flow/design/foundation.md` AND the
      ephemeral `.flow-tmp/design/spec.json`, plus the conform-every-edit
@@ -669,11 +669,36 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
    - **foundation-only mode** (no `## Visual Spec`, but a committed
      `.flow/design/foundation.md` exists AND the edit-set touches UI):
      the foundation path alone, same conform instruction.
+   - **layout-only mode** (plan carries `## Layout Intent` but NO
+     `## Visual Spec` and NO committed `.flow/design/foundation.md`):
+     no committed foundation and no Visual Spec exist to seed
+     `DESIGN_CONTEXT` up front, so this mode contributes only the same
+     conform-every-edit instruction as the other modes — the Layout
+     Intent body itself is attached exactly once, by the single append
+     rule below, not by this bullet.
 
-   Omit `DESIGN_CONTEXT` entirely in every other case — non-UI pipelines
-   see byte-identical spawn prompts. `/new-feature` is the content source
-   for the argument; `/coder`'s wrapper only renders it into the
-   `{{DESIGN_CONTEXT}}` placeholder of its spawn prompt.
+   **Layout append (applies in EVERY mode above).** When
+   `.flow-tmp/plan.md` carries a `## Layout Intent` section, append its
+   body verbatim inline to the `DESIGN_CONTEXT` argument exactly once,
+   regardless of which mode fired above — this is the ONLY place the
+   Layout Intent body is attached; the mode bullets above select the
+   conform instruction and never append the body themselves — framed as
+   a ratified Layout Intent — a structural constraint; conform every
+   edit's layout to it and never silently drop it. Extraction is
+   mechanical: extract from the `## Layout Intent` heading to the next
+   `##` heading **or end-of-file, whichever comes first** — verbatim,
+   never a paraphrase, never a partial grab (a truncated or over-grabbed
+   extraction hands the coder malformed constraints; a lightweight plan
+   that ends with `## Layout Intent` and has no following `##` still
+   threads the whole section). Strip fenced code blocks (the ASCII topology diagrams)
+   from the threaded body before appending — the diagram is a
+   plan-review aid; only the normative prose reaches the implementer.
+
+   Omit `DESIGN_CONTEXT` entirely only when the plan has NONE of a
+   committed foundation, `## Visual Spec`, or `## Layout Intent` —
+   non-UI pipelines see byte-identical spawn prompts. `/new-feature` is
+   the content source for the argument; `/coder`'s wrapper only renders
+   it into the `{{DESIGN_CONTEXT}}` placeholder of its spawn prompt.
 
 3. Invoke `/coder` in-process via the Skill tool, passing the edit-set
    plus the worktree path (and `DESIGN_CONTEXT` when step 2 produced

@@ -788,6 +788,48 @@ user can redirect at `plan-pending-review`; never block planning on it (the
 same "research/plan-review never block planning" invariant the cross-model
 review below honors).
 
+**Design-spec validation backstop (deterministic, advisory).** After the
+follow-up-reference consistency backstop above and BEFORE the cross-model
+plan review below, validate a frozen design spec before it reaches
+`plan-pending-review` — the net for a case discovery's own 1.6(c)
+self-validate should already have caught:
+
+```bash
+SPEC_RC=0
+DESIGN_SPEC_REASON=""
+if [ -f "$WORKTREE/.flow-tmp/design/spec.json" ]; then
+  DESIGN_SPEC_STDERR=$(flow-design-spec validate "$WORKTREE/.flow-tmp/design/spec.json" 2>&1 >/dev/null) || SPEC_RC=$?
+  if [ "$SPEC_RC" = "1" ]; then
+    DESIGN_SPEC_REASON=$(printf '%s' "$DESIGN_SPEC_STDERR" | jq -r '.reason')
+  elif [ "$SPEC_RC" != "0" ]; then
+    DESIGN_SPEC_REASON="spec.json unreadable: $(printf '%s' "$DESIGN_SPEC_STDERR" | head -n1)"
+  fi
+fi
+```
+
+This is **existence-gated**: a missing `.flow-tmp/design/spec.json` is a
+silent no-op — most pipelines have no design artifact. `SPEC_RC` and
+`DESIGN_SPEC_REASON` are initialized before the `if` block so a stale value
+from an earlier pipeline run in the same tmux window can never bleed into a
+later non-UI render, and the validate call is `set -e`-safe (`||
+SPEC_RC=$?` captures the exit code instead of exiting the shell on
+failure). Exit 0 is a silent pass. On exit 1 (schema-invalid spec), quote
+the stderr JSON's `reason` verbatim as a one-line note in the 3-5 line chat
+summary (worked example: "design spec invalid:
+`surfaces[0].assertions[1].properties` must be an object of string values —
+the mechanical tier is inert until fixed; redirect at plan-pending-review").
+On exit 2 (or any other non-zero exit — an unreadable or non-JSON
+spec.json, e.g. `flow-design-spec: spec at <path> is not valid JSON: ...`),
+surface the raw stderr line the same way instead of parsing it as JSON —
+this backstop surfaces both a schema-invalid (exit 1) AND an
+unreadable/corrupt (exit 2) spec. Either way, carry the same failure into
+the awaiting-approval gate render's `--why` string below (e.g. `--why "plan
+ready for review (intent=feature); design spec INVALID: <reason>"`), so the
+failure sits in the STATUS block the user reads to approve, not only a
+skimmable summary line (banner-blindness mitigation). It is **advisory and
+non-blocking** — never a `NEEDS HUMAN` halt — same "deterministic step-3
+checks never block planning" invariant as the candidate-issues lint above.
+
 **Cross-model plan review (Layer 2, optional, config-gated).** After the
 note backstop above and BEFORE the End conditions branch below, run one
 independent cross-model review of the plan's consequential decisions. This
@@ -871,8 +913,10 @@ unchanged; this sub-step only enriches plan.md before that gate fires.
   markdown bullets the user clicks:
 
   ```bash
+  WHY="plan ready for review (intent=feature)"
+  [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
   flow-gate-summary --status awaiting-approval --echo-prose \
-    --why "plan ready for review (intent=feature)" \
+    --why "$WHY" \
     --worktree "$WORKTREE" \
     --plan-file "$WORKTREE/.flow-tmp/plan.md"
   ```
@@ -1002,8 +1046,10 @@ unchanged; this sub-step only enriches plan.md before that gate fires.
     the tension flag:
 
     ```bash
+    WHY="plan ready for review (intent=$INTENT, prompt-interpretation tension)"
+    [ "$SPEC_RC" != "0" ] && WHY="$WHY; design spec INVALID: $DESIGN_SPEC_REASON"
     flow-gate-summary --status awaiting-approval --echo-prose \
-      --why "plan ready for review (intent=$INTENT, prompt-interpretation tension)" \
+      --why "$WHY" \
       --worktree "$WORKTREE" \
       --plan-file "$WORKTREE/.flow-tmp/plan.md"
     ```

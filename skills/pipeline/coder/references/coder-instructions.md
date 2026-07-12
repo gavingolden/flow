@@ -60,7 +60,14 @@ Before drafting any edit, load the inputs:
   an edit cannot conform (a token is missing, the spec conflicts with the
   edit-set's intent), apply the best conforming approximation and record
   the deviation in `anti_patterns_found` (see step 2). Absent the block,
-  skip this bullet entirely.
+  skip this bullet entirely. When the Design context block carries a
+  ratified **Layout Intent**, treat it as a structural constraint —
+  regions, nesting, source order, sizing policy, relative positioning,
+  breakpoint reflow, overflow/sticky/z-order — and conform every UI edit
+  to it; you may never silently drop it. When an edit cannot conform,
+  apply the best conforming approximation and record the deviation in
+  `anti_patterns_found`, same discipline as the foundation/spec sentence
+  above.
 - For each edit-set entry, read the named file enough times to understand
   the surrounding context (typically ±20 lines around the area the intent
   describes). These reads stay in your context — they are read-only

@@ -58,6 +58,29 @@
 - [`assertion-id`] (mechanical) — `[selector]` renders `[css-prop]: [expected value]`.
 - [`assertion-id`] (judged) — [the measured judgment, per the reference snapshot].
 
+## Layout Intent
+
+<!-- Omit this whole section for non-UI plans. Authoring contract: discovery-instructions.md "Layout Intent". Do not inline the contract here. -->
+
+### Surface: [name] ([route])
+
+- **Regions & nesting:** [what regions exist and how they nest]
+- **Source order:** [DOM/markup order, independent of visual position]
+- **Sizing policy:** [viewport-fill vs intrinsic vs scroll container, per region]
+- **Relative positioning:** [what sits above/below/beside what]
+- **Responsive breakpoints & reflow:** [breakpoints and what reflows at each]
+- **Overflow/sticky/z-order:** [independent scroll, sticky/fixed regions, stacking order]
+
+<!-- Optional topology-only ASCII diagram (not proportion):
+```
++----------------------------------+
+| header                            |
++----------+-------------------------+
+| filters  | results (scroll)        |
++----------+-------------------------+
+```
+-->
+
 ## Architecture Decisions
 
 <!-- Name the existing pattern, or justify a new one. Load

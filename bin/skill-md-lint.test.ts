@@ -4801,4 +4801,102 @@ describe("design-artifact fidelity structural anchors", () => {
         "pointer; the walk body lives in the reference).",
     ).toBe(true);
   });
+
+  it("Layout Intent is wired symmetrically across producer and consumers", () => {
+    expect(
+      discoveryInstructionsContent.includes("### Layout Intent"),
+      "discovery-instructions.md must carry the '### Layout Intent' " +
+        "authoring sub-section.",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes(
+        "viewport-fill vs intrinsic vs scroll container",
+      ),
+      "discovery-instructions.md's Layout Intent sub-section must require " +
+        "the sizing-policy facet to name viewport-fill vs intrinsic vs " +
+        "scroll container.",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes("the prose is normative"),
+      "discovery-instructions.md's Layout Intent sub-section must resolve " +
+        "any topology-diagram/prose conflict to the prose.",
+    ).toBe(true);
+    expect(
+      prdTemplateContent.includes("## Layout Intent"),
+      "prd-template.md must carry the omit-when-empty '## Layout Intent' " +
+        "thin-sketch section.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("layout-only mode"),
+      "new-feature/SKILL.md Step 5 must add the third 'layout-only mode' " +
+        "DESIGN_CONTEXT tier, additive alongside foundation+spec / " +
+        "foundation-only.",
+    ).toBe(true);
+    expect(
+      coderInstructionsContent.includes("Layout Intent"),
+      "coder references/coder-instructions.md must consume a ratified " +
+        "Layout Intent as a structural constraint the edit-applier may " +
+        "never silently drop.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("Layout append"),
+      "new-feature/SKILL.md must keep the 'Layout append' paragraph that " +
+        "threads the Layout Intent body into DESIGN_CONTEXT across every " +
+        "mode — deleting it while keeping the 'layout-only mode' bullet " +
+        "would silently drop the load-bearing threading this test exists " +
+        "to freeze.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes(
+        "only the normative prose reaches the implementer",
+      ),
+      "new-feature/SKILL.md's Layout append paragraph must keep stripping " +
+        "fenced ASCII topology diagrams so only normative prose reaches " +
+        "/coder.",
+    ).toBe(true);
+  });
+
+  it("discovery-instructions.md carries the spec.json properties-map worked example and self-validate step", () => {
+    expect(
+      discoveryInstructionsContent.includes(
+        '"grid-template-columns": "repeat(auto-fill, minmax(240px, 1fr))"',
+      ),
+      "discovery-instructions.md 1.6(c) must carry a worked example whose " +
+        "'properties' is a {prop: extracted-value} map, not a bare array of " +
+        "property names.",
+    ).toBe(true);
+    expect(
+      discoveryInstructionsContent.includes(
+        "flow-design-spec validate .flow-tmp/design/spec.json",
+      ),
+      "discovery-instructions.md 1.6(c) must instruct the discovery " +
+        "subagent to self-validate the frozen spec.json before proceeding.",
+    ).toBe(true);
+  });
+
+  it("flow-pipeline/SKILL.md step 3 carries the design-spec validation backstop", () => {
+    expect(
+      content.includes("flow-design-spec validate"),
+      "flow-pipeline/SKILL.md step 3 must run 'flow-design-spec validate' " +
+        "as a deterministic, advisory backstop before plan-pending-review.",
+    ).toBe(true);
+    expect(
+      content.includes(".flow-tmp/design/spec.json"),
+      "flow-pipeline/SKILL.md's design-spec validation backstop must " +
+        "existence-gate on .flow-tmp/design/spec.json.",
+    ).toBe(true);
+    expect(
+      content.includes("DESIGN_SPEC_REASON"),
+      "flow-pipeline/SKILL.md's design-spec backstop must thread " +
+        "DESIGN_SPEC_REASON into the awaiting-approval gate render's " +
+        "--why string — the banner-blindness mitigation this backstop " +
+        "exists to provide.",
+    ).toBe(true);
+    expect(
+      content.includes("design spec INVALID: $DESIGN_SPEC_REASON"),
+      "flow-pipeline/SKILL.md must keep the '--why \"...; design spec " +
+        "INVALID: $DESIGN_SPEC_REASON\"' threading in both the feature " +
+        "and tension-flag awaiting-approval gate renders.",
+    ).toBe(true);
+  });
 });
