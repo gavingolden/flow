@@ -136,6 +136,14 @@ export type FeatureOptions = {
    */
   slug?: string;
   /**
+   * Explicit epic membership from `--epic <epic-slug>/<feature-id>`. Set by
+   * `flow epic launch` (via `bin/lib/epic-launch.ts`'s auto-appended argv) or
+   * directly by a human launching an epic feature manually. Persisted
+   * verbatim onto `PipelineState.epic`; `/flow-pipeline` step 3 reads it to
+   * thread an `EPIC:` marker into the discovery spawn prompt.
+   */
+  epic?: { slug: string; featureId: string };
+  /**
    * Injectable `~/.flow/config.json` reader (test seam only). Threaded into
    * `readDefaultModel` / `collectModelConfigWarnings` so the launch-time
    * `models.default` resolution can be exercised without touching the real
@@ -417,6 +425,48 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
   }
   const slugValueToken = slugIdx >= 0 ? args[slugIdx + 1] : undefined;
 
+  // --epic <epic-slug>/<feature-id> is a VALUE flag mirroring --slug: a single
+  // slash-separated token keeps the strip-from-description logic identical.
+  // Validate BEFORE any side-effect (slug half via isValidSlug, id half
+  // non-empty, exactly one `/` separator) — mirroring --slug's
+  // validate-before-state discipline exactly; invalid ⇒ exit 1, no state
+  // write. `flow epic launch` passes this automatically (bin/lib/epic-launch.ts);
+  // a human can also pass it directly for a manually launched epic feature.
+  let epic: { slug: string; featureId: string } | undefined;
+  const epicIdx = args.indexOf("--epic");
+  if (epicIdx >= 0) {
+    const value = args[epicIdx + 1];
+    if (value === undefined || value.startsWith("--")) {
+      console.error(
+        "flow feature create: invalid --epic — a value is required.",
+      );
+      console.error(
+        "  expected <epic-slug>/<feature-id>, e.g. my-epic/feature-a",
+      );
+      return 1;
+    }
+    const parts = value.split("/");
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      console.error(`flow feature create: invalid --epic value '${value}'.`);
+      console.error(
+        "  expected exactly one '/' separator: <epic-slug>/<feature-id>",
+      );
+      return 1;
+    }
+    const [epicSlugPart, featureIdPart] = parts;
+    if (!isValidSlug(epicSlugPart)) {
+      console.error(
+        `flow feature create: invalid --epic slug '${epicSlugPart}'.`,
+      );
+      console.error(
+        "  expected lowercase kebab-case (a-z, 0-9, single hyphens), max 60 chars",
+      );
+      return 1;
+    }
+    epic = { slug: epicSlugPart, featureId: featureIdPart };
+  }
+  const epicValueToken = epicIdx >= 0 ? args[epicIdx + 1] : undefined;
+
   // --model-<phase> value flags (planning / implement / review / verify /
   // fix-applier / consolidator / merge-resolver), each mirroring --model:
   // enum-validate here before any side-effect (invalid ⇒ exit 1, no state
@@ -481,6 +531,12 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
           slugValueToken !== undefined && !slugValueToken.startsWith("--");
         return false;
       }
+      if (a === "--epic") {
+        // Strip the flag and mark its value token for removal too.
+        skipNext =
+          epicValueToken !== undefined && !epicValueToken.startsWith("--");
+        return false;
+      }
       if (phaseModelValueTokens.has(a)) {
         // A --model-<phase> flag: strip it and its value token.
         const vt = phaseModelValueTokens.get(a);
@@ -503,6 +559,7 @@ function runCreateCli(args: string[], options: FeatureOptions = {}): number {
     effort,
     model,
     slug,
+    epic,
     ...phaseModels,
   });
 }
@@ -511,7 +568,7 @@ function runFresh(description: string, options: FeatureOptions): number {
   if (!description || description.trim() === "") {
     console.error("flow feature create: description is required.");
     console.error(
-      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] <description>",
+      "usage: flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning|--model-implement|--model-review|--model-verify|--model-fix-applier|--model-consolidator|--model-merge-resolver <alias>] [--slug <slug>] [--epic <epic-slug>/<feature-id>] <description>",
     );
     return 1;
   }
@@ -669,6 +726,7 @@ function runFresh(description: string, options: FeatureOptions): number {
       modelFixApplier: options.modelFixApplier,
       modelConsolidator: options.modelConsolidator,
       modelMergeResolver: options.modelMergeResolver,
+      epic: options.epic,
       updatedAt: nowIso(),
     };
     writeState(baseState, options.stateDir);

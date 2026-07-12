@@ -186,6 +186,54 @@ describe("state", () => {
     );
   });
 
+  it("readState accepts a well-formed epic membership and an absent epic field", () => {
+    writeState(
+      fixture("epic-member", {
+        epic: { slug: "major-refactor", featureId: "f3" },
+      }),
+      dir,
+    );
+    expect(readState("epic-member", dir)?.epic).toEqual({
+      slug: "major-refactor",
+      featureId: "f3",
+    });
+
+    fs.writeFileSync(
+      path.join(dir, "epic-absent.json"),
+      JSON.stringify({
+        slug: "epic-absent",
+        phase: "reviewing",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    expect(readState("epic-absent", dir)).not.toBeNull();
+    expect(readState("epic-absent", dir)).not.toHaveProperty("epic");
+  });
+
+  it.each([
+    ["missing featureId", { slug: "major-refactor" }],
+    ["missing slug", { featureId: "f3" }],
+    ["wrong-type slug", { slug: 3, featureId: "f3" }],
+    ["not an object", "major-refactor/f3"],
+  ] as const)(
+    "readState returns null when the epic membership is malformed (%s)",
+    (_label, epic) => {
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "bad-epic.json"),
+        JSON.stringify({
+          slug: "bad-epic",
+          phase: "reviewing",
+          repo: "/tmp/repo",
+          updatedAt: "2026-05-17T00:00:00Z",
+          epic,
+        }),
+      );
+      expect(readState("bad-epic", dir)).toBeNull();
+    },
+  );
+
   it.each(["auto", "always", "never"] as const)(
     "readState accepts copilotReview='%s'",
     (value) => {

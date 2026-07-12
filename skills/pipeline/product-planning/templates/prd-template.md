@@ -1,13 +1,39 @@
-<!-- Style: terse. Tables for comparison, diagrams for flow. Cut prose that a
-     heading + list could replace. Markdown is structure; structure is legibility. -->
+<!-- Style: terse. Prefer structured markdown — tables and nested lists — over
+     prose paragraphs unless prose is genuinely warranted; flow-shaped content
+     (system/user flows, before → after comparisons) is never an arrow-paragraph.
+     Cut prose that a heading + list could replace. Mermaid is at the planner's
+     discretion, never required. Markdown is structure; structure is legibility. -->
 
 # [Feature Name]
 
+**Goal:** [one outcome-phrased sentence, ≤30 words, naming the observable result]
+
+<!-- Always present, directly under the title. Not a restatement of the title or
+     request — names the outcome. Full contract: discovery-instructions.md "Goal line". -->
+
 ## Problem Statement
 
-<!-- The pain, not the fix. Avoid "we need a button that…". -->
+<!-- The pain, not the fix. Avoid "we need a button that…". When the step-3 premise
+     check fails, open with a **Premise check:** line naming what was assumed vs.
+     what the codebase shows (omit-when-sound — no line when the premise holds),
+     and set ## Recommendation to a non-Proceed verdict. -->
 
 [What problem does this solve? Why does it matter? Who is affected?]
+
+## Epic context
+
+<!-- Omit-when-empty: include ONLY when discovery's step 1.7 detects epic
+     membership; otherwise omit the heading entirely (never an empty heading).
+     Names the epic slug, this feature's id + rationale, its dependsOn edges
+     (produced/consumed artifacts), and its downstream dependents. Every claim
+     must trace to design.md + manifest.json. Full contract:
+     discovery-instructions.md "Epic context" — the single source of truth. -->
+
+Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.md`.
+
+- **Role:** [this feature's rationale within the epic decomposition]
+- **Depends on:** [feature id — produced/consumed artifact] | none
+- **Downstream dependents:** [feature id — interface that must stay stable] | none
 
 ## Scope Boundary
 
@@ -17,16 +43,37 @@
 
 **Out of scope:** [what this feature does NOT cover]
 
-## User-Facing Changes
+## Behavioral contrast
+
+<!-- Always present. Two subsections showing the observable delta before → after;
+     explicit `none` affirmation allowed on either. Closes with a **Lost:** line —
+     `none` legitimate ONLY on genuinely additive changes (name anything removed,
+     replaced, or deprecated). Full contract: discovery-instructions.md
+     "Behavioral contrast" — the single source of truth. Do NOT inline the
+     contract here; this is a thin sketch. -->
+
+### User flow
 
 <!-- What someone running the tool sees or does differently. Before/After
      table for CLI / flag / output / file-location deltas. Write `none` for
-     pure-internal changes (refactor, infra) — never omit the heading. -->
+     pure-internal changes (refactor, infra) — never omit the subsection. -->
 
 | Before              | After                          |
 | ------------------- | ------------------------------ |
 | `flow install`      | `flow install`                 |
 | `flow add "<desc>"` | `flow feature create "<desc>"` |
+
+### System flow
+
+<!-- What changes at the system/consumer level, before → after. Short nested
+     list, never an arrow-paragraph. Write `none` for a purely UI-facing change. -->
+
+- **Before:**
+  - [system/consumer behavior before]
+- **After:**
+  - [system/consumer behavior after]
+
+**Lost:** [what a user or downstream consumer gives up | none]
 
 ## User Stories / Acceptance Criteria
 
@@ -105,8 +152,14 @@
 
 ## Technical Constraints
 
-- [Framework, security, performance, architectural]
-- [e.g. "RLS must restrict to dashboard owners"]
+<!-- Every bullet binding and source-traceable (a named file, rule, or research
+     finding) — ambient repo-convention restatements are banned unless the plan
+     turns on them. `none beyond repo-wide conventions` is a legitimate explicit
+     affirmation. A named performance/cost-implications category (latency, token
+     spend, CI time) is emitted only when the change plausibly moves one. -->
+
+- [Binding constraint + its source — a file, rule, or finding]
+- [e.g. "RLS must restrict to dashboard owners — see supabase/migrations/0012"]
 
 ## Task Breakdown
 
@@ -154,9 +207,11 @@
 
 ## Open Questions
 
-<!-- Mark resolved with a decision note so context is preserved. -->
+<!-- Mark resolved with a decision note so context is preserved. Earns-its-place
+     rule: each entry must name what changes on redirect — a question whose every
+     answer leaves the plan unchanged is deleted, not written. -->
 
-- [ ] [Anything still unresolved before implementation]
+- [ ] [Anything still unresolved before implementation — name what changes on redirect]
 
 ## Decision analysis
 
@@ -172,6 +227,19 @@
      here; this is a thin sketch. -->
 
 **Decision [X] — [the forking question]?** [illustrate each branch's downstream flow] [exclusive | complementary] Verdict: **[chosen branch]** — [one-line rationale].
+
+## Alternatives considered
+
+<!-- Omit-when-empty: include ONLY when discovery closed ≥1 plausible path;
+     otherwise omit the heading entirely (never an empty heading). ≤3 one-line
+     entries; each rejection reason concrete and verifiable (a named constraint
+     or file:line pointer, not a vibe). Records CLOSED paths — distinct from
+     ## Decision analysis, which records OPEN forks. When non-empty, ALSO write
+     a sibling .flow-tmp/excluded-paths.json mirroring each bullet. Full
+     contract: discovery-instructions.md "Alternatives considered" — the single
+     source of truth. Do NOT inline the contract here; this is a thin sketch. -->
+
+- **[the rejected alternative]** — rejected: [concrete, verifiable why]
 
 ## Recommendation
 

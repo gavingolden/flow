@@ -142,6 +142,17 @@ export type PipelineState = {
    */
   gateOverride?: { pr: number; confirmedAt: string };
   /**
+   * Deterministic epic membership from `flow feature create --epic
+   * <epic-slug>/<feature-id>` (set automatically by `flow epic launch`, or
+   * directly by a human launching an epic feature manually). `/flow-pipeline`
+   * step 3 reads this to thread an `EPIC: <slug>/<featureId>` marker into the
+   * discovery spawn prompt — the primary epic-detection signal (the
+   * description pointer and manifest scan are fallbacks). Optional-additive:
+   * absent ≡ not epic-launched; no migration (AGENTS.md: no back-compat
+   * shims).
+   */
+  epic?: { slug: string; featureId: string };
+  /**
    * Append-only phase-transition history, one entry per `flow-state-update
    * --phase` write. Feeds the `## PIPELINE SNAPSHOT` block's PHASES section
    * (`flow-pipeline-summary`) with an authoritative trace instead of
@@ -324,6 +335,14 @@ function isGateOverride(x: unknown): x is { pr: number; confirmedAt: string } {
   return typeof o.pr === "number" && typeof o.confirmedAt === "string";
 }
 
+function isEpicMembership(
+  x: unknown,
+): x is { slug: string; featureId: string } {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
+  const o = x as Record<string, unknown>;
+  return typeof o.slug === "string" && typeof o.featureId === "string";
+}
+
 function isPhaseLog(
   x: unknown,
 ): x is Array<{ phase: string; outcome?: string; at: string }> {
@@ -383,6 +402,7 @@ function isPipelineState(x: unknown): x is PipelineState {
   if (o.answer !== undefined && typeof o.answer !== "string") return false;
   if (o.gateOverride !== undefined && !isGateOverride(o.gateOverride))
     return false;
+  if (o.epic !== undefined && !isEpicMembership(o.epic)) return false;
   if (o.phaseLog !== undefined && !isPhaseLog(o.phaseLog)) return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
     return false;

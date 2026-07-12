@@ -19,35 +19,51 @@ function feat(overrides: Partial<Feature> = {}): Feature {
 
 const ok = (stdout: string): SpawnResult => ({ status: 0, stdout, stderr: "" });
 
+const EPIC_SLUG = "my-epic";
+const POINTER =
+  "Part of epic `my-epic` (feature `schema`) — design at `.flow/epics/my-epic/design.md`.";
+const DESCRIPTION_WITH_POINTER = `add the watchlist schema\n\n${POINTER}`;
+
 describe("buildFeatureCreateArgs", () => {
-  it("no hints → feature create + description + --slug <id>", () => {
-    expect(buildFeatureCreateArgs(feat())).toEqual([
+  it("no hints → feature create + pointer-appended description + --epic <epicSlug>/<id> + --slug <id>", () => {
+    expect(buildFeatureCreateArgs(feat(), EPIC_SLUG)).toEqual([
       "feature",
       "create",
-      "add the watchlist schema",
+      DESCRIPTION_WITH_POINTER,
+      "--epic",
+      "my-epic/schema",
       "--slug",
       "schema",
     ]);
   });
 
-  it("autoMerge:false → --no-auto-merge", () => {
+  it("autoMerge:false → --no-auto-merge before --epic/--slug", () => {
     expect(
-      buildFeatureCreateArgs(feat({ flowNewHints: { autoMerge: false } })),
+      buildFeatureCreateArgs(
+        feat({ flowNewHints: { autoMerge: false } }),
+        EPIC_SLUG,
+      ),
     ).toEqual([
       "feature",
       "create",
-      "add the watchlist schema",
+      DESCRIPTION_WITH_POINTER,
       "--no-auto-merge",
+      "--epic",
+      "my-epic/schema",
       "--slug",
       "schema",
     ]);
   });
 
   it("autoMerge absent → no flag", () => {
-    expect(buildFeatureCreateArgs(feat({ flowNewHints: {} }))).toEqual([
+    expect(
+      buildFeatureCreateArgs(feat({ flowNewHints: {} }), EPIC_SLUG),
+    ).toEqual([
       "feature",
       "create",
-      "add the watchlist schema",
+      DESCRIPTION_WITH_POINTER,
+      "--epic",
+      "my-epic/schema",
       "--slug",
       "schema",
     ]);
@@ -55,47 +71,60 @@ describe("buildFeatureCreateArgs", () => {
 
   it("autoMerge:true → no flag (true ≡ default)", () => {
     expect(
-      buildFeatureCreateArgs(feat({ flowNewHints: { autoMerge: true } })),
-    ).toEqual([
-      "feature",
-      "create",
-      "add the watchlist schema",
-      "--slug",
-      "schema",
-    ]);
-  });
-
-  it("copilotReview:always → --copilot-review always", () => {
-    expect(
       buildFeatureCreateArgs(
-        feat({ flowNewHints: { copilotReview: "always" } }),
+        feat({ flowNewHints: { autoMerge: true } }),
+        EPIC_SLUG,
       ),
     ).toEqual([
       "feature",
       "create",
-      "add the watchlist schema",
-      "--copilot-review",
-      "always",
+      DESCRIPTION_WITH_POINTER,
+      "--epic",
+      "my-epic/schema",
       "--slug",
       "schema",
     ]);
   });
 
-  it("effort:high → --effort high", () => {
+  it("copilotReview:always → --copilot-review always before --epic/--slug", () => {
     expect(
-      buildFeatureCreateArgs(feat({ flowNewHints: { effort: "high" } })),
+      buildFeatureCreateArgs(
+        feat({ flowNewHints: { copilotReview: "always" } }),
+        EPIC_SLUG,
+      ),
     ).toEqual([
       "feature",
       "create",
-      "add the watchlist schema",
-      "--effort",
-      "high",
+      DESCRIPTION_WITH_POINTER,
+      "--copilot-review",
+      "always",
+      "--epic",
+      "my-epic/schema",
       "--slug",
       "schema",
     ]);
   });
 
-  it("combined hints emit every flag in order", () => {
+  it("effort:high → --effort high before --epic/--slug", () => {
+    expect(
+      buildFeatureCreateArgs(
+        feat({ flowNewHints: { effort: "high" } }),
+        EPIC_SLUG,
+      ),
+    ).toEqual([
+      "feature",
+      "create",
+      DESCRIPTION_WITH_POINTER,
+      "--effort",
+      "high",
+      "--epic",
+      "my-epic/schema",
+      "--slug",
+      "schema",
+    ]);
+  });
+
+  it("combined hints emit every flag in order, --epic before --slug", () => {
     expect(
       buildFeatureCreateArgs(
         feat({
@@ -105,47 +134,69 @@ describe("buildFeatureCreateArgs", () => {
             effort: "max",
           },
         }),
+        EPIC_SLUG,
       ),
     ).toEqual([
       "feature",
       "create",
-      "add the watchlist schema",
+      DESCRIPTION_WITH_POINTER,
       "--no-auto-merge",
       "--copilot-review",
       "never",
       "--effort",
       "max",
+      "--epic",
+      "my-epic/schema",
       "--slug",
       "schema",
     ]);
   });
 
   it("Story 5: emits --slug slugify(id) for an id that is already a valid slug", () => {
-    expect(
-      buildFeatureCreateArgs(
-        feat({ id: "pokedex-page", description: "Re-skin the pokedex page" }),
-      ),
-    ).toEqual([
-      "feature",
-      "create",
-      "Re-skin the pokedex page",
-      "--slug",
-      "pokedex-page",
-    ]);
+    const args = buildFeatureCreateArgs(
+      feat({ id: "pokedex-page", description: "Re-skin the pokedex page" }),
+      EPIC_SLUG,
+    );
+    expect(args.slice(-2)).toEqual(["--slug", "pokedex-page"]);
+    expect(args.slice(3, 5)).toEqual(["--epic", "my-epic/pokedex-page"]);
   });
 
-  it("Story 5: normalizes an id needing slugification into the --slug value", () => {
-    expect(
-      buildFeatureCreateArgs(
-        feat({ id: "Search Page", description: "Re-skin the search page" }),
-      ),
-    ).toEqual([
-      "feature",
-      "create",
-      "Re-skin the search page",
-      "--slug",
-      "search-page",
-    ]);
+  it("Story 5: normalizes an id needing slugification into the --slug value (--epic keeps the raw id)", () => {
+    const args = buildFeatureCreateArgs(
+      feat({ id: "Search Page", description: "Re-skin the search page" }),
+      EPIC_SLUG,
+    );
+    expect(args.slice(-2)).toEqual(["--slug", "search-page"]);
+    expect(args.slice(3, 5)).toEqual(["--epic", "my-epic/Search Page"]);
+  });
+
+  describe("pointer-sentence auto-append", () => {
+    it("appends the pointer sentence when the description lacks it", () => {
+      const args = buildFeatureCreateArgs(feat(), EPIC_SLUG);
+      expect(args[2]).toBe(DESCRIPTION_WITH_POINTER);
+      expect(args[2].match(/Part of epic/g)).toHaveLength(1);
+    });
+
+    it("does not double-append when the description already carries the pointer", () => {
+      const alreadyPointed = `add the watchlist schema\n\n${POINTER}`;
+      const args = buildFeatureCreateArgs(
+        feat({ description: alreadyPointed }),
+        EPIC_SLUG,
+      );
+      expect(args[2]).toBe(alreadyPointed);
+      expect(args[2].match(/Part of epic/g)).toHaveLength(1);
+    });
+
+    it("skips auto-append when the description carries a differently-worded pointer (designer-authored)", () => {
+      const designerPointer =
+        "add the watchlist schema\n\nPart of epic `my-epic` (feature `schema`) — design at `.flow/epics/my-epic/design.md`. Extra designer note.";
+      const args = buildFeatureCreateArgs(
+        feat({ description: designerPointer }),
+        EPIC_SLUG,
+      );
+      expect(args[2]).toBe(designerPointer);
+      expect(args[2].match(/Part of epic/g)).toHaveLength(1);
+    });
   });
 });
 
@@ -156,13 +207,15 @@ describe("launchFeature", () => {
         "flow:watchlist-schema-2\nflow feature create: created — attach with ...\n",
       ),
     );
-    const result = launchFeature(feat(), { spawn });
+    const result = launchFeature(feat(), { spawn, epicSlug: EPIC_SLUG });
     expect(result).toEqual({ ok: true, slug: "watchlist-schema-2" });
-    // Spawned the bare `flow` with the built argv (now carrying --slug <id>).
+    // Spawned the bare `flow` with the built argv (now carrying --epic and --slug).
     expect(spawn).toHaveBeenCalledWith("flow", [
       "feature",
       "create",
-      "add the watchlist schema",
+      DESCRIPTION_WITH_POINTER,
+      "--epic",
+      "my-epic/schema",
       "--slug",
       "schema",
     ]);
@@ -174,7 +227,7 @@ describe("launchFeature", () => {
     const spawn = vi.fn<SpawnFn>(() => ok("some unexpected output\n"));
     const result = launchFeature(
       feat({ id: "watchlist-schema", description: "Add the watchlist schema" }),
-      { spawn },
+      { spawn, epicSlug: EPIC_SLUG },
     );
     expect(result).toEqual({ ok: true, slug: "watchlist-schema" });
   });
@@ -185,7 +238,7 @@ describe("launchFeature", () => {
       stdout: "",
       stderr: "flow feature create: window 'flow:schema' already exists.",
     }));
-    const result = launchFeature(feat(), { spawn });
+    const result = launchFeature(feat(), { spawn, epicSlug: EPIC_SLUG });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toMatch(/already exists/);
@@ -197,7 +250,7 @@ describe("launchFeature", () => {
       stdout: "",
       stderr: "spawn flow ENOENT",
     }));
-    const result = launchFeature(feat(), { spawn });
+    const result = launchFeature(feat(), { spawn, epicSlug: EPIC_SLUG });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toMatch(/ENOENT/);

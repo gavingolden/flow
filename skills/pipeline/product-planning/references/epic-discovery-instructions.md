@@ -216,7 +216,13 @@ the pipeline's prompt), its `dependsOn[]` edges (produced/consumed only), a
 one-line `rationale` (which volatile decision it hides), its EARS-shaped
 `acceptanceCriteria[]`, and `flowNewHints` (`autoMerge` / `copilotReview` /
 `effort`) — **populated, never acted on** (the orchestrator seam from `02`
-§10). Flag the thin MVP slice with `mvp: true`.
+§10). Flag the thin MVP slice with `mvp: true`. **Pointer-sentence authoring
+rule (load-bearing):** every feature's `description` MUST end with the
+sentence ``Part of epic `<slug>` (feature `<id>`) — design at
+`.flow/epics/<slug>/design.md`.`` — this is a fallback detection layer a
+downstream `/product-planning` discovery pass reads when no `EPIC:` marker
+is present (see `discovery-instructions.md` step 1.7), and it keeps the
+manifest human-legible on its own.
 
 ### 4d. Dependency DAG — Mermaid
 
@@ -260,9 +266,18 @@ after `## 6. Open Questions` (tone precedent:
 order:
 
 1. `## 1. Problem & intent` — the epic's underlying need (JTBD-lite), not
-   solution language.
+   solution language. Opens with a one-line `**Goal:** <one sentence>` —
+   ≤30 words, outcome-phrased at epic altitude, the same anti-vacuity bound
+   as the feature-grain contract in `discovery-instructions.md` (a
+   restatement of the epic prompt violates the contract; brevity is
+   contract, not style).
 2. `## 2. Clarified requirements` — user-visible behaviors with EARS
-   acceptance criteria (§4a).
+   acceptance criteria (§4a). Closes with an epic-grain "before → after behavioral contrast"
+   (structured markdown — a table or nested list, never an arrow-paragraph;
+   explicit `none` affirmation allowed for a purely-internal epic) ending in
+   a `**Lost:**` line naming what is given up (`none` legitimate only on
+   genuinely additive epics — when the epic removes, replaces, or
+   deprecates anything, name it).
 3. `## 3. High-level design` — the ADR-shaped (Context/Decision/
    Consequences) key decisions, which ARE the Parnas volatile-decision
    list (§4b), each a candidate feature boundary.
@@ -325,7 +340,12 @@ Write `manifest.json` matching the `EpicManifest` / `Feature` shape owned by
 - Each feature (required: `id`, `title`, `description`, `dependsOn[]`;
   optional: `rationale`, `acceptanceCriteria[]`, `flowNewHints`, `mvp`) as
   captured in §4c. Keep it 100% consistent with `design.md`'s §4/§5 (same
-  ids, titles, and edges).
+  ids, titles, and edges). Every `description` ends with the §4c
+  pointer sentence ``Part of epic `<slug>` (feature `<id>`) — design at
+`.flow/epics/<slug>/design.md`.`` — the manifest's `description` is what
+  `flow epic launch` dispatches verbatim as the pipeline prompt
+  (`bin/lib/epic-launch.ts`), so the pointer must be present there, not only
+  in `design.md`'s prose.
 
 ## 6. Self-validate — the MANDATORY correctness loop
 

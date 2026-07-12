@@ -708,6 +708,23 @@ extend `## Open Questions` with the redirect's questions. Absent an existing
 plan.md (the first step-3 pass), append nothing — this adds **no** new fan-out
 site, only a marker on the existing Discovery exemption.
 
+**Epic-membership threading.** Before invoking `/product-planning`, check
+whether this pipeline was launched from an epic:
+
+```bash
+jq -r '.epic // empty' ~/.flow/state/<slug>.json
+```
+
+When non-empty, append an `EPIC: <slug>/<featureId> (design at
+.flow/epics/<slug>/design.md)` marker line to the `/product-planning`
+invocation through the **same append channel** as `MODEL_PLANNING:` /
+`RESEARCH:` / `REVISION:` above — a marker on the existing Discovery
+exemption, **no** new fan-out site. The spawn template forwards it via the
+`{{EPIC_OVERRIDE}}` block (`product-planning/SKILL.md`); discovery's step 1.7
+treats the marker as the PRIMARY epic-membership detection signal (the
+description pointer and manifest scan are fallbacks for manually launched
+pipelines). Absent or empty `.epic` ≡ not epic-launched — append nothing.
+
 **Deterministic forced research (mandatory on the forced path).** The
 discovery subagent's own Step 1.5 was observed to skip the fan-out even
 when forced, so on the `forceResearch == true` path you MUST ALSO run the
@@ -787,6 +804,22 @@ references a follow-up missing from `# Candidate follow-up issues`") so the
 user can redirect at `plan-pending-review`; never block planning on it (the
 same "research/plan-review never block planning" invariant the cross-model
 review below honors).
+
+**Plan-shape backstop (advisory, deterministic).** Right after the
+follow-up-reference backstop above, independently lint the plan's shape —
+malformed plans are named in chat even when discovery's own self-check
+(`discovery-instructions.md`'s Verification checklist) was skipped:
+
+```bash
+flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
+LINT_RC=$?
+```
+
+Exit 0 is clean; exit 1 prints one named miss per line on stdout — surface a
+one-line note naming the misses in the 3-5 line chat summary; exit 2 is a
+read error — note-and-continue. **Advisory and non-blocking** — never block
+planning on it, and tolerant when the helper is missing from `PATH` (skip
+silently, mirroring discovery's own self-check contract).
 
 **Design-spec validation backstop (deterministic, advisory).** After the
 follow-up-reference consistency backstop above and BEFORE the cross-model

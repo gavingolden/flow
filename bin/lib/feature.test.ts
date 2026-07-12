@@ -2541,3 +2541,107 @@ describe("runFresh — slug auto-disambiguation + explicit --slug (Story 1-4)", 
     expect(fs.readdirSync(stateDir)).toEqual([]);
   });
 });
+
+describe("runFresh — --epic <epic-slug>/<feature-id> (Task 7 / Story 8)", () => {
+  it("valid --epic persists { slug, featureId } on state.json and strips the flag+value from the description", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(
+      ["create", "--epic", "my-epic/feature-a", "some", "desc"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(0);
+    const state = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "some-desc.json"), "utf8"),
+    );
+    expect(state.epic).toEqual({ slug: "my-epic", featureId: "feature-a" });
+    // The flag + its value are stripped from the description.
+    const seed = tmuxMock.createWindowVerified.mock.calls[0]![3];
+    expect(seed).toBe(
+      "[pipeline-slug: some-desc]\nUse the /flow-pipeline skill for: some desc",
+    );
+  });
+
+  it("combines with an explicit --slug (order-independent) without collision", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(
+      [
+        "create",
+        "--slug",
+        "my-explicit-slug",
+        "--epic",
+        "my-epic/feature-a",
+        "some",
+        "desc",
+      ],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(0);
+    const state = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "my-explicit-slug.json"), "utf8"),
+    );
+    expect(state.epic).toEqual({ slug: "my-epic", featureId: "feature-a" });
+  });
+
+  it("no --epic ⇒ state.json carries no epic field", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCli(["create", "some", "desc"], {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    const state = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "some-desc.json"), "utf8"),
+    );
+    expect(state.epic).toBeUndefined();
+  });
+
+  it.each([
+    ["no slash", "my-epic-feature-a"],
+    ["two slashes", "my-epic/foo/bar"],
+    ["empty id half", "my-epic/"],
+    ["empty slug half", "/feature-a"],
+    ["invalid slug half (uppercase)", "My-Epic/feature-a"],
+    ["invalid slug half (spaces)", "my epic/feature-a"],
+  ])(
+    "malformed --epic (%s) exits 1 with /invalid --epic/ and no side-effects",
+    (_label, bad) => {
+      spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+      const code = runFeatureCli(["create", "--epic", bad, "do", "thing"], {
+        stateDir,
+        cwd: repoDir,
+      });
+      expect(code).toBe(1);
+      expect(errors.join("\n")).toMatch(/invalid --epic/);
+      expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+      expect(fs.readdirSync(stateDir)).toEqual([]);
+    },
+  );
+
+  it("missing --epic value (end of args) exits 1 with /invalid --epic/ and no side-effects", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runFeatureCli(["create", "--epic"], {
+      stateDir,
+      cwd: repoDir,
+    });
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/invalid --epic/);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+  });
+
+  it("--epic followed by another flag exits 1 (following flag not consumed as the value)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const code = runFeatureCli(
+      ["create", "--epic", "--no-auto-merge", "do", "thing"],
+      { stateDir, cwd: repoDir },
+    );
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/invalid --epic/);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+  });
+});
