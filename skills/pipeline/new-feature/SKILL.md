@@ -686,9 +686,11 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
    a ratified Layout Intent — a structural constraint; conform every
    edit's layout to it and never silently drop it. Extraction is
    mechanical: extract from the `## Layout Intent` heading to the next
-   `##` heading, verbatim — never a paraphrase, never a partial grab (a
-   truncated or over-grabbed extraction hands the coder malformed
-   constraints). Strip fenced code blocks (the ASCII topology diagrams)
+   `##` heading **or end-of-file, whichever comes first** — verbatim,
+   never a paraphrase, never a partial grab (a truncated or over-grabbed
+   extraction hands the coder malformed constraints; a lightweight plan
+   that ends with `## Layout Intent` and has no following `##` still
+   threads the whole section). Strip fenced code blocks (the ASCII topology diagrams)
    from the threaded body before appending — the diagram is a
    plan-review aid; only the normative prose reaches the implementer.
 
