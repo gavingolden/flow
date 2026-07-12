@@ -2063,5 +2063,43 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       expect(new Set(selected.map(key))).toEqual(new Set(all.map(key)));
       expect(selected.length).toBe(all.length);
     });
+
+    it("(h) --all persists the full module-id list to config.json, and a subsequent bare --upgrade replays it rather than narrowing", () => {
+      runSetup({
+        flowSource: realFlowSource,
+        installRoot: realFlowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        all: true,
+        isTTY: false,
+        configPath: configPath(),
+        quiet: true,
+      });
+      expect(new Set(readConfig().modules as string[])).toEqual(
+        new Set(moduleIds()),
+      );
+
+      const t = targets();
+      runSetup({
+        flowSource: realFlowSource,
+        installRoot: realFlowSource,
+        targets: t,
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        upgrade: true,
+        isTTY: false,
+        configPath: configPath(),
+        quiet: true,
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+      });
+      expect(fs.existsSync(path.join(t.skillsDir, "svelte"))).toBe(true);
+    });
   });
 });

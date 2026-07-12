@@ -24,7 +24,7 @@ bun bin/flow install
 `flow install` symlinks a **selected set of modules** — the pipeline core plus whichever stack/integration skills you pick — into place. `core` (the pipeline itself) is always installed; everything else (Svelte, Tailwind/shadcn, Supabase, Cloudflare Pages, GitHub Copilot review, and the AI-Ultra research tooling) is opt-in. Run it from an interactive terminal and it asks once per optional module; run it non-interactively (CI, a script) and it installs `core` only, printing a one-line notice naming how to widen the selection. Skip the Q&A with a flag:
 
 ```sh
-bun bin/flow install --modules svelte,tailwind-shadcn   # exactly the modules you name (core is always folded in)
+bun bin/flow install --modules stack-svelte,stack-tailwind-shadcn   # exactly the modules you name (core is always folded in)
 bun bin/flow install --all                              # every module (today's original unconditional behavior)
 bun bin/flow install --core-only                         # core only, no prompt
 ```

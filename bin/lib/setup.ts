@@ -56,6 +56,7 @@ import { dim, green, red } from "./color";
 import { confirmStdin } from "./confirm";
 import { moduleForArtifactName, moduleIds } from "./modules";
 import {
+  collectModuleConfigWarnings,
   readConfigFileAt,
   resolveModuleSelection,
   writeModuleSelection,
@@ -483,6 +484,11 @@ function resolveEntriesForRun(
   const read: ReadConfigFile | undefined = options.configPath
     ? () => readConfigFileAt(options.configPath!)
     : undefined;
+
+  for (const w of collectModuleConfigWarnings(read)) {
+    log(dim(`  ! module config: ${w}`));
+  }
+
   const selection = resolveModuleSelection({
     flagIds: options.modules,
     isTTY: options.isTTY ?? process.stdin.isTTY === true,
