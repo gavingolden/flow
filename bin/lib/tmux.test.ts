@@ -9,8 +9,10 @@ import {
   buildSetOptionArgs,
   createWindowVerified,
   findWindowBySlug,
+  panePid,
   parseAliveStatus,
   parsePaneNonEmpty,
+  parsePanePid,
   parseWindowList,
   resolveSlugFromPane,
   respawnWindowVerified,
@@ -123,6 +125,39 @@ describe(parseAliveStatus, () => {
   it("only inspects the first pane (the one we always launch into)", () => {
     const stdout = "0 4242\n1 9999\n";
     expect(parseAliveStatus(stdout, () => true)).toBe(true);
+  });
+});
+
+describe(parsePanePid, () => {
+  it("returns the numeric pid from a window's pane report", () => {
+    expect(parsePanePid("4242")).toBe(4242);
+  });
+
+  it("only inspects the first pane", () => {
+    expect(parsePanePid("4242\n9999\n")).toBe(4242);
+  });
+
+  it("returns null for empty stdout (no panes)", () => {
+    expect(parsePanePid("")).toBeNull();
+  });
+
+  it("returns null when the pid is unparseable", () => {
+    expect(parsePanePid("not-a-pid")).toBeNull();
+  });
+
+  it("returns null when the pid is non-positive", () => {
+    expect(parsePanePid("0")).toBeNull();
+  });
+});
+
+describe(panePid, () => {
+  it("returns null for a nonexistent slug/window", () => {
+    // Safe in any environment (tmux absent, or a live `flow` session with
+    // unrelated windows): findWindowBySlug never matches this slug, so
+    // panePid returns null without depending on real tmux pane state.
+    expect(
+      panePid("flow-p3-file-liveness-test-nonexistent-slug-zzz"),
+    ).toBeNull();
   });
 });
 

@@ -12,6 +12,7 @@ import {
 } from "./ls";
 import * as stateModule from "./state";
 import * as tmuxModule from "./tmux";
+import * as livenessModule from "./liveness";
 import { encodeProjectSegment } from "./cost";
 import type { PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
@@ -192,6 +193,57 @@ describe(buildRows, () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].annotation).toBe("");
+  });
+});
+
+describe("buildRows — liveness annotation ('(crashed)')", () => {
+  // buildRows' job here is only to WIRE a matched window's livenessOf verdict
+  // to the annotation — livenessOf's own dead/stale/alive/unknown logic is
+  // liveness.test.ts's job, so every case here spies on livenessOf directly
+  // rather than re-deriving a real verdict (no real process probe needed).
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("annotates a matched window whose recorded process is dead/stale as (crashed)", async () => {
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("stale");
+    const rows = await buildRows(
+      [state({ slug: "csv-export", pid: 4242, procStartedAt: 1_700_000_000 })],
+      [window({ name: "csv-export" })],
+      NOW,
+    );
+    expect(rows[0].annotation).toBe("(crashed)");
+  });
+
+  it("does not annotate a matched window whose recorded process is alive (regression pin: liveness does not disturb the healthy case)", async () => {
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("alive");
+    const rows = await buildRows(
+      [state({ slug: "csv-export", pid: 4242, procStartedAt: 1_700_000_000 })],
+      [window({ name: "csv-export" })],
+      NOW,
+    );
+    expect(rows[0].annotation).toBe("");
+  });
+
+  it("does not annotate a matched window with no liveness signal (old-format state, unknown verdict — regression pin)", async () => {
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("unknown");
+    const rows = await buildRows(
+      [state({ slug: "csv-export" })], // no pid/procStartedAt — old-format
+      [window({ name: "csv-export" })],
+      NOW,
+    );
+    expect(rows[0].annotation).toBe("");
+  });
+
+  it("never consults liveness for a (no window) row — that branch is unchanged", async () => {
+    const spy = vi.spyOn(livenessModule, "livenessOf");
+    const rows = await buildRows(
+      [state({ slug: "ghost", pid: 4242, procStartedAt: 1_700_000_000 })],
+      [],
+      NOW,
+    );
+    expect(rows[0].annotation).toBe("(no window)");
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 
@@ -422,6 +474,28 @@ describe("runLs — orphan recovery footnote", () => {
     expect(code).toBe(0);
     const out = log.mock.calls.map((c) => String(c[0])).join("\n");
     expect(out).toContain("flow feature resume ghost");
+  });
+
+  it("surfaces `flow feature resume <slug>` below the table for a (crashed) row (window present, process dead/stale)", async () => {
+    // A window IS matched for the slug, but the file-signal liveness check
+    // reports the recorded process dead/stale — buildRows annotates
+    // "(crashed)" and printOrphanRecovery's widened filter must still catch
+    // it (not just the "(no window)" case).
+    vi.spyOn(stateModule, "listStates").mockReturnValue([
+      state({ slug: "zombie", phase: "verifying", repo: "/repo" }),
+    ]);
+    vi.spyOn(tmuxModule, "listWindows").mockReturnValue([
+      window({ name: "zombie" }),
+    ]);
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("dead");
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const code = await runLs({ checkUpdate: () => ({ status: "current" }) });
+
+    expect(code).toBe(0);
+    const out = log.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).toContain("(crashed)");
+    expect(out).toContain("flow feature resume zombie");
   });
 
   it("prints no recovery footnote when every pipeline has a live window", async () => {

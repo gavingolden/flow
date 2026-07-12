@@ -61,12 +61,34 @@ const turnTrackingMock = vi.hoisted(() => ({
 }));
 vi.mock("./stop-turn-tracking", () => turnTrackingMock);
 
+// done.ts's orphan predicate now consults livenessOf. Default mock mirrors
+// the real semantics closely enough for these tests: a fixture carrying
+// pid+procStartedAt resolves "dead" (isOrphan treats dead/stale
+// identically, so a single non-unknown verdict suffices), and a fixture
+// without them (every pre-existing fixture in this file) resolves
+// "unknown" — reproducing today's exact legacy window-existence fallback
+// for every test that doesn't opt in to the new fields.
+const livenessMock = vi.hoisted(() => ({
+  livenessOf: vi.fn((s: { pid?: number; procStartedAt?: number }) =>
+    s.pid !== undefined && s.procStartedAt !== undefined ? "dead" : "unknown",
+  ),
+}));
+vi.mock("./liveness", () => livenessMock);
+
 import { runDone, runDoneCli } from "./done";
 
-const state = (overrides: { slug: string; phase: string; pr?: number }) => ({
+const state = (overrides: {
+  slug: string;
+  phase: string;
+  pr?: number;
+  pid?: number;
+  procStartedAt?: number;
+}) => ({
   slug: overrides.slug,
   phase: overrides.phase,
   pr: overrides.pr,
+  pid: overrides.pid,
+  procStartedAt: overrides.procStartedAt,
   repo: "/r",
   updatedAt: "2026-05-03T00:00:00Z",
 });
@@ -89,6 +111,10 @@ beforeEach(() => {
   );
   stateMock.listStates.mockReturnValue([]);
   stateMock.readState.mockReturnValue(null);
+  livenessMock.livenessOf.mockImplementation(
+    (s: { pid?: number; procStartedAt?: number }) =>
+      s.pid !== undefined && s.procStartedAt !== undefined ? "dead" : "unknown",
+  );
 });
 
 describe("runDoneCli (--help / -h short-circuit)", () => {
@@ -220,6 +246,52 @@ describe("runDone --orphans", () => {
     const messages = log.mock.calls.map((c) => c[0] as string);
     expect(messages).toContain("  orphan-pr (ci-wait #142)");
     expect(messages).toContain("  orphan-no-pr (planning)");
+    log.mockRestore();
+  });
+
+  it("selects a dead/stale-process orphan even though its tmux window still exists", () => {
+    // Canonical check: livenessOf reporting dead/stale is now selected
+    // regardless of window presence — window existence no longer masks a
+    // dead process. The mocked livenessOf resolves "dead" for any fixture
+    // carrying pid+procStartedAt (see the module-scope mock above).
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.listStates.mockReturnValue([
+      state({
+        slug: "crashed-with-window",
+        phase: "implementing",
+        pid: 4242,
+        procStartedAt: 1_700_000_000,
+      }),
+      state({ slug: "live", phase: "implementing" }),
+    ]);
+    tmuxMock.listWindows.mockReturnValue([
+      window("crashed-with-window"),
+      window("live"),
+    ]);
+
+    const code = runDone(undefined, { orphans: true, yes: true });
+
+    expect(code).toBe(0);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("crashed-with-window");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("live");
+    log.mockRestore();
+  });
+
+  it("preserves today's unknown-liveness (no pid/procStartedAt) selection behavior unmodified (regression pin)", () => {
+    // No pid/procStartedAt set → livenessOf resolves "unknown" → falls back
+    // to the legacy !findWindowBySlug check, exactly as before this PR.
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.listStates.mockReturnValue([
+      state({ slug: "orphan-legacy", phase: "ci-wait" }),
+      state({ slug: "live", phase: "implementing" }),
+    ]);
+    tmuxMock.listWindows.mockReturnValue([window("live")]);
+
+    const code = runDone(undefined, { orphans: true, yes: true });
+
+    expect(code).toBe(0);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("orphan-legacy");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("live");
     log.mockRestore();
   });
 
@@ -372,6 +444,35 @@ describe("runDone --merged --orphans (composed)", () => {
     expect(tmuxMock.killWindow).toHaveBeenCalledWith("merged-live");
     expect(tmuxMock.killWindow).not.toHaveBeenCalledWith("orphan-only");
     expect(tmuxMock.killWindow).not.toHaveBeenCalledWith("merged-orphan");
+    log.mockRestore();
+  });
+
+  it("tags a dead/stale-process pipeline [orphan] even though its window still exists", () => {
+    // Same canonical-check upgrade as the --orphans-only describe block,
+    // exercised through the combined sweep: window presence no longer masks
+    // a dead process's orphan tag.
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    stateMock.listStates.mockReturnValue([
+      state({
+        slug: "crashed-with-window",
+        phase: "implementing",
+        pid: 4242,
+        procStartedAt: 1_700_000_000,
+      }),
+      state({ slug: "live", phase: "implementing" }),
+    ]);
+    tmuxMock.listWindows.mockReturnValue([
+      window("crashed-with-window"),
+      window("live"),
+    ]);
+
+    const code = runDone(undefined, { merged: true, orphans: true, yes: true });
+
+    expect(code).toBe(0);
+    const messages = log.mock.calls.map((c) => c[0] as string);
+    expect(messages).toContain("  crashed-with-window (implementing) [orphan]");
+    expect(stateMock.deleteState).toHaveBeenCalledWith("crashed-with-window");
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("live");
     log.mockRestore();
   });
 

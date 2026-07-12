@@ -931,6 +931,30 @@ export function isPaneAlive(slug: string, session = FLOW_SESSION): boolean {
   return parseAliveStatus(r.stdout, pidIsAlive);
 }
 
+/**
+ * The OS-level numeric PID of the window's first pane's foreground process,
+ * or null when the window/pane can't be found. One-field variant of
+ * `isPaneAlive`'s `#{pane_dead} #{pane_pid}` list-panes query — used at
+ * launch time to capture a crash-safe liveness signal (paired with
+ * `liveness.pidStartEpoch`) alongside the tmux window itself.
+ */
+export function panePid(slug: string, session = FLOW_SESSION): number | null {
+  const window = findWindowBySlug(listWindows(session), slug);
+  if (!window) return null;
+  const r = tmux(["list-panes", "-t", window.id, "-F", "#{pane_pid}"]);
+  if (r.exitCode !== 0) return null;
+  return parsePanePid(r.stdout);
+}
+
+/** Pure `#{pane_pid}` list-panes stdout parser, factored out of `panePid`
+ * for direct unit testing (mirrors `parseAliveStatus`'s split). */
+export function parsePanePid(stdout: string): number | null {
+  const line = stdout.split("\n").find((l) => l.length > 0);
+  if (!line) return null;
+  const pid = Number(line.trim());
+  return Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
 export function parseAliveStatus(
   stdout: string,
   pidProbe: (pid: number) => boolean,

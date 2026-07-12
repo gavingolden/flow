@@ -50,6 +50,11 @@ const tmuxMock = vi.hoisted(() => ({
       stderr: string;
     }
   >(() => ({ status: "started", stderr: "" })),
+  // feature.ts now also captures a crash-safe liveness signal right after a
+  // successful launch (panePid + liveness.pidStartEpoch). A deterministic
+  // fake pid keeps every pre-existing launch-path test passing unmodified —
+  // panePid is a genuinely new call site those tests never anticipated.
+  panePid: vi.fn<(slug: string) => number | null>(() => 4242),
   FLOW_SESSION: "flow",
 }));
 vi.mock("./tmux", () => tmuxMock);
@@ -72,6 +77,25 @@ vi.mock("./models-config", async () => {
       actual.readDefaultModel(read),
     collectModelConfigWarnings: (read: ReadConfigFile = noConfig) =>
       actual.collectModelConfigWarnings(read),
+  };
+});
+
+// feature.ts pairs panePid with liveness.pidStartEpoch to persist
+// pid/procStartedAt on a successful launch, and calls livenessOf for the
+// collision-message branch. Stub pidStartEpoch to a deterministic fake epoch
+// so no test ever shells out to a real `ps`; livenessOf is left as the REAL
+// implementation (a pure `process.kill(pid, 0)` probe, no subprocess) so
+// collision-message tests can drive alive/dead/stale verdicts deterministically
+// via `process.pid` (always alive) vs a guaranteed-dead sentinel pid.
+const FAKE_PROC_STARTED_AT = 1_700_000_000;
+vi.mock("./liveness", async () => {
+  const actual =
+    await vi.importActual<typeof import("./liveness")>("./liveness");
+  return {
+    ...actual,
+    pidStartEpoch: vi.fn<(pid: number) => number | null>(
+      () => FAKE_PROC_STARTED_AT,
+    ),
   };
 });
 
@@ -114,8 +138,25 @@ beforeEach(() => {
   tmuxMock.respawnWindowVerified
     .mockReset()
     .mockReturnValue({ status: "started", stderr: "" });
+  tmuxMock.panePid.mockReset().mockReturnValue(4242);
   readSyncMock.mockReset().mockReturnValue(0);
 });
+
+/**
+ * A guaranteed-not-alive pid, for TASK B collision-message tests exercising
+ * the real (unmocked) `isProcessAlive`/`livenessOf` without spawning
+ * anything. Mirrors `lock.test.ts`'s `pickDeadPid` helper.
+ */
+function pickDeadPid(): number {
+  for (const candidate of [999999, 998123, 987654]) {
+    try {
+      process.kill(candidate, 0);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ESRCH") return candidate;
+    }
+  }
+  throw new Error("could not find a dead PID for the test");
+}
 
 function declinePrompt(): void {
   readSyncMock.mockImplementation((_fd, buf) => {
@@ -317,16 +358,25 @@ describe("runNew --resume", () => {
     expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
   });
 
-  it("does not rewrite state.json on entry (the supervisor's first transition does)", () => {
+  it("does not touch phase/repo/updatedAt on entry — only adds the pid/procStartedAt liveness signal", () => {
+    // Was a byte-identical before/after pin; a successful resume now ALSO
+    // folds in the crash-safe pid/procStartedAt capture (TASK A), so the
+    // file is no longer untouched — but every field the supervisor owns
+    // (phase, repo, updatedAt, …) must still survive exactly as seeded.
     seedState("preserve");
     tmuxMock.windowExists.mockReturnValue(true);
-    const before = fs.readFileSync(
-      path.join(stateDir, "preserve.json"),
-      "utf8",
+    const before = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "preserve.json"), "utf8"),
     );
     runNew("preserve", { resume: true, stateDir });
-    const after = fs.readFileSync(path.join(stateDir, "preserve.json"), "utf8");
-    expect(after).toBe(before);
+    const after = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "preserve.json"), "utf8"),
+    );
+    expect(after).toEqual({
+      ...before,
+      pid: 4242,
+      procStartedAt: FAKE_PROC_STARTED_AT,
+    });
   });
 
   it("surfaces the tmux failure when the verified respawn returns non-ok", () => {
@@ -760,6 +810,10 @@ describe("runNew (fresh)", () => {
       stateDir,
       cwd: repoDir,
       launchSettingsPath: settingsPath,
+      // Pin: this asserts an exact argv with no --model. Without an
+      // explicit empty override, this leaks the developer machine's real
+      // ~/.flow/config.json models.default into the launch command.
+      readConfig: () => ({}),
     });
     expect(code).toBe(0);
     const [, , command, seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -1150,6 +1204,9 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       stateDir,
       cwd: repoDir,
       launchSettingsPath: settingsPath,
+      // Pin: this asserts an exact argv with no --model. See the readConfig
+      // comment in the "launches claude with --add-dir" test above.
+      readConfig: () => ({}),
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -1178,6 +1235,9 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       stateDir,
       cwd: repoDir,
       launchSettingsPath: settingsPath,
+      // Pin: this asserts an exact argv with no --model. See the readConfig
+      // comment in the "launches claude with --add-dir" test above.
+      readConfig: () => ({}),
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -1354,6 +1414,9 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     const code = runFeatureCli(["create", "do", "thing"], {
       stateDir,
       cwd: repoDir,
+      // Pin: this asserts no --model in the argv. See the readConfig
+      // comment in the "launches claude with --add-dir" test above.
+      readConfig: () => ({}),
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -1424,6 +1487,9 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       const code = runFeatureCli(["create", flag, "fable", "do", "thing"], {
         stateDir,
         cwd: repoDir,
+        // Pin: this asserts no --model in the argv. See the readConfig
+        // comment in the "launches claude with --add-dir" test above.
+        readConfig: () => ({}),
       });
       expect(code).toBe(0);
       const raw = JSON.parse(
@@ -1738,6 +1804,46 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     });
     expect(code).toBe(0);
     expect(phaseAtLaunch).toBe("starting");
+  });
+
+  it("captures the pane's pid + start time into state.json on a successful launch", () => {
+    // TASK A: the launch closure folds ONE additional writeState call after
+    // createWindowVerified confirms the window is up, persisting the EXACT
+    // mocked panePid/pidStartEpoch values — not placeholders.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    const written = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"),
+    );
+    expect(written.pid).toBe(4242);
+    expect(written.procStartedAt).toBe(FAKE_PROC_STARTED_AT);
+  });
+
+  it("a permanently failed launch never probes the pane's pid (no pid/procStartedAt is ever written)", () => {
+    // Reuses the STORY 1 (immediate-death) fixture: the pid-capture branch is
+    // gated on a non-`failed` result, so a launch that never comes up must
+    // never even call panePid, let alone strand a partial pid/procStartedAt
+    // in the (already-deleted) state file.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    tmuxMock.createWindowVerified.mockReturnValue({
+      status: "failed",
+      stderr: "pane not alive after launch",
+    });
+    const code = runNew("csv export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+      retrySleepMs: 0,
+    });
+    expect(code).not.toBe(0);
+    expect(fs.existsSync(path.join(stateDir, "csv-export.json"))).toBe(false);
+    expect(tmuxMock.panePid).not.toHaveBeenCalled();
   });
 
   it("wires a fresh consumed predicate that flips true once the phase advances past starting", () => {
@@ -2122,6 +2228,11 @@ describe("runFresh — slug auto-disambiguation + explicit --slug (Story 1-4)", 
     // Story 3 variant: the explicit slug's tmux window died but its <slug>.json
     // survives. The dual window+state guard must hard-fail (never suffix, never
     // supersede) so a crashed-but-recorded pipeline's phase/pr is preserved.
+    //
+    // TASK B regression pin: this fixture has NO pid/procStartedAt fields, so
+    // its liveness verdict is `unknown` — the /already exists/ assertion below
+    // is the baseline "today's exact message, unchanged" case for an
+    // unknown-liveness collision.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     writeState(
       {
@@ -2145,6 +2256,91 @@ describe("runFresh — slug auto-disambiguation + explicit --slug (Story 1-4)", 
       fs.readFileSync(path.join(stateDir, "my-explicit-slug.json"), "utf8"),
     );
     expect(preserved.phase).toBe("verifying");
+  });
+
+  it("explicit --slug collision against an ALIVE recorded pid produces an attach hint", () => {
+    // TASK B: `pid: process.pid` is real and definitely alive (it's this test
+    // process); `procStartedAt` matches the mocked pidStartEpoch's fixed
+    // return value exactly, so livenessOf resolves the REAL (unmocked)
+    // isProcessAlive + the module's imported (mocked) pidStartEpoch to
+    // 'alive' without any real `ps` spawn.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    writeState(
+      {
+        slug: "my-explicit-slug",
+        phase: "reviewing",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+        pid: process.pid,
+        procStartedAt: FAKE_PROC_STARTED_AT,
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(false);
+    const code = runFeatureCli(
+      ["create", "--slug", "my-explicit-slug", "some", "desc"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/attach/);
+    expect(errors.join("\n")).toMatch(/flow attach my-explicit-slug/);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("explicit --slug collision against a STALE (not-alive) recorded pid produces a resume hint", () => {
+    // TASK B: a guaranteed-dead pid (no live process could ever hold it) —
+    // livenessOf's real isProcessAlive resolves ESRCH → 'stale' without a
+    // real `ps` spawn (isAlive short-circuits before pidStartEpoch is probed).
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    writeState(
+      {
+        slug: "my-explicit-slug",
+        phase: "reviewing",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+        pid: pickDeadPid(),
+        procStartedAt: FAKE_PROC_STARTED_AT,
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(false);
+    const code = runFeatureCli(
+      ["create", "--slug", "my-explicit-slug", "some", "desc"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/resume/);
+    expect(errors.join("\n")).toMatch(/flow feature resume my-explicit-slug/);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+  });
+
+  it("explicit --slug collision against an alive-but-recycled pid (dead verdict) produces a resume hint", () => {
+    // TASK B: `pid: process.pid` is alive, but `procStartedAt` deliberately
+    // mismatches the mocked pidStartEpoch's fixed return value — the OS
+    // "recycled" this pid onto an unrelated process from the recorded
+    // pipeline's point of view. livenessOf resolves 'dead', which maps to
+    // the SAME resume-hint message as 'stale'.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    writeState(
+      {
+        slug: "my-explicit-slug",
+        phase: "reviewing",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+        pid: process.pid,
+        procStartedAt: FAKE_PROC_STARTED_AT + 1, // deliberately mismatched
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(false);
+    const code = runFeatureCli(
+      ["create", "--slug", "my-explicit-slug", "some", "desc"],
+      { stateDir, cwd: repoDir, command: ["true"] },
+    );
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/resume/);
+    expect(errors.join("\n")).toMatch(/flow feature resume my-explicit-slug/);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
   });
 
   it("derived slug exhaustion (every candidate collides) exits 1 with /no available slug/ and no side-effects", () => {

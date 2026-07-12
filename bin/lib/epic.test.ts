@@ -176,6 +176,10 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     const code = runEpicCli(["create", "add a watchlist feature"], {
       stateDir,
       cwd: repoDir,
+      // Pin: this asserts an exact-length argv with no --model. Without an
+      // explicit empty override, this leaks the developer machine's real
+      // ~/.flow/config.json models.default into the launch command.
+      readConfig: () => ({}),
     });
     expect(code).toBe(0);
     // First line is the machine-read contract token.
@@ -383,6 +387,9 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       stateDir,
       cwd: repoDir,
       launchSettingsPath: settingsPath,
+      // Pin: this asserts an exact argv with no --model. See the readConfig
+      // comment in the "spawns a window" test above.
+      readConfig: () => ({}),
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -421,6 +428,9 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       stateDir,
       cwd: repoDir,
       launchSettingsPath: settingsPath,
+      // Pin: this asserts an exact argv with no --model. See the readConfig
+      // comment in the "spawns a window" test above.
+      readConfig: () => ({}),
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -549,6 +559,9 @@ describe("runEpicCli create — --effort / --model flags", () => {
       {
         stateDir,
         cwd: repoDir,
+        // Pin: this asserts an exact argv with no --model. See the
+        // readConfig comment in the "spawns a window" test above.
+        readConfig: () => ({}),
       },
     );
     expect(code).toBe(0);
@@ -637,6 +650,9 @@ describe("runEpicCli create — --effort / --model flags", () => {
     const code = runEpicCli(["create", "design the thing"], {
       stateDir,
       cwd: repoDir,
+      // Pin: this asserts no --model in the argv. See the readConfig
+      // comment in the "spawns a window" test above.
+      readConfig: () => ({}),
     });
     expect(code).toBe(0);
     const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
@@ -738,7 +754,13 @@ describe("runEpicCli create — --effort / --model flags", () => {
       freshWindowOk();
       const code = runEpicCli(
         ["create", "--model-planning", alias, "design the thing"],
-        { stateDir, cwd: repoDir },
+        {
+          stateDir,
+          cwd: repoDir,
+          // Pin: this asserts no --model in the argv. See the readConfig
+          // comment in the "spawns a window" test above.
+          readConfig: () => ({}),
+        },
       );
       expect(code).toBe(0);
       const raw = JSON.parse(

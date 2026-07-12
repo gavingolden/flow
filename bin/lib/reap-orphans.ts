@@ -13,14 +13,24 @@
  * cold-starting supervisor).
  */
 
+import { livenessOf } from "./liveness";
 import { deleteState, type PipelineState } from "./state";
 import { findWindowBySlug, type TmuxWindow } from "./tmux";
 
 /**
  * Pure: the slugs of never-started orphans safe to reap. A slug is reapable
- * iff phase === "starting" AND no live tmux window owns it AND its `updatedAt`
- * is older than `graceMs`. An unparseable `updatedAt` is never reaped (treated
- * as fresh) — better to leave a phantom than destroy a recoverable pipeline.
+ * iff phase === "starting" AND its `updatedAt` is older than `graceMs` AND
+ * either:
+ *   - the file-signal liveness check (`livenessOf`) positively reports the
+ *     recorded process dead/stale (a window can still be present — a live
+ *     window doesn't prove a live supervisor), or
+ *   - the liveness verdict is unknown (old-format state, no pid/procStartedAt)
+ *     AND no live tmux window owns the slug — the legacy window-existence
+ *     check, preserved as the fallback for state predating this signal.
+ * An `alive` verdict is NEVER reapable, regardless of window presence — a
+ * positive liveness read overrides an otherwise-missing-window signal. An
+ * unparseable `updatedAt` is never reaped (treated as fresh) — better to
+ * leave a phantom than destroy a recoverable pipeline.
  */
 export function reapableStartingOrphans(
   states: PipelineState[],
@@ -31,7 +41,14 @@ export function reapableStartingOrphans(
   const reapable: string[] = [];
   for (const state of states) {
     if (state.phase !== "starting") continue;
-    if (findWindowBySlug(windows, state.slug) !== undefined) continue;
+    const verdict = livenessOf(state);
+    if (verdict === "alive") continue;
+    if (
+      verdict === "unknown" &&
+      findWindowBySlug(windows, state.slug) !== undefined
+    ) {
+      continue;
+    }
     const updated = Date.parse(state.updatedAt);
     if (!Number.isFinite(updated)) continue;
     if (nowMs - updated <= graceMs) continue;

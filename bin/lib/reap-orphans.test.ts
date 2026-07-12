@@ -1,10 +1,28 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as livenessModule from "./liveness";
 import { reapableStartingOrphans, reapStartingOrphans } from "./reap-orphans";
 import { writeState, statePath, type PipelineState } from "./state";
 import type { TmuxWindow } from "./tmux";
+
+/**
+ * A guaranteed-not-alive pid, for exercising the real (unmocked)
+ * `livenessOf`'s dead/stale branch without spawning anything (the
+ * isAlive probe short-circuits before `ps` is ever invoked). Mirrors
+ * `lock.test.ts`'s `pickDeadPid` helper.
+ */
+function pickDeadPid(): number {
+  for (const candidate of [999999, 998123, 987654]) {
+    try {
+      process.kill(candidate, 0);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ESRCH") return candidate;
+    }
+  }
+  throw new Error("could not find a dead PID for the test");
+}
 
 const NOW = Date.UTC(2026, 5, 28, 12, 0, 0);
 const GRACE_MS = 60_000;
@@ -86,6 +104,52 @@ describe(reapableStartingOrphans, () => {
       GRACE_MS,
     );
     expect(slugs).toEqual([]);
+  });
+
+  it("reaps a dead/stale-process orphan even when a matching window is still present", () => {
+    // The file signal now overrides window presence: a window can survive
+    // its owning process dying, so `livenessOf` returning dead/stale must
+    // still reap the state regardless of the window fixture.
+    const deadPid = pickDeadPid();
+    const slugs = reapableStartingOrphans(
+      [
+        state({
+          slug: "crashed-with-window",
+          pid: deadPid,
+          procStartedAt: 1_700_000_000,
+        }),
+      ],
+      [window("crashed-with-window")],
+      NOW,
+      GRACE_MS,
+    );
+    expect(slugs).toEqual(["crashed-with-window"]);
+  });
+
+  it("never reaps an alive-process state even with no matching window", () => {
+    // A positive liveness read overrides an otherwise-missing-window signal —
+    // an alive process is never reaped, regardless of window presence. The
+    // "stale" test above gets a genuine verdict for free (isAlive
+    // short-circuits before touching `ps`); "alive" needs a REAL `ps` spawn
+    // via `pidStartEpoch`, which is unavailable under vitest's node runtime
+    // (`Bun.spawnSync` is undefined there — the same reason no test in this
+    // repo exercises `tmux.ts`'s real spawn path) — so this spies on
+    // `livenessOf` directly instead of deriving a real verdict.
+    const spy = vi.spyOn(livenessModule, "livenessOf").mockReturnValue("alive");
+    const slugs = reapableStartingOrphans(
+      [
+        state({
+          slug: "alive-no-window",
+          pid: 4242,
+          procStartedAt: 1_700_000_000,
+        }),
+      ],
+      [],
+      NOW,
+      GRACE_MS,
+    );
+    expect(slugs).toEqual([]);
+    spy.mockRestore();
   });
 
   it("reaps only the qualifying slugs from a mixed set", () => {
