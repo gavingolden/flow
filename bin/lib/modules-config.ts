@@ -19,7 +19,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FLOW_CONFIG } from "./paths";
+import { flowConfigPath } from "./paths";
 import {
   MANDATORY_MODULE,
   MODULES,
@@ -47,7 +47,7 @@ export function readConfigFileAt(configPath: string): unknown {
 export type ReadConfigFile = () => unknown;
 
 export const defaultReadConfigFile: ReadConfigFile = () =>
-  readConfigFileAt(FLOW_CONFIG);
+  readConfigFileAt(flowConfigPath());
 
 function extractModules(raw: unknown): unknown {
   if (typeof raw !== "object" || raw === null) return undefined;
@@ -112,7 +112,7 @@ export function writeModuleSelection(
   ids: readonly string[],
   options: { configPath?: string; read?: ReadConfigFile } = {},
 ): void {
-  const configPath = options.configPath ?? FLOW_CONFIG;
+  const configPath = options.configPath ?? flowConfigPath();
   const raw = options.read ? options.read() : readConfigFileAt(configPath);
   const obj =
     typeof raw === "object" && raw !== null && !Array.isArray(raw)

@@ -188,8 +188,8 @@ export type SetupOptions = {
   isTTY?: boolean;
   /**
    * Override the `~/.flow/config.json` path read/written for the module
-   * selection. Test-only (default: `FLOW_CONFIG`, via `modules-config.ts`'s
-   * own default).
+   * selection. Test-only (default: `flowConfigPath()`, via
+   * `modules-config.ts`'s own default).
    */
   configPath?: string;
 };
