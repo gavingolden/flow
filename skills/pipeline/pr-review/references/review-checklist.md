@@ -1358,6 +1358,106 @@ documented contract.
 
 ---
 
+## Exact-string anchor gating between producer and consumer docs
+
+A producer doc authors a specific artifact (a heading, a sentinel literal, a field name)
+and one or more consumer docs gate behavior on matching that exact string. When the
+gate is a byte-exact match and the design is "tolerant of absence" (a missing/renamed
+anchor degrades gracefully rather than erroring loudly), a one-sided rename on the
+producer side silently degrades the whole feature the gate exists to guard — the
+consumer falls back to its no-anchor behavior instead of failing.
+
+### What to look for
+
+- Prose like `contains a \`# Heading\` heading`or`matches the literal string
+  \`sentinel\`` gating a conditional branch, paired with "tolerant of absence"
+  framing elsewhere in the same doc.
+- The same literal string repeated verbatim across producer and 2+ consumer files
+  with no shared constant (prose-only pipelines have no compiler to catch drift).
+- No lint/test asserting the literal appears in all the sites that gate on it.
+
+### How to check
+
+1. Grep the exact literal across every file in the hop chain (producer + all
+   consumers); confirm it's byte-identical everywhere it's used as a gate.
+2. Ask whether heading level / casing variations at any hop would silently
+   degrade rather than error — if so, either pin the anchor with a lint that
+   checks all sites in lock-step, or make the consumer match tolerantly
+   (case-insensitive, any heading level) and pin only the producer's exact
+   emission.
+3. Verify the lint/test actually asserts on the anchor itself, not just a
+   loosely-related substring that survives the anchor's deletion.
+
+### Example — `# Task breakdown` heading gating plan-contract wiring (PR #424)
+
+```markdown
+<!-- BAD: consumer gates on exact-match; producer heading text has no lint
+     pinning it in lock-step with the consumers -->
+
+`PLAN_PATH` — ... AND that file exists AND contains a
+`# Task breakdown` heading; the literal string `absent` otherwise.
+
+<!-- GOOD: consumer gate is tolerant of heading level/casing; the producer's
+     exact emission is separately pinned by a lint so the tolerant match has
+     something reliable to find -->
+
+`PLAN_PATH` — ... AND that file exists AND contains a heading (any level,
+case-insensitive) matching `Task breakdown`; the literal string `absent`
+otherwise.
+```
+
+**General rule:** When a consumer contract gates on an exact-match anchor authored by
+a separate producer doc, either match the anchor tolerantly (heading level/casing) or
+pin the anchor with a lint that checks producer and every consumer in lock-step — a
+strict-match gate on a "tolerant of absence" design silently degrades the very feature
+it guards, with nothing failing in CI.
+
+---
+
+## SECURITY DEFINER `search_path` Pinning Judged Against the Copied File, Not the Repo
+
+A new `SECURITY DEFINER` function copied from one precedent migration can silently omit a
+hardening convention (`SET search_path = public`) that other migrations in the same repo do
+apply. Schema-qualifying the statements inside the function reduces the risk but does not
+replace pinning — and "the file I copied didn't pin it" is not evidence the repo lacks the
+convention.
+
+### What to look for
+
+- Any new `CREATE [OR REPLACE] FUNCTION ... SECURITY DEFINER` in a migration without
+  `SET search_path`.
+- Unqualified table names (`billing_accounts` vs `public.billing_accounts`) inside migration
+  SQL that otherwise qualifies names — especially backfill DML and trigger bodies.
+
+### How to check
+
+1. `grep -rn "SECURITY DEFINER" supabase/migrations/` and compare: do OTHER migrations append
+   `SET search_path = public` (or similar)? If any do, the convention exists — flag the new
+   function for pinning even when the nearest-copied precedent omits it.
+2. Inside the new function/backfill, check every table reference is schema-qualified
+   consistently with the rest of the same file.
+
+### Example — billing signup trigger omitted the pin (econ-data PR #423)
+
+```sql
+-- BAD: copied handle_new_user's shape (create_profiles_schema.sql), which
+--      predates the convention
+CREATE OR REPLACE FUNCTION handle_new_user_billing()
+...
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- GOOD: matches the repo's hardened precedent (create_dashboard_shares.sql)
+CREATE OR REPLACE FUNCTION handle_new_user_billing()
+...
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+```
+
+**General rule:** For security-hardening conventions, the standard is the strictest precedent
+in the repo, not the file the author happened to copy — dropping a candidate finding because
+"the copied pattern also lacks it" requires checking that NO sibling applies the convention.
+
+---
+
 # Adding New Patterns
 
 This checklist is a living document. When the retrospective step identifies a class of issue
@@ -1387,3 +1487,163 @@ following this template:
 
 **General rule:** <One-sentence heuristic>
 ```
+
+## HTTP Freshness Intent vs SW Precache Membership
+
+A file given a `Cache-Control: no-cache` / revalidate-always rule (via `_headers`, server
+config, or meta headers) that is simultaneously swept into a service worker's precache and
+served cache-first has its freshness intent silently defeated: once the SW controls the page,
+the HTTP rule never fires.
+
+### What to look for
+
+- A PR that both (a) adds/edits an HTTP caching rule for a specific asset (e.g. `_headers`
+  entries for `/manifest.webmanifest`, `/service-worker.js`) and (b) builds a SW precache list
+  from a wholesale `files`/static directory sweep.
+- Exclusion lists (`PRECACHE_EXCLUDED_FILES` or similar) that name some always-revalidate
+  assets but not all of them.
+
+### How to check
+
+1. List every path named in the PR's HTTP caching rules (`_headers`, headers config).
+2. For each, check whether the SW precache-list builder includes it (directory sweeps include
+   everything not explicitly excluded).
+3. Any path with a revalidate-always HTTP rule that is also precached+served-cache-first is a
+   finding — exclude it from the precache or intentionally document the override.
+
+### Example — manifest.webmanifest precached despite `_headers` no-cache (PR #353)
+
+```typescript
+// BAD: _headers says "/manifest.webmanifest: Cache-Control: no-cache", but
+const PRECACHE_EXCLUDED_FILES = ["mockServiceWorker.js", "_headers"]; // manifest still swept in
+// GOOD:
+const PRECACHE_EXCLUDED_FILES = [
+  "mockServiceWorker.js",
+  "_headers",
+  "manifest.webmanifest",
+];
+```
+
+**General rule:** every asset the PR marks revalidate-always over HTTP must be absent from any
+cache-first SW layer the same PR ships — the two mechanisms contradict each other silently.
+
+## path.join With Absolute Segment Discards the Base
+
+`path.join(BASE, p)` where `p` begins with `/` does NOT escape-check or anchor under BASE the
+way authors assume — `join` normalizes but keeps the leading-slash segment rooted, e.g.
+`path.join("/base", "/a")` → `/base/a` BUT `path.resolve(BASE, p)` with absolute `p` discards
+BASE entirely. Hand-rolled static file servers routinely pass URL pathnames (always
+leading-`/`) into these helpers; the failure mode is either serving from the wrong root or a
+prefix check that always fails and routes everything to the fallback.
+
+### What to look for
+
+- `path.join(...)` / `path.resolve(...)` receiving a raw `url.pathname` (or any
+  user-controlled path that can start with `/` or contain `..`).
+- A `startsWith(BASE)` containment check downstream of such a join — verify with actual values
+  which branch actually executes.
+
+### How to check
+
+1. Trace the exact string handed to `join`/`resolve` (does the caller strip the leading `/`?).
+2. Evaluate the helper's semantics for that shape (`node -e 'console.log(require("path").join("/b","/a"), require("path").resolve("/b","/a"))'`).
+3. Confirm the containment check passes for a known-good asset path AND fails for `../`
+   traversal — both directions, with concrete strings.
+
+### Example — e2e static server pathname handling (PR #353)
+
+```typescript
+// BAD (resolve): candidate = path.resolve(BUILD_DIR, url.pathname) // "/foo" discards BUILD_DIR
+// GOOD: const rel = url.pathname.replace(/^\/+/, ""); path.resolve(BUILD_DIR, rel)
+```
+
+**General rule:** never hand a leading-slash URL pathname to path.join/resolve against a base
+dir — strip/relativize first, then assert containment with a trailing-separator prefix check.
+
+## New Top-Level Landmark Must Match Sibling Landmark Container Styling
+
+A PR that introduces a new top-level landmark (`<main>`, `<header>`, a page-owning wrapper)
+on a route that previously delegated to a shared layout must carry over the shared layout's
+container guards (`overflow-x-hidden`, safe-area padding, scroll containment) — not just its
+visual vocabulary. A decorative child that deliberately overflows (full-bleed SVG, marquee
+band) makes the missing guard user-visible as horizontal scroll on narrow viewports even
+when an inner wrapper clips, because the guard also protects against FUTURE children.
+
+### What to look for
+
+- A new `<main>`/landmark element whose class list lacks guards its siblings
+  (`AuthenticatedLayout`, shared layouts) consistently apply.
+- Children that rely on `overflow: visible` (full-bleed SVG tricks) under a landmark with no
+  explicit overflow containment.
+
+### How to check
+
+1. `grep -rn '<main' apps/web/src` and diff the class lists of every `main` landmark.
+2. If the new landmark omits a guard the others share, flag as `suggestion (non-blocking)` —
+   consistency-by-default unless the omission is explained.
+
+### Example — SignInGate full-viewport recomposition (PR #356)
+
+Copilot caught that the recomposed `SignInGate` `<main>` lacked `overflow-x-hidden` while
+`AuthenticatedLayout`/`SharedLayout` mains carry it, and the new `GateHeroScene` child relies
+on SVG overflow for its full-bleed ground strip.
+
+**General rule:** when adding a landmark that peers with existing shared-layout landmarks,
+diff the class lists and inherit every containment guard, or document why not.
+
+## Git-Grep Audit Guards Must Use Deterministic Pathspec Magic
+
+An audit-guard test that shells out to `git grep` with a bare `'apps/web/src/**/*.svelte'`
+pathspec relies on git's default glob interpretation, which differs by pathspec settings and
+silently false-passes when the pattern matches nothing. Guards exist to fail loudly; a guard
+whose selector can quietly select zero files is a change-detector that never detects.
+
+### What to look for
+
+- Test files invoking `git grep`/`git ls-files` with `**` glob pathspecs and asserting on
+  the match set (zero-hits invariants, frozen keep-lists, exact file arrays).
+- Any grep-based invariant with no companion assertion that the selector itself matched a
+  known-present sentinel file.
+
+### How to check
+
+1. In new/changed test files, grep for `git grep` / `execSync(.*grep`.
+2. If the pathspec uses bare `**`, flag `suggestion (non-blocking)`: use explicit
+   `:(glob)` pathspec magic (`':(glob)apps/web/src/**/*.svelte'`) or assert a sentinel match
+   so an empty selection fails.
+
+### Example — delight-audit lucide keep-list (PR #360)
+
+Copilot caught that the keep-list grep relied on bare `**` glob behavior; agents missed it.
+
+**General rule:** a grep-shaped guard must be deterministic about its file selection — use
+`:(glob)` magic and/or assert the selector matches a known sentinel.
+
+## Real-Time Waits in Specs Where a Fake-Timers Idiom Exists
+
+A spec that waits on real wall-clock time (`waitFor` with a seconds-scale timeout around a
+`setTimeout`-driven behavior) is slower and CI-flaky when the repo already uses
+`vi.useFakeTimers()` for timer-driven behavior elsewhere. Agents tend to suppress this as
+"style"; reviewers flag it because it compounds across suites.
+
+### What to look for
+
+- New specs asserting on state that a production `setTimeout`/interval mutates, using
+  real-time `waitFor`/sleeps rather than advancing fake timers.
+- Imports (`waitFor`) that become unused once the spec switches to fake timers.
+
+### How to check
+
+1. In changed test files, find `waitFor(..., { timeout:` with timeout ≥ 1000ms.
+2. Check whether the awaited behavior is a deterministic in-process timer (not network/IO).
+3. If yes and the repo uses `vi.useFakeTimers()` elsewhere, flag `suggestion (non-blocking)`
+   at ≥80 confidence — this is determinism, not style.
+
+### Example — gotcha self-clear spec (PR #360)
+
+Copilot flagged the 2s real-time `waitFor` on the gotcha self-clear; the test-coverage agent
+had considered it and suppressed it below threshold as style. Treat deterministic-timer
+real-time waits as a surfaceable determinism finding, not style.
+
+**General rule:** when production behavior is a deterministic in-process timer, the spec
+advances fake timers; real-time waits are reserved for genuinely async boundaries.

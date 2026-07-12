@@ -2,7 +2,7 @@
  * Tolerant boundary reader for `~/.flow/config.json` `epic.maxParallel`.
  *
  * Mirrors `copilot-config.ts`: reads the same `~/.flow/config.json` off
- * `FLOW_CONFIG` through an injectable `ReadConfigFile` seam (so tests never
+ * `flowConfigPath()` through an injectable `ReadConfigFile` seam (so tests never
  * touch the real file), and collapses anything unreadable/malformed/wrong-typed
  * to the built-in default. `paths.ts`'s private `FlowConfig` type only knows
  * `source?`, so this is a net-new key reader, not an extension of `readConfig`.
@@ -14,7 +14,7 @@
  */
 
 import * as fs from "node:fs";
-import { FLOW_CONFIG } from "./paths";
+import { flowConfigPath } from "./paths";
 
 /** Concurrency cap default when `epic.maxParallel` is unset/invalid. */
 export const DEFAULT_MAX_PARALLEL = 3;
@@ -28,7 +28,7 @@ export type ReadConfigFile = () => unknown;
 
 const defaultReadConfigFile: ReadConfigFile = () => {
   try {
-    return JSON.parse(fs.readFileSync(FLOW_CONFIG, "utf8"));
+    return JSON.parse(fs.readFileSync(flowConfigPath(), "utf8"));
   } catch {
     return undefined;
   }

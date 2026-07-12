@@ -91,6 +91,24 @@ disk + a brief summary.
 
 ## 1b. Scout the Codebase
 
+**Resolve `PLAN_PATH` first**, before the hybrid threshold below — this
+runs on every entry to Step 1b, not only the wider-scope spawn path, so a
+supplied plan is never silently dropped when a feature is judged
+description-trivial (Step 5's `/coder` threshold is independent and can
+still take the wider path at implement time). Resolve the working
+directory absolutely: if the caller passed a `WORKTREE` value (typical
+when invoked from `/flow-pipeline`), use it; otherwise use `pwd`. Define:
+
+- `PLAN_PATH` — the absolute plan path when the invocation carried a
+  `PLAN: <path>` line AND that file exists AND contains a heading (any
+  level, case-insensitive) matching `Task breakdown`; the literal string
+  `absent` otherwise. A supplied plan does not change the hybrid
+  threshold below — it neither forces nor skips the scout spawn; on the
+  skip-scout path it still feeds Step 2's contract read and Step 5's
+  edit-set composition. On the spawn path it additionally switches the
+  spawned scout into verify-not-rederive mode (see
+  `references/scout-instructions.md`).
+
 Decide whether to spawn the scout subagent based on the **hybrid threshold**:
 
 - **Trivially scoped features** (≤3 affected files, judged from the
@@ -121,10 +139,10 @@ Decide whether to spawn the scout subagent based on the **hybrid threshold**:
 
 **Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: new-feature-scout` and exit. The fan-out's value is its context isolation; an in-line fallback breaks the contract that this exemption is justified by.
 
-1. Resolve the working directory absolutely. If the caller passed a
-   `WORKTREE` value (typical when invoked from `/flow-pipeline`), use it.
-   Otherwise use `pwd`. Define:
+1. Resolve the working directory absolutely (same resolution as above,
+   reused rather than re-derived). Define:
    - `SCOUT_PATH = <workdir>/.flow-tmp/scout.md`
+   - `PLAN_PATH` — already resolved above; do not re-derive it here.
 2. Resolve the skill base directory absolutely. The Skill tool prints
    the "Base directory for this skill" at the top of this SKILL.md when
    loaded — capture it as `SKILL_DIR`. Then derive:
@@ -177,9 +195,9 @@ config.models.implement > inherited` (see
 
 ### Spawn prompt template
 
-Fill in the five `{{...}}` placeholders before passing to the Task tool:
+Fill in the six `{{...}}` placeholders before passing to the Task tool:
 `INSTRUCTIONS_PATH`, `USER_DESCRIPTION`, `WORKTREE`, `SKILL_DIR`,
-`SCOUT_PATH`.
+`SCOUT_PATH`, `PLAN_PATH`.
 
 ```
 You are the Independent Scout Subagent for `/new-feature`. You run in an
@@ -200,6 +218,11 @@ path — they do not exist relative to {{WORKTREE}}):
 
 Write the scout report to (absolute path):
   {{SCOUT_PATH}}
+
+Approved plan path (when not the literal `absent`, verify the plan's
+`# Task breakdown` contracts against the code instead of re-deriving —
+see scout-instructions.md "Verify-not-rederive"):
+  {{PLAN_PATH}}
 
 Follow the scout-instructions.md steps in order. You are one-shot — do
 not ask the user clarifying questions. When the user description leaves
@@ -320,6 +343,16 @@ interpretation` section, or the section's Recommended path is
     the verdict still holds or update it if scouting changed the downstream picture, mirroring the
     `## Plan risks` reconciliation above. Omit this reconciliation entirely when plan.md has no
     `## Decision analysis` section.
+  - **Read the plan's task contracts and reconcile scout deviations.** When Step 1b resolved a
+    non-`absent` `PLAN_PATH`, read the plan's `# Task breakdown` per-task Contract blocks as part
+    of the same single plan.md read as the `## Prompt interpretation` / `## Plan risks` /
+    `## Decision analysis` sections above — never a second open. Reconcile any
+    `PLAN-DEVIATION:`-prefixed bullets in the scout's `## open_questions` as **contract
+    adjustments** — implement to the corrected interface the scout verified against the code —
+    not as product risks; only a deviation that guts a task's intent escalates into the
+    assessment table's risk rows. The reconciled contracts feed Step 5's edit-set composition
+    (the optional `contract` / `acceptance` fields). Skip this bullet entirely when `PLAN_PATH`
+    is `absent`.
 
 ## 3. Write `it.todo()` Test Specs
 
@@ -469,6 +502,17 @@ Always emit the heading. Decide the body based on the change:
   `skills/pipeline/pr-review/references/manual-test-rubric.md` ("Subjective checks") for the
   full contract, the include-vs-exempt test, and a worked example — do not inline the rule body.
 
+  **Artifact-referencing PRs (the plan carries `## Visual Spec`) scope the two rules above
+  differently** — mirroring discovery step 7's authoring rule in
+  `skills/pipeline/product-planning/references/discovery-instructions.md`: emit one enumerated
+  `- [ ]` Test Step per Visual Spec assertion, tagged with its assertion id (e.g.
+  `- [ ] [nav-active-weight] .nav a.active renders font-weight: 600 — verified by
+  flow-design-spec diff`), plus **exactly one** overall `SUBJECTIVE: ` sign-off for the
+  artifact-referenced surface. The per-assertion enumeration subsumes the per-facet breakdown,
+  so do NOT also author per-facet `SUBJECTIVE: ` steps; the per-facet rule in the paragraph
+  above is unchanged for artifact-less non-trivial UI changes, and a Visual Spec assertion is
+  never `SUBJECTIVE: `-relabelled.
+
   Before writing any item as a browser-manual step, apply the layered-decomposition check:
   route a backend/API contract to a deterministic integration test, reserve the browser tier
   for assertions only a browser can make, and split a step that bundles the two — pushing each
@@ -574,25 +618,73 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
 
 ### Spawn procedure (wider-scope path only)
 
-1. Compose the **edit-set** from the `it.todo()` list and the scout's
-   `## affected_modules`. Each entry is a JSON-shaped object with three
-   fields:
+1. Compose the **edit-set**. When Step 1b resolved a non-`absent`
+   `PLAN_PATH`, compose it from the plan's per-task Contract blocks (as
+   adjusted by Step 2's `PLAN-DEVIATION:` reconciliation); when no plan
+   applies, fall back to composing from the `it.todo()` list and the
+   scout's `## affected_modules` exactly as before. Each entry is a
+   JSON-shaped object with three required fields:
    - `file` — repo-relative path of the file to edit.
    - `intent` — 1–2 lines naming what the edit is meant to achieve.
    - `expected_outcome` — 1–2 lines naming the observable post-edit
      state (what test should pass, what behaviour should change).
 
+   On the plan-contract path each entry also carries two optional
+   fields:
+   - `contract` — the task's interface spec copied verbatim from its
+     Contract block (Files / Interfaces / Call-site edits, or the
+     change-type surgical form), with Step 2's contract adjustments
+     applied.
+   - `acceptance` — the task's runnable acceptance command.
+
+   A task's `Files:` list routinely names more than one file — split
+   such a task into one edit-set entry per file (each carrying that
+   file's own `contract` slice). `acceptance` is task-grained, not
+   file-grained: attach it only to the task's **final** entry (the
+   `/coder` edit-applier runs it once, after that last entry, not
+   per-edit — see `references/coder-instructions.md` step 4). Earlier
+   entries for the same task omit `acceptance` entirely.
+
+   Both optional fields are absent on the no-plan fallback path —
+   `/coder` treats a bare triple exactly as today.
+
    Render the edit-set as a single JSON array — pass it to `/coder` as
    the `EDIT_SET` argument.
 
-2. Invoke `/coder` in-process via the Skill tool, passing the edit-set
-   plus the worktree path:
+2. **Design context (omit-when-absent).** When `.flow-tmp/plan.md`
+   carries a `## Visual Spec` section, first **commit ONLY the
+   foundation**: create-or-extend the repo-wide
+   `.flow/design/foundation.md` from the `.flow-tmp/design/foundation.md`
+   draft and commit it into the PR diff (the self-completing-manifest
+   precedent — an agent-maintained committed contract). `spec.json` and
+   the reference snapshot stay under `.flow-tmp/design/` (excluded via
+   `.git/info/exclude`), never committed. Then pass the optional
+   `DESIGN_CONTEXT` argument on the `/coder` invocation (alongside
+   `EDIT_SET`/`WORKTREE`), in one of two tiers:
+   - **foundation+spec mode** (plan carries `## Visual Spec`): the
+     absolute paths of the committed `.flow/design/foundation.md` AND the
+     ephemeral `.flow-tmp/design/spec.json`, plus the conform-every-edit
+     instruction ("read both BEFORE the first UI edit and conform every
+     edit to them").
+   - **foundation-only mode** (no `## Visual Spec`, but a committed
+     `.flow/design/foundation.md` exists AND the edit-set touches UI):
+     the foundation path alone, same conform instruction.
+
+   Omit `DESIGN_CONTEXT` entirely in every other case — non-UI pipelines
+   see byte-identical spawn prompts. `/new-feature` is the content source
+   for the argument; `/coder`'s wrapper only renders it into the
+   `{{DESIGN_CONTEXT}}` placeholder of its spawn prompt.
+
+3. Invoke `/coder` in-process via the Skill tool, passing the edit-set
+   plus the worktree path (and `DESIGN_CONTEXT` when step 2 produced
+   one — omit the line entirely otherwise):
 
 ```
 
 /coder
 EDIT_SET: [{...}, {...}]
 WORKTREE: <absolute path>
+DESIGN_CONTEXT: <optional — step 2's two-tier content, or omitted>
 
 ````
 
@@ -604,7 +696,7 @@ runs `flow-pre-commit --json` against the post-edit worktree, and
 writes the structured artifact at
 `<worktree>/.flow-tmp/coder-result.json`.
 
-3. After `/coder` returns, do a cheap existence check on the artifact:
+4. After `/coder` returns, do a cheap existence check on the artifact:
 
 ```bash
 test -s "$WORKTREE/.flow-tmp/coder-result.json" \
@@ -615,7 +707,7 @@ On missing or empty artifact, surface the failure to the caller —
 the supervisor escalates `NEEDS HUMAN: coder-failed` rather than
 retrying past the 1-retry cap.
 
-4. Read the artifact body once and parse into a typed object. Reuse
+5. Read the artifact body once and parse into a typed object. Reuse
    the parsed object across Step 6 (test implementation, when it needs
    to know which files were edited) and Step 7 (skills-used summary).
    Do not re-read.

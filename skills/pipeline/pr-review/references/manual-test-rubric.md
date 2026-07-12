@@ -135,6 +135,17 @@ manual item. Author UI Test Steps as these enumerated assertions rather than
 vague "looks right" prose. Truly irreducibly-aesthetic items ("does this feel
 premium?") stay genuinely-manual subjective checks below.
 
+**For artifact-referencing PRs, Visual-Spec-derived per-assertion items are
+the canonical form of this category.** When the plan carries a `## Visual
+Spec` (discovery froze a design artifact into `.flow-tmp/design/spec.json`),
+each Test Step item mirrors one spec assertion — tagged with its assertion id,
+e.g. `- [ ] [nav-active-weight] .nav a.active renders font-weight: 600` — and
+the mechanical tier is ticked (or left unticked) by the `flow-design-spec
+diff` envelope rather than by eye; judged-tier items are compared side-by-side
+against the frozen reference snapshot. See
+`skills/pipeline/pr-review/references/ui-validation-evidence.md`
+("Design-fidelity per-assertion walk").
+
 **An unverified functional step blocks merge.** A functional manual step that
 is still an unchecked `- [ ]` item is a feature that has _not been shown to
 work_. The auto-merge gate counts it like any other unchecked item and the PR
@@ -144,6 +155,11 @@ verdict is terminal, not advisory". Reclassifying a functional step as
 subjective to wave it through is a **prohibited move**: it is the exact
 failure mode the gate exists to catch (a real run merged a broken feature by
 relabelling "hover the legend entry, the popover opens" as "subjective UX").
+The same prohibition covers Visual Spec assertions: **a Visual Spec assertion
+is never `SUBJECTIVE: `-relabelled** — a mechanical assertion passes or fails
+by the `flow-design-spec diff` envelope, and a judged one by the side-by-side
+reference comparison; relabelling either to dodge an unticked box is the same
+move by another name.
 
 #### Subjective checks
 
@@ -191,6 +207,18 @@ it ships? If yes, author the subjective step. Trivial tweaks — a copy fix, a
 padding nudge, an icon swap — are exempt; do not manufacture a subjective step
 where none is warranted.
 
+**Scope: the per-facet rule applies to artifact-less UI changes.** For an
+**artifact-referencing** PR — the plan carries a `## Visual Spec` whose
+enumerated per-assertion items already cover the facets element by element —
+author **exactly one** overall `SUBJECTIVE: ` sign-off for the
+artifact-referenced surface instead of one per facet: the per-assertion
+enumeration subsumes the facet breakdown, and per-facet `SUBJECTIVE: ` steps
+on top of it would double-gate what the spec already asserts. Per-facet
+`SUBJECTIVE: ` steps remain the rule for artifact-less non-trivial UI changes.
+This scoping loosens nothing: the single overall sign-off still gates the
+merge, and the prohibited-move guard below still forbids relabelling any
+Visual Spec assertion (or other functional step) as `SUBJECTIVE: `.
+
 **The `SUBJECTIVE: ` marker contract.** Each such step carries a literal
 `SUBJECTIVE: ` prefix (uppercase, colon, single space) immediately after the
 `- [ ] ` — a human-facing, greppable label. The auto-merge gate still counts it
@@ -211,8 +239,12 @@ stays a Subjective check, untouched by the local-reversible rule.
 **The prohibited-move guard still holds.** This must-exist rule must **not** be
 used to relabel a _functional_ step as `SUBJECTIVE: ` to dodge a tick — that is
 the prohibited move named above ("hover the legend entry, the popover opens" is
-functional, not subjective). Functional-vs-subjective classification stays
-primary; `SUBJECTIVE: ` is scoped strictly to genuinely-aesthetic UI judgment.
+functional, not subjective) — and a **Visual Spec assertion is never
+`SUBJECTIVE: `-relabelled** either: its verdict belongs to the
+`flow-design-spec diff` envelope (mechanical) or the side-by-side reference
+comparison (judged), not to a taste sign-off. Functional-vs-subjective
+classification stays primary; `SUBJECTIVE: ` is scoped strictly to
+genuinely-aesthetic UI judgment.
 
 ##### Worked example: a new /portfolio page with no aesthetic sign-off (modeled on the structural gap)
 
@@ -241,6 +273,13 @@ auto-merges with no human ever judging whether the whole thing looks right.
 The enumerated assertions still auto-tick; the three `SUBJECTIVE: ` steps —
 layout, animation, empty state — each gate the merge until a human signs off,
 and `/pr-review` never ticks them on the user's behalf.
+
+This worked example is the **artifact-less** form (no design artifact was
+referenced, so no `## Visual Spec` exists and the per-facet rule applies).
+Had the `/portfolio` page been built against a frozen design artifact, the
+checklist would instead carry one enumerated item per Visual Spec assertion
+(each tagged with its assertion id) plus **exactly one** overall
+`SUBJECTIVE: ` sign-off, per the Scope paragraph above.
 
 ### Decision shortcut
 

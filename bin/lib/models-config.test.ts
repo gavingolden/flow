@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   readDefaultModel,
@@ -101,4 +104,43 @@ describe("readDefaultModel", () => {
       );
     },
   );
+});
+
+// Guards the hermeticity fix directly: readDefaultModel's DEFAULT reader
+// (defaultReadConfigFile, the only caller of paths.ts's flowConfigPath())
+// must resolve $HOME at CALL time, not import time. Every other spec in this
+// file injects the `read` seam and would stay green even if a reader
+// regressed to an import-time-captured path constant — this is the one spec
+// that actually exercises the default (unseeded) path.
+describe("readDefaultModel — hermeticity (no injected seam)", () => {
+  it("reads the sandboxed $HOME's real config.json when no reader is injected", () => {
+    const originalHome = process.env.HOME;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flow-hermetic-"));
+    try {
+      process.env.HOME = tmp;
+      fs.mkdirSync(path.join(tmp, ".flow"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmp, ".flow", "config.json"),
+        JSON.stringify({ models: { default: "haiku" } }),
+      );
+      expect(readDefaultModel()).toBe("haiku");
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("returns undefined when the sandboxed $HOME has no config.json", () => {
+    const originalHome = process.env.HOME;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flow-hermetic-empty-"));
+    try {
+      process.env.HOME = tmp;
+      expect(readDefaultModel()).toBeUndefined();
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
 });

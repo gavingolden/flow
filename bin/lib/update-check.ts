@@ -12,7 +12,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { resolveDefaultBranch, type Spawner } from "./git";
-import { resolveFlowSource, FLOW_UPDATE_CACHE, FLOW_CONFIG } from "./paths";
+import { resolveFlowSource, FLOW_UPDATE_CACHE, flowConfigPath } from "./paths";
 import { dimStderr } from "./color";
 import { isNewerVersion } from "./semver";
 import { readFlowVersion } from "./pkg-version";
@@ -54,7 +54,7 @@ const defaultSpawn: Spawner = (cmd, args, options) =>
 
 const defaultReadConfigFile = (): unknown => {
   try {
-    return JSON.parse(fs.readFileSync(FLOW_CONFIG, "utf8"));
+    return JSON.parse(fs.readFileSync(flowConfigPath(), "utf8"));
   } catch {
     return undefined;
   }

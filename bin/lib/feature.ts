@@ -136,7 +136,7 @@ export type FeatureOptions = {
    * Injectable `~/.flow/config.json` reader (test seam only). Threaded into
    * `readDefaultModel` / `collectModelConfigWarnings` so the launch-time
    * `models.default` resolution can be exercised without touching the real
-   * config. Production uses the module default (reads FLOW_CONFIG).
+   * config. Production uses the module default (reads via flowConfigPath()).
    */
   readConfig?: ReadConfigFile;
   /** Persist `autoMerge: false` so the supervisor stops at gated. */

@@ -21,8 +21,12 @@ the wrapper's brief return summary and reads the artifact once.
 # When to Use
 
 - `/new-feature` step 5 (Implement) on the wider-scope path of its hybrid
-  threshold — the caller composes an edit-set from the `it.todo()` list and
-  the scout's `## affected_modules`.
+  threshold — the caller composes an edit-set from the approved plan's
+  per-task Contract blocks when a plan with a Task breakdown heading
+  (any level, case-insensitive) was supplied (entries then carry the
+  optional `contract` / `acceptance`
+  fields), falling back to the `it.todo()` list and the scout's
+  `## affected_modules` when no plan applies.
 - `/verify` step 3 (Fix Failures) per outer attempt — the caller composes
   an edit-set from the `failure` JSON object emitted by `flow-pre-commit
 --json` (one entry per failed check, naming the source file + the issue
@@ -34,9 +38,21 @@ the wrapper's brief return summary and reads the artifact once.
   when a user types a non-trivial code-change redirect (e.g. "rename foo to
   bar") at a worktree-existing phase, the supervisor composes a structured
   edit-set `{file, intent, expected_outcome}` from the verbatim redirect and
-  invokes `/coder` rather than editing inline. See
+  invokes `/coder` rather than editing inline (bare triples — a free-form
+  redirect has no plan contract to source the optional fields from). See
   `skills/pipeline/flow-pipeline/references/redirect-handling.md` and the
   "Mid-flight code-change redirects" section of flow-pipeline/SKILL.md.
+
+Every caller composes the required `{file, intent, expected_outcome}`
+triple. Two **optional** per-entry fields extend it: `contract` — the
+task's interface spec (files / signatures / exported symbols / call-site
+edits, or the change-type surgical form) copied from an approved plan's
+Contract block — and `acceptance` — a runnable per-edit check. Today only
+`/new-feature` step 5's plan-contract path composes them; `/verify`,
+`/refactoring`, and the redirect path keep composing bare triples, and the
+subagent treats an entry without them exactly as before (see
+`references/coder-instructions.md` for how `contract` is honored as a
+strong prior via a mechanical pre-check).
 
 # When NOT to Use
 
@@ -209,8 +225,15 @@ config.models.implement > inherited` (see
 
 ## Spawn prompt template
 
-Fill in the five `{{...}}` placeholders before passing to the Task tool:
-`INSTRUCTIONS_PATH`, `EDIT_SET`, `WORKTREE`, `SKILL_DIR`, `ARTIFACT_PATH`.
+Fill in the six `{{...}}` placeholders before passing to the Task tool:
+`INSTRUCTIONS_PATH`, `EDIT_SET`, `DESIGN_CONTEXT`, `WORKTREE`, `SKILL_DIR`,
+`ARTIFACT_PATH`. `{{DESIGN_CONTEXT}}` is **optional**: it renders the
+caller's optional `DESIGN_CONTEXT` Skill argument (authored by
+`/new-feature` Step 5's "Design context (omit-when-absent)" sub-step —
+the wrapper only renders it, never composes it). When the caller passed
+no `DESIGN_CONTEXT`, **omit the entire "Design context" block below —
+the two label lines and the placeholder — so non-UI spawn prompts stay
+byte-identical to the pre-design-context shape.**
 
 ```
 You are the Independent Edit-Applier Subagent for `/coder`. You run in an
@@ -221,6 +244,10 @@ Read the full instructions at:
 
 Edit-set (verbatim, JSON-shaped):
   {{EDIT_SET}}
+
+Design context (REQUIRED reading before the first UI edit; this block is
+omitted entirely when the caller passed none):
+  {{DESIGN_CONTEXT}}
 
 Working directory (cd here before reading any project files):
   {{WORKTREE}}
@@ -314,7 +341,8 @@ the heading anchor.
   The subagent only writes the file.
 - NEVER pass a free-form prose edit description to the subagent. The
   edit-set must be a JSON-shaped list of `{file, intent, expected_outcome}`
-  entries — the subagent's contract depends on the structure to know
+  entries (each optionally extended with the `contract` and `acceptance`
+  fields above) — the subagent's contract depends on the structure to know
   when an edit landed and what each entry was meant to achieve.
 - NEVER spawn a nested Task call from inside the subagent. The one-level
   sub-agent cap forbids it. If the subagent needs context the edit-set

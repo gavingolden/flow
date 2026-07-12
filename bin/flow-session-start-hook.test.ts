@@ -202,18 +202,43 @@ function frames(seq: string[]): () => string {
 
 type SendCall = { text: string; literal: boolean };
 
+// The resume seed's leading line (before the first newline) and remainder — the
+// two chunks the shared deliverSeed handshake types before the submit Enter.
+const RESUME_LEAD = "[pipeline-slug: demo]";
+const RESUME_REMAINDER = flowPipelineResumeSeed("demo").slice(
+  RESUME_LEAD.length,
+);
+
+/**
+ * Wraps a `capturePane` frame generator with the delivery lifecycle deliverSeed
+ * needs: the base `capture` drives the CLEAR-aware settle gate (pre-send), then
+ * once a literal chunk lands the capture echoes the leading line so the
+ * leading-line verify passes. `dropLeadingEchoes` makes the first N post-send
+ * captures echo a TRUNCATED leading line (dropped prefix) → C-u + resend branch.
+ */
 function makeSeams(
   capture: () => string,
   attempts = 20,
+  opts: { dropLeadingEchoes?: number } = {},
 ): {
   seams: DeliverSeams;
   sends: SendCall[];
 } {
   const sends: SendCall[] = [];
+  let leadingSent = false;
+  let echoChecks = 0;
   const seams: DeliverSeams = {
-    capturePane: capture,
+    capturePane: () => {
+      if (!leadingSent) return capture();
+      echoChecks++;
+      if (echoChecks <= (opts.dropLeadingEchoes ?? 0)) {
+        return `❯ ${RESUME_LEAD.slice(3)}`; // dropped prefix ⇒ no full match
+      }
+      return `❯ ${RESUME_LEAD}`;
+    },
     sendKeys: (text, literal) => {
       sends.push({ text, literal });
+      if (literal) leadingSent = true;
       return { ok: true, stderr: "" };
     },
     sleep: () => {},
@@ -235,13 +260,16 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     ]);
     const { seams, sends } = makeSeams(capture);
     expect(deliverResumeSeed("demo", seams)).toBe(true);
+    // Chunked delivery: leading line, then remainder, then a SEPARATE Enter.
     expect(sends).toEqual([
-      { text: flowPipelineResumeSeed("demo"), literal: true },
+      { text: RESUME_LEAD, literal: true },
+      { text: RESUME_REMAINDER, literal: true },
       { text: "Enter", literal: false },
     ]);
-    // The literal seed is the exact reused resume-seed string, multi-line.
-    expect(sends[0]?.text).toContain("--resume mode for: demo");
-    expect(sends[0]?.text).toContain("\n");
+    // The remainder carries the reused resume-seed body, incl. its newline.
+    expect(sends[1]?.text).toContain("--resume mode for: demo");
+    expect(sends[1]?.text).toContain("\n");
+    expect(RESUME_LEAD + RESUME_REMAINDER).toBe(flowPipelineResumeSeed("demo"));
   });
 
   it("does NOT fire into the stale pre-clear prompt (False-Positive-Poll guard)", () => {
@@ -278,11 +306,9 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
       attempts: 20,
     };
     expect(deliverResumeSeed("demo", seams)).toBe(false);
-    // The literal seed send failed, so the separate Enter send is guarded off
-    // — only the one (failed) send is attempted, never a stale/partial submit.
-    expect(sends).toEqual([
-      { text: flowPipelineResumeSeed("demo"), literal: true },
-    ]);
+    // The leading-line literal send failed, so delivery stops and the separate
+    // Enter is guarded off — only the one (failed) send, never a partial submit.
+    expect(sends).toEqual([{ text: RESUME_LEAD, literal: true }]);
   });
 
   it("uses the fallback-settle path (no observable transition) to still deliver", () => {
@@ -296,7 +322,8 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     const { seams, sends } = makeSeams(capture, /* attempts */ 10);
     expect(deliverResumeSeed("demo", seams)).toBe(true);
     expect(sends).toEqual([
-      { text: flowPipelineResumeSeed("demo"), literal: true },
+      { text: RESUME_LEAD, literal: true },
+      { text: RESUME_REMAINDER, literal: true },
       { text: "Enter", literal: false },
     ]);
   });
@@ -325,7 +352,26 @@ describe("deliverResumeSeed — clear-aware send-keys delivery", () => {
     const { seams, sends } = makeSeams(capture, /* attempts */ 6);
     expect(deliverResumeSeed("demo", seams)).toBe(true);
     expect(sends).toEqual([
-      { text: flowPipelineResumeSeed("demo"), literal: true },
+      { text: RESUME_LEAD, literal: true },
+      { text: RESUME_REMAINDER, literal: true },
+      { text: "Enter", literal: false },
+    ]);
+  });
+
+  it("dropped-leading-prefix: sends C-u and re-sends the leading line, then the remainder and Enter", () => {
+    // The leading-line echo comes back truncated on the first check, so
+    // deliverSeed clears the single-line box (C-u) and re-sends the leading line
+    // before the remainder — the /clear-resume path inherits the same guarantee.
+    const capture = frames(["old pre-clear prompt", "fresh", "fresh", "fresh"]);
+    const { seams, sends } = makeSeams(capture, /* attempts */ 20, {
+      dropLeadingEchoes: 1,
+    });
+    expect(deliverResumeSeed("demo", seams)).toBe(true);
+    expect(sends).toEqual([
+      { text: RESUME_LEAD, literal: true },
+      { text: "C-u", literal: false },
+      { text: RESUME_LEAD, literal: true },
+      { text: RESUME_REMAINDER, literal: true },
       { text: "Enter", literal: false },
     ]);
   });
