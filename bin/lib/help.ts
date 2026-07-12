@@ -29,7 +29,7 @@ export function argsContainHelp(args: string[]): boolean {
 export const HELP_TOP = `flow — tmux-driven pipelines for Claude Code
 
 Usage:
-  flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]
+  flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps] [--modules <csv>|--all|--core-only]
                                         install skills, agents, helpers globally
                                         (--source overrides the install root,
                                         e.g. for /flow-pipeline step 5.5 in a worktree;
@@ -37,7 +37,12 @@ Usage:
                                         --no-hooks skips the Stop-hook merge into ~/.claude/settings.json;
                                         --no-pull-canonical skips pulling the canonical source before symlinking;
                                         --repair-settings backs up and rewrites ~/.claude/settings.json when malformed;
-                                        --install-deps installs missing source-root runtime deps before symlinking)
+                                        --install-deps installs missing source-root runtime deps before symlinking;
+                                        --modules selects a comma-separated module-id list (core always folded in);
+                                        --all selects every module; --core-only selects core alone;
+                                        the three are mutually exclusive; absent any of them, an interactive
+                                        terminal is asked once per optional module and a non-interactive run
+                                        defaults to core only)
   flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
                                         start a new pipeline in a tmux window
                                         (--no-auto-merge stops at gated regardless of rubric;
@@ -238,7 +243,7 @@ and tags each preview row 'merged', 'orphan', or 'merged+orphan'.`,
   install: `flow install — install skills, agents, helpers globally
 
 Usage:
-  flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]
+  flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps] [--modules <csv>|--all|--core-only]
 
 Options:
   --upgrade              update existing symlinks to point at the current source
@@ -250,7 +255,14 @@ Options:
   --no-pull-canonical    skip pulling the canonical source before symlinking
   --repair-settings      back up and rewrite ~/.claude/settings.json when malformed
   --install-deps         install missing source-root runtime dependencies before symlinking
-                         (default is to report the missing package and exit non-zero)`,
+                         (default is to report the missing package and exit non-zero)
+  --modules <csv>        select exactly these module ids (core is always folded in)
+  --all                  select every module (mutually exclusive with --modules/--core-only)
+  --core-only            select core alone, skipping the Q&A (sugar for --modules core)
+                         (absent all three, an interactive terminal is asked once per
+                         optional module and a non-interactive run defaults to core only,
+                         printing a one-line notice; the resolved selection persists to
+                         ~/.flow/config.json and --upgrade never re-asks)`,
 
   completion: `flow completion — print a shell completion script to stdout
 

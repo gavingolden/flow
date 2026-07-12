@@ -253,6 +253,88 @@ describe("parseSetupArgs", () => {
         "flow install: --no-hooks and --repair-settings are mutually exclusive",
     });
   });
+
+  describe("module selection (--modules / --all / --core-only)", () => {
+    it("recognizes --modules as a comma-separated list, folding in no implicit core (setup.ts folds core in later)", () => {
+      const result = parseSetupArgs(["--modules", "core,research"]);
+      expect((result as { modules?: string[] }).modules).toEqual([
+        "core",
+        "research",
+      ]);
+      expect((result as { all?: boolean }).all).toBeUndefined();
+    });
+
+    it("trims whitespace and drops empty entries in the --modules CSV", () => {
+      const result = parseSetupArgs(["--modules", " core , research ,,"]);
+      expect((result as { modules?: string[] }).modules).toEqual([
+        "core",
+        "research",
+      ]);
+    });
+
+    it("recognizes --all", () => {
+      const result = parseSetupArgs(["--all"]);
+      expect((result as { all?: boolean }).all).toBe(true);
+      expect((result as { modules?: string[] }).modules).toBeUndefined();
+    });
+
+    it("--core-only resolves to the core-only selection (exact sugar for --modules core)", () => {
+      const result = parseSetupArgs(["--core-only"]);
+      expect((result as { coreOnly?: boolean }).coreOnly).toBe(true);
+      expect((result as { modules?: string[] }).modules).toEqual(["core"]);
+      expect((result as { all?: boolean }).all).toBeUndefined();
+    });
+
+    it("rejects --modules combined with --all (mutually exclusive)", () => {
+      const result = parseSetupArgs(["--modules", "core", "--all"]);
+      expect(result).toEqual({
+        error:
+          "flow install: --modules, --all, and --core-only are mutually exclusive",
+      });
+    });
+
+    it("rejects --modules combined with --core-only (mutually exclusive)", () => {
+      const result = parseSetupArgs(["--modules", "core", "--core-only"]);
+      expect(result).toEqual({
+        error:
+          "flow install: --modules, --all, and --core-only are mutually exclusive",
+      });
+    });
+
+    it("rejects --all combined with --core-only (mutually exclusive, order-independent)", () => {
+      expect(parseSetupArgs(["--all", "--core-only"])).toEqual({
+        error:
+          "flow install: --modules, --all, and --core-only are mutually exclusive",
+      });
+      expect(parseSetupArgs(["--core-only", "--all"])).toEqual({
+        error:
+          "flow install: --modules, --all, and --core-only are mutually exclusive",
+      });
+    });
+
+    it("rejects an unknown module id via --modules, naming it, and links nothing (no partial resolution)", () => {
+      const result = parseSetupArgs(["--modules", "core,bogus-module"]);
+      expect(result).toEqual({
+        error: "flow install: unknown module id 'bogus-module'",
+      });
+    });
+
+    it("errors when --modules is the last token (no value)", () => {
+      const result = parseSetupArgs(["--modules"]);
+      expect(result).toEqual({
+        error:
+          "flow install: --modules requires a comma-separated list of module ids",
+      });
+    });
+
+    it("errors when --modules is followed by another flag instead of a value", () => {
+      const result = parseSetupArgs(["--modules", "--all"]);
+      expect(result).toEqual({
+        error:
+          "flow install: --modules requires a comma-separated list of module ids",
+      });
+    });
+  });
 });
 
 describe("runSetupCli", () => {
@@ -294,6 +376,15 @@ describe("runSetupCli", () => {
       homeDir,
       settingsPath: path.join(homeDir, ".claude", "settings.json"),
       quiet: true,
+      // Preserves pre-module-registry unconditional-install semantics for
+      // every test below that doesn't itself pass --modules/--all/--core-only
+      // — and, just as importantly, keeps this whole describe block off the
+      // real ~/.flow/config.json (module selection now persists there on
+      // every run) and off a real-stdin confirm() prompt if the runner ever
+      // has an interactive TTY.
+      all: true,
+      isTTY: false,
+      configPath: path.join(homeDir, ".flow", "config.json"),
     });
   }
 
@@ -339,6 +430,9 @@ describe("runSetupCli", () => {
         lockPath,
         homeDir,
         settingsPath: path.join(homeDir, ".claude", "settings.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
       });
       expect(code).toBe(1);
     } finally {
@@ -356,7 +450,7 @@ describe("runSetupCli", () => {
       "flow install: unknown option '--bogus'",
     );
     expect(errSpy).toHaveBeenCalledWith(
-      "usage: flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps]",
+      "usage: flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps] [--modules <csv>|--all|--core-only]",
     );
     errSpy.mockRestore();
   });
@@ -394,6 +488,9 @@ describe("runSetupCli", () => {
       lockPath,
       homeDir,
       quiet: true,
+      all: true,
+      isTTY: false,
+      configPath: path.join(homeDir, ".flow", "config.json"),
     });
     expect(code).toBe(0);
     const t = targets();
@@ -431,6 +528,9 @@ describe("runSetupCli", () => {
         lockPath,
         homeDir,
         settingsPath: path.join(homeDir, ".claude", "settings.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
         // quiet: false so the canonical line would surface if plumbing broke
       });
       expect(code).toBe(0);
@@ -457,6 +557,9 @@ describe("runSetupCli", () => {
         lockPath,
         homeDir,
         settingsPath: path.join(homeDir, ".claude", "settings.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
       });
       expect(code).toBe(0);
       const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");

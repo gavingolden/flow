@@ -13,6 +13,7 @@ import {
   LOCAL_BIN_DIR,
 } from "./paths";
 import type { SymlinkKind, SymlinkRecord } from "./manifest";
+import { resolveArtifactSet } from "./modules";
 
 const SKILL_TIERS = ["pipeline", "universal", "stacks"] as const;
 const COMPLETION_SHELLS = ["bash", "zsh"] as const;
@@ -239,6 +240,54 @@ export function discoverAll(
     ...discoverAgents(flowSource, targets),
     ...discoverHelpers(flowSource, targets),
     ...discoverValidators(flowSource, targets),
+    ...discoverCompletions(flowSource, targets),
+  ];
+  const wrapper = flowWrapperEntry(installRoot, targets);
+  if (wrapper) all.push(wrapper);
+  return all;
+}
+
+/**
+ * Module-selection-aware counterpart to `discoverAll`: filters
+ * skills/agents/helpers/validators to `resolveArtifactSet(selectedIds)`'s
+ * union (`core` always folded in — see `modules.ts`), then appends the SAME
+ * always-core residue `discoverAll` appends unconditionally — shell
+ * completions and the `flow` wrapper are never module-gated. Validators are
+ * also always `core`-pinned per the registry, so filtering them here is a
+ * no-op today; the filter stays for when a future module gains its own
+ * validator row.
+ *
+ * `discoverAll` itself is intentionally untouched (same signature, same
+ * body) so the `--all` install path can keep calling it directly — that
+ * keeps `--all`'s byte-parity with today's unconditional install true by
+ * construction, independent of whether this filter (or the registry it
+ * reads) has a bug.
+ */
+export function discoverSelected(
+  flowSource: string,
+  installRoot: string,
+  selectedIds: readonly string[],
+  targets = DEFAULT_TARGETS,
+): SourceEntry[] {
+  const resolved = resolveArtifactSet(selectedIds);
+  const skillNames = new Set(resolved.skills);
+  const agentNames = new Set(resolved.agents);
+  const helperNames = new Set(resolved.helpers);
+  const validatorNames = new Set(resolved.validators);
+
+  const all = [
+    ...discoverSkills(flowSource, targets).filter((e) =>
+      skillNames.has(e.displayName),
+    ),
+    ...discoverAgents(flowSource, targets).filter((e) =>
+      agentNames.has(e.displayName),
+    ),
+    ...discoverHelpers(flowSource, targets).filter((e) =>
+      helperNames.has(e.displayName),
+    ),
+    ...discoverValidators(flowSource, targets).filter((e) =>
+      validatorNames.has(e.displayName),
+    ),
     ...discoverCompletions(flowSource, targets),
   ];
   const wrapper = flowWrapperEntry(installRoot, targets);

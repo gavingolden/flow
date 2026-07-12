@@ -16,9 +16,13 @@ import { readManifest } from "./manifest";
 import { LockTimeoutError } from "./lock";
 import { removeIfManagedSymlink } from "./symlink";
 import { countStopHook } from "./settings-merge";
+import { resolveFlowSource } from "./paths";
+import { moduleIds } from "./modules";
 import {
   discoverAgents,
+  discoverAll,
   discoverHelpers,
+  discoverSelected,
   discoverValidators,
   effectiveLinkSource,
   rebaseOntoInstallRoot,
@@ -69,6 +73,11 @@ function setup(
     installDeps?: boolean;
     installRunner?: (root: string) => { ok: boolean; stderr?: string };
     cachePath?: string;
+    modules?: string[];
+    all?: boolean;
+    confirm?: (prompt: string) => boolean;
+    isTTY?: boolean;
+    configPath?: string;
   } = {},
 ) {
   const { flowSourceOverride, installRootOverride, ...rest } = opts;
@@ -84,6 +93,21 @@ function setup(
     // before ...rest so an explicit opts.cachePath (arriving via ...rest)
     // still overrides it.
     cachePath: path.join(homeDir, ".flow", "update-check.json"),
+    // Every test in this file builds `flowSource` from `buildFakeFlowSource`
+    // (fictional names like "alpha"/"beta" that don't appear in the real
+    // module registry), so `all: true` — bypassing module resolution
+    // entirely via `discoverAll` — is what preserves this whole file's
+    // pre-module-registry unconditional-install behavior. `isTTY: false` +
+    // a fixture-local `configPath` are the accompanying safety net: even
+    // under `all: true` the resolved selection is persisted, and without
+    // these overrides that write (and, on a hypothetical future code path,
+    // a `confirm()` read) would land on the real ~/.flow/config.json / a
+    // real stdin prompt. Module-selection behavior itself is exercised in
+    // the dedicated "module selection" describe block below via direct
+    // `runSetup` calls against the real flow-source tree.
+    all: true,
+    isTTY: false,
+    configPath: path.join(homeDir, ".flow", "config.json"),
     ...rest,
     flowSource: flowSourceOverride ?? flowSource,
     installRoot: installRootOverride ?? flowSource,
@@ -616,6 +640,9 @@ describe("flow install", () => {
             lockPath,
             homeDir,
             settingsPath: settingsP,
+            all: true,
+            isTTY: false,
+            configPath: path.join(homeDir, ".flow", "config.json"),
           });
           const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
           expect(allLogs).toMatch(/repaired; backup at/);
@@ -658,6 +685,9 @@ describe("flow install", () => {
               lockPath,
               homeDir,
               settingsPath: settingsP,
+              all: true,
+              isTTY: false,
+              configPath: path.join(homeDir, ".flow", "config.json"),
             });
             expect(summary.validationFailures).toEqual([]);
             // Symlink survives the rewrite.
@@ -873,6 +903,9 @@ describe("flow install", () => {
         homeDir,
         settingsPath: settingsPath(),
         quiet: true,
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
       });
       expect(code).toBe(0);
 
@@ -1193,6 +1226,9 @@ describe("flow install", () => {
           // Fixture-local cache so this upgrade:true call doesn't touch the
           // real ~/.flow/update-check.json.
           cachePath: path.join(homeDir, ".flow", "update-check.json"),
+          all: true,
+          isTTY: false,
+          configPath: path.join(homeDir, ".flow", "config.json"),
           flowSource,
           installRoot: flowSource,
           targets: targets(),
@@ -1235,6 +1271,9 @@ describe("flow install", () => {
           lockPath,
           homeDir,
           settingsPath: settingsPath(),
+          all: true,
+          isTTY: false,
+          configPath: path.join(homeDir, ".flow", "config.json"),
           // quiet: false so the remediation line surfaces
         });
         expect(summary.missingRuntimeDeps).toEqual(["picomatch"]);
@@ -1324,6 +1363,9 @@ describe("flow install", () => {
           settingsPath: settingsPath(),
           installDeps: true,
           installRunner,
+          all: true,
+          isTTY: false,
+          configPath: path.join(homeDir, ".flow", "config.json"),
           // quiet: false so the failure line surfaces
         });
         expect(summary.missingRuntimeDeps).toEqual(["picomatch"]);
@@ -1346,6 +1388,9 @@ describe("flow install", () => {
         settingsPath: settingsPath(),
         installRunner: () => ({ ok: false, stderr: "boom" }),
         quiet: true,
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
       });
       expect(code).toBe(1);
     });
@@ -1366,9 +1411,15 @@ describe("flow install", () => {
       try {
         const { flowSourceOverride, installRootOverride, ...rest } = opts;
         const summary = runSetup({
-          // Same fixture-local default as setup(): keep upgrade:true callers
-          // off the real ~/.flow/update-check.json.
+          // Same fixture-local defaults as setup(): keep upgrade:true callers
+          // off the real ~/.flow/update-check.json, and keep every call in
+          // this describe block off the real ~/.flow/config.json / a real
+          // stdin confirm() prompt (see setup()'s comment for the full
+          // rationale).
           cachePath: path.join(homeDir, ".flow", "update-check.json"),
+          all: true,
+          isTTY: false,
+          configPath: path.join(homeDir, ".flow", "config.json"),
           ...rest,
           flowSource: flowSourceOverride ?? flowSource,
           installRoot: installRootOverride ?? flowSource,
@@ -1483,7 +1534,7 @@ describe("flow install", () => {
       expect(logs.join("\n")).toMatch(/flow installed v0\.0\.1/);
     });
 
-    it("Story 6: idempotent zero-churn upgrade emits ≤2 substantive lines plus warnings", () => {
+    it("Story 6: idempotent zero-churn upgrade emits ≤3 substantive lines plus warnings", () => {
       buildFakeFlowSourceWithGit(flowSource, ["alpha", "beta"]);
       // First install wires everything; the second --upgrade has no churn.
       setupLogged({ upgrade: true });
@@ -1495,9 +1546,19 @@ describe("flow install", () => {
       );
       const warnings = substantive.filter((l) => /\s!\s/.test(l));
       const nonWarning = substantive.filter((l) => !/\s!\s/.test(l));
-      expect(nonWarning.length).toBeLessThanOrEqual(2);
-      // The single outcome line is the up-to-date headline (no symlink churn).
+      // Budget raised from 2 to 3: the grouped by-module summary line
+      // (`by module: core N`) is a third always-on line, additive to the
+      // up-to-date headline + the "N skipped" symlink-accounting line — it
+      // fires regardless of churn. It reports `core` (not 0) even for this
+      // fixture's otherwise-fictional artifact names: `buildFakeFlowSource`
+      // deliberately names its two `bin/lib/` fixtures after two real
+      // `VALIDATOR_MODULES` allowlist entries (pr-review-result-schema.ts /
+      // agent-finding-schema.ts) to exercise the allowlist-filter behavior,
+      // and those two names are also real `core` validator rows.
+      expect(nonWarning.length).toBeLessThanOrEqual(3);
+      // The outcome line is the up-to-date headline (no symlink churn).
       expect(nonWarning.join("\n")).toMatch(/already up to date/);
+      expect(nonWarning.join("\n")).toMatch(/by module: core \d+/);
       void warnings;
     });
   });
@@ -1795,5 +1856,212 @@ describe("update-check cache invalidation on --upgrade", () => {
     setup({ cachePath });
     expect(fs.existsSync(cachePath)).toBe(true);
     expect(fs.readFileSync(cachePath, "utf8")).toBe(before);
+  });
+});
+
+describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)", () => {
+  // Structural tests (a)-(d) below use the file's usual fictional fixture
+  // (buildFakeFlowSource's "alpha"/"beta"/… names) because they only assert
+  // on confirm()-call counts and config.json persistence — not on which
+  // specific module owns which artifact. The name-matching tests (e)-(g)
+  // need REAL registry names, so they point `flowSource` at the actual flow
+  // checkout via `resolveFlowSource()` (read-only discovery; nothing under
+  // that tree is ever written) while keeping every WRITE target (symlink
+  // targets, manifest, config) inside this file's usual tmpdir fixture.
+  //
+  // `installRoot` for the real-registry tests is a plain non-git tmp dir
+  // (not the real checkout) so `reapOrphans`'s git backstop
+  // (`resolveDefaultBranch`) fails open locally ("not a git repository")
+  // instead of ever reaching its `git remote show origin` network fallback.
+  function configPath(): string {
+    return path.join(homeDir, ".flow", "config.json");
+  }
+
+  function readConfig(): Record<string, unknown> {
+    return JSON.parse(fs.readFileSync(configPath(), "utf8"));
+  }
+
+  it("(a) TTY with no recorded config prompts once per optional module and persists the resolved selection", () => {
+    const asked: string[] = [];
+    const confirm = (prompt: string): boolean => {
+      asked.push(prompt);
+      return prompt.startsWith("Install research");
+    };
+    setup({ all: false, isTTY: true, confirm, configPath: configPath() });
+    expect(asked.length).toBe(6); // every optional (non-core) module, once
+    const written = readConfig();
+    expect(new Set(written.modules as string[])).toEqual(
+      new Set(["core", "research"]),
+    );
+  });
+
+  it("(b) a recorded config selection re-links without invoking confirm", () => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(
+      configPath(),
+      JSON.stringify({ modules: ["core", "copilot"] }),
+    );
+    const confirm = vi.fn(() => true);
+    setup({ all: false, isTTY: true, confirm, configPath: configPath() });
+    expect(confirm).not.toHaveBeenCalled();
+    // Not re-persisted: the recorded file is untouched (still exactly what
+    // was seeded, modulo formatting — read back as the same ids).
+    expect(new Set(readConfig().modules as string[])).toEqual(
+      new Set(["core", "copilot"]),
+    );
+  });
+
+  it("(c) a non-TTY run with nothing recorded defaults to core, emits the one-line notice, and does not persist", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      runSetup({
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        isTTY: false,
+        configPath: configPath(),
+        // quiet:false so the notice surfaces
+      });
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).toMatch(/module selection: defaulting to core only/);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(fs.existsSync(configPath())).toBe(false);
+  });
+
+  it("(d) --upgrade honors a recorded selection with zero confirm calls", () => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(configPath(), JSON.stringify({ modules: ["core"] }));
+    const confirm = vi.fn(() => true);
+    setup({
+      all: false,
+      upgrade: true,
+      isTTY: true,
+      confirm,
+      configPath: configPath(),
+      cachePath: path.join(homeDir, ".flow", "update-check.json"),
+    });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  describe("real-registry name matching", () => {
+    // flowSource === installRoot (both the real flow checkout) — the
+    // "identity" case `rebaseOntoInstallRoot`/`effectiveLinkSource` special-
+    // case, so the manifest's recorded source exactly matches the live
+    // symlink target and the prune test's equality check in
+    // `removeIfManagedSymlink` isn't defeated by a synthetic install-root
+    // divergence. `resolveDefaultBranch`'s `git symbolic-ref
+    // refs/remotes/origin/HEAD` probe (inside `reapOrphans`) resolves
+    // locally against this checkout's own `.git` — no network call, same
+    // read-only-discovery safety as `completion.test.ts` /
+    // `model-routing-table.test.ts`'s live-repo assertions. Every WRITE
+    // target (symlinks, manifest, config) still lives in this file's usual
+    // tmpdir fixture (`targets()` / `manifestPath` / `configPath()`); only
+    // discovery reads from the real checkout.
+    const realFlowSource = resolveFlowSource();
+
+    it("(e) --modules core,research links only those modules' artifacts", () => {
+      const summary = runSetup({
+        flowSource: realFlowSource,
+        installRoot: realFlowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        modules: ["core", "research"],
+        isTTY: false,
+        configPath: configPath(),
+        quiet: true,
+      });
+      expect(summary.blocked).toBe(0);
+      const t = targets();
+      // core: present.
+      expect(fs.existsSync(path.join(t.skillsDir, "coder"))).toBe(true);
+      // research: present (skill + a helper).
+      expect(fs.existsSync(path.join(t.skillsDir, "flow-research"))).toBe(true);
+      expect(fs.existsSync(path.join(t.binDir, "flow-delegate"))).toBe(true);
+      // never-selected stack/copilot modules: absent.
+      expect(fs.existsSync(path.join(t.skillsDir, "svelte"))).toBe(false);
+      expect(fs.existsSync(path.join(t.skillsDir, "tailwind-shadcn"))).toBe(
+        false,
+      );
+      expect(fs.existsSync(path.join(t.skillsDir, "supabase-project"))).toBe(
+        false,
+      );
+      expect(fs.existsSync(path.join(t.skillsDir, "cloudflare-pages"))).toBe(
+        false,
+      );
+      expect(fs.existsSync(path.join(t.binDir, "flow-request-copilot"))).toBe(
+        false,
+      );
+    });
+
+    it("(f) narrowing a prior --all install to --modules core prunes non-core symlinks while a planted non-flow file survives", () => {
+      runSetup({
+        flowSource: realFlowSource,
+        installRoot: realFlowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        all: true,
+        isTTY: false,
+        configPath: configPath(),
+        quiet: true,
+      });
+      const t = targets();
+      expect(fs.existsSync(path.join(t.skillsDir, "svelte"))).toBe(true);
+
+      // A user-authored file living alongside the managed per-skill symlinks
+      // — never recorded in any manifest, so the reap pass must leave it be.
+      const plantedFile = path.join(t.skillsDir, "my-notes.txt");
+      fs.writeFileSync(plantedFile, "not a flow artifact\n");
+
+      const summary = runSetup({
+        flowSource: realFlowSource,
+        installRoot: realFlowSource,
+        targets: t,
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        modules: ["core"],
+        isTTY: false,
+        configPath: configPath(),
+        quiet: true,
+      });
+
+      expect(summary.removed).toBeGreaterThan(0);
+      expect(fs.existsSync(path.join(t.skillsDir, "svelte"))).toBe(false);
+      expect(fs.existsSync(path.join(t.skillsDir, "coder"))).toBe(true);
+      expect(fs.existsSync(plantedFile)).toBe(true);
+      expect(fs.readFileSync(plantedFile, "utf8")).toBe(
+        "not a flow artifact\n",
+      );
+    });
+
+    it("(g) discoverSelected(every module id) set-equals discoverAll for target + source, byte-for-byte (the --all-equivalence precondition)", () => {
+      const all = discoverAll(realFlowSource, realFlowSource);
+      const selected = discoverSelected(
+        realFlowSource,
+        realFlowSource,
+        moduleIds(),
+      );
+      const key = (e: { target: string; source: string }) =>
+        `${e.target} ${e.source}`;
+      expect(new Set(selected.map(key))).toEqual(new Set(all.map(key)));
+      expect(selected.length).toBe(all.length);
+    });
   });
 });

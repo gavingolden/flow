@@ -25,6 +25,7 @@ import {
 import {
   DEFAULT_TARGETS,
   discoverAll,
+  discoverSelected,
   effectiveLinkSource,
   entryToRecord,
   type InstallTargets,
@@ -52,6 +53,14 @@ import { findMissingRuntimeDeps, formatMissingDepsError } from "./setup-deps";
 import { readFlowVersion } from "./pkg-version";
 import { invalidateUpdateCheckCache } from "./update-check";
 import { dim, green, red } from "./color";
+import { confirmStdin } from "./confirm";
+import { moduleForArtifactName, moduleIds } from "./modules";
+import {
+  readConfigFileAt,
+  resolveModuleSelection,
+  writeModuleSelection,
+  type ReadConfigFile,
+} from "./modules-config";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
 const SESSION_START_HOOK_COMMAND = "flow-session-start-hook";
@@ -149,6 +158,40 @@ export type SetupOptions = {
    * shelling out.
    */
   installRunner?: (root: string) => { ok: boolean; stderr?: string };
+  /**
+   * Explicit module selection from `--modules <csv>` / `--core-only`
+   * (already resolved to an id list, core folded in, by `setup-args.ts`).
+   * Wins over any recorded `~/.flow/config.json` selection — see
+   * `resolveModuleSelection` in `modules-config.ts`. `undefined` falls
+   * through to the recorded selection, then TTY Q&A, then the non-TTY
+   * core-only default.
+   */
+  modules?: string[];
+  /**
+   * `--all`: install every module. Bypasses module resolution entirely and
+   * links via `discoverAll` directly (not `discoverSelected(moduleIds())`)
+   * so byte-parity with today's unconditional install holds by
+   * construction. Still persists the full module-id list so a later
+   * `--upgrade` run with no flag keeps installing everything.
+   */
+  all?: boolean;
+  /**
+   * Confirmation-prompt seam for the first-run per-optional-module Q&A.
+   * Defaults to `confirmStdin` (bin/lib/confirm.ts). Test-only override.
+   */
+  confirm?: (prompt: string) => boolean;
+  /**
+   * Whether the invoking process has an interactive TTY. Defaults to
+   * `process.stdin.isTTY === true`. Test-only override — drives the
+   * TTY-Q&A vs non-TTY-core-default branch of module-selection resolution.
+   */
+  isTTY?: boolean;
+  /**
+   * Override the `~/.flow/config.json` path read/written for the module
+   * selection. Test-only (default: `FLOW_CONFIG`, via `modules-config.ts`'s
+   * own default).
+   */
+  configPath?: string;
 };
 
 export type SetupSummary = {
@@ -238,7 +281,16 @@ function runUnderLock(
   missingRuntimeDeps: string[],
   ff: FastForwardResult | undefined,
 ): SetupSummary {
-  const entries = discoverAll(flowSource, installRoot, targets);
+  const { entries, persistIds } = resolveEntriesForRun(
+    options,
+    flowSource,
+    installRoot,
+    targets,
+    log,
+  );
+  if (persistIds) {
+    writeModuleSelection(persistIds, { configPath: options.configPath });
+  }
   const summary: SetupSummary = {
     created: 0,
     updated: 0,
@@ -274,13 +326,21 @@ function runUnderLock(
     summary[bucketFor(result)]++;
   }
 
+  // Reap on EVERY run, not just --upgrade: a module-selection narrowing
+  // (re-running `flow install` with a smaller `--modules` list, or declining
+  // a previously-accepted module at the interactive Q&A) must prune the
+  // now-deselected symlinks even without --upgrade — "deselecting a module
+  // prunes its previously-linked artifacts" per docs/target-architecture.md,
+  // not "deselecting AND upgrading". Safe unconditionally: reapOrphans only
+  // ever removes a flow-managed symlink no longer present in `entries`; it
+  // never touches a non-symlink (user-authored) file at the same target.
+  summary.removed = reapOrphans(
+    entries,
+    options.manifestPath,
+    log,
+    installRoot,
+  );
   if (options.upgrade) {
-    summary.removed = reapOrphans(
-      entries,
-      options.manifestPath,
-      log,
-      installRoot,
-    );
     // Invalidate the update-check throttle cache so the next `flow ls` /
     // `flow version` re-fetches staleness instead of replaying the
     // pre-upgrade "N commits behind" notice for up to 24h. Unconditional on
@@ -387,8 +447,61 @@ function runUnderLock(
     );
   }
 
-  printOutcome(summary, log, options, installRoot, ff);
+  printOutcome(summary, log, options, installRoot, ff, entries);
   return summary;
+}
+
+/**
+ * Resolves which `SourceEntry[]` this run links, and (when the resolution
+ * expressed real user intent) which module-id list to persist.
+ *
+ * `--all` bypasses module resolution entirely and calls `discoverAll`
+ * directly — not `discoverSelected(moduleIds())` — so its byte-parity with
+ * today's unconditional install holds by construction, independent of the
+ * registry/resolver. It still persists the full id list so a later
+ * `--upgrade` run with no flag keeps installing everything (verified
+ * set-equal to `discoverAll` by `modules.test.ts`).
+ *
+ * A non-TTY run with nothing recorded and no flag defaults to core-only and
+ * prints a one-line notice naming how to widen the selection — it does NOT
+ * persist, since no user intent was expressed.
+ */
+function resolveEntriesForRun(
+  options: SetupOptions,
+  flowSource: string,
+  installRoot: string,
+  targets: InstallTargets,
+  log: (msg: string) => void,
+): { entries: SourceEntry[]; persistIds: string[] | undefined } {
+  if (options.all) {
+    return {
+      entries: discoverAll(flowSource, installRoot, targets),
+      persistIds: moduleIds(),
+    };
+  }
+
+  const read: ReadConfigFile | undefined = options.configPath
+    ? () => readConfigFileAt(options.configPath!)
+    : undefined;
+  const selection = resolveModuleSelection({
+    flagIds: options.modules,
+    isTTY: options.isTTY ?? process.stdin.isTTY === true,
+    confirm: options.confirm ?? confirmStdin,
+    read,
+  });
+
+  if (selection.source === "default") {
+    log(
+      dim(
+        "  i module selection: defaulting to core only — pass --modules <csv>, --all, or run `flow install` interactively to select more",
+      ),
+    );
+  }
+
+  return {
+    entries: discoverSelected(flowSource, installRoot, selection.ids, targets),
+    persistIds: selection.shouldPersist ? selection.ids : undefined,
+  };
 }
 
 /**
@@ -531,6 +644,7 @@ function printOutcome(
   options: SetupOptions,
   installRoot: string,
   ff: FastForwardResult | undefined,
+  entries: SourceEntry[],
 ): void {
   const version = (() => {
     try {
@@ -581,6 +695,7 @@ function printOutcome(
   }
 
   printSummaryLine(s, log);
+  printModuleBreakdown(entries, log);
 }
 
 function printSummaryLine(s: SetupSummary, log: (msg: string) => void): void {
@@ -594,6 +709,31 @@ function printSummaryLine(s: SetupSummary, log: (msg: string) => void): void {
   // Only emit the symlink accounting when there was real churn — an
   // idempotent run keeps to the one-line outcome above (Story 6).
   if (parts.length) log(dim(`      ${parts.join(", ")}`));
+}
+
+/**
+ * Groups this run's linked artifacts by owning module and prints one dimmed
+ * summary line, e.g. `by module: core 74, stack-svelte 1`. The always-core
+ * residue (the `flow` wrapper, shell completions) has no module row —
+ * `moduleForArtifactName` returns `undefined` for those and they're
+ * excluded from the breakdown, matching how they're excluded from
+ * `resolveArtifactSet`'s union.
+ */
+function printModuleBreakdown(
+  entries: SourceEntry[],
+  log: (msg: string) => void,
+): void {
+  const counts = new Map<string, number>();
+  for (const e of entries) {
+    const moduleId = moduleForArtifactName(e.displayName);
+    if (!moduleId) continue;
+    counts.set(moduleId, (counts.get(moduleId) ?? 0) + 1);
+  }
+  if (counts.size === 0) return;
+  const parts = [...counts.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([id, n]) => `${id} ${n}`);
+  log(dim(`      by module: ${parts.join(", ")}`));
 }
 
 function commandOnPath(cmd: string): boolean {
