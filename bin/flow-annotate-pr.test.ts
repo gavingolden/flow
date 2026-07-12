@@ -4,13 +4,23 @@
  */
 
 import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   buildEnvelope,
   countHunkLoc,
   dedupPerFile,
   FILE_LOC_THRESHOLD,
   HUNK_LOC_THRESHOLD,
-  MAX_ANNOTATIONS_PER_PR,
+  ANNOTATION_FLOOR,
+  ANNOTATION_CAP_RATIO,
+  ANNOTATION_CEILING,
+  computeCap,
+  readCapConfig,
+  DEFAULT_CAP_CONFIG,
+  type CapConfig,
+  type ReadConfigFile,
   overflowPointer,
   parseDiff,
   rankAndCap,
@@ -344,9 +354,9 @@ describe(rankAndCap, () => {
     const diff = parts.join("\n");
     const files = parseDiff(diff);
     const envelope = buildEnvelope(files);
-    expect(envelope.candidates).toHaveLength(MAX_ANNOTATIONS_PER_PR);
+    expect(envelope.candidates).toHaveLength(ANNOTATION_FLOOR);
     expect(envelope.overflowBullet).toBe(
-      overflowPointer(12 - MAX_ANNOTATIONS_PER_PR),
+      overflowPointer(12 - ANNOTATION_FLOOR),
     );
   });
 
@@ -361,6 +371,156 @@ describe(rankAndCap, () => {
     const { kept } = rankAndCap(dedupPerFile(files));
     expect(kept[0].file).toBe("b-beta.ts");
     expect(kept[1].file).toBe("a-alpha.ts");
+  });
+});
+
+// --- computeCap ---
+
+describe(computeCap, () => {
+  it("stays at the floor for candidate counts at/below 2x the floor (default 0.5 ratio)", () => {
+    expect(computeCap(16)).toBe(ANNOTATION_FLOOR);
+    expect(computeCap(16)).toBe(8);
+  });
+
+  it("scales past the floor once the ratio-scaled count exceeds it", () => {
+    expect(computeCap(17)).toBe(9);
+  });
+
+  it("clamps at the ceiling for large candidate counts", () => {
+    expect(computeCap(48)).toBe(ANNOTATION_CEILING);
+    expect(computeCap(48)).toBe(24);
+    expect(computeCap(100)).toBe(ANNOTATION_CEILING);
+    expect(computeCap(100)).toBe(24);
+  });
+
+  it("honors an overridden CapConfig", () => {
+    const override: CapConfig = { ratio: 0.5, ceiling: 24 };
+    expect(computeCap(20, override)).toBe(10);
+  });
+
+  it("a synthetic 20-candidate diff caps at 10 via buildEnvelope with an overridden capConfig", () => {
+    const override: CapConfig = { ratio: 0.5, ceiling: 24 };
+    const parts: string[] = [];
+    for (let i = 0; i < 20; i++) {
+      const name = `c${String(i).padStart(2, "0")}.ts`;
+      parts.push(pureAddition(name, 1, 12));
+    }
+    const files = parseDiff(parts.join("\n"));
+    const envelope = buildEnvelope(files, override);
+    expect(envelope.candidates).toHaveLength(10);
+    expect(envelope.overflowBullet).toBe(overflowPointer(10));
+  });
+});
+
+// --- readCapConfig ---
+
+describe(readCapConfig, () => {
+  const reader =
+    (raw: unknown): ReadConfigFile =>
+    () =>
+      raw;
+
+  it("returns DEFAULT_CAP_CONFIG when the config is unreadable (undefined)", () => {
+    expect(readCapConfig(reader(undefined))).toEqual(DEFAULT_CAP_CONFIG);
+  });
+
+  it("returns DEFAULT_CAP_CONFIG when flowAnnotatePr is absent", () => {
+    expect(readCapConfig(reader({}))).toEqual(DEFAULT_CAP_CONFIG);
+  });
+
+  it("applies a valid ratio override, leaving ceiling at default", () => {
+    expect(readCapConfig(reader({ flowAnnotatePr: { ratio: 0.75 } }))).toEqual({
+      ratio: 0.75,
+      ceiling: ANNOTATION_CEILING,
+    });
+  });
+
+  it("applies a valid ceiling override, leaving ratio at default", () => {
+    expect(readCapConfig(reader({ flowAnnotatePr: { ceiling: 40 } }))).toEqual({
+      ratio: ANNOTATION_CAP_RATIO,
+      ceiling: 40,
+    });
+  });
+
+  it("applies both a valid ratio and ceiling override together", () => {
+    expect(
+      readCapConfig(reader({ flowAnnotatePr: { ratio: 0.75, ceiling: 40 } })),
+    ).toEqual({ ratio: 0.75, ceiling: 40 });
+  });
+
+  it("falls back to defaults when both fields are malformed", () => {
+    expect(
+      readCapConfig(reader({ flowAnnotatePr: { ratio: "half", ceiling: 3 } })),
+    ).toEqual(DEFAULT_CAP_CONFIG);
+  });
+
+  it("rejects an out-of-range ratio (> 1), falling back to the default ratio", () => {
+    const result = readCapConfig(reader({ flowAnnotatePr: { ratio: 1.5 } }));
+    expect(result.ratio).toBe(ANNOTATION_CAP_RATIO);
+  });
+
+  it("rejects a fractional ceiling override, falling back to the default ceiling", () => {
+    const result = readCapConfig(reader({ flowAnnotatePr: { ceiling: 20.5 } }));
+    expect(Number.isInteger(result.ceiling)).toBe(true);
+    expect(result.ceiling).toBe(ANNOTATION_CEILING);
+  });
+
+  it("keeps kept+surplus summing to the true candidate count when a would-be fractional ceiling is rejected", () => {
+    const capConfig = readCapConfig(
+      reader({ flowAnnotatePr: { ceiling: 8.5 } }),
+    );
+    const parts: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const name = `c${String(i).padStart(2, "0")}.ts`;
+      parts.push(pureAddition(name, 1, 12));
+    }
+    const files = parseDiff(parts.join("\n"));
+    const envelope = buildEnvelope(files, capConfig);
+    const kept = envelope.candidates.length;
+    const surplus = 12 - kept;
+    expect(Number.isInteger(kept)).toBe(true);
+    expect(Number.isInteger(surplus)).toBe(true);
+    expect(envelope.overflowBullet).toBe(
+      surplus > 0 ? overflowPointer(surplus) : undefined,
+    );
+  });
+});
+
+// Guards the hermeticity fix directly: readCapConfig's DEFAULT reader
+// (defaultReadConfigFile, the only caller of paths.ts's flowConfigPath())
+// must resolve $HOME at CALL time, not import time. Every other spec above
+// injects the `read` seam and would stay green even if the default reader
+// regressed to an import-time-captured path constant.
+describe("readCapConfig — hermeticity (no injected seam)", () => {
+  it("reads the sandboxed $HOME's real config.json when no reader is injected", () => {
+    const originalHome = process.env.HOME;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flow-hermetic-"));
+    try {
+      process.env.HOME = tmp;
+      fs.mkdirSync(path.join(tmp, ".flow"), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmp, ".flow", "config.json"),
+        JSON.stringify({ flowAnnotatePr: { ratio: 0.9, ceiling: 30 } }),
+      );
+      expect(readCapConfig()).toEqual({ ratio: 0.9, ceiling: 30 });
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to DEFAULT_CAP_CONFIG when the sandboxed $HOME has no config.json", () => {
+    const originalHome = process.env.HOME;
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "flow-hermetic-empty-"));
+    try {
+      process.env.HOME = tmp;
+      expect(readCapConfig()).toEqual(DEFAULT_CAP_CONFIG);
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 });
 

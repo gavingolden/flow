@@ -4,7 +4,8 @@
  *
  * Reads `git diff -U0 <merge-base>...HEAD` against the resolved default
  * branch, parses hunks per file, evaluates three trigger rules, ranks the
- * resulting candidates by priority, caps the result at 8 per PR, and emits
+ * resulting candidates by priority, caps the result via a floor/ratio/ceiling
+ * formula (operator-overridable machine-wide), and emits
  * a single JSON envelope on stdout:
  *
  *   {
@@ -25,14 +26,83 @@
  *   flow-annotate-pr --help
  */
 
+import * as fs from "node:fs";
+import { flowConfigPath } from "./lib/paths";
+
 // --- Constants (exported for tests) ---
 
 export const HUNK_LOC_THRESHOLD = 10;
 export const FILE_LOC_THRESHOLD = 30;
 export const RESTRUCTURE_PLUS_MIN = 4;
 export const RESTRUCTURE_MINUS_MIN = 4;
-export const MAX_ANNOTATIONS_PER_PR = 8;
 export const RULE_C_MIN_HUNK_LOC = 5;
+
+export const ANNOTATION_FLOOR = 8;
+export const ANNOTATION_CAP_RATIO = 0.5;
+export const ANNOTATION_CEILING = 24;
+
+export type CapConfig = { ratio: number; ceiling: number };
+export const DEFAULT_CAP_CONFIG: CapConfig = {
+  ratio: ANNOTATION_CAP_RATIO,
+  ceiling: ANNOTATION_CEILING,
+};
+
+/**
+ * Config-read seam, mirroring `bin/lib/models-config.ts`'s
+ * `defaultReadConfigFile` pattern. Tests inject a fake reader so the real
+ * `~/.flow/config.json` is never touched.
+ */
+export type ReadConfigFile = () => unknown;
+
+export const defaultReadConfigFile: ReadConfigFile = () => {
+  try {
+    return JSON.parse(fs.readFileSync(flowConfigPath(), "utf8"));
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Resolves the operator-overridable cap formula from an optional
+ * `flowAnnotatePr` key in `~/.flow/config.json`. Any missing/malformed field
+ * falls back to its default independently — a present-but-invalid `ratio`
+ * doesn't invalidate a valid `ceiling` alongside it, and vice versa.
+ */
+export function readCapConfig(
+  read: ReadConfigFile = defaultReadConfigFile,
+): CapConfig {
+  const raw = read();
+  let ratio = DEFAULT_CAP_CONFIG.ratio;
+  let ceiling = DEFAULT_CAP_CONFIG.ceiling;
+  if (typeof raw === "object" && raw !== null) {
+    const section = (raw as Record<string, unknown>).flowAnnotatePr;
+    if (typeof section === "object" && section !== null) {
+      const r = (section as Record<string, unknown>).ratio;
+      const c = (section as Record<string, unknown>).ceiling;
+      if (typeof r === "number" && r > 0 && r <= 1) ratio = r;
+      if (typeof c === "number" && Number.isInteger(c) && c >= ANNOTATION_FLOOR)
+        ceiling = c;
+    }
+  }
+  return { ratio, ceiling };
+}
+
+/**
+ * Floor/ratio/ceiling cap formula: `ceiling` when the ratio-scaled count
+ * exceeds it, else the ratio-scaled count, but never below `ANNOTATION_FLOOR`.
+ * Small/typical PRs (candidateCount <= 2 * ANNOTATION_FLOOR under the default
+ * 0.5 ratio) land exactly on the floor — identical behavior to the previous
+ * fixed cap of 8.
+ */
+export function computeCap(
+  candidateCount: number,
+  capConfig: CapConfig = DEFAULT_CAP_CONFIG,
+): number {
+  return Math.min(
+    capConfig.ceiling,
+    Math.max(ANNOTATION_FLOOR, Math.ceil(candidateCount * capConfig.ratio)),
+  );
+}
 
 // --- Types ---
 
@@ -325,10 +395,14 @@ export function dedupPerFile(files: FileDiff[]): Candidate[] {
 
 /**
  * Rank candidates by (hunk LOC desc → restructure intensity desc → path
- * alphabetical → line ascending) and cap at MAX_ANNOTATIONS_PER_PR. Returns
- * {kept, surplus} so the caller can format the overflow bullet.
+ * alphabetical → line ascending) and cap via the floor/ratio/ceiling formula
+ * (see `computeCap`). Returns {kept, surplus} so the caller can format the
+ * overflow bullet.
  */
-export function rankAndCap(candidates: Candidate[]): {
+export function rankAndCap(
+  candidates: Candidate[],
+  capConfig: CapConfig = DEFAULT_CAP_CONFIG,
+): {
   kept: Candidate[];
   surplus: number;
 } {
@@ -339,12 +413,13 @@ export function rankAndCap(candidates: Candidate[]): {
     if (x.file !== y.file) return x.file < y.file ? -1 : 1;
     return x.line - y.line;
   });
-  if (sorted.length <= MAX_ANNOTATIONS_PER_PR) {
+  const cap = computeCap(sorted.length, capConfig);
+  if (sorted.length <= cap) {
     return { kept: sorted, surplus: 0 };
   }
   return {
-    kept: sorted.slice(0, MAX_ANNOTATIONS_PER_PR),
-    surplus: sorted.length - MAX_ANNOTATIONS_PER_PR,
+    kept: sorted.slice(0, cap),
+    surplus: sorted.length - cap,
   };
 }
 
@@ -364,9 +439,12 @@ function stripInternal(c: Candidate): Envelope["candidates"][number] {
   return result;
 }
 
-export function buildEnvelope(files: FileDiff[]): Envelope {
+export function buildEnvelope(
+  files: FileDiff[],
+  capConfig: CapConfig = DEFAULT_CAP_CONFIG,
+): Envelope {
   const all = dedupPerFile(files);
-  const { kept, surplus } = rankAndCap(all);
+  const { kept, surplus } = rankAndCap(all, capConfig);
   const envelope: Envelope = { candidates: kept.map(stripInternal) };
   if (surplus > 0) envelope.overflowBullet = overflowPointer(surplus);
   return envelope;
@@ -415,6 +493,7 @@ function fetchDiff(): string {
 // --- CLI ---
 
 function printHelp(): void {
+  const capConfig = readCapConfig();
   console.log(`
 Usage: flow-annotate-pr <pr-number>
 
@@ -436,8 +515,10 @@ Trigger rules:
   (c) file has >= ${FILE_LOC_THRESHOLD} changed LOC — first non-trivial hunk
       (>= ${RULE_C_MIN_HUNK_LOC} LOC) only, per file
 
-Cap: at most ${MAX_ANNOTATIONS_PER_PR} annotations per PR; surplus rolls into
-overflowBullet for the calling agent to append under \`## Why\` in the PR body.
+Cap: floor ${ANNOTATION_FLOOR}, scaling to ~${Math.round(capConfig.ratio * 100)}% of matched hunks above
+the floor, ceiling ${capConfig.ceiling}; surplus rolls into overflowBullet for the calling
+agent to append under \`## Why\` in the PR body. Override ratio/ceiling
+machine-wide via a \`flowAnnotatePr\` object in ~/.flow/config.json.
 
 The helper does NOT call gh — its only job is local diff + trigger eval +
 JSON emit. The PR number arg is accepted for symmetry with other helpers
@@ -468,7 +549,8 @@ function main(): void {
 
   const diff = fetchDiff();
   const files = parseDiff(diff);
-  const envelope = buildEnvelope(files);
+  const capConfig = readCapConfig();
+  const envelope = buildEnvelope(files, capConfig);
   console.log(JSON.stringify(envelope, null, 2));
 }
 
