@@ -414,6 +414,18 @@ match `manifest.json` exactly; full acceptance criteria live there.
   launcher backend), pipeline seed sessions wired the same way, the
   agents/hooks-under-`--add-dir` investigation record with named fallbacks,
   tests + docs for the plain-vs-flow session story.
+- _Bundled fix ([gh#435](https://github.com/gavingolden/flow/issues/435),
+  deferred from `p1-module-registry-install`'s `/pr-review`):_ flow's own
+  non-interactive `flow install --upgrade` callers — `/flow-pipeline` step
+  5.5's `--source <worktree>` re-symlink and its `--auto` post-merge
+  followup — pass neither `--modules` nor `--all`, so they hit the non-TTY
+  core-only default and either fail to link a newly-added worktree skill
+  or reap a pre-existing broad install. Fix: the resolver should preserve
+  existing breadth (not collapse to core) when no selection is recorded
+  but a populated manifest already exists; update step 5.5's `SKILL.md`
+  invocation to match. Bundled here rather than fixed standalone because
+  this node already retargets the same link/prune/manifest machinery and
+  already edits step 5.5's `SKILL.md` prose for the install-target move.
 
 **p2-flow-prefix-rename · `flow-` skill prefix rename + testing-skill split**
 
