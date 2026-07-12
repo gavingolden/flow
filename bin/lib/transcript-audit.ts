@@ -513,8 +513,9 @@ export async function analyzeTranscripts(
   const editSamples: number[] = [];
   let sawAnyData = false;
 
-  for (const file of jsonlPaths) {
-    const result = await analyzeOneFile(file);
+  const perFileResults = await Promise.all(jsonlPaths.map(analyzeOneFile));
+
+  for (const result of perFileResults) {
     if ("schemaBreak" in result) {
       return { status: "schema-break", reason: result.schemaBreak };
     }
@@ -581,7 +582,7 @@ export async function estimateFrontmatterCost(
     if (frontmatter === null) continue;
     const tokens = estimateTokens(frontmatter.length);
     const name = path.basename(path.dirname(file));
-    perSkill[name] = tokens;
+    perSkill[name] = (perSkill[name] ?? 0) + tokens;
     total += tokens;
   }
   return { perSkill, total, charsPerToken: CHARS_PER_TOKEN };

@@ -6,7 +6,9 @@ import {
   analyzeTranscripts,
   estimateFrontmatterCost,
   estimateTokens,
+  resolveSessionJsonls,
 } from "./lib/transcript-audit";
+import { encodeProjectSegment } from "./lib/cost";
 import { parseArgs, run } from "./flow-transcript-audit";
 
 const SAMPLE_FIXTURE = path.join(
@@ -20,6 +22,19 @@ const SCHEMA_BREAK_FIXTURE = path.join(
   "transcript-audit-schema-break.jsonl",
 );
 
+/**
+ * The expected aggregates pinned below (phaseTotals, carryForwardTotals,
+ * toolClassStats, subAgentSpend, editSizeDistribution) were derived by
+ * running the real `analyzeTranscripts()` against
+ * `bin/fixtures/transcript-audit-sample.jsonl` and reading off its output
+ * — not hand-counted. If the fixture is ever hand-edited (e.g. to add a
+ * new tool-class or attributionSkill scenario), regenerate the pinned
+ * numbers the same way: write a throwaway script that imports
+ * `analyzeTranscripts` from `./lib/transcript-audit`, runs it against the
+ * updated fixture, and prints the result — then paste the printed values
+ * into the `toEqual(...)` blocks below. This keeps the pin honest without
+ * committing a permanent generator script for a one-off task.
+ */
 describe("analyzeTranscripts — synthetic fixture", () => {
   it("returns no-data when zero JSONL paths are given", async () => {
     const result = await analyzeTranscripts([]);
@@ -258,6 +273,20 @@ describe(estimateFrontmatterCost, () => {
     const result = await estimateFrontmatterCost(tmpDir);
     expect(result).toEqual({ perSkill: {}, total: 0, charsPerToken: 4 });
   });
+
+  it("accumulates (not overwrites) perSkill when two skills share a folder name across categories, so total stays consistent with the sum of perSkill", async () => {
+    for (const category of ["pipeline", "universal"]) {
+      const dir = path.join(tmpDir, category, "shared-name");
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "SKILL.md"),
+        `---\nname: shared-name\ncategory: ${category}\n---\nbody`,
+      );
+    }
+    const result = await estimateFrontmatterCost(tmpDir);
+    expect(Object.keys(result.perSkill)).toEqual(["shared-name"]);
+    expect(result.total).toBe(result.perSkill["shared-name"]);
+  });
 });
 
 describe(parseArgs, () => {
@@ -345,5 +374,41 @@ describe("run — CLI exit codes", () => {
 
   it("exits 0 for --frontmatter mode over the repo's own skills directory", async () => {
     expect(await run(["--frontmatter", "skills", "--format", "md"])).toBe(0);
+  });
+
+  it("exits 2 with a clean message instead of a raw ENOENT stack trace for a nonexistent path", async () => {
+    expect(await run(["/tmp/does-not-exist-flow-transcript-audit.jsonl"])).toBe(
+      2,
+    );
+  });
+
+  it("resolves --slug (+ relative --repo) end to end via a seeded projects-root fixture", async () => {
+    const tmpRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-ta-slug-test-"),
+    );
+    const repoAbsPath = fs.mkdtempSync(
+      path.join(os.tmpdir(), "flow-ta-slug-repo-"),
+    );
+    try {
+      const projectDir = path.join(tmpRoot, encodeProjectSegment(repoAbsPath));
+      fs.mkdirSync(projectDir, { recursive: true });
+      const jsonlPath = path.join(projectDir, "session.jsonl");
+      fs.writeFileSync(
+        jsonlPath,
+        JSON.stringify({
+          type: "user",
+          message: {
+            role: "user",
+            content: "Use the /flow-pipeline skill for: my slug",
+          },
+        }) + "\n",
+      );
+
+      const paths = await resolveSessionJsonls("my-slug", repoAbsPath, tmpRoot);
+      expect(paths).toEqual([jsonlPath]);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+      fs.rmSync(repoAbsPath, { recursive: true, force: true });
+    }
   });
 });

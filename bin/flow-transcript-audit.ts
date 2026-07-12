@@ -22,6 +22,7 @@
  *       apart from "we can no longer trust these numbers"
  */
 
+import path from "node:path";
 import {
   analyzeTranscripts,
   estimateFrontmatterCost,
@@ -179,45 +180,51 @@ export async function run(argv: string[]): Promise<number> {
     return 2;
   }
 
-  if (parsed.mode === "frontmatter") {
-    const result = await estimateFrontmatterCost(parsed.dir);
+  try {
+    if (parsed.mode === "frontmatter") {
+      const result = await estimateFrontmatterCost(parsed.dir);
+      process.stdout.write(
+        (parsed.format === "md"
+          ? renderFrontmatterMd(result)
+          : JSON.stringify(result, null, 2)) + "\n",
+      );
+      return 0;
+    }
+
+    let jsonlPaths = parsed.jsonlPaths;
+    if (jsonlPaths.length === 0 && parsed.slug) {
+      jsonlPaths = await resolveSessionJsonls(
+        parsed.slug,
+        path.resolve(parsed.repo ?? process.cwd()),
+      );
+    }
+
+    const result = await analyzeTranscripts(jsonlPaths);
+
+    if (result.status === "schema-break") {
+      process.stderr.write(
+        `flow-transcript-audit: transcript schema is unrecognized or has changed — this tool needs a feature update to support it.\nDetail: ${result.reason}\n`,
+      );
+      return 4;
+    }
+    if (result.status === "no-data") {
+      process.stderr.write(
+        "flow-transcript-audit: no matching data found (valid schema, nothing to report)\n",
+      );
+      return 3;
+    }
+
     process.stdout.write(
       (parsed.format === "md"
-        ? renderFrontmatterMd(result)
+        ? renderAnalyzeMd(result)
         : JSON.stringify(result, null, 2)) + "\n",
     );
     return 0;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`flow-transcript-audit: ${msg}\n`);
+    return 2;
   }
-
-  let jsonlPaths = parsed.jsonlPaths;
-  if (jsonlPaths.length === 0 && parsed.slug) {
-    jsonlPaths = await resolveSessionJsonls(
-      parsed.slug,
-      parsed.repo ?? process.cwd(),
-    );
-  }
-
-  const result = await analyzeTranscripts(jsonlPaths);
-
-  if (result.status === "schema-break") {
-    process.stderr.write(
-      `flow-transcript-audit: transcript schema is unrecognized or has changed — this tool needs a feature update to support it.\nDetail: ${result.reason}\n`,
-    );
-    return 4;
-  }
-  if (result.status === "no-data") {
-    process.stderr.write(
-      "flow-transcript-audit: no matching data found (valid schema, nothing to report)\n",
-    );
-    return 3;
-  }
-
-  process.stdout.write(
-    (parsed.format === "md"
-      ? renderAnalyzeMd(result)
-      : JSON.stringify(result, null, 2)) + "\n",
-  );
-  return 0;
 }
 
 if (import.meta.main) {
