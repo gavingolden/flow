@@ -379,6 +379,19 @@ describe("runNew --resume", () => {
     });
   });
 
+  it("degrades gracefully when panePid returns null on a successful resume (no pid/procStartedAt written)", () => {
+    seedState("preserve-null-pid");
+    tmuxMock.windowExists.mockReturnValue(true);
+    tmuxMock.panePid.mockReset().mockReturnValue(null);
+    const code = runNew("preserve-null-pid", { resume: true, stateDir });
+    expect(code).toBe(0);
+    const written = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "preserve-null-pid.json"), "utf8"),
+    );
+    expect(written.pid).toBeUndefined();
+    expect(written.procStartedAt).toBeUndefined();
+  });
+
   it("surfaces the tmux failure when the verified respawn returns non-ok", () => {
     seedState("respawn-fail");
     tmuxMock.windowExists.mockReturnValue(true);
@@ -1825,6 +1838,60 @@ describe("runFresh — persist-then-delete-on-failure (orphaned-window regressio
     expect(written.procStartedAt).toBe(FAKE_PROC_STARTED_AT);
   });
 
+  it("does not clobber a hook/supervisor write that landed during launch (re-reads current state before folding in pid)", () => {
+    // Regression test for the runFresh pid-capture clobber: the pid-capture
+    // write must re-read the CURRENT on-disk state (as advanced by the
+    // seed-ingested hook / supervisor during createWindowVerified's consume
+    // window) rather than folding pid/procStartedAt into the stale
+    // up-front `baseState` — which would silently drop `seedIngestedAt`
+    // and could regress `phase` back to `starting`.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    tmuxMock.createWindowVerified.mockImplementation((name) => {
+      const statePath = path.join(stateDir, `${name}.json`);
+      const current = JSON.parse(fs.readFileSync(statePath, "utf8"));
+      fs.writeFileSync(
+        statePath,
+        JSON.stringify({
+          ...current,
+          phase: "triaging",
+          seedIngestedAt: "2026-07-12T00:00:00.000Z",
+        }),
+      );
+      return { status: "started", stderr: "" };
+    });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    const written = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"),
+    );
+    expect(written.phase).toBe("triaging");
+    expect(written.seedIngestedAt).toBe("2026-07-12T00:00:00.000Z");
+    expect(written.pid).toBe(4242);
+    expect(written.procStartedAt).toBe(FAKE_PROC_STARTED_AT);
+  });
+
+  it("degrades gracefully when panePid returns null on a successful launch (no pid/procStartedAt written, launch still succeeds)", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    tmuxMock.panePid.mockReset().mockReturnValue(null);
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    const written = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "csv-export.json"), "utf8"),
+    );
+    expect(written.pid).toBeUndefined();
+    expect(written.procStartedAt).toBeUndefined();
+  });
+
   it("a permanently failed launch never probes the pane's pid (no pid/procStartedAt is ever written)", () => {
     // Reuses the STORY 1 (immediate-death) fixture: the pid-capture branch is
     // gated on a non-`failed` result, so a launch that never comes up must
@@ -2184,6 +2251,72 @@ describe("runFresh — slug auto-disambiguation + explicit --slug (Story 1-4)", 
       fs.readFileSync(path.join(stateDir, `${bare}.json`), "utf8"),
     );
     expect(bareState.phase).toBe("verifying");
+  });
+
+  it("derived-slug collision against an ALIVE recorded pid produces an attach hint on stderr", () => {
+    // Mirrors the explicit-slug alive-verdict test, but on the auto-suffix
+    // (derived-slug) path via firstAvailableSlug's collisionHint.
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const bare = "csv-export";
+    const minted = `${bare}-2`;
+    writeState(
+      {
+        slug: bare,
+        phase: "reviewing",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+        pid: process.pid,
+        procStartedAt: FAKE_PROC_STARTED_AT,
+      },
+      stateDir,
+    );
+    let mintedProbes = 0;
+    tmuxMock.windowExists.mockImplementation((name: string) => {
+      if (name === minted) return mintedProbes++ > 0;
+      return false;
+    });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe(`flow:${minted}`);
+    expect(errors.join("\n")).toMatch(/attach/);
+    expect(errors.join("\n")).toMatch(new RegExp(`flow attach ${bare}`));
+  });
+
+  it("derived-slug collision against a dead/stale recorded pid produces a resume hint on stderr", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const bare = "csv-export";
+    const minted = `${bare}-2`;
+    writeState(
+      {
+        slug: bare,
+        phase: "reviewing",
+        repo: repoDir,
+        updatedAt: new Date().toISOString(),
+        pid: pickDeadPid(),
+        procStartedAt: FAKE_PROC_STARTED_AT,
+      },
+      stateDir,
+    );
+    let mintedProbes = 0;
+    tmuxMock.windowExists.mockImplementation((name: string) => {
+      if (name === minted) return mintedProbes++ > 0;
+      return false;
+    });
+    const code = runNew("CSV export", {
+      stateDir,
+      cwd: repoDir,
+      command: ["true"],
+    });
+    expect(code).toBe(0);
+    expect(logs[0]).toBe(`flow:${minted}`);
+    expect(errors.join("\n")).toMatch(/resume/);
+    expect(errors.join("\n")).toMatch(
+      new RegExp(`flow feature resume ${bare}`),
+    );
   });
 
   it("--slug overrides derivation: writes <slug>.json, prints flow:<slug>, strips the flag+value from the description", () => {

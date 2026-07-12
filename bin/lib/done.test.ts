@@ -69,8 +69,12 @@ vi.mock("./stop-turn-tracking", () => turnTrackingMock);
 // "unknown" — reproducing today's exact legacy window-existence fallback
 // for every test that doesn't opt in to the new fields.
 const livenessMock = vi.hoisted(() => ({
-  livenessOf: vi.fn((s: { pid?: number; procStartedAt?: number }) =>
-    s.pid !== undefined && s.procStartedAt !== undefined ? "dead" : "unknown",
+  livenessOf: vi.fn(
+    (s: {
+      pid?: number;
+      procStartedAt?: number;
+    }): "alive" | "dead" | "stale" | "unknown" =>
+      s.pid !== undefined && s.procStartedAt !== undefined ? "dead" : "unknown",
   ),
 }));
 vi.mock("./liveness", () => livenessMock);
@@ -274,6 +278,37 @@ describe("runDone --orphans", () => {
     expect(code).toBe(0);
     expect(stateMock.deleteState).toHaveBeenCalledWith("crashed-with-window");
     expect(stateMock.deleteState).not.toHaveBeenCalledWith("live");
+    log.mockRestore();
+  });
+
+  it("never selects an alive-process pipeline as an orphan, even when its tmux window is absent", () => {
+    // The PR's core safety guarantee: a state whose recorded process is
+    // ALIVE must not be swept by --orphans just because its tmux window
+    // happens to be gone (e.g. a tmux bounce racing this sweep).
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    livenessMock.livenessOf.mockImplementation(
+      (s: { pid?: number; procStartedAt?: number }) =>
+        s.pid !== undefined && s.procStartedAt !== undefined
+          ? "alive"
+          : "unknown",
+    );
+    stateMock.listStates.mockReturnValue([
+      state({
+        slug: "alive-no-window",
+        phase: "implementing",
+        pid: 4242,
+        procStartedAt: 1_700_000_000,
+      }),
+    ]);
+    tmuxMock.listWindows.mockReturnValue([]); // no window for anyone
+
+    const code = runDone(undefined, { orphans: true, yes: true });
+
+    expect(code).toBe(0);
+    expect(stateMock.deleteState).not.toHaveBeenCalledWith("alive-no-window");
+    expect(log).toHaveBeenCalledWith(
+      "flow done: no orphan pipelines to close.",
+    );
     log.mockRestore();
   });
 

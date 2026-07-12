@@ -695,19 +695,21 @@ function runFresh(description: string, options: FeatureOptions): number {
     });
     // Crash-safe liveness signal: only once the window is confirmed up (never
     // on `failed` — createWindowVerified already killed its own half-created
-    // window on that path) capture the pane's OS-level pid and its start time,
-    // folded into ONE extra writeState alongside every field already written
-    // above so a successful launch is never left PID-less. A null `panePid`
-    // (pane lookup race) leaves pid/procStartedAt absent — callers degrade to
-    // legacy window-existence-based liveness for this launch.
+    // window on that path) capture the pane's OS-level pid and its start time.
+    // Re-read the CURRENT on-disk state and fold pid/procStartedAt into it —
+    // never `baseState` — so a supervisor/seed-ingested-hook write that landed
+    // during this launch attempt (the very thing `consumed()` above latched
+    // on) is never clobbered. Mirrors runResume's launch closure below. A null
+    // `panePid` (pane lookup race) leaves pid/procStartedAt absent — callers
+    // degrade to legacy window-existence-based liveness for this launch.
     if (result.status !== "failed") {
       const pid = panePid(slug);
       if (pid != null) {
-        const procStartedAt = pidStartEpoch(pid) ?? undefined;
-        writeState(
-          { ...baseState, pid, procStartedAt, updatedAt: nowIso() },
-          options.stateDir,
-        );
+        const current = readState(slug, options.stateDir);
+        if (current != null) {
+          const procStartedAt = pidStartEpoch(pid) ?? undefined;
+          writeState({ ...current, pid, procStartedAt }, options.stateDir);
+        }
       }
     }
     return result;
