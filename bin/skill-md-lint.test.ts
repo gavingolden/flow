@@ -4838,6 +4838,22 @@ describe("design-artifact fidelity structural anchors", () => {
         "Layout Intent as a structural constraint the edit-applier may " +
         "never silently drop.",
     ).toBe(true);
+    expect(
+      newFeatureContent.includes("Layout append"),
+      "new-feature/SKILL.md must keep the 'Layout append' paragraph that " +
+        "threads the Layout Intent body into DESIGN_CONTEXT across every " +
+        "mode — deleting it while keeping the 'layout-only mode' bullet " +
+        "would silently drop the load-bearing threading this test exists " +
+        "to freeze.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes(
+        "only the normative prose reaches the implementer",
+      ),
+      "new-feature/SKILL.md's Layout append paragraph must keep stripping " +
+        "fenced ASCII topology diagrams so only normative prose reaches " +
+        "/coder.",
+    ).toBe(true);
   });
 
   it("discovery-instructions.md carries the spec.json properties-map worked example and self-validate step", () => {
@@ -4868,6 +4884,19 @@ describe("design-artifact fidelity structural anchors", () => {
       content.includes(".flow-tmp/design/spec.json"),
       "flow-pipeline/SKILL.md's design-spec validation backstop must " +
         "existence-gate on .flow-tmp/design/spec.json.",
+    ).toBe(true);
+    expect(
+      content.includes("DESIGN_SPEC_REASON"),
+      "flow-pipeline/SKILL.md's design-spec backstop must thread " +
+        "DESIGN_SPEC_REASON into the awaiting-approval gate render's " +
+        "--why string — the banner-blindness mitigation this backstop " +
+        "exists to provide.",
+    ).toBe(true);
+    expect(
+      content.includes("design spec INVALID: $DESIGN_SPEC_REASON"),
+      "flow-pipeline/SKILL.md must keep the '--why \"...; design spec " +
+        "INVALID: $DESIGN_SPEC_REASON\"' threading in both the feature " +
+        "and tension-flag awaiting-approval gate renders.",
     ).toBe(true);
   });
 });

@@ -671,19 +671,25 @@ Decide whether to delegate edits to `/coder` based on the **hybrid threshold**:
      the foundation path alone, same conform instruction.
    - **layout-only mode** (plan carries `## Layout Intent` but NO
      `## Visual Spec` and NO committed `.flow/design/foundation.md`):
-     `DESIGN_CONTEXT` carries the Layout Intent body alone with the same
-     conform-every-edit instruction.
+     no committed foundation and no Visual Spec exist to seed
+     `DESIGN_CONTEXT` up front, so this mode contributes only the same
+     conform-every-edit instruction as the other modes — the Layout
+     Intent body itself is attached exactly once, by the single append
+     rule below, not by this bullet.
 
    **Layout append (applies in EVERY mode above).** When
    `.flow-tmp/plan.md` carries a `## Layout Intent` section, append its
-   body verbatim inline to the `DESIGN_CONTEXT` argument regardless of
-   which mode fired, framed as a ratified Layout Intent — a structural
-   constraint; conform every edit's layout to it and never silently drop
-   it. Extraction is mechanical: extract from the `## Layout Intent`
-   heading to the next `##` heading, verbatim — never a paraphrase, never
-   a partial grab (a truncated or over-grabbed extraction hands the coder
-   malformed constraints). Strip fenced code blocks (the ASCII topology
-   diagrams) from the threaded body before appending — the diagram is a
+   body verbatim inline to the `DESIGN_CONTEXT` argument exactly once,
+   regardless of which mode fired above — this is the ONLY place the
+   Layout Intent body is attached; the mode bullets above select the
+   conform instruction and never append the body themselves — framed as
+   a ratified Layout Intent — a structural constraint; conform every
+   edit's layout to it and never silently drop it. Extraction is
+   mechanical: extract from the `## Layout Intent` heading to the next
+   `##` heading, verbatim — never a paraphrase, never a partial grab (a
+   truncated or over-grabbed extraction hands the coder malformed
+   constraints). Strip fenced code blocks (the ASCII topology diagrams)
+   from the threaded body before appending — the diagram is a
    plan-review aid; only the normative prose reaches the implementer.
 
    Omit `DESIGN_CONTEXT` entirely only when the plan has NONE of a
