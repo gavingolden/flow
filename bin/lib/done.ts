@@ -18,12 +18,14 @@
 
 import { argsContainHelp, printVerbHelp } from "./help";
 import { confirmStdin as confirm } from "./confirm";
+import { livenessOf } from "./liveness";
 import {
   findWindowBySlug,
   killWindow,
   listWindows,
   windowExists,
   FLOW_SESSION,
+  type TmuxWindow,
 } from "./tmux";
 import {
   deleteState,
@@ -192,9 +194,25 @@ function runDoneMerged(options: DoneOptions): number {
   return sweep(states, options, (s) => `  ${s.slug} (${s.phase})`);
 }
 
+/**
+ * Canonical orphan predicate for the `--orphans` sweep: a dead/stale
+ * file-signal liveness verdict is orphaned regardless of whether its tmux
+ * window still exists (a window can outlive the process that owned it).
+ * An `unknown` verdict (old-format state, no pid/procStartedAt) falls back
+ * to the legacy window-existence check so pre-this-PR state files keep
+ * their exact prior `--orphans` selection. An `alive` verdict is never
+ * orphaned.
+ */
+function isOrphan(state: PipelineState, windows: TmuxWindow[]): boolean {
+  const verdict = livenessOf(state);
+  if (verdict === "dead" || verdict === "stale") return true;
+  if (verdict === "unknown") return !findWindowBySlug(windows, state.slug);
+  return false;
+}
+
 function runDoneOrphans(options: DoneOptions): number {
   const windows = listWindows();
-  const states = listStates().filter((s) => !findWindowBySlug(windows, s.slug));
+  const states = listStates().filter((s) => isOrphan(s, windows));
   if (states.length === 0) {
     console.log("flow done: no orphan pipelines to close.");
     return 0;
@@ -214,10 +232,10 @@ function runDoneCombined(options: DoneOptions): number {
 
   for (const s of listStates()) {
     const isMerged = TERMINAL_PHASES.has(s.phase);
-    const isOrphan = !findWindowBySlug(windows, s.slug);
-    if (!isMerged && !isOrphan) continue;
+    const orphaned = isOrphan(s, windows);
+    if (!isMerged && !orphaned) continue;
     const tag =
-      isMerged && isOrphan ? "merged+orphan" : isMerged ? "merged" : "orphan";
+      isMerged && orphaned ? "merged+orphan" : isMerged ? "merged" : "orphan";
     reasons.set(s.slug, { state: s, tag });
   }
 

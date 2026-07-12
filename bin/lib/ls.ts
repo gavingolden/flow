@@ -10,7 +10,11 @@
  * Drift handling:
  *   - state file but no window → "(no window)" (likely a crashed session)
  *   - window but no state file → "(no state)" (manual creation)
- *   - both                     → no annotation
+ *   - both, and the recorded process is dead/stale → "(crashed)" (the
+ *     file-signal liveness check — see `bin/lib/liveness.ts` — caught a
+ *     window whose owning process died without the window itself closing)
+ *   - both, and the process is alive (or no liveness signal is recorded)
+ *     → no annotation
  */
 
 import * as path from "node:path";
@@ -24,6 +28,7 @@ import {
 import { friendlyName } from "./cost-pricing";
 import { argsContainHelp, printVerbHelp } from "./help";
 import { listStates, type PipelineState } from "./state";
+import { livenessOf } from "./liveness";
 import { reapStartingOrphans } from "./reap-orphans";
 import { relativeTime } from "./time";
 import { findWindowBySlug, listWindows, type TmuxWindow } from "./tmux";
@@ -49,7 +54,7 @@ export type Row = {
   phase: string;
   pr: string;
   lastActivity: string;
-  annotation: "" | "(no window)" | "(no state)";
+  annotation: "" | "(no window)" | "(no state)" | "(crashed)";
   waitForCopilot: boolean;
   cost?: CostBreakdown;
 };
@@ -118,17 +123,23 @@ export async function runLs(opts: LsOptions = {}): Promise<number> {
 /**
  * Prints a post-table recovery footnote for orphaned pipelines — state files
  * whose tmux window is gone (`(no window)`), typically a crashed `flow feature create`
- * whose window never stayed up. Each gets its one-command restart line. Kept
- * BELOW the table (not inlined into the NAME cell) because printTable derives
- * column widths from cell lengths, so a long `flow feature resume <slug>` string
- * in the cell would widen the whole table for every row. No-op when no orphan
- * rows exist, so healthy output is unchanged.
+ * whose window never stayed up, OR whose window survived but the recorded
+ * process is dead/stale (`(crashed)`, from the file-signal liveness check).
+ * Each gets its one-command restart line. Kept BELOW the table (not inlined
+ * into the NAME cell) because printTable derives column widths from cell
+ * lengths, so a long `flow feature resume <slug>` string in the cell would
+ * widen the whole table for every row. No-op when no orphan rows exist, so
+ * healthy output is unchanged.
  */
 function printOrphanRecovery(rows: Row[]): void {
-  const orphans = rows.filter((r) => r.annotation === "(no window)");
+  const orphans = rows.filter(
+    (r) => r.annotation === "(no window)" || r.annotation === "(crashed)",
+  );
   if (orphans.length === 0) return;
   console.log("");
-  console.log(dim("orphaned pipelines (no tmux window) — resume with:"));
+  console.log(
+    dim("pipelines needing resume (no window, or crashed) — resume with:"),
+  );
   for (const row of orphans) {
     console.log(dim(`  flow feature resume ${row.name}`));
   }
@@ -165,13 +176,23 @@ export async function buildRows(
     const state = states[i];
     const window = findWindowBySlug(windows, state.slug);
     if (window) matchedWindowIds.add(window.id);
+    // A matched window doesn't guarantee a live supervisor — the file-signal
+    // liveness check catches a window whose owning process died/was recycled
+    // without the window itself closing. No window at all stays "(no window)"
+    // unconditionally (unchanged); liveness is consulted ONLY when a window
+    // IS matched, and only a dead/stale verdict overrides the healthy "".
+    let annotation: Row["annotation"] = window ? "" : "(no window)";
+    if (window) {
+      const verdict = livenessOf(state);
+      if (verdict === "dead" || verdict === "stale") annotation = "(crashed)";
+    }
     rows.push({
       name: state.slug,
       repo: path.basename(state.repo),
       phase: state.phase || "—",
       pr: state.pr ? `#${state.pr}` : "—",
       lastActivity: lastActivityFrom(state.updatedAt, nowMs),
-      annotation: window ? "" : "(no window)",
+      annotation,
       waitForCopilot: state.waitForCopilot === true,
       cost: costs ? costs[i] : undefined,
     });

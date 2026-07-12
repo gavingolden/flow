@@ -161,6 +161,26 @@ export type PipelineState = {
    * hook-not-fired). Additive — no migration (AGENTS.md: no back-compat shims).
    */
   seedIngestedAt?: string;
+  /**
+   * Crash-safe liveness signal: the OS-level PID of the pane's foreground
+   * process at launch time (see `tmux.panePid`), paired with `procStartedAt`
+   * below. Together they let `livenessOf` (`bin/lib/liveness.ts`)
+   * distinguish "still running", "crashed", and "PID recycled by an
+   * unrelated process" without depending on the tmux window surviving.
+   * Absent ≡ degrade to legacy `windowExists`/`isPaneAlive`-based behavior
+   * (old-format state files, or a launch that predates this field).
+   */
+  pid?: number;
+  /**
+   * Absolute epoch seconds the process identified by `pid` started, from
+   * `liveness.pidStartEpoch`. Combined with `pid`, this is what lets
+   * `livenessOf` tell a still-alive original process apart from a different
+   * process that was later assigned the same recycled PID: a mismatch
+   * between the recorded and current start time flags the PID as reused,
+   * not alive. Absent ≡ degrade to legacy `windowExists`/`isPaneAlive`-based
+   * behavior, same as `pid`.
+   */
+  procStartedAt?: number;
   updatedAt: string;
 };
 
@@ -365,6 +385,9 @@ function isPipelineState(x: unknown): x is PipelineState {
     return false;
   if (o.phaseLog !== undefined && !isPhaseLog(o.phaseLog)) return false;
   if (o.seedIngestedAt !== undefined && typeof o.seedIngestedAt !== "string")
+    return false;
+  if (o.pid !== undefined && typeof o.pid !== "number") return false;
+  if (o.procStartedAt !== undefined && typeof o.procStartedAt !== "number")
     return false;
   return true;
 }

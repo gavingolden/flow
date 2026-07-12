@@ -582,6 +582,66 @@ describe("state", () => {
     expect(readState("phaselog-bad-element", dir)).toBeNull();
   });
 
+  it("readState round-trips valid pid and procStartedAt through writeState", () => {
+    const withLiveness: PipelineState = {
+      slug: "with-liveness",
+      phase: "starting",
+      repo: "/tmp/repo",
+      updatedAt: "2026-05-17T00:00:00Z",
+      pid: 4242,
+      procStartedAt: 1747440000,
+    };
+    writeState(withLiveness, dir);
+    expect(readState("with-liveness", dir)).toEqual(withLiveness);
+  });
+
+  it("readState accepts absent pid and procStartedAt fields", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "liveness-absent.json"),
+      JSON.stringify({
+        slug: "liveness-absent",
+        phase: "starting",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+      }),
+    );
+    const got = readState("liveness-absent", dir);
+    expect(got).not.toBeNull();
+    expect(got).not.toHaveProperty("pid");
+    expect(got).not.toHaveProperty("procStartedAt");
+  });
+
+  it("readState returns null when state JSON has wrong-type pid", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-pid.json"),
+      JSON.stringify({
+        slug: "bad-pid",
+        phase: "starting",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        pid: "4242",
+      }),
+    );
+    expect(readState("bad-pid", dir)).toBeNull();
+  });
+
+  it("readState returns null when state JSON has wrong-type procStartedAt", () => {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "bad-proc-started-at.json"),
+      JSON.stringify({
+        slug: "bad-proc-started-at",
+        phase: "starting",
+        repo: "/tmp/repo",
+        updatedAt: "2026-05-17T00:00:00Z",
+        procStartedAt: "1747440000",
+      }),
+    );
+    expect(readState("bad-proc-started-at", dir)).toBeNull();
+  });
+
   it("listStates skips off-shape JSON files alongside valid ones", () => {
     writeState(fixture("real"), dir);
     fs.writeFileSync(

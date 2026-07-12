@@ -26,9 +26,11 @@ import {
   respawnWindowVerified,
   windowExists,
   isPaneAlive,
+  panePid,
   FLOW_SESSION,
   type VerifiedLaunchResult,
 } from "./tmux";
+import { livenessOf, pidStartEpoch } from "./liveness";
 import {
   readState,
   writeState,
@@ -39,6 +41,7 @@ import {
   MODEL_ALIASES,
   type ModelAlias,
   PHASE_MODEL_FLAGS,
+  type PipelineState,
 } from "./state";
 import {
   readDefaultModel,
@@ -528,14 +531,34 @@ function runFresh(description: string, options: FeatureOptions): number {
     // its `<slug>.json` state survives — otherwise the launch closure's
     // `writeState(phase:"starting")` below would silently clobber a
     // crashed-but-recorded pipeline's `phase`/`pr`.
-    if (windowExists(slug) || readState(slug, options.stateDir) != null) {
-      console.error(
-        `flow feature create: pipeline '${slug}' already exists (window or recorded state).`,
-      );
-      console.error(
-        `  attach with \`flow attach ${slug}\`, resume with \`flow feature resume ${slug}\`,`,
-      );
-      console.error("  or pick a different --slug.");
+    const existingState = readState(slug, options.stateDir);
+    if (windowExists(slug) || existingState != null) {
+      const hint = collisionHint(existingState);
+      if (hint === "attach") {
+        console.error(
+          `flow feature create: pipeline '${slug}' already exists and is still running.`,
+        );
+        console.error(
+          `  attach with \`flow attach ${slug}\`, or pick a different --slug.`,
+        );
+      } else if (hint === "resume") {
+        console.error(
+          `flow feature create: pipeline '${slug}' already exists but isn't running.`,
+        );
+        console.error(
+          `  resume it with \`flow feature resume ${slug}\`, or pick a different --slug.`,
+        );
+      } else {
+        // Unknown liveness (no state, or an old-format state file predating
+        // `pid`/`procStartedAt`) — today's exact message, unchanged.
+        console.error(
+          `flow feature create: pipeline '${slug}' already exists (window or recorded state).`,
+        );
+        console.error(
+          `  attach with \`flow attach ${slug}\`, resume with \`flow feature resume ${slug}\`,`,
+        );
+        console.error("  or pick a different --slug.");
+      }
       return 1;
     }
   } else {
@@ -628,29 +651,27 @@ function runFresh(description: string, options: FeatureOptions): number {
   // per attempt scopes consumption to THAT attempt. A retry only fires after a
   // killed/dead window, so no live supervisor races this rewrite.
   const launch = () => {
-    writeState(
-      {
-        slug,
-        phase: "starting",
-        repo,
-        worktree: existing?.worktree,
-        autoMerge: options.noAutoMerge ? false : undefined,
-        waitForCopilot: options.waitForCopilot ? true : undefined,
-        forceResearch: options.forceResearch ? true : undefined,
-        copilotReview: options.copilotReview,
-        effort: options.effort,
-        model: sessionModel,
-        modelPlanning: options.modelPlanning,
-        modelImplement: options.modelImplement,
-        modelReview: options.modelReview,
-        modelVerify: options.modelVerify,
-        modelFixApplier: options.modelFixApplier,
-        modelConsolidator: options.modelConsolidator,
-        modelMergeResolver: options.modelMergeResolver,
-        updatedAt: nowIso(),
-      },
-      options.stateDir,
-    );
+    const baseState: PipelineState = {
+      slug,
+      phase: "starting",
+      repo,
+      worktree: existing?.worktree,
+      autoMerge: options.noAutoMerge ? false : undefined,
+      waitForCopilot: options.waitForCopilot ? true : undefined,
+      forceResearch: options.forceResearch ? true : undefined,
+      copilotReview: options.copilotReview,
+      effort: options.effort,
+      model: sessionModel,
+      modelPlanning: options.modelPlanning,
+      modelImplement: options.modelImplement,
+      modelReview: options.modelReview,
+      modelVerify: options.modelVerify,
+      modelFixApplier: options.modelFixApplier,
+      modelConsolidator: options.modelConsolidator,
+      modelMergeResolver: options.modelMergeResolver,
+      updatedAt: nowIso(),
+    };
+    writeState(baseState, options.stateDir);
     // Verify the window's process actually stayed up AND consumed the seed (the
     // supervisor advanced state.json past `starting`) before keeping that
     // state. A bare `createWindow` only proves tmux forked the shell, and a
@@ -659,7 +680,7 @@ function runFresh(description: string, options: FeatureOptions): number {
     // intermittent `flow feature create` bug). createWindowVerified owns seed delivery and
     // kills its own half-created window on failure, so an exhausted retry leaves
     // no window behind; the delete-on-failure below removes the up-front state.
-    return createWindowVerified(slug, repo, command, seed, {
+    const result = createWindowVerified(slug, repo, command, seed, {
       // Marker-aware consumed(): the seed-ingested hook stamping `seedIngestedAt`
       // confirms ingestion at launch time; absent the marker, fall back to the
       // phase advancing past `starting`. (consumed() is only probed while the
@@ -672,6 +693,26 @@ function runFresh(description: string, options: FeatureOptions): number {
       },
       onProgress: makeLaunchProgressWriter(),
     });
+    // Crash-safe liveness signal: only once the window is confirmed up (never
+    // on `failed` — createWindowVerified already killed its own half-created
+    // window on that path) capture the pane's OS-level pid and its start time.
+    // Re-read the CURRENT on-disk state and fold pid/procStartedAt into it —
+    // never `baseState` — so a supervisor/seed-ingested-hook write that landed
+    // during this launch attempt (the very thing `consumed()` above latched
+    // on) is never clobbered. Mirrors runResume's launch closure below. A null
+    // `panePid` (pane lookup race) leaves pid/procStartedAt absent — callers
+    // degrade to legacy window-existence-based liveness for this launch.
+    if (result.status !== "failed") {
+      const pid = panePid(slug);
+      if (pid != null) {
+        const current = readState(slug, options.stateDir);
+        if (current != null) {
+          const procStartedAt = pidStartEpoch(pid) ?? undefined;
+          writeState({ ...current, pid, procStartedAt }, options.stateDir);
+        }
+      }
+    }
+    return result;
   };
   const result = withLaunchSlot(
     () => launchWithRetry(launch, options.retrySleepMs, options.retrySleep),
@@ -820,8 +861,9 @@ function runResume(name: string, options: FeatureOptions): number {
   // counts. ACCEPTED rare trade-off: a dead-then-retried resume whose prior dead
   // attempt bumped `updatedAt` reads "consumed" over the fresh respawn — but that
   // only means the supervisor DID start at some point, and resume-over-it is the
-  // user's intent. runResume never writes or deletes state, so the read is
-  // non-mutating; the window pre-existed the resume.
+  // user's intent. This baseline read is non-mutating; the window pre-existed
+  // the resume. (`launch` below DOES now write once on success — see the
+  // pid/procStartedAt capture — but that write is unrelated to this baseline.)
   const preResume = readState(slug, options.stateDir);
   const baseline = preResume?.updatedAt;
   const markerBaseline = preResume?.seedIngestedAt;
@@ -834,9 +876,33 @@ function runResume(name: string, options: FeatureOptions): number {
   };
   const launch = () => {
     const deps = { consumed, onProgress: makeLaunchProgressWriter() };
-    return exists
+    const result = exists
       ? respawnWindowVerified(slug, repo, command, seed, deps)
       : createWindowVerified(slug, repo, command, seed, deps);
+    // Crash-safe liveness signal, same capture as the fresh-launch closure:
+    // once the (re)launch is confirmed up, record the pane's pid + start time
+    // by re-reading the CURRENT state and folding pid/procStartedAt into it —
+    // never the pre-resume `preResume` snapshot above, so a supervisor write
+    // that landed during this (re)launch attempt (e.g. a phase advance) is
+    // never clobbered. Deliberately does NOT touch `updatedAt` (unlike the
+    // fresh-launch closure's write): `updatedAt`/`seedIngestedAt` are the
+    // `consumed` baseline this SAME closure gates the resume's own success
+    // on, above — stamping a fresh `updatedAt` here would falsely satisfy
+    // that baseline comparison for any caller that re-probes `consumed()`
+    // after this closure returns. No write at all when the current state has
+    // vanished (never happens in practice: the window pre-existed the
+    // resume) or the pane's pid can't be resolved.
+    if (result.status !== "failed") {
+      const pid = panePid(slug);
+      if (pid != null) {
+        const current = readState(slug, options.stateDir);
+        if (current != null) {
+          const procStartedAt = pidStartEpoch(pid) ?? undefined;
+          writeState({ ...current, pid, procStartedAt }, options.stateDir);
+        }
+      }
+    }
+    return result;
   };
   const result = withLaunchSlot(
     () => launchWithRetry(launch, options.retrySleepMs, options.retrySleep),
@@ -1070,18 +1136,56 @@ function withLaunchSlot(
 }
 
 /**
+ * File-signal-derived hint for a collision message: `attach` for a live
+ * pipeline, `resume` for a dead/stale one, `unknown` when there's no
+ * liveness signal to derive a verdict from (no recorded state, or an
+ * old-format state file predating `pid`/`procStartedAt`). Selects MESSAGE
+ * TEXT only — every caller makes its own block/skip decision independently
+ * of this verdict. `pidStartEpoch` is threaded through explicitly (rather
+ * than relying on `livenessOf`'s own internal default) so callers — and
+ * their tests — resolve it through this module's own imported binding.
+ */
+function collisionHint(
+  existingState: PipelineState | null,
+): "attach" | "resume" | "unknown" {
+  if (existingState == null) return "unknown";
+  const verdict = livenessOf(existingState, { pidStartEpoch });
+  if (verdict === "alive") return "attach";
+  if (verdict === "dead" || verdict === "stale") return "resume";
+  return "unknown";
+}
+
+/**
  * First non-colliding slug starting from the bare `base`, then `base-2`,
  * `base-3`, …, bounded by MAX_SUFFIX_ATTEMPTS (returns null on exhaustion). A
  * candidate collides when its tmux window exists OR a state file for it
  * survives — the dual window+state check mirrors `worktree-slot.ts`'s
  * `findAvailableSlot`, so a suffixed slug never clobbers a crashed-but-recorded
- * pipeline whose window was closed but whose `<slug>.json` state remains.
+ * pipeline whose window was closed but whose `<slug>.json` state remains. A
+ * skipped STATE-carrying candidate (window-only collisions stay silent, same
+ * as before) gets a liveness-derived stderr note — control flow (which
+ * candidate is chosen, when null is returned) is unchanged either way.
  */
 function firstAvailableSlug(base: string, stateDir?: string): string | null {
   for (let i = 1; i <= MAX_SUFFIX_ATTEMPTS; i++) {
     const candidate = i === 1 ? base : `${base}-${i}`;
-    if (!windowExists(candidate) && readState(candidate, stateDir) == null) {
+    const existingState = readState(candidate, stateDir);
+    if (!windowExists(candidate) && existingState == null) {
       return candidate;
+    }
+    const hint = collisionHint(existingState);
+    if (hint === "attach") {
+      console.error(
+        dim(
+          `flow feature create: slug '${candidate}' is already running; skipping — attach with \`flow attach ${candidate}\` if you meant to use it.`,
+        ),
+      );
+    } else if (hint === "resume") {
+      console.error(
+        dim(
+          `flow feature create: slug '${candidate}' exists but isn't running; skipping — resume it with \`flow feature resume ${candidate}\` if you meant to use it.`,
+        ),
+      );
     }
   }
   return null;
