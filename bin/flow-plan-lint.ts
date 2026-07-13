@@ -198,15 +198,27 @@ function checkExcludedPathsMirror(
     return;
   }
 
-  let parsed: ExcludedPathsFile;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(excludedPathsJson);
   } catch {
     misses.push("'.flow-tmp/excluded-paths.json' is not valid JSON");
     return;
   }
+  if (
+    parsed === null ||
+    typeof parsed !== "object" ||
+    Array.isArray(parsed) ||
+    ("excluded" in parsed &&
+      !Array.isArray((parsed as ExcludedPathsFile).excluded))
+  ) {
+    misses.push(
+      "'.flow-tmp/excluded-paths.json' is not the expected shape — expected an object with an 'excluded' array",
+    );
+    return;
+  }
 
-  const jsonPaths = (parsed.excluded ?? [])
+  const jsonPaths = ((parsed as ExcludedPathsFile).excluded ?? [])
     .map((e) => (typeof e.path === "string" ? e.path.trim() : ""))
     .filter(Boolean);
 

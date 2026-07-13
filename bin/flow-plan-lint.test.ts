@@ -94,6 +94,14 @@ describe("lintPlan — always-present sections", () => {
     expect(misses).toEqual([]);
   });
 
+  it("names a miss when the '# PRD' heading itself is absent", () => {
+    const plan = CONFORMING_PLAN.replace("# PRD\n\n", "");
+    const { misses } = lintPlan(plan);
+    expect(misses.some((m) => m.includes("missing '# PRD' heading"))).toBe(
+      true,
+    );
+  });
+
   it("names a miss when '**Goal:**' is absent from the '# PRD' section", () => {
     const plan = CONFORMING_PLAN.replace(
       "**Goal:** Let users export a widget to CSV in one click.\n\n",

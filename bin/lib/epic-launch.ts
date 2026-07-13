@@ -35,8 +35,12 @@ function withEpicPointer(
   epicSlug: string,
   featureId: string,
 ): string {
-  if (description.includes("Part of epic")) return description;
   const pointer = `Part of epic \`${epicSlug}\` (feature \`${featureId}\`) — design at \`.flow/epics/${epicSlug}/design.md\`.`;
+  // Match ONLY this epic/feature's exact pointer sentence, not any loose
+  // "Part of epic" substring — a description mentioning a DIFFERENT epic (or
+  // prose that happens to contain that phrase) must still get this feature's
+  // pointer appended, not be skipped.
+  if (description.includes(pointer)) return description;
   return `${description.trimEnd()}\n\n${pointer}`;
 }
 
@@ -65,6 +69,19 @@ export function buildFeatureCreateArgs(
   if (hints.autoMerge === false) args.push("--no-auto-merge");
   if (hints.copilotReview) args.push("--copilot-review", hints.copilotReview);
   if (hints.effort) args.push("--effort", hints.effort);
+  // feature.ts's `--epic` parse splits on exactly one `/`, so a raw
+  // feature.id containing a `/` would corrupt that split. Downstream
+  // reconciliation (`flow epic bind`/`flow epic launch`) matches manifest
+  // features by the RAW `feature.id`, so the `--epic` id half must stay the
+  // raw id — slugifying it here would silently break that match instead.
+  // Fail fast instead, since epic-manifest-schema is expected to enforce
+  // kebab-case ids upstream and a `/` slipping through indicates a schema
+  // gap, not a case to paper over.
+  if (feature.id.includes("/")) {
+    throw new Error(
+      `epic-launch: feature id '${feature.id}' contains '/', which corrupts the '--epic <epicSlug>/<id>' parse`,
+    );
+  }
   args.push("--epic", `${epicSlug}/${feature.id}`);
   // A DAG-node id is unique within a manifest, so an id-derived slug is
   // collision-free by construction — pass it explicitly to skip the
