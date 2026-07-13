@@ -709,10 +709,12 @@ plan.md (the first step-3 pass), append nothing — this adds **no** new fan-out
 site, only a marker on the existing Discovery exemption.
 
 **Epic-membership threading.** Before invoking `/product-planning`, check
-whether this pipeline was launched from an epic:
+whether this pipeline was launched from an epic. `.epic` is stored as an
+object (`{ "slug": ..., "featureId": ... }`), so format it into the
+documented `<slug>/<featureId>` token rather than emitting the raw JSON:
 
 ```bash
-jq -r '.epic // empty' ~/.flow/state/<slug>.json
+jq -r '.epic | if type == "object" then "\(.slug)/\(.featureId)" else empty end' ~/.flow/state/<slug>.json
 ```
 
 When non-empty, append an `EPIC: <slug>/<featureId> (design at
@@ -811,8 +813,12 @@ malformed plans are named in chat even when discovery's own self-check
 (`discovery-instructions.md`'s Verification checklist) was skipped:
 
 ```bash
-flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
-LINT_RC=$?
+if command -v flow-plan-lint >/dev/null 2>&1; then
+  flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
+  LINT_RC=$?
+else
+  LINT_RC=0   # helper not on PATH — skip silently (tolerant), per the contract below
+fi
 ```
 
 Exit 0 is clean; exit 1 prints one named miss per line on stdout — surface a
