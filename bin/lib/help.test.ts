@@ -151,6 +151,16 @@ describe("HELP_TEXT", () => {
     expect(HELP_TEXT.epic).toContain("launch");
     expect(HELP_TEXT.epic).toContain("--external");
   });
+
+  it("HELP_TEXT.epic documents the launch overrides and run --effort", () => {
+    expect(HELP_TEXT.epic).toContain("Options (launch):");
+    expect(HELP_TEXT.epic).toContain(
+      "epic run <slug> [--model <alias>] [--effort <level>]",
+    );
+    expect(HELP_TEXT.epic).toContain(
+      "epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]",
+    );
+  });
 });
 
 describe("HELP_TOP", () => {

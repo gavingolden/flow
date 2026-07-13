@@ -159,8 +159,11 @@ export type EpicOptions = {
   /** Override the state directory (test seam). */
   stateDir?: string;
   /**
-   * Persist the Claude Code reasoning-effort level. Threaded into the launch
-   * argv as `--effort <level>` before the prompt. Omitted when absent.
+   * Dead field: no production caller sets it and no reader consumes it
+   * (epic-run's effort now flows through the explicit `runEffort` parameter
+   * on `spawnEpicRunSupervisor` instead). Kept as a possible future test
+   * seam; do not rely on this to drive epic-run effort — use the CLI
+   * `--effort` flag.
    */
   effort?: EffortLevel;
   /**
@@ -286,6 +289,10 @@ function parseEnumValueFlag<T extends string>(
 ): { value?: T; valueToken?: string; flagIndex?: number; error?: true } {
   const idx = rest.indexOf(flag);
   if (idx < 0) return {};
+  if (rest.indexOf(flag, idx + 1) >= 0) {
+    console.error(`flow epic ${verb}: ${flag} may only be specified once.`);
+    return { error: true };
+  }
   const value = rest[idx + 1];
   if (value === undefined || value.startsWith("--")) {
     console.error(`flow epic ${verb}: ${flag} requires a value.`);

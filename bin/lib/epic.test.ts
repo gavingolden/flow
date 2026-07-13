@@ -1329,6 +1329,30 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
         /unknown option/,
       );
     });
+
+    it("parses --model and --effort together, order-independent", () => {
+      const a = parseRunArgs([
+        "my-epic",
+        "--model",
+        "opus",
+        "--effort",
+        "xhigh",
+      ]);
+      expect(a.error).toBeUndefined();
+      expect(a.model).toBe("opus");
+      expect(a.effort).toBe("xhigh");
+
+      const b = parseRunArgs([
+        "my-epic",
+        "--effort",
+        "xhigh",
+        "--model",
+        "opus",
+      ]);
+      expect(b.error).toBeUndefined();
+      expect(b.model).toBe("opus");
+      expect(b.effort).toBe("xhigh");
+    });
   });
 
   // ── status ────────────────────────────────────────────────────────────────
@@ -1903,6 +1927,56 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(args[args.indexOf("--model") + 1]).toBe("opus");
     const rec = readEpicRunState("opus", epicsDir)?.features["low"];
     expect(rec?.slug).toBe("low-minted");
+  });
+
+  it("launch: a duplicate --model flag errors rather than leaking the second value into positionals", () => {
+    gitInit();
+    writeManifest("launch-dup-model", [{ id: "feat-c" }]);
+    const spawn = okSpawn();
+    const code = runEpicCli(
+      [
+        "launch",
+        "launch-dup-model",
+        "feat-c",
+        "--model",
+        "opus",
+        "--model",
+        "haiku",
+      ],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(2);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/--model may only be specified once/);
+    expect(
+      readEpicRunState("launch-dup-model", epicsDir)?.features["feat-c"],
+    ).toBeUndefined();
+  });
+
+  it("launch --model opus --effort low: both flags reach the spawned argv and positionals still resolve", () => {
+    gitInit();
+    writeManifest("launch-both-overrides", [{ id: "feat-c" }]);
+    const spawn = okSpawn("feat-c-minted");
+    const code = runEpicCli(
+      [
+        "launch",
+        "launch-both-overrides",
+        "feat-c",
+        "--model",
+        "opus",
+        "--effort",
+        "low",
+      ],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(0);
+    const args = spawn.mock.calls[0]![1] as string[];
+    expect(args[args.indexOf("--model") + 1]).toBe("opus");
+    expect(args[args.indexOf("--effort") + 1]).toBe("low");
+    const rec = readEpicRunState("launch-both-overrides", epicsDir)?.features[
+      "feat-c"
+    ];
+    expect(rec?.slug).toBe("feat-c-minted");
   });
 
   it("launch: '--model --effort low' errors '--model requires a value' (not 'invalid --model value')", () => {
