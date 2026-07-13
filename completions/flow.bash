@@ -154,10 +154,15 @@ _flow() {
                         COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
                         return
                         ;;
+                    --effort)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
+                        return
+                        ;;
                 esac
                 if [[ "$cur" == -* ]]; then
                     # shellcheck disable=SC2207
-                    COMPREPLY=( $(compgen -W "--model" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "--model --effort" -- "$cur") )
                 fi
             elif [ "$esub" = "status" ]; then
                 if [[ "$cur" == -* ]]; then
@@ -170,9 +175,21 @@ _flow() {
                     COMPREPLY=( $(compgen -W "--external --force" -- "$cur") )
                 fi
             elif [ "$esub" = "launch" ]; then
+                case "$prev" in
+                    --model)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "opus haiku sonnet fable" -- "$cur") )
+                        return
+                        ;;
+                    --effort)
+                        # shellcheck disable=SC2207
+                        COMPREPLY=( $(compgen -W "low medium high xhigh max" -- "$cur") )
+                        return
+                        ;;
+                esac
                 if [[ "$cur" == -* ]]; then
                     # shellcheck disable=SC2207
-                    COMPREPLY=( $(compgen -W "--force" -- "$cur") )
+                    COMPREPLY=( $(compgen -W "--force --model --effort" -- "$cur") )
                 fi
             else
                 # shellcheck disable=SC2207

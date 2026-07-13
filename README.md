@@ -68,7 +68,7 @@ Run `flow feature create --help` for the full surface.
 
 A pipeline runs many distinct Claude phases — planning, implementation, review, verify, the fix-applier/consolidator tail, merge-conflict resolution — plus the epic-design and epic-run supervisors. You can concentrate an expensive model (e.g. the newly-released **Fable**) on the high-leverage reasoning phases and run cheaper models on the mechanical ones, controlled per-run (flags) or globally (config).
 
-**Per-run flags** — `flow feature create --model-planning fable --model-verify haiku "add X"` routes Fable to planning and Haiku to verify for that pipeline, leaving every other phase on the session default. Epic knobs: `flow epic create --model-planning <alias>` (the epic design phase shares the feature planning knob), and `flow epic run --model <alias>` (the /epic-run playbook supervisor session).
+**Per-run flags** — `flow feature create --model-planning fable --model-verify haiku "add X"` routes Fable to planning and Haiku to verify for that pipeline, leaving every other phase on the session default. Epic knobs: `flow epic create --model-planning <alias>` (the epic design phase shares the feature planning knob), and `flow epic run --model <alias> [--effort <level>]` (the /epic-run playbook supervisor session); `flow epic launch <epic> <id> [--model <alias>] [--effort <level>]` applies the same per-launch overrides without mutating the committed manifest.
 
 **Global config** — set a house style once in `~/.flow/config.json`:
 

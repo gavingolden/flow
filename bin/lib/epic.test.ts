@@ -1268,6 +1268,19 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(command[command.indexOf("--model") + 1]).toBe("fable");
   });
 
+  it("run --effort xhigh threads --effort into the supervisor launch argv", () => {
+    gitInit();
+    writeManifest("run-effort-epic", [{ id: "a" }]);
+    freshWindowOk();
+    const code = runEpicCli(["run", "run-effort-epic", "--effort", "xhigh"], {
+      cwd: repoDir,
+      epicsDir,
+    });
+    expect(code).toBe(0);
+    const [, , command] = tmuxMock.createWindowVerified.mock.calls[0]!;
+    expect(command[command.indexOf("--effort") + 1]).toBe("xhigh");
+  });
+
   describe("parseRunArgs", () => {
     it("parses a bare slug", () => {
       const parsed = parseRunArgs(["my-epic"]);
@@ -1292,6 +1305,22 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       expect(parsed.error).toMatch(/invalid --model value/);
     });
 
+    it("parses --effort", () => {
+      const parsed = parseRunArgs(["my-epic", "--effort", "xhigh"]);
+      expect(parsed.error).toBeUndefined();
+      expect(parsed.effort).toBe("xhigh");
+    });
+
+    it("rejects a missing --effort value", () => {
+      const parsed = parseRunArgs(["my-epic", "--effort"]);
+      expect(parsed.error).toMatch(/--effort requires a value/);
+    });
+
+    it("rejects an invalid --effort value", () => {
+      const parsed = parseRunArgs(["my-epic", "--effort", "bogus"]);
+      expect(parsed.error).toMatch(/invalid --effort value/);
+    });
+
     it("rejects a removed loop-era flag as an unknown option", () => {
       expect(parseRunArgs(["my-epic", "--once"]).error).toMatch(
         /unknown option/,
@@ -1299,6 +1328,30 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
       expect(parseRunArgs(["my-epic", "--model-judge", "haiku"]).error).toMatch(
         /unknown option/,
       );
+    });
+
+    it("parses --model and --effort together, order-independent", () => {
+      const a = parseRunArgs([
+        "my-epic",
+        "--model",
+        "opus",
+        "--effort",
+        "xhigh",
+      ]);
+      expect(a.error).toBeUndefined();
+      expect(a.model).toBe("opus");
+      expect(a.effort).toBe("xhigh");
+
+      const b = parseRunArgs([
+        "my-epic",
+        "--effort",
+        "xhigh",
+        "--model",
+        "opus",
+      ]);
+      expect(b.error).toBeUndefined();
+      expect(b.model).toBe("opus");
+      expect(b.effort).toBe("xhigh");
     });
   });
 
@@ -1770,6 +1823,204 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     ];
     expect(rec?.slug).toBe("relaunched-slug");
     expect(rec?.priorSlugs).toEqual(["stale-slug"]);
+  });
+
+  // ── launch: --model / --effort per-launch overrides ───────────────────
+
+  it("launch --effort low threads through to the spawned flow feature create argv", () => {
+    gitInit();
+    writeManifest("launch-effort", [{ id: "feat-c" }]);
+    const spawn = okSpawn("feat-c-minted");
+    const code = runEpicCli(
+      ["launch", "launch-effort", "feat-c", "--effort", "low"],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(0);
+    const args = spawn.mock.calls[0]![1] as string[];
+    expect(args[args.indexOf("--effort") + 1]).toBe("low");
+  });
+
+  it("launch --model opus appends --model to the spawned argv", () => {
+    gitInit();
+    writeManifest("launch-model", [{ id: "feat-c" }]);
+    const spawn = okSpawn("feat-c-minted");
+    const code = runEpicCli(
+      ["launch", "launch-model", "feat-c", "--model", "opus"],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(0);
+    const args = spawn.mock.calls[0]![1] as string[];
+    expect(args[args.indexOf("--model") + 1]).toBe("opus");
+  });
+
+  it("launch --effort bogus: invalid value exits 2, spawn not called, no run.json record", () => {
+    gitInit();
+    writeManifest("launch-bad-effort", [{ id: "feat-c" }]);
+    const spawn = okSpawn();
+    const code = runEpicCli(
+      ["launch", "launch-bad-effort", "feat-c", "--effort", "bogus"],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(2);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/invalid --effort value/);
+    expect(
+      readEpicRunState("launch-bad-effort", epicsDir)?.features["feat-c"],
+    ).toBeUndefined();
+  });
+
+  it("launch --model gpt4: invalid value exits 2, spawn not called, no run.json record", () => {
+    gitInit();
+    writeManifest("launch-bad-model", [{ id: "feat-c" }]);
+    const spawn = okSpawn();
+    const code = runEpicCli(
+      ["launch", "launch-bad-model", "feat-c", "--model", "gpt4"],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(2);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/invalid --model value/);
+    expect(
+      readEpicRunState("launch-bad-model", epicsDir)?.features["feat-c"],
+    ).toBeUndefined();
+  });
+
+  it("launch --model (missing value): exits 2, spawn not called", () => {
+    gitInit();
+    writeManifest("launch-missing-model", [{ id: "feat-c" }]);
+    const spawn = okSpawn();
+    const code = runEpicCli(
+      ["launch", "launch-missing-model", "feat-c", "--model"],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(2);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("launch: a positional after a value flag still resolves the trailing positional correctly", () => {
+    gitInit();
+    writeManifest("launch-posn", [{ id: "feat-c" }]);
+    const spawn = okSpawn("feat-c-minted");
+    const code = runEpicCli(
+      ["launch", "launch-posn", "--model", "opus", "feat-c"],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(0);
+    const rec = readEpicRunState("launch-posn", epicsDir)?.features["feat-c"];
+    expect(rec?.slug).toBe("feat-c-minted");
+  });
+
+  it("launch: a flag value colliding with a positional still resolves both positionals (index-based stripping)", () => {
+    gitInit();
+    // The epic slug itself is 'opus' — the same literal string as the
+    // --model value — so a value-based (string-match) strip would wrongly
+    // remove the epic-slug positional too.
+    writeManifest("opus", [{ id: "low" }]);
+    const spawn = okSpawn("low-minted");
+    const code = runEpicCli(["launch", "opus", "low", "--model", "opus"], {
+      cwd: repoDir,
+      epicsDir,
+      spawn,
+    });
+    expect(code).toBe(0);
+    const args = spawn.mock.calls[0]![1] as string[];
+    expect(args[args.indexOf("--model") + 1]).toBe("opus");
+    const rec = readEpicRunState("opus", epicsDir)?.features["low"];
+    expect(rec?.slug).toBe("low-minted");
+  });
+
+  it("launch: a duplicate --model flag errors rather than leaking the second value into positionals", () => {
+    gitInit();
+    writeManifest("launch-dup-model", [{ id: "feat-c" }]);
+    const spawn = okSpawn();
+    const code = runEpicCli(
+      [
+        "launch",
+        "launch-dup-model",
+        "feat-c",
+        "--model",
+        "opus",
+        "--model",
+        "haiku",
+      ],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(2);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/--model may only be specified once/);
+    expect(
+      readEpicRunState("launch-dup-model", epicsDir)?.features["feat-c"],
+    ).toBeUndefined();
+  });
+
+  it("launch --model opus --effort low: both flags reach the spawned argv and positionals still resolve", () => {
+    gitInit();
+    writeManifest("launch-both-overrides", [{ id: "feat-c" }]);
+    const spawn = okSpawn("feat-c-minted");
+    const code = runEpicCli(
+      [
+        "launch",
+        "launch-both-overrides",
+        "feat-c",
+        "--model",
+        "opus",
+        "--effort",
+        "low",
+      ],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(0);
+    const args = spawn.mock.calls[0]![1] as string[];
+    expect(args[args.indexOf("--model") + 1]).toBe("opus");
+    expect(args[args.indexOf("--effort") + 1]).toBe("low");
+    const rec = readEpicRunState("launch-both-overrides", epicsDir)?.features[
+      "feat-c"
+    ];
+    expect(rec?.slug).toBe("feat-c-minted");
+  });
+
+  it("launch: '--model --effort low' errors '--model requires a value' (not 'invalid --model value')", () => {
+    gitInit();
+    writeManifest("launch-model-then-effort", [{ id: "feat-c" }]);
+    const spawn = okSpawn();
+    const code = runEpicCli(
+      [
+        "launch",
+        "launch-model-then-effort",
+        "feat-c",
+        "--model",
+        "--effort",
+        "low",
+      ],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(2);
+    expect(spawn).not.toHaveBeenCalled();
+    expect(errors.join("\n")).toMatch(/--model requires a value/);
+    expect(errors.join("\n")).not.toMatch(/invalid --model value/);
+  });
+
+  it("launch with overrides: committed manifest.json is byte-identical after launch", () => {
+    gitInit();
+    const manifestPath = writeManifest("launch-manifest-untouched", [
+      { id: "feat-c" },
+    ]);
+    const before = fs.readFileSync(manifestPath, "utf8");
+    const spawn = okSpawn("feat-c-minted");
+    const code = runEpicCli(
+      [
+        "launch",
+        "launch-manifest-untouched",
+        "feat-c",
+        "--model",
+        "opus",
+        "--effort",
+        "high",
+      ],
+      { cwd: repoDir, epicsDir, spawn },
+    );
+    expect(code).toBe(0);
+    expect(fs.readFileSync(manifestPath, "utf8")).toBe(before);
   });
 });
 

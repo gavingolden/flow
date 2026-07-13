@@ -220,6 +220,38 @@ describe("completion scripts stay in sync with VERBS", () => {
     }
   });
 
+  it("both scripts advertise epic run --effort and epic launch --model/--effort", () => {
+    for (const shell of ["bash", "zsh"] as const) {
+      const script = fs.readFileSync(
+        path.join(FLOW_SOURCE, "completions", `flow.${shell}`),
+        "utf8",
+      );
+      // `run`'s completion arm gains --effort alongside the existing --model.
+      const runArm =
+        shell === "bash"
+          ? script.slice(
+              script.indexOf('esub" = "run"'),
+              script.indexOf('esub" = "status"'),
+            )
+          : script.slice(
+              script.indexOf('line[2]" == run '),
+              script.indexOf('line[2]" == status '),
+            );
+      expect(runArm).toContain("--effort");
+      expect(runArm).toContain("low medium high xhigh max");
+
+      // `launch`'s completion arm gains --model and --effort alongside --force.
+      const launchArm =
+        shell === "bash"
+          ? script.slice(script.indexOf('esub" = "launch"'))
+          : script.slice(script.indexOf('line[2]" == launch '));
+      expect(launchArm).toContain("--model");
+      expect(launchArm).toContain("--effort");
+      expect(launchArm).toContain("opus haiku sonnet fable");
+      expect(launchArm).toContain("low medium high xhigh max");
+    }
+  });
+
   it("both scripts complete the feature create/resume subcommands and drop new/setup/migrate", () => {
     // The `feature` mini-dispatcher must offer `create`/`resume` (mirroring
     // `epic`'s subcommand arm), and the removed verbs must not linger in the

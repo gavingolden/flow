@@ -123,11 +123,11 @@ Options (resume):
 
 Usage:
   flow epic create [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-planning <alias>] "<prompt>"
-  flow epic run <slug> [--model <alias>]
+  flow epic run <slug> [--model <alias>] [--effort <level>]
   flow epic status <slug> [--json]
   flow epic bind <epic-slug> <feature-id> <feature-slug> [--force]
   flow epic bind <epic-slug> <feature-id> --external "<ref>" [--force]
-  flow epic launch <epic-slug> <feature-id> [--force]
+  flow epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]
   flow epic ls
   flow epic done <slug> [--yes]
 
@@ -165,6 +165,16 @@ Options (create):
 
 Options (run):
   --model <alias>       whole-session Claude model alias for the /epic-run supervisor session
+  --effort <low|medium|high|xhigh|max>
+                        Claude Code reasoning-effort level for the /epic-run supervisor session
+
+Options (launch):
+  --model <opus|haiku|sonnet|fable>
+                        per-launch model override — wins over the manifest's flowNewHints
+                        for this one launch (never mutates the committed manifest)
+  --effort <low|medium|high|xhigh|max>
+                        per-launch reasoning-effort override — wins over the manifest's
+                        flowNewHints for this one launch
 
 Options (bind / launch):
   --external "<ref>"    (bind) record a completed out-of-band feature (a PR/issue
