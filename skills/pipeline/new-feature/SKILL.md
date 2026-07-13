@@ -158,6 +158,22 @@ Decide whether to spawn the scout subagent based on the **hybrid threshold**:
    mkdir -p "$WORKTREE/.flow-tmp"
    ```
 
+2b. **Excluded paths (omit-when-absent).** Fill `{{EXCLUDED_PATHS}}` from
+`$WORKTREE/.flow-tmp/excluded-paths.json` — the machine-readable mirror of
+plan.md's `## Alternatives considered` (see
+`skills/pipeline/product-planning/references/discovery-instructions.md`
+"Alternatives considered"):
+
+- When the file exists and is non-empty, `cat` its contents verbatim into
+  the block.
+- When the file is absent or malformed but `PLAN_PATH` is non-`absent` AND
+  plan.md carries a non-empty `## Alternatives considered` section, fall
+  back to quoting that section's prose bullets into the block instead
+  (graceful degradation — the injection still happens even when the JSON
+  mirror drifted or was never written).
+- Omit the block entirely only when BOTH sources are absent — non-plan and
+  plan-without-alternatives pipelines see byte-identical spawn prompts.
+
 3. Make exactly **one** Task-tool call:
 
    ```
@@ -195,9 +211,10 @@ config.models.implement > inherited` (see
 
 ### Spawn prompt template
 
-Fill in the six `{{...}}` placeholders before passing to the Task tool:
+Fill in the seven `{{...}}` placeholders before passing to the Task tool:
 `INSTRUCTIONS_PATH`, `USER_DESCRIPTION`, `WORKTREE`, `SKILL_DIR`,
-`SCOUT_PATH`, `PLAN_PATH`.
+`SCOUT_PATH`, `PLAN_PATH`, `EXCLUDED_PATHS` (omit-when-absent — see step 2b
+above).
 
 ```
 You are the Independent Scout Subagent for `/new-feature`. You run in an
@@ -224,6 +241,7 @@ Approved plan path (when not the literal `absent`, verify the plan's
 see scout-instructions.md "Verify-not-rederive"):
   {{PLAN_PATH}}
 
+{{EXCLUDED_PATHS}}
 Follow the scout-instructions.md steps in order. You are one-shot — do
 not ask the user clarifying questions. When the user description leaves
 something unspecified, make a defensible assumption based on the codebase

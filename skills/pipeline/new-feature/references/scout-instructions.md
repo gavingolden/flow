@@ -136,6 +136,19 @@ A scout report that returns only positive findings has done half the job.
 The negative findings are what stops the Critical Analysis from walking
 into a dead end.
 
+**Excluded paths (when the spawn prompt carries `{{EXCLUDED_PATHS}}`).**
+When the wrapper's spawn prompt includes an "Excluded paths" block — plan
+discovery's `## Alternatives considered`, mirrored as
+`.flow-tmp/excluded-paths.json` and injected here (see
+`discovery-instructions.md` "Alternatives considered") — treat every named
+path as CLOSED: never re-propose it, not even as a candidate in
+`## recommended_strategy`. When verifying a plan-supplied Contract block
+(step 2b) reveals that a task's contract actually depends on an excluded
+path — the code has already drifted that way, or the contract's literal
+form requires it — do NOT silently rewrite the plan or silently follow the
+excluded shape. Record it as a `PLAN-DEVIATION:`-prefixed bullet in
+`## open_questions`, exactly like any other plan-vs-code contradiction.
+
 ## 5. Recommend a Strategy
 
 A short, defensible recommendation: which pattern to follow, which existing

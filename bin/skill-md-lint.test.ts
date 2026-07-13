@@ -2312,6 +2312,106 @@ describe("Surgical task-contract anchors (discovery-instructions.md ↔ prd-temp
   });
 });
 
+describe("Plan-artifact section anchors (discovery-instructions.md ↔ prd-template.md ↔ example-prd.md)", () => {
+  // The Goal line / Behavioral contrast / Lost affirmation / Alternatives
+  // considered contract is the at-a-glance + delta-grounding surface this PR
+  // adds to plan.md. discovery-instructions.md is the SSOT; prd-template.md
+  // and example-prd.md mirror it. A one-sided drop silently reverts the
+  // artifact to its pre-PR shape with nothing failing in CI.
+  const MIRRORED_PHRASES = [
+    "**Goal:**",
+    "## Behavioral contrast",
+    "**Lost:**",
+    "## Alternatives considered",
+  ];
+  const MIRROR_SITES: Array<[string, string]> = [
+    ["discovery-instructions.md", discoveryInstructionsContent],
+    ["prd-template.md", prdTemplateContent],
+    ["example-prd.md", examplePrdContent],
+  ];
+
+  it.each(MIRRORED_PHRASES)(
+    "discovery-instructions.md, prd-template.md, and example-prd.md all carry the plan-artifact anchor '%s'",
+    (phrase) => {
+      for (const [label, docContent] of MIRROR_SITES) {
+        expect(
+          docContent.includes(phrase),
+          `${label} must carry the plan-artifact anchor '${phrase}' verbatim — ` +
+            `discovery-instructions.md is the single source of truth; prd-template.md ` +
+            `and example-prd.md mirror it. Rename in lock-step across all three plus ` +
+            `this lint in the same commit.`,
+        ).toBe(true);
+      }
+    },
+  );
+
+  it("discovery-instructions.md carries the '## Epic context' anchor", () => {
+    expect(
+      discoveryInstructionsContent.includes("## Epic context"),
+      "discovery-instructions.md must carry the '## Epic context' section contract — " +
+        "the omit-when-empty section populated by the step 1.7 epic-membership detection.",
+    ).toBe(true);
+  });
+
+  it("epic-discovery-instructions.md carries the pointer-sentence authoring rule", () => {
+    expect(
+      epicDiscoveryInstructionsContent.includes("Part of epic"),
+      "epic-discovery-instructions.md must carry the 'Part of epic' pointer-sentence " +
+        "authoring rule — every feature description must end with a pointer to its " +
+        "epic's design.md so discovery can detect membership without the EPIC: marker.",
+    ).toBe(true);
+  });
+
+  it("prd-template.md no longer carries the superseded '## User-Facing Changes' heading", () => {
+    expect(
+      /^## User-Facing Changes/m.test(prdTemplateContent),
+      "prd-template.md must NOT carry '## User-Facing Changes' — it is subsumed by " +
+        "'### User flow' under the new '## Behavioral contrast' section. A reappearance " +
+        "here is template/instructions drift reverting to the pre-PR shape.",
+    ).toBe(false);
+  });
+
+  it.each(["Premise check", "source-traceable", "structured markdown"])(
+    "discovery-instructions.md carries the revision-2 audit anchor '%s'",
+    (phrase) => {
+      expect(
+        discoveryInstructionsContent
+          .toLowerCase()
+          .includes(phrase.toLowerCase()),
+        `discovery-instructions.md must carry the audit anchor '${phrase}' — the ` +
+          `premise-check discipline, the re-contracted Technical Constraints, and the ` +
+          `structured-markdown authoring-style paragraph are all load-bearing contract ` +
+          `additions; a drop here silently reverts the audit with nothing failing in CI.`,
+      ).toBe(true);
+    },
+  );
+});
+
+describe("Machine-readable closed-path anchors (excluded-paths.json injection)", () => {
+  it("discovery-instructions.md documents the excluded-paths.json sibling mirror", () => {
+    expect(
+      discoveryInstructionsContent.includes("excluded-paths.json"),
+      "discovery-instructions.md must document the sibling .flow-tmp/excluded-paths.json " +
+        "mirror of '## Alternatives considered' — the machine-readable transport the " +
+        "scout/coder spawn templates inject programmatically.",
+    ).toBe(true);
+  });
+
+  it.each([
+    ["new-feature/SKILL.md", () => newFeatureContent],
+    ["coder/SKILL.md", () => coderContent],
+  ] as const)(
+    "%s carries the EXCLUDED_PATHS spawn-template anchor",
+    (label, getContent) => {
+      expect(
+        getContent().includes("EXCLUDED_PATHS"),
+        `${label} must carry the EXCLUDED_PATHS placeholder — the omit-when-absent ` +
+          `spawn-template block that injects closed paths into the scout/coder prompts.`,
+      ).toBe(true);
+    },
+  );
+});
+
 describe("Optional edit-set field symmetry (coder/SKILL.md ↔ coder-instructions.md ↔ new-feature/SKILL.md)", () => {
   // The optional `contract` / `acceptance` edit-set fields extend the required
   // {file, intent, expected_outcome} triple. Three docs carry the field names:
@@ -2479,6 +2579,9 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
     "## Decision analysis",
     "Reject — do nothing",
     "discovery-playbook.md",
+    "**Goal:**",
+    "before → after behavioral contrast",
+    "**Lost:**",
   ])(
     "epic-discovery-instructions.md carries the ported critique/framing anchor '%s'",
     (phrase) => {

@@ -6,7 +6,7 @@
     {
       "id": "f1-manifest-schema",
       "title": "Epic manifest schema + path contract + validator",
-      "description": "Add bin/lib/epic-manifest-schema.ts (EpicManifest/Feature types + isEpicManifest type guard, mirroring state.ts), a bare-name CLI validator wired into discoverValidators (mirroring the four existing *-schema.ts validators), the .flow/epics/<slug>/{design.md,manifest.json} path contract, and bin/lib/epic-manifest-schema.test.ts. Runnable as one flow new PR.",
+      "description": "Add bin/lib/epic-manifest-schema.ts (EpicManifest/Feature types + isEpicManifest type guard, mirroring state.ts), a bare-name CLI validator wired into discoverValidators (mirroring the four existing *-schema.ts validators), the .flow/epics/<slug>/{design.md,manifest.json} path contract, and bin/lib/epic-manifest-schema.test.ts. Runnable as one flow new PR.\n\nPart of epic `build-the-epic-designer` (feature `f1-manifest-schema`) — design at `.flow/epics/build-the-epic-designer/design.md`.",
       "dependsOn": [],
       "rationale": "Hides D1 (manifest shape + storage path) — the most-depended-on contract; the walking-skeleton root every other feature consumes.",
       "acceptanceCriteria": [
@@ -23,7 +23,7 @@
     {
       "id": "f2-dag-validator",
       "title": "DAG validation helper (acyclic / orphan / ready-set)",
-      "description": "Add bin/flow-epic-dag.ts — pure Kahn's-algorithm cycle detection, orphan-edge + unique-id + self-dependency checks, and a ready-set frontier; --validate <path> exits non-zero naming the offending cycle/edge. Tests cover empty, linear chain, diamond, disconnected components, cycle, and orphan-edge cases. Runnable as one flow new PR.",
+      "description": "Add bin/flow-epic-dag.ts — pure Kahn's-algorithm cycle detection, orphan-edge + unique-id + self-dependency checks, and a ready-set frontier; --validate <path> exits non-zero naming the offending cycle/edge. Tests cover empty, linear chain, diamond, disconnected components, cycle, and orphan-edge cases. Runnable as one flow new PR.\n\nPart of epic `build-the-epic-designer` (feature `f2-dag-validator`) — design at `.flow/epics/build-the-epic-designer/design.md`.",
       "dependsOn": ["f1-manifest-schema"],
       "rationale": "Hides D2 (the graph-correctness algorithm); makes a decomposition mechanically trustworthy. Consumes F1's Feature[]/dependsOn shape.",
       "acceptanceCriteria": [
@@ -40,7 +40,7 @@
     {
       "id": "f3-epic-cli",
       "title": "flow epic CLI verb + epic-id + epic state",
-      "description": "Add 'epic' to bin/lib/verbs.ts; bin/lib/epic.ts (runEpicCli dispatching design/run/status/ls, with run/status/ls as loud deferred stubs); mint an epic-id via slug.ts; minimal epic-state read/write; a runVerb case in bin/flow; completion entries; tests. Independently mergeable verb skeleton. Runnable as one flow new PR.",
+      "description": "Add 'epic' to bin/lib/verbs.ts; bin/lib/epic.ts (runEpicCli dispatching design/run/status/ls, with run/status/ls as loud deferred stubs); mint an epic-id via slug.ts; minimal epic-state read/write; a runVerb case in bin/flow; completion entries; tests. Independently mergeable verb skeleton. Runnable as one flow new PR.\n\nPart of epic `build-the-epic-designer` (feature `f3-epic-cli`) — design at `.flow/epics/build-the-epic-designer/design.md`.",
       "dependsOn": ["f1-manifest-schema"],
       "rationale": "Hides D3 (CLI invocation surface + epic identity/state storage). Consumes F1's manifest/path contract it reads and writes.",
       "acceptanceCriteria": [
@@ -56,7 +56,7 @@
     {
       "id": "f4-designer-logic",
       "title": "Epic-grain designer logic → design.md + manifest.json",
-      "description": "Add the one-shot epic-grain /product-planning discovery methodology (sibling references/epic-discovery-instructions.md, selected by a MODE: epic spawn flag) implementing 02 §4 pipeline ①: EARS acceptance criteria, ADR-shaped design decisions = the Parnas volatile-decision list, Parnas/Simon vertical-slice decomposition, a Mermaid DAG, and Open Questions; emit a design.md (six numbered backbone sections plus an always-present critique layer) + a schema-valid manifest.json to the F1 path, self-validating via both checkers in a fix-and-re-run loop. Runnable as one flow new PR.",
+      "description": "Add the one-shot epic-grain /product-planning discovery methodology (sibling references/epic-discovery-instructions.md, selected by a MODE: epic spawn flag) implementing 02 §4 pipeline ①: EARS acceptance criteria, ADR-shaped design decisions = the Parnas volatile-decision list, Parnas/Simon vertical-slice decomposition, a Mermaid DAG, and Open Questions; emit a design.md (six numbered backbone sections plus an always-present critique layer) + a schema-valid manifest.json to the F1 path, self-validating via both checkers in a fix-and-re-run loop. Runnable as one flow new PR.\n\nPart of epic `build-the-epic-designer` (feature `f4-designer-logic`) — design at `.flow/epics/build-the-epic-designer/design.md`.",
       "dependsOn": ["f1-manifest-schema", "f2-dag-validator"],
       "rationale": "Hides D4 (the design methodology) — the most volatile part, isolated behind the stable manifest contract; where MVP value lands. Consumes F1 (emits a schema-valid manifest) and F2 (self-checks its own DAG).",
       "acceptanceCriteria": [
@@ -73,7 +73,7 @@
     {
       "id": "f5-end-to-end",
       "title": "flow epic create end-to-end + approval checkpoint",
-      "description": "Wire flow epic create '<prompt>' → mint id (F3) → fire the materiality-gated clarification round (AskUserQuestion, the caller's own authorized form) → spawn the one-shot designer (F4) on the clarified prompt → write artifacts → run F1+F2 validators as a gate → surface design.md at an epic-design-pending-review checkpoint (approve/redirect/cancel); stop with no execution. Runnable as one flow new PR.",
+      "description": "Wire flow epic create '<prompt>' → mint id (F3) → fire the materiality-gated clarification round (AskUserQuestion, the caller's own authorized form) → spawn the one-shot designer (F4) on the clarified prompt → write artifacts → run F1+F2 validators as a gate → surface design.md at an epic-design-pending-review checkpoint (approve/redirect/cancel); stop with no execution. Runnable as one flow new PR.\n\nPart of epic `build-the-epic-designer` (feature `f5-end-to-end`) — design at `.flow/epics/build-the-epic-designer/design.md`.",
       "dependsOn": ["f3-epic-cli", "f4-designer-logic"],
       "rationale": "Hides D5 (the end-to-end flow + human approval contract); the diamond-closing integration. Consumes F3's verb entry and F4's designer.",
       "acceptanceCriteria": [

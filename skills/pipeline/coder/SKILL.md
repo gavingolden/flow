@@ -225,15 +225,29 @@ config.models.implement > inherited` (see
 
 ## Spawn prompt template
 
-Fill in the six `{{...}}` placeholders before passing to the Task tool:
-`INSTRUCTIONS_PATH`, `EDIT_SET`, `DESIGN_CONTEXT`, `WORKTREE`, `SKILL_DIR`,
-`ARTIFACT_PATH`. `{{DESIGN_CONTEXT}}` is **optional**: it renders the
-caller's optional `DESIGN_CONTEXT` Skill argument (authored by
-`/new-feature` Step 5's "Design context (omit-when-absent)" sub-step —
-the wrapper only renders it, never composes it). When the caller passed
-no `DESIGN_CONTEXT`, **omit the entire "Design context" block below —
-the two label lines and the placeholder — so non-UI spawn prompts stay
-byte-identical to the pre-design-context shape.**
+Fill in the seven `{{...}}` placeholders before passing to the Task tool:
+`INSTRUCTIONS_PATH`, `EDIT_SET`, `DESIGN_CONTEXT`, `EXCLUDED_PATHS`,
+`WORKTREE`, `SKILL_DIR`, `ARTIFACT_PATH`. `{{DESIGN_CONTEXT}}` is
+**optional**: it renders the caller's optional `DESIGN_CONTEXT` Skill
+argument (authored by `/new-feature` Step 5's "Design context
+(omit-when-absent)" sub-step — the wrapper only renders it, never composes
+it). When the caller passed no `DESIGN_CONTEXT`, **omit the entire "Design
+context" block below — the two label lines and the placeholder — so non-UI
+spawn prompts stay byte-identical to the pre-design-context shape.**
+
+`{{EXCLUDED_PATHS}}` is likewise **optional**, mirroring the
+`{{DESIGN_CONTEXT}}` convention: every caller composing an edit-set (from a
+plan) passes it when `$WORKTREE/.flow-tmp/excluded-paths.json` exists and
+is non-empty (verbatim `cat`), with the same prose-bullet fallback as
+`/new-feature`'s scout spawn (quote plan.md's `## Alternatives considered`
+bullets when the JSON is absent or malformed but the section is non-empty).
+Omit the block entirely — both label lines and the placeholder — when
+neither source exists, so a plan-less or alternatives-free invocation sees
+a byte-identical spawn prompt. **Consumption:** when an edit-set entry's
+`intent` would naturally lead toward a shape this block names as excluded,
+do NOT implement that shape — record it in `rejected_alternatives` instead
+(`considered_approach` = the excluded shape, `why_rejected` = the quoted
+reason) and implement the non-excluded alternative.
 
 ```
 You are the Independent Edit-Applier Subagent for `/coder`. You run in an
@@ -248,6 +262,10 @@ Edit-set (verbatim, JSON-shaped):
 Design context (REQUIRED reading before the first UI edit; this block is
 omitted entirely when the caller passed none):
   {{DESIGN_CONTEXT}}
+
+Excluded paths (closed alternatives this edit-set must never re-propose;
+omitted entirely when the caller passed none):
+  {{EXCLUDED_PATHS}}
 
 Working directory (cd here before reading any project files):
   {{WORKTREE}}

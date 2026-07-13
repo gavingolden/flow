@@ -156,8 +156,8 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 Fill in the `{{...}}` placeholders before passing to the Task tool. The
 `{{OUTPUT_PATHS}}` block is **mode-dependent** — substitute the feature-mode
 text by default, the epic-mode text under `MODE: epic` (both shown after the
-template). The `{{RESEARCH_OVERRIDE}}` and `{{REVISION_OVERRIDE}}` blocks are
-both **omit-when-absent** (shown after the template). The other placeholders
+template). The `{{RESEARCH_OVERRIDE}}`, `{{REVISION_OVERRIDE}}`, and `{{EPIC_OVERRIDE}}`
+blocks are all **omit-when-absent** (shown after the template). The other placeholders
 (`{{INSTRUCTIONS_PATH}}`, `{{USER_DESCRIPTION}}`, `{{WORKTREE}}`,
 `{{SKILL_DIR}}`) are mode-independent:
 
@@ -172,6 +172,7 @@ User feature description (verbatim):
   {{USER_DESCRIPTION}}
 {{RESEARCH_OVERRIDE}}
 {{REVISION_OVERRIDE}}
+{{EPIC_OVERRIDE}}
 Working directory (cd here before reading any project files):
   {{WORKTREE}}
 
@@ -270,6 +271,30 @@ When the caller passed **no** marker, substitute the **empty string** — omit
 the block entirely (consistent with `{{RESEARCH_OVERRIDE}}` and the
 mode-dependent blocks above). This passthrough rides the existing single
 discovery Task call; it adds **no** new Task-tool spawn and **no** new exemption.
+
+### `{{EPIC_OVERRIDE}}` — optional epic-membership passthrough
+
+`/flow-pipeline` step 3's "Epic-membership threading" sub-step reads
+`~/.flow/state/<slug>.json`'s `epic` field, which the discovery subagent
+cannot see directly — so this block is the only way the deterministic
+`EPIC:` marker reaches it. When the caller passed an `EPIC: <slug>/<id>
+(design at .flow/epics/<slug>/design.md)` marker, substitute this block
+verbatim for `{{EPIC_OVERRIDE}}`:
+
+```
+EPIC: <slug>/<id> (design at .flow/epics/<slug>/design.md)
+  This feature was launched from an epic. Run discovery-instructions.md step
+  1.7 "Epic-membership detection": treat this marker as the PRIMARY detection
+  signal (the description pointer and manifest scan are fallbacks), read the
+  named `design.md` and `manifest.json`, and author the `## Epic context` PRD
+  section with every claim traceable to those two files.
+```
+
+When the caller passed **no** marker, substitute the **empty string** — omit
+the block entirely (consistent with `{{RESEARCH_OVERRIDE}}` and
+`{{REVISION_OVERRIDE}}` above). This passthrough rides the existing single
+discovery Task call; it adds **no** new Task-tool spawn and **no** new
+exemption.
 
 # Constraints
 

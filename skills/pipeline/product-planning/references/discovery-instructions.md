@@ -219,6 +219,33 @@ When the gate fires:
 
 Discovery stays no-code throughout: this pre-pass writes only the `.flow-tmp/design/` drafts (plus the PRD section); committing the repo-wide foundation into the PR diff is `/new-feature` Step 5's job.
 
+## 1.7. Epic-membership detection
+
+**Gate: run on every discovery pass.** Determine whether this feature belongs to an
+epic, using this precedence — stop at the first layer that resolves:
+
+1. **`EPIC: <slug>/<featureId>` marker (primary).** When the spawn prompt carries an
+   `EPIC:` line (threaded by `/flow-pipeline` step 3 from `~/.flow/state/<slug>.json`'s
+   `epic` field, forwarded by the `{{EPIC_OVERRIDE}}` block in `product-planning/SKILL.md`),
+   it is the deterministic signal: parse `<slug>` and `<featureId>` from the marker.
+2. **Description pointer (fallback).** When no marker is present, scan the verbatim
+   feature description for the epic-designer-authored pointer sentence:
+   ``Part of epic `<slug>` (feature `<id>`) — design at `.flow/epics/<slug>/design.md`.``
+3. **Manifest scan (fallback).** When neither of the above resolves, scan
+   `.flow/epics/*/manifest.json` for a `features[]` entry whose `description` matches the
+   verbatim feature description (preferred) or whose id, slugified, matches the worktree
+   slug (worktree slugs may be truncated or collision-suffixed, so description-match wins
+   on conflict).
+
+When none of the three layers resolves, the feature is not epic-launched — proceed to
+step 2 with `## Epic context` omitted.
+
+**Source-traceability rule (MUST).** Whichever layer detected membership, you MUST read
+the epic's `.flow/epics/<slug>/design.md` and `.flow/epics/<slug>/manifest.json` before
+authoring `## Epic context` (step 5). Every claim in that section — the feature's
+rationale, its `dependsOn` edges, its downstream dependents — must be traceable to those
+two files; never infer epic context from the slug or the pointer sentence alone.
+
 ## 2. Scope Check
 
 After loading context, decide whether the idea warrants a full PRD. Not every feature
@@ -283,6 +310,7 @@ Categories worth examining (use them as a checklist, not a question list):
 | **Edge cases**            | What happens when X is empty? How should errors display? Framing lenses: **inversion** (what would make this actively harmful or useless?) and **second-order effects** (what does the first-order fix break downstream?) — see discovery-playbook.md, internal-only.                                                                                                                                                                                                                            |
 | **Trade-offs**            | Would a simplification be acceptable for v1? If the request is framed as a binary A-or-B choice, is there a middle-ground option? When a trade-off hinges on a consequential decision whose branches genuinely diverge, simulate it in the "Decision analysis" sub-section (step 5).                                                                                                                                                                                                             |
 | **Necessity**             | Is this request necessary at all? Could doing nothing, or an existing capability the user has overlooked, serve them just as well? Treat "reject — do nothing" as a legitimate verdict to weigh, not a non-answer; the user invited the feature, but inviting it is not the same as needing it. Framing lens: **first-principles** — strip inherited constraints to what is necessarily true (see discovery-playbook.md, internal-only).                                                         |
+| **Premise check**         | Is the request's stated factual premise verified against the codebase? A failed premise surfaces as a `**Premise check:**` line in the Problem Statement (step 5) and forces a non-`Proceed` `## Recommendation` verdict; omit-when-sound — no line is written when the stated premise holds.                                                                                                                                                                                                    |
 | **Options & exclusivity** | What other options exist beyond the literal request? Of the adjacent features, which are **complementary** (pair well, increase the request's value) and which are **mutually exclusive** — cannot coexist with the request, or conflict with each other, so the user must pick one path? Name both kinds, not just the complementary ones. The exclusive-vs-complementary marking and ranked combinations feed the "Decision analysis" sub-section (step 5) when the decision is consequential. |
 | **Existing patterns**     | Is this similar to an existing feature? Follow the same pattern unless there's a reason to deviate.                                                                                                                                                                                                                                                                                                                                                                                              |
 
@@ -333,19 +361,49 @@ pattern applies.
 Synthesize into a structured PRD using `<SKILL_DIR>/templates/prd-template.md` as the
 format. Sections:
 
-- **Problem Statement** — what problem this solves and why it matters (not solution language).
+**Authoring style.** Prefer structured markdown — tables and nested lists — over prose
+paragraphs unless prose is genuinely warranted; flow-shaped content (system/user flows,
+before → after comparisons) is never rendered as an arrow-paragraph. Mermaid diagrams are
+at the planner's discretion (the pre-run research findings carry no evidence on mermaid's
+effect on model comprehension either way) — never required.
+
+- **Goal line** — a single `**Goal:** <one sentence>` line directly under the PRD's
+  feature-title `#` heading, before `## Problem Statement`. One sentence, ≤30 words,
+  outcome-phrased — names the observable result, not the mechanism. A vacuous
+  restatement of the title or the request ("implement the feature described below")
+  violates the contract: brevity is a contract requirement, not a style preference.
+  Always present — no omit-when-empty carve-out. See the "Goal line" sub-section below.
+- **Problem Statement** — what problem this solves and why it matters (not solution
+  language). When step 3's premise check fails, open with a `**Premise check:**` line
+  naming what was assumed vs. what the codebase shows, and set `## Recommendation` to a
+  non-`Proceed` verdict; omit-when-sound (no line when the stated premise holds).
+- **Epic context** (omit-when-empty) — only when step 1.7 detects epic membership: the
+  epic slug, this feature's id and rationale, its `dependsOn` edges with produced/consumed
+  artifacts, and its downstream dependents. See the "Epic context" sub-section below.
 - **Scope Boundary** — what's in and what's explicitly out.
+- **Behavioral contrast** — `### User flow` and `### System flow` before → after
+  subsections (explicit `none` affirmation allowed), closing with a one-line `**Lost:**`
+  affirmation. See the "Behavioral contrast" sub-section below for the full contract.
 - **User Stories / Acceptance Criteria** — testable criteria as "Given/When/Then". Each acceptance criterion must name an externally-failable check — something that can fail without a human looking at it: `a test that runs`, `a file in the expected shape`, or `a command exit code`. "It looks right" is not a check — a criterion a machine cannot falsify provides no regression signal and degrades into manual prose at the `## Test Steps` gate (step 7). This is a strong default, not an absolute MUST: it defers to the genuinely-manual carve-out one stage downstream (subjective UX, cross-browser rendering, performance-under-load criteria are legitimately human-judgment and cannot name an exit code — see the manual-prose carve-out in step 7's automation test), so do not force an author to fake an exit-code check for an irreducibly subjective item.
 - **Visual Spec** (omit-when-empty) — only when the step 1.6 design-artifact gate fired: per-surface element-level assertion bullets, each tagged with its `spec.json` assertion id and `mechanical`/`judged` tier, placed immediately after User Stories / Acceptance Criteria. See the "Visual Spec" sub-section below for the full contract; omit the heading entirely otherwise.
 - **Layout Intent** (omit-when-empty) — only when the plan touches UI: per-surface structural layout the user ratifies at plan-pending-review (see the `### Layout Intent` sub-section below). Omit the heading entirely for non-UI plans.
 - **Architecture Decisions** — from the checkpoint above.
-- **Technical Constraints** — framework, security, performance needs.
-- **Open Questions** — every assumption you made plus anything still unresolved.
+- **Technical Constraints** — every bullet binding and source-traceable (a named file,
+  rule, or research finding); ambient repo-convention restatements are banned unless the
+  plan turns on them; an explicit `none beyond repo-wide conventions` affirmation is
+  allowed; a named performance/cost-implications category (latency, token spend, CI time)
+  is emitted only when the change plausibly moves one.
+- **Open Questions** — every assumption you made plus anything still unresolved. Each
+  entry must name what changes on redirect — a question whose every answer leaves the
+  plan unchanged is deleted, not written (earns-its-place rule).
 - **Decision analysis** (omit-when-empty) — for each _consequential_ open decision whose
   branches genuinely diverge, illustrate each branch's downstream end-user/system flow, mark
   exclusive vs complementary, enumerate + rank the viable combinations, and give a verdict that
   feeds the Recommendation; omit the heading entirely when no such decision exists. See the
   "Decision analysis" sub-section below for the full contract.
+- **Alternatives considered** (omit-when-empty) — ≤3 one-line entries recording paths
+  discovery closed, each rejection reason concrete and verifiable; omit the heading
+  entirely when no path was closed. See the "Alternatives considered" sub-section below.
 - **Recommendation** — a single clear recommendation; see the "Recommendation"
   sub-section below for the verdict enum and one-line-rationale contract.
 - **Plan risks** — an always-present single line naming the plan's single weakest
@@ -492,6 +550,66 @@ The diagram is topology-only, not proportion — box sizes carry no meaning abou
 
 **Forward pointer.** The section is ratified by the user at `plan-pending-review` and threaded verbatim into `/coder` edit-sets via the `DESIGN_CONTEXT` block (fenced ASCII diagrams stripped), so the implementer treats it as a constraint it cannot silently drop.
 
+### Goal line
+
+A single `**Goal:** <one sentence>` line, placed directly under the PRD's feature-title
+`#` heading (before `## Problem Statement`). One sentence, ≤30 words, outcome-phrased —
+names the observable result, not the mechanism (e.g. "scoped access requested via a
+magic link" rather than "implement magic-link auth"). A vacuous restatement of the title
+or the request ("implement the feature described below") violates the contract: brevity
+is a contract requirement, not a style preference. Always present — no
+omit-when-empty carve-out, unlike the sections below it.
+
+### Behavioral contrast
+
+Always present — two subsections showing the observable delta:
+
+- `### User flow` — a `Before | After` table (or, when there is no user-facing surface,
+  explicit `none`) naming what a user experiences differently.
+- `### System flow` — a short before → after nested list (or explicit `none`) narrating
+  the delta at the system/consumer level.
+
+Closes with a single `**Lost:**` line naming what a user or downstream consumer gives
+up — explicit `none` is allowed but legitimate ONLY on genuinely additive changes: when
+the diff removes, replaces, or deprecates anything, the `**Lost:**` line must name it
+(anti-rubber-stamp guard). Never render this section as an arrow-paragraph — see the
+structured-markdown authoring-style paragraph above.
+
+### Alternatives considered
+
+Omit-when-empty: when discovery closed zero plausible paths, omit the
+`## Alternatives considered` heading entirely — same discipline as `## Decision analysis`
+below. When ≥1 path was closed, ≤3 one-line entries of the form:
+
+```markdown
+- **<alternative>** — rejected: <why>
+```
+
+Each rejection reason must be concrete and verifiable — a named constraint or a
+`file:line` pointer, not a vibe ("too complex" is not a reason; "breaks the `# PRD`
+first-heading anchor `flow-research-note` inserts under, see step 8" is). This section
+records CLOSED paths (a decision already made); `## Decision analysis` records OPEN
+forks (a decision still being simulated) — a path belongs in exactly one of the two,
+never both. Consumed downstream by the scout's `## anti_patterns` (a closed path is
+never re-proposed) and by `/pr-review`'s `## Foreclosed Paths`.
+
+Whenever this section is non-empty, ALSO write a sibling `.flow-tmp/excluded-paths.json`
+(next to `plan.md`, created with the same `mkdir -p .flow-tmp` step 8 uses) mirroring
+each bullet: `{"version": 1, "excluded": [{"id": "<kebab-slug>", "path": "<the rejected
+approach, one line>", "reason": "<the same concrete, verifiable reason>"}]}`, one entry
+per prose bullet. Omit the JSON file entirely when the section is absent. A revision
+pass rewrites both together, in lockstep with the plan.
+
+### Epic context
+
+Populated only when step 1.7 detects epic membership (omit-when-empty — same
+never-an-empty-heading discipline as the sections above). Names: the epic slug, this
+feature's id and its rationale within the epic, its `dependsOn` edges (naming the
+produced/consumed artifact for each), and its downstream dependents whose consumed
+interfaces must stay stable. **Source-traceability rule:** every claim here MUST be
+traceable to `design.md` and `manifest.json` — read both on detection (step 1.7); never
+infer epic context from the slug or the pointer sentence alone.
+
 ### Decision analysis
 
 When discovery surfaces one or more **consequential** open decisions whose branches genuinely
@@ -548,6 +666,14 @@ When the verdict is anything other than `Proceed`, the rationale should referenc
 relevant Open Question so the user can redirect at the next `plan-pending-review`
 checkpoint. The recommendation is advisory — the user always has the final say at the
 approval gate.
+
+**Worth-pursuing verdict stated explicitly.** The verdict IS the "is this worth
+pursuing?" answer — state it explicitly as one of the four enum values above rather than
+leaving it implied by silence or by the absence of a `Reject` verdict; a `## Recommendation`
+that does not commit to one of the four fails the contract. **When step 3's premise check
+fails, the verdict here MUST NOT be `Proceed`** — pick `Reconsider scope`, `Defer`, or
+`Reject — do nothing`, and reference the Problem Statement's `**Premise check:**` line in
+the rationale.
 
 ### Plan risks
 
@@ -1063,6 +1189,21 @@ Common failure modes during planning:
 - `# Candidate follow-up issues` section is omitted from `plan.md` when discovery
   surfaced no orthogonal ideas; populated as one or more `- [ ]` items otherwise
   (never written as an empty heading).
+- The PRD opens with a one-line `**Goal:**` directly under the title (never omitted).
+- `## Behavioral contrast` is present with `### User flow` / `### System flow` and
+  closes with a `**Lost:**` line (`none` only on genuinely additive changes).
+- `## Alternatives considered` is either omitted (no closed paths) or ≤3 one-line
+  entries with a concrete, verifiable rejection reason each; when present, a sibling
+  `.flow-tmp/excluded-paths.json` mirrors it 1:1.
+- `## Epic context` is either omitted (not epic-launched) or every claim in it traces
+  to a `design.md` / `manifest.json` read from step 1.7.
+- A failed premise check surfaces as a `**Premise check:**` line in the Problem
+  Statement and the `## Recommendation` verdict is non-`Proceed`; a sound premise
+  carries no line.
+- **Self-check before returning:** run `flow-plan-lint --plan-md-file <the plan.md path>`
+  by bare PATH name and fix every named miss. Tolerant: when the helper is missing
+  from PATH, the check skips silently (same research-cache discipline as Step 1.5) —
+  never block on it.
 
 # Constraints
 

@@ -90,6 +90,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-classify-step",
       "flow-step3-route",
       "flow-candidate-issues",
+      "flow-plan-lint",
       "flow-create-issue",
       "flow-followups",
       "flow-foreclosed-paths",

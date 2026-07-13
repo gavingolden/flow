@@ -1276,7 +1276,7 @@ Options:
     return 2;
   }
 
-  const lr = launchFeature(feature, { spawn: options.spawn });
+  const lr = launchFeature(feature, { spawn: options.spawn, epicSlug });
   if (!lr.ok) {
     // Write nothing on failure — the binding is only recorded once the pipeline
     // actually exists (acceptance scenario 3: a launch never loses its binding).

@@ -23,19 +23,66 @@ import { slugify } from "./slug";
 import { FLOW_SESSION } from "./tmux";
 
 /**
- * Pure: the `flow feature create` argv for a feature.
- * `["feature", "create", <description>, ...flags, "--slug", slugify(id)]`.
+ * The epic-designer authoring rule (epic-discovery-instructions.md §4c) asks
+ * every manifest feature description to end with this pointer sentence, but a
+ * hand-edited or legacy manifest can still lack it. Auto-appending here makes
+ * the pointer a deterministic guarantee of the launch path rather than a
+ * convention that can silently lapse — the designer-authored copy stays for
+ * design.md/manifest.json human readability.
+ */
+function withEpicPointer(
+  description: string,
+  epicSlug: string,
+  featureId: string,
+): string {
+  const pointer = `Part of epic \`${epicSlug}\` (feature \`${featureId}\`) — design at \`.flow/epics/${epicSlug}/design.md\`.`;
+  // Match ONLY this epic/feature's exact pointer sentence, not any loose
+  // "Part of epic" substring — a description mentioning a DIFFERENT epic (or
+  // prose that happens to contain that phrase) must still get this feature's
+  // pointer appended, not be skipped.
+  if (description.includes(pointer)) return description;
+  return `${description.trimEnd()}\n\n${pointer}`;
+}
+
+/**
+ * Pure: the `flow feature create` argv for a feature launched from an epic.
+ * `["feature", "create", <description>, ...flags, "--epic", "<epicSlug>/<id>", "--slug", slugify(id)]`.
  * `flowNewHints` mapping: `autoMerge === false` → `--no-auto-merge` (absent or
  * `true` ⇒ no flag, since auto-merge is the default); `copilotReview` →
- * `--copilot-review <value>`; `effort` → `--effort <value>`. A trailing
- * `--slug slugify(feature.id)` always pins the slug to the unique DAG-node id.
+ * `--copilot-review <value>`; `effort` → `--effort <value>`. `--epic
+ * <epicSlug>/<feature.id>` threads deterministic epic membership into pipeline
+ * state (see `bin/lib/feature.ts`'s `--epic` parse); it is pushed before
+ * `--slug`. A trailing `--slug slugify(feature.id)` always pins the slug to
+ * the unique DAG-node id.
  */
-export function buildFeatureCreateArgs(feature: Feature): string[] {
-  const args = ["feature", "create", feature.description];
+export function buildFeatureCreateArgs(
+  feature: Feature,
+  epicSlug: string,
+): string[] {
+  const description = withEpicPointer(
+    feature.description,
+    epicSlug,
+    feature.id,
+  );
+  const args = ["feature", "create", description];
   const hints = feature.flowNewHints ?? {};
   if (hints.autoMerge === false) args.push("--no-auto-merge");
   if (hints.copilotReview) args.push("--copilot-review", hints.copilotReview);
   if (hints.effort) args.push("--effort", hints.effort);
+  // feature.ts's `--epic` parse splits on exactly one `/`, so a raw
+  // feature.id containing a `/` would corrupt that split. Downstream
+  // reconciliation (`flow epic bind`/`flow epic launch`) matches manifest
+  // features by the RAW `feature.id`, so the `--epic` id half must stay the
+  // raw id — slugifying it here would silently break that match instead.
+  // Fail fast instead, since epic-manifest-schema is expected to enforce
+  // kebab-case ids upstream and a `/` slipping through indicates a schema
+  // gap, not a case to paper over.
+  if (feature.id.includes("/")) {
+    throw new Error(
+      `epic-launch: feature id '${feature.id}' contains '/', which corrupts the '--epic <epicSlug>/<id>' parse`,
+    );
+  }
+  args.push("--epic", `${epicSlug}/${feature.id}`);
   // A DAG-node id is unique within a manifest, so an id-derived slug is
   // collision-free by construction — pass it explicitly to skip the
   // description-derived slug (whose token cap can collide across sibling ids).
@@ -91,10 +138,10 @@ function parseMintedSlug(stdout: string): string | null {
  */
 export function launchFeature(
   feature: Feature,
-  opts: { spawn?: SpawnFn } = {},
+  opts: { spawn?: SpawnFn; epicSlug: string },
 ): LaunchResult {
   const spawn = opts.spawn ?? defaultSpawn;
-  const args = buildFeatureCreateArgs(feature);
+  const args = buildFeatureCreateArgs(feature, opts.epicSlug);
   const r = spawn("flow", args);
   if (r.status !== 0) {
     const detail = (r.stderr || r.stdout || "").trim();
