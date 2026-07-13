@@ -198,6 +198,86 @@ describe("buildFeatureCreateArgs", () => {
       expect(args[2].match(/Part of epic/g)).toHaveLength(1);
     });
   });
+
+  // --- launch-time overrides (flow epic launch --model/--effort) ----------
+
+  it("overrides.effort replaces hint effort — emits exactly one --effort", () => {
+    expect(
+      buildFeatureCreateArgs(
+        feat({ flowNewHints: { effort: "high" } }),
+        EPIC_SLUG,
+        { effort: "low" },
+      ),
+    ).toEqual([
+      "feature",
+      "create",
+      DESCRIPTION_WITH_POINTER,
+      "--effort",
+      "low",
+      "--epic",
+      "my-epic/schema",
+      "--slug",
+      "schema",
+    ]);
+  });
+
+  it("overrides.model appends --model (no manifest hint equivalent)", () => {
+    expect(
+      buildFeatureCreateArgs(feat(), EPIC_SLUG, { model: "opus" }),
+    ).toEqual([
+      "feature",
+      "create",
+      DESCRIPTION_WITH_POINTER,
+      "--model",
+      "opus",
+      "--epic",
+      "my-epic/schema",
+      "--slug",
+      "schema",
+    ]);
+  });
+
+  it("combined overrides.effort + overrides.model both reach the argv", () => {
+    expect(
+      buildFeatureCreateArgs(
+        feat({ flowNewHints: { autoMerge: false } }),
+        EPIC_SLUG,
+        { model: "fable", effort: "xhigh" },
+      ),
+    ).toEqual([
+      "feature",
+      "create",
+      DESCRIPTION_WITH_POINTER,
+      "--no-auto-merge",
+      "--effort",
+      "xhigh",
+      "--model",
+      "fable",
+      "--epic",
+      "my-epic/schema",
+      "--slug",
+      "schema",
+    ]);
+  });
+
+  it("no overrides === current behavior (hint effort still emitted)", () => {
+    expect(
+      buildFeatureCreateArgs(
+        feat({ flowNewHints: { effort: "high" } }),
+        EPIC_SLUG,
+      ),
+    ).toEqual([
+      "feature",
+      "create",
+      DESCRIPTION_WITH_POINTER,
+      "--effort",
+      "high",
+      "--epic",
+      "my-epic/schema",
+      "--slug",
+      "schema",
+    ]);
+  });
 });
 
 describe("launchFeature", () => {
@@ -254,5 +334,28 @@ describe("launchFeature", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toMatch(/ENOENT/);
+  });
+
+  it("threads opts.overrides into the spawned argv, --slug still last", () => {
+    const spawn = vi.fn<SpawnFn>(() => ok("flow:watchlist-schema-2\n"));
+    const result = launchFeature(feat(), {
+      spawn,
+      epicSlug: EPIC_SLUG,
+      overrides: { model: "opus", effort: "low" },
+    });
+    expect(result).toEqual({ ok: true, slug: "watchlist-schema-2" });
+    expect(spawn).toHaveBeenCalledWith("flow", [
+      "feature",
+      "create",
+      DESCRIPTION_WITH_POINTER,
+      "--effort",
+      "low",
+      "--model",
+      "opus",
+      "--epic",
+      "my-epic/schema",
+      "--slug",
+      "schema",
+    ]);
   });
 });

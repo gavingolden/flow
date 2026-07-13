@@ -87,7 +87,11 @@ import {
   classifyEvent,
   type ReadFeatureState,
 } from "./epic-reconcile";
-import { launchFeature, type SpawnFn } from "./epic-launch";
+import {
+  launchFeature,
+  type SpawnFn,
+  type LaunchOverrides,
+} from "./epic-launch";
 import {
   readEpicRunState,
   writeEpicRunState,
@@ -260,6 +264,42 @@ export function runEpicCli(args: string[], options: EpicOptions = {}): number {
   }
 }
 
+/**
+ * Shared enum-value-flag parser for `--effort`/`--model`/`--model-planning`
+ * (epic-create) and `--model`/`--effort` (epic-launch overrides). Owns the
+ * missing-value guard, the enum check, and the two-line error message shape
+ * (`flow epic <verb>: <flag> requires a value.` / `flow epic <verb>: invalid
+ * <flag> value '<v>'.`, each followed by `  expected one of: <expected>`) —
+ * the exact shape epic-create's original inline blocks printed. Returns the
+ * flag's `flagIndex` (the position of the flag token itself, so a caller can
+ * strip BOTH the flag and its value token by index) alongside the parsed
+ * `value`; a flag that is absent from `rest` returns `{}`; a missing/invalid
+ * value prints the error and returns `{ error: true }` — the caller must
+ * exit 2 before any side effect (manifest load, spawn, state write).
+ */
+function parseEnumValueFlag<T extends string>(
+  rest: string[],
+  flag: string,
+  allowed: readonly T[],
+  verb: string,
+  expected: string,
+): { value?: T; valueToken?: string; flagIndex?: number; error?: true } {
+  const idx = rest.indexOf(flag);
+  if (idx < 0) return {};
+  const value = rest[idx + 1];
+  if (value === undefined || value.startsWith("--")) {
+    console.error(`flow epic ${verb}: ${flag} requires a value.`);
+    console.error(`  expected one of: ${expected}`);
+    return { error: true };
+  }
+  if (!(allowed as readonly string[]).includes(value)) {
+    console.error(`flow epic ${verb}: invalid ${flag} value '${value}'.`);
+    console.error(`  expected one of: ${expected}`);
+    return { error: true };
+  }
+  return { value: value as T, valueToken: value, flagIndex: idx };
+}
+
 function runCreate(rest: string[], options: EpicOptions): number {
   if (argsContainHelp(rest)) {
     console.log(`flow epic create — design an epic
@@ -297,66 +337,42 @@ PR → review checkpoint), and writes initial epic state under
   // + enum-validate BEFORE the prompt is built, so an invalid value exits with
   // epic's usage-error code (2 — NOT new's 1) and triggers no side-effect. The
   // flag + its value token are both stripped from `rest` before the join.
-  let effort: EffortLevel | undefined;
-  const effortIdx = rest.indexOf("--effort");
-  if (effortIdx >= 0) {
-    const value = rest[effortIdx + 1];
-    if (value === undefined || value.startsWith("--")) {
-      console.error("flow epic create: --effort requires a value.");
-      console.error("  expected one of: low, medium, high, xhigh, max");
-      return 2;
-    }
-    if (!(EFFORT_LEVELS as readonly string[]).includes(value)) {
-      console.error(`flow epic create: invalid --effort value '${value}'.`);
-      console.error("  expected one of: low, medium, high, xhigh, max");
-      return 2;
-    }
-    effort = value as EffortLevel;
-  }
-  const effortValueToken = effortIdx >= 0 ? rest[effortIdx + 1] : undefined;
+  const effortResult = parseEnumValueFlag(
+    rest,
+    "--effort",
+    EFFORT_LEVELS,
+    "create",
+    "low, medium, high, xhigh, max",
+  );
+  if (effortResult.error) return 2;
+  const effort = effortResult.value;
+  const effortValueToken = effortResult.valueToken;
 
-  let model: ModelAlias | undefined;
-  const modelIdx = rest.indexOf("--model");
-  if (modelIdx >= 0) {
-    const value = rest[modelIdx + 1];
-    if (value === undefined || value.startsWith("--")) {
-      console.error("flow epic create: --model requires a value.");
-      console.error("  expected one of: opus, haiku, sonnet, fable");
-      return 2;
-    }
-    if (!(MODEL_ALIASES as readonly string[]).includes(value)) {
-      console.error(`flow epic create: invalid --model value '${value}'.`);
-      console.error("  expected one of: opus, haiku, sonnet, fable");
-      return 2;
-    }
-    model = value as ModelAlias;
-  }
-  const modelValueToken = modelIdx >= 0 ? rest[modelIdx + 1] : undefined;
+  const modelResult = parseEnumValueFlag(
+    rest,
+    "--model",
+    MODEL_ALIASES,
+    "create",
+    "opus, haiku, sonnet, fable",
+  );
+  if (modelResult.error) return 2;
+  const model = modelResult.value;
+  const modelValueToken = modelResult.valueToken;
 
   // --model-planning is the epic-create per-phase override. The epic DESIGN
   // phase and the feature PLANNING phase share ONE flag/field (the shared
   // `modelPlanning` PipelineState field from Task 1) — there is no separate
   // --model-design. Same enum-before-side-effect + exit-2 contract as --model.
-  let modelPlanning: ModelAlias | undefined;
-  const modelPlanningIdx = rest.indexOf("--model-planning");
-  if (modelPlanningIdx >= 0) {
-    const value = rest[modelPlanningIdx + 1];
-    if (value === undefined || value.startsWith("--")) {
-      console.error("flow epic create: --model-planning requires a value.");
-      console.error("  expected one of: opus, haiku, sonnet, fable");
-      return 2;
-    }
-    if (!(MODEL_ALIASES as readonly string[]).includes(value)) {
-      console.error(
-        `flow epic create: invalid --model-planning value '${value}'.`,
-      );
-      console.error("  expected one of: opus, haiku, sonnet, fable");
-      return 2;
-    }
-    modelPlanning = value as ModelAlias;
-  }
-  const modelPlanningValueToken =
-    modelPlanningIdx >= 0 ? rest[modelPlanningIdx + 1] : undefined;
+  const modelPlanningResult = parseEnumValueFlag(
+    rest,
+    "--model-planning",
+    MODEL_ALIASES,
+    "create",
+    "opus, haiku, sonnet, fable",
+  );
+  if (modelPlanningResult.error) return 2;
+  const modelPlanning = modelPlanningResult.value;
+  const modelPlanningValueToken = modelPlanningResult.valueToken;
 
   let skipNext = false;
   const promptTokens = rest.filter((a) => {
@@ -640,17 +656,25 @@ type RunArgs = {
    * `flow feature create --model`). Threaded into `createCommand` at launch.
    */
   model?: ModelAlias;
+  /**
+   * `--effort <level>` — the epic-run supervisor session reasoning effort
+   * (parity with `flow feature create --effort`). Threaded into
+   * `createCommand` at launch.
+   */
+  effort?: EffortLevel;
   error?: string;
 };
 
 /**
- * Parse `<slug>` + `--model <alias>` from the run arm's args. Every loop-era
- * flag (`--once`, `--json`, `--no-judgment`, `--no-auto-redirect`,
- * `--max-parallel`, `--model-judge`) is gone — an unknown option is a usage
- * error (exit 2). Exported so a unit test can assert the flag parse directly.
+ * Parse `<slug>` + `--model <alias>` + `--effort <level>` from the run arm's
+ * args. Every loop-era flag (`--once`, `--json`, `--no-judgment`,
+ * `--no-auto-redirect`, `--max-parallel`, `--model-judge`) is gone — an
+ * unknown option is a usage error (exit 2). Exported so a unit test can
+ * assert the flag parse directly.
  */
 export function parseRunArgs(rest: string[]): RunArgs {
   let model: ModelAlias | undefined;
+  let effort: EffortLevel | undefined;
   const positionals: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
@@ -669,12 +693,27 @@ export function parseRunArgs(rest: string[]): RunArgs {
       i++;
       continue;
     }
+    if (a === "--effort") {
+      const v = rest[i + 1];
+      if (v === undefined || v.startsWith("-")) {
+        return { slug: "", error: `${a} requires a value` };
+      }
+      if (!(EFFORT_LEVELS as readonly string[]).includes(v)) {
+        return {
+          slug: "",
+          error: `invalid ${a} value '${v}' (expected one of: low, medium, high, xhigh, max)`,
+        };
+      }
+      effort = v as EffortLevel;
+      i++;
+      continue;
+    }
     if (a.startsWith("-")) {
       return { slug: "", error: `unknown option '${a}'` };
     }
     positionals.push(a);
   }
-  return { slug: positionals.join(" ").trim(), model };
+  return { slug: positionals.join(" ").trim(), model, effort };
 }
 
 /**
@@ -718,7 +757,8 @@ function loadCommittedManifest(
   };
 }
 
-const RUN_USAGE = "usage: flow epic run <slug> [--model <alias>]";
+const RUN_USAGE =
+  "usage: flow epic run <slug> [--model <alias>] [--effort <level>]";
 
 function runEpicRun(rest: string[], options: EpicOptions): number {
   const parsed = parseRunArgs(rest);
@@ -762,7 +802,13 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
   // the usage error before any window is spawned. Then open the /epic-run
   // playbook window — that is the only run path now (the deterministic tick
   // loop + judgment machinery are gone).
-  return spawnEpicRunSupervisor(slug, repo, options, parsed.model);
+  return spawnEpicRunSupervisor(
+    slug,
+    repo,
+    options,
+    parsed.model,
+    parsed.effort,
+  );
 }
 
 /**
@@ -779,6 +825,7 @@ function spawnEpicRunSupervisor(
   repo: string,
   options: EpicOptions,
   runModel?: ModelAlias,
+  runEffort?: EffortLevel,
 ): number {
   if (windowExists(slug)) {
     console.error(
@@ -798,7 +845,8 @@ function spawnEpicRunSupervisor(
   // the verified-launch argv through the shared builder. The supervisor session
   // model is `--model > config.models.default > inherited` (parity with
   // `flow feature create` / `flow epic create`); absent both, no --model reaches
-  // claude. `--effort` has no epic-run flag surface (defaults undefined).
+  // claude. `--effort <level>` threads straight from the CLI flag — unlike
+  // model, effort has no `config.models.default`-style config fallback.
   const settingsPath = launchSettingsPathFor(options);
   for (const w of collectModelConfigWarnings(options.readConfig)) {
     console.error(dim(`flow epic run: ${w}`));
@@ -806,7 +854,7 @@ function spawnEpicRunSupervisor(
   const runSessionModel = runModel ?? readDefaultModel(options.readConfig);
   const command =
     options.command ??
-    createCommand(worktree, options.effort, settingsPath, runSessionModel);
+    createCommand(worktree, runEffort, settingsPath, runSessionModel);
 
   // No run.json pre-seed and no `runnerPhase` reset — the default never-consumed
   // predicate (`createWindowVerified` with no `consumed`) verifies pane survival
@@ -1219,12 +1267,15 @@ Options:
   return 0;
 }
 
+const LAUNCH_USAGE =
+  "usage: flow epic launch <epic-slug> <feature-id> [--model <alias>] [--effort <level>] [--force]";
+
 function runEpicLaunch(rest: string[], options: EpicOptions): number {
   if (argsContainHelp(rest)) {
     console.log(`flow epic launch — atomically create + bind a feature
 
 Usage:
-  flow epic launch <epic-slug> <feature-id> [--force]
+  flow epic launch <epic-slug> <feature-id> [--model <opus|haiku|sonnet|fable>] [--effort <low|medium|high|xhigh|max>] [--force]
 
 Reads the committed manifest, resolves the feature node, spawns
 \`flow feature create\` for it, and records the minted slug in run.json before
@@ -1232,18 +1283,59 @@ exiting — so a launch can never half-succeed into a lost binding. Refuses when
 the feature is already bound (or recorded external) without --force.
 
 Options:
+  --model <opus|haiku|sonnet|fable>
+                        per-launch model override — wins over the manifest's
+                        flowNewHints for this one launch (never mutates the
+                        committed manifest)
+  --effort <low|medium|high|xhigh|max>
+                        per-launch reasoning-effort override — wins over the
+                        manifest's flowNewHints for this one launch
   --force               relaunch even when the feature is already bound`);
     return 0;
   }
 
+  // --model / --effort are launch-time overrides (parity with epic-create's
+  // value-flag parsing). Parsed + stripped BY INDEX (never by string-value
+  // match) before positionals are computed, so a positional that happens to
+  // equal a flag's value (an epic literally slugged 'opus', a feature id
+  // 'low') is never corrupted.
+  const modelResult = parseEnumValueFlag(
+    rest,
+    "--model",
+    MODEL_ALIASES,
+    "launch",
+    "opus, haiku, sonnet, fable",
+  );
+  if (modelResult.error) return 2;
+  const effortResult = parseEnumValueFlag(
+    rest,
+    "--effort",
+    EFFORT_LEVELS,
+    "launch",
+    "low, medium, high, xhigh, max",
+  );
+  if (effortResult.error) return 2;
+
+  const consumedIndices = new Set<number>();
+  if (modelResult.flagIndex !== undefined) {
+    consumedIndices.add(modelResult.flagIndex);
+    consumedIndices.add(modelResult.flagIndex + 1);
+  }
+  if (effortResult.flagIndex !== undefined) {
+    consumedIndices.add(effortResult.flagIndex);
+    consumedIndices.add(effortResult.flagIndex + 1);
+  }
+
   const force = rest.includes("--force");
-  const positionals = rest.filter((a) => !a.startsWith("-"));
+  const positionals = rest.filter(
+    (a, i) => !consumedIndices.has(i) && !a.startsWith("-"),
+  );
   const [epicSlug, featureId] = positionals;
   if (!epicSlug || !featureId) {
     console.error(
       "flow epic launch: <epic-slug> and <feature-id> are required.",
     );
-    console.error("usage: flow epic launch <epic-slug> <feature-id> [--force]");
+    console.error(LAUNCH_USAGE);
     return 2;
   }
   if (!isSafeEpicSlug(epicSlug)) {
@@ -1276,7 +1368,14 @@ Options:
     return 2;
   }
 
-  const lr = launchFeature(feature, { spawn: options.spawn, epicSlug });
+  const overrides: LaunchOverrides = {};
+  if (modelResult.value) overrides.model = modelResult.value;
+  if (effortResult.value) overrides.effort = effortResult.value;
+  const lr = launchFeature(feature, {
+    spawn: options.spawn,
+    epicSlug,
+    overrides,
+  });
   if (!lr.ok) {
     // Write nothing on failure — the binding is only recorded once the pipeline
     // actually exists (acceptance scenario 3: a launch never loses its binding).

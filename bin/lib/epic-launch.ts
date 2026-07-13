@@ -21,6 +21,17 @@ import { spawnSync as nodeSpawnSync } from "node:child_process";
 import type { Feature } from "./epic-manifest-schema";
 import { slugify } from "./slug";
 import { FLOW_SESSION } from "./tmux";
+import type { EffortLevel, ModelAlias } from "./state";
+
+/**
+ * Launch-time overrides for a single `flow epic launch` invocation (e.g.
+ * `flow epic launch <epic> <id> --model opus --effort high`). These are
+ * ephemeral — they never mutate the committed manifest's `flowNewHints` —
+ * and REPLACE, never merge with, the manifest hint they shadow: an
+ * `overrides.effort` wins over `feature.flowNewHints.effort` outright (the
+ * emitted argv carries exactly one `--effort`, never both).
+ */
+export type LaunchOverrides = { model?: ModelAlias; effort?: EffortLevel };
 
 /**
  * The epic-designer authoring rule (epic-discovery-instructions.md §4c) asks
@@ -49,15 +60,19 @@ function withEpicPointer(
  * `["feature", "create", <description>, ...flags, "--epic", "<epicSlug>/<id>", "--slug", slugify(id)]`.
  * `flowNewHints` mapping: `autoMerge === false` → `--no-auto-merge` (absent or
  * `true` ⇒ no flag, since auto-merge is the default); `copilotReview` →
- * `--copilot-review <value>`; `effort` → `--effort <value>`. `--epic
- * <epicSlug>/<feature.id>` threads deterministic epic membership into pipeline
- * state (see `bin/lib/feature.ts`'s `--epic` parse); it is pushed before
- * `--slug`. A trailing `--slug slugify(feature.id)` always pins the slug to
- * the unique DAG-node id.
+ * `--copilot-review <value>`; `effort` → `--effort <value>`. `overrides` (see
+ * `LaunchOverrides`) apply on top: `overrides.effort` REPLACES `hints.effort`
+ * (never both — exactly one `--effort` reaches the argv); `overrides.model`
+ * has no manifest-hint equivalent, so it is a plain append when present.
+ * `--epic <epicSlug>/<feature.id>` threads deterministic epic membership into
+ * pipeline state (see `bin/lib/feature.ts`'s `--epic` parse); it is pushed
+ * after the hint/override flags and before `--slug`. A trailing
+ * `--slug slugify(feature.id)` always pins the slug to the unique DAG-node id.
  */
 export function buildFeatureCreateArgs(
   feature: Feature,
   epicSlug: string,
+  overrides?: LaunchOverrides,
 ): string[] {
   const description = withEpicPointer(
     feature.description,
@@ -68,7 +83,12 @@ export function buildFeatureCreateArgs(
   const hints = feature.flowNewHints ?? {};
   if (hints.autoMerge === false) args.push("--no-auto-merge");
   if (hints.copilotReview) args.push("--copilot-review", hints.copilotReview);
-  if (hints.effort) args.push("--effort", hints.effort);
+  if (overrides?.effort) {
+    args.push("--effort", overrides.effort);
+  } else if (hints.effort) {
+    args.push("--effort", hints.effort);
+  }
+  if (overrides?.model) args.push("--model", overrides.model);
   // feature.ts's `--epic` parse splits on exactly one `/`, so a raw
   // feature.id containing a `/` would corrupt that split. Downstream
   // reconciliation (`flow epic bind`/`flow epic launch`) matches manifest
@@ -135,13 +155,16 @@ function parseMintedSlug(stdout: string): string | null {
  * `flow:<slug>` stdout line; `slugify(feature.id)` is the fallback only when
  * that line is absent (a non-standard `flow feature create` build) — matching
  * the id-derived slug `--slug` actually requested, not the description.
+ * `opts.overrides` (see `LaunchOverrides`) threads straight through to
+ * `buildFeatureCreateArgs` — a per-launch `--model`/`--effort` that replaces
+ * (never merges with) the manifest's `flowNewHints` for this one invocation.
  */
 export function launchFeature(
   feature: Feature,
-  opts: { spawn?: SpawnFn; epicSlug: string },
+  opts: { spawn?: SpawnFn; epicSlug: string; overrides?: LaunchOverrides },
 ): LaunchResult {
   const spawn = opts.spawn ?? defaultSpawn;
-  const args = buildFeatureCreateArgs(feature, opts.epicSlug);
+  const args = buildFeatureCreateArgs(feature, opts.epicSlug, opts.overrides);
   const r = spawn("flow", args);
   if (r.status !== 0) {
     const detail = (r.stderr || r.stdout || "").trim();

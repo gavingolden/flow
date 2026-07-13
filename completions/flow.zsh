@@ -103,7 +103,8 @@ _flow() {
                             '*::prompt:'
                     elif [[ "$line[2]" == run ]]; then
                         _arguments \
-                            '--model[whole-session model for the /epic-run supervisor]:alias:(opus haiku sonnet fable)'
+                            '--model[whole-session model for the /epic-run supervisor]:alias:(opus haiku sonnet fable)' \
+                            '--effort[Claude Code reasoning effort for the /epic-run supervisor]:level:(low medium high xhigh max)'
                     elif [[ "$line[2]" == status ]]; then
                         _arguments \
                             '--json[emit a machine-readable board (hypothesis to verify)]'
@@ -113,7 +114,9 @@ _flow() {
                             '--force[overwrite a differing binding / bypass the slug guard]'
                     elif [[ "$line[2]" == launch ]]; then
                         _arguments \
-                            '--force[relaunch an already-bound feature]'
+                            '--force[relaunch an already-bound feature]' \
+                            '--model[per-launch model override, wins over flowNewHints]:alias:(opus haiku sonnet fable)' \
+                            '--effort[per-launch effort override, wins over flowNewHints]:level:(low medium high xhigh max)'
                     else
                         local -a sub
                         sub=(
