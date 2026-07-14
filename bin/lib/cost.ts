@@ -65,7 +65,7 @@ export function encodeProjectSegment(absPath: string): string {
   return absPath.replace(/\//g, "-");
 }
 
-async function findSessionJsonls(
+export async function findSessionJsonls(
   projectDir: string,
   slug: string,
 ): Promise<string[]> {
