@@ -72,3 +72,10 @@ fan-out). A `config.models.gatekeeper` key is **reachable but loudly
 discouraged** — overriding it defeats the deliberate cost-routing. Do **not**
 wire a `--model-gatekeeper` flag and do **not** let it inherit the session
 model.
+
+The pin is now ALSO declarative: `agents/flow-gatekeeper.md` frontmatter
+carries `model: haiku` as the durable record of the pin. The spawn site keeps
+its identical per-spawn `model: "haiku"` param regardless — per-spawn wins
+over frontmatter, the two values are identical so they never conflict, and
+the param is what keeps the `general-purpose` fallback path (definition not
+installed) on haiku too.

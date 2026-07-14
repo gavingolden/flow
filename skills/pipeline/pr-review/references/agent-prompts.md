@@ -2,7 +2,10 @@
 
 This file contains prompt templates for the 6 specialized review agents. The orchestrator
 reads the relevant section, fills in the context variables (marked with `{{...}}`), and
-spawns each agent as a subagent.
+spawns each agent as a subagent. When the named definitions are installed, each lens
+spawns as `subagent_type: flow-review-<lens>` (`agents/flow-review-<lens>.md`); either
+way — including the `general-purpose` fallback path when a definition is not installed —
+this file remains the canonical rendered spawn prompt.
 
 All agents share a common output format and confidence calibration. The specialization is
 in what each agent looks for and what it ignores.
@@ -245,7 +248,10 @@ exclusively on: **could an attacker exploit this code?**
    already filters, but a sanity check costs nothing) and surface real vulnerabilities
    as `issue` with the GHSA/CVE ID in the rule_id and a brief upgrade recommendation.
    When `meta.dependencies.ran=false` (typically because the consumer hasn't set up
-   the lens or `npm` is not on PATH), fall back to a manual audit:
+   the lens or `npm` is not on PATH), fall back to a manual audit — **only when your
+   tool allowlist includes Bash** (the `general-purpose` fallback path; the named
+   `flow-review-security` definition has no Bash, so on that path skip straight to
+   the "can't run the audit locally either" `question` branch below):
 
    ```bash
    npm audit --json
@@ -491,15 +497,22 @@ user-facing flow?**
 install -g\|node_modules/.bin'` across `README.md`, `docs/`, and onboarding
    scripts; confirm any remaining references are explicitly historical text, not
    "do this to install".
-4. For new dependencies: check whether the package is well-maintained (last
-   publish date, weekly download count, known-good maintainer) and whether the
-   project already depends on something that covers the same need (duplicate
-   functionality is a `suggestion`). For dependencies known to be malicious or
-   typo-squats of popular packages, surface as `issue (blocking)` with high
-   confidence.
-5. For breaking semver bumps: check the dependency's `CHANGELOG.md` or release
-   notes for breaking changes; cross-reference against the diff to see whether
-   the consuming code is updated for the new API surface.
+4. For new dependencies, when your tool allowlist allows network/registry
+   access (the `general-purpose` fallback path): check whether the package is
+   well-maintained (last publish date, weekly download count, known-good
+   maintainer) and whether the project already depends on something that
+   covers the same need (duplicate functionality is a `suggestion`). For
+   dependencies known to be malicious or typo-squats of popular packages,
+   surface as `issue (blocking)` with high confidence regardless of tool
+   access — that judgment is diff-evident. Under the named
+   `flow-review-supply-chain` definition (no Bash/WebFetch), skip the
+   maintenance-status check and instead surface unverifiable maintenance
+   status as a `question` naming the package.
+5. For breaking semver bumps, same tool-access split as step 4: check the
+   dependency's `CHANGELOG.md` or release notes for breaking changes when
+   network access is available; cross-reference against the diff to see
+   whether the consuming code is updated for the new API surface. Under the
+   named definition, note the unverifiable semver bump as a `question` instead.
 6. Output your findings as JSON.
 
 ### False Positive Avoidance

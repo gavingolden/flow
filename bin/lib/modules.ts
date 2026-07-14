@@ -73,7 +73,18 @@ export const MODULES: ModuleDefinition[] = [
       "skill-creator",
       "testing",
     ],
-    agents: ["flow-fix-applier.md", "flow-verify.md"],
+    agents: [
+      "flow-consolidator.md",
+      "flow-fix-applier.md",
+      "flow-gatekeeper.md",
+      "flow-review-bug-detection.md",
+      "flow-review-pattern-consistency.md",
+      "flow-review-performance.md",
+      "flow-review-security.md",
+      "flow-review-supply-chain.md",
+      "flow-review-test-coverage.md",
+      "flow-verify.md",
+    ],
     helpers: [
       "flow-new-worktree",
       "flow-remove-worktree",
@@ -115,6 +126,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-epic-resume-decide",
       "flow-epic-judge-context",
       "flow-epic-membership",
+      "flow-transcript-audit",
     ],
     validators: [
       "flow-pr-review-result-schema",

@@ -1107,6 +1107,182 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ).toBe(false);
     }
   });
+
+  // Frontmatter policy for the full ten-definition set (p4-review-agents):
+  // mechanical roles pin `effort: low` (checked above and re-checked here),
+  // the gatekeeper pins `model: haiku` as the declarative cost-routing
+  // record, and every judgment role omits both so session effort and the
+  // spawn site's per-spawn/config-threaded model always win.
+  const AGENT_FRONTMATTER_POLICY: Array<{
+    file: string;
+    wantModel?: string;
+    wantEffort?: string;
+    wantTools?: string;
+  }> = [
+    { file: "flow-verify.md", wantEffort: "low" },
+    { file: "flow-fix-applier.md", wantEffort: "low" },
+    { file: "flow-gatekeeper.md", wantModel: "haiku" },
+    { file: "flow-consolidator.md" },
+    {
+      file: "flow-review-bug-detection.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
+    { file: "flow-review-security.md", wantTools: "Read, Grep, Glob, Write" },
+    {
+      file: "flow-review-pattern-consistency.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
+    {
+      file: "flow-review-performance.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
+    {
+      file: "flow-review-supply-chain.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
+    {
+      file: "flow-review-test-coverage.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
+  ];
+
+  it("every agents/*.md definition exists and follows the frontmatter policy", () => {
+    for (const {
+      file,
+      wantModel,
+      wantEffort,
+      wantTools,
+    } of AGENT_FRONTMATTER_POLICY) {
+      const agentPath = path.resolve(HERE, "..", "agents", file);
+      expect(
+        fs.existsSync(agentPath),
+        `agents/${file} must exist — a spawn site resolves it by name.`,
+      ).toBe(true);
+      const frontmatter =
+        fs.readFileSync(agentPath, "utf8").split("---")[1] ?? "";
+      expect(
+        /^tools:\s*\S/m.test(frontmatter),
+        `agents/${file} frontmatter must declare a 'tools:' allowlist — ` +
+          "tool containment is the point of the named definition.",
+      ).toBe(true);
+      if (wantTools) {
+        expect(
+          new RegExp(`^tools:\\s*${wantTools}\\s*$`, "m").test(frontmatter),
+          `agents/${file} frontmatter must declare exactly 'tools: ${wantTools}' ` +
+            "— a later edit that adds Bash/Task back must go red, not silently " +
+            "restore the injection surface this PR closes.",
+        ).toBe(true);
+      }
+      if (wantModel) {
+        expect(
+          new RegExp(`^model:\\s*${wantModel}\\s*$`, "m").test(frontmatter),
+          `agents/${file} frontmatter must pin 'model: ${wantModel}' — the ` +
+            "declarative cost-routing record.",
+        ).toBe(true);
+      } else {
+        expect(
+          /^model:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT pin 'model:' — the per-spawn ` +
+            "model: override / config threading must win.",
+        ).toBe(false);
+      }
+      if (wantEffort) {
+        expect(
+          new RegExp(`^effort:\\s*${wantEffort}\\s*$`, "m").test(frontmatter),
+          `agents/${file} frontmatter must pin 'effort: ${wantEffort}'.`,
+        ).toBe(true);
+      } else {
+        expect(
+          /^effort:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT pin 'effort:' — judgment ` +
+            "roles scale with session effort (gatekeeper: already bounded by haiku).",
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("the pr-review gatekeeper and consolidator spawn sites resolve their named agents with guarded fallbacks", () => {
+    expect(
+      prReviewContent.includes("GATEKEEPER_SUBAGENT=flow-gatekeeper"),
+      "pr-review SKILL.md Step 1.5 must resolve GATEKEEPER_SUBAGENT to `flow-gatekeeper`.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("[ -f ~/.claude/agents/flow-gatekeeper.md ]"),
+      "pr-review SKILL.md gatekeeper site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("subagent_type: $GATEKEEPER_SUBAGENT"),
+      "pr-review SKILL.md gatekeeper spawn must pass `subagent_type: $GATEKEEPER_SUBAGENT`.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("CONSOLIDATOR_SUBAGENT=flow-consolidator"),
+      "pr-review SKILL.md Step 3.5 must resolve CONSOLIDATOR_SUBAGENT to `flow-consolidator`.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("[ -f ~/.claude/agents/flow-consolidator.md ]"),
+      "pr-review SKILL.md consolidator site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("subagent_type: $CONSOLIDATOR_SUBAGENT"),
+      "pr-review SKILL.md consolidator spawn must pass `subagent_type: $CONSOLIDATOR_SUBAGENT`.",
+    ).toBe(true);
+  });
+
+  it("the pr-review Step 3 fan-out resolves a named flow-review-<lens> agent per lens", () => {
+    expect(
+      prReviewContent.includes('LENS_AGENT="flow-review-$LENS"'),
+      "pr-review SKILL.md Step 3 must resolve each lens's subagent type to `flow-review-$LENS`.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("subagent_type: $LENS_AGENT"),
+      "pr-review SKILL.md Step 3 spawn must pass `subagent_type: $LENS_AGENT`.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes("[ -f ~/.claude/agents/flow-review-$LENS.md ]"),
+      "pr-review SKILL.md Step 3 must guard each lens on the installed definition file.",
+    ).toBe(true);
+  });
+
+  it("every guarded fallback site emits the named agent-fallback notice", () => {
+    for (const name of [
+      "flow-gatekeeper",
+      "flow-review-$LENS",
+      "flow-consolidator",
+      "flow-fix-applier",
+    ]) {
+      expect(
+        prReviewContent.includes(`agent-fallback: ${name} → general-purpose`),
+        `pr-review SKILL.md must carry the named 'agent-fallback: ${name} → ` +
+          "general-purpose' notice — a count-only assertion tolerates deleting " +
+          "real guard notices as long as the prose mention survives.",
+      ).toBe(true);
+    }
+    expect(
+      content.includes("agent-fallback: flow-verify → general-purpose"),
+      "flow-pipeline SKILL.md step-6 verify guard must emit the named agent-fallback " +
+        "notice on its general-purpose fallback branch.",
+    ).toBe(true);
+  });
+
+  it("the gatekeeper haiku pin agrees between frontmatter and the per-spawn param", () => {
+    const gatekeeperFrontmatter =
+      fs
+        .readFileSync(
+          path.resolve(HERE, "..", "agents", "flow-gatekeeper.md"),
+          "utf8",
+        )
+        .split("---")[1] ?? "";
+    expect(
+      /^model:\s*haiku\s*$/m.test(gatekeeperFrontmatter),
+      "agents/flow-gatekeeper.md frontmatter must pin `model: haiku` — the declarative " +
+        "half of the cost-routing pin.",
+    ).toBe(true);
+    expect(
+      prReviewContent.includes('model: "haiku"'),
+      'pr-review SKILL.md Step 1.5 must keep the per-spawn `model: "haiku"` param — it ' +
+        "keeps the general-purpose fallback path on haiku; the two pin sources must not drift.",
+    ).toBe(true);
+  });
 });
 
 describe("Compact Instructions + verify-loop-instructions structural anchors", () => {
@@ -2998,12 +3174,21 @@ describe("pr-review include-by-reference structure", () => {
     // walk"), restating it runs inside the already-exempt Fix-Applier surface
     // (no new Task-tool exemption, no new spawn site). New-contract prose,
     // not regrowth of previously-trimmed prose.
+    //
+    // Bumped 1985 → 2025 to absorb the p4-review-agents named-definition
+    // promotion: the Gatekeeper (Step 1.5 x2), per-lens (Step 3), and
+    // Consolidator (Step 3.5) spawn sites each gain a file-exists guard
+    // resolving their agents/*.md definition with the loud agent-fallback
+    // notice, the six-agent table gains a Definition column, and Step 12
+    // gains the fired-notice echo paragraph. Every existing spawn keeps its
+    // per-spawn model: param and artifact path — new-contract prose, not
+    // regrowth of previously-trimmed prose.
     expect(
       lineCount,
-      `pr-review/SKILL.md line count must stay under the post-design-fidelity ` +
-        `budget of 1985 lines. Material regrowth past this ceiling would ` +
+      `pr-review/SKILL.md line count must stay under the post-review-agents ` +
+        `budget of 2025 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(1985);
+    ).toBeLessThan(2025);
   });
 
   it("skills/pipeline/pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {
