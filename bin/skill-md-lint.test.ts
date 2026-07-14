@@ -1117,21 +1117,42 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     file: string;
     wantModel?: string;
     wantEffort?: string;
+    wantTools?: string;
   }> = [
     { file: "flow-verify.md", wantEffort: "low" },
     { file: "flow-fix-applier.md", wantEffort: "low" },
     { file: "flow-gatekeeper.md", wantModel: "haiku" },
     { file: "flow-consolidator.md" },
-    { file: "flow-review-bug-detection.md" },
-    { file: "flow-review-security.md" },
-    { file: "flow-review-pattern-consistency.md" },
-    { file: "flow-review-performance.md" },
-    { file: "flow-review-supply-chain.md" },
-    { file: "flow-review-test-coverage.md" },
+    {
+      file: "flow-review-bug-detection.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
+    { file: "flow-review-security.md", wantTools: "Read, Grep, Glob, Write" },
+    {
+      file: "flow-review-pattern-consistency.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
+    {
+      file: "flow-review-performance.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
+    {
+      file: "flow-review-supply-chain.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
+    {
+      file: "flow-review-test-coverage.md",
+      wantTools: "Read, Grep, Glob, Write",
+    },
   ];
 
   it("every agents/*.md definition exists and follows the frontmatter policy", () => {
-    for (const { file, wantModel, wantEffort } of AGENT_FRONTMATTER_POLICY) {
+    for (const {
+      file,
+      wantModel,
+      wantEffort,
+      wantTools,
+    } of AGENT_FRONTMATTER_POLICY) {
       const agentPath = path.resolve(HERE, "..", "agents", file);
       expect(
         fs.existsSync(agentPath),
@@ -1144,6 +1165,14 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
         `agents/${file} frontmatter must declare a 'tools:' allowlist — ` +
           "tool containment is the point of the named definition.",
       ).toBe(true);
+      if (wantTools) {
+        expect(
+          new RegExp(`^tools:\\s*${wantTools}\\s*$`, "m").test(frontmatter),
+          `agents/${file} frontmatter must declare exactly 'tools: ${wantTools}' ` +
+            "— a later edit that adds Bash/Task back must go red, not silently " +
+            "restore the injection surface this PR closes.",
+        ).toBe(true);
+      }
       if (wantModel) {
         expect(
           new RegExp(`^model:\\s*${wantModel}\\s*$`, "m").test(frontmatter),
@@ -1208,16 +1237,26 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       prReviewContent.includes("subagent_type: $LENS_AGENT"),
       "pr-review SKILL.md Step 3 spawn must pass `subagent_type: $LENS_AGENT`.",
     ).toBe(true);
+    expect(
+      prReviewContent.includes("[ -f ~/.claude/agents/flow-review-$LENS.md ]"),
+      "pr-review SKILL.md Step 3 must guard each lens on the installed definition file.",
+    ).toBe(true);
   });
 
   it("every guarded fallback site emits the named agent-fallback notice", () => {
-    const noticeCount = (prReviewContent.match(/agent-fallback:/g) ?? [])
-      .length;
-    expect(
-      noticeCount,
-      "pr-review SKILL.md must carry the `NOTICE — agent-fallback:` line at the " +
-        "gatekeeper, per-lens, consolidator, and fix-applier fallback branches (>= 3 anchors).",
-    ).toBeGreaterThanOrEqual(3);
+    for (const name of [
+      "flow-gatekeeper",
+      "flow-review-$LENS",
+      "flow-consolidator",
+      "flow-fix-applier",
+    ]) {
+      expect(
+        prReviewContent.includes(`agent-fallback: ${name} → general-purpose`),
+        `pr-review SKILL.md must carry the named 'agent-fallback: ${name} → ` +
+          "general-purpose' notice — a count-only assertion tolerates deleting " +
+          "real guard notices as long as the prose mention survives.",
+      ).toBe(true);
+    }
     expect(
       content.includes("agent-fallback: flow-verify → general-purpose"),
       "flow-pipeline SKILL.md step-6 verify guard must emit the named agent-fallback " +

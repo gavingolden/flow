@@ -738,11 +738,20 @@ none pins `effort:`/`model:` (judgment role — the per-spawn
 for LENS in bug-detection security pattern-consistency performance supply-chain test-coverage; do
   LENS_AGENT="flow-review-$LENS"
   [ -f ~/.claude/agents/flow-review-$LENS.md ] || { LENS_AGENT=general-purpose; echo "NOTICE — agent-fallback: flow-review-$LENS → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+  echo "lens $LENS → subagent_type: $LENS_AGENT"
 done
 ```
 
+`LENS_AGENT` is a scalar reassigned each iteration — it does NOT hold all
+six resolutions after the loop exits. The loop's only purpose is to print
+the six `lens $LENS → subagent_type: $LENS_AGENT` lines above; use that
+printed per-lens value when spawning, never the loop variable's final
+value.
+
 **Spawn 6 agents in parallel**, each as a subagent with
-`subagent_type: $LENS_AGENT` (resolved per lens above) and the resolved
+`subagent_type:` set to that lens's printed value from the mapping above
+(NOT a shared `$LENS_AGENT` variable — each of the six spawns has its own
+resolved type) and the resolved
 `model: "$REVIEW_MODEL"` when non-empty. For each agent:
 
 - Copy the shared context block from `references/agent-prompts.md`

@@ -266,14 +266,22 @@ the PATH-bound schema validators. Always installed.
 
 **Agents**
 
-| Current                      | Role                    | Frontmatter pin            |
-| ---------------------------- | ----------------------- | -------------------------- |
-| `agents/flow-verify.md`      | verify-retry-loop agent | `effort: low` (mechanical) |
-| `agents/flow-fix-applier.md` | pr-review fix-applier   | `effort: low` (mechanical) |
+| Current                                     | Role                             | Frontmatter pin                                |
+| ------------------------------------------- | -------------------------------- | ---------------------------------------------- |
+| `agents/flow-verify.md`                     | verify-retry-loop agent          | `tools:` allowlist; `effort: low` (mechanical) |
+| `agents/flow-fix-applier.md`                | pr-review fix-applier            | `tools:` allowlist; `effort: low` (mechanical) |
+| `agents/flow-review-bug-detection.md`       | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-security.md`            | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-pattern-consistency.md` | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-performance.md`         | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-supply-chain.md`        | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-review-test-coverage.md`       | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
+| `agents/flow-gatekeeper.md`                 | pr-review gatekeeper             | `tools:` allowlist; `model: haiku`             |
+| `agents/flow-consolidator.md`               | pr-review consolidator-validator | `tools:` allowlist                             |
 
-Phase 4 adds the promoted judgment/mechanical agents to `core` (the six review
-lenses, gatekeeper — haiku pin, consolidator-validator, scout, discovery,
-merge-resolver); they are core because the pipeline that spawns them is core.
+Phase 4 still has three pending: the scout, discovery, and merge-resolver
+fan-outs remain inline spawn prompts with model/effort pins in prose, not
+promoted `agents/*.md` definitions.
 
 **PATH-bound helpers** (all core — the pipeline machinery)
 

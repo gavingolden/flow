@@ -111,7 +111,7 @@ isolation. The haiku pin is paired: `agents/flow-gatekeeper.md`
 frontmatter declares `model: haiku` as the declarative record, and the
 spawn site keeps the identical per-spawn `model: "haiku"` so the
 fallback path stays haiku (per-spawn wins; the values never conflict).
-It short-circuits the four-agent Sonnet fan-out on
+It short-circuits the six-agent Sonnet fan-out on
 closed/merged/trivial/no-new-commits PRs from a single `gh pr view`
 metadata fetch. Artifact: `<worktree>/.flow-tmp/gatekeeper-result.json`
 (typed fields `decision`, `reason`, `skip_kind?`, `summary`). The
