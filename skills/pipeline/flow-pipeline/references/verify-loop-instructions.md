@@ -2,7 +2,7 @@
 
 These instructions are read by the verify-retry-loop subagent that
 `/flow-pipeline`'s SKILL.md spawns via the Task tool at step 6 (`Local
-verify`). The subagent runs in an isolated context — its `/verify`
+verify`). The subagent runs in an isolated context — its `/flow-verify`
 transcript, the re-pasted `flow-pre-commit --json` failure JSON, the
 per-fix rationale, and the UI-smoke output stay inside its own session
 and are never returned to the supervisor. Isolating that loop is the
@@ -35,13 +35,13 @@ Before running anything:
   to accomplish — so a verify failure is fixed against intent rather than
   papered over. This is read-only background; it stays in your context.
 
-## 2. Run the 3-outer-attempt `/verify` loop
+## 2. Run the 3-outer-attempt `/flow-verify` loop
 
-Invoke `/verify` in-process inside the worktree. `/verify` self-loops
+Invoke `/flow-verify` in-process inside the worktree. `/flow-verify` self-loops
 internally; the **outer cap is 3 attempts** and fires only when
-`/verify` exits without a clean pass.
+`/flow-verify` exits without a clean pass.
 
-Each retry re-invokes `/verify` and pastes the prior attempt's
+Each retry re-invokes `/flow-verify` and pastes the prior attempt's
 `flow-pre-commit --json` `failure` object verbatim. The cap on
 retry-prompt size is enforced _structurally_ by `flow-pre-commit --json`
 (`bin/flow-pre-commit.ts` — `buildFailureExcerpt` head/tail-caps each
@@ -49,7 +49,7 @@ failed check at 100+100 lines), so you can paste it verbatim — no
 hand-truncation:
 
 ```
-/verify
+/flow-verify
 
 PRIOR ATTEMPT FAILED — failure JSON (one entry per failed check):
 {
@@ -68,12 +68,12 @@ PRIOR ATTEMPT FAILED — failure JSON (one entry per failed check):
 `firstErrorText` is the first line matching the error/fail regex;
 `headExcerpt` + `tailExcerpt` are bounded slices of the un-ANSI'd output.
 
-**Apply fixes INLINE — never spawn `/coder`.** You are already a
+**Apply fixes INLINE — never spawn `/flow-coder`.** You are already a
 one-shot Task subagent, so the one-level sub-agent cap forbids you from
-spawning a nested Task call; `/verify`'s wider-scope `/coder` delegation
+spawning a nested Task call; `/flow-verify`'s wider-scope `/flow-coder` delegation
 is therefore unavailable to you. Apply every fix inline with `Edit` /
 `Write` regardless of scope — your own isolated context _is_ the
-isolation `/coder` would otherwise provide, so nothing is lost. Record
+isolation `/flow-coder` would otherwise provide, so nothing is lost. Record
 this as the design invariant it is, not a degradation.
 
 **Retries are prompt-side only.** The Skill tool has no per-invocation
@@ -93,7 +93,7 @@ the `> [!CAUTION]` PR-body block, which it builds from
 
 When `flow-pre-commit --json` returns `reason: "unmatched-files"`, the
 orphaned files may belong to a recognizable-but-uncovered layout. Before
-treating it as a `/verify` failure, call the pure
+treating it as a `/flow-verify` failure, call the pure
 `draftConfigEntryForOrphans` helper (exported from
 `bin/lib/monorepo-scopes.ts`) over the report's `unmatchedFiles`:
 
@@ -211,7 +211,7 @@ Your final message back to the wrapper should be one short paragraph
   could not be fixed. A summary that names only successes fails the
   contract.
 
-Do not paste the artifact JSON, file diffs, or the `/verify` transcript
+Do not paste the artifact JSON, file diffs, or the `/flow-verify` transcript
 back — the wrapper only forwards your summary, and the artifact on disk
 is the durable record. Keeping the return value short is the whole point
 of the subagent fan-out.
@@ -224,7 +224,7 @@ Before writing the artifact and returning, self-check:
 - `attempts` is 1–3 and reflects outer attempts only (Layer-3 re-runs
   excluded).
 - `final_failure_excerpt` is present iff `verify_status` is `exhausted`.
-- No nested Task call was made (no `/coder` spawn) — fixes were applied
+- No nested Task call was made (no `/flow-coder` spawn) — fixes were applied
   inline.
 - `ui_smoke` is one of `passed` / `skipped` / `not-applicable`; when it is
   `skipped` on a UI-touching diff, `ui_smoke_reason` carries the one-line
@@ -237,13 +237,13 @@ Before writing the artifact and returning, self-check:
 
 # Constraints
 
-- ALWAYS run `/verify` — running it is your entire purpose. (This is the
+- ALWAYS run `/flow-verify` — running it is your entire purpose. (This is the
   deliberate inversion of the Merge-Conflict Resolver's "never run
-  `/verify`" constraint; do not copy that rule here.)
-- NEVER spawn `/coder` or any other Task subagent. The one-level
+  `/flow-verify`" constraint; do not copy that rule here.)
+- NEVER spawn `/flow-coder` or any other Task subagent. The one-level
   sub-agent cap forbids a nested Task call; apply all fixes inline. Your
-  isolated context is the isolation `/coder` would otherwise provide.
-- NEVER exceed 3 outer `/verify` attempts. After the third failed
+  isolated context is the isolation `/flow-coder` would otherwise provide.
+- NEVER exceed 3 outer `/flow-verify` attempts. After the third failed
   attempt, write `verify_status: "exhausted"` and return — do not loop
   forever.
 - The Layer-3 `.flow/pre-commit.json` commit and the UI-smoke manifest

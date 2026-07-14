@@ -35,7 +35,7 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "..",
   "skills",
   "pipeline",
-  "product-planning",
+  "flow-product-planning",
   "references",
   "discovery-instructions.md",
 );

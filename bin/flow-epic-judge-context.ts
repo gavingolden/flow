@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Deterministic evidence helper for the `/epic-run` playbook supervisor.
+ * Deterministic evidence helper for the `/flow-epic-run` playbook supervisor.
  *
  * The supervisor runs cwd'd in a consumer worktree where flow's `bin/lib` is
  * absent, so the bounded evidence the LLM reasons over about a single halted

@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Per-agent static-analysis lens routing for /pr-review's six-agent fan-out.
+ * Per-agent static-analysis lens routing for /flow-pr-review's six-agent fan-out.
  *
- * Why: skills/pipeline/pr-review/SKILL.md used to inline six adjacent `jq`
+ * Why: skills/pipeline/flow-pr-review/SKILL.md used to inline six adjacent `jq`
  * invocations — one per agent — that sliced `.flow-tmp/static-analysis.json`
  * into the per-agent `{{STATIC_ANALYSIS_FACTS}}` block. PR #183 added the
  * `dependencies` lens and updated the Security row inline, exposing the

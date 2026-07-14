@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Cross-model (Gemini) review lens for `/pr-review`'s multi-agent review.
+ * Cross-model (Gemini) review lens for `/flow-pr-review`'s multi-agent review.
  *
- * `/pr-review`'s six review agents all run on the same Claude model family,
+ * `/flow-pr-review`'s six review agents all run on the same Claude model family,
  * so they share that model's blind spots. This helper adds ONE additional
  * reviewer through a genuinely different model (Gemini), delegated to the
  * user's idle Google AI Ultra quota via `flow-delegate` (agy) at no

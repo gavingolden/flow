@@ -141,7 +141,7 @@ describe("modules registry completeness (live discovery, not doc prose)", () => 
 
   it("moduleForArtifactName resolves a real artifact to its owning module and returns undefined for the always-core residue", () => {
     expect(moduleForArtifactName("flow-pre-commit")).toBe("core");
-    expect(moduleForArtifactName("svelte")).toBe("stack-svelte");
+    expect(moduleForArtifactName("flow-svelte")).toBe("stack-svelte");
     expect(moduleForArtifactName("flow-request-copilot")).toBe("copilot");
     expect(moduleForArtifactName("flow-delegate")).toBe("research");
     // The wrapper and shell completions are never module rows.
@@ -155,11 +155,12 @@ describe("modules registry completeness (live discovery, not doc prose)", () => 
     expect(core.validators.length).toBe(4);
   });
 
-  it("decided refinement: the pre-split testing dir is assigned wholly to core, not double-assigned to stack-svelte", () => {
+  it("materialized testing split: generic flow-testing is a core skill, Svelte flow-testing-svelte is a stack-svelte skill", () => {
     const core = MODULES.find((m) => m.id === "core")!;
     const svelte = MODULES.find((m) => m.id === "stack-svelte")!;
-    expect(core.skills).toContain("testing");
-    expect(svelte.skills).not.toContain("testing");
-    expect(svelte.skills).toEqual(["svelte"]);
+    expect(core.skills).toContain("flow-testing");
+    expect(core.skills).not.toContain("flow-testing-svelte");
+    expect(svelte.skills).toContain("flow-testing-svelte");
+    expect(svelte.skills).toEqual(["flow-svelte", "flow-testing-svelte"]);
   });
 });

@@ -6,7 +6,7 @@
  * conditionally-loud skip matrix, and per-route findings assembly — while
  * the actual `mcp__chrome-devtools__*` tool calls (navigate/snapshot/
  * console/network/screenshot) live in the consuming skill prose (Step 6
- * `/verify`, Step 8c `/pr-review`), because MCP tools are harness-level
+ * `/flow-verify`, Step 8c `/flow-pr-review`), because MCP tools are harness-level
  * calls, not importable functions. This keeps the no-nested-LLM constraint
  * intact: this helper never spawns `claude -p` or a Task.
  *

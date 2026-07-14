@@ -89,7 +89,7 @@ describe("decide() — pre-tree edge cases", () => {
 
   it("resolves gated + checkpoint marker present → 'gated-feedback' with .context.pr populated (Story 1)", () => {
     // A gated pipeline whose worktree carries a checkpoint.pending marker is a
-    // feedback-mode resume point: take a bug callout → /coder → re-verify →
+    // feedback-mode resume point: take a bug callout → /flow-coder → re-verify →
     // re-gate. The branch self-populates .context.pr (it precedes the general
     // PR-population line) so Resume mode has PR context.
     const r = decide(

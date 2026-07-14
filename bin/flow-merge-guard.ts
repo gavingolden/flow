@@ -15,7 +15,7 @@
  *
  * It deliberately does NOT classify checkbox text as functional vs
  * subjective — that judgment stays with the supervisor in prose (see
- * `skills/pipeline/pr-review/references/manual-test-rubric.md`). The guard
+ * `skills/pipeline/flow-pr-review/references/manual-test-rubric.md`). The guard
  * blocks on ANY unchecked item; over-blocking is the safe default.
  *
  * Two modes:

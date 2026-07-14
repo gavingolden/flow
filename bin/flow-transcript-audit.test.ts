@@ -81,7 +81,7 @@ describe("analyzeTranscripts — synthetic fixture", () => {
       edit: { count: 2, payloadChars: 77 },
       diff: { count: 1, payloadChars: 50 },
       "verify-log": { count: 1, payloadChars: 31 },
-      "skill-body": { count: 2, payloadChars: 132 },
+      "skill-body": { count: 2, payloadChars: 137 },
       "sub-agent-return": { count: 2, payloadChars: 60 },
       other: { count: 1, payloadChars: 13 },
     });
@@ -94,7 +94,7 @@ describe("analyzeTranscripts — synthetic fixture", () => {
     // Two skill-body hits: the adjacent post-Skill-launch text record, and
     // the direct Read of a SKILL.md path. If the classifier mis-attributed
     // the Skill tool's ~26-char launch stub as skill-body, count would be 3
-    // and payloadChars would be far smaller than 132.
+    // and payloadChars would be far smaller than 137.
     expect(result.toolClassStats["skill-body"].count).toBe(2);
   });
 

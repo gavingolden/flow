@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
  * `skills/universal/flow-research/SKILL.md`.
  *
  * Direct `/flow-research` reuses the same host-wide `flow-research-cache` that
- * `/product-planning` discovery Step 1.5 uses, but on a SEPARATE keyspace: the
+ * `/flow-product-planning` discovery Step 1.5 uses, but on a SEPARATE keyspace: the
  * direct procedure composes its question under a namespaced prefix while
  * discovery keys on the BARE question. That namespacing is achieved purely by the
  * question STRING the SKILL.md procedure composes (the prefix below) — the helper
@@ -41,7 +41,7 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "..",
   "skills",
   "pipeline",
-  "product-planning",
+  "flow-product-planning",
   "references",
   "discovery-instructions.md",
 );

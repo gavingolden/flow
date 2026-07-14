@@ -7,7 +7,7 @@
  * pre-check lives inside the discovery sub-agent's own judgment, and it was
  * observed to skip the fan-out even on the forced path. This helper makes the
  * forced path deterministic: the supervisor (step 3) runs THIS binary before
- * `/product-planning`, so the gather+refute agy fan-out actually executes
+ * `/flow-product-planning`, so the gather+refute agy fan-out actually executes
  * regardless of the sub-agent's behaviour, and the findings are folded into
  * the discovery invocation as prior context.
  *
@@ -40,7 +40,7 @@ import { dirname } from "node:path";
 import { homedir } from "node:os";
 
 // Frozen to match discovery Step 1.5's budget defaults and model-variant pins
-// (skills/pipeline/product-planning/references/discovery-instructions.md, the
+// (skills/pipeline/flow-product-planning/references/discovery-instructions.md, the
 // `read_budget` block). Keep these byte-identical to that source of truth.
 const DEFAULT_MAX_CALLS = 12;
 const DEFAULT_TIMEOUT = "3m";
@@ -228,7 +228,7 @@ function firstNonEmptyLine(text: string, cap = 300): string {
 
 // Build a BOUNDED markdown findings block: the gather output capped to ~80
 // lines / ~4000 chars (truncation-marked when clipped), plus a one-line refute
-// caveat summary. Bounded because this gets folded into the /product-planning
+// caveat summary. Bounded because this gets folded into the /flow-product-planning
 // invocation — raw multi-thousand-line agy output would blow the context.
 export function boundFindings(gatherText: string, refuteText: string): string {
   let body = (gatherText ?? "").trim();

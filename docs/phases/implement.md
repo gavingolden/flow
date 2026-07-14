@@ -1,7 +1,7 @@
 # Phase 3 — implement
 
 The M2 terminal phase. Spawns a headless Claude session **inside the
-worktree** to invoke `/new-feature`, write code, write tests, commit,
+worktree** to invoke `/flow-new-feature`, write code, write tests, commit,
 push, and open a PR. Records the PR number on the task and exits.
 
 **Status: shipped (M2).**
@@ -28,7 +28,7 @@ take over from there.
 
 ## Wrapping prompt — the Test Steps rule
 
-`/new-feature` doesn't know about flow's auto-merge rule. The implement
+`/flow-new-feature` doesn't know about flow's auto-merge rule. The implement
 phase wraps the slash-command invocation with an instruction (the
 `TEST_STEPS_RULE` constant in
 `src/pipeline/phases/implement.ts`) telling the skill to populate a
@@ -79,7 +79,7 @@ spurious retries.
 
 ## Failure modes
 
-- The phase invokes `/new-feature` exactly once for create mode (and
+- The phase invokes `/flow-new-feature` exactly once for create mode (and
   once for fix mode). If the headless run exits non-zero, the phase
   returns `status: failed` with the failure log as the reason — no
   retry. Verification is the verify phase's job, not implement's.

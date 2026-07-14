@@ -261,7 +261,7 @@ export function run(argv: string[], deps: Deps = {}): number {
     // whether the branch's OWN head exists on origin via
     // `git ls-remote --exit-code --heads origin <branch>` (exit non-zero when
     // the ref is absent). That fires for a committed-but-never-pushed branch
-    // (e.g. /epic-create step 5) and is a no-op for already-pushed callers
+    // (e.g. /flow-epic-create step 5) and is a no-op for already-pushed callers
     // like /flow-pipeline (whose implement phase pushes with `-u` first).
     const branchRef = git(["rev-parse", "--abbrev-ref", "HEAD"], process.cwd());
     const branchName = branchRef.stdout.trim();

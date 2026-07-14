@@ -10,7 +10,7 @@
  * the four-value Recommended-path enum here keeps drift detectable —
  * bin/flow-step3-route.test.ts enforces the matrix on the helper side,
  * the upstream contract at
- * skills/pipeline/product-planning/references/discovery-instructions.md
+ * skills/pipeline/flow-product-planning/references/discovery-instructions.md
  * "Prompt interpretation (conditional)" enforces it on the discovery
  * subagent side. The AGENTS.md `## Output style` rule **Treat user
  * prompts as evidence of intent, not exhaustive specifications.**
@@ -85,7 +85,7 @@ const ALLOWED_INTENT_SET: ReadonlySet<string> = new Set(ALLOWED_INTENTS);
  * silent-passthrough footgun this helper exists to prevent.
  *
  * Single source of truth for the four enum values:
- * skills/pipeline/product-planning/references/discovery-instructions.md
+ * skills/pipeline/flow-product-planning/references/discovery-instructions.md
  * "Prompt interpretation (conditional)".
  */
 const NO_TENSION_PATH = "methods plausibly reach target";

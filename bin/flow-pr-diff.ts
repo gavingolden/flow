@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Wraps `gh pr diff <number>` and per-file caps each block at a line budget,
- * so the multi-agent review fan-out in `/pr-review` step 3 (which substitutes
+ * so the multi-agent review fan-out in `/flow-pr-review` step 3 (which substitutes
  * `{{DIFF}}` into six parallel agent prompts) doesn't replicate 10–100 KB of
  * raw diff context six times over. Agents are already instructed to Read the
  * changed files in full for surrounding context — the diff is a "what changed

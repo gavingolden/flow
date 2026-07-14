@@ -3,7 +3,7 @@
  * Research cache: persist a gather→refute→synthesize research synthesis keyed on a
  * normalized hash of the sharp research question, so a same-scope redirect /
  * crash-resume reuses it instead of re-running the agy fan-out. Backs BOTH the F2
- * discovery pre-check (`/product-planning` Step 1.5, keyed on the bare question) and
+ * discovery pre-check (`/flow-product-planning` Step 1.5, keyed on the bare question) and
  * direct `/flow-research` invocations (keyed under a namespaced prefix, so the two
  * keyspaces stay isolated by construction). Self-contained on purpose — Step 1.5 runs in the
  * consumer/target worktree where flow's bin/lib is absent, so this is invoked by

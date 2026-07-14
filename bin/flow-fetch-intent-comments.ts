@@ -14,7 +14,7 @@
  *
  * Sorted path-alphabetical, then by line number ascending within file.
  *
- * Used by /pr-review Step 3 to surface author intent to the multi-agent
+ * Used by /flow-pr-review Step 3 to surface author intent to the multi-agent
  * review fan-out via {{EXISTING_INTENT_COMMENTS}}.
  *
  * Usage:

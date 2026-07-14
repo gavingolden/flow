@@ -210,7 +210,7 @@ export const TERMINAL_PHASES = [
   "gated",
   "needs-human",
   "cancelled",
-  // Epic-designer (`/epic-create`) approve-terminal. `cancelled` above is
+  // Epic-designer (`/flow-epic-create`) approve-terminal. `cancelled` above is
   // reused for the epic cancel path (no separate epic-cancelled phase).
   "epic-approved",
 ] as const;
@@ -244,7 +244,7 @@ export const STEP_PHASES = [
   "reviewing",
   "gating",
   "merging",
-  // Epic-designer (`/epic-create`) step phases. These are NOT /flow-pipeline
+  // Epic-designer (`/flow-epic-create`) step phases. These are NOT /flow-pipeline
   // steps and have no `## Step N` heading in flow-pipeline/SKILL.md — the
   // NEXT_STEP_BY_PHASE cross-doc lint scopes them out via a startsWith("epic-")
   // filter.

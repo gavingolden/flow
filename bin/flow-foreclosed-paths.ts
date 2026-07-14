@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
  * Foreclosed paths: persist the rejected-alternatives and anti-patterns the
- * /pr-review Fix-Applier and Consolidator subagents recorded into a durable,
+ * /flow-pr-review Fix-Applier and Consolidator subagents recorded into a durable,
  * reviewer-visible `## Foreclosed Paths` section of the PR body.
  *
  * The full prose lives in `<worktree>/.flow-tmp/fix-applier-result.json` and

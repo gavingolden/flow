@@ -2,7 +2,7 @@
 /**
  * Inject test-step evidence into a PR body.
  *
- * `/pr-review` step 8c runs each runnable `- [ ]` item in the PR's
+ * `/flow-pr-review` step 8c runs each runnable `- [ ]` item in the PR's
  * `## Test Steps` section and ticks the box on success. This helper
  * also records the captured stdout/stderr + exit code as a `<details>`
  * block immediately under the matched item, so a reader of the merged

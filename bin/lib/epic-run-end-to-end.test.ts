@@ -1,5 +1,5 @@
 /**
- * End-to-end drift-scenario integration for the /epic-run PLAYBOOK primitives —
+ * End-to-end drift-scenario integration for the /flow-epic-run PLAYBOOK primitives —
  * the safe-write actuators (`flow epic bind` / `flow epic launch`), the
  * hypothesis board (`flow epic status --json`), and the deterministic frontier
  * (`computeFrontier`), exercised through the real `runEpicCli` surface with

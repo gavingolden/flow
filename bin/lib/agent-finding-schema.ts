@@ -11,7 +11,7 @@
  *   pattern-consistency, performance, supply-chain, test-coverage). The
  *   input must be a JSON object with shape `{findings: Array<Finding>}`
  *   where each finding has the documented shape from
- *   `skills/pipeline/pr-review/references/agent-prompts.md` (`file`,
+ *   `skills/pipeline/flow-pr-review/references/agent-prompts.md` (`file`,
  *   `line`, optional `end_line`, `label`, `decoration`, `confidence`,
  *   `subject`, `body`).
  *
@@ -25,7 +25,7 @@
  * Strict on shape, permissive on string content. Labels and decorations
  * are enumerated per the agent-prompts.md spec; the body string content
  * is not enumerated (it's prose). Cross-field rules are generally not
- * enforced here — that's the prose contract in pr-review/SKILL.md's job
+ * enforced here — that's the prose contract in flow-pr-review/SKILL.md's job
  * — with one deliberate exception now enforced: per conventional-
  * comments.md Rule 2, praise findings may omit `decoration` (an absent
  * key or `null`), while every other label still requires a valid enum

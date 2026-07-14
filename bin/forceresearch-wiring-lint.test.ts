@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
  * `forceResearch` state field + validator, the `--research` CLI parse/strip,
  * the discovery Step 1.5 skip-note ("force with `flow feature create --research`"), the
  * `flow feature create --help` documentation, and the `RESEARCH: force-on` marker token
- * that threads the force-on signal supervisor -> /product-planning -> discovery
+ * that threads the force-on signal supervisor -> /flow-product-planning -> discovery
  * across three skill files. None of the five is import-coupled to the others,
  * so a future edit could silently drop one (e.g. remove the help line, the
  * skip-note prose, or rename the marker in one file) and leave the rest
@@ -28,7 +28,7 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "..",
   "skills",
   "pipeline",
-  "product-planning",
+  "flow-product-planning",
   "references",
   "discovery-instructions.md",
 );
@@ -45,7 +45,7 @@ const PLANNING_SKILL_PATH = path.resolve(
   "..",
   "skills",
   "pipeline",
-  "product-planning",
+  "flow-product-planning",
   "SKILL.md",
 );
 
@@ -129,12 +129,12 @@ describe("forceResearch wiring lint", () => {
 
   it("(e) co-locates the 'RESEARCH: force-on' threading marker across all three skill files", () => {
     // The skip-note string in (c) is distinct from the marker token that
-    // actually threads the force-on signal supervisor -> /product-planning ->
+    // actually threads the force-on signal supervisor -> /flow-product-planning ->
     // discovery. Renaming the marker in any one file silently severs threading
     // with every other test green — freeze its co-presence here.
     for (const [name, src] of [
       ["flow-pipeline/SKILL.md", pipelineSkill],
-      ["product-planning/SKILL.md", planningSkill],
+      ["flow-product-planning/SKILL.md", planningSkill],
       ["discovery-instructions.md", discovery],
     ] as const) {
       expect(

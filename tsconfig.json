@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.scripts.json",
   "include": ["bin/**/*.ts", "skills/**/*.ts"],
-  "exclude": ["skills/universal/skill-creator/scripts/**"]
+  "exclude": ["skills/universal/flow-skill-creator/scripts/**"]
 }

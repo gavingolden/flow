@@ -297,7 +297,7 @@ export type SnapshotCommentResult =
  *  issue-comments, PATCHes the marked one if present, else POSTs a new one.
  *  Never throws — every gh failure maps to an `{ action: "failed" }` so the
  *  caller stays best-effort. Issue-comment endpoint (not /reviews) keeps this
- *  a top-level summary comment, consistent with /pr-review's convention. */
+ *  a top-level summary comment, consistent with /flow-pr-review's convention. */
 export function postSnapshotComment(
   prNumber: number,
   block: string,

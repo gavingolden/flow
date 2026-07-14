@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 /**
- * Computes the resume-from-disk decision for a crashed `/epic-create`
+ * Computes the resume-from-disk decision for a crashed `/flow-epic-create`
  * (epic-designer) session — the epic analogue of `flow-resume-decide.ts`.
  * Walks the SHORT epic-phase table and returns a single JSON object the
- * `/epic-create` supervisor branches on in its `# Resume mode` section.
+ * `/flow-epic-create` supervisor branches on in its `# Resume mode` section.
  *
  * Why: an epic session that crashes at any epic phase (epic-designing /
  * epic-validating / epic-pr-open / epic-design-pending-review) must resume at

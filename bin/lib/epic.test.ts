@@ -1,7 +1,7 @@
 /**
  * Tests for `flow epic`. F5 rewires `create` from a resolve-and-print stub to
  * a window-spawn (mirroring `flow feature create`): it opens a tmux window running the
- * `/epic-create` supervisor and writes initial epic state. So the `create`
+ * `/flow-epic-create` supervisor and writes initial epic state. So the `create`
  * specs now mock `./tmux` (like new.test.ts) and assert state + seed prompt;
  * the help / deferred-subcommand / usage specs stay side-effect-free.
  */
@@ -201,7 +201,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     const [, cwd, command, seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
     expect(cwd).toBe(fs.realpathSync(repoDir));
     expect(seed).toContain(
-      "Use the /epic-create skill for: add a watchlist feature",
+      "Use the /flow-epic-create skill for: add a watchlist feature",
     );
     expect(seed).toContain(".flow/epics/add-watchlist-feature");
     // The seed also embeds the resolved product-planning SKILL_DIR (R1) so the
@@ -209,16 +209,16 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     // the path-suffix, not an absolute host path — resolveFlowSource() resolves
     // to the live checkout under vitest.
     expect(seed).toContain("SKILL_DIR:");
-    expect(seed).toContain("skills/pipeline/product-planning");
+    expect(seed).toContain("skills/pipeline/flow-product-planning");
     // The argv carries --add-dir <worktree> + trailing --settings, NO
     // positional seed (length 5).
     expect(command).toHaveLength(5);
     expect(command[0]).toBe("claude");
     expect(command[1]).toBe("--add-dir");
     expect(command[3]).toBe("--settings");
-    expect(command.some((a) => a.includes("Use the /epic-create skill"))).toBe(
-      false,
-    );
+    expect(
+      command.some((a) => a.includes("Use the /flow-epic-create skill")),
+    ).toBe(false);
   });
 
   it("does NOT merge or launch any feature window (no respawn on a fresh create)", () => {
@@ -263,7 +263,7 @@ describe("runEpicCli create — window spawn (fresh)", () => {
 
   it("writes epic state(phase=starting) BEFORE the verified launch (supervisor needs a file to advance)", () => {
     // Mirrors new.test.ts: the inverted persist gate writes state up front so the
-    // /epic-create supervisor has a file to advance past `starting`.
+    // /flow-epic-create supervisor has a file to advance past `starting`.
     spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
     freshWindowOk();
     let phaseAtLaunch: string | null = null;
@@ -740,7 +740,9 @@ describe("runEpicCli create — --effort / --model flags", () => {
     expect(fs.existsSync(path.join(stateDir, "design-thing.json"))).toBe(true);
     // The seed is delivered via send-keys (the 4th arg), NOT a positional argv.
     const [, , , seed] = tmuxMock.createWindowVerified.mock.calls[0]!;
-    expect(seed).toContain("Use the /epic-create skill for: design the thing");
+    expect(seed).toContain(
+      "Use the /flow-epic-create skill for: design the thing",
+    );
     expect(seed).not.toContain("--model");
     expect(seed).not.toContain("--effort");
   });
@@ -908,19 +910,19 @@ describe("runEpicCli create --resume", () => {
       tmuxMock.respawnWindowVerified.mock.calls[0]!;
     expect(cwd).toBe(repoDir);
     expect(seed).toContain(
-      "Use the /epic-create skill in --resume mode for: crashed-epic",
+      "Use the /flow-epic-create skill in --resume mode for: crashed-epic",
     );
     expect(seed).toContain(".flow/epics/crashed-epic");
     // The resume seed carries the same resolved SKILL_DIR as the create seed.
     expect(seed).toContain("SKILL_DIR:");
-    expect(seed).toContain("skills/pipeline/product-planning");
+    expect(seed).toContain("skills/pipeline/flow-product-planning");
     // The argv carries NO positional seed (claude + --add-dir <worktree> +
     // trailing --settings, length 5).
     expect(command).toHaveLength(5);
     expect(command[3]).toBe("--settings");
-    expect(command.some((a) => a.includes("Use the /epic-create skill"))).toBe(
-      false,
-    );
+    expect(
+      command.some((a) => a.includes("Use the /flow-epic-create skill")),
+    ).toBe(false);
     expect(logs[0]).toBe("flow:crashed-epic");
   });
 
@@ -1164,7 +1166,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(errors.join("\n")).toMatch(/DAG|cycle/i);
   });
 
-  it("run: opens exactly one verified /epic-run playbook window (two-line seed, no run.json pre-seed)", () => {
+  it("run: opens exactly one verified /flow-epic-run playbook window (two-line seed, no run.json pre-seed)", () => {
     gitInit();
     writeManifest("spawn-epic", [{ id: "a" }]);
     freshWindowOk();
@@ -1175,7 +1177,7 @@ describe("runEpicCli run/status/ls/bind/launch", () => {
     expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
     // Default never-consumed predicate: no `consumed` deps arg is passed.
     const [, , , seed, deps] = tmuxMock.createWindowVerified.mock.calls[0]!;
-    expect(seed).toContain("Use the /epic-run skill for: spawn-epic");
+    expect(seed).toContain("Use the /flow-epic-run skill for: spawn-epic");
     expect(seed).toContain(".flow/epics/spawn-epic");
     // The loop-era seed lines are gone.
     expect(seed).not.toContain("AUTO_REDIRECT");

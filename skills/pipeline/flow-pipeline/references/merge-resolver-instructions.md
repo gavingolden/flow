@@ -374,10 +374,10 @@ Before writing the artifact and returning, self-check:
 - NEVER `git rebase --abort` once you've started resolving — partial
   resolutions are still useful state. Abort only on the explicit
   troubleshooting case above.
-- NEVER run `/verify` or `flow-pre-commit` from inside the resolver.
+- NEVER run `/flow-verify` or `flow-pre-commit` from inside the resolver.
   Verification of the rebased branch is the supervisor's job — the
   retried `gh pr merge --squash` is the verification, and CI re-runs
-  on the force-pushed head. Re-running `/verify` here would defeat
+  on the force-pushed head. Re-running `/flow-verify` here would defeat
   the context-cost win the fan-out exists for.
 - NEVER amend a commit on the rebased branch. The rebase produces new
   commits (different SHAs from the original); that's the expected

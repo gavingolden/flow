@@ -2,8 +2,8 @@
 /**
  * Schema validator for the consumer-declared `.flow/ui-validation.json`
  * manifest — the "how to launch + authenticate + which routes" convention
- * the browser-driven UI-validation capability reads at Step 6 (`/verify`)
- * and Step 8c (`/pr-review`).
+ * the browser-driven UI-validation capability reads at Step 6 (`/flow-verify`)
+ * and Step 8c (`/flow-pr-review`).
  *
  * Unlike `.flow/pre-commit.json` (a top-level ARRAY of scopes), this
  * manifest is a single OBJECT: `{ launch, baseUrl, loginUrl?,

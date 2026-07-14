@@ -18,29 +18,29 @@ The **shared rationale** for all nine (why a top-level supervisor may
 call Task at these sites) stays in `AGENTS.md` `## Don'ts` alongside the
 openers — it is not duplicated here.
 
-## `/pr-review` Independent Multi-Agent Review
+## `/flow-pr-review` Independent Multi-Agent Review
 
-`/flow-pipeline` step 8 loads `/pr-review`; at the "Independent
+`/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
 Multi-Agent Review" step, six review agents are spawned in parallel via
 the Task tool. The fan-out itself emits no consolidated artifact — each
 agent persists its own `$WORKTREE/.flow-tmp/agent-output-<lens>.json`;
 the downstream Consolidator-Validator step (a separate exemption)
 produces `consolidator-result.json`. The six agents run inside the
-supervisor's own in-process Skill load (`/pr-review` has no
+supervisor's own in-process Skill load (`/flow-pr-review` has no
 `context: fork` directive).
 
-## `/product-planning` Independent Discovery Subagent
+## `/flow-product-planning` Independent Discovery Subagent
 
-`/flow-pipeline` step 3 loads `/product-planning`, which spawns one
+`/flow-pipeline` step 3 loads `/flow-product-planning`, which spawns one
 discovery agent via the Task tool. Artifacts: `.flow-tmp/plan.md` and
 `.flow-tmp/pr-description-draft.md`. Post-merge-fix invariants: absolute
 SKILL_DIR + WORKTREE paths, exactly one Task call per invocation,
 wrapper-owned `mkdir -p .flow-tmp/`, single side-effect attribution
 site, main-session reads each artifact once and never re-reads.
 
-## `/new-feature` Independent Scout Subagent
+## `/flow-new-feature` Independent Scout Subagent
 
-`/flow-pipeline` step 5 loads `/new-feature`, which spawns one scout
+`/flow-pipeline` step 5 loads `/flow-new-feature`, which spawns one scout
 agent via the Task tool — but only on the wider-scope path of its hybrid
 threshold (≤3 affected files skips the scout). Artifact:
 `.flow-tmp/scout.md`. The scout adopts the Discovery Subagent's
@@ -48,14 +48,14 @@ invariants verbatim, plus one addition: its return summary must surface
 both sides — at least one positive finding and at least one negative
 finding (off-limits surfaces, rejected approaches, foreclosed shortcuts).
 
-## `/pr-review` Fix-Applier Subagent
+## `/flow-pr-review` Fix-Applier Subagent
 
-`/flow-pipeline` step 8 loads `/pr-review`; at the "Independent
+`/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
 Fix-Applier Subagent" step, one fix-applier agent is spawned via the
 Task tool to handle the per-finding address loop plus pre-commit /
 commit / push. Artifact: `.flow-tmp/fix-applier-result.json` (typed
 fields `commits`, `deferred`, `rejected_alternatives`,
-`anti_patterns_found`, `summary`). The subagent invokes `/verify`
+`anti_patterns_found`, `summary`). The subagent invokes `/flow-verify`
 against the post-fix worktree _before returning_, so a fix's CI breakage
 surfaces in-context while the fix rationale is still live.
 
@@ -75,13 +75,13 @@ appended. **Force-push is permitted** here because the resolver runs
 inside `/flow-pipeline`'s auto-merge umbrella and is scoped to the
 per-pipeline branch only — never `main`, `master`, or the base branch.
 
-## `/coder` Independent Edit-Applier Subagent
+## `/flow-coder` Independent Edit-Applier Subagent
 
 When a pipeline skill reaches its hybrid-threshold wider-scope path —
-`/new-feature` step 5, `/verify` step 3, or `/refactoring` step 3 — or
+`/flow-new-feature` step 5, `/flow-verify` step 3, or `/flow-refactoring` step 3 — or
 when the `/flow-pipeline` supervisor's interactive code-change redirect
 path fires (a non-trivial code-change redirect at a worktree-existing
-phase), the wrapper invokes `/coder` in-process, and `/coder` spawns one
+phase), the wrapper invokes `/flow-coder` in-process, and `/flow-coder` spawns one
 edit-applier agent via the Task tool to apply the edit-set and run
 `flow-pre-commit --json` against the post-edit worktree. Artifact:
 `<worktree>/.flow-tmp/coder-result.json` (typed fields `edits`,
@@ -90,12 +90,12 @@ edit-applier agent via the Task tool to apply the edit-set and run
 edit's type/lint/test breakage surfaces in-context. Trivially scoped
 edits skip the subagent via each caller's own hybrid threshold (see each
 caller's "Spawn procedure (wider-scope path only)" for the canonical
-bar). The full contract is in `skills/pipeline/coder/SKILL.md`'s
+bar). The full contract is in `skills/pipeline/flow-coder/SKILL.md`'s
 "Independent Edit-Applier Subagent" section.
 
-## `/pr-review` Independent Gatekeeper Subagent
+## `/flow-pr-review` Independent Gatekeeper Subagent
 
-`/flow-pipeline` step 8 loads `/pr-review`; at the "Independent
+`/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
 Gatekeeper Subagent" step (Step 1.5), one gatekeeper agent is spawned
 via the Task tool with a per-spawn `model: "haiku"` override — justified
 primarily by **cost-routing** rather than context isolation. It
@@ -107,9 +107,9 @@ wrapper branches on it: `"skip"` writes a `pr-review-result.json` with
 `status: "clean"` and `completed_steps: ["1", "1.5"]` so Step 8 proceeds
 to the auto-merge gate; `"proceed"` continues to Step 2 unchanged.
 
-## `/pr-review` Independent Consolidator-Validator Subagent
+## `/flow-pr-review` Independent Consolidator-Validator Subagent
 
-`/flow-pipeline` step 8 loads `/pr-review`; at the "Independent
+`/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
 Consolidator-Validator Subagent" step (Step 3.5), one
 consolidator-validator agent is spawned via the Task tool. Unlike the
 Gatekeeper there is **no** `model: "haiku"` override — default Sonnet is
@@ -118,13 +118,13 @@ Artifact: `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
 `consolidated_findings`, `dropped_by_validation`, `rejected_alternatives`,
 `anti_patterns_found`, `summary`); the wrapper reads it once at Step 4
 and reuses the parsed object across Steps 4–7. Also documented in
-`skills/pipeline/pr-review/references/consolidator-instructions.md`.
+`skills/pipeline/flow-pr-review/references/consolidator-instructions.md`.
 
 ## Verify-Retry-Loop Subagent
 
 `/flow-pipeline` step 6 (`Local verify`) spawns one verify-retry-loop agent via
-the Task tool to own the 3-outer-attempt `/verify` loop in an isolated context:
-each retry re-invokes `/verify` and re-pastes the prior attempt's
+the Task tool to own the 3-outer-attempt `/flow-verify` loop in an isolated context:
+each retry re-invokes `/flow-verify` and re-pastes the prior attempt's
 `flow-pre-commit --json` `failure` object, and the loop also owns the Layer-3
 `.flow/pre-commit.json` config-authoring branch (which commits to the feature
 branch) and the UI-smoke pass. Artifact:

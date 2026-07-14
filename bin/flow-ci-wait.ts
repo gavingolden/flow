@@ -380,10 +380,10 @@ export const SMALL_FOLLOWUP_MAX_LOC = 15;
 export const SMALL_FOLLOWUP_MAX_FILES = 3;
 
 /**
- * Marks a `/pr-review` fix-applier review-fix commit. Fix-applier
+ * Marks a `/flow-pr-review` fix-applier review-fix commit. Fix-applier
  * commits carry a `(pr-review #<PR_NUMBER>)` suffix in the subject —
  * source of truth:
- * skills/pipeline/pr-review/references/fix-applier-instructions.md §7.
+ * skills/pipeline/flow-pr-review/references/fix-applier-instructions.md §7.
  */
 export const FIX_APPLIER_COMMIT_MARKER = /\(pr-review #\d+\)/;
 
@@ -395,7 +395,7 @@ export const FIX_APPLIER_COMMIT_MARKER = /\(pr-review #\d+\)/;
  *
  * A follow-up is small when EITHER signal matches (OR composition):
  *  - Kind signal: every intervening commit subject carries the
- *    `/pr-review` fix-applier marker (FIX_APPLIER_COMMIT_MARKER). A
+ *    `/flow-pr-review` fix-applier marker (FIX_APPLIER_COMMIT_MARKER). A
  *    fix-applier commit is by construction a narrow review-fix.
  *  - Size signal: total changed LOC (additions + deletions summed
  *    across files) <= SMALL_FOLLOWUP_MAX_LOC AND distinct files
@@ -432,7 +432,7 @@ export function isSmallFollowup(
     const files = (parsed as { files?: unknown }).files;
     if (!Array.isArray(messages) || messages.length === 0) return false;
 
-    // Kind signal: every intervening commit is a /pr-review fix-applier
+    // Kind signal: every intervening commit is a /flow-pr-review fix-applier
     // review-fix commit (subject line carries the (pr-review #N) marker).
     const allFixApplier = messages.every(
       (m) =>
@@ -1577,7 +1577,7 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
           readIsSmallFollowup(latestCopilotCommit as string, prInfo.headRefOid)
         ) {
           // Small-follow-up skip: when the only intervening commits are
-          // a small follow-up (every commit a /pr-review fix-applier
+          // a small follow-up (every commit a /flow-pr-review fix-applier
           // review-fix, or a change under the LOC/files thresholds),
           // re-requesting Copilot would burn a paid credit on a review
           // unlikely to surface findings. Sibling of the merge-only

@@ -113,10 +113,10 @@ through the task file on disk.
 ┌──────────────────────┐  ┌────────────────────────────────────┐
 │ Script phases (Bun)  │  │ LLM phases (claude -p, fresh ctx)  │
 │                      │  │                                    │
-│ • worktree           │  │ • plan      → /product-planning    │
-│ • ci-wait (poll)     │  │ • implement → /new-feature         │
-│ • gate (parse body)  │  │ • verify    → /verify              │
-│ • merge              │  │ • review    → /pr-review           │
+│ • worktree           │  │ • plan      → /flow-product-planning    │
+│ • ci-wait (poll)     │  │ • implement → /flow-new-feature         │
+│ • gate (parse body)  │  │ • verify    → /flow-verify              │
+│ • merge              │  │ • review    → /flow-pr-review           │
 └──────────────────────┘  └────────────────────────────────────┘
                           │ all phases read/write
                           ▼
@@ -163,7 +163,7 @@ retries.
                     worktree-ready
                          │
                          ▼
-                      planning ─────────► /product-planning   ─┐
+                      planning ─────────► /flow-product-planning   ─┐
                          │                                     │ retry 1x on parse fail
                          ▼                                     │
                        planned                                 │
@@ -173,13 +173,13 @@ retries.
                   │  checkpoint │  [y]es / [e]dit / [n]o
                   └──────┬──────┘
                          ▼
-                   implementing ───────► /new-feature (mode: create | fix)
+                   implementing ───────► /flow-new-feature (mode: create | fix)
                          │
                          ▼
                        pr-open   (push + gh pr create)
                          │
                          ▼
-                  local-verifying ────► /verify
+                  local-verifying ────► /flow-verify
                          │   ▲
                   green   │   │ red, retry up to 3x with truncated log
                          ▼   │ exhaust → needs-human
@@ -188,7 +188,7 @@ retries.
                   green  │   │ red ─────────► loop back to implementing (fix mode)
                          │   │                cap 3 ci→implement cycles
                          ▼   ▼
-                      reviewing ─────────► /pr-review (fresh ctx)
+                      reviewing ─────────► /flow-pr-review (fresh ctx)
                          │   │
                   clean  │   │ critical ────► loop back to implementing (fix mode)
                          │   │                cap 2 review→implement cycles
@@ -297,13 +297,13 @@ modes. The redesign separates them explicitly:
 implementPhase({ taskPath, mode })
 
   mode = "create":
-    claude -p "/new-feature
+    claude -p "/flow-new-feature
       Read task.md at <path>. Read the plan section. Implement.
       Run verify locally before opening the PR. Open the PR with
       structured body including ## Test Steps."
 
   mode = "fix":
-    claude -p "/new-feature
+    claude -p "/flow-new-feature
       Read task.md at <path>. The PR is open at #<pr>.
       Branch is <branch>. The previous attempt failed at the
       <ci|review> phase with this log:
@@ -328,7 +328,7 @@ The review phase **never** continues from implement. Reasons:
 
 - The point of a self-review is a second look. An implementer-continued
   reviewer rationalises its own code.
-- `/pr-review` reads the PR diff via `gh pr diff` — that's the artifact
+- `/flow-pr-review` reads the PR diff via `gh pr diff` — that's the artifact
   it needs.
 - Bot reviews (Copilot, etc.) collected in ci-wait are ALSO second
   opinions; they get passed in as additional context.
@@ -336,7 +336,7 @@ The review phase **never** continues from implement. Reasons:
 ```
 reviewPhase({ taskPath })
   bot_reviews = read from task.md (collected by ci-wait)
-  claude -p "/pr-review
+  claude -p "/flow-pr-review
     Read PR #<pr> via gh. Diff via gh pr diff.
     Bot reviews to consider:
     <bot review excerpts>
@@ -904,12 +904,12 @@ T+0:30  worktree phase (script):
         - new branch, new worktree, .orchestrator symlink
         - status: worktree-ready
 
-T+0:35  plan phase (claude -p /product-planning):
+T+0:35  plan phase (claude -p /flow-product-planning):
         - reads task.md, writes plan section
         - status: planned
         - [optional checkpoint] — for `feature` intent, pause + notify
 
-T+1:00  implement phase (claude -p /new-feature, mode=create):
+T+1:00  implement phase (claude -p /flow-new-feature, mode=create):
         - reads task.md + plan
         - writes code + tests
         - runs `npm run verify` locally — green
@@ -925,7 +925,7 @@ T+5:00  CI green, Copilot review posted (one minor suggestion)
         - status: ci-clean
         - bot reviews captured into task.md ## Phase outputs > ci
 
-T+5:05  review phase (claude -p /pr-review, fresh ctx):
+T+5:05  review phase (claude -p /flow-pr-review, fresh ctx):
         - reads PR diff, considers Copilot's suggestion
         - posts 2 inline comments, none critical
         - status: reviewed

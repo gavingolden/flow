@@ -2,7 +2,7 @@
 
 Phase 5 of [`target-architecture.md`](target-architecture.md) ("measure,
 then tighten") requires the downstream context-diet decisions — the
-`/coder` routing edit-size threshold, per-repo skill granularity, and the
+`/flow-coder` routing edit-size threshold, per-repo skill granularity, and the
 standalone-skills-home story — to rest on measured evidence rather than
 guesses (decision D4, "measure before tightening"). This report is the
 `p5-token-audit` node's exit artifact: the method, and the aggregate-only
@@ -124,7 +124,7 @@ this method constrain diet decisions less tightly than a fully-attributed
 transcript would — a single-pipeline baseline should be read as
 indicative, not definitive, on exactly this dimension. `verify` shows
 zero tokens because this particular pipeline's local-verify pass ran
-inside the `/verify`-attributed skill invocation but produced no
+inside the `/flow-verify`-attributed skill invocation but produced no
 directly-attributed assistant turns in this transcript — a boundary
 worth refining under the cross-model review's suggested follow-up
 (boundary-delimited phase mapping off `Skill`-invocation events; see
@@ -162,7 +162,7 @@ pipeline's sub-agent calls are therefore invisible to any transcript-based
 measurement — a real blind spot for whole-pipeline cost accounting, not
 just this report's.
 
-### In-process edit-size distribution (the `/coder` routing-threshold input)
+### In-process edit-size distribution (the `/flow-coder` routing-threshold input)
 
 36 `Edit`/`Write` calls, line-delta (added + removed) per call:
 
@@ -170,7 +170,7 @@ just this report's.
 | --- | ------------ | --- | --- | --- |
 | 0   | 8            | 63  | 100 | 100 |
 
-`target-architecture.md`'s current `/coder` routing threshold is
+`target-architecture.md`'s current `/flow-coder` routing threshold is
 `≤1 file AND ≤30 LOC AND every file named` (prose-judged, not mechanically
 enforced). Against this single transcript: the **median** edit (8 lines)
 is well under the 30-LOC threshold, but **p90 (63 lines) and p99/max (100

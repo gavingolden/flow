@@ -34,7 +34,7 @@ function withTmpFile(contents: string, fn: (filePath: string) => void): void {
 }
 
 /**
- * Contract tests for the `/pr-review` wrapper-level result artifact at
+ * Contract tests for the `/flow-pr-review` wrapper-level result artifact at
  * `<worktree>/.flow-tmp/pr-review-result.json`.
  *
  * The artifact is the single signal `/flow-pipeline` step 8 reads to
