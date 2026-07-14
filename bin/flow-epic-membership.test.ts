@@ -203,12 +203,65 @@ describe("flow-epic-membership CLI", () => {
     assertNoStopGuardSentinel(result.stdout);
   });
 
+  it("[Story 4b] run.json present but manifest missing/corrupt → degradation block", () => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-membership-"));
+    const stateDir = path.join(tmpHome, ".flow", "state");
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(stateDir, "my-feature.json"),
+      JSON.stringify({
+        slug: "my-feature",
+        phase: "merged",
+        repo: "/tmp/repo",
+        updatedAt: "2026-06-28T00:00:00Z",
+        epic: { slug: "e", featureId: "a" },
+      } satisfies PipelineState),
+    );
+
+    const epicDir = path.join(tmpHome, ".flow", "epics", "e");
+    fs.mkdirSync(epicDir, { recursive: true });
+    // manifestPath points at a file that exists but is not valid JSON, so
+    // loadCommittedManifest returns { ok: false } (the !loaded.ok branch).
+    const manifestPath = path.join(epicDir, "manifest.json");
+    fs.writeFileSync(manifestPath, "{ not valid json");
+
+    const features: Record<string, FeatureRunRecord> = {
+      a: { slug: "my-feature", launchedAt: "2026-06-28T00:00:00Z" },
+    };
+    const rs: EpicRunState = {
+      epicSlug: "e",
+      repo: "/tmp/repo",
+      manifestPath,
+      manifestSha: "sha",
+      maxParallel: 1,
+      createdAt: "2026-06-28T00:00:00Z",
+      updatedAt: "2026-06-28T00:00:00Z",
+      features,
+    };
+    fs.writeFileSync(path.join(epicDir, "run.json"), JSON.stringify(rs));
+
+    const result = run(
+      ["--slug", "my-feature", "--terminal-state", "merged"],
+      tmpHome,
+    );
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Part of epic");
+    expect(result.stdout).toContain("(epic status unavailable)");
+    assertNoStopGuardSentinel(result.stdout);
+  });
+
   it("[Story 5] unknown --terminal-state value → exit 2", () => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-membership-"));
     const result = run(
       ["--slug", "my-feature", "--terminal-state", "bogus"],
       tmpHome,
     );
+    expect(result.status).toBe(2);
+  });
+
+  it("[Story 5b] missing --slug → exit 2", () => {
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "flow-epic-membership-"));
+    const result = run(["--terminal-state", "merged"], tmpHome);
     expect(result.status).toBe(2);
   });
 
