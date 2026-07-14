@@ -2,7 +2,10 @@
 
 This file contains prompt templates for the 6 specialized review agents. The orchestrator
 reads the relevant section, fills in the context variables (marked with `{{...}}`), and
-spawns each agent as a subagent.
+spawns each agent as a subagent. When the named definitions are installed, each lens
+spawns as `subagent_type: flow-review-<lens>` (`agents/flow-review-<lens>.md`); either
+way — including the `general-purpose` fallback path when a definition is not installed —
+this file remains the canonical rendered spawn prompt.
 
 All agents share a common output format and confidence calibration. The specialization is
 in what each agent looks for and what it ignores.

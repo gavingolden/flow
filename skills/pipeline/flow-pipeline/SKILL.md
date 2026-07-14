@@ -1470,7 +1470,7 @@ VERIFY_MODEL=$(jq -r '.modelVerify // empty' ~/.flow/state/"$SLUG".json)
 # on an unknown agent type. The per-spawn model: below overrides the
 # definition's model, so the verify precedence is unchanged either way.
 VERIFY_SUBAGENT=flow-verify
-[ -f ~/.claude/agents/flow-verify.md ] || VERIFY_SUBAGENT=general-purpose
+[ -f ~/.claude/agents/flow-verify.md ] || { VERIFY_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-verify → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
 ```
 
 Spawn-prompt template (fill the `{{...}}` placeholders before passing to
