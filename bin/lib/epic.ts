@@ -727,7 +727,7 @@ export function parseRunArgs(rest: string[]): RunArgs {
  * Read + shape-validate + DAG-validate the committed manifest READ-ONLY. The
  * orchestrator never writes `.flow/epics/<slug>/manifest.json`.
  */
-function loadCommittedManifest(
+export function loadCommittedManifest(
   manifestPath: string,
 ):
   | { ok: true; manifest: EpicManifest; sha: string }
