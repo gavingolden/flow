@@ -98,28 +98,36 @@ in-process for skills; shell out for scripts; never delegate.
 >
 > **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
 > Review.** Step 8's six parallel review agents, each writing its own
-> `agent-output-<lens>.json`; full contract in
+> `agent-output-<lens>.json`; spawned as the named `flow-review-<lens>`
+> agents (guarded `general-purpose` fallback); full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #2: `/flow-product-planning` Independent Discovery
 > Subagent.** Step 3's one discovery agent, writing `.flow-tmp/plan.md`
-> + `.flow-tmp/pr-description-draft.md`; full contract in
+> + `.flow-tmp/pr-description-draft.md`; spawned as the named
+> `flow-discovery` agent (guarded `general-purpose` fallback); full
+> contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #3: `/flow-new-feature` Independent Scout
 > Subagent.** Step 5's one scout agent (wider-scope path only — ≤3
-> affected files skip it), writing `.flow-tmp/scout.md`; full contract
-> in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
+> affected files skip it), writing `.flow-tmp/scout.md`; spawned as the
+> named `flow-scout` agent (guarded `general-purpose` fallback); full
+> contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #4: `/flow-pr-review` Fix-Applier Subagent.** Step
 > 8's one fix-applier agent for the per-finding address loop +
-> commit/push, writing `.flow-tmp/fix-applier-result.json`; full
+> commit/push, writing `.flow-tmp/fix-applier-result.json`; spawned as
+> the named `flow-fix-applier` agent (guarded `general-purpose`
+> fallback); full
 > contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #5: Merge-Conflict Resolver Subagent.** Step
 > 10's one resolver agent for the rebase + per-file resolution +
 > force-push (per-pipeline branch only), writing
-> `.flow-tmp/merge-resolver-result.json`; full contract in
+> `.flow-tmp/merge-resolver-result.json`; spawned as the named
+> `flow-merge-resolver` agent (guarded `general-purpose` fallback); full
+> contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
 > `references/merge-resolver-instructions.md`.
 >
@@ -129,24 +137,30 @@ in-process for skills; shell out for scripts; never delegate.
 > path — or the `/flow-pipeline` supervisor's interactive code-change redirect
 > path fires (see the "Mid-flight code-change redirects" section and
 > `references/redirect-handling.md`) — writing `.flow-tmp/coder-result.json`;
-> full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
+> spawned as the named `flow-edit-applier` agent (guarded `general-purpose`
+> fallback); full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
 > `skills/pipeline/flow-coder/SKILL.md`.
 >
 > **Task-tool exemption #7: `/flow-pr-review` Independent Gatekeeper Subagent.**
 > `/flow-pr-review` Step 1.5's one gatekeeper agent with a `model: "haiku"`
 > cost-routing override, writing `.flow-tmp/gatekeeper-result.json`;
-> full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
+> spawned as the named `flow-gatekeeper` agent (guarded `general-purpose`
+> fallback); full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #8: `/flow-pr-review` Independent Consolidator-Validator
 > Subagent.** `/flow-pr-review` Step 3.5's one consolidator-validator agent
 > (default Sonnet, no model override), writing
-> `.flow-tmp/consolidator-result.json`; full contract in
+> `.flow-tmp/consolidator-result.json`; spawned as the named
+> `flow-consolidator` agent (guarded `general-purpose` fallback); full
+> contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #9: Verify-Retry-Loop Subagent.** Step 6's one
 > verify-retry-loop agent owning the 3-outer-attempt `/flow-verify` loop
 > (isolating the re-pasted `flow-pre-commit --json` failure JSON),
-> writing `.flow-tmp/verify-loop-result.json`; full contract in
+> writing `.flow-tmp/verify-loop-result.json`; spawned as the named
+> `flow-verify` agent (guarded `general-purpose` fallback); full contract
+> in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
 > `references/verify-loop-instructions.md`.
 >
@@ -730,7 +744,20 @@ pipelines). Absent or empty `.epic` ≡ not epic-launched — append nothing.
 **Deterministic forced research (mandatory on the forced path).** The
 discovery subagent's own Step 1.5 was observed to skip the fan-out even
 when forced, so on the `forceResearch == true` path you MUST ALSO run the
-research deterministically yourself, BEFORE invoking `/flow-product-planning`:
+research deterministically yourself, BEFORE invoking `/flow-product-planning`.
+First, probe whether the `research` module is even installed — a
+deselected module means `flow-research-run` was pruned from PATH
+entirely:
+
+```bash
+flow-module-status --check research || RESEARCH_MODULE_INACTIVE=1
+```
+
+When `$RESEARCH_MODULE_INACTIVE` is set, the helper already emitted the
+named notice to stderr — note the skip in the chat summary and proceed
+straight to invoking `/flow-product-planning` below (append nothing for
+research findings; same "graceful skip never blocks planning" invariant
+as the agy-unavailable path). Otherwise, run the fan-out:
 
 ```bash
 flow-research-run --task "<verbatim user description>" \
@@ -876,20 +903,25 @@ fires for **ANY** intent (a bug/refactor plan can carry a consequential
 decision too), positioned before the feature/non-feature end-condition split.
 It is a Bash `flow-delegate` (AGY) fan-out — the same mechanism as
 `/flow-pr-review`'s Gemini lens — and spawns **no Task** (see Hard rules'
-"Bash fan-out, not a tenth exemption" sibling note). Two-part gate, both
+"Bash fan-out, not a tenth exemption" sibling note). Three-part gate, all
 human-readable:
 
 ```bash
 jq -e '(.review | type == "object") and (.review.gemini == true)' ~/.flow/config.json \
-  && grep -q '^## Decision analysis' "$WORKTREE/.flow-tmp/plan.md"
+  && grep -q '^## Decision analysis' "$WORKTREE/.flow-tmp/plan.md" \
+  && flow-module-status --check research
 ```
 
 The config half reuses the SAME `review.gemini` opt-in that gates the
 `/flow-pr-review` Gemini lens (no new config key); the section half is the
 omit-when-empty `## Decision analysis` Layer-1 section — its absence means
 discovery found no consequential diverging decision, so there is nothing to
-cross-review. When **either** half fails, skip this sub-step and proceed to End
-conditions unchanged.
+cross-review. The third check is the same `research`-module precheck as the
+forced-research block above — `flow-plan-review` is itself a `research`
+helper, so a deselected module means it isn't on PATH. When **any** part
+fails, emit the named notice (already on stderr for the module check),
+record the reason in the chat summary, and skip this sub-step, proceeding
+to End conditions unchanged.
 
 When both fire, run ONE review and branch on the helper's `{ran}` envelope
 (NEVER the exit code):
@@ -1579,6 +1611,26 @@ Continue to step 7.
 
 **Phase:** `ci-wait`
 
+**Copilot-module precheck (before any of this).** A deselected `copilot`
+module means `flow-request-copilot` was never installed on PATH at all —
+probe first, and on a non-zero exit skip the entire request/classify
+subsection below, treating the PR as declined (parallel to
+`flow-ci-wait`'s own `isCopilotModuleActive` self-guard, which collapses
+the same wait a layer deeper):
+
+```bash
+flow-module-status --check copilot >/dev/null 2>&1 || COPILOT_MODULE_INACTIVE=1
+```
+
+Redirect the probe's own stderr away — `flow-ci-wait`'s own
+`isCopilotModuleActive` self-guard is the single canonical emitter of the
+deselected-copilot notice (it fires whether or not this precheck ran), so
+surfacing the notice here too would show the user the same line twice.
+When `$COPILOT_MODULE_INACTIVE` is set, note the skip quietly in the
+chat-summary prose (copilot not requested — module deselected) and skip
+straight to invoking `flow-ci-wait` below with `--copilot-not-requested`,
+which prints the one user-facing notice.
+
 **Copilot request decision (before the wait).** Copilot review is opt-in
 for non-trivial changes only. Decide whether to request it for this PR
 *before* invoking `flow-ci-wait`, so a declined PR can collapse the bot
@@ -2158,11 +2210,22 @@ MERGE_RESOLVER_MODEL=$(jq -r '.modelMergeResolver // empty' ~/.flow/state/"$SLUG
 (cd "$WORKTREE" && git fetch origin "$BASE_BRANCH") || echo "warn: git fetch origin $BASE_BRANCH failed; resolver will retry the fetch in Step 2" >&2
 CONFLICTING_FILES=$(cd "$WORKTREE" && git diff --name-only --diff-filter=U)
 PR_DESCRIPTION=$(gh pr view "$PR" --json body -q .body)
+
+# Subagent type: the flow-merge-resolver definition (agents/flow-merge-resolver.md,
+# Bash/Read/Edit/Write/Grep allowlist, no effort:/model: pins) resolves via
+# a file-exists guard that falls back to general-purpose when the
+# definition is not symlinked (a consumer who has not re-run flow
+# install), so the pipeline never fails on an unknown agent type. The
+# per-spawn model: below overrides the definition's model either way.
+MERGE_RESOLVER_SUBAGENT=flow-merge-resolver
+[ -f ~/.claude/agents/flow-merge-resolver.md ] || { MERGE_RESOLVER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-merge-resolver → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
 ```
 
 See [references/merge-resolver-spawn-prompt.md](references/merge-resolver-spawn-prompt.md) for the verbatim spawn-prompt template (eight `{{...}}` placeholders). Fill the placeholders from the resolve-inputs block above before passing it to the Task tool.
 
-Make the Task call with `subagent_type: general-purpose`, the per-spawn
+Make the Task call with `subagent_type: $MERGE_RESOLVER_SUBAGENT`
+(resolved above — `flow-merge-resolver` when the definition is symlinked,
+else `general-purpose`), the per-spawn
 `model: "$MERGE_RESOLVER_MODEL"` argument resolved above (precedence
 `--model-merge-resolver > config.models.mergeResolver > inherited`; when
 `$MERGE_RESOLVER_MODEL` is empty, omit `model:` so the resolver inherits the

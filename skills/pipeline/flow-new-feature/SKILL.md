@@ -28,7 +28,8 @@ acceptance criteria as `it.todo()` test specs, and mandatory test implementation
 
 This skill is a thin wrapper around a one-shot **Independent Scout
 Subagent**. The wrapper itself does no codebase scouting — it spawns one
-Task-tool subagent (`subagent_type: general-purpose`), passes the user's
+Task-tool subagent (`subagent_type: flow-scout`, guarded `general-purpose`
+fallback), passes the user's
 verbatim description plus the absolute path to write, and waits for the
 subagent to return a brief both-sides summary. The subagent does the
 discovery in its own isolated context: reading source files, scanning
@@ -174,10 +175,21 @@ plan.md's `## Alternatives considered` (see
 - Omit the block entirely only when BOTH sources are absent — non-plan and
   plan-without-alternatives pipelines see byte-identical spawn prompts.
 
-3. Make exactly **one** Task-tool call:
+3. Resolve the subagent type. The `agents/flow-scout.md` definition
+   (Bash/Read/Grep/Glob/Write allowlist, no `effort:`/`model:` pins)
+   resolves via a file-exists guard that falls back to `general-purpose`
+   with a loud `NOTICE — agent-fallback:` line so the pipeline never
+   fails on an unknown agent type:
+
+   ```bash
+   SCOUT_SUBAGENT=flow-scout
+   [ -f ~/.claude/agents/flow-scout.md ] || { SCOUT_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-scout → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+   ```
+
+   Make exactly **one** Task-tool call:
 
    ```
-   subagent_type: general-purpose
+   subagent_type: $SCOUT_SUBAGENT
    description:   Scout for /flow-new-feature
    prompt:        <the prompt template below, with variables filled in>
    ```
@@ -272,13 +284,14 @@ scout report back; the artifact on disk is the record.
 - Before committing to implementation, perform a brief structured
   assessment. Present findings to the user as a table:
 
-  | Criterion            | Assessment                                                          |
-  | -------------------- | ------------------------------------------------------------------- |
-  | Customer value       | _How much does this improve the user's workflow?_                   |
-  | Technical complexity | _Rough effort estimate and what areas of the codebase are affected_ |
-  | Debt risk            | _Does this follow existing patterns or introduce new ones?_         |
-  | Composability        | _Can this design be easily extended, layered on, or reused?_        |
-  | **Recommendation**   | **Proceed / Reconsider scope / Defer / Reject**                     |
+  | Criterion            | Assessment                                                                                              |
+  | -------------------- | ------------------------------------------------------------------------------------------------------- |
+  | Customer value       | _How much does this improve the user's workflow?_                                                       |
+  | Technical complexity | _Rough effort estimate and what areas of the codebase are affected_                                     |
+  | Debt risk            | _Does this follow existing patterns or introduce new ones?_                                             |
+  | Composability        | _Can this design be easily extended, layered on, or reused?_                                            |
+  | Redundancy           | Does this duplicate an existing capability (skill/helper/config/prior feature)? Cite it, or state none. |
+  | **Recommendation**   | **Proceed / Reconsider scope / Defer / Reject**                                                         |
 
 - Within this analysis:
   - **Challenge the feature.** Don't just validate the user's idea. Identify potential
@@ -343,7 +356,16 @@ scout report back; the artifact on disk is the record.
     alongside the recommendation. When plan.md has no `## Prompt
 interpretation` section, or the section's Recommended path is
     `methods plausibly reach target`, omit the row entirely (the original
-    five-row table is unchanged for no-tension prompts).
+    six-row table is unchanged for no-tension prompts).
+  - **Check for redundancy.** Fill the Redundancy row above by checking the request
+    against existing capabilities — a skill, a helper, a config surface, or a prior
+    feature — and cite the specific one it duplicates, or state none found. Customer
+    value and Recommendation already carry the helps-the-user / is-it-necessary /
+    is-there-a-better-way questions; this bullet adds only the redundancy dimension.
+    This is the same obligation authored one site over in
+    `skills/pipeline/flow-product-planning/references/discovery-instructions.md`'s
+    **Necessity & redundancy** category — the two sites cross-link so the discipline
+    is consistent whether the plan originates in discovery or in `/flow-new-feature`.
   - **Name the plan's weakest assumption.** Close the analysis with an adversarial
     self-critique that names the plan's single weakest assumption / biggest risk — "if this
     plan is wrong, here is the most likely reason". This is the load-bearing assumption whose
@@ -841,7 +863,8 @@ wasn't used for a UI-only change.
 - Any new environment variables have been added to `.env.example` with comments and safe defaults
 - PR description draft exists (`.flow-tmp/pr-description-draft.md`) or user explicitly deferred it
 - For wider-scope features: exactly one Task-tool call was made at the
-  Step 1b scout site with `subagent_type: general-purpose`;
+  Step 1b scout site with `subagent_type: $SCOUT_SUBAGENT` (`flow-scout`,
+  or the guarded `general-purpose` fallback);
   `.flow-tmp/scout.md` exists with the six expected sections
   (`## affected_modules`, `## relevant_tests`, `## public_api_surface`,
   `## open_questions`, `## recommended_strategy`, `## anti_patterns`);

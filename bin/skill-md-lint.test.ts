@@ -76,6 +76,14 @@ const CODER_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "coder-instructions.md",
 );
+const PRODUCT_PLANNING_TOP_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-product-planning",
+  "SKILL.md",
+);
 const REPORT_TEMPLATE_PATH = path.resolve(
   HERE,
   "..",
@@ -318,6 +326,10 @@ const discoveryInstructionsContent = fs.readFileSync(
 );
 const epicDiscoveryInstructionsContent = fs.readFileSync(
   EPIC_DISCOVERY_INSTRUCTIONS_PATH,
+  "utf8",
+);
+const productPlanningTopContent = fs.readFileSync(
+  PRODUCT_PLANNING_TOP_SKILL_MD_PATH,
   "utf8",
 );
 const prdTemplateContent = fs.readFileSync(PRD_TEMPLATE_PATH, "utf8");
@@ -1108,16 +1120,23 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     }
   });
 
-  // Frontmatter policy for the full ten-definition set (p4-review-agents):
-  // mechanical roles pin `effort: low` (checked above and re-checked here),
-  // the gatekeeper pins `model: haiku` as the declarative cost-routing
-  // record, and every judgment role omits both so session effort and the
-  // spawn site's per-spawn/config-threaded model always win.
+  // Frontmatter policy for the full fourteen-definition set
+  // (p4-review-agents + p4-pipeline-agents): mechanical roles pin
+  // `effort: low` (checked above and re-checked here), the gatekeeper
+  // pins `model: haiku` as the declarative cost-routing record, and
+  // every judgment role omits both so session effort and the spawn
+  // site's per-spawn/config-threaded model always win. flow-discovery
+  // is the one row with `inheritsAllTools: true` — plan Decision
+  // analysis 2 deliberately leaves it with no `tools:` allowlist
+  // (discovery's research + design-artifact passes span Bash/WebFetch/
+  // MCP surfaces a fixed allowlist would silently break), so the
+  // tools-presence assert below is skipped for that row only.
   const AGENT_FRONTMATTER_POLICY: Array<{
     file: string;
     wantModel?: string;
     wantEffort?: string;
     wantTools?: string;
+    inheritsAllTools?: boolean;
   }> = [
     { file: "flow-verify.md", wantEffort: "low" },
     { file: "flow-fix-applier.md", wantEffort: "low" },
@@ -1144,7 +1163,30 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       file: "flow-review-test-coverage.md",
       wantTools: "Read, Grep, Glob, Write",
     },
+    { file: "flow-scout.md", wantTools: "Bash, Read, Grep, Glob, Write" },
+    { file: "flow-discovery.md", inheritsAllTools: true },
+    {
+      file: "flow-merge-resolver.md",
+      wantTools: "Bash, Read, Edit, Write, Grep",
+    },
+    {
+      file: "flow-edit-applier.md",
+      wantTools: "Bash, Read, Edit, Write, Grep, Glob, NotebookEdit",
+    },
   ];
+
+  it("AGENT_FRONTMATTER_POLICY covers exactly the agents/ directory, with inheritsAllTools confined to flow-discovery.md", () => {
+    const onDisk = fs
+      .readdirSync(path.resolve(HERE, "..", "agents"))
+      .filter((f) => f.endsWith(".md"))
+      .sort();
+    expect(AGENT_FRONTMATTER_POLICY.map((r) => r.file).sort()).toEqual(onDisk);
+    expect(
+      AGENT_FRONTMATTER_POLICY.filter((r) => r.inheritsAllTools).map(
+        (r) => r.file,
+      ),
+    ).toEqual(["flow-discovery.md"]);
+  });
 
   it("every agents/*.md definition exists and follows the frontmatter policy", () => {
     for (const {
@@ -1152,6 +1194,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       wantModel,
       wantEffort,
       wantTools,
+      inheritsAllTools,
     } of AGENT_FRONTMATTER_POLICY) {
       const agentPath = path.resolve(HERE, "..", "agents", file);
       expect(
@@ -1160,11 +1203,21 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ).toBe(true);
       const frontmatter =
         fs.readFileSync(agentPath, "utf8").split("---")[1] ?? "";
-      expect(
-        /^tools:\s*\S/m.test(frontmatter),
-        `agents/${file} frontmatter must declare a 'tools:' allowlist — ` +
-          "tool containment is the point of the named definition.",
-      ).toBe(true);
+      if (inheritsAllTools) {
+        expect(
+          /^tools:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare a 'tools:' allowlist ` +
+            "— plan Decision analysis 2 deliberately leaves this row inheriting " +
+            "every session tool; a later edit that pins one must go red, not " +
+            "silently narrow discovery's research surface.",
+        ).toBe(false);
+      } else {
+        expect(
+          /^tools:\s*\S/m.test(frontmatter),
+          `agents/${file} frontmatter must declare a 'tools:' allowlist — ` +
+            "tool containment is the point of the named definition.",
+        ).toBe(true);
+      }
       if (wantTools) {
         expect(
           new RegExp(`^tools:\\s*${wantTools}\\s*$`, "m").test(frontmatter),
@@ -1261,6 +1314,88 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       content.includes("agent-fallback: flow-verify → general-purpose"),
       "flow-pipeline SKILL.md step-6 verify guard must emit the named agent-fallback " +
         "notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      content.includes("agent-fallback: flow-merge-resolver → general-purpose"),
+      "flow-pipeline SKILL.md step-10 merge-resolver guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes(
+        "agent-fallback: flow-scout → general-purpose",
+      ),
+      "flow-new-feature SKILL.md Step 1b scout guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      productPlanningTopContent.includes(
+        "agent-fallback: flow-discovery → general-purpose",
+      ),
+      "flow-product-planning SKILL.md discovery guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      coderContent.includes(
+        "agent-fallback: flow-edit-applier → general-purpose",
+      ),
+      "flow-coder SKILL.md edit-applier guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+  });
+
+  it("the scout, discovery, merge-resolver, and edit-applier spawn sites resolve their named agents with guarded fallbacks", () => {
+    expect(
+      newFeatureContent.includes("SCOUT_SUBAGENT=flow-scout"),
+      "flow-new-feature SKILL.md Step 1b must resolve SCOUT_SUBAGENT to `flow-scout`.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("[ -f ~/.claude/agents/flow-scout.md ]"),
+      "flow-new-feature SKILL.md scout site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("subagent_type: $SCOUT_SUBAGENT"),
+      "flow-new-feature SKILL.md scout spawn must pass `subagent_type: $SCOUT_SUBAGENT`.",
+    ).toBe(true);
+
+    expect(
+      productPlanningTopContent.includes("DISCOVERY_SUBAGENT=flow-discovery"),
+      "flow-product-planning SKILL.md must resolve DISCOVERY_SUBAGENT to `flow-discovery`.",
+    ).toBe(true);
+    expect(
+      productPlanningTopContent.includes(
+        "[ -f ~/.claude/agents/flow-discovery.md ]",
+      ),
+      "flow-product-planning SKILL.md discovery site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      productPlanningTopContent.includes("subagent_type: $DISCOVERY_SUBAGENT"),
+      "flow-product-planning SKILL.md discovery spawn must pass `subagent_type: $DISCOVERY_SUBAGENT`.",
+    ).toBe(true);
+
+    expect(
+      content.includes("MERGE_RESOLVER_SUBAGENT=flow-merge-resolver"),
+      "flow-pipeline SKILL.md step 10 must resolve MERGE_RESOLVER_SUBAGENT to `flow-merge-resolver`.",
+    ).toBe(true);
+    expect(
+      content.includes("[ -f ~/.claude/agents/flow-merge-resolver.md ]"),
+      "flow-pipeline SKILL.md merge-resolver site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      content.includes("subagent_type: $MERGE_RESOLVER_SUBAGENT"),
+      "flow-pipeline SKILL.md merge-resolver spawn must pass `subagent_type: $MERGE_RESOLVER_SUBAGENT`.",
+    ).toBe(true);
+
+    expect(
+      coderContent.includes("CODER_SUBAGENT=flow-edit-applier"),
+      "flow-coder SKILL.md must resolve CODER_SUBAGENT to `flow-edit-applier`.",
+    ).toBe(true);
+    expect(
+      coderContent.includes("[ -f ~/.claude/agents/flow-edit-applier.md ]"),
+      "flow-coder SKILL.md edit-applier site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      coderContent.includes("subagent_type: $CODER_SUBAGENT"),
+      "flow-coder SKILL.md edit-applier spawn must pass `subagent_type: $CODER_SUBAGENT`.",
     ).toBe(true);
   });
 
@@ -2354,6 +2489,35 @@ describe("New planning-discipline contract anchors", () => {
     },
   );
 
+  it("both planning skills carry the redundancy anchor phrase", () => {
+    // Pins the redundancy obligation added to the Critical Analysis table
+    // (flow-new-feature/SKILL.md, a `| Redundancy` row) and to the
+    // "Necessity & redundancy" category (discovery-instructions.md). Unlike
+    // the symmetric it.each above, these anchors are file-specific: the
+    // table-row form only makes sense in flow-new-feature/SKILL.md, and the
+    // category-label form only makes sense in discovery-instructions.md.
+    expect(
+      discoveryInstructionsContent.includes("Necessity & redundancy"),
+      "product-planning discovery-instructions.md must contain the verbatim " +
+        "category label 'Necessity & redundancy' — the redundancy obligation " +
+        "(check duplication against an existing capability, route a found " +
+        "duplication into '## Recommendation') is single-sourced here. Dropping " +
+        "or renaming it here silently breaks the discipline with nothing " +
+        "failing in CI. Rename it in lock-step with the cross-link in " +
+        "flow-new-feature/SKILL.md and update this lint in the same commit " +
+        "(AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("| Redundancy"),
+      "flow-new-feature/SKILL.md Step 2's Critical Analysis assessment table " +
+        "must contain a '| Redundancy' row — the per-feature counterpart to " +
+        "discovery-instructions.md's 'Necessity & redundancy' category. " +
+        "Dropping this row silently breaks the discipline with nothing " +
+        "failing in CI. Restore it or update this lint in the same commit " +
+        "(AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
   it("flow-new-feature/SKILL.md Step 2 and discovery-instructions.md cross-link bidirectionally", () => {
     expect(
       newFeatureContent.includes(
@@ -2758,6 +2922,7 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
     "**Goal:**",
     "before → after behavioral contrast",
     "**Lost:**",
+    "Necessity & redundancy",
   ])(
     "epic-discovery-instructions.md carries the ported critique/framing anchor '%s'",
     (phrase) => {
@@ -5196,5 +5361,38 @@ describe("design-artifact fidelity structural anchors", () => {
         "INVALID: $DESIGN_SPEC_REASON\"' threading in both the feature " +
         "and tension-flag awaiting-approval gate renders.",
     ).toBe(true);
+  });
+});
+
+describe("module-status conditional-degradation guards (flow-pipeline/SKILL.md, discovery-instructions.md, AGENTS.md)", () => {
+  // Pins the `flow-module-status` runtime-gate call sites so a future edit
+  // can't silently drop the precheck: Step 7's Copilot request/wait guard,
+  // Step 3's forced-research + cross-model plan-review guards, and the
+  // AGENTS.md `## Don'ts` convention naming `--check-skill` for optional-
+  // module skill deferrals. These are structural anchors, not behavior
+  // tests — the runtime contract itself is unit-tested at
+  // bin/flow-module-status.test.ts and bin/lib/module-status.test.ts.
+  it("flow-pipeline/SKILL.md Step 7 gates the Copilot request path on the copilot module", () => {
+    expect(content).toContain("flow-module-status --check copilot");
+  });
+
+  it("flow-pipeline/SKILL.md Step 3 gates both the forced-research fan-out and the cross-model plan review on the research module", () => {
+    const matches = content.match(/flow-module-status --check research/g) ?? [];
+    expect(
+      matches.length,
+      "flow-pipeline/SKILL.md must carry 'flow-module-status --check research' " +
+        "at least twice — once before the forced-research flow-research-run " +
+        "block, once before the cross-model flow-plan-review block.",
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("discovery-instructions.md Step 1.5 gates the flow-delegate-fanout research fan-out on the research module", () => {
+    expect(discoveryInstructionsContent).toContain(
+      "flow-module-status --check research",
+    );
+  });
+
+  it("AGENTS.md ## Don'ts names the check-skill convention for optional-module skill deferrals", () => {
+    expect(agentsContent).toContain("check-skill");
   });
 });

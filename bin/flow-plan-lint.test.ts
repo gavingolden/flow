@@ -55,6 +55,8 @@ Users cannot export widgets today.
 
 **Proceed** — clear value.
 
+**Redundancy:** none found
+
 ## Plan risks
 
 The export format might not match user expectations.
@@ -137,6 +139,19 @@ describe("lintPlan — always-present sections", () => {
     const plan = withoutSection(CONFORMING_PLAN, "## Recommendation");
     const { misses } = lintPlan(plan);
     expect(misses.some((m) => m.includes("Recommendation"))).toBe(true);
+  });
+
+  it("names a miss when the '**Redundancy:**' affirmation line is absent from Recommendation", () => {
+    const plan = CONFORMING_PLAN.replace(
+      "\n**Redundancy:** none found\n",
+      "\n",
+    );
+    const { misses } = lintPlan(plan);
+    expect(
+      misses.some(
+        (m) => m.includes("Recommendation") && m.includes("Redundancy"),
+      ),
+    ).toBe(true);
   });
 
   it("names a miss when '## Plan risks' is absent", () => {

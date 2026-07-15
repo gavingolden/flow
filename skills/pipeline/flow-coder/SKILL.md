@@ -89,7 +89,8 @@ strong prior via a mechanical pre-check).
 
 This skill is a thin wrapper around a one-shot **Independent Edit-Applier
 Subagent**. The wrapper itself does no file reads and no edits — it spawns
-one Task-tool subagent (`subagent_type: general-purpose`), passes the
+one Task-tool subagent (`subagent_type: flow-edit-applier`, guarded
+`general-purpose` fallback), passes the
 caller's structured edit-set plus the absolute paths to write, and waits
 for the subagent to return a brief both-sides summary. The subagent does
 the heavy lifting in its own isolated context: opening each cited file,
@@ -188,10 +189,21 @@ spawn:
    mkdir -p "$WORKTREE/.flow-tmp"
    ```
 
-3. Make exactly **one** Task-tool call:
+3. Resolve the subagent type. The `agents/flow-edit-applier.md` definition
+   (Bash/Read/Edit/Write/Grep/Glob/NotebookEdit allowlist, no
+   `effort:`/`model:` pins) resolves via a file-exists guard that falls
+   back to `general-purpose` with a loud `NOTICE — agent-fallback:` line
+   so the pipeline never fails on an unknown agent type:
+
+   ```bash
+   CODER_SUBAGENT=flow-edit-applier
+   [ -f ~/.claude/agents/flow-edit-applier.md ] || { CODER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-edit-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+   ```
+
+   Make exactly **one** Task-tool call:
 
    ```
-   subagent_type: general-purpose
+   subagent_type: $CODER_SUBAGENT
    description:   Edit-applier for /flow-coder
    prompt:        <the prompt template below, with variables filled in>
    ```
