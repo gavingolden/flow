@@ -28,5 +28,5 @@ Invariants:
 This definition deliberately omits `effort:` and `model:` from its
 frontmatter: conflict resolution is a judgment role, so its effort scales
 with the session's, and the spawn site's per-spawn `model:` threading
-(from `config.models.mergeResolver`) always wins over any frontmatter
-value.
+(the `MERGE_RESOLVER_MODEL` config resolution) always wins over any
+frontmatter value.

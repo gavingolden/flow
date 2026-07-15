@@ -125,7 +125,7 @@ Either path: one subagent, returns artifacts on disk + a brief summary.
 
    ```bash
    DISCOVERY_SUBAGENT=flow-discovery
-   [ -f ~/.claude/agents/flow-discovery.md ] || { DISCOVERY_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-discovery → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+   [ -f ~/.claude/agents/flow-discovery.md ] || { DISCOVERY_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-discovery → general-purpose (definition not installed — run \`flow install\`)."; }
    ```
 
    Make exactly **one** Task-tool call:

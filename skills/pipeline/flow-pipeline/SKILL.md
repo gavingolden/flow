@@ -98,7 +98,8 @@ in-process for skills; shell out for scripts; never delegate.
 >
 > **Task-tool exemption #1: `/flow-pr-review` Independent Multi-Agent
 > Review.** Step 8's six parallel review agents, each writing its own
-> `agent-output-<lens>.json`; full contract in
+> `agent-output-<lens>.json`; spawned as the named `flow-review-<lens>`
+> agents (guarded `general-purpose` fallback); full contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #2: `/flow-product-planning` Independent Discovery
@@ -116,7 +117,9 @@ in-process for skills; shell out for scripts; never delegate.
 >
 > **Task-tool exemption #4: `/flow-pr-review` Fix-Applier Subagent.** Step
 > 8's one fix-applier agent for the per-finding address loop +
-> commit/push, writing `.flow-tmp/fix-applier-result.json`; full
+> commit/push, writing `.flow-tmp/fix-applier-result.json`; spawned as
+> the named `flow-fix-applier` agent (guarded `general-purpose`
+> fallback); full
 > contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #5: Merge-Conflict Resolver Subagent.** Step
@@ -141,18 +144,23 @@ in-process for skills; shell out for scripts; never delegate.
 > **Task-tool exemption #7: `/flow-pr-review` Independent Gatekeeper Subagent.**
 > `/flow-pr-review` Step 1.5's one gatekeeper agent with a `model: "haiku"`
 > cost-routing override, writing `.flow-tmp/gatekeeper-result.json`;
-> full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
+> spawned as the named `flow-gatekeeper` agent (guarded `general-purpose`
+> fallback); full contract in [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #8: `/flow-pr-review` Independent Consolidator-Validator
 > Subagent.** `/flow-pr-review` Step 3.5's one consolidator-validator agent
 > (default Sonnet, no model override), writing
-> `.flow-tmp/consolidator-result.json`; full contract in
+> `.flow-tmp/consolidator-result.json`; spawned as the named
+> `flow-consolidator` agent (guarded `general-purpose` fallback); full
+> contract in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md).
 >
 > **Task-tool exemption #9: Verify-Retry-Loop Subagent.** Step 6's one
 > verify-retry-loop agent owning the 3-outer-attempt `/flow-verify` loop
 > (isolating the re-pasted `flow-pre-commit --json` failure JSON),
-> writing `.flow-tmp/verify-loop-result.json`; full contract in
+> writing `.flow-tmp/verify-loop-result.json`; spawned as the named
+> `flow-verify` agent (guarded `general-purpose` fallback); full contract
+> in
 > [references/exemption-contracts.md](../../../references/exemption-contracts.md) and
 > `references/verify-loop-instructions.md`.
 >

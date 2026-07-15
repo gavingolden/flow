@@ -31,5 +31,5 @@ Invariants:
 This definition deliberately omits `effort:` and `model:` from its
 frontmatter: applying an edit-set still requires judgment (contract
 mismatches, ambiguous acceptance commands), so its effort scales with the
-session's, and the spawn site's per-spawn `model:` threading (from
-`config.models.coder`) always wins over any frontmatter value.
+session's, and the spawn site's per-spawn `model:` threading (the
+`CODER_MODEL` config resolution) always wins over any frontmatter value.

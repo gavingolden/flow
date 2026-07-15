@@ -29,5 +29,5 @@ Invariants:
 
 This definition deliberately omits `effort:` and `model:` from its
 frontmatter: scouting is a judgment role, so its effort scales with the
-session's, and the spawn site's per-spawn `model:` threading (from
-`config.models.scout`) always wins over any frontmatter value.
+session's, and the spawn site's per-spawn `model:` threading (the
+`SCOUT_MODEL` config resolution) always wins over any frontmatter value.

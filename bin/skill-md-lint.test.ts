@@ -1163,11 +1163,30 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       file: "flow-review-test-coverage.md",
       wantTools: "Read, Grep, Glob, Write",
     },
-    { file: "flow-scout.md" },
+    { file: "flow-scout.md", wantTools: "Bash, Read, Grep, Glob, Write" },
     { file: "flow-discovery.md", inheritsAllTools: true },
-    { file: "flow-merge-resolver.md" },
-    { file: "flow-edit-applier.md" },
+    {
+      file: "flow-merge-resolver.md",
+      wantTools: "Bash, Read, Edit, Write, Grep",
+    },
+    {
+      file: "flow-edit-applier.md",
+      wantTools: "Bash, Read, Edit, Write, Grep, Glob, NotebookEdit",
+    },
   ];
+
+  it("AGENT_FRONTMATTER_POLICY covers exactly the agents/ directory, with inheritsAllTools confined to flow-discovery.md", () => {
+    const onDisk = fs
+      .readdirSync(path.resolve(HERE, "..", "agents"))
+      .filter((f) => f.endsWith(".md"))
+      .sort();
+    expect(AGENT_FRONTMATTER_POLICY.map((r) => r.file).sort()).toEqual(onDisk);
+    expect(
+      AGENT_FRONTMATTER_POLICY.filter((r) => r.inheritsAllTools).map(
+        (r) => r.file,
+      ),
+    ).toEqual(["flow-discovery.md"]);
+  });
 
   it("every agents/*.md definition exists and follows the frontmatter policy", () => {
     for (const {

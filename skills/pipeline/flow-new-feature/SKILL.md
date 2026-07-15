@@ -175,23 +175,23 @@ plan.md's `## Alternatives considered` (see
 - Omit the block entirely only when BOTH sources are absent — non-plan and
   plan-without-alternatives pipelines see byte-identical spawn prompts.
 
-3. Make exactly **one** Task-tool call:
+3. Resolve the subagent type. The `agents/flow-scout.md` definition
+   (Bash/Read/Grep/Glob/Write allowlist, no `effort:`/`model:` pins)
+   resolves via a file-exists guard that falls back to `general-purpose`
+   with a loud `NOTICE — agent-fallback:` line so the pipeline never
+   fails on an unknown agent type:
+
+   ```bash
+   SCOUT_SUBAGENT=flow-scout
+   [ -f ~/.claude/agents/flow-scout.md ] || { SCOUT_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-scout → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+   ```
+
+   Make exactly **one** Task-tool call:
 
    ```
    subagent_type: $SCOUT_SUBAGENT
    description:   Scout for /flow-new-feature
    prompt:        <the prompt template below, with variables filled in>
-   ```
-
-   **Subagent type.** The `agents/flow-scout.md` definition (Bash/Read/
-   Grep/Glob/Write allowlist, no `effort:`/`model:` pins) resolves via a
-   file-exists guard that falls back to `general-purpose` with a loud
-   `NOTICE — agent-fallback:` line so the pipeline never fails on an
-   unknown agent type:
-
-   ```bash
-   SCOUT_SUBAGENT=flow-scout
-   [ -f ~/.claude/agents/flow-scout.md ] || { SCOUT_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-scout → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
    ```
 
    **Per-phase model (implement → scout) resolution.** The Scout is the

@@ -76,7 +76,11 @@ commit / push. Artifact: `.flow-tmp/fix-applier-result.json` (typed
 fields `commits`, `deferred`, `rejected_alternatives`,
 `anti_patterns_found`, `summary`). The subagent invokes `/flow-verify`
 against the post-fix worktree _before returning_, so a fix's CI breakage
-surfaces in-context while the fix rationale is still live.
+surfaces in-context while the fix rationale is still live. Spawned as
+the named `agents/flow-fix-applier.md` definition (judgment role: no
+frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
+with the `[ -f ~/.claude/agents/flow-fix-applier.md ] || general-purpose`
+fallback guard emitting the `NOTICE — agent-fallback:` line.
 
 ## Merge-Conflict Resolver Subagent
 
@@ -173,6 +177,10 @@ branch) and the UI-smoke pass. Artifact:
 `summary`). The supervisor reads it once and branches: `pass` continues to step
 7; `exhausted` escalates `verify-exhausted` and writes the `> [!CAUTION]` PR-body
 block from `final_failure_excerpt`. A committing subagent is consistent with the
-Fix-Applier (#4) and Merge-Conflict Resolver (#5) precedents. The subagent's full
-instructions are at
+Fix-Applier (#4) and Merge-Conflict Resolver (#5) precedents. Spawned as
+the named `agents/flow-verify.md` definition (judgment role: no
+frontmatter `effort`/`model`; per-spawn `model:` threading unchanged),
+with the `[ -f ~/.claude/agents/flow-verify.md ] || general-purpose`
+fallback guard emitting the `NOTICE — agent-fallback:` line. The
+subagent's full instructions are at
 `skills/pipeline/flow-pipeline/references/verify-loop-instructions.md`.
