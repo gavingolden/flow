@@ -37,6 +37,7 @@ import { spawnSync } from "node:child_process";
 import { argsContainHelp, isHelpFlag, printVerbHelp } from "./help";
 import {
   resolveFlowSource,
+  FLOW_CLAUDE_HOME,
   FLOW_LAUNCH_SEM_DIR,
   FLOW_LAUNCH_SETTINGS_PATH,
   FLOW_EPICS_DIR,
@@ -1559,7 +1560,11 @@ function launchArgv(
   // launcher (claude does not auto-run a positional prompt), mirroring feature.ts.
   // `--model` precedes `--effort` (both before `--settings`), in a deterministic
   // order so the argv assertions stay stable. Each is omitted when unset.
-  const base = ["claude", "--add-dir", worktree];
+  //
+  // Two `--add-dir` entries (worktree first, skills home second): flow's skills
+  // now live at `~/.flow/claude-home` rather than the global `~/.claude/skills/`,
+  // so the epic supervisor session must add it to keep its skills.
+  const base = ["claude", "--add-dir", worktree, "--add-dir", FLOW_CLAUDE_HOME];
   const withModel = model ? [...base, "--model", model] : base;
   const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
   return [...withEffort, "--settings", settingsPath];

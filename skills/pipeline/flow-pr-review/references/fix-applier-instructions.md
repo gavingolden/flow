@@ -21,7 +21,7 @@ The wrapper passes you these inputs in its spawn prompt:
   `<SKILL_DIR>/references/conventional-comments.md`. Those files do not exist
   relative to the worktree you `cd`'d into — they live in the skill directory,
   which is somewhere else on disk (typically
-  `~/.claude/skills/flow-pr-review/` or
+  `~/.flow/claude-home/.claude/skills/flow-pr-review/` or
   `<flow-checkout>/skills/pipeline/flow-pr-review/`).
 - The absolute path to write the artifact (`ARTIFACT_PATH` —
   `.flow-tmp/fix-applier-result.json` under the worktree).

@@ -29,6 +29,10 @@ export function argsContainHelp(args: string[]): boolean {
 export const HELP_TOP = `flow — tmux-driven pipelines for Claude Code
 
 Usage:
+  flow                                  (on a TTY) launch an interactive Claude session
+                                        with the installed flow skills loaded
+                                        (claude --add-dir ~/.flow/claude-home);
+                                        run 'flow help' for this help
   flow install [--upgrade] [--force] [--source <path>] [--no-completions] [--no-hooks] [--no-pull-canonical] [--repair-settings] [--install-deps] [--modules <csv>|--all|--core-only]
                                         install skills, agents, helpers globally
                                         (--source overrides the install root,

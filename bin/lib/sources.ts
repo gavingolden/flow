@@ -8,12 +8,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   CLAUDE_AGENTS_DIR,
-  CLAUDE_SKILLS_DIR,
+  FLOW_CLAUDE_HOME_SKILLS_DIR,
   FLOW_COMPLETIONS_DIR,
   LOCAL_BIN_DIR,
 } from "./paths";
 import type { SymlinkKind, SymlinkRecord } from "./manifest";
-import { resolveArtifactSet } from "./modules";
+import { isRegistryKnownArtifact, resolveArtifactSet } from "./modules";
 
 const SKILL_TIERS = ["pipeline", "universal", "stacks"] as const;
 const COMPLETION_SHELLS = ["bash", "zsh"] as const;
@@ -71,7 +71,7 @@ export type InstallTargets = {
 };
 
 export const DEFAULT_TARGETS: InstallTargets = {
-  skillsDir: CLAUDE_SKILLS_DIR,
+  skillsDir: FLOW_CLAUDE_HOME_SKILLS_DIR,
   agentsDir: CLAUDE_AGENTS_DIR,
   binDir: LOCAL_BIN_DIR,
   completionsDir: FLOW_COMPLETIONS_DIR,
@@ -89,6 +89,11 @@ export function discoverSkills(
     if (!existsDir(tierDir)) continue;
     for (const dirent of fs.readdirSync(tierDir, { withFileTypes: true })) {
       if (!dirent.isDirectory()) continue;
+      // Validity gate: a skill is a directory carrying a SKILL.md. This bounds
+      // discoverSelected's registry-unknown pass-through to genuine skills —
+      // a stray directory (a leftover .flow-tmp, an editor scratch dir) is
+      // never linked, selection or not.
+      if (!fs.existsSync(path.join(tierDir, dirent.name, "SKILL.md"))) continue;
       entries.push({
         source: path.join(tierDir, dirent.name),
         target: path.join(targets.skillsDir, dirent.name),
@@ -275,15 +280,26 @@ export function discoverSelected(
   const helperNames = new Set(resolved.helpers);
   const validatorNames = new Set(resolved.validators);
 
+  // gh#435 sub-case 1: pass through any skill/agent/helper the registry does
+  // not claim (an in-flight worktree addition not yet in the canonical
+  // registry), so it links regardless of the selection. Deselected KNOWN
+  // modules stay filtered. Validators keep the strict allowlist — they are all
+  // core, so pass-through would be inert there anyway.
   const all = [
-    ...discoverSkills(flowSource, targets).filter((e) =>
-      skillNames.has(e.displayName),
+    ...discoverSkills(flowSource, targets).filter(
+      (e) =>
+        skillNames.has(e.displayName) ||
+        !isRegistryKnownArtifact(e.displayName),
     ),
-    ...discoverAgents(flowSource, targets).filter((e) =>
-      agentNames.has(e.displayName),
+    ...discoverAgents(flowSource, targets).filter(
+      (e) =>
+        agentNames.has(e.displayName) ||
+        !isRegistryKnownArtifact(e.displayName),
     ),
-    ...discoverHelpers(flowSource, targets).filter((e) =>
-      helperNames.has(e.displayName),
+    ...discoverHelpers(flowSource, targets).filter(
+      (e) =>
+        helperNames.has(e.displayName) ||
+        !isRegistryKnownArtifact(e.displayName),
     ),
     ...discoverValidators(flowSource, targets).filter((e) =>
       validatorNames.has(e.displayName),

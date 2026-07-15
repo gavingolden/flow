@@ -19,7 +19,7 @@ The wrapper passes you these inputs in its spawn prompt:
   `<SKILL_DIR>/references/example-prd.md`. Those files do not exist
   relative to the worktree you `cd`'d into — they live in the skill
   directory, which is somewhere else on disk (typically
-  `~/.claude/skills/flow-product-planning/` or
+  `~/.flow/claude-home/.claude/skills/flow-product-planning/` or
   `<flow-checkout>/skills/pipeline/flow-product-planning/`).
 - The absolute path to write `plan.md`.
 - The absolute path to write `pr-description-draft.md`.
@@ -120,7 +120,7 @@ The four resolved variables — `RESEARCH_MAX_CALLS` (from `research.maxCalls`, 
 
 If the verdict is **not researchable** (non-forced path only — a `FORCE_RESEARCH=true` run never reaches this verdict), take no fan-out — proceed to step 2 unchanged, but first emit the visibility note in (e). If **researchable** (or `FORCE_RESEARCH` is `true`), form a **sharp, codebase-grounded research question** (NOT the verbatim feature description — only something that knows this codebase can ask the right question; e.g. not "add CSV export" but "does RFC 4180 require quoting/escaping for the `,`- and newline-bearing fields the portfolio export emits, and which line terminator do mainstream spreadsheet importers expect?").
 
-**(c) Run the bounded research by driving `flow-delegate-fanout` directly (Bash).** You **cannot** load `/flow-research` via the Skill tool — a spawned sub-agent does not have it (see the HARD INVARIANT). Instead, `Read` the `/flow-research` procedure for the recipe — it is on disk globally at `~/.claude/skills/universal/flow-research/SKILL.md` (the byte-exact model-variant pins, the gather→refute→synthesize shape, the cap discipline) — and run the fan-out yourself.
+**(c) Run the bounded research by driving `flow-delegate-fanout` directly (Bash).** You **cannot** load `/flow-research` via the Skill tool — a spawned sub-agent does not have it (see the HARD INVARIANT). Instead, `Read` the `/flow-research` procedure for the recipe — it is on disk globally at `~/.flow/claude-home/.claude/skills/universal/flow-research/SKILL.md` (the byte-exact model-variant pins, the gather→refute→synthesize shape, the cap discipline) — and run the fan-out yourself.
 
 **Cache-read first (before building the manifest).** A prior identical run may already have synthesized this exact question, so check the host-wide research cache before paying for a fresh fan-out. Run it by **bare PATH name** via Bash — exactly like the `jq` and `flow-delegate-fanout` invocations above, NOT a `bin/lib` import (Step 1.5 runs in the consumer/target worktree where flow's `bin/lib` is absent):
 
@@ -519,7 +519,7 @@ Every mechanical bullet mirrors a `spec.json` assertion 1:1 (same id) — a bull
 - **Fires:** "re-theme the `/sets` page"; "add a sidebar filter panel"; any plan whose Task breakdown adds/moves UI regions (a new panel, a relocated nav, a restructured page layout).
 - **Does NOT fire:** backend/CLI/docs/infra plans with no UI surface; a copy-only tweak with no structural change (e.g. "fix a typo in the button label", "change the toast copy").
 
-When the gate fires, add an omit-when-empty `## Layout Intent` section to the PRD, authored per surface. Required pre-read: read the ui-ux skill's layout-composition heuristics at `~/.claude/skills/flow-ui-ux/references/layout.md` (grids, Gestalt grouping, responsive strategy, archetypes) before authoring, so the reasoning is informed, not just recorded; fall back to the facet checklist below when the file is absent (a manual run on a host without flow's skills must not crash).
+When the gate fires, add an omit-when-empty `## Layout Intent` section to the PRD, authored per surface. Required pre-read: read the ui-ux skill's layout-composition heuristics at `~/.flow/claude-home/.claude/skills/flow-ui-ux/references/layout.md` (grids, Gestalt grouping, responsive strategy, archetypes) before authoring, so the reasoning is informed, not just recorded; fall back to the facet checklist below when the file is absent (a manual run on a host without flow's skills must not crash).
 
 Per surface, author all six required facets:
 

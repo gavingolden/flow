@@ -25,7 +25,7 @@ The wrapper passes you these inputs in its spawn prompt:
   `<SKILL_DIR>/references/example-prd.md`. Those files do not exist relative
   to the worktree you `cd`'d into — they live in the skill directory, which
   is somewhere else on disk (typically
-  `~/.claude/skills/flow-product-planning/` or
+  `~/.flow/claude-home/.claude/skills/flow-product-planning/` or
   `<flow-checkout>/skills/pipeline/flow-product-planning/`).
 - The epic-output directory (the `.flow/epics/<slug>/` path under `WORKTREE`
   where `design.md` + `manifest.json` are written).

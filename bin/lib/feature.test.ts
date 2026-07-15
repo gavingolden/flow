@@ -100,6 +100,7 @@ vi.mock("./liveness", async () => {
 });
 
 import { runNew, runFeatureCli, deriveWorktreePath } from "./feature";
+import { FLOW_CLAUDE_HOME } from "./paths";
 import { writeState, PHASE_MODEL_FLAGS } from "./state";
 
 let stateDir!: string;
@@ -332,6 +333,8 @@ describe("runNew --resume", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "crashed"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--settings",
       settingsPath,
     ]);
@@ -840,6 +843,8 @@ describe("runNew (fresh)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--settings",
       settingsPath,
     ]);
@@ -1229,6 +1234,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--effort",
       "high",
       "--settings",
@@ -1260,6 +1267,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--settings",
       settingsPath,
     ]);
@@ -1349,6 +1358,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-effort"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--effort",
       "max",
       "--settings",
@@ -1376,6 +1387,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
         "claude",
         "--add-dir",
         deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
+        "--add-dir",
+        FLOW_CLAUDE_HOME,
         "--model",
         alias,
         "--settings",
@@ -1407,6 +1420,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--model",
       "opus",
       "--effort",
@@ -1706,6 +1721,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-model"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--model",
       "opus",
       "--settings",
@@ -1747,6 +1764,8 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       "claude",
       "--add-dir",
       recordedWorktree,
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--settings",
       settingsPath,
     ]);

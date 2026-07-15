@@ -51,7 +51,11 @@ import {
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
-import { FLOW_LAUNCH_SEM_DIR, FLOW_LAUNCH_SETTINGS_PATH } from "./paths";
+import {
+  FLOW_CLAUDE_HOME,
+  FLOW_LAUNCH_SEM_DIR,
+  FLOW_LAUNCH_SETTINGS_PATH,
+} from "./paths";
 import { installBaseBranchGuard } from "./base-branch-guard";
 
 /**
@@ -1050,7 +1054,21 @@ function launchArgv(
   //
   // `--model` precedes `--effort` (both before `--settings`) in a deterministic
   // order so the argv assertions stay stable. Each is omitted when unset.
-  const base = ["env", "FLOW_PIPELINE=1", "claude", "--add-dir", worktree];
+  //
+  // Two `--add-dir` entries, deterministic order (worktree first, skills home
+  // second): the worktree is the pipeline's working dir; the skills home
+  // (`~/.flow/claude-home`) is where flow's skills now live (no longer in the
+  // global `~/.claude/skills/`), so the supervisor session must add it to keep
+  // `/flow-pipeline` and the sub-skills it loads.
+  const base = [
+    "env",
+    "FLOW_PIPELINE=1",
+    "claude",
+    "--add-dir",
+    worktree,
+    "--add-dir",
+    FLOW_CLAUDE_HOME,
+  ];
   const withModel = model ? [...base, "--model", model] : base;
   const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
   return [...withEffort, "--settings", settingsPath];

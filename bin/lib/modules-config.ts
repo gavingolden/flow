@@ -24,8 +24,10 @@ import {
   MANDATORY_MODULE,
   MODULES,
   isKnownModule,
+  moduleForArtifactName,
   type ModuleId,
 } from "./modules";
+import type { Manifest } from "./manifest";
 
 /**
  * Reads and JSON-parses the config file at `configPath`. Returns `undefined`
@@ -123,7 +125,33 @@ export function writeModuleSelection(
   fs.writeFileSync(configPath, JSON.stringify(next, null, 2) + "\n");
 }
 
-export type ModuleSelectionSource = "flag" | "config" | "prompt" | "default";
+export type ModuleSelectionSource =
+  | "flag"
+  | "config"
+  | "manifest"
+  | "prompt"
+  | "default";
+
+/**
+ * The module selection implied by a previously-installed set: the union of
+ * the modules owning each recorded symlink, with `MANDATORY_MODULE` folded
+ * in. Maps `path.basename(record.target)` — a skill dir name, an
+ * `agents/*.md` basename, an extensionless helper name, or a validator
+ * invocation name — through `moduleForArtifactName`. Records that map to no
+ * module (the `flow` wrapper, shell completions, or a registry-unknown
+ * artifact) contribute nothing. Used by `resolveEntriesForRun` to preserve an
+ * existing install's breadth when nothing is recorded (gh#435): a
+ * non-interactive `--upgrade` with a populated manifest must not collapse to
+ * core-only.
+ */
+export function deriveSelectionFromManifest(manifest: Manifest): ModuleId[] {
+  const ids = new Set<ModuleId>([MANDATORY_MODULE]);
+  for (const record of manifest.symlinks) {
+    const mod = moduleForArtifactName(path.basename(record.target));
+    if (mod !== undefined) ids.add(mod);
+  }
+  return [...ids];
+}
 
 export type ModuleSelectionResult = {
   ids: string[];
@@ -146,10 +174,14 @@ function withCore(ids: readonly string[]): string[] {
  *   1. `flagIds` (an explicit `--modules`/`--core-only` selection) — wins.
  *   2. A recorded `~/.flow/config.json` `modules` selection — `--upgrade`
  *      (or any re-install) honors this with zero `confirm` calls.
- *   3. Interactive TTY: prompt once per OPTIONAL module (every row in
+ *   3. `manifestIds` (the breadth derived from a populated install manifest
+ *      when nothing is recorded) — preserves an existing install's breadth
+ *      instead of collapsing to core (gh#435). Does NOT persist: it re-derives
+ *      each run, mirroring the "persist only expressed intent" rule.
+ *   4. Interactive TTY: prompt once per OPTIONAL module (every row in
  *      `MODULES` except `MANDATORY_MODULE`) via the injected `confirm` seam.
- *   4. Non-interactive, nothing recorded: default to `[MANDATORY_MODULE]`
- *      and do NOT persist — no user intent was expressed to record.
+ *   5. Non-interactive, nothing recorded and no manifest: default to
+ *      `[MANDATORY_MODULE]` and do NOT persist — no user intent was expressed.
  *
  * `--all` is deliberately NOT resolved here — the `--all` path bypasses
  * this resolver entirely and calls `discoverAll` directly (see `setup.ts`),
@@ -158,6 +190,7 @@ function withCore(ids: readonly string[]): string[] {
  */
 export function resolveModuleSelection(options: {
   flagIds?: string[];
+  manifestIds?: string[];
   isTTY: boolean;
   confirm: (prompt: string) => boolean;
   read?: ReadConfigFile;
@@ -173,6 +206,17 @@ export function resolveModuleSelection(options: {
   const recorded = readModuleSelection(options.read);
   if (recorded !== undefined) {
     return { ids: withCore(recorded), source: "config", shouldPersist: false };
+  }
+
+  // Preserve an existing install's breadth (gh#435): nothing recorded but the
+  // manifest shows a broader-than-core install. Non-persisting — expressed
+  // intent (a flag or a completed Q&A) is the only thing we record.
+  if (options.manifestIds !== undefined && options.manifestIds.length > 0) {
+    return {
+      ids: withCore(options.manifestIds),
+      source: "manifest",
+      shouldPersist: false,
+    };
   }
 
   if (options.isTTY) {

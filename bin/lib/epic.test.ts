@@ -70,6 +70,7 @@ vi.mock("./models-config", async () => {
 
 import { runEpicCli, parseRunArgs } from "./epic";
 import { deriveWorktreePath } from "./feature";
+import { FLOW_CLAUDE_HOME } from "./paths";
 import { writeState } from "./state";
 import {
   writeEpicRunState,
@@ -210,12 +211,14 @@ describe("runEpicCli create — window spawn (fresh)", () => {
     // to the live checkout under vitest.
     expect(seed).toContain("SKILL_DIR:");
     expect(seed).toContain("skills/pipeline/flow-product-planning");
-    // The argv carries --add-dir <worktree> + trailing --settings, NO
-    // positional seed (length 5).
-    expect(command).toHaveLength(5);
+    // The argv carries --add-dir <worktree> + --add-dir <claude-home> +
+    // trailing --settings, NO positional seed (length 7).
+    expect(command).toHaveLength(7);
     expect(command[0]).toBe("claude");
     expect(command[1]).toBe("--add-dir");
-    expect(command[3]).toBe("--settings");
+    expect(command[3]).toBe("--add-dir");
+    expect(command[4]).toBe(FLOW_CLAUDE_HOME);
+    expect(command[5]).toBe("--settings");
     expect(
       command.some((a) => a.includes("Use the /flow-epic-create skill")),
     ).toBe(false);
@@ -397,6 +400,8 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--settings",
       settingsPath,
     ]);
@@ -438,6 +443,8 @@ describe("runEpicCli create — window spawn (fresh)", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--settings",
       settingsPath,
     ]);
@@ -572,6 +579,8 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--effort",
       "high",
       "--settings",
@@ -603,6 +612,8 @@ describe("runEpicCli create — --effort / --model flags", () => {
         "claude",
         "--add-dir",
         deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+        "--add-dir",
+        FLOW_CLAUDE_HOME,
         "--model",
         alias,
         "--settings",
@@ -630,6 +641,8 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "design-thing"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--model",
       "opus",
       "--effort",
@@ -872,6 +885,8 @@ describe("runEpicCli create — --effort / --model flags", () => {
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-flags-epic"),
+      "--add-dir",
+      FLOW_CLAUDE_HOME,
       "--model",
       "opus",
       "--effort",
@@ -917,9 +932,11 @@ describe("runEpicCli create --resume", () => {
     expect(seed).toContain("SKILL_DIR:");
     expect(seed).toContain("skills/pipeline/flow-product-planning");
     // The argv carries NO positional seed (claude + --add-dir <worktree> +
-    // trailing --settings, length 5).
-    expect(command).toHaveLength(5);
-    expect(command[3]).toBe("--settings");
+    // --add-dir <claude-home> + trailing --settings, length 7).
+    expect(command).toHaveLength(7);
+    expect(command[3]).toBe("--add-dir");
+    expect(command[4]).toBe(FLOW_CLAUDE_HOME);
+    expect(command[5]).toBe("--settings");
     expect(
       command.some((a) => a.includes("Use the /flow-epic-create skill")),
     ).toBe(false);
