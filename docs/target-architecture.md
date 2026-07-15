@@ -278,10 +278,16 @@ the PATH-bound schema validators. Always installed.
 | `agents/flow-review-test-coverage.md`       | pr-review lens                   | `tools: Read, Grep, Glob, Write`               |
 | `agents/flow-gatekeeper.md`                 | pr-review gatekeeper             | `tools:` allowlist; `model: haiku`             |
 | `agents/flow-consolidator.md`               | pr-review consolidator-validator | `tools:` allowlist                             |
+| `agents/flow-scout.md`                      | new-feature scout                | `tools:` allowlist                             |
+| `agents/flow-discovery.md`                  | product-planning discovery       | no `tools:` (inherits all)                     |
+| `agents/flow-merge-resolver.md`             | pipeline merge-conflict resolver | `tools:` allowlist                             |
+| `agents/flow-edit-applier.md`               | coder edit-applier               | `tools:` allowlist                             |
 
-Phase 4 still has three pending: the scout, discovery, and merge-resolver
-fan-outs remain inline spawn prompts with model/effort pins in prose, not
-promoted `agents/*.md` definitions.
+Phase 4 is complete: the scout, discovery, merge-resolver, and
+edit-applier fan-outs are now promoted `agents/*.md` definitions —
+mirroring the six review lenses, the gatekeeper, and the consolidator
+above — each resolved via the `[ -f ~/.claude/agents/<name>.md ] ||
+general-purpose` fallback guard.
 
 **PATH-bound helpers** (all core — the pipeline machinery)
 
@@ -436,10 +442,15 @@ consumed edge each phase-opening node reads from this doc.
   config-threaded; gatekeeper haiku pinned in frontmatter).
 - **Nodes:** `p4-review-agents` (`agents/*.md` for the six review lenses, the
   gatekeeper, the consolidator-validator); `p4-pipeline-agents` (`agents/*.md`
-  for scout, discovery — feature + epic modes, and the merge-conflict resolver;
-  the `/flow-coder` edit-applier and `/flow-epic-run` judgment agent are **evaluated**
-  against the "is there a reusable pinned prompt + tool constraint worth the
-  install-dependency cost?" criterion, not pre-committed).
+  for scout, discovery — feature + epic modes, the merge-conflict resolver,
+  and the `/flow-coder` edit-applier — the edit-applier is **promoted**: a
+  user decision at the plan checkpoint reversed the "evaluated, not
+  pre-committed" deferral this bullet previously named, on
+  set-completeness grounds — the highest-frequency code-editing fan-out
+  should not be the lone unauditable role. The `/flow-epic-run` judgment
+  agent **no longer exists**: `/flow-epic-run` is a zero-fan-out playbook
+  (see `AGENTS.md` `## Don'ts`), so there is no judgment-agent spawn site
+  left to promote).
 - **Exit:** every promoted role is a named definition; every promoted spawn
   site keeps the `[ -f ~/.claude/agents/<name>.md ] || general-purpose`
   fallback guard (emitting a named notice on fallback); artifact contracts

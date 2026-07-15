@@ -76,6 +76,14 @@ const CODER_INSTRUCTIONS_PATH = path.resolve(
   "references",
   "coder-instructions.md",
 );
+const PRODUCT_PLANNING_TOP_SKILL_MD_PATH = path.resolve(
+  HERE,
+  "..",
+  "skills",
+  "pipeline",
+  "flow-product-planning",
+  "SKILL.md",
+);
 const REPORT_TEMPLATE_PATH = path.resolve(
   HERE,
   "..",
@@ -318,6 +326,10 @@ const discoveryInstructionsContent = fs.readFileSync(
 );
 const epicDiscoveryInstructionsContent = fs.readFileSync(
   EPIC_DISCOVERY_INSTRUCTIONS_PATH,
+  "utf8",
+);
+const productPlanningTopContent = fs.readFileSync(
+  PRODUCT_PLANNING_TOP_SKILL_MD_PATH,
   "utf8",
 );
 const prdTemplateContent = fs.readFileSync(PRD_TEMPLATE_PATH, "utf8");
@@ -1108,16 +1120,23 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     }
   });
 
-  // Frontmatter policy for the full ten-definition set (p4-review-agents):
-  // mechanical roles pin `effort: low` (checked above and re-checked here),
-  // the gatekeeper pins `model: haiku` as the declarative cost-routing
-  // record, and every judgment role omits both so session effort and the
-  // spawn site's per-spawn/config-threaded model always win.
+  // Frontmatter policy for the full fourteen-definition set
+  // (p4-review-agents + p4-pipeline-agents): mechanical roles pin
+  // `effort: low` (checked above and re-checked here), the gatekeeper
+  // pins `model: haiku` as the declarative cost-routing record, and
+  // every judgment role omits both so session effort and the spawn
+  // site's per-spawn/config-threaded model always win. flow-discovery
+  // is the one row with `inheritsAllTools: true` — plan Decision
+  // analysis 2 deliberately leaves it with no `tools:` allowlist
+  // (discovery's research + design-artifact passes span Bash/WebFetch/
+  // MCP surfaces a fixed allowlist would silently break), so the
+  // tools-presence assert below is skipped for that row only.
   const AGENT_FRONTMATTER_POLICY: Array<{
     file: string;
     wantModel?: string;
     wantEffort?: string;
     wantTools?: string;
+    inheritsAllTools?: boolean;
   }> = [
     { file: "flow-verify.md", wantEffort: "low" },
     { file: "flow-fix-applier.md", wantEffort: "low" },
@@ -1144,6 +1163,10 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       file: "flow-review-test-coverage.md",
       wantTools: "Read, Grep, Glob, Write",
     },
+    { file: "flow-scout.md" },
+    { file: "flow-discovery.md", inheritsAllTools: true },
+    { file: "flow-merge-resolver.md" },
+    { file: "flow-edit-applier.md" },
   ];
 
   it("every agents/*.md definition exists and follows the frontmatter policy", () => {
@@ -1152,6 +1175,7 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       wantModel,
       wantEffort,
       wantTools,
+      inheritsAllTools,
     } of AGENT_FRONTMATTER_POLICY) {
       const agentPath = path.resolve(HERE, "..", "agents", file);
       expect(
@@ -1160,11 +1184,21 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       ).toBe(true);
       const frontmatter =
         fs.readFileSync(agentPath, "utf8").split("---")[1] ?? "";
-      expect(
-        /^tools:\s*\S/m.test(frontmatter),
-        `agents/${file} frontmatter must declare a 'tools:' allowlist — ` +
-          "tool containment is the point of the named definition.",
-      ).toBe(true);
+      if (inheritsAllTools) {
+        expect(
+          /^tools:/m.test(frontmatter),
+          `agents/${file} frontmatter must NOT declare a 'tools:' allowlist ` +
+            "— plan Decision analysis 2 deliberately leaves this row inheriting " +
+            "every session tool; a later edit that pins one must go red, not " +
+            "silently narrow discovery's research surface.",
+        ).toBe(false);
+      } else {
+        expect(
+          /^tools:\s*\S/m.test(frontmatter),
+          `agents/${file} frontmatter must declare a 'tools:' allowlist — ` +
+            "tool containment is the point of the named definition.",
+        ).toBe(true);
+      }
       if (wantTools) {
         expect(
           new RegExp(`^tools:\\s*${wantTools}\\s*$`, "m").test(frontmatter),
@@ -1261,6 +1295,88 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
       content.includes("agent-fallback: flow-verify → general-purpose"),
       "flow-pipeline SKILL.md step-6 verify guard must emit the named agent-fallback " +
         "notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      content.includes("agent-fallback: flow-merge-resolver → general-purpose"),
+      "flow-pipeline SKILL.md step-10 merge-resolver guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes(
+        "agent-fallback: flow-scout → general-purpose",
+      ),
+      "flow-new-feature SKILL.md Step 1b scout guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      productPlanningTopContent.includes(
+        "agent-fallback: flow-discovery → general-purpose",
+      ),
+      "flow-product-planning SKILL.md discovery guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+    expect(
+      coderContent.includes(
+        "agent-fallback: flow-edit-applier → general-purpose",
+      ),
+      "flow-coder SKILL.md edit-applier guard must emit the named " +
+        "agent-fallback notice on its general-purpose fallback branch.",
+    ).toBe(true);
+  });
+
+  it("the scout, discovery, merge-resolver, and edit-applier spawn sites resolve their named agents with guarded fallbacks", () => {
+    expect(
+      newFeatureContent.includes("SCOUT_SUBAGENT=flow-scout"),
+      "flow-new-feature SKILL.md Step 1b must resolve SCOUT_SUBAGENT to `flow-scout`.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("[ -f ~/.claude/agents/flow-scout.md ]"),
+      "flow-new-feature SKILL.md scout site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("subagent_type: $SCOUT_SUBAGENT"),
+      "flow-new-feature SKILL.md scout spawn must pass `subagent_type: $SCOUT_SUBAGENT`.",
+    ).toBe(true);
+
+    expect(
+      productPlanningTopContent.includes("DISCOVERY_SUBAGENT=flow-discovery"),
+      "flow-product-planning SKILL.md must resolve DISCOVERY_SUBAGENT to `flow-discovery`.",
+    ).toBe(true);
+    expect(
+      productPlanningTopContent.includes(
+        "[ -f ~/.claude/agents/flow-discovery.md ]",
+      ),
+      "flow-product-planning SKILL.md discovery site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      productPlanningTopContent.includes("subagent_type: $DISCOVERY_SUBAGENT"),
+      "flow-product-planning SKILL.md discovery spawn must pass `subagent_type: $DISCOVERY_SUBAGENT`.",
+    ).toBe(true);
+
+    expect(
+      content.includes("MERGE_RESOLVER_SUBAGENT=flow-merge-resolver"),
+      "flow-pipeline SKILL.md step 10 must resolve MERGE_RESOLVER_SUBAGENT to `flow-merge-resolver`.",
+    ).toBe(true);
+    expect(
+      content.includes("[ -f ~/.claude/agents/flow-merge-resolver.md ]"),
+      "flow-pipeline SKILL.md merge-resolver site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      content.includes("subagent_type: $MERGE_RESOLVER_SUBAGENT"),
+      "flow-pipeline SKILL.md merge-resolver spawn must pass `subagent_type: $MERGE_RESOLVER_SUBAGENT`.",
+    ).toBe(true);
+
+    expect(
+      coderContent.includes("CODER_SUBAGENT=flow-edit-applier"),
+      "flow-coder SKILL.md must resolve CODER_SUBAGENT to `flow-edit-applier`.",
+    ).toBe(true);
+    expect(
+      coderContent.includes("[ -f ~/.claude/agents/flow-edit-applier.md ]"),
+      "flow-coder SKILL.md edit-applier site must guard on the installed definition file.",
+    ).toBe(true);
+    expect(
+      coderContent.includes("subagent_type: $CODER_SUBAGENT"),
+      "flow-coder SKILL.md edit-applier spawn must pass `subagent_type: $CODER_SUBAGENT`.",
     ).toBe(true);
   });
 

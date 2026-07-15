@@ -163,7 +163,7 @@ The three schema validators `flow-pr-review-result-schema`, `flow-agent-finding-
 The `flow` wrapper itself is also Bun, at `bin/flow`. It dispatches every
 verb natively — there is no passthrough or legacy entry point.
 
-Static agent-type definitions live in **`agents/`** (`*.md` frontmatter), discovered by `discoverAgents` and symlinked to `~/.claude/agents/`: all 10 carry `tools:` allowlists; 2 mechanical roles additionally pin `effort: low`, the gatekeeper pins `model: haiku`; per-spawn `model:` still wins.
+Static agent-type definitions live in **`agents/`** (`*.md` frontmatter), discovered by `discoverAgents` and symlinked to `~/.claude/agents/`: 13/14 carry `tools:` allowlists (flow-discovery: none); 2 mechanical roles pin `effort: low`, gatekeeper pins `model: haiku`; per-spawn `model:` wins.
 
 Conventions for any script under `bin/`:
 
