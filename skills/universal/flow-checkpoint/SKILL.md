@@ -5,7 +5,7 @@ description: >-
   addenda, unmaterialized redirects, explicit in-chat decisions ("skip review",
   "ignore flake X") — to a durable on-disk artifact before a context clear, so
   it survives `/clear` and is re-injected on resume. Use when the user says
-  "/flow-checkpoint", "checkpoint this", "checkpoint", or "save state before I clear"
+  "/flow-checkpoint", "flow-checkpoint this", or "save state before I clear"
   inside a flow pipeline window.
 ---
 
