@@ -32,7 +32,7 @@ output another AI would produce.
   `styled-components`, `@emotion/*`, `@vanilla-extract/*`, or pure CSS
   Modules / CSS-in-JS with no Tailwind context.
 - Portable, stack-agnostic design/UX judgment (visual hierarchy, spacing
-  rhythm, accessibility, the critique gate) lives in `universal/ui-ux`; this
+  rhythm, accessibility, the critique gate) lives in `universal/flow-ui-ux`; this
   skill is the Tailwind/shadcn mechanics layer that renders that judgment.
 
 # Context
@@ -66,7 +66,7 @@ components or pages):
 For minor styling tweaks (color change, spacing fix), a quick mental check suffices. For new
 components or significant redesigns, state the intent before proceeding.
 
-For the portable anti-default philosophy see `universal/ui-ux`; for this repo's domain context and how it maps to Tailwind tokens see `references/design-craft.md`.
+For the portable anti-default philosophy see `universal/flow-ui-ux`; for this repo's domain context and how it maps to Tailwind tokens see `references/design-craft.md`.
 
 ## 2. Check Existing Components
 
@@ -167,7 +167,7 @@ Before building each significant component, briefly state:
 This takes one sentence per bullet. The purpose is to force intentional decisions before
 writing markup. Skip for trivial changes (swapping an icon, fixing a typo).
 
-For the portable rationale behind surface layering and typography see `universal/ui-ux` `references/visual-design.md`; for spacing and layout see `universal/ui-ux` `references/layout.md`; for this repo's token mechanics see `references/design-craft.md`.
+For the portable rationale behind surface layering and typography see `universal/flow-ui-ux` `references/visual-design.md`; for spacing and layout see `universal/flow-ui-ux` `references/layout.md`; for this repo's token mechanics see `references/design-craft.md`.
 
 ## 5. Styling
 
@@ -217,9 +217,9 @@ toast.error("Failed to save", { description: error.message });
   focus / active / loading / disabled states, and a submit action should disable and show a
   loading indicator in flight to prevent double-submission. For the portable state-model and
   loading rationale (including the disable-on-submit vs. disable-until-valid stance) see
-  `universal/ui-ux` `references/component-interaction.md`; the shadcn/Tailwind mechanics live in
+  `universal/flow-ui-ux` `references/component-interaction.md`; the shadcn/Tailwind mechanics live in
   this section and `references/design-craft.md`.
-- **Touch-target size:** Standalone interactive controls (buttons, icon buttons, toggles) should reach a 44px minimum touch area — use `min-h-11 min-w-11` (2.75rem = 44px) to guarantee the comfort target without overriding the visual size. Icon-only buttons (`size="icon"` in shadcn, default 36px) are below the comfort target; add `min-h-11 min-w-11` or use `size="default"` (40px) and pad to taste. For the conformance tiers (AA 24px floor vs. AAA/HIG/Material 44px comfort target), the data-table spacing exception, and the defect-vs-trade-off classification, see `universal/ui-ux` `references/accessibility.md` — Touch-target size. The judgment lives there; what follows is purely the Tailwind mechanic.
+- **Touch-target size:** Standalone interactive controls (buttons, icon buttons, toggles) should reach a 44px minimum touch area — use `min-h-11 min-w-11` (2.75rem = 44px) to guarantee the comfort target without overriding the visual size. Icon-only buttons (`size="icon"` in shadcn, default 36px) are below the comfort target; add `min-h-11 min-w-11` or use `size="default"` (40px) and pad to taste. For the conformance tiers (AA 24px floor vs. AAA/HIG/Material 44px comfort target), the data-table spacing exception, and the defect-vs-trade-off classification, see `universal/flow-ui-ux` `references/accessibility.md` — Touch-target size. The judgment lives there; what follows is purely the Tailwind mechanic.
 
 ## 10. Responsive Design
 
@@ -262,7 +262,7 @@ use native `<form onsubmit>`, pair `<Label for>` with `<Input id>`, and use `bin
 
 ## 13. Critique
 
-After building, pause and run through the critique checklist from `references/critique-protocol.md` (its portable rationale lives in `universal/ui-ux` `references/critique-protocol.md`):
+After building, pause and run through the critique checklist from `references/critique-protocol.md` (its portable rationale lives in `universal/flow-ui-ux` `references/critique-protocol.md`):
 
 - **Composition** — Can you identify primary, secondary, and tertiary content at a glance? Does
   spacing vary intentionally?

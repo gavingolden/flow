@@ -20,7 +20,7 @@ The wrapper passes you these inputs in its spawn prompt:
 - The absolute skill base directory (`SKILL_DIR`). Resolve every sibling
   template/reference path under it. Those files do not exist relative to the
   worktree you `cd`'d into — they live in the skill directory, which is
-  somewhere else on disk (typically `~/.claude/skills/new-feature/` or
+  somewhere else on disk (typically `~/.claude/skills/flow-new-feature/` or
   `<flow-checkout>/skills/pipeline/flow-new-feature/`).
 - The absolute path to write `scout.md` (`SCOUT_PATH`).
 - The approved plan path (`PLAN_PATH`) — an absolute path when an approved

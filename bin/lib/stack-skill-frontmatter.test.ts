@@ -16,6 +16,7 @@ const STACK_SKILLS = [
   "flow-svelte",
   "flow-supabase-project",
   "flow-tailwind-shadcn",
+  "flow-testing-svelte",
 ] as const;
 
 const repoRoot = path.resolve(import.meta.dirname, "..", "..");

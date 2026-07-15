@@ -31,7 +31,7 @@ expected_outcome}` entries. Each entry names a file (repo-relative
 - The absolute skill base directory (`SKILL_DIR`). Resolve every sibling
   reference path under it. Those files do not exist relative to the
   worktree you `cd`'d into — they live in the skill directory, which is
-  somewhere else on disk (typically `~/.claude/skills/coder/` or
+  somewhere else on disk (typically `~/.claude/skills/flow-coder/` or
   `<flow-checkout>/skills/pipeline/flow-coder/`).
 - The absolute path to write the artifact (`ARTIFACT_PATH` —
   `.flow-tmp/coder-result.json` under the worktree).

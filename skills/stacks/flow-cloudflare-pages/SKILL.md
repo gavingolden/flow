@@ -158,7 +158,7 @@ cron), while the script CLI below defaults to `--dry-run` (interactive
 vendor use, where the safe default protects ad-hoc operators).
 
 ```bash
-cp ~/.claude/skills/cloudflare-pages/templates/prune-cf-deployments.ts <your-project>/scripts/
+cp ~/.claude/skills/flow-cloudflare-pages/templates/prune-cf-deployments.ts <your-project>/scripts/
 bun <your-project>/scripts/prune-cf-deployments.ts \
   --project <your-project> \
   --older-than 30d \
@@ -256,7 +256,7 @@ scripts). For full rationale see `references/env-vars-and-build.md`.
 
 # Verification
 
-- Skill installed at `~/.claude/skills/cloudflare-pages/` after
+- Skill installed at `~/.claude/skills/flow-cloudflare-pages/` after
   `flow install --upgrade`.
 
 **Reusable-workflow path:**

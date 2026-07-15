@@ -1,13 +1,13 @@
 # Design Craft Principles
 
 Portable design judgment — the anti-default philosophy, hierarchy, spacing rhythm, surface/depth,
-and typography _reasoning_ — lives in `universal/ui-ux` (`references/visual-design.md`). This file
+and typography _reasoning_ — lives in `universal/flow-ui-ux` (`references/visual-design.md`). This file
 is the Tailwind/shadcn mechanics layer: how that judgment maps to this repo's tokens. Each section
 below pairs a one-line up-pointer with the retained token specifics.
 
 ## Anti-Default Philosophy
 
-Portable principle: see `universal/ui-ux` — its Anti-Patterns and `references/visual-design.md`
+Portable principle: see `universal/flow-ui-ux` — its Anti-Patterns and `references/visual-design.md`
 carry the anti-default stance ("if another AI would produce the same output, you failed"). In this
 repo's tokens, that means rejecting the defaults below:
 
@@ -30,7 +30,7 @@ accent colors. Lean into it. Avoid saturated decorative colors that compete with
 
 ## Surface Layering System
 
-Portable principle: see `universal/ui-ux` `references/visual-design.md` — depth communicates
+Portable principle: see `universal/flow-ui-ux` `references/visual-design.md` — depth communicates
 hierarchy; elevated surfaces read lighter in dark mode; no two adjacent containers share treatment.
 Tailwind token mechanics below.
 
@@ -53,7 +53,7 @@ Border progression: `border-border` for standard separation, `border-input` for 
 
 ## Typography Hierarchy
 
-Portable principle: see `universal/ui-ux` `references/visual-design.md` — 3+ typographic levels via
+Portable principle: see `universal/flow-ui-ux` `references/visual-design.md` — 3+ typographic levels via
 size/weight/contrast; decisive jumps. Tailwind token mechanics below.
 
 Every screen should use **3+ levels** of typographic emphasis:
@@ -73,7 +73,7 @@ Financial data rules:
 
 ## Spacing System
 
-Portable principle: see `universal/ui-ux` `references/layout.md` — spatial proximity mirrors
+Portable principle: see `universal/flow-ui-ux` `references/layout.md` — spatial proximity mirrors
 semantic proximity (Gestalt grouping) and the base-unit spacing scale; items semantically closer are
 spatially closer. Tailwind scale below.
 
@@ -89,7 +89,7 @@ Tailwind's 4px base grid. Spacing communicates content relationships:
 
 ## Component Composition Patterns
 
-Portable principles: see `universal/ui-ux` — card anatomy and animation restraint in
+Portable principles: see `universal/flow-ui-ux` — card anatomy and animation restraint in
 `references/visual-design.md`; empty/error states in `references/interaction-ux.md`; the
 interactive state model (default/hover/focus/active/loading/disabled) and loading-indicator
 selection in `references/component-interaction.md`. Tailwind mechanics below.
@@ -124,7 +124,7 @@ Duration: `duration-150` to `duration-200`. No decorative animation.
 
 ## Icon Guidelines
 
-Portable principle: see `universal/ui-ux` `references/visual-design.md` — size icons to adjacent
+Portable principle: see `universal/flow-ui-ux` `references/visual-design.md` — size icons to adjacent
 text; icon-only controls need an accessible label. Tailwind/package mechanics below.
 
 - Use `lucide-svelte` exclusively for consistency

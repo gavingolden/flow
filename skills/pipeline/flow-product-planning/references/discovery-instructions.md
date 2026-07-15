@@ -19,7 +19,7 @@ The wrapper passes you these inputs in its spawn prompt:
   `<SKILL_DIR>/references/example-prd.md`. Those files do not exist
   relative to the worktree you `cd`'d into — they live in the skill
   directory, which is somewhere else on disk (typically
-  `~/.claude/skills/product-planning/` or
+  `~/.claude/skills/flow-product-planning/` or
   `<flow-checkout>/skills/pipeline/flow-product-planning/`).
 - The absolute path to write `plan.md`.
 - The absolute path to write `pr-description-draft.md`.
@@ -519,7 +519,7 @@ Every mechanical bullet mirrors a `spec.json` assertion 1:1 (same id) — a bull
 - **Fires:** "re-theme the `/sets` page"; "add a sidebar filter panel"; any plan whose Task breakdown adds/moves UI regions (a new panel, a relocated nav, a restructured page layout).
 - **Does NOT fire:** backend/CLI/docs/infra plans with no UI surface; a copy-only tweak with no structural change (e.g. "fix a typo in the button label", "change the toast copy").
 
-When the gate fires, add an omit-when-empty `## Layout Intent` section to the PRD, authored per surface. Required pre-read: read the ui-ux skill's layout-composition heuristics at `~/.claude/skills/ui-ux/references/layout.md` (grids, Gestalt grouping, responsive strategy, archetypes) before authoring, so the reasoning is informed, not just recorded; fall back to the facet checklist below when the file is absent (a manual run on a host without flow's skills must not crash).
+When the gate fires, add an omit-when-empty `## Layout Intent` section to the PRD, authored per surface. Required pre-read: read the ui-ux skill's layout-composition heuristics at `~/.claude/skills/flow-ui-ux/references/layout.md` (grids, Gestalt grouping, responsive strategy, archetypes) before authoring, so the reasoning is informed, not just recorded; fall back to the facet checklist below when the file is absent (a manual run on a host without flow's skills must not crash).
 
 Per surface, author all six required facets:
 

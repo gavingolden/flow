@@ -4,8 +4,9 @@ description: >-
   Write or update unit tests for Svelte 5 components using Vitest,
   @testing-library/svelte, user-event, and MSW. TRIGGER when: `.svelte` /
   `.svelte.ts` component tests, `vi.mock()` stubbing, runes-component
-  rendering, testing-library queries. SKIP and defer generic
-  test-writing/coverage guidance (any non-Svelte unit) to flow-testing.
+  rendering, testing-library queries. SKIP when the unit under test is not a
+  Svelte component (plain TS/JS logic, a non-Svelte framework, backend code) —
+  defer generic test-writing/coverage guidance to flow-testing.
 ---
 
 # Goal

@@ -1,7 +1,7 @@
 # Post-Build Critique Protocol
 
 The portable critique _rationale_ — the dimension reasoning and the per-anti-pattern "why" — lives
-in `universal/ui-ux` `references/critique-protocol.md`. This file is the Tailwind/shadcn
+in `universal/flow-ui-ux` `references/critique-protocol.md`. This file is the Tailwind/shadcn
 instantiation: the same checklist with this repo's tokens, the BAD/GOOD class-name examples, and the
 workflow.
 
@@ -27,7 +27,7 @@ After building a UI component or page, walk through each dimension:
 
 ## Common Anti-Patterns
 
-Portable reasoning for each anti-pattern lives in `universal/ui-ux`
+Portable reasoning for each anti-pattern lives in `universal/flow-ui-ux`
 `references/critique-protocol.md`; the Tailwind BAD/GOOD class instantiations are below.
 
 ### The Identical Container Problem
