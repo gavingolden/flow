@@ -113,16 +113,24 @@ Signals to lean on when forming assumptions: existing code patterns (cite by
 file path), `AGENTS.md` / `CLAUDE.md` rules, and the verbatim epic prompt
 (quote load-bearing phrasing rather than paraphrasing).
 
-**Necessity check (feeds `## Recommendation`).** Before decomposing, weigh
+**Necessity & redundancy check (feeds `## Recommendation`).** Before decomposing, weigh
 whether the whole epic is **needed at all** — could doing nothing, an existing
 capability the user overlooked, or a single already-planned feature serve just
 as well? An epic is a **multi-PR commitment**, so this is a sharper question
 than §2's right-sizing note: §2 asks _how big_, this asks _at all?_. Treat
 `Reject — do nothing` as a **first-class verdict** to weigh, not a non-answer;
 the prompt invited the epic, but inviting it is not the same as needing it.
-Feed the verdict into the `## Recommendation` critique section (§5a). Framing
-lens: **first-principles** — strip inherited constraints to what is necessarily
-true (see `discovery-playbook.md`, internal-only).
+At epic altitude, also weigh duplication one level up from the per-feature
+check: against existing capabilities/helpers/config **and** against other
+epics (already-planned or already-shipped) that would deliver the same
+outcome. Feed a found duplication into the `## Recommendation` critique
+section (§5a) alongside the necessity verdict. Framing lens: **first-principles**
+— strip inherited constraints to what is necessarily true (see
+`discovery-playbook.md`, internal-only). This mirrors the per-feature obligation
+authored in
+`skills/pipeline/flow-product-planning/references/discovery-instructions.md`'s
+**Necessity & redundancy** category — that file is the single source of truth
+for the redundancy obligation's contract; this paragraph ports it one altitude up.
 
 **Framing-lens application (internal-only, never a performed section).** Apply
 `discovery-playbook.md`'s bounded internal heuristics at epic grain as you

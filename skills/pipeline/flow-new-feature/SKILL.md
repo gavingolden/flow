@@ -272,13 +272,14 @@ scout report back; the artifact on disk is the record.
 - Before committing to implementation, perform a brief structured
   assessment. Present findings to the user as a table:
 
-  | Criterion            | Assessment                                                          |
-  | -------------------- | ------------------------------------------------------------------- |
-  | Customer value       | _How much does this improve the user's workflow?_                   |
-  | Technical complexity | _Rough effort estimate and what areas of the codebase are affected_ |
-  | Debt risk            | _Does this follow existing patterns or introduce new ones?_         |
-  | Composability        | _Can this design be easily extended, layered on, or reused?_        |
-  | **Recommendation**   | **Proceed / Reconsider scope / Defer / Reject**                     |
+  | Criterion            | Assessment                                                                                              |
+  | -------------------- | ------------------------------------------------------------------------------------------------------- |
+  | Customer value       | _How much does this improve the user's workflow?_                                                       |
+  | Technical complexity | _Rough effort estimate and what areas of the codebase are affected_                                     |
+  | Debt risk            | _Does this follow existing patterns or introduce new ones?_                                             |
+  | Composability        | _Can this design be easily extended, layered on, or reused?_                                            |
+  | Redundancy           | Does this duplicate an existing capability (skill/helper/config/prior feature)? Cite it, or state none. |
+  | **Recommendation**   | **Proceed / Reconsider scope / Defer / Reject**                                                         |
 
 - Within this analysis:
   - **Challenge the feature.** Don't just validate the user's idea. Identify potential
@@ -343,7 +344,16 @@ scout report back; the artifact on disk is the record.
     alongside the recommendation. When plan.md has no `## Prompt
 interpretation` section, or the section's Recommended path is
     `methods plausibly reach target`, omit the row entirely (the original
-    five-row table is unchanged for no-tension prompts).
+    six-row table is unchanged for no-tension prompts).
+  - **Check for redundancy.** Fill the Redundancy row above by checking the request
+    against existing capabilities — a skill, a helper, a config surface, or a prior
+    feature — and cite the specific one it duplicates, or state none found. Customer
+    value and Recommendation already carry the helps-the-user / is-it-necessary /
+    is-there-a-better-way questions; this bullet adds only the redundancy dimension.
+    This is the same obligation authored one site over in
+    `skills/pipeline/flow-product-planning/references/discovery-instructions.md`'s
+    **Necessity & redundancy** category — the two sites cross-link so the discipline
+    is consistent whether the plan originates in discovery or in `/flow-new-feature`.
   - **Name the plan's weakest assumption.** Close the analysis with an adversarial
     self-critique that names the plan's single weakest assumption / biggest risk — "if this
     plan is wrong, here is the most likely reason". This is the load-bearing assumption whose

@@ -125,6 +125,24 @@ function checkBehavioralContrast(planText: string, misses: string[]): void {
   }
 }
 
+function checkRedundancyLine(planText: string, misses: string[]): void {
+  const match = planText.match(/^## Recommendation\s*$/m);
+  if (!match) {
+    // Absent heading is already reported by the sibling checkHeadingPresent
+    // call in lintPlan; don't double-report here.
+    return;
+  }
+  const body = sliceToNextHeading(
+    planText,
+    (match.index ?? 0) + match[0].length,
+  );
+  if (!/\*\*Redundancy:\*\*/.test(body)) {
+    misses.push(
+      "'## Recommendation' is missing its required '**Redundancy:**' affirmation line",
+    );
+  }
+}
+
 function checkTaskContracts(planText: string, misses: string[]): void {
   if (!/^# Task breakdown\s*$/m.test(planText)) {
     misses.push(
@@ -272,6 +290,7 @@ export function lintPlan(
       misses,
       "every plan must commit to one recommendation verdict",
     );
+    checkRedundancyLine(planText, misses);
     checkHeadingPresent(
       planText,
       "## Plan risks",
