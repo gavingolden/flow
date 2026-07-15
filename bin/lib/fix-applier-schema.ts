@@ -70,6 +70,7 @@ export type FixApplierResult = {
   rejected_alternatives: FixApplierRejectedAlternative[];
   anti_patterns_found: FixApplierAntiPattern[];
   summary: string;
+  ui_screenshots?: string[];
 };
 
 export type ValidationOk = { ok: true; value: FixApplierResult };
@@ -220,6 +221,17 @@ export function validateFixApplierResult(parsed: unknown): ValidationResult {
   }
   if (!isNonEmptyString(o.summary)) {
     return err(`'summary' must be a non-empty string`);
+  }
+
+  if ("ui_screenshots" in o) {
+    if (
+      !Array.isArray(o.ui_screenshots) ||
+      !o.ui_screenshots.every(isNonEmptyString)
+    ) {
+      return err(
+        `'ui_screenshots' must be an array of non-empty strings when present`,
+      );
+    }
   }
 
   const commits = o.commits as unknown[];

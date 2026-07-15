@@ -169,7 +169,16 @@ maintains, not a frozen contract.
 The a11y `take_snapshot` is the gate — it is the primary evidence injected via
 `flow-inject-evidence`. The screenshot is supplementary: referenced by its
 saved path inside the evidence block, never embedded (`gh` takes no inline
-binary).
+binary). Every screenshot path that survives the save-path cascade below is
+also recorded into `fix-applier-result.json`'s `ui_screenshots[]` (see
+"Merge-back into `fix-applier-result.json`" below), so the `/flow-pipeline`
+supervisor can surface each one as a clickable absolute path in the session —
+the PR body itself keeps the existing by-path reference unchanged. The a11y
+snapshot remains the gate either way; recording a screenshot path is
+additional evidence, never a substitute. Before/after comparison applies only
+where a design-fidelity `.flow-tmp/design/reference.*` baseline already
+exists (the spec-gated sub-pass) — general base-vs-head visual diffing is out
+of scope here.
 
 ## Screenshot save-path cascade
 
@@ -190,6 +199,33 @@ cleanly:
 2. On denial, FALL BACK to session-cwd `.flow-tmp/ui-evidence/`.
 3. Else SKIP with a loud note — the a11y snapshot is the gate, the screenshot
    supplementary, never blocking.
+
+## Merge-back into `fix-applier-result.json`
+
+This is a **wrapper-side patch, not a subagent write**: by the time Step 8c
+drives the browser, the Fix-Applier subagent has already written and
+returned `fix-applier-result.json` and exited — the browser capture happens
+outside that subagent's session — so the `/flow-pr-review` wrapper is the
+only write point for review-time captures. After the per-viewport capture
+loop, collect every path from the `ran:true` `flow-ui-validate --captures`
+envelope's `evidence_paths[]` that a `test -f` guard confirms still exists on
+disk, then union them into the artifact's `ui_screenshots[]` — written before
+`/flow-pr-review` Step 9's single read of that artifact:
+
+```bash
+ART="$WORKTREE/.flow-tmp/fix-applier-result.json"
+SHOTS=$(printf '%s' "$CAPTURES_JSON" | jq -r '.evidence_paths[]?' | while IFS= read -r p; do [ -f "$p" ] && printf '%s\n' "$p"; done)
+if [ -f "$ART" ] && [ -n "$SHOTS" ]; then
+  SHOTS_JSON=$(printf '%s\n' "$SHOTS" | jq -R . | jq -s 'map(select(length > 0))')
+  TMP=$(mktemp)
+  jq --argjson shots "$SHOTS_JSON" '.ui_screenshots = (((.ui_screenshots // []) + $shots) | unique)' "$ART" > "$TMP" && mv "$TMP" "$ART"
+fi
+```
+
+A headless run, an MCP-absent run, or a run that lands on the runnable
+bucket's branch-3 skip captures nothing, so `SHOTS` is empty and
+`ui_screenshots` stays absent from the artifact — a surfaced gap (via the
+existing `ui_smoke_reason` carrier), never a failure.
 
 ## UI traits to verify
 
