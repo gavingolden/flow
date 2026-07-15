@@ -58,10 +58,12 @@ import { moduleForArtifactName, moduleIds } from "./modules";
 import {
   collectModuleConfigWarnings,
   readConfigFileAt,
+  readModuleSelection,
   resolveModuleSelection,
   writeModuleSelection,
   type ReadConfigFile,
 } from "./modules-config";
+import { inactiveOptionalModules, type ModuleActivity } from "./module-status";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
 const SESSION_START_HOOK_COMMAND = "flow-session-start-hook";
@@ -448,8 +450,29 @@ function runUnderLock(
     );
   }
 
-  printOutcome(summary, log, options, installRoot, ff, entries);
+  printOutcome(
+    summary,
+    log,
+    options,
+    installRoot,
+    ff,
+    entries,
+    manifestTargetPath,
+  );
   return summary;
+}
+
+/**
+ * The `~/.flow/config.json` module-selection reader seam, resolved once
+ * from `options.configPath` (test fixtures) or the real config path
+ * (production). Shared by `resolveEntriesForRun` and `printOutcome`'s
+ * doctor-summary read so both resolve the SAME fixture-scoped file rather
+ * than one of them silently falling through to the real `~/.flow`.
+ */
+function configReaderFor(options: SetupOptions): ReadConfigFile | undefined {
+  return options.configPath
+    ? () => readConfigFileAt(options.configPath!)
+    : undefined;
 }
 
 /**
@@ -481,9 +504,7 @@ function resolveEntriesForRun(
     };
   }
 
-  const read: ReadConfigFile | undefined = options.configPath
-    ? () => readConfigFileAt(options.configPath!)
-    : undefined;
+  const read = configReaderFor(options);
 
   for (const w of collectModuleConfigWarnings(read)) {
     log(dim(`  ! module config: ${w}`));
@@ -651,6 +672,7 @@ function printOutcome(
   installRoot: string,
   ff: FastForwardResult | undefined,
   entries: SourceEntry[],
+  manifestPath: string,
 ): void {
   const version = (() => {
     try {
@@ -702,6 +724,18 @@ function printOutcome(
 
   printSummaryLine(s, log);
   printModuleBreakdown(entries, log);
+  // Deviation-2 fix: resolve activity from the SAME fixture-scoped
+  // manifest/config the rest of this run used (manifestPath / configPath),
+  // never the zero-arg real-`~/.flow` default — otherwise a test fixture's
+  // `runSetup` call would read the developer's real module state and this
+  // line would become non-deterministic under vitest.
+  printInactiveModules(
+    inactiveOptionalModules({
+      readManifest: () => readManifest(manifestPath),
+      readSelection: () => readModuleSelection(configReaderFor(options)),
+    }),
+    log,
+  );
 }
 
 function printSummaryLine(s: SetupSummary, log: (msg: string) => void): void {
@@ -725,6 +759,21 @@ function printSummaryLine(s: SetupSummary, log: (msg: string) => void): void {
  * excluded from the breakdown, matching how they're excluded from
  * `resolveArtifactSet`'s union.
  */
+/**
+ * Prints one dimmed doctor-summary line naming every currently-inactive
+ * optional module, e.g. `inactive modules: research (deselected), copilot
+ * (deselected)`. Prints nothing when `inactive` is empty — a full/`--all`
+ * install has no inactive optionals to report.
+ */
+function printInactiveModules(
+  inactive: ModuleActivity[],
+  log: (msg: string) => void,
+): void {
+  if (inactive.length === 0) return;
+  const parts = inactive.map((m) => `${m.id} (deselected)`);
+  log(dim(`      inactive modules: ${parts.join(", ")}`));
+}
+
 function printModuleBreakdown(
   entries: SourceEntry[],
   log: (msg: string) => void,

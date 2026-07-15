@@ -1546,7 +1546,7 @@ describe("flow install", () => {
       );
       const warnings = substantive.filter((l) => /\s!\s/.test(l));
       const nonWarning = substantive.filter((l) => !/\s!\s/.test(l));
-      // Budget raised from 2 to 3: the grouped by-module summary line
+      // Budget raised from 2 to 3 to 4: the grouped by-module summary line
       // (`by module: core N`) is a third always-on line, additive to the
       // up-to-date headline + the "N skipped" symlink-accounting line — it
       // fires regardless of churn. It reports `core` (not 0) even for this
@@ -1554,11 +1554,17 @@ describe("flow install", () => {
       // deliberately names its two `bin/lib/` fixtures after two real
       // `VALIDATOR_MODULES` allowlist entries (pr-review-result-schema.ts /
       // agent-finding-schema.ts) to exercise the allowlist-filter behavior,
-      // and those two names are also real `core` validator rows.
-      expect(nonWarning.length).toBeLessThanOrEqual(3);
+      // and those two names are also real `core` validator rows. That same
+      // collision is what pushes the budget to 4: those two linked records
+      // give `resolveModuleActivity` a non-empty relevant-record manifest,
+      // so it reports every OTHER (genuinely fictional, thus never-linked)
+      // module as inactive via the doctor summary's fourth always-on line
+      // (`inactive modules: ...`) — see setup.ts's `printInactiveModules`.
+      expect(nonWarning.length).toBeLessThanOrEqual(4);
       // The outcome line is the up-to-date headline (no symlink churn).
       expect(nonWarning.join("\n")).toMatch(/already up to date/);
       expect(nonWarning.join("\n")).toMatch(/by module: core \d+/);
+      expect(nonWarning.join("\n")).toMatch(/inactive modules:/);
       void warnings;
     });
   });
@@ -2100,6 +2106,58 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
         cachePath: path.join(homeDir, ".flow", "update-check.json"),
       });
       expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
+    });
+
+    it("(i) --modules core prints the inactive-modules doctor line naming every deselected optional", () => {
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        runSetup({
+          flowSource: realFlowSource,
+          installRoot: realFlowSource,
+          targets: targets(),
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          modules: ["core"],
+          isTTY: false,
+          configPath: configPath(),
+        });
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/inactive modules:/);
+        expect(allLogs).toMatch(/research \(deselected\)/);
+        expect(allLogs).toMatch(/copilot \(deselected\)/);
+      } finally {
+        logSpy.mockRestore();
+      }
+    });
+
+    it("(j) a full --all install prints no inactive-modules line — every module is fully linked", () => {
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        runSetup({
+          flowSource: realFlowSource,
+          installRoot: realFlowSource,
+          targets: targets(),
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          all: true,
+          isTTY: false,
+          configPath: configPath(),
+        });
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).not.toMatch(/inactive modules:/);
+      } finally {
+        logSpy.mockRestore();
+      }
     });
   });
 });

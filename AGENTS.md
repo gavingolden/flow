@@ -329,6 +329,8 @@ shell).
   "Task-tool exemption" bullets below; no other skill or step may
   call Task.
 - Don't add features beyond the task's stated scope.
+- Don't treat an absent optional-module skill as a hard failure — check
+  `flow-module-status --check-skill <name>` and degrade to a named skip.
 - Don't propagate unverified factual claims. The trigger categories,
   per-category verification recipes, and anti-patterns live in
   `## Output style` under 'Verify factual claims before emitting

@@ -730,7 +730,20 @@ pipelines). Absent or empty `.epic` ≡ not epic-launched — append nothing.
 **Deterministic forced research (mandatory on the forced path).** The
 discovery subagent's own Step 1.5 was observed to skip the fan-out even
 when forced, so on the `forceResearch == true` path you MUST ALSO run the
-research deterministically yourself, BEFORE invoking `/flow-product-planning`:
+research deterministically yourself, BEFORE invoking `/flow-product-planning`.
+First, probe whether the `research` module is even installed — a
+deselected module means `flow-research-run` was pruned from PATH
+entirely:
+
+```bash
+flow-module-status --check research || RESEARCH_MODULE_INACTIVE=1
+```
+
+When `$RESEARCH_MODULE_INACTIVE` is set, the helper already emitted the
+named notice to stderr — note the skip in the chat summary and proceed
+straight to invoking `/flow-product-planning` below (append nothing for
+research findings; same "graceful skip never blocks planning" invariant
+as the agy-unavailable path). Otherwise, run the fan-out:
 
 ```bash
 flow-research-run --task "<verbatim user description>" \
@@ -876,20 +889,25 @@ fires for **ANY** intent (a bug/refactor plan can carry a consequential
 decision too), positioned before the feature/non-feature end-condition split.
 It is a Bash `flow-delegate` (AGY) fan-out — the same mechanism as
 `/flow-pr-review`'s Gemini lens — and spawns **no Task** (see Hard rules'
-"Bash fan-out, not a tenth exemption" sibling note). Two-part gate, both
+"Bash fan-out, not a tenth exemption" sibling note). Three-part gate, all
 human-readable:
 
 ```bash
 jq -e '(.review | type == "object") and (.review.gemini == true)' ~/.flow/config.json \
-  && grep -q '^## Decision analysis' "$WORKTREE/.flow-tmp/plan.md"
+  && grep -q '^## Decision analysis' "$WORKTREE/.flow-tmp/plan.md" \
+  && flow-module-status --check research
 ```
 
 The config half reuses the SAME `review.gemini` opt-in that gates the
 `/flow-pr-review` Gemini lens (no new config key); the section half is the
 omit-when-empty `## Decision analysis` Layer-1 section — its absence means
 discovery found no consequential diverging decision, so there is nothing to
-cross-review. When **either** half fails, skip this sub-step and proceed to End
-conditions unchanged.
+cross-review. The third check is the same `research`-module precheck as the
+forced-research block above — `flow-plan-review` is itself a `research`
+helper, so a deselected module means it isn't on PATH. When **any** part
+fails, emit the named notice (already on stderr for the module check),
+record the reason in the chat summary, and skip this sub-step, proceeding
+to End conditions unchanged.
 
 When both fire, run ONE review and branch on the helper's `{ran}` envelope
 (NEVER the exit code):
@@ -1578,6 +1596,21 @@ Continue to step 7.
 ## Step 7 — CI + Copilot wait
 
 **Phase:** `ci-wait`
+
+**Copilot-module precheck (before any of this).** A deselected `copilot`
+module means `flow-request-copilot` was never installed on PATH at all —
+probe first, and on a non-zero exit skip the entire request/classify
+subsection below, treating the PR as declined (parallel to
+`flow-ci-wait`'s own `isCopilotModuleActive` self-guard, which collapses
+the same wait a layer deeper):
+
+```bash
+flow-module-status --check copilot || COPILOT_MODULE_INACTIVE=1
+```
+
+When `$COPILOT_MODULE_INACTIVE` is set, the helper already emitted the
+named notice to stderr — skip straight to invoking `flow-ci-wait` below
+with `--copilot-not-requested`.
 
 **Copilot request decision (before the wait).** Copilot review is opt-in
 for non-trivial changes only. Decide whether to request it for this PR

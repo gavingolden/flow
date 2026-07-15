@@ -125,6 +125,7 @@ export const MODULES: ModuleDefinition[] = [
       "flow-epic-resume-decide",
       "flow-epic-judge-context",
       "flow-epic-membership",
+      "flow-module-status",
       "flow-transcript-audit",
     ],
     validators: [
