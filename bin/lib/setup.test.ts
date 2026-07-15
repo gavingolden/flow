@@ -2215,6 +2215,36 @@ describe("skills-home retarget + migration (Story 1)", () => {
     expect(fs.existsSync(flowOwned)).toBe(false); // swept (flow-owned)
     expect(fs.lstatSync(foreign).isSymbolicLink()).toBe(true); // foreign preserved
   });
+
+  it("drift-sweeps a DANGLING flow-owned old-location symlink, preserving a dangling foreign symlink", () => {
+    // Exercises the `realpathSync(raw)` throws → `isPathUnder(raw, root)`
+    // fallback branch: the old-location link points into the flow tree but its
+    // target was since removed (a renamed/deleted skill), so realpath fails and
+    // ownership must be decided lexically off `raw`. The sweep must still remove
+    // it, while a dangling symlink whose target lies OUTSIDE the flow tree (a
+    // user's own, its target also gone) is preserved.
+    const old = oldSkillsDir();
+    fs.mkdirSync(old, { recursive: true });
+    const flowOwned = path.join(old, "beta");
+    fs.symlinkSync(
+      path.join(flowSource, "skills", "pipeline", "beta"),
+      flowOwned,
+    );
+    // Remove the source so the flow-owned link dangles → realpathSync throws.
+    fs.rmSync(path.join(flowSource, "skills", "pipeline", "beta"), {
+      recursive: true,
+      force: true,
+    });
+    // A foreign symlink whose target (outside the flow tree) never existed —
+    // dangling too, so realpathSync throws and the raw clause must NOT own it.
+    const foreign = path.join(old, "not-flow");
+    fs.symlinkSync(path.join(scratch, "external-gone"), foreign);
+
+    runRetargeted();
+
+    expect(fs.existsSync(flowOwned)).toBe(false); // swept via the raw fallback
+    expect(fs.lstatSync(foreign).isSymbolicLink()).toBe(true); // foreign preserved
+  });
 });
 
 describe("gh#435 non-interactive --upgrade breadth preservation (Story 4)", () => {

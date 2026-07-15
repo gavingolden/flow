@@ -49,7 +49,9 @@ export type LaunchDeps = {
 function defaultSpawn(argv: string[]): number {
   try {
     const result = Bun.spawnSync(argv, {
-      stdio: ["inherit", "inherit", "inherit"],
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
     });
     return result.exitCode ?? 0;
   } catch (err) {
