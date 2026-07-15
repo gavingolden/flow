@@ -216,7 +216,9 @@ export type SetupSummary = {
   missingRuntimeDeps: string[];
 };
 
-export function runSetup(options: SetupOptions = {}): SetupSummary {
+export async function runSetup(
+  options: SetupOptions = {},
+): Promise<SetupSummary> {
   const flowSource = options.flowSource ?? resolveFlowSource();
   const installRoot = options.installRoot ?? resolveFlowSource();
   const targets = options.targets ?? DEFAULT_TARGETS;
@@ -273,7 +275,7 @@ export function runSetup(options: SetupOptions = {}): SetupSummary {
   );
 }
 
-function runUnderLock(
+async function runUnderLock(
   flowSource: string,
   installRoot: string,
   targets: InstallTargets,
@@ -281,8 +283,8 @@ function runUnderLock(
   options: SetupOptions,
   missingRuntimeDeps: string[],
   ff: FastForwardResult | undefined,
-): SetupSummary {
-  const { entries, persistIds } = resolveEntriesForRun(
+): Promise<SetupSummary> {
+  const { entries, persistIds } = await resolveEntriesForRun(
     options,
     flowSource,
     installRoot,
@@ -467,13 +469,13 @@ function runUnderLock(
  * prints a one-line notice naming how to widen the selection — it does NOT
  * persist, since no user intent was expressed.
  */
-function resolveEntriesForRun(
+async function resolveEntriesForRun(
   options: SetupOptions,
   flowSource: string,
   installRoot: string,
   targets: InstallTargets,
   log: (msg: string) => void,
-): { entries: SourceEntry[]; persistIds: string[] | undefined } {
+): Promise<{ entries: SourceEntry[]; persistIds: string[] | undefined }> {
   if (options.all) {
     return {
       entries: discoverAll(flowSource, installRoot, targets),
@@ -505,7 +507,13 @@ function resolveEntriesForRun(
   }
 
   return {
-    entries: discoverSelected(flowSource, installRoot, selection.ids, targets),
+    entries: await discoverSelected(
+      flowSource,
+      installRoot,
+      selection.ids,
+      targets,
+      (msg) => log(dim(`  ! module registry: ${msg}`)),
+    ),
     persistIds: selection.shouldPersist ? selection.ids : undefined,
   };
 }

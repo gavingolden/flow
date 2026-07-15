@@ -31,11 +31,11 @@ export class LockTimeoutError extends Error {
   }
 }
 
-export function withFileLock<T>(
+export async function withFileLock<T>(
   lockPath: string,
-  fn: () => T,
+  fn: () => T | Promise<T>,
   opts: LockOptions = {},
-): T {
+): Promise<T> {
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const pollMs = opts.pollMs ?? 100;
   const start = Date.now();
@@ -46,7 +46,7 @@ export function withFileLock<T>(
     const acquired = tryAcquire(lockPath);
     if (acquired) {
       try {
-        return fn();
+        return await fn();
       } finally {
         release(lockPath);
       }

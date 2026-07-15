@@ -22,15 +22,15 @@ afterEach(() => {
 });
 
 describe(withFileLock, () => {
-  it("runs fn and releases the lock so a second call can acquire it", () => {
+  it("runs fn and releases the lock so a second call can acquire it", async () => {
     let runs = 0;
-    const r1 = withFileLock(lockPath, () => {
+    const r1 = await withFileLock(lockPath, () => {
       runs++;
       expect(fs.existsSync(lockPath)).toBe(true);
       return "first";
     });
     expect(fs.existsSync(lockPath)).toBe(false);
-    const r2 = withFileLock(lockPath, () => {
+    const r2 = await withFileLock(lockPath, () => {
       runs++;
       return "second";
     });
@@ -39,50 +39,50 @@ describe(withFileLock, () => {
     expect(runs).toBe(2);
   });
 
-  it("releases the lock even when fn throws", () => {
-    expect(() =>
+  it("releases the lock even when fn throws", async () => {
+    await expect(
       withFileLock(lockPath, () => {
         throw new Error("boom");
       }),
-    ).toThrow("boom");
+    ).rejects.toThrow("boom");
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
-  it("creates the parent directory if it does not exist", () => {
+  it("creates the parent directory if it does not exist", async () => {
     const nested = path.join(scratch, "a", "b", "c", "deep.lock");
-    withFileLock(nested, () => undefined);
+    await withFileLock(nested, () => undefined);
     expect(fs.existsSync(path.dirname(nested))).toBe(true);
   });
 
-  it("times out when another live process holds the lock", () => {
+  it("times out when another live process holds the lock", async () => {
     fs.writeFileSync(lockPath, String(process.pid));
-    expect(() =>
+    await expect(
       withFileLock(lockPath, () => undefined, { timeoutMs: 200, pollMs: 50 }),
-    ).toThrow(LockTimeoutError);
+    ).rejects.toThrow(LockTimeoutError);
     fs.unlinkSync(lockPath);
   });
 
-  it("reclaims a stale lock left by a dead process", () => {
+  it("reclaims a stale lock left by a dead process", async () => {
     const deadPid = pickDeadPid();
     fs.writeFileSync(lockPath, String(deadPid));
     let ran = false;
-    withFileLock(lockPath, () => {
+    await withFileLock(lockPath, () => {
       ran = true;
     });
     expect(ran).toBe(true);
     expect(fs.existsSync(lockPath)).toBe(false);
   });
 
-  it("reclaims a lock with garbage contents", () => {
+  it("reclaims a lock with garbage contents", async () => {
     fs.writeFileSync(lockPath, "not-a-number");
     let ran = false;
-    withFileLock(lockPath, () => {
+    await withFileLock(lockPath, () => {
       ran = true;
     });
     expect(ran).toBe(true);
   });
 
-  it("does not publish the lock file in an empty state (atomic-publish via link)", () => {
+  it("does not publish the lock file in an empty state (atomic-publish via link)", async () => {
     // Regression: previously tryAcquire openSync'd the lock with "wx" then
     // wrote the PID after, leaving a microsecond window where the file was
     // observable to a peer's reclaimIfStale as empty content. Number("") is
@@ -94,19 +94,22 @@ describe(withFileLock, () => {
     // We can't reliably reproduce the race window in a unit test, but we
     // can verify the post-condition: the published lock file always has
     // the PID written into it, never empty.
-    withFileLock(lockPath, () => {
+    await withFileLock(lockPath, () => {
       const contents = fs.readFileSync(lockPath, "utf8");
       expect(contents).toBe(String(process.pid));
     });
   });
 
-  it("serializes nested holds: a non-recursive lock blocks itself if held", () => {
+  it("serializes nested holds: a non-recursive lock blocks itself if held", async () => {
     // Confirms the lock is process-aware, not thread-local: holding it twice
     // in the same process from a re-entered call would self-deadlock until
     // the timeout, so an inner withFileLock must throw rather than nest.
-    const result = withFileLock(lockPath, () => {
+    const result = await withFileLock(lockPath, async () => {
       try {
-        withFileLock(lockPath, () => undefined, { timeoutMs: 100, pollMs: 25 });
+        await withFileLock(lockPath, () => undefined, {
+          timeoutMs: 100,
+          pollMs: 25,
+        });
         return "no-error";
       } catch (e) {
         if (e instanceof LockTimeoutError) return "timed-out";
@@ -114,6 +117,42 @@ describe(withFileLock, () => {
       }
     });
     expect(result).toBe("timed-out");
+  });
+
+  it("holds the lock for the full duration of an async fn (does not release before the promise settles)", async () => {
+    // Regression guard: the lock must be held until the async callback's
+    // promise resolves, not released the instant withFileLock's own
+    // synchronous body returns. Note: this repo's polling loop backs off via
+    // `sleepSync` (Atomics.wait), which blocks the whole JS thread — so a
+    // genuinely concurrent SECOND withFileLock call in the same process
+    // would starve the first call's pending timers rather than exercise the
+    // regression. Instead, assert directly on the lock file's lifetime
+    // around the single in-flight call, per the acceptance criteria's first
+    // suggested technique.
+    const order: string[] = [];
+
+    const first = withFileLock(lockPath, async () => {
+      order.push("start");
+      await new Promise((r) => setTimeout(r, 50));
+      order.push("end");
+      return "first";
+    });
+
+    // tryAcquire runs synchronously before fn's first await surfaces, so the
+    // lock must already be held immediately after calling withFileLock —
+    // before this test ever awaits `first`.
+    expect(fs.existsSync(lockPath)).toBe(true);
+
+    // Still held partway through the async delay: releasing early would show
+    // up as the lock file disappearing before "end" is recorded.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fs.existsSync(lockPath)).toBe(true);
+    expect(order).toEqual(["start"]);
+
+    const result = await first;
+    expect(result).toBe("first");
+    expect(order).toEqual(["start", "end"]);
+    expect(fs.existsSync(lockPath)).toBe(false);
   });
 });
 
