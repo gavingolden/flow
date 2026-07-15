@@ -251,6 +251,15 @@ Part of epic `[slug]` (feature `[id]`) — design at `.flow/epics/[slug]/design.
 
 **[Proceed | Reconsider scope | Defer | Reject — do nothing]** — [one-line rationale; reference an Open Question when the verdict is not Proceed]
 
+<!-- Always present. One line: cite the existing capability this request
+     duplicates, or state none found. Full contract — the redundancy
+     obligation, flow-plan-lint's presence enforcement — lives in
+     skills/pipeline/flow-product-planning/references/discovery-instructions.md
+     "Recommendation" — the single source of truth. Do NOT inline the
+     contract here; this is a thin sketch. -->
+
+**Redundancy:** [cited capability] | none found
+
 ## Plan risks
 
 <!-- Always present (unlike the omit-when-empty sections). One line: the plan's

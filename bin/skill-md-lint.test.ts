@@ -2354,6 +2354,35 @@ describe("New planning-discipline contract anchors", () => {
     },
   );
 
+  it("both planning skills carry the redundancy anchor phrase", () => {
+    // Pins the redundancy obligation added to the Critical Analysis table
+    // (flow-new-feature/SKILL.md, a `| Redundancy` row) and to the
+    // "Necessity & redundancy" category (discovery-instructions.md). Unlike
+    // the symmetric it.each above, these anchors are file-specific: the
+    // table-row form only makes sense in flow-new-feature/SKILL.md, and the
+    // category-label form only makes sense in discovery-instructions.md.
+    expect(
+      discoveryInstructionsContent.includes("Necessity & redundancy"),
+      "product-planning discovery-instructions.md must contain the verbatim " +
+        "category label 'Necessity & redundancy' — the redundancy obligation " +
+        "(check duplication against an existing capability, route a found " +
+        "duplication into '## Recommendation') is single-sourced here. Dropping " +
+        "or renaming it here silently breaks the discipline with nothing " +
+        "failing in CI. Rename it in lock-step with the cross-link in " +
+        "flow-new-feature/SKILL.md and update this lint in the same commit " +
+        "(AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+    expect(
+      newFeatureContent.includes("| Redundancy"),
+      "flow-new-feature/SKILL.md Step 2's Critical Analysis assessment table " +
+        "must contain a '| Redundancy' row — the per-feature counterpart to " +
+        "discovery-instructions.md's 'Necessity & redundancy' category. " +
+        "Dropping this row silently breaks the discipline with nothing " +
+        "failing in CI. Restore it or update this lint in the same commit " +
+        "(AGENTS.md anchored-phrase rule).",
+    ).toBe(true);
+  });
+
   it("flow-new-feature/SKILL.md Step 2 and discovery-instructions.md cross-link bidirectionally", () => {
     expect(
       newFeatureContent.includes(
@@ -2758,6 +2787,7 @@ describe("Epic planning-discipline parity anchors (epic-discovery-instructions.m
     "**Goal:**",
     "before → after behavioral contrast",
     "**Lost:**",
+    "Necessity & redundancy",
   ])(
     "epic-discovery-instructions.md carries the ported critique/framing anchor '%s'",
     (phrase) => {
