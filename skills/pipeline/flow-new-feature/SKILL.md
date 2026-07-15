@@ -176,10 +176,9 @@ plan.md's `## Alternatives considered` (see
   plan-without-alternatives pipelines see byte-identical spawn prompts.
 
 3. Resolve the subagent type. The `agents/flow-scout.md` definition
-   (Bash/Read/Grep/Glob/Write allowlist, no `effort:`/`model:` pins)
-   resolves via a file-exists guard that falls back to `general-purpose`
-   with a loud `NOTICE — agent-fallback:` line so the pipeline never
-   fails on an unknown agent type:
+   (Bash/Read/Grep/Glob/Write allowlist, no `effort:`/`model:` pins) resolves
+   via a file-exists guard that falls back to `general-purpose` with a loud
+   `NOTICE — agent-fallback:` line so the pipeline never fails on an unknown agent type:
 
    ```bash
    SCOUT_SUBAGENT=flow-scout
