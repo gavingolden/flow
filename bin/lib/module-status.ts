@@ -109,10 +109,19 @@ export function isModuleActive(id: ModuleId, deps: Deps = {}): boolean {
   return resolveModuleActivity(deps).find((m) => m.id === id)?.active ?? false;
 }
 
-/** The module id whose `skills[]` includes `skill`, or `undefined` if none does. */
+/**
+ * The module id whose `skills[]` includes `skill`, or `undefined` if none
+ * does. Skills are registered under their shipped `flow-` prefix, but prose
+ * cross-references and `--check-skill` callers often name the bare skill
+ * (`svelte`, not `flow-svelte`), so an unprefixed argument also matches the
+ * `flow-`-prefixed registry entry.
+ */
 export function moduleForSkill(skill: string): ModuleId | undefined {
+  const candidates = skill.startsWith("flow-")
+    ? [skill]
+    : [skill, `flow-${skill}`];
   for (const m of MODULES) {
-    if (m.skills.includes(skill)) return m.id;
+    if (candidates.some((c) => m.skills.includes(c))) return m.id;
   }
   return undefined;
 }
