@@ -330,6 +330,16 @@ describe("validateFixApplierResult — wrong-type rejections", () => {
       expect(result.reason).toContain("ui_screenshots");
     }
   });
+
+  it("rejects an artifact where ui_screenshots contains a non-string element", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.ui_screenshots = ["/abs/1.png", 42];
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("ui_screenshots");
+    }
+  });
 });
 
 describe("collectFixApplierTolerant — per-entry resilience", () => {
