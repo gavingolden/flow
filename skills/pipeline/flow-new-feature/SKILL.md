@@ -344,7 +344,7 @@ scout report back; the artifact on disk is the record.
     alongside the recommendation. When plan.md has no `## Prompt
 interpretation` section, or the section's Recommended path is
     `methods plausibly reach target`, omit the row entirely (the original
-    five-row table is unchanged for no-tension prompts).
+    six-row table is unchanged for no-tension prompts).
   - **Check for redundancy.** Fill the Redundancy row above by checking the request
     against existing capabilities — a skill, a helper, a config surface, or a prior
     feature — and cite the specific one it duplicates, or state none found. Customer
