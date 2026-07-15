@@ -2069,7 +2069,7 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
         moduleIds(),
       );
       const key = (e: { target: string; source: string }) =>
-        `${e.target} ${e.source}`;
+        `${e.target} ${e.source}`;
       expect(new Set(selected.map(key))).toEqual(new Set(all.map(key)));
       expect(selected.length).toBe(all.length);
     });
@@ -2112,12 +2112,12 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
     });
 
-    it("(i) --modules core prints the inactive-modules doctor line naming every deselected optional", () => {
+    it("(i) --modules core prints the inactive-modules doctor line naming every deselected optional", async () => {
       const logSpy = vi
         .spyOn(console, "log")
         .mockImplementation(() => undefined);
       try {
-        runSetup({
+        await runSetup({
           flowSource: realFlowSource,
           installRoot: realFlowSource,
           targets: targets(),
