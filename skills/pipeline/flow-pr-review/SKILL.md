@@ -38,23 +38,17 @@ Helpers (installed globally by `flow install` and on PATH):
 - `flow-fetch-pr-review` — fetches PR metadata, description, changed files, review
   summaries, and inline comments from GitHub
 - `flow-pr-diff` — wraps `gh pr diff <number>` and per-file caps each block at 300
-  source lines (head 200 + tail 100) plus one marker line between them, so a
-  truncated block emits at most 301 lines on the wire. Used at Step 3 so the six
-  parallel review agents don't each receive a 50–100 KB raw diff in their prompt
-  context; agents are already instructed to Read the changed files in full for
-  surrounding context, so the diff is a "what changed at a glance" hint, not the
-  source of truth.
+  source lines (head 200 + tail 100 + one marker line), so a truncated block emits
+  at most 301 lines on the wire. Used at Step 3 so the six parallel review agents
+  don't each receive a 50–100 KB raw diff — they Read changed files in full for
+  surrounding context, so the diff is a hint, not the source of truth.
 - `flow-pr-static-analysis` — runs the consumer's installed static-analysis tools
-  (semgrep for security, biome or eslint for lint, tsc for types), parses each
-  into a unified
-  `{file, line, rule_id, confidence, severity, source}` shape, filters to PR-touched
-  lines, and emits a single combined JSON envelope keyed by lens
-  (`{security, types, lint, meta}`). Default `--min-confidence 80`. Used
-  at Step 3 so each of the six review agents receives only the lens subset
-  relevant to its role, instead of re-deriving the same low-level facts from raw
-  diff inspection. Tool-presence detection is graceful: any missing tool produces
-  `meta.<lens>.ran=false` + `skipped_reason` and the lens emits `[]`; the helper
-  always exits 0.
+  (semgrep, biome/eslint, tsc), parses each into a unified
+  `{file, line, rule_id, confidence, severity, source}` shape filtered to PR-touched
+  lines, and emits a combined JSON envelope keyed by lens (`{security, types, lint,
+  meta}`, default `--min-confidence 80`). Used at Step 3 so each agent receives only
+  its lens subset. Tool-presence detection is graceful: a missing tool produces
+  `meta.<lens>.ran=false` + `skipped_reason` and the lens emits `[]`.
 - `flow-pre-commit` — auto-detects scope, runs format + checks, reports pass/fail
 - `flow-reply-pr-comments` — batch-posts replies to PR review comments
 
@@ -107,42 +101,23 @@ step 8, but also any direct caller) only ever sees:
 It never sees the `gh pr view` JSON, the skip-rule eval logic, or the
 metadata that drove the decision. Those stay inside the subagent's context.
 
-**Task-tool fan-out is intentional.** This step ("Independent Gatekeeper
-Subagent") spawns one gatekeeper agent via the Task tool with a per-spawn
-`model: "haiku"` override. When `/flow-pr-review` is loaded in-process by
-`/flow-pipeline` (the supervisor's step 8), this fan-out is permitted by
-the named Task-tool exception in
-`skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" section (itself
-anchored on this step's heading name, not its number, so it survives
-future renumbering). Outside the supervisor context (e.g. invoked directly
-from a user session), the Task tool is unrestricted, so the spawn runs
-identically. Either path: one subagent, returns artifact on disk + a brief
-summary. The justification for this exemption is **cost-routing first**:
-the per-spawn `model: "haiku"` override short-circuits the downstream
-four-agent Sonnet fan-out on closed/merged/trivial/no-new-commits PRs.
-Context isolation is a secondary win — the `gh pr view` metadata fetch
-and skip-rule eval don't pollute the supervisor's transcript.
+**Task-tool fan-out is intentional.** This step spawns one gatekeeper agent
+via the Task tool with a per-spawn `model: "haiku"` override. When
+`/flow-pr-review` is loaded in-process by `/flow-pipeline`, this fan-out
+is permitted by the named Task-tool exception in
+`skills/pipeline/flow-pipeline/SKILL.md`'s "Hard rules" (anchored on this
+step's heading name, so it survives renumbering); outside the supervisor
+context the Task tool is unrestricted, so the spawn runs identically
+either way. The justification is **cost-routing first** — the
+`model: "haiku"` override short-circuits the downstream four-agent Sonnet
+fan-out on closed/merged/trivial/no-new-commits PRs — with context
+isolation as a secondary win.
 
 ## Spawn procedure
 
 The wrapper spawns the subagent at Step 1.5. Before the spawn:
 
-**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-gatekeeper` and exit. Before exiting, write `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"` and `escalation_tag: "task-tool-unavailable: pr-review-gatekeeper"` per the # Result artifact contract below (write-`.tmp` → validate-`.tmp` → `mv`). Worked example:
-
-```bash
-RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
-cat > "$RESULT_PATH.tmp" <<'EOF'
-{
-  "status": "escalated",
-  "completed_steps": ["1"],
-  "missed_steps": ["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
-  "escalation_tag": "task-tool-unavailable: pr-review-gatekeeper",
-  "summary": "Bailed at the Gatekeeper spawn-site preamble — neither Task nor Agent surfaced top-level in this session; supervisor must restart in a session where the alias is available."
-}
-EOF
-flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
-  && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
-```
+**Load the Task tool before spawning.** In Claude Code sessions where neither `Task` nor its alias `Agent` is surfaced top-level by the harness (both are aliases of the same one-shot subagent-spawn primitive: identical `subagent_type` / `prompt` / `description` schema), the spawn will silently fall through to in-line execution unless the schema is loaded first. Before the Task call below, run `ToolSearch query="select:Task"` and confirm the response contains either a `<function>{"name": "Task", ...}</function>` or a `<function>{"name": "Agent", ...}</function>` line. If it does not, **do not fall back to in-line execution** — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-gatekeeper` per the `task-tool-unavailable: pr-review-gatekeeper` recipe in [references/escalation-recipes.md](references/escalation-recipes.md).
 
 The fan-out's value is its cost-routing override (Sonnet → Haiku) and its context isolation; an in-line fallback breaks both contracts that this exemption is justified by.
 
@@ -269,20 +244,14 @@ skill's transcript; the only handoffs the wrapper sees are the Task-tool
 envelope and a structured artifact at
 `<worktree>/.flow-tmp/fix-applier-result.json`.
 
-The supervisor session that loads this skill (typically `/flow-pipeline`
-step 8, but also any direct caller) only ever sees:
-
-1. The prose of this SKILL.md (the wrapper).
-2. The Task-tool call's prompt and brief result envelope.
-3. The one-paragraph summary the subagent returns.
-4. One read of `.flow-tmp/fix-applier-result.json` body (Step 9), parsed
-   once and reused across Steps 9, 10, 11, 12.
-
-It never sees the per-finding fix prose, the per-comment file reads, the
-`flow-pre-commit` transcript, or the `/flow-verify` re-run. Those stay inside
-the subagent's context. Same context-cost surgery PR #95 applied to
-`/flow-product-planning`'s discovery; this is the analogous fix for
-`/flow-pr-review`'s address loop.
+Same three-layer transcript-isolation shape as the Gatekeeper section above
+(wrapper prose + Task envelope + subagent summary), plus one read of
+`.flow-tmp/fix-applier-result.json` body (Step 9), parsed once and reused
+across Steps 9, 10, 11, 12 — never the per-finding fix prose, per-comment
+file reads, `flow-pre-commit` transcript, or `/flow-verify` re-run, which
+stay inside the subagent's context. Same context-cost surgery PR #95
+applied to `/flow-product-planning`'s discovery; this is the analogous fix
+for `/flow-pr-review`'s address loop.
 
 The trade-off is intentional: the wrapper cannot refer back to the
 fix-applier exploration in later steps. The contract that absorbs the
@@ -290,49 +259,23 @@ trade-off is `.flow-tmp/fix-applier-result.json` itself — its typed fields
 (`commits`, `deferred`, `rejected_alternatives`, `anti_patterns_found`,
 `summary`) are what Steps 9 / 10 / 11 / 12 consume.
 
-## Independent Fix-Applier Subagent
-
-Spawned via the Task tool — one fix-applier agent that returns an
-artifact on disk plus a brief summary. The bidirectional contract for
-this exemption (named, scoped, rationale'd) lives in `AGENTS.md` under
-the `## Don'ts` section. The fan-out exists for context isolation:
-per-finding fix prose, `flow-pre-commit` output, and the `/flow-verify`
-re-run stay inside the subagent rather than landing in the supervisor's
-transcript.
-
 ## Spawn procedure
 
 The wrapper spawns the subagent at Step 8. Before the spawn:
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-fix-applier` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-fix-applier`, write the result artifact, and do not fall back to in-line execution.
 
-1. Resolve the working directory absolutely into a single shell variable
-   `$WORKTREE` and use it everywhere downstream — never re-derive in any
-   later step. If the caller passed a `WORKTREE` value (typical when
-   invoked from `/flow-pipeline`), use it as-is. Otherwise, set
-   `WORKTREE="$(pwd)"` explicitly so every subsequent `"$WORKTREE/..."`
-   expansion has a defined value. Then derive the artifact path from it:
-
-   ```bash
-   WORKTREE="${WORKTREE:-$(pwd)}"
-   ARTIFACT_PATH="$WORKTREE/.flow-tmp/fix-applier-result.json"
-   ```
-
-   `ARTIFACT_PATH` is the canonical handle for the artifact location;
-   the boundary check in Step 8 and the body read in Step 9 both use it
-   so the path lives in exactly one place.
-2. Resolve the skill base directory absolutely. The Skill tool prints
-   "Base directory for this skill" at the top of this SKILL.md when
-   loaded — capture it as `SKILL_DIR`. Then derive:
-   - `INSTRUCTIONS_PATH = <SKILL_DIR>/references/fix-applier-instructions.md`
-
-   The subagent reads sibling references via absolute paths under
-   `SKILL_DIR` (`references/conventional-comments.md`,
-   `references/review-checklist.md`). Pass `SKILL_DIR` so the subagent
-   never has to resolve those relative to its `cd`'d worktree, where they
-   don't exist. Also create the consumer-side `.flow-tmp/` directory now
-   (single side-effect attribution site for the parent dir; the subagent
-   only writes the file):
+1. Resolve `$WORKTREE` (use the caller's value if passed, e.g. from `/flow-pipeline`,
+   else `WORKTREE="$(pwd)"`) once and reuse it everywhere downstream — never
+   re-derive. Derive `ARTIFACT_PATH="$WORKTREE/.flow-tmp/fix-applier-result.json"`
+   from it — the single canonical handle Step 8's boundary check and Step 9's body
+   read both use.
+2. Capture `SKILL_DIR` from the Skill tool's "Base directory for this skill" line so
+   the subagent can resolve sibling references
+   (`references/fix-applier-instructions.md`, `references/conventional-comments.md`,
+   `references/review-checklist.md`) as absolute paths under `SKILL_DIR` rather than
+   relative to its `cd`'d worktree, where they don't exist. Also create the
+   consumer-side `.flow-tmp/` directory now:
 
    ```bash
    mkdir -p "$WORKTREE/.flow-tmp"
@@ -350,14 +293,11 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
 
    **Per-phase model (fixApplier) resolution.** Field `state.modelFixApplier`; precedence `--model-fix-applier > config.models.fixApplier > "sonnet"` — fixApplier does **NOT** inherit the session model (a mechanical apply-commit-push loop over already-diagnosed findings rarely earns an expensive model — the same asymmetry as verify; see `../flow-pipeline/references/model-routing.md`). Resolve via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); FIX_APPLIER_MODEL=$(jq -r '.modelFixApplier // empty' ~/.flow/state/"$SLUG".json); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL=$(jq -r '.models.fixApplier // empty' ~/.flow/config.json 2>/dev/null); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL="sonnet"`) and pass FIX_APPLIER_MODEL as the Task call's per-spawn `model:` (never empty — the `sonnet` fallback always resolves).
 
-4. When the subagent returns, treat its 3–5 sentence summary as the chat
-   output. Do **not** read the artifact body at the spawn boundary —
-   Step 9's first read is the wrapper's single read of the artifact
-   body, and reading it earlier would duplicate that read in the same
-   context. The wrapper's only post-spawn job at the boundary is a cheap
-   existence check against `$ARTIFACT_PATH` (`test -s "$ARTIFACT_PATH"`);
-   on missing or empty artifact, surface the failure to the caller per
-   the Constraints below.
+4. When the subagent returns, treat its 3–5 sentence summary as the chat output. Do
+   **not** read the artifact body at the spawn boundary — Step 9's first read is
+   the wrapper's single read, and reading earlier would duplicate it. The only
+   post-spawn job here is a cheap existence check (`test -s "$ARTIFACT_PATH"`); on
+   missing or empty artifact, surface the failure per the Constraints below.
 
 5. Continue to Step 8c (the wrapper's post-spawn verification-item run),
    then Step 9 onwards.
@@ -409,77 +349,36 @@ Consolidator-Validator step: on a schema-failure or missing-artifact
 escalation `completed_steps` is exactly `["1", "1.5", "2", "3"]` and
 `"3.5"` onward lands in `missed_steps`.
 
-**When each `status` fires:**
-
-- `"clean"` — every step from 1 through 13 either ran to completion
-  or was a no-op-skipped (e.g. Step 5's "no inline review comments"
-  branch, Step 13's "no local follow-ups to register" branch). The
-  no-op skip is a successful completion, not a miss.
-- `"partial"` — at least one step listed in this skill's # Instructions
-  was not reached because an earlier escalation, retry-exhausted, or
-  user redirect terminated the run before the wrapper got there. The
-  unreached step labels go in `missed_steps[]`; the labels that did run
-  go in `completed_steps[]`.
-- `"escalated"` — the skill bailed at a documented escalation site
-  (`task-tool-unavailable: pr-review-gatekeeper`,
-  `task-tool-unavailable: pr-review-multi-agent-review`,
-  `task-tool-unavailable: pr-review-fix-applier`,
-  `gatekeeper-missing-artifact`, `fix-applier-missing-artifact`, or
-  a multi-agent review failure surfaced verbatim from Step 3).
-  `escalation_tag` carries the tag string the wrapper would have
-  printed to scrollback; the supervisor consumes it directly (see
-  `/flow-pipeline` step 8 for the propagation contract). The
-  Gatekeeper escalation tag fires when the Step 1.5 preamble's
-  `ToolSearch query="select:Task"` cannot find Task or Agent in
-  the response; the `gatekeeper-missing-artifact` tag fires when
-  the Gatekeeper subagent returned but wrote no artifact at
-  `<worktree>/.flow-tmp/gatekeeper-result.json` (the wrapper's
-  cheap existence check at Step 1.5 failed).
+**When each `status` fires** (see the Exit-path wiring table below for the
+per-tag `completed_steps` / `missed_steps` mapping): `"clean"` — every step
+1 through 13 ran to completion or was a no-op-skip (a successful completion,
+not a miss); `"partial"` — at least one step was not reached because an
+earlier escalation, retry-exhaustion, or user redirect terminated the run
+first; `"escalated"` — the skill bailed at a documented escalation site,
+and `escalation_tag` carries the tag string the wrapper printed to
+scrollback (the supervisor consumes it directly — see `/flow-pipeline`
+step 8 for the propagation contract).
 
 **Write contract.** The wrapper writes the artifact on **every exit
 path** — clean Step 13 completion, every escalation site, and the
-intermediate-step partial path. The atomic write goes
-write-`.tmp` → validate-`.tmp` → `mv`-into-place:
-
-1. Write the candidate JSON to `<path>.tmp` (heredoc or `jq`).
-2. Validate the temp file's shape:
-
-   ```bash
-   flow-pr-review-result-schema --validate <path>.tmp
-   ```
-
-3. On `ok: true`, `mv <path>.tmp <path>` into place. On validation
-   failure, leave `<path>.tmp` on disk for inspection and exit
-   non-zero — never `mv` an unvalidated candidate into the canonical
-   path.
-
-The validator reads from disk (`Bun.file(path).text()`), so
-validating `<path>` before the `.tmp` write would either fail with
-`read failed: ENOENT` on a first-ever write or validate the stale
-prior artifact instead of the new candidate. The temp-file write +
-validate + `mv` order guarantees a half-written or off-shape
-artifact never sits on disk where a reader expects a well-formed
-JSON object. Overwrite any prior artifact; do not append.
+intermediate-step partial path — via write-`.tmp` → validate
+(`flow-pr-review-result-schema --validate <path>.tmp`) → `mv`-into-place
+on `ok: true` (on validation failure, leave `<path>.tmp` for inspection
+and exit non-zero — never `mv` an unvalidated candidate). Validating
+`<path>` before the `.tmp` write would fail `ENOENT` on a first write or
+validate the stale prior artifact instead of the new candidate; the
+temp-write + validate + `mv` order guarantees a half-written artifact
+never sits where a reader expects well-formed JSON. Overwrite any prior
+artifact; do not append.
 
 **Exit-path wiring.** The wrapper writes the result artifact at
-`<worktree>/.flow-tmp/pr-review-result.json` on every exit path. The
-firing trigger for each `escalation_tag` is named below: the
-multi-agent-review tag is raised by Step 3's preamble when
-`ToolSearch query="select:Task"` returns neither `"name": "Task"` nor
-`"name": "Agent"`; the fix-applier tag is raised analogously by the
-Fix-Applier spawn-procedure preamble before the Task call; the
-missing-artifact tag is raised by Step 8's existence check on
-`$ARTIFACT_PATH`. The `"partial"` row fires when at least one step
-listed in this skill's # Instructions was not reached because an
-earlier escalation, retry-exhausted, or user redirect terminated the
-run before the wrapper got there — see the `"partial"` definition in
-the `# Result artifact` section above. Deferred-finding paths
+`<worktree>/.flow-tmp/pr-review-result.json` on every exit path — the
+table below names each `escalation_tag`'s firing trigger and its
+representative `completed_steps` / `missed_steps`. Deferred-finding paths
 (Step 6's deferral bar, Step 7's "skip with reason") count as
-`completed_steps` — deferral is a documented Step 6/7 outcome, not an
-escalation. The `--resume-from` flag merges new `completed_steps` into
-the prior artifact's list; on escalation paths the unreached step
-labels go in `missed_steps` while the labels that did run go in
-`completed_steps`.
+`completed_steps` — deferral is a documented outcome, not an escalation.
+The `--resume-from` flag merges new `completed_steps` into the prior
+artifact's list.
 
 | Status | Escalation tag | Completed steps (representative) | Missed steps (representative) |
 |---|---|---|---|
@@ -517,78 +416,27 @@ number from URLs like `https://github.com/owner/repo/pull/100`.
 
 ## 1.5. Gatekeeper
 
-Spawn the **Independent Gatekeeper Subagent** (see § Independent Gatekeeper
-Subagent above for the rationale, the full spawn procedure, and the spawn
-prompt template) to short-circuit cheap "this PR isn't worth a full review"
-verdicts before the four-agent Sonnet fan-out fires. The subagent runs with
-`model: "haiku"` on its one Task call — the per-spawn cost-routing override
-is the load-bearing knob.
-
-**Load the Task tool before spawning.** Same preamble pattern as the
-Multi-Agent Review (Step 3) and the Fix-Applier (Step 8): run
-`ToolSearch query="select:Task"` and confirm the response contains either
-a `<function>{"name": "Task", ...}</function>` or a
-`<function>{"name": "Agent", ...}</function>` line. On missing schema,
-escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-gatekeeper` and
-write `<worktree>/.flow-tmp/pr-review-result.json` with `status:
-"escalated"`, `escalation_tag: "task-tool-unavailable:
-pr-review-gatekeeper"`, `completed_steps: ["1"]`, and `missed_steps`
-listing `"1.5"` onward per the # Result artifact contract above. Do NOT
-fall back to in-line execution — the cost-routing rationale collapses if
-the metadata fetch + skip-rule eval run inside the supervisor's Sonnet
-session.
-
-Resolve `$WORKTREE`, `$ARTIFACT_PATH`, and the subagent type, create the
-parent directory, make exactly one Task call with `model: "haiku"`:
-
-```bash
-WORKTREE="${WORKTREE:-$(pwd)}"
-ARTIFACT_PATH="$WORKTREE/.flow-tmp/gatekeeper-result.json"
-mkdir -p "$WORKTREE/.flow-tmp"
-GATEKEEPER_SUBAGENT=flow-gatekeeper
-[ -f ~/.claude/agents/flow-gatekeeper.md ] || { GATEKEEPER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-gatekeeper → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
-# Task call with subagent_type: $GATEKEEPER_SUBAGENT and model: "haiku"
-# using the prompt template from the § Independent Gatekeeper Subagent
-# section above.
-```
-
-After the subagent returns:
+Spawn the **Independent Gatekeeper Subagent** per the Spawn procedure in
+§ Independent Gatekeeper Subagent above — rationale, the `$WORKTREE` /
+`$ARTIFACT_PATH` / subagent-type resolution, the "Load the Task tool
+before spawning" preamble (escalating per the
+`task-tool-unavailable: pr-review-gatekeeper` recipe in
+[references/escalation-recipes.md](references/escalation-recipes.md) on
+missing schema), and the `model: "haiku"` Task call all live there. After
+the subagent returns:
 
 1. Existence check: `test -s "$ARTIFACT_PATH"`. On missing or empty
-   artifact, escalate `NEEDS HUMAN: gatekeeper-missing-artifact` and
-   write the result artifact with `status: "escalated"` per the same
-   atomic write protocol — do not retry the Task call. Worked example
-   (mirrors the `task-tool-unavailable: pr-review-fix-applier` heredoc
-   higher up in this SKILL.md):
-
-   ```bash
-   RESULT_PATH="$WORKTREE/.flow-tmp/pr-review-result.json"
-   cat > "$RESULT_PATH.tmp" <<'EOF'
-   {
-     "status": "escalated",
-     "completed_steps": ["1"],
-     "missed_steps": ["1.5", "2", "3", "4", "5", "6", "7", "7.5", "8", "8c", "9", "10", "11", "12", "13"],
-     "escalation_tag": "gatekeeper-missing-artifact",
-     "summary": "Gatekeeper subagent returned but wrote no artifact at .flow-tmp/gatekeeper-result.json; supervisor must escalate without retry per the no-retry-on-missing-artifact contract."
-   }
-   EOF
-   flow-pr-review-result-schema --validate "$RESULT_PATH.tmp" \
-     && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
-   ```
-
-   The full per-field shape is documented in the # Result artifact
-   "Exit-path wiring" table above; the heredoc here is the on-site
-   reference so a reader of Step 1.5 doesn't have to scroll back up
-   to assemble the escalation artifact.
+   artifact, escalate `NEEDS HUMAN: gatekeeper-missing-artifact` per the
+   `gatekeeper-missing-artifact` recipe in
+   [references/escalation-recipes.md](references/escalation-recipes.md)
+   — do not retry the Task call.
 2. Read the artifact body **exactly once** and branch on `.decision`:
 
-   - **`"skip"`** → write `<worktree>/.flow-tmp/pr-review-result.json`
-     with the well-formed shape below via the atomic write-`.tmp` →
-     validate → `mv` protocol, guarded by the **read-before-overwrite**
-     contract from
-     [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)
-     so a prior escalation site's `status: "escalated"` verdict is
-     never silently overwritten. Then exit clean. Worked example:
+   - **`"skip"`** → write `<worktree>/.flow-tmp/pr-review-result.json` via
+     the atomic write-`.tmp` → validate → `mv` protocol, guarded by the
+     **read-before-overwrite** contract from
+     [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md).
+     Then exit clean:
 
      ```bash
      SUMMARY=$(jq -r '.summary' "$ARTIFACT_PATH")
@@ -610,13 +458,10 @@ After the subagent returns:
        && mv "$RESULT_PATH.tmp" "$RESULT_PATH"
      ```
 
-     The `"1.5"` step label is part of the canonical step labels
-     enumerated in the # Result artifact section above; the supervisor
-     (`/flow-pipeline` step 8) sees a `status: "clean"` result and
-     continues to the auto-merge gate as if the full review ran.
-   - **`"proceed"`** → fall through to Step 2 unchanged. The gatekeeper
-     artifact is single-use; the wrapper does not re-read it after this
-     branch decision.
+     The supervisor (`/flow-pipeline` step 8) sees a `status: "clean"`
+     result and continues to the auto-merge gate as if the full review ran.
+   - **`"proceed"`** → fall through to Step 2 unchanged (single-use
+     artifact; not re-read after this branch).
 
 ## 2. Fetch and Pre-Flight
 
@@ -654,47 +499,32 @@ subagent rather than landing in the supervisor's transcript.
 1. Read the PR description and changed files list from the fetch output. DO NOT read
    the review comments section yet — reviewing before seeing others' feedback eliminates
    anchoring bias and lets you independently validate what reviewers found.
-2. Get the diff: `flow-pr-diff <number>`. The output is a per-file capped unified
-   diff (default budget 300 source lines/file; truncated files emit head 200 + a
-   `... [truncated N lines] ...` marker + tail 100, so at most 301 lines on the
-   wire, with the marker pointing at `gh pr diff <number>` for the full view).
-   Agents already Read each changed file in full for surrounding context, so
-   capping the diff does not blind them — it just keeps each agent's prompt
-   context bounded when fanning out.
+2. Get the diff: `flow-pr-diff <number>`. Per-file capped unified diff (default budget
+   300 source lines/file; truncated files emit head 200 + a marker + tail 100, so at
+   most 301 lines/file on the wire, pointing at `gh pr diff <number>` for the full view).
+   Agents Read each changed file in full for surrounding context, so the cap just bounds
+   each agent's prompt when fanning out — it does not blind them.
 3. Get the commit history with full messages (not just subjects):
    `gh pr view <number> --json commits -q '.commits[] | "\(.oid[0:7]) \(.messageHeadline)\n\(.messageBody)\n---"'`
-   Per `AGENTS.md`, commit bodies are expected to capture the **why**, non-obvious design
-   choices, and approaches that were tried and rejected. Use these as primary context for
-   the review — they explain intent that the diff alone cannot convey. If a commit body
-   is missing or only restates the diff, flag it in Step 11 as a `suggestion` so the
-   author can backfill context in the PR description.
+   Per `AGENTS.md`, commit bodies capture the **why**, design-choice rationale, and
+   rejected approaches — use them as primary review context (the diff alone can't convey
+   intent). Flag a missing or diff-restating body in Step 11 as a `suggestion`.
 4. Run the static-analysis pre-digest and capture its JSON to scratch:
 
    ```bash
    mkdir -p .flow-tmp
    flow-pr-static-analysis <number> > .flow-tmp/static-analysis.json
-   ```
-
-   The helper runs semgrep (security), biome or eslint (lint), and tsc (types),
-   parses each into a unified
-   shape, filters to PR-touched lines, and emits a single combined JSON envelope keyed
-   by lens. (Lenses run sequentially today; gh-issue #101 tracks switching to genuine
-   parallelism — the structural `Promise.all` wrapper is in place but the underlying
-   `spawnSync` blocks.) Each lens subset is fanned out to the matching agent in the
-   spawn step below. Tool-presence detection is graceful: any missing tool produces
-   `meta.<lens>.ran=false` + `skipped_reason` and the lens emits `[]`; the helper
-   always exits 0, so a repo with none of the tools installed is a no-op rather than
-   an error. Read the JSON before spawning so the per-agent subsets can be templated
-   in (the next sub-step):
-
-   ```bash
    STATIC_ANALYSIS=$(cat .flow-tmp/static-analysis.json)
    ```
 
-5. Read the Gatekeeper-side prompt-interpretation tension flag from
-   the artifact written by Step 1.5 (when present); default to
-   `false` when no Gatekeeper artifact exists (Step 1.5 was skipped
-   or this is a direct `/flow-pr-review` invocation outside `/flow-pipeline`):
+   The helper runs semgrep (security), biome or eslint (lint), and tsc (types), parses
+   each into a unified shape filtered to PR-touched lines, and emits a combined JSON
+   envelope keyed by lens — each subset fans out to its matching agent below. Tool-presence
+   detection is graceful: a missing tool produces `meta.<lens>.ran=false` + `skipped_reason`
+   and the lens emits `[]`; the helper always exits 0.
+
+5. Read the Gatekeeper-side prompt-interpretation tension flag from the artifact written
+   by Step 1.5 (when present); default to `false` when no Gatekeeper artifact exists:
 
    ```bash
    if [ -f "$WORKTREE/.flow-tmp/gatekeeper-result.json" ]; then
@@ -704,25 +534,25 @@ subagent rather than landing in the supervisor's transcript.
    fi
    ```
 
-   Pass this value as `{{PROMPT_INTERPRETATION_TENSION}}` only when
-   filling the **Pattern & Consistency Agent's** prompt template — the
-   shared-context block at `references/agent-prompts.md` lines 12–60
-   has no `{{PROMPT_INTERPRETATION_TENSION}}` slot, and the other five
-   agents have no `Process` step that reads the variable, so passing it
-   to them would be a no-op. See `references/agent-prompts.md` Pattern
-   & Consistency Agent Process step 8 for the conditional behaviour
-   the flag triggers.
+   Pass this value as `{{PROMPT_INTERPRETATION_TENSION}}` only when filling the
+   **Pattern & Consistency Agent's** prompt template — the other five agents have no
+   `Process` step that reads it, so passing it there is a no-op. See
+   `references/agent-prompts.md` Pattern & Consistency Agent Process step 8 for the
+   conditional behaviour the flag triggers.
 
-6. Read `references/agent-prompts.md` for the prompt templates.
-
-6. Fetch author-authored intent annotations and substitute into the per-agent prompt:
+6. Read `references/agent-prompts.md` for the prompt templates, then fetch
+   author-authored intent annotations and substitute into each agent prompt:
 
    ```bash
    mkdir -p .flow-tmp
    flow-fetch-intent-comments <number> > .flow-tmp/intent-comments.md
    ```
 
-   Read the file contents and substitute as the value of `{{EXISTING_INTENT_COMMENTS}}` in each agent's prompt. The fetch+filter is anchored on the `**why:** ` prefix + author identity + `<!-- flow-intent-v1 -->` integrity-suffix triple-check (anti-injection); it does NOT expose any reviewer-authored comments to the agents — preserving the anti-anchoring guard above (`DO NOT read the review comments section yet`). When no author intent annotations exist on the PR, the file contains the literal `(none — author posted no intent annotations)`; substitute that string as-is.
+   Substitute the file contents as `{{EXISTING_INTENT_COMMENTS}}`. The fetch+filter is
+   anchored on the `**why:** ` prefix + author identity + `<!-- flow-intent-v1 -->`
+   integrity-suffix triple-check (anti-injection) and never exposes reviewer-authored
+   comments (preserving the anti-anchoring guard above). Absent annotations, the file
+   contains the literal `(none — author posted no intent annotations)`; substitute as-is.
 
 **Load the Task tool before spawning** — i.e. before the Task call below. See [references/task-tool-exemption-preamble.md](references/task-tool-exemption-preamble.md) for the full rationale and alias-tolerance contract. On missing or empty Task schema, follow the `task-tool-unavailable: pr-review-multi-agent-review` recipe in [references/escalation-recipes.md](references/escalation-recipes.md) — escalate `NEEDS HUMAN: task-tool-unavailable: pr-review-multi-agent-review`, write the result artifact, and do not fall back to in-line execution.
 
@@ -742,11 +572,10 @@ for LENS in bug-detection security pattern-consistency performance supply-chain 
 done
 ```
 
-`LENS_AGENT` is a scalar reassigned each iteration — it does NOT hold all
-six resolutions after the loop exits. The loop's only purpose is to print
-the six `lens $LENS → subagent_type: $LENS_AGENT` lines above; use that
-printed per-lens value when spawning, never the loop variable's final
-value.
+`LENS_AGENT` is a scalar reassigned each iteration, not a six-way holder — the
+loop's only purpose is to print the six `lens $LENS → subagent_type: $LENS_AGENT`
+lines above; use that printed per-lens value when spawning, never the loop
+variable's final value.
 
 **Spawn 6 agents in parallel**, each as a subagent with
 `subagent_type:` set to that lens's printed value from the mapping above
@@ -773,18 +602,13 @@ resolved type) and the resolved
 - Instruct agents to treat commit bodies as author intent: a finding that contradicts a
   stated rationale should cite the commit and explain why the rationale doesn't hold,
   rather than assuming the author didn't consider the alternative.
-- **Persist each agent's findings to disk before returning.** Instruct
-  each agent in its spawn prompt: "Return your findings via the Task
-  tool result envelope AND write them to
-  `$WORKTREE/.flow-tmp/agent-output-<lens>.json` before returning,"
-  where `<lens>` is the kebab-case lens name from the table below
-  (`bug-detection`, `security`, `pattern-consistency`, `performance`,
-  `supply-chain`, `test-coverage`). The per-agent file is the Step 3.5
-  Consolidator-Validator subagent's input — without it the consolidator
-  has no per-agent output to merge. The on-disk JSON object must have
-  shape `{findings: [...]}` (matching the per-agent schema in
-  `bin/lib/agent-finding-schema.ts`); an empty findings array is the
-  correct value when the agent found nothing noteworthy.
+- **Persist each agent's findings to disk before returning.** Instruct each agent:
+  "Return your findings via the Task tool result envelope AND write them to
+  `$WORKTREE/.flow-tmp/agent-output-<lens>.json` before returning," `<lens>` being
+  the kebab-case name from the table below. This is the Step 3.5 Consolidator's
+  input — without it there is nothing to merge. Shape: `{findings: [...]}`
+  (matching `bin/lib/agent-finding-schema.ts`); empty is correct when nothing
+  noteworthy was found.
 
 The 6 agents:
 
@@ -808,17 +632,16 @@ Wait for all 6 agents to complete before proceeding.
 
 This sub-step is a **`flow-delegate` (agy) Bash fan-out, NOT a Task**. It runs
 ALONGSIDE the six-agent Task fan-out above and adds **no new Task-tool
-exemption** — exemption #1 (the six Claude agents) is unchanged; the
-nine-exemption count stays nine. It adds ONE additional reviewer on a
-genuinely different model family (Gemini, on the user's idle Google AI Ultra
-quota) so the review catches issues the six same-family Claude lenses share a
-blind spot on, at no Claude-credit cost. It produces `agent-output-gemini.json`
-in the same `{findings: [...]}` shape (tagged `agent_source: gemini`
-consolidator-side at Step 3.5), so the Consolidator merges it with no
-special-casing. It is purely additive: any failure (lens disabled, `agy`
-absent/logged out, unparseable/non-conformant output) is a **graceful skip** —
-record the `skipReason` for the Step 12 report and proceed with the six Claude
-lenses unchanged. It NEVER hard-fails the review.
+exemption** — the nine-exemption count stays nine. It adds ONE additional
+reviewer on a genuinely different model family (Gemini, on the user's idle
+Google AI Ultra quota) so the review catches issues the six same-family
+Claude lenses share a blind spot on, at no Claude-credit cost, producing
+`agent-output-gemini.json` in the same `{findings: [...]}` shape (tagged
+`agent_source: gemini` consolidator-side) so Step 3.5 merges it with no
+special-casing. Purely additive: any failure (lens disabled, `agy`
+absent/logged out, unparseable output) is a **graceful skip** — record the
+`skipReason` for Step 12 and proceed with the six Claude lenses unchanged.
+It NEVER hard-fails the review.
 
 1. **Gate** (default off, mirroring the F2 `research.discovery` precedent):
    run the lens only when this succeeds (exit 0) — an absent/malformed config
@@ -924,24 +747,17 @@ in-scope-of-diff check (see
 
 After the subagent returns:
 
-1. **Existence check**: `test -s "$ARTIFACT_PATH"`. On missing or
-   empty artifact, escalate `NEEDS HUMAN: consolidator-missing-artifact`
-   per the `consolidator-missing-artifact` recipe in
-   [references/escalation-recipes.md](references/escalation-recipes.md)
-   and write `pr-review-result.json` with `status: "escalated"`. The
-   recipe inlines the read-before-overwrite guard from
-   [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md):
-   if the subagent already wrote `status: "escalated"` with a more
-   specific tag (e.g. `consolidator-schema-failure`), the wrapper's
-   write is skipped so the specific tag is preserved. Do not retry
-   the Task call.
-2. **Schema validation**: `flow-agent-finding-schema
-   --validate "$ARTIFACT_PATH"`. On exit 1, escalate `NEEDS HUMAN:
-   consolidator-schema-failure` per the `consolidator-schema-failure`
-   recipe in
-   [references/escalation-recipes.md](references/escalation-recipes.md).
-   Same read-before-overwrite guard: if a more specific subagent
-   escalation already exists on disk, the wrapper does not overwrite.
+1. **Existence check**: `test -s "$ARTIFACT_PATH"`. On missing or empty artifact,
+   escalate `NEEDS HUMAN: consolidator-missing-artifact` per the
+   `consolidator-missing-artifact` recipe in
+   [references/escalation-recipes.md](references/escalation-recipes.md) — do not
+   retry the Task call.
+2. **Schema validation**: `flow-agent-finding-schema --validate "$ARTIFACT_PATH"`.
+   On exit 1, escalate `NEEDS HUMAN: consolidator-schema-failure` per the
+   `consolidator-schema-failure` recipe in the same file. Both recipes apply the
+   read-before-overwrite guard from
+   [references/result-artifact-write-protocol.md](references/result-artifact-write-protocol.md)
+   — if a more specific tag is already on disk, the wrapper's write is skipped.
 3. **Read once**, parse into a typed object, reuse across Steps 4–7.
 
 ## 4. Consume Consolidated Findings
@@ -1064,98 +880,46 @@ Then continue to 8c (the wrapper's post-spawn verification-item run).
 
 ### 8c. Run every runnable verification item and tick the boxes
 
-After 8b's commit + push, run every runnable `- [ ]` item in the PR body, **regardless
-of which section it lives under** — `Test Steps` is the canonical heading flow
-templates emit, but legacy or hand-edited PRs may still use `Manual validation`,
-`How to test`, `Manual smoke`, or other variants. The classification below is
-per-item, not per-section. The format note in 11b promises reviewers that
-checkbox state means something — leaving every box unticked after a successful
-run breaks that contract and forces the next reviewer (human or agent) to
-re-run everything from scratch.
+After 8b's commit + push, run every runnable `- [ ]` item in the PR body,
+**regardless of which section it lives under** — `Test Steps` is the
+canonical heading flow templates emit, but legacy or hand-edited PRs may
+still use `Manual validation`, `How to test`, `Manual smoke`, or other
+variants. Classification is per-item, not per-section — a manual-flavoured
+heading reflects author intent, not an automation exemption; the reason
+`## Test Steps` is canonical is that the auto-merge gate parses it (zero
+unchecked ⇒ auto-merge), not a hands-off signal for the reviewer. The
+format note in 11b promises reviewers that checkbox state means
+something — leaving boxes unticked after a successful run breaks that
+contract.
 
-> **Headings do not exempt items.** A section called "Test Steps" or any other
-> manual-flavoured heading does not mean its items are off-limits to automation.
-> The author's choice of heading reflects intent ("a human should sanity-check
-> this end-to-end"), not impossibility. The architectural reason `## Test Steps`
-> is the canonical heading is that the auto-merge gate parses it: zero
-> unchecked `- [ ]` items ⇒ auto-merge, one or more ⇒ gated. The heading is
-> load-bearing for the orchestrator, **not** a hands-off signal for the
-> reviewer. Apply the runnable test below to every checkbox in the body. If an
-> item is deterministic and exec'able from a terminal in this repo, you must
-> run it, even when the section heading suggests human-only.
+**Classification is the full contract in
+[references/manual-test-rubric.md](references/manual-test-rubric.md)** —
+"Automate first" (the three-tier pyramid, the automation test), "Genuinely
+manual" (Functional checks vs Subjective checks), and "Automatable via the
+browser-validation capability" (8c.iii below). Apply the rubric's "Decompose a manual step by layer" section
+to a step that bundles a backend contract with a browser-only remainder:
+split it, routing the backend half to an 11e `Fail (automatable)`
+integration-test conversion and keeping only the genuinely-browser
+remainder in the browser bucket. An item whose text begins with the
+literal `SUBJECTIVE: ` prefix is always not-runnable — a human-only
+aesthetic sign-off: never tick it, prose-promote it (8c.ii), or
+browser-validate it (8c.iii).
 
-For each `- [ ]` item, classify before running:
+**Self-check before classifying anything as not-runnable.** Phrases like
+"out of scope for an automated agent run" or "needs the local stack / a
+dev server / a local DB" are post-hoc excuses, not real signals — a
+missing local stack is a setup step you run (probe-then-attempt: check,
+start, then run), not a not-runnable signal. The bar is literal: can I
+exec this from a terminal in this repo, standing up any local-and-reversible
+dependency first? If yes, run it.
 
-- **Runnable**: a shell command, test invocation, build, or script with deterministic
-  pass/fail from exit code, **including** items that involve scripted filesystem
-  setup (`ln -s`, hand-editing a tracked file, `git add -f`) followed by a CLI
-  invocation and an assertion on disk state, exit code, or stdout/stderr. Examples:
-  `npm run test`, `npm run typecheck`, `RUN_INTEGRATION=1 npm run test -- foo`,
-  `./scripts/foo.ts`, `curl localhost:3000/x` paired with a documented assertion,
-  "edit `.gitignore`, create symlink, run `flow install --upgrade`, confirm `1
-  removed` and the symlink is gone."
-- **Not runnable**: requires a GENUINELY external/irreversible resource — a deploy target,
-  production credentials, or a real third-party service (Slack post, Stripe redirect,
-  real-LLM judgment) — that the agent cannot stand up locally, OR irreducibly-aesthetic human
-  judgment ("the modal animates smoothly", "does this feel premium?"). Leave unticked.
-  **"Needs the local stack" is NOT a not-runnable signal** — a local DB, a dev server, or a
-  seeded fixture is local-and-reversible setup the agent performs, not an external dependency.
-  **An item whose text begins with the literal `SUBJECTIVE: ` prefix is always not-runnable**
-  — a human-only aesthetic sign-off: never tick it, prose-promote it (8c.ii), or browser-validate
-  it (8c.iii). See `references/manual-test-rubric.md` ("Subjective checks") for the marker contract.
-- **Runnable when the only blockers are local and reversible**: a step whose only unmet
-  preconditions are `local and reversible` — start the dev server, bring up / seed the local
-  DB, set a local `.env` var, drive the repo's own headless browser — is runnable, and the
-  agent MUST satisfy those preconditions itself before ticking or gating. Probe-then-attempt
-  when unsure a dependency is up: probe (`supabase status`, a port/health check), attempt to
-  start it (`npm run dev`, `supabase start`), then run the step; leave it not-runnable and
-  unticked only after a genuine attempt fails for a reason outside the agent's control. See
-  `references/manual-test-rubric.md` ("Genuinely manual", "Automate first") for the full
-  contract.
-- **Browser items are a runnable bucket when MCP + manifest are present.** A
-  visual-appearance item ("the delete button is right-aligned in the card footer", "the
-  focus ring is visible on keyboard-tab to the primary action") that would otherwise be
-  not-runnable becomes runnable when the `chrome-devtools` MCP and a `.flow/ui-validation.json`
-  manifest are present — see 8c.iii below. When the MCP is absent (the guarded
-  `ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns no schema), browser
-  items stay not-runnable and unticked exactly as today (no regression).
-
-**Self-check before classifying anything as not-runnable**: am I about to invoke
-phrases like "out of scope for an automated agent run", "the harness flagged this
-as manual", "this is the author's deliberate human sanity check", or "needs the
-local stack / a dev server / a local DB / a seeded DB"? If so, stop — those are
-post-hoc excuses, not real signals. A missing local stack is a setup step I run
-(start the dev server, bring up / seed the local DB), not a not-runnable signal.
-The bar is literal: can I exec this from a terminal in this repo — standing up any
-local-and-reversible dependency it needs first? If yes, run it.
-
-**Second self-check — author-prose promotion**: when the item is written as prose
-("verify `runner.pid` exists and matches printed PID", "confirm `~/.flow/state/<slug>.json`
-shows `phase: merged`"), apply the **mechanical-obviousness bar** before classifying
-it as not-runnable. If the cited file/path makes the assertion mechanical — the
-prose maps to a one-line `test -f <X>`, `grep -q <pattern> <X>`,
-`[ "$(cat X)" = "Y" ]`, or `[ "$(jq -r '.field' <X>)" = "<value>" ]` — promote it
-to the runnable bucket per Step 8c.ii. If the prose requires subjective judgment
-(animation feels smooth, error message reads naturally, contrast looks right) or
-external services (browser, real network, prod credentials), it stays not-runnable.
-Open-ended LLM rewriting of arbitrary manual prose is *out of scope* — the bar is
-literal: can I write a one-line shell command whose stdout/exit code answers the
-prose without me interpreting anything?
-
-**Third self-check — layered decomposition**: when an item is written as a browser-flavored
-step ("open `/watchlist` and confirm in the network panel exactly one batch request, zero
-429s"), do not auto-classify the whole item browser-only/not-runnable. Apply
-`references/manual-test-rubric.md` ("Decompose a manual step by layer"): a backend/API
-contract embedded in the step — one envelope serves the list, zero 429s, a compact payload,
-a cache-reuse / cap / per-symbol-degrade invariant — is runnable over an authenticated HTTP
-request to a local server (the **integration tier**), independent of any browser. Split the
-bundle: route the backend-contract half to a Step 11e `Fail (automatable)` conversion (an
-integration test that subsumes it) and keep only the genuinely-browser remainder — rendered
-output, console errors, a11y, visual layout, the request count the deployed client fires
-through a live render — in the browser bucket. This is a *classification* cue, not new
-execution machinery: 8c.ii's mechanical-obviousness bar still caps in-place promotion at a
-one-line shell command, so a contract that needs a server spin-up is an 11e conversion, not
-an 8c auto-run.
+**Second self-check — author-prose promotion.** When an item is prose
+("verify `runner.pid` exists and matches printed PID"), apply the
+mechanical-obviousness bar: if it maps to a one-line `test -f`, `grep -q`,
+or `[ "$(jq -r '.field' X)" = "Y" ]` assertion, promote it to runnable per
+8c.ii below. Subjective-judgment or external-service prose stays
+not-runnable. Open-ended LLM rewriting of arbitrary manual prose is out of
+scope — the bar is a literal one-line shell command, not interpretation.
 
 For each runnable item:
 
@@ -1374,23 +1138,15 @@ if git rev-parse --verify --quiet "origin/$BASE_REF" >/dev/null; then
 fi
 ```
 
-`ADDED_FILES` is a newline-delimited shell string, but `auditNewFileAntiPatterns`
-expects `addedFiles: string[]`. Split it on newlines and drop empty entries before
-the call so an empty `ADDED_FILES` (no added files / unavailable base ref) maps to
-`[]`, not `[""]`:
-
-```js
-const addedFiles = ADDED_FILES.split("\n").filter(Boolean);
-```
-
-Pass that `addedFiles` array and the parsed `anti_patterns_found` entries to
-`auditNewFileAntiPatterns` from `bin/lib/antipattern-newfile-audit.ts` (a pure
-function — `(antiPatterns, addedFiles) => flaggedEntries`, where an entry is flagged
-when its `location`, stripped of any trailing `:line` / `:line:col` suffix, exactly
-matches an added file). Surface each flagged entry as a WARNING line in the Step 12
-report — never a hard block. The audit runs independent of the self-declared
-`introduced_by_this_pr` flag: an added-file location is suspect regardless of how the
-subagent classified it.
+`ADDED_FILES` is a newline-delimited shell string; split on newlines and drop empty
+entries (`const addedFiles = ADDED_FILES.split("\n").filter(Boolean);`) so an empty
+`ADDED_FILES` maps to `[]`, not `[""]`, before passing it plus the parsed
+`anti_patterns_found` entries to `auditNewFileAntiPatterns` from
+`bin/lib/antipattern-newfile-audit.ts` — a pure function `(antiPatterns, addedFiles)
+=> flaggedEntries` that flags an entry when its `location` (stripped of any trailing
+`:line`/`:line:col`) exactly matches an added file. Surface each flagged entry as a
+WARNING line in the Step 12 report — never a hard block, and independent of the
+self-declared `introduced_by_this_pr` flag.
 
 For each inline comment from Step 2's fetch output, look up the disposition
 in the parsed `ARTIFACT` using **exact match** on the structured
@@ -1575,37 +1331,13 @@ plain bullets, do not flag it as a Testability failure — but when you draft or
 
 ### 11c. Deployment Follow-Up Check
 
-Scan the diff for changes that require manual follow-up outside the codebase. For each item
-found, include exact commands (with `<PLACEHOLDER>` values matching `DEPLOYING.md` conventions)
-so the deployer can copy-paste rather than hunt for syntax.
-
-- **New environment variables** (`.env.example` additions):
-  - Local: `<VAR>=<value>` in `.env`
-  - Production: create secret + grant access + redeploy. Read the secret via `read -s`
-    (keeps it out of shell history) and bind a dedicated runtime service account rather
-    than the default Compute SA (which is shared and Editor-by-default):
-    ```bash
-    read -s SECRET_VALUE && printf '%s' "$SECRET_VALUE" \
-      | gcloud secrets create <VAR> --data-file=-
-    unset SECRET_VALUE
-    gcloud secrets add-iam-policy-binding <VAR> \
-      --member="serviceAccount:<SERVICE_NAME>-runtime@<PROJECT_ID>.iam.gserviceaccount.com" \
-      --role="roles/secretmanager.secretAccessor"
-    gcloud run deploy <SERVICE_NAME> --region us-central1 \
-      --image <ARTIFACT_REGISTRY_PATH>/proxy:latest \
-      --service-account="<SERVICE_NAME>-runtime@<PROJECT_ID>.iam.gserviceaccount.com" \
-      --set-secrets "...,<VAR>=<VAR>:latest"
-    ```
-    Create the runtime SA once with `gcloud iam service-accounts create <SERVICE_NAME>-runtime`
-    if it doesn't already exist.
-- **New frontend build vars** (`VITE_*`): Set in Cloudflare Pages dashboard → Settings →
-  Environment variables (both Production and Preview).
-- **New allowlist files**: Verify `backend/Dockerfile` COPYs them into the image.
-- **Database migrations**: `supabase db push` against the linked remote project.
-
-If any follow-up items are found, include a **Deployment follow-up** section in the PR
-description (Step 11e) listing each action with the exact commands. This prevents "works
-locally, breaks in prod" gaps.
+Scan the diff for changes that require manual follow-up outside the codebase — new
+`.env.example` vars, new `VITE_*` frontend build vars, new allowlist files a Dockerfile
+must COPY, database migrations. For each category found, include the exact copy-pasteable
+commands (with `<PLACEHOLDER>` values matching `DEPLOYING.md` conventions) from
+[references/deployment-followup-checklist.md](references/deployment-followup-checklist.md)
+in a **Deployment follow-up** section of the PR description (Step 11e). This prevents
+"works locally, breaks in prod" gaps.
 
 ### 11d. Accuracy Sync
 
@@ -1655,65 +1387,42 @@ EOF
 the description — the intent is clear, and only the test guidance needs adjustment. Branch
 on the fail subtype:
 
-- **Fail (shallow — happy-path only)**: Consult `references/manual-test-rubric.md`, pick
-  the scenario menu that matches the change type, identify the missing categories (unhappy
-  paths? edge cases?), and propose appending them to the existing "Test Steps"
-  section.
-
-  Show the user the focused diff — just the proposed additions to the test section, not
-  the full description — with a one-sentence explanation of which categories are being
-  added and why. On confirmation, edit the PR with the extended test section, preserving
-  everything else in the description:
+- **Fail (shallow — happy-path only)** or **Fail (missing)**: Do not redraft the rest
+  of the description — only the test section changes. Consult
+  `references/manual-test-rubric.md`'s scenario menu for the change type: shallow
+  appends the missing categories (unhappy paths, edge cases) to the existing "Test
+  Steps" section; missing drafts a minimal section from scratch. Show the user the
+  focused diff — just the test-section change, not the full description — with a
+  one-sentence explanation, then on confirmation edit the PR preserving everything else:
 
   ```bash
   gh pr edit <number> --body-file /dev/stdin <<'EOF'
-  <original description with test section extended>
-  EOF
-  ```
-
-- **Fail (missing)**: Draft a minimal "Test Steps" section tailored to the change,
-  using the rubric's scenario menu for the relevant change type. Do not redraft the rest of
-  the description.
-
-  Show the user the focused diff — just the new test section — with a one-sentence
-  explanation of why the added section is sufficient. On confirmation, edit the PR by
-  inserting the new test section and preserving everything else in the description:
-
-  ```bash
-  gh pr edit <number> --body-file /dev/stdin <<'EOF'
-  <original description with minimal test section added>
+  <original description with test section extended or added>
   EOF
   ```
 
 - **Fail (automatable)**: Unlike the `Fail (shallow)` and `Fail (missing)` branches
-  above, the per-item conversion here is **default-on** — do not pause for upfront
+  above, per-item conversion here is **default-on** — do not pause for upfront
   confirmation. Do NOT just edit the description. The fix is a **code change**: add
-  automated tests that subsume the flagged manual items. List each automatable
-  manual item with (a) the existing test file it should slot into (or the new file
-  path) and (b) a one-or-two-sentence sketch of the assertions. Example:
+  automated tests that subsume the flagged manual items. List each item with (a) the
+  existing or new test file it slots into and (b) a one-or-two-sentence assertion
+  sketch. Example:
 
   > - "verify `runner.pid` exists and matches printed PID" → add `it(...)` to
   >   `src/commands/run.detach.smoke.test.ts` reading `runner.pid` and asserting it
   >   equals the PID parsed from stdout (existing fixture suffices).
-  > - "verify task ends `needs-human (runner-crashed)` after a phase throws" → new
-  >   `it(...)` in the same file using a non-git `target_repo` + stub script;
-  >   `findWorktreePath` throws, runner catch should rewrite status.
 
-  Per-item conversion is **default-on** — do not pause for upfront confirmation. For
-  each automatable item: write the test, run it (`npm test` / `RUN_INTEGRATION=1 npm
-  test` as appropriate), commit and push the change (covered by the `Auto-push
-  exemption: pr-review` clause in AGENTS.md), then prune the converted bullet from
-  the PR body via `gh pr edit <number> --body-file /dev/stdin`. Leave only items
-  that genuinely require human judgment (per the rubric's "Genuinely manual" list).
-  The user redirects via reply after the fact (e.g. "this one should have stayed
-  manual — revert it") rather than gating each conversion upfront.
+  For each automatable item: write the test, run it (`npm test` / `RUN_INTEGRATION=1
+  npm test` as appropriate), commit and push (covered by the `Auto-push exemption:
+  pr-review` clause in AGENTS.md), then prune the converted bullet via `gh pr edit
+  <number> --body-file /dev/stdin`. Leave only items that genuinely require human
+  judgment (the rubric's "Genuinely manual" list). The user redirects via reply after
+  the fact (e.g. "this one should have stayed manual — revert it") rather than gating
+  each conversion upfront.
 
   Items that fail the rubric's `Caveat: don't trade a working test for a flaky one`
-  check (real network / real LLM / heavy harness disproportionate to risk /
-  timing-dependent without a determinism shim) are **not** auto-converted: surface
-  them as `suggestion` findings in the report instead of forcing a flaky test in.
-  Same fallback applies if a converted test fails verification after a reasonable
-  attempt — back it out and surface as a `suggestion`.
+  check are **not** auto-converted — surface them as `suggestion` findings instead.
+  Same fallback if a converted test fails verification after a reasonable attempt.
 
   Record the disposition in the report's PR Description Quality status as
   `Manual items auto-converted (N items, redirect by replying)` (see
@@ -1722,14 +1431,9 @@ on the fail subtype:
 **If 0 criteria fail, or 1 non-Testability criterion fails, and no accuracy issues**: Note
 "PR description is accurate and communicates intent clearly" in the report.
 
-**IMPORTANT**: For the `Fail (shallow)` and `Fail (missing)` branches, never update the
-description without showing the user a diff of what's changing (focused on just the
-affected section is fine) and getting confirmation. The description is the author's
-voice — edits should improve clarity, not impose a rigid template. The `Fail
-(automatable)` branch is default-on per the inversion above — its per-item
-bullet-pruning edit is covered by the `Auto-push exemption: pr-review` clause in
-`AGENTS.md` and does not require upfront confirmation; the user redirects via reply
-after the fact.
+**IMPORTANT**: `Fail (shallow)` / `Fail (missing)` never update the description without
+showing the user a diff and getting confirmation — the description is the author's
+voice, edits should improve clarity, not impose a rigid template.
 
 **After any 11e edit that adds `- [ ]` test items** (fail-shallow or fail-missing
 branches), re-run Step 8c against the newly added items to tick the runnable ones
@@ -1751,12 +1455,10 @@ done — render them as named report sections so a human reading the report sees
 foreclosed paths alongside the fixes that landed.
 
 Each `anti_patterns_found[]` entry carries `introduced_by_this_pr` alongside its
-`location` / `pattern` / `recommendation`: `true` means the pattern lives in code this PR
-added or changed (which the fix-now bar requires be fixed in-commit, not noted), `false`
-means it is a pre-existing pattern in surrounding code. Render the boolean in the
-**Anti-Patterns Observed** section, and append the new-file audit's WARNING lines (see the
-**New-file anti-pattern audit** sub-step below) so a misclassified introduced-in-PR entry
-is visible to the reader.
+`location` / `pattern` / `recommendation` (`true` = lives in code this PR added or
+changed, which the fix-now bar requires fixed in-commit; `false` = pre-existing).
+Render the boolean in **Anti-Patterns Observed**, and append the new-file audit's
+WARNING lines (Step 9a above) so a misclassified introduced-in-PR entry stays visible.
 
 **Agent-fallback notices.** When any spawn site's file-exists guard fired its
 `NOTICE — agent-fallback: ...` line during this run (gatekeeper, per-lens,
@@ -1764,17 +1466,15 @@ consolidator, or fix-applier resolution), echo each fired line in the report's
 environment/automation notes so the containment downgrade and its
 `flow install` remedy reach the reader.
 
-**The report MUST explicitly separate addressed vs deferred findings.** Never leave the
-reader guessing which findings were silently skipped — every finding surfaced in Step 4
-must appear in one of the two buckets. If no findings were deferred, say so explicitly
-("No findings deferred"). Same rule for the negative-findings sections: when
-`rejected_alternatives` or `anti_patterns_found` is empty, write `None` under the heading
-rather than omitting it — silence on negatives is the failure mode the slot exists to
-prevent.
+**The report MUST explicitly separate addressed vs deferred findings.** Every finding
+surfaced in Step 4 must appear in one of the two buckets — say "No findings deferred"
+explicitly rather than leaving the reader guessing. Same rule for the negative-findings
+sections: write `None` under an empty `rejected_alternatives` / `anti_patterns_found`
+heading rather than omitting it — silence on negatives is the failure mode the slot
+exists to prevent.
 
 The Fix-Applier Subagent already committed and pushed any code changes during its run
-(per the `Auto-push exemption: pr-review` clause); the wrapper does not re-commit at
-this step. Present the report directly.
+(per the `Auto-push exemption: pr-review` clause); the wrapper does not re-commit here.
 
 **Automation-precedence audit line.** The report's "Test Steps (from PR description)"
 section ends with one summary line:
@@ -1802,11 +1502,9 @@ Append the helper's stdout to the report under "Test Steps (from PR description)
   write `0 left manual` and omit the parenthetical reason list.
 
 The line emits unconditionally, including when `M = 0` (write
-`Automation-precedence audit: ran 0/0 items (no Test Steps to verify)`). Always
-emitting is the deliberate choice — `0 prose-promoted` on a PR with all-runnable
-author items is itself a positive signal ("nothing was author-manual today").
-The user reads the audit line to decide whether to redirect ("this should have
-been a test, not a runtime conversion") with one comment.
+`Automation-precedence audit: ran 0/0 items (no Test Steps to verify)`) — a `0
+prose-promoted` verdict on an all-runnable PR is itself a positive signal, and the
+user reads the line to decide whether to redirect with one comment.
 
 **Auto-converted manual items line.** When Step 11e's `Fail (automatable)` branch
 fires and converts one or more manual checklist items into automated tests
@@ -1832,13 +1530,10 @@ PR Description Quality status enum value, which records the same disposition in
 the report's status field; the line on the test-steps side gives the per-item
 detail the status enum compresses.
 
-The emit-conditionality here deliberately diverges from the adjacent
-`Automation-precedence audit` line (which always emits, even on `0 prose-promoted`):
-the audit line reports on *every* Test Steps item by design (a `0 prose-promoted`
-verdict is itself the positive signal that nothing was author-manual), while
-auto-conversion is a per-PR side effect rather than a per-PR property — runs
-without a `Fail (automatable)` fire have no auto-conversion semantics to report,
-so the line is omitted rather than written as `0 items`.
+This deliberately diverges from the adjacent audit line's always-emit rule:
+auto-conversion is a per-PR side effect, not a per-PR property, so a run without a
+`Fail (automatable)` fire has no auto-conversion semantics to report and the line
+is omitted rather than written as `0 items`.
 
 ## 13. Register Local Follow-ups (when applicable)
 
@@ -1929,18 +1624,13 @@ site) so this paired-contract regression can't recur silently.
 
 # Verification
 
-- Exactly one Task-tool call to the Fix-Applier Subagent per `/flow-pr-review`
-  invocation; the wrapper did not retry on missing artifact (the supervisor
-  re-invokes if needed).
-- `.flow-tmp/fix-applier-result.json` exists at the resolved absolute path
-  with all five top-level keys (`commits`, `deferred`,
-  `rejected_alternatives`, `anti_patterns_found`, `summary`).
-- The wrapper's transcript contains no per-finding fix prose, no
-  `flow-pre-commit` output, and no `/flow-verify` re-run output — those stayed
-  inside the Fix-Applier Subagent.
-- The wrapper read `.flow-tmp/fix-applier-result.json` body exactly once
-  (at Step 9), parsed once, and reused the parsed object across Steps
-  9 / 10 / 11 / 12.
+- Exactly one Task-tool call to the Fix-Applier Subagent per invocation (no retry on
+  missing artifact — the supervisor re-invokes if needed); the wrapper's transcript
+  contains no per-finding fix prose, `flow-pre-commit` output, or `/flow-verify` re-run
+  output, all of which stayed inside the subagent.
+- `.flow-tmp/fix-applier-result.json` exists with all five top-level keys (`commits`,
+  `deferred`, `rejected_alternatives`, `anti_patterns_found`, `summary`), read exactly
+  once (at Step 9), parsed once, and reused across Steps 9 / 10 / 11 / 12.
 - Independent multi-agent review completed BEFORE reading reviewer comments
 - All agent findings filtered to confidence >= 80 (praise exempt)
 - Any praise findings name a specific behaviour, file:line, or pattern; zero
@@ -1986,31 +1676,23 @@ site) so this paired-contract regression can't recur silently.
 - NEVER read the artifact's body more than once. Parse it into a typed
   object at Step 9 and reuse the object across Steps 10, 11, 12. Re-reads
   defeat the context-cost win the subagent was designed to deliver.
-- NEVER read review comments before completing the independent multi-agent review. This
-  eliminates anchoring bias and lets you independently validate reviewer findings.
-- NEVER surface findings with confidence below 80. Low-confidence findings erode trust.
-  The one exception is `praise`, which is always surfaced.
-- NEVER flag style issues, linter-catchable problems, or pre-existing issues unrelated to
-  this PR. Only flag what matters.
-- NEVER emit content-free praise filler ("great work!", "nice refactor!", "looks great
-  overall!"). Praise findings must name a specific behaviour, file:line, or pattern; if
-  no specific positive observation meets that bar, omit praise entirely. Filler praise
-  wastes tokens for downstream agents reading the review with no informational payoff.
+- NEVER read review comments before completing the independent multi-agent review, and
+  never skip that review even if the user only asked to "address comments" — both
+  eliminate anchoring bias and catch what reviewers miss.
+- NEVER surface findings with confidence below 80 (praise exempt), and never emit
+  content-free praise filler ("great work!") — a praise finding must name a specific
+  behaviour, file:line, or pattern, or be omitted entirely.
+- NEVER re-flag what Anti-Patterns above already rules out (style, linter-catchable,
+  pre-existing issues) — only flag what matters to this PR.
 - NEVER blindly apply every reviewer suggestion. Push back on comments that are incorrect
   or would degrade code quality — explain why.
-- NEVER skip the independent review step, even if the user only asked to "address comments."
-  The independent review catches things reviewers miss.
-- NEVER chain pre-commit checks with `&&`. Run each separately to see individual results.
-- NEVER commit without running pre-commit checks first.
-- NEVER update the PR description without showing the user the before/after diff and getting
-  confirmation.
-- NEVER end a run by "just reporting" findings — every surfaced finding must either be fixed
-  in this run or explicitly deferred with a reason. The report must make that split visible.
-- NEVER defer a finding without recording it in a corresponding tracker entry in the same run.
-  The canonical tracker is a GitHub issue filed via `flow-create-issue` (idempotent on title);
-  when the helper fails or the project has no GH Issues surface, surface the deferral loudly in
-  the review report (with an empty `tracker_entry_url`) rather than silently appending to a flat
-  file that may not exist. Default to fix-now; deferral is reserved for work that legitimately
-  warrants a separate standalone agent session per the bar in Step 6. A deferral that lives only
-  in the review report will be lost when the PR merges, so a GitHub issue is strongly preferred
-  whenever an Issues surface exists.
+- NEVER commit without running pre-commit checks first, each run separately (not chained
+  with `&&`) so individual results stay visible.
+- NEVER update the PR description without showing the user the before/after diff and
+  getting confirmation (Step 11e's `Fail (automatable)` branch is the named default-on
+  exception).
+- NEVER end a run by "just reporting" findings, or defer one without a tracker entry in
+  the same run — see the "Every surfaced finding..." / "Every deferred finding..." bullets
+  in Verification above for the full contract (GitHub issue via `flow-create-issue`,
+  idempotent on title; surfaced loudly with an empty `tracker_entry_url` when no Issues
+  surface exists).

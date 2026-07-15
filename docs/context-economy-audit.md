@@ -267,25 +267,32 @@ char-budget lint):**
 | File                                        | Before lines / chars / estTokens | After lines / chars / estTokens | Δ chars              |
 | ------------------------------------------- | -------------------------------- | ------------------------------- | -------------------- |
 | `AGENTS.md`                                 | 519 / 39,943 / 9,986             | 327 / 19,978 / 4,995            | **−19,965 (−50.0%)** |
-| `skills/pipeline/flow-pipeline/SKILL.md`    | 2,923 / 171,886 / 42,972         | 2,923 / 171,886 / 42,972        | 0                    |
-| `skills/pipeline/flow-pr-review/SKILL.md`   | 2,016 / 119,165 / 29,792         | 2,016 / 119,165 / 29,792        | 0                    |
-| `skills/pipeline/flow-new-feature/SKILL.md` | 893 / 54,346 / 13,587            | 893 / 54,346 / 13,587           | 0                    |
-| **Total**                                   | 6,351 / 385,340 / 96,337         | 6,159 / 365,375 / 91,346        | **−19,965 (−5.2%)**  |
+| `skills/pipeline/flow-pipeline/SKILL.md`    | 2,923 / 171,886 / 42,972         | 2,697 / 160,528 / 40,132        | **−11,358 (−6.6%)**  |
+| `skills/pipeline/flow-pr-review/SKILL.md`   | 2,016 / 119,165 / 29,792         | 1,698 / 100,708 / 25,177        | **−18,457 (−15.5%)** |
+| `skills/pipeline/flow-new-feature/SKILL.md` | 893 / 54,346 / 13,587            | 728 / 43,743 / 10,936           | **−10,603 (−19.5%)** |
+| **Total**                                   | 6,351 / 385,340 / 96,337         | 5,450 / 324,957 / 81,240        | **−60,383 (−15.7%)** |
 
-Only `AGENTS.md` changed. `flow-pipeline/SKILL.md`, `flow-pr-review/SKILL.md`,
-and `flow-new-feature/SKILL.md` are byte-identical before and after — this
-PR's edit-applier scoped Task 3–5 (the three `SKILL.md` diets) out for a
-documented reason: those files are near-saturated with exact-command,
-behaviourally load-bearing table rows (the step-9/10 gate-summary and
-epic-membership invocations, the resume/failure-path shell blocks) rather
-than summarizable prose, and `skill-md-lint.test.ts` alone pins ~75
-exact-phrase anchors against `flow-pipeline/SKILL.md`'s body. A rushed cut
-risked breaking either the supervisor's actual runtime behaviour or one of
-those anchors; that work is deferred to a dedicated follow-up rather than
-forced here. `flow-pipeline/SKILL.md` and `flow-pr-review/SKILL.md` also
-remain above this epic's earlier ≤2,700-line / ≤1,700-line targets
-(2,923 and 2,016 lines respectively); `flow-new-feature/SKILL.md`, at 893
-lines, likewise remains above its ≤750-line target.
+All four always-resident instruction surfaces `plan.md` named were dieted
+in this PR. `flow-pipeline/SKILL.md` lands at 2,697 lines (target ≤2,700),
+`flow-pr-review/SKILL.md` at 1,698 lines (target ≤1,700), and
+`flow-new-feature/SKILL.md` at 728 lines (target ≤750) — each inside its
+epic-ratified line target, with `flow-pr-review/SKILL.md` and
+`flow-new-feature/SKILL.md` landing with double-digit percentage margin
+to spare. The cuts used the same move-verbatim-and-point method
+`AGENTS.md`'s diet used: `skill-md-lint.test.ts`-pinned exact-phrase
+anchors and behaviourally load-bearing command blocks stayed byte-exact
+in-body (or moved verbatim into a topic-owning `references/` file with a
+resolving pointer left behind — e.g. `flow-pipeline/references/step3-threading.md`,
+`flow-pr-review/references/deployment-followup-checklist.md`,
+`flow-new-feature/references/pr-description-authoring.md`), while
+duplicated rationale prose, rubric detail already owned by an existing
+reference (`manual-test-rubric.md`, `model-routing.md`,
+`redirect-handling.md`, `escalation-recipes.md`), and near-identical
+spawn-procedure boilerplate repeated between a skill's upfront "why"
+section and its `# Instructions` walkthrough were condensed or deleted.
+`npm run test` (`skill-md-lint.test.ts`'s 392 cases plus
+`bin/lib/flow-pipeline-skill.test.ts`) and `flow-md-validate .` both stay
+green against the dieted files.
 
 **Frontmatter re-check:** `--frontmatter skills` reports 21 skills /
 2,448 estimated tokens (unchanged by this PR — `skills/` has zero diff
