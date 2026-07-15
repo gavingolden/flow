@@ -5363,3 +5363,36 @@ describe("design-artifact fidelity structural anchors", () => {
     ).toBe(true);
   });
 });
+
+describe("module-status conditional-degradation guards (flow-pipeline/SKILL.md, discovery-instructions.md, AGENTS.md)", () => {
+  // Pins the `flow-module-status` runtime-gate call sites so a future edit
+  // can't silently drop the precheck: Step 7's Copilot request/wait guard,
+  // Step 3's forced-research + cross-model plan-review guards, and the
+  // AGENTS.md `## Don'ts` convention naming `--check-skill` for optional-
+  // module skill deferrals. These are structural anchors, not behavior
+  // tests — the runtime contract itself is unit-tested at
+  // bin/flow-module-status.test.ts and bin/lib/module-status.test.ts.
+  it("flow-pipeline/SKILL.md Step 7 gates the Copilot request path on the copilot module", () => {
+    expect(content).toContain("flow-module-status --check copilot");
+  });
+
+  it("flow-pipeline/SKILL.md Step 3 gates both the forced-research fan-out and the cross-model plan review on the research module", () => {
+    const matches = content.match(/flow-module-status --check research/g) ?? [];
+    expect(
+      matches.length,
+      "flow-pipeline/SKILL.md must carry 'flow-module-status --check research' " +
+        "at least twice — once before the forced-research flow-research-run " +
+        "block, once before the cross-model flow-plan-review block.",
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("discovery-instructions.md Step 1.5 gates the flow-delegate-fanout research fan-out on the research module", () => {
+    expect(discoveryInstructionsContent).toContain(
+      "flow-module-status --check research",
+    );
+  });
+
+  it("AGENTS.md ## Don'ts names the check-skill convention for optional-module skill deferrals", () => {
+    expect(agentsContent).toContain("check-skill");
+  });
+});

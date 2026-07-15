@@ -48,6 +48,7 @@ import {
   readCopilotClaimDeadlineSec,
   readCopilotLogin as readCopilotLoginFromConfig,
 } from "./lib/copilot-config";
+import { isModuleActive, noticeLine } from "./lib/module-status";
 
 // --- Types -----------------------------------------------------------------
 
@@ -699,6 +700,16 @@ export type Deps = {
   readMergeState?: () => { mergeable: string; mergeStateStatus: string } | null;
   /** Test-only: override the cwd used by readWorkflowsDir. */
   cwd?: string;
+  /**
+   * Returns true iff the `copilot` module is active (installed/selected).
+   * Defaults to `isModuleActive('copilot')`. When false, `copilotConfigured`
+   * is forced false regardless of the two live-signal checks below — a
+   * deselected copilot module means no Copilot request/wait was ever
+   * possible, so both signals would only add a spurious poll. Read once at
+   * startup, mirroring `readHistoricalBotReview`'s call shape; never
+   * threaded into the pure `PollState` / `decideOnPoll` decision core.
+   */
+  isCopilotModuleActive?: () => boolean;
 };
 
 /**
@@ -1317,6 +1328,8 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   const readIsSmallFollowup =
     deps.readIsSmallFollowup ??
     ((fromSha: string, toSha: string) => isSmallFollowup(fromSha, toSha, gh));
+  const isCopilotModuleActive =
+    deps.isCopilotModuleActive ?? (() => isModuleActive("copilot"));
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -1353,7 +1366,6 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     deps.readMergeState ?? (() => observeMergeState(parsed.pr, gh));
 
   const ciConfigured = readWorkflowsDir();
-  const requestedReviewers = fetchRequestedReviewers(parsed.pr, gh);
   // Two signals for "is Copilot expected to review?": the in-flight PR's
   // reviewRequests, and the repo's recent PR history. Org / repo-level
   // auto-review configurations don't populate reviewRequests, so a single
@@ -1367,7 +1379,25 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   // the in-flight reviewRequests NOR the historical-PR fallback can keep
   // the bot wait alive — otherwise a declined PR in a repo with recent
   // Copilot history would still incur the capped 10-min timeout.
+  //
+  // Same short-circuit for a deselected `copilot` module (`isCopilotModuleActive`):
+  // a deselected module means `flow-request-copilot` never ran, so neither
+  // live signal below can be trusted — force false and skip both gh reads,
+  // including the upstream `fetchRequestedReviewers` call itself (gated
+  // below), via `&&` short-circuit. Emitted once here (startup), never
+  // per-poll, so stdout's per-poll JSON stays clean.
+  const copilotModuleActive = isCopilotModuleActive();
+  if (!copilotModuleActive && !parsed.copilotNotRequested) {
+    process.stderr.write(
+      `${noticeLine("copilot")} — skipping Copilot review\n`,
+    );
+  }
+  const requestedReviewers =
+    copilotModuleActive && !parsed.copilotNotRequested
+      ? fetchRequestedReviewers(parsed.pr, gh)
+      : [];
   const copilotConfigured =
+    copilotModuleActive &&
     !parsed.copilotNotRequested &&
     (requestedReviewers.some((l) => matchesCopilot(l, copilotLogin)) ||
       readHistoricalBotReview(copilotLogin));
