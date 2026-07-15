@@ -1012,9 +1012,22 @@ describe("AGENTS.md char-count budget (guards Claude Code's 40k per-session warn
    * clear of the hard 40k warning (raising the budget PAST 40k was explicitly
    * rejected — the guard exists to keep the file under it). The NEXT contract
    * must offload-then-trim: there is no longer room to raise without crossing 40k.
+   * Dropped from 39_950 to 24_000 by the p5-context-diet pass (#431's
+   * follow-up): `## Output style`'s full rule bodies moved to
+   * references/output-style.md, `## Consumer-repo notes`' full surface area
+   * moved to references/consumer-repo-contract.md, and the session-marker /
+   * trailer + inline-intent-annotation mechanics plus several `## Don'ts`
+   * bullet bodies (Shared rationale, the two AskUserQuestion forms, the
+   * auto-merge and auto-issue-create exemptions, the epic-create/epic-run
+   * detail) moved to references/git-workflow.md — each replaced in AGENTS.md
+   * by its anchored opener/binding-bar plus a relative link. Measured
+   * post-diet size is ~19_978 chars
+   * (`bin/flow-transcript-audit.ts --static AGENTS.md`); 24_000 keeps
+   * headroom for incremental additions without inviting the regrowth back
+   * toward 40k the offload-then-trim discipline exists to prevent.
    */
   it("AGENTS.md stays under the char budget", () => {
-    const CHAR_BUDGET = 39_950;
+    const CHAR_BUDGET = 24_000;
     expect(
       agentsContent.length,
       `AGENTS.md is ${agentsContent.length} chars; budget is ${CHAR_BUDGET}. ` +
