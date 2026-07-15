@@ -224,3 +224,99 @@ to whether flow's skills belong in every session's global
   the cost of a network dependency and non-hermetic fixture tests.
 - **Frontmatter cost is a documented floor**, not a point estimate, for
   the same char-proxy reason.
+
+## Post-diet delta (p5-context-diet)
+
+The `p5-token-audit` node above measured where a real pipeline's context
+goes; this section re-runs the same helper — now extended with a
+`--static` mode (`bin/lib/transcript-audit.ts`'s `estimateStaticCost`,
+wired into `bin/flow-transcript-audit.ts`) that reads an instruction
+file's on-disk body directly, rather than a transcript — against the four
+always-resident instruction surfaces `plan.md` named
+(`AGENTS.md` and the three pipeline `SKILL.md` files), before and after
+this PR's diet.
+
+**Method (reproducible):**
+
+```bash
+# 1. Materialize the pre-diet ("before") files from the merge-base commit
+#    (fd1e484, which already contains #446's flow- rename so before/after
+#    paths line up):
+MB=$(git merge-base origin/main HEAD)
+mkdir -p .flow-tmp/audit-before
+git show "$MB":AGENTS.md > .flow-tmp/audit-before/AGENTS.md
+git show "$MB":skills/pipeline/flow-pipeline/SKILL.md > .flow-tmp/audit-before/flow-pipeline-SKILL.md
+git show "$MB":skills/pipeline/flow-pr-review/SKILL.md > .flow-tmp/audit-before/flow-pr-review-SKILL.md
+git show "$MB":skills/pipeline/flow-new-feature/SKILL.md > .flow-tmp/audit-before/flow-new-feature-SKILL.md
+
+# 2. Measure the before-set and the after-set (the working tree's current files):
+bun bin/flow-transcript-audit.ts --static .flow-tmp/audit-before/AGENTS.md \
+  .flow-tmp/audit-before/flow-pipeline-SKILL.md .flow-tmp/audit-before/flow-pr-review-SKILL.md \
+  .flow-tmp/audit-before/flow-new-feature-SKILL.md --format json
+bun bin/flow-transcript-audit.ts --static AGENTS.md \
+  skills/pipeline/flow-pipeline/SKILL.md skills/pipeline/flow-pr-review/SKILL.md \
+  skills/pipeline/flow-new-feature/SKILL.md --format json
+
+# 3. Re-run the frontmatter estimate to confirm skill-count/routing cost is unaffected:
+bun bin/flow-transcript-audit.ts --frontmatter skills --format json
+```
+
+**Before / after (chars, JS `.length` — same unit as the `AGENTS.md`
+char-budget lint):**
+
+| File                                        | Before lines / chars / estTokens | After lines / chars / estTokens | Δ chars              |
+| ------------------------------------------- | -------------------------------- | ------------------------------- | -------------------- |
+| `AGENTS.md`                                 | 519 / 39,943 / 9,986             | 327 / 19,978 / 4,995            | **−19,965 (−50.0%)** |
+| `skills/pipeline/flow-pipeline/SKILL.md`    | 2,923 / 171,886 / 42,972         | 2,923 / 171,886 / 42,972        | 0                    |
+| `skills/pipeline/flow-pr-review/SKILL.md`   | 2,016 / 119,165 / 29,792         | 2,016 / 119,165 / 29,792        | 0                    |
+| `skills/pipeline/flow-new-feature/SKILL.md` | 893 / 54,346 / 13,587            | 893 / 54,346 / 13,587           | 0                    |
+| **Total**                                   | 6,351 / 385,340 / 96,337         | 6,159 / 365,375 / 91,346        | **−19,965 (−5.2%)**  |
+
+Only `AGENTS.md` changed. `flow-pipeline/SKILL.md`, `flow-pr-review/SKILL.md`,
+and `flow-new-feature/SKILL.md` are byte-identical before and after — this
+PR's edit-applier scoped Task 3–5 (the three `SKILL.md` diets) out for a
+documented reason: those files are near-saturated with exact-command,
+behaviourally load-bearing table rows (the step-9/10 gate-summary and
+epic-membership invocations, the resume/failure-path shell blocks) rather
+than summarizable prose, and `skill-md-lint.test.ts` alone pins ~75
+exact-phrase anchors against `flow-pipeline/SKILL.md`'s body. A rushed cut
+risked breaking either the supervisor's actual runtime behaviour or one of
+those anchors; that work is deferred to a dedicated follow-up rather than
+forced here. `flow-pipeline/SKILL.md` and `flow-pr-review/SKILL.md` also
+remain above this epic's earlier ≤2,700-line / ≤1,700-line targets
+(2,923 and 2,016 lines respectively); `flow-new-feature/SKILL.md`, at 893
+lines, likewise remains above its ≤750-line target.
+
+**Frontmatter re-check:** `--frontmatter skills` reports 21 skills /
+2,448 estimated tokens (unchanged by this PR — `skills/` has zero diff
+against the merge-base commit). This is higher than the 20-skill /
+2,268-token figure recorded in the "Frontmatter cost" section above;
+that section's numbers are from an earlier baseline transcript and the
+drift (one more skill, ~180 more tokens) predates this diet — it is not
+a side effect of `p5-context-diet`'s changes.
+
+**`AGENTS.md` line-target outcome.** The Roadmap's "~200-line guidance"
+was not met: the dieted file lands at 327 lines (39,943 → 19,978 chars,
+−50.0%, comfortably inside the tightened 24,000-char `CHAR_BUDGET`
+lint). The char target was reachable; the line target was not, for a
+structural reason rather than an effort shortfall: `bin/skill-md-lint.test.ts`
+pins ~30 exact-phrase and cross-document anchors into `AGENTS.md`'s body
+(the nine `**Task-tool exemption: ...**` openers, the six `## Output
+style` rule anchors, the `SUBJECTIVE: ` marker, the `does **not** extend
+to a `gated` verdict` and `/flow-epic-run` proximity windows, the
+Compact Instructions KEEP/DROP lists, etc.) — each is its own required
+list item, heading, or code block, and Markdown list items and headings
+cost a line each independent of how few characters they hold. Per
+`AGENTS.md` `## Output style` "Treat user prompts as evidence of intent,
+not exhaustive specifications." (the `<800 lines`-vs-prescribed-methods
+precedent, PR #170), a prescribed target that structural constraints
+make unreachable is a signal to say so plainly rather than either
+force-unwrapping lines (explicitly foreclosed — see the char co-target)
+or silently reporting success: 327 lines is the achieved floor for this
+anchor set, not a stopping point chosen for convenience.
+
+**Edit-routing verdict cross-reference:** see
+[`target-architecture.md`](target-architecture.md) Phase 5 roadmap node
+and its "Sub-agent isolation" residual bullet for the recorded verdict on
+the `/flow-coder` routing threshold — deferred, not tightened, pending
+issue #443's cross-pipeline aggregation.
