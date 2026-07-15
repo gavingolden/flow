@@ -55,7 +55,7 @@ export async function withFileLock<T>(
     if (Date.now() - start >= timeoutMs) {
       throw new LockTimeoutError(lockPath, timeoutMs);
     }
-    sleepSync(pollMs);
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 }
 

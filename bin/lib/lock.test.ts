@@ -122,11 +122,7 @@ describe(withFileLock, () => {
   it("holds the lock for the full duration of an async fn (does not release before the promise settles)", async () => {
     // Regression guard: the lock must be held until the async callback's
     // promise resolves, not released the instant withFileLock's own
-    // synchronous body returns. Note: this repo's polling loop backs off via
-    // `sleepSync` (Atomics.wait), which blocks the whole JS thread — so a
-    // genuinely concurrent SECOND withFileLock call in the same process
-    // would starve the first call's pending timers rather than exercise the
-    // regression. Instead, assert directly on the lock file's lifetime
+    // synchronous body returns. Assert directly on the lock file's lifetime
     // around the single in-flight call, per the acceptance criteria's first
     // suggested technique.
     const order: string[] = [];

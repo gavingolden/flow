@@ -13,6 +13,16 @@
  * value that doesn't shape-check as an `ArtifactSet` all fall back to the
  * compiled-in registry rather than propagating malformed data or an
  * exception to the caller.
+ *
+ * Trust boundary note: `import()` executes `modules.ts`'s full top-level
+ * module body immediately, before `isArtifactSetShape` ever runs — shape
+ * validation only guards the returned value, not import-time side effects.
+ * This is an intentional, modest escalation of an existing trust boundary:
+ * `--source` is documented as pointing at a `/flow-pipeline`-owned worktree
+ * the invoking user already has full write/execute access to, not at
+ * arbitrary/untrusted paths. If a future caller ever wants to point
+ * `--source` somewhere less trusted, this import() should be replaced with a
+ * lower-privilege extraction (regex/AST parse) rather than assumed safe.
  */
 
 import * as path from "node:path";
@@ -32,13 +42,19 @@ export type ResolvedArtifactSet = {
  * branded check) since the value crossed a dynamic `import()` boundary and
  * may come from a differently-compiled copy of `./modules`.
  */
+const ARTIFACT_SET_KEYS = [
+  "skills",
+  "agents",
+  "helpers",
+  "validators",
+] as const;
+
 function isArtifactSetShape(value: unknown): value is ArtifactSet {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return false;
   }
-  return Object.values(value as Record<string, unknown>).every((v) =>
-    Array.isArray(v),
-  );
+  const record = value as Record<string, unknown>;
+  return ARTIFACT_SET_KEYS.every((key) => Array.isArray(record[key]));
 }
 
 export async function resolveArtifactSetForSource(

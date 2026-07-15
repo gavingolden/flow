@@ -2139,12 +2139,12 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       }
     });
 
-    it("(j) a full --all install prints no inactive-modules line — every module is fully linked", () => {
+    it("(j) a full --all install prints no inactive-modules line — every module is fully linked", async () => {
       const logSpy = vi
         .spyOn(console, "log")
         .mockImplementation(() => undefined);
       try {
-        runSetup({
+        await runSetup({
           flowSource: realFlowSource,
           installRoot: realFlowSource,
           targets: targets(),
@@ -2233,6 +2233,53 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
           (s) => s.target === path.join(t.agentsDir, "new-agent.md"),
         ),
       ).toBe(true);
+    });
+
+    it("logs a '! module registry:' warning and falls back to the compiled-in registry when the --source tree's modules.ts is malformed", async () => {
+      const worktree = path.join(scratch, "worktree-with-malformed-registry");
+      const canonicalRoot = path.join(scratch, "stale-canonical-2");
+      buildFakeFlowSource(worktree);
+      buildFakeFlowSource(canonicalRoot);
+
+      // Malformed on purpose: throws instead of exporting resolveArtifactSet,
+      // so resolveArtifactSetForSource's catch path fires and threads its
+      // warning through discoverSelected's onWarning callback.
+      fs.mkdirSync(path.join(worktree, "bin", "lib"), { recursive: true });
+      fs.writeFileSync(
+        path.join(worktree, "bin", "lib", "modules.ts"),
+        `throw new Error("boom");`,
+      );
+
+      const logSpy = vi
+        .spyOn(console, "log")
+        .mockImplementation(() => undefined);
+      try {
+        const t = targets();
+        const summary = await runSetup({
+          flowSource: worktree,
+          installRoot: canonicalRoot,
+          targets: t,
+          skipPreflight: true,
+          manifestPath,
+          lockPath,
+          homeDir,
+          settingsPath: settingsPath(),
+          modules: ["core"],
+          isTTY: false,
+          configPath: path.join(homeDir, ".flow", "config.json"),
+          cachePath: path.join(homeDir, ".flow", "update-check.json"),
+          quiet: false,
+        });
+
+        // Fell back to the compiled-in registry rather than erroring out.
+        expect(summary.created).toBeGreaterThan(0);
+
+        const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        expect(allLogs).toMatch(/! module registry:/);
+        expect(allLogs).toMatch(/boom/);
+      } finally {
+        logSpy.mockRestore();
+      }
     });
   });
 });
