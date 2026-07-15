@@ -22,12 +22,18 @@ openers — it is not duplicated here.
 
 `/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
 Multi-Agent Review" step, six review agents are spawned in parallel via
-the Task tool. The fan-out itself emits no consolidated artifact — each
-agent persists its own `$WORKTREE/.flow-tmp/agent-output-<lens>.json`;
-the downstream Consolidator-Validator step (a separate exemption)
-produces `consolidator-result.json`. The six agents run inside the
-supervisor's own in-process Skill load (`/flow-pr-review` has no
-`context: fork` directive).
+the Task tool. Each spawn names `subagent_type: flow-review-<lens>`
+(the `agents/flow-review-<lens>.md` definitions with a Read/Grep/Glob/
+Write `tools:` allowlist and no `effort:`/`model:` pins), resolved via
+the `[ -f ~/.claude/agents/flow-review-<lens>.md ]` file-exists guard
+that falls back to `general-purpose` with the loud
+`NOTICE — agent-fallback:` line. The fan-out itself emits no
+consolidated artifact — each agent persists its own
+`$WORKTREE/.flow-tmp/agent-output-<lens>.json`; the downstream
+Consolidator-Validator step (a separate exemption) produces
+`consolidator-result.json`. The six agents run inside the supervisor's
+own in-process Skill load (`/flow-pr-review` has no `context: fork`
+directive).
 
 ## `/flow-product-planning` Independent Discovery Subagent
 
@@ -97,9 +103,15 @@ bar). The full contract is in `skills/pipeline/flow-coder/SKILL.md`'s
 
 `/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
 Gatekeeper Subagent" step (Step 1.5), one gatekeeper agent is spawned
-via the Task tool with a per-spawn `model: "haiku"` override — justified
-primarily by **cost-routing** rather than context isolation. It
-short-circuits the four-agent Sonnet fan-out on
+via the Task tool as `subagent_type: flow-gatekeeper` (resolved via the
+file-exists guard, falling back to `general-purpose` with the loud
+`NOTICE — agent-fallback:` line) with a per-spawn `model: "haiku"`
+override — justified primarily by **cost-routing** rather than context
+isolation. The haiku pin is paired: `agents/flow-gatekeeper.md`
+frontmatter declares `model: haiku` as the declarative record, and the
+spawn site keeps the identical per-spawn `model: "haiku"` so the
+fallback path stays haiku (per-spawn wins; the values never conflict).
+It short-circuits the six-agent Sonnet fan-out on
 closed/merged/trivial/no-new-commits PRs from a single `gh pr view`
 metadata fetch. Artifact: `<worktree>/.flow-tmp/gatekeeper-result.json`
 (typed fields `decision`, `reason`, `skip_kind?`, `summary`). The
@@ -111,9 +123,14 @@ to the auto-merge gate; `"proceed"` continues to Step 2 unchanged.
 
 `/flow-pipeline` step 8 loads `/flow-pr-review`; at the "Independent
 Consolidator-Validator Subagent" step (Step 3.5), one
-consolidator-validator agent is spawned via the Task tool. Unlike the
-Gatekeeper there is **no** `model: "haiku"` override — default Sonnet is
-used because the second-opinion pass needs the larger model's judgment.
+consolidator-validator agent is spawned via the Task tool as
+`subagent_type: flow-consolidator` (the `agents/flow-consolidator.md`
+definition — Bash/Read/Grep/Write allowlist, no `effort:`/`model:`
+pins), resolved via the file-exists guard that falls back to
+`general-purpose` with the loud `NOTICE — agent-fallback:` line. Unlike
+the Gatekeeper there is **no** `model: "haiku"` override — default
+Sonnet is used because the second-opinion pass needs the larger model's
+judgment.
 Artifact: `<worktree>/.flow-tmp/consolidator-result.json` (typed fields
 `consolidated_findings`, `dropped_by_validation`, `rejected_alternatives`,
 `anti_patterns_found`, `summary`); the wrapper reads it once at Step 4

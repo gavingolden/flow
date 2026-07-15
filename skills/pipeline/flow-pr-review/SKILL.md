@@ -168,17 +168,25 @@ The fan-out's value is its cost-routing override (Sonnet → Haiku) and its cont
    mkdir -p "$WORKTREE/.flow-tmp"
    ```
 
-3. Make exactly **one** Task-tool call:
+3. Resolve the subagent type, then make exactly **one** Task-tool call:
+
+   ```bash
+   GATEKEEPER_SUBAGENT=flow-gatekeeper
+   [ -f ~/.claude/agents/flow-gatekeeper.md ] || { GATEKEEPER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-gatekeeper → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+   ```
 
    ```
-   subagent_type: general-purpose
+   subagent_type: $GATEKEEPER_SUBAGENT
    model: "haiku"
    description:   Gatekeeper for /flow-pr-review
    prompt:        <the prompt template below, with variables filled in>
    ```
 
    The `model: "haiku"` per-spawn override is the load-bearing
-   cost-routing knob — do not omit it. The gatekeeper is deliberately
+   cost-routing knob — do not omit it: `agents/flow-gatekeeper.md` also
+   pins `model: haiku` in its frontmatter as the declarative record, but
+   per-spawn wins (the values are identical, so they never conflict) and
+   the param keeps the `general-purpose` fallback path on haiku too. The gatekeeper is deliberately
    **pinned** to `haiku`: there is **no** `--model-gatekeeper` flag, and it
    never inherits the session model. A `config.models.gatekeeper` key is
    *reachable but loudly discouraged* — overriding it defeats the very
@@ -338,7 +346,7 @@ The wrapper spawns the subagent at Step 8. Before the spawn:
    prompt:        <the prompt template below, with variables filled in>
    ```
 
-   **Subagent type.** The `flow-fix-applier` definition (`agents/flow-fix-applier.md`) pins `effort: low` so this mechanical apply-commit-push loop stops burning high-effort tokens. Resolve `FIX_APPLIER_SUBAGENT=flow-fix-applier; [ -f ~/.claude/agents/flow-fix-applier.md ] || FIX_APPLIER_SUBAGENT=general-purpose` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
+   **Subagent type.** The `flow-fix-applier` definition (`agents/flow-fix-applier.md`) pins `effort: low` so this mechanical apply-commit-push loop stops burning high-effort tokens. Resolve `FIX_APPLIER_SUBAGENT=flow-fix-applier; [ -f ~/.claude/agents/flow-fix-applier.md ] || { FIX_APPLIER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-fix-applier → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }` so an un-upgraded consumer (definition not symlinked) falls back to `general-purpose` — loudly — and the spawn never fails on an unknown agent type. The per-spawn `model:` below overrides the definition's model, so the model precedence is unchanged either way.
 
    **Per-phase model (fixApplier) resolution.** Field `state.modelFixApplier`; precedence `--model-fix-applier > config.models.fixApplier > "sonnet"` — fixApplier does **NOT** inherit the session model (a mechanical apply-commit-push loop over already-diagnosed findings rarely earns an expensive model — the same asymmetry as verify; see `../flow-pipeline/references/model-routing.md`). Resolve via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); FIX_APPLIER_MODEL=$(jq -r '.modelFixApplier // empty' ~/.flow/state/"$SLUG".json); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL=$(jq -r '.models.fixApplier // empty' ~/.flow/config.json 2>/dev/null); [ -z "$FIX_APPLIER_MODEL" ] && FIX_APPLIER_MODEL="sonnet"`) and pass FIX_APPLIER_MODEL as the Task call's per-spawn `model:` (never empty — the `sonnet` fallback always resolves).
 
@@ -530,15 +538,18 @@ fall back to in-line execution — the cost-routing rationale collapses if
 the metadata fetch + skip-rule eval run inside the supervisor's Sonnet
 session.
 
-Resolve `$WORKTREE` and `$ARTIFACT_PATH`, create the parent directory,
-make exactly one Task call with `model: "haiku"`:
+Resolve `$WORKTREE`, `$ARTIFACT_PATH`, and the subagent type, create the
+parent directory, make exactly one Task call with `model: "haiku"`:
 
 ```bash
 WORKTREE="${WORKTREE:-$(pwd)}"
 ARTIFACT_PATH="$WORKTREE/.flow-tmp/gatekeeper-result.json"
 mkdir -p "$WORKTREE/.flow-tmp"
-# Task call with model: "haiku" using the prompt template from the
-# § Independent Gatekeeper Subagent section above.
+GATEKEEPER_SUBAGENT=flow-gatekeeper
+[ -f ~/.claude/agents/flow-gatekeeper.md ] || { GATEKEEPER_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-gatekeeper → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+# Task call with subagent_type: $GATEKEEPER_SUBAGENT and model: "haiku"
+# using the prompt template from the § Independent Gatekeeper Subagent
+# section above.
 ```
 
 After the subagent returns:
@@ -717,8 +728,31 @@ subagent rather than landing in the supervisor's transcript.
 
 **Per-phase model (review) resolution.** Field `state.modelReview`; precedence `--model-review > config.models.review > inherited` (see `../flow-pipeline/references/model-routing.md`). Resolve once via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); REVIEW_MODEL=$(jq -r '.modelReview // empty' ~/.flow/state/"$SLUG".json); [ -z "$REVIEW_MODEL" ] && REVIEW_MODEL=$(jq -r '.models.review // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as each agent's per-spawn `model:` (empty ⇒ omit on every agent ⇒ inherit).
 
-**Spawn 6 agents in parallel**, each as a subagent (each with the resolved
-`model: "$REVIEW_MODEL"` when non-empty). For each agent:
+**Per-lens subagent-type resolution.** Each lens has a named definition at
+`agents/flow-review-<lens>.md` (Definition column below) whose `tools:`
+allowlist (Read, Grep, Glob, Write) contains the review to read-and-report;
+none pins `effort:`/`model:` (judgment role — the per-spawn
+`model: "$REVIEW_MODEL"` always wins). Resolve the type per lens:
+
+```bash
+for LENS in bug-detection security pattern-consistency performance supply-chain test-coverage; do
+  LENS_AGENT="flow-review-$LENS"
+  [ -f ~/.claude/agents/flow-review-$LENS.md ] || { LENS_AGENT=general-purpose; echo "NOTICE — agent-fallback: flow-review-$LENS → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+  echo "lens $LENS → subagent_type: $LENS_AGENT"
+done
+```
+
+`LENS_AGENT` is a scalar reassigned each iteration — it does NOT hold all
+six resolutions after the loop exits. The loop's only purpose is to print
+the six `lens $LENS → subagent_type: $LENS_AGENT` lines above; use that
+printed per-lens value when spawning, never the loop variable's final
+value.
+
+**Spawn 6 agents in parallel**, each as a subagent with
+`subagent_type:` set to that lens's printed value from the mapping above
+(NOT a shared `$LENS_AGENT` variable — each of the six spawns has its own
+resolved type) and the resolved
+`model: "$REVIEW_MODEL"` when non-empty. For each agent:
 
 - Copy the shared context block from `references/agent-prompts.md`
 - Fill in the template variables: `{{PR_NUMBER}}`, `{{PR_TITLE}}`, `{{PR_DESCRIPTION}}`,
@@ -754,14 +788,14 @@ subagent rather than landing in the supervisor's transcript.
 
 The 6 agents:
 
-| Agent                   | Focus                                                                            | Checklist sections                          | Static-analysis lens | On-disk output path |
-| ----------------------- | -------------------------------------------------------------------------------- | ------------------------------------------- | -------------------- | ------------------- |
-| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts                      | Error Handling, Type Safety                 | `types` (tsc errors) | `agent-output-bug-detection.json` |
-| **Security**            | OWASP top 10, input validation, auth, secrets, injection                         | Security                                    | `security` + `dependencies` (semgrep + npm-audit) | `agent-output-security.json` |
-| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code                        | Consistency, Lifecycle/Cleanup, Composition | `lint` (biome/eslint, shared with Performance) | `agent-output-pattern-consistency.json` |
-| **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | Performance (review-checklist.md §Performance) | `lint` (biome/eslint, shared with Pattern/Consistency) | `agent-output-performance.json` |
-| **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | Part 3 §Removing a Top-Level Field          | `none` (synthetic `meta.ran=false` block) | `agent-output-supply-chain.json` |
-| **Test Coverage**       | Missing tests, untested edges, test quality, env setup                           | Test Environment                            | `none` (synthetic `meta.ran=false` block) | `agent-output-test-coverage.json` |
+| Agent                   | Focus                                                                            | Checklist sections                          | Static-analysis lens | On-disk output path | Definition |
+| ----------------------- | -------------------------------------------------------------------------------- | ------------------------------------------- | -------------------- | ------------------- | ---------- |
+| **Bug Detection**       | Logic errors, null deref, race conditions, broken contracts                      | Error Handling, Type Safety                 | `types` (tsc errors) | `agent-output-bug-detection.json` | `agents/flow-review-bug-detection.md` |
+| **Security**            | OWASP top 10, input validation, auth, secrets, injection                         | Security                                    | `security` + `dependencies` (semgrep + npm-audit) | `agent-output-security.json` | `agents/flow-review-security.md` |
+| **Pattern/Consistency** | AGENTS.md compliance, cross-cutting uniformity, dead code                        | Consistency, Lifecycle/Cleanup, Composition | `lint` (biome/eslint, shared with Performance) | `agent-output-pattern-consistency.json` | `agents/flow-review-pattern-consistency.md` |
+| **Performance**         | N+1, pagination, leaks, sequential awaits, O(n^2)                                | Performance (review-checklist.md §Performance) | `lint` (biome/eslint, shared with Pattern/Consistency) | `agent-output-performance.json` | `agents/flow-review-performance.md` |
+| **Supply-Chain**        | Dependency additions, semver bumps, license drift, package.json top-level deletions | Part 3 §Removing a Top-Level Field          | `none` (synthetic `meta.ran=false` block) | `agent-output-supply-chain.json` | `agents/flow-review-supply-chain.md` |
+| **Test Coverage**       | Missing tests, untested edges, test quality, env setup                           | Test Environment                            | `none` (synthetic `meta.ran=false` block) | `agent-output-test-coverage.json` | `agents/flow-review-test-coverage.md` |
 
 Each agent returns a JSON array of findings with: `file`, `line`, `end_line`, `label`,
 `decoration`, `confidence`, `subject`, `body`. The on-disk artifact at
@@ -858,8 +892,19 @@ gh pr view "$PR_NUMBER" --json number,title,headRefName,baseRefName,headRefOid >
 
 **Per-phase model (consolidator) resolution.** Field `state.modelConsolidator`; precedence `--model-consolidator > config.models.consolidator > inherited` (see `../flow-pipeline/references/model-routing.md`). This spawn does **not** use a `model: "haiku"` pin (unlike the Gatekeeper) — the second-opinion validation needs the larger model. Resolve via `jq` (`SLUG=$(tmux show-options -t "$TMUX_PANE" -v -w @flow-slug); CONSOLIDATOR_MODEL=$(jq -r '.modelConsolidator // empty' ~/.flow/state/"$SLUG".json); [ -z "$CONSOLIDATOR_MODEL" ] && CONSOLIDATOR_MODEL=$(jq -r '.models.consolidator // empty' ~/.flow/config.json 2>/dev/null)`) and pass the non-empty result as the Task call's per-spawn `model:` (empty ⇒ omit ⇒ inherit).
 
-Then make exactly one Task-tool call with `subagent_type:
-general-purpose` (plus the resolved `model:` above when non-empty). The prompt cites
+Resolve the subagent type with the file-exists guard:
+
+```bash
+CONSOLIDATOR_SUBAGENT=flow-consolidator
+[ -f ~/.claude/agents/flow-consolidator.md ] || { CONSOLIDATOR_SUBAGENT=general-purpose; echo "NOTICE — agent-fallback: flow-consolidator → general-purpose (definition not installed; tool-allowlist containment lost — run \`flow install\`)."; }
+```
+
+The `agents/flow-consolidator.md` definition carries a `tools:` allowlist
+(Bash, Read, Grep, Write) and no `effort:`/`model:` frontmatter — a judgment
+role, so the CONSOLIDATOR_MODEL threading above always wins.
+
+Then make exactly one Task-tool call with `subagent_type: $CONSOLIDATOR_SUBAGENT`
+(plus the resolved `model:` above when non-empty). The prompt cites
 `references/consolidator-instructions.md` as the absolute-path
 instructions and passes `$WORKTREE`, `$SKILL_DIR`, the six per-agent
 paths at `$WORKTREE/.flow-tmp/agent-output-<lens>.json` (lenses:
@@ -1712,6 +1757,12 @@ means it is a pre-existing pattern in surrounding code. Render the boolean in th
 **Anti-Patterns Observed** section, and append the new-file audit's WARNING lines (see the
 **New-file anti-pattern audit** sub-step below) so a misclassified introduced-in-PR entry
 is visible to the reader.
+
+**Agent-fallback notices.** When any spawn site's file-exists guard fired its
+`NOTICE — agent-fallback: ...` line during this run (gatekeeper, per-lens,
+consolidator, or fix-applier resolution), echo each fired line in the report's
+environment/automation notes so the containment downgrade and its
+`flow install` remedy reach the reader.
 
 **The report MUST explicitly separate addressed vs deferred findings.** Never leave the
 reader guessing which findings were silently skipped — every finding surfaced in Step 4

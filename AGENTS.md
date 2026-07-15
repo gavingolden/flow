@@ -158,12 +158,12 @@ helpers — `flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`,
 `flow-notify`, `flow-stop-guard`, `flow-ui-validate`, `flow-delegate`, `flow-delegate-fanout`, `flow-plan-review`, `flow-research-cache` — live there with `.ts`
 extensions, Bun shebangs, and tests next door (`<name>.test.ts`). `flow install` symlinks each into `~/.local/bin/<name>` (extensionless on PATH). `flow-ui-validate`'s `bin/lib/ui-validation-schema.ts` is an internal import, NOT in the allowlist below. `flow-delegate-fanout` powers `flow-research`.
 
-The three schema validators `flow-pr-review-result-schema`, `flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked onto PATH by `flow install` — but sourced from `bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators` (distinct from `discoverHelpers`' auto-pickup of every `bin/*.ts`), so pipeline skills invoke them by bare name regardless of cwd.
+The three schema validators `flow-pr-review-result-schema`, `flow-agent-finding-schema`, and `flow-fix-applier-schema` are ALSO symlinked onto PATH by `flow install` — but sourced from `bin/lib/*-schema.ts` via an explicit-allowlist `discoverValidators` (not `discoverHelpers`' auto-pickup), so pipeline skills invoke them by bare name regardless of cwd.
 
 The `flow` wrapper itself is also Bun, at `bin/flow`. It dispatches every
 verb natively — there is no passthrough or legacy entry point.
 
-Static agent-type definitions live in **`agents/`** (`*.md` frontmatter), discovered by `discoverAgents` and symlinked to `~/.claude/agents/`; `flow-verify` and `flow-fix-applier` pin the two mechanical fan-outs to `effort: low` (per-spawn `model:` still wins).
+Static agent-type definitions live in **`agents/`** (`*.md` frontmatter), discovered by `discoverAgents` and symlinked to `~/.claude/agents/`: all 10 carry `tools:` allowlists; 2 mechanical roles additionally pin `effort: low`, the gatekeeper pins `model: haiku`; per-spawn `model:` still wins.
 
 Conventions for any script under `bin/`:
 
@@ -205,8 +205,8 @@ code.claude.com/docs/en/how-claude-code-works.
   step, and any `NEEDS HUMAN: <reason>` — the supervisor's resume anchors;
   lose them and it cannot tell what it has done.
 - **DROP**: verify failure-log excerpts, raw tool outputs, and CI poll progress.
-  These are high-volume and reconstructable (`state.json`, the PR, and a fresh
-  `gh` / `flow-pre-commit` re-derive them).
+  These are high-volume and reconstructable (`state.json`, the PR, and a
+  fresh `gh` / `flow-pre-commit` re-derive them).
 
 ## Git workflow
 
