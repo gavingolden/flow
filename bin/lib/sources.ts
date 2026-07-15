@@ -13,7 +13,7 @@ import {
   LOCAL_BIN_DIR,
 } from "./paths";
 import type { SymlinkKind, SymlinkRecord } from "./manifest";
-import { resolveArtifactSet } from "./modules";
+import { resolveArtifactSetForSource } from "./modules-source-resolve";
 
 const SKILL_TIERS = ["pipeline", "universal", "stacks"] as const;
 const COMPLETION_SHELLS = ["bash", "zsh"] as const;
@@ -249,13 +249,20 @@ export function discoverAll(
 
 /**
  * Module-selection-aware counterpart to `discoverAll`: filters
- * skills/agents/helpers/validators to `resolveArtifactSet(selectedIds)`'s
- * union (`core` always folded in — see `modules.ts`), then appends the SAME
- * always-core residue `discoverAll` appends unconditionally — shell
- * completions and the `flow` wrapper are never module-gated. Validators are
- * also always `core`-pinned per the registry, so filtering them here is a
- * no-op today; the filter stays for when a future module gains its own
- * validator row.
+ * skills/agents/helpers/validators to `resolveArtifactSetForSource(flowSource,
+ * installRoot, selectedIds)`'s union (`core` always folded in — see
+ * `modules.ts`), then appends the SAME always-core residue `discoverAll`
+ * appends unconditionally — shell completions and the `flow` wrapper are
+ * never module-gated. Validators are also always `core`-pinned per the
+ * registry, so filtering them here is a no-op today; the filter stays for
+ * when a future module gains its own validator row.
+ *
+ * The resolver is source-tree-aware: on a `--source <worktree>` divergence it
+ * prefers the worktree's own `bin/lib/modules.ts` (falling back to the
+ * compiled-in registry on any absence/failure/shape-mismatch), so a new
+ * artifact registered only in the worktree's in-flight registry is still
+ * discovered rather than silently dropped. `onWarning`, when supplied,
+ * receives that fallback's warning message (if any).
  *
  * `discoverAll` itself is intentionally untouched (same signature, same
  * body) so the `--all` install path can keep calling it directly — that
@@ -263,13 +270,19 @@ export function discoverAll(
  * construction, independent of whether this filter (or the registry it
  * reads) has a bug.
  */
-export function discoverSelected(
+export async function discoverSelected(
   flowSource: string,
   installRoot: string,
   selectedIds: readonly string[],
   targets = DEFAULT_TARGETS,
-): SourceEntry[] {
-  const resolved = resolveArtifactSet(selectedIds);
+  onWarning?: (message: string) => void,
+): Promise<SourceEntry[]> {
+  const { artifactSet: resolved, warning } = await resolveArtifactSetForSource(
+    flowSource,
+    installRoot,
+    selectedIds,
+  );
+  if (warning) onWarning?.(warning);
   const skillNames = new Set(resolved.skills);
   const agentNames = new Set(resolved.agents);
   const helperNames = new Set(resolved.helpers);
