@@ -37,7 +37,7 @@ place — the section is empty after HTML-comment strip, so the gate auto-merges
 
 For changes that need human verification, replace this comment with `- [ ]`
 items. Apply the **automation test** to each candidate item before you write it
-(source of truth: skills/pipeline/pr-review/references/manual-test-rubric.md
+(source of truth: skills/pipeline/flow-pr-review/references/manual-test-rubric.md
 "Automate first" section): can you name (a) a fixture / setup,
 (b) one or more deterministic assertions, and (c) an exit condition — all
 without subjective human judgment? If yes, write the item as a deterministic
@@ -54,7 +54,7 @@ heading and the first `- [ ]` item so the rubric travels with the body:
 automation test from manual-test-rubric.md is: (a) named fixture/setup,
 (b) deterministic assertion(s), (c) exit condition. If all three are answerable
 without subjective human judgment, it must be a runnable item. Source of truth:
-skills/pipeline/pr-review/references/manual-test-rubric.md. -->
+skills/pipeline/flow-pr-review/references/manual-test-rubric.md. -->
 
 The pr-review skill will run any item that's a deterministic shell command,
 tick the box, and inject the captured output as a `<details>` evidence block

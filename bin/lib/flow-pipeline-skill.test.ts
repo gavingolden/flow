@@ -6,7 +6,7 @@
  * (leading blockquote, inline continue-immediately sentences,
  * `flow-checkpoint` reminders). Those layers proved insufficient in the
  * May 2026 chore-intent incident — the supervisor stopped at
- * `/new-feature`'s tail despite every layer being in place. The
+ * `/flow-new-feature`'s tail despite every layer being in place. The
  * structural defence is now `flow-stop-guard` (a Claude Code Stop hook
  * registered by `flow install`), which intercepts the turn-end signal
  * itself.

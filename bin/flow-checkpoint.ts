@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
 /**
- * Validates checkpoint readiness for the `/checkpoint` skill and the step-4
+ * Validates checkpoint readiness for the `/flow-checkpoint` skill and the step-4
  * auto-checkpoint sub-step, and manages the one-shot `checkpoint.pending`
  * marker the `SessionStart:clear` auto-resume hook gates on.
  *
- * The `/checkpoint` skill (LLM) writes the conversational-state summary to
+ * The `/flow-checkpoint` skill (LLM) writes the conversational-state summary to
  * `<worktree>/.flow-tmp/checkpoint.md`; this helper is the non-LLM half that
  * confirms disk is current and, on a `ready` verdict, writes the marker so a
  * subsequent user-typed `/clear` auto-resumes the pipeline.
@@ -51,7 +51,7 @@ export type Deps = {
   resolveSlug?: () => string | null;
 };
 
-/** Absolute path of the checkpoint body the /checkpoint skill writes. */
+/** Absolute path of the checkpoint body the /flow-checkpoint skill writes. */
 export function checkpointPath(worktreePath: string): string {
   return path.join(worktreePath, ".flow-tmp", "checkpoint.md");
 }

@@ -432,7 +432,7 @@ function mapNpmAuditSeverity(s: string): Severity {
  *
  * Why not include `-` lines: a finding on a removed line is a finding on
  * code that no longer exists — it cannot be "introduced by this PR". The
- * `/pr-review` "review only changes introduced by this PR" anti-pattern
+ * `/flow-pr-review` "review only changes introduced by this PR" anti-pattern
  * is enforced here at the helper level, not in each agent's prompt.
  */
 export function computeChangedLines(diff: string): Map<string, Set<number>> {

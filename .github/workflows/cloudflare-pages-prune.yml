@@ -19,7 +19,7 @@
 # (fine-grained PAT or GitHub App installation token with Contents:Read on
 # gavingolden/flow) to resolve.
 #
-# Consumer-side example: skills/stacks/cloudflare-pages/SKILL.md section 1.
+# Consumer-side example: skills/stacks/flow-cloudflare-pages/SKILL.md section 1.
 
 name: cloudflare-pages-prune
 
@@ -170,4 +170,4 @@ jobs:
           else
             args+=(--apply)
           fi
-          bun skills/stacks/cloudflare-pages/templates/prune-cf-deployments.ts "${args[@]}"
+          bun skills/stacks/flow-cloudflare-pages/templates/prune-cf-deployments.ts "${args[@]}"

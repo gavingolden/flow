@@ -6,7 +6,7 @@
 
 ## 1. Problem & intent
 
-flow can design _one feature_ (`/product-planning`) and execute _one feature_ (`/flow-pipeline`). It has no way to take a body of work larger than one PR — an "epic" — and turn it into a reviewed, dependency-ordered set of PR-sized features. Today the developer decomposes by hand and runs `flow new` N times, sequencing the features in their head. The underlying need is **a trustworthy decomposition**: a high-level design plus a feature DAG, reviewed once, that each existing per-feature pipeline can then build. (Orchestrating the _execution_ of that DAG is explicitly deferred and out of scope — see `02` §0.)
+flow can design _one feature_ (`/flow-product-planning`) and execute _one feature_ (`/flow-pipeline`). It has no way to take a body of work larger than one PR — an "epic" — and turn it into a reviewed, dependency-ordered set of PR-sized features. Today the developer decomposes by hand and runs `flow new` N times, sequencing the features in their head. The underlying need is **a trustworthy decomposition**: a high-level design plus a feature DAG, reviewed once, that each existing per-feature pipeline can then build. (Orchestrating the _execution_ of that DAG is explicitly deferred and out of scope — see `02` §0.)
 
 ## 2. Clarified requirements (EARS acceptance criteria)
 
@@ -23,7 +23,7 @@ Per `02` §4, the design artifact's decisions _are_ the list of likely-to-change
 - **D1 — Manifest shape & storage path.** _Context:_ every other piece reads or writes the manifest. _Decision:_ a typed `manifest.json` (mirroring `bin/lib/state.ts` + the four `*-schema.ts` validators) committed under `.flow/epics/<slug>/`. _Consequence:_ the shape is the most-depended-on contract, so it is the root feature; changing it later ripples, which is exactly why it is hidden behind a schema + validator. → **F1**
 - **D2 — DAG correctness algorithm.** _Context:_ a decomposition is only trustworthy if the graph is provably well-formed. _Decision:_ a pure Kahn's-algorithm helper (acyclic / orphan / ready-set), unit-tested in isolation. _Consequence:_ the graph-theory choice is hidden from everything else behind a `--validate` CLI. → **F2**
 - **D3 — CLI surface & epic identity.** _Context:_ the designer needs an invocation verb and a stable id for the future `run`/`status`. _Decision:_ a `flow epic` verb (`bin/lib/epic.ts` + `verbs.ts` + dispatch + completion) minting an epic-id via the existing `slug.ts`. _Consequence:_ CLI wiring and id/state storage are hidden behind one verb module. → **F3**
-- **D4 — The design methodology itself.** _Context:_ turning a prompt into requirements + design + a decomposition is the actual intelligence. _Decision:_ a one-shot epic-grain extension of `/product-planning`'s discovery implementing pipeline ① (`02` §4) — EARS criteria, Parnas/Simon vertical-slice decomposition (`02` §6), Mermaid DAG, Open Questions. The materiality-gated clarification round (`02` §3) is NOT part of F4: a one-shot discovery subagent cannot fire `AskUserQuestion`, so that round is F5's caller concern. _Consequence:_ the methodology is the most volatile part (it will be tuned often), so it is isolated in one skill/discovery surface that emits the stable manifest contract. → **F4**
+- **D4 — The design methodology itself.** _Context:_ turning a prompt into requirements + design + a decomposition is the actual intelligence. _Decision:_ a one-shot epic-grain extension of `/flow-product-planning`'s discovery implementing pipeline ① (`02` §4) — EARS criteria, Parnas/Simon vertical-slice decomposition (`02` §6), Mermaid DAG, Open Questions. The materiality-gated clarification round (`02` §3) is NOT part of F4: a one-shot discovery subagent cannot fire `AskUserQuestion`, so that round is F5's caller concern. _Consequence:_ the methodology is the most volatile part (it will be tuned often), so it is isolated in one skill/discovery surface that emits the stable manifest contract. → **F4**
 - **D5 — End-to-end flow & the human checkpoint.** _Context:_ the pieces must compose into `flow epic create "<prompt>"` with a review gate. _Decision:_ wire CLI → designer → validators → an `epic-design-pending-review` checkpoint mirroring `plan-pending-review`. _Consequence:_ the approval contract is hidden behind the integration feature, which closes the DAG. → **F5**
 
 **Why these cuts (Parnas + Simon, `01` §Headline):** each feature hides exactly one volatile decision (D1–D5); the edges between them are the _stable_ interfaces (the manifest shape, the validator CLI, the verb surface). Inter-feature coupling is sparse by construction — every edge is a concrete produced/consumed artifact, never a "feels-later" — so each feature is independently buildable in the near-decomposable sense.
@@ -38,7 +38,7 @@ Five features. Each is one `flow new` pipeline / one PR, sized per `02` §6 (ver
 - **Depends on:** nothing (root).
 - **Produces (edge artifacts consumed downstream):** `bin/lib/epic-manifest-schema.ts` (`EpicManifest`/`Feature` types + `isEpicManifest` type guard, mirroring `state.ts`); a bare-name CLI validator added to `discoverValidators` (mirroring the four existing `*-schema.ts` validators); the path contract `.flow/epics/<slug>/{design.md,manifest.json}`; `bin/lib/epic-manifest-schema.test.ts`.
 - **Acceptance:** WHEN given a well-formed manifest THE SYSTEM SHALL exit 0 and print `{ok:true}`; WHEN given a malformed manifest THE SYSTEM SHALL exit non-zero with a reason; `npm run test -- bin/lib/epic-manifest-schema.test.ts` passes.
-- **Skill:** `testing` (helper authoring). **Size:** small–medium.
+- **Skill:** `flow-testing` (helper authoring). **Size:** small–medium.
 
 ### F2 · `epic-dag-validator` — acyclic / orphan / ready-set helper **[MVP]**
 
@@ -46,7 +46,7 @@ Five features. Each is one `flow new` pipeline / one PR, sized per `02` §6 (ver
 - **Depends on:** **F1** — _edge artifact: the `Feature[]` / `dependsOn` shape it operates over._
 - **Produces:** `bin/flow-epic-dag.ts` (pure functions: cycle detection, orphan-edge check, unique-id/self-dep check, Kahn ready-set; `--validate` exits non-zero naming the offending cycle/edge); `bin/flow-epic-dag.test.ts` covering empty, linear chain, diamond, disconnected components, cycle, and orphan-edge cases.
 - **Acceptance:** WHEN given an acyclic orphan-free manifest THE SYSTEM SHALL exit 0; WHEN given a cycle THE SYSTEM SHALL exit non-zero and name the cycle; WHEN given a `dependsOn` referencing an absent id THE SYSTEM SHALL exit non-zero; `bun bin/flow-epic-dag.test.ts` passes.
-- **Skill:** `testing`. **Size:** small–medium.
+- **Skill:** `flow-testing`. **Size:** small–medium.
 
 ### F3 · `epic-cli-verb` — `flow epic` verb + epic-id + epic state
 
@@ -54,13 +54,13 @@ Five features. Each is one `flow new` pipeline / one PR, sized per `02` §6 (ver
 - **Depends on:** **F1** — _edge artifact: the manifest/path contract it reads and writes._
 - **Produces:** `"epic"` in `bin/lib/verbs.ts`; `bin/lib/epic.ts` (`runEpicCli` dispatching `design`/`run`/`status`/`ls`, where `run`/`status`/`ls` are out-of-scope stubs that print "deferred — orchestrator phase"); epic-id minting via `slug.ts`; minimal epic-state read/write; a `runVerb` case in `bin/flow`; completion entries; tests.
 - **Acceptance:** WHEN `flow epic --help` runs THE SYSTEM SHALL print usage and exit 0; WHEN `flow epic create --help` runs THE SYSTEM SHALL short-circuit before any side effect (mirror the `flow new --help` guard); WHEN two epics are minted from colliding prompts THE SYSTEM SHALL produce distinct ids (slug `task-<hash>` fallback); the completion-parity test (which imports `VERBS`) passes.
-- **Skill:** `testing` (CLI wiring). **Size:** medium. **Note:** independently mergeable — ships the verb skeleton even before the designer logic exists; `design` is wired to the brain in F5.
+- **Skill:** `flow-testing` (CLI wiring). **Size:** medium. **Note:** independently mergeable — ships the verb skeleton even before the designer logic exists; `design` is wired to the brain in F5.
 
 ### F4 · `designer-logic` — epic-grain discovery → design.md + manifest.json **[MVP · first real user value]**
 
 - **Secret hidden (D4):** the design methodology (prompt → requirements → design → decomposition → DAG).
 - **Depends on:** **F1** — _edge artifact: it must emit a schema-valid manifest;_ and **F2** — _edge artifact: it self-checks its own DAG before writing._
-- **Produces:** the one-shot epic-grain discovery methodology — a sibling `skills/pipeline/product-planning/references/epic-discovery-instructions.md` selected by a `MODE: epic` spawn flag (reusing the discovery machinery, not editing the feature-grain `discovery-instructions.md`) — implementing `02` §4 pipeline ①: EARS acceptance criteria, ADR-shaped design decisions = the Parnas volatile-decision list, Parnas/Simon vertical-slice decomposition (`02` §6), a Mermaid DAG render, and Open Questions; writes `design.md` (six sections) + a schema-valid `manifest.json` to the F1 path, self-validating via F1 + F2 in a fix-and-re-run loop. The materiality-gated clarification round (`02` §3) is NOT produced here — it is F5's caller concern (a one-shot discovery subagent cannot fire `AskUserQuestion`).
+- **Produces:** the one-shot epic-grain discovery methodology — a sibling `skills/pipeline/flow-product-planning/references/epic-discovery-instructions.md` selected by a `MODE: epic` spawn flag (reusing the discovery machinery, not editing the feature-grain `discovery-instructions.md`) — implementing `02` §4 pipeline ①: EARS acceptance criteria, ADR-shaped design decisions = the Parnas volatile-decision list, Parnas/Simon vertical-slice decomposition (`02` §6), a Mermaid DAG render, and Open Questions; writes `design.md` (six sections) + a schema-valid `manifest.json` to the F1 path, self-validating via F1 + F2 in a fix-and-re-run loop. The materiality-gated clarification round (`02` §3) is NOT produced here — it is F5's caller concern (a one-shot discovery subagent cannot fire `AskUserQuestion`).
 - **Acceptance:** WHEN run on a sample epic prompt THE SYSTEM SHALL write a `design.md` containing all six sections AND a `manifest.json` that passes F1's validator (exit 0) and F2's DAG validator (exit 0); WHEN the produced decomposition is inspected THE SYSTEM SHALL show only vertical-slice features with produced/consumed edges (no horizontal layers, no vibe edges); WHEN a deliberately cyclic manifest is fed to the self-check THE SYSTEM SHALL refuse it.
 - **Skill:** `product-planning` (reused/extended). **Size:** large but cohesive (it is the methodology). **Possible sub-split if it proves too big:** ship "prompt → design.md + manifest (autonomous)" first, add the hybrid clarification round second — a _vertical_ re-cut (each still emits valid artifacts), never a horizontal one.
 - **MVP marker:** **F1 + F2 + F4 is the minimal valuable designer** — invokable as a skill, producing a reviewed, validated decomposition, before any `flow epic` CLI ergonomics exist.
@@ -71,7 +71,7 @@ Five features. Each is one `flow new` pipeline / one PR, sized per `02` §6 (ver
 - **Depends on:** **F3** — _edge artifact: the `flow epic create` verb entry;_ and **F4** — _edge artifact: the designer that produces the artifacts._
 - **Produces:** the wiring `flow epic create "<prompt>"` → mint id (F3) → fire the materiality-gated hybrid clarification round (`02` §3, via `AskUserQuestion` — F5's own authorized form, relocated here from F4 because the one-shot designer cannot fire it) → run designer (F4) on the clarified prompt → write artifacts → run F1 + F2 validators as a gate → surface `design.md` at an `epic-design-pending-review` checkpoint (mirror `plan-pending-review`: approve / redirect / cancel); tests for the end-to-end happy path + the redirect path.
 - **Acceptance:** WHEN `flow epic create "<sample epic>"` runs THE SYSTEM SHALL write committed `design.md` + `manifest.json`, pass both validators, and halt at the approval checkpoint without launching or merging anything; WHEN the developer redirects at the checkpoint THE SYSTEM SHALL re-run the designer with the redirect appended; WHEN approved THE SYSTEM SHALL stop (handing off to the deferred orchestrator is out of scope).
-- **Skill:** `testing` / `flow-pipeline` patterns (CLI + checkpoint wiring). **Size:** medium.
+- **Skill:** `flow-testing` / `flow-pipeline` patterns (CLI + checkpoint wiring). **Size:** medium.
 
 ## 5. Dependency DAG
 
@@ -96,7 +96,7 @@ graph TD
 
 ## 6. Open Questions (for the approval checkpoint)
 
-- **F4 surface — extend `/product-planning` vs a sibling `epic-design` skill? RESOLVED (F4): the middle ground.** A sibling `references/epic-discovery-instructions.md` selected by a `MODE: epic` spawn flag — reusing the discovery machinery (subagent + spawn wrapper) in full while isolating the epic-grain prose in its own file, with zero collision risk against the structural-lint anchors in `discovery-instructions.md`. Neither inline-extend (lint-collision risk) nor a standalone sibling skill (duplicates the machinery).
+- **F4 surface — extend `/flow-product-planning` vs a sibling `epic-design` skill? RESOLVED (F4): the middle ground.** A sibling `references/epic-discovery-instructions.md` selected by a `MODE: epic` spawn flag — reusing the discovery machinery (subagent + spawn wrapper) in full while isolating the epic-grain prose in its own file, with zero collision risk against the structural-lint anchors in `discovery-instructions.md`. Neither inline-extend (lint-collision risk) nor a standalone sibling skill (duplicates the machinery).
 - **F3 `run`/`status`/`ls` stubs — ship as visible "deferred" stubs, or omit until the orchestrator phase?** Recommended: ship as loud `deferred` stubs so the verb surface is coherent and the seam (`02` §10) is visible; omitting risks a confusing partial verb.
 - **`design.md` requirements section depth. RESOLVED (F4): epic-level in `design.md`, per-feature in the manifest.** `design.md` §2 carries coarser _epic-level_ EARS acceptance criteria (the epic's user-visible behaviors); per-_feature_ acceptance lives in each manifest feature's `acceptanceCriteria[]`. The committed worked example under `.flow/epics/build-the-epic-designer/` demonstrates the split.
 
@@ -153,7 +153,7 @@ This is the same build plan as a schema-valid manifest in the `02` §5 shape —
     {
       "id": "f4-designer-logic",
       "title": "Epic-grain designer logic → design.md + manifest.json",
-      "description": "Add a one-shot epic-grain /product-planning discovery methodology (sibling references/epic-discovery-instructions.md selected by a MODE: epic flag): EARS criteria, ADR-shaped decisions = Parnas volatile-decision list, Parnas/Simon vertical-slice decomposition, Mermaid DAG, Open Questions; emit schema-valid manifest.json + design.md, self-validating via both checkers. The clarification round is F5's caller concern (a one-shot subagent cannot fire AskUserQuestion).",
+      "description": "Add a one-shot epic-grain /flow-product-planning discovery methodology (sibling references/epic-discovery-instructions.md selected by a MODE: epic flag): EARS criteria, ADR-shaped decisions = Parnas volatile-decision list, Parnas/Simon vertical-slice decomposition, Mermaid DAG, Open Questions; emit schema-valid manifest.json + design.md, self-validating via both checkers. The clarification round is F5's caller concern (a one-shot subagent cannot fire AskUserQuestion).",
       "dependsOn": ["f1-manifest-schema", "f2-dag-validator"],
       "rationale": "Hides D4 (the design methodology) — the most volatile part, isolated behind the stable manifest contract; where MVP value lands.",
       "acceptanceCriteria": [

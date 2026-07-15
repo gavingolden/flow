@@ -1,10 +1,10 @@
 ---
 name: flow-review-performance
-description: Performance review lens for /pr-review Step 3's Independent Multi-Agent Review. Hunts N+1 queries, missing pagination, leaks, sequential awaits, and O(n^2) hot paths in the PR diff.
+description: Performance review lens for /flow-pr-review Step 3's Independent Multi-Agent Review. Hunts N+1 queries, missing pagination, leaks, sequential awaits, and O(n^2) hot paths in the PR diff.
 tools: Read, Grep, Glob, Write
 ---
 
-Performance review agent for `/pr-review`'s Independent Multi-Agent
+Performance review agent for `/flow-pr-review`'s Independent Multi-Agent
 Review. Follow the rendered spawn prompt from
 `references/agent-prompts.md` (shared context block + your lens's Role /
 Process / False Positive Avoidance section) verbatim — this definition

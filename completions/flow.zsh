@@ -103,8 +103,8 @@ _flow() {
                             '*::prompt:'
                     elif [[ "$line[2]" == run ]]; then
                         _arguments \
-                            '--model[whole-session model for the /epic-run supervisor]:alias:(opus haiku sonnet fable)' \
-                            '--effort[Claude Code reasoning effort for the /epic-run supervisor]:level:(low medium high xhigh max)'
+                            '--model[whole-session model for the /flow-epic-run supervisor]:alias:(opus haiku sonnet fable)' \
+                            '--effort[Claude Code reasoning effort for the /flow-epic-run supervisor]:level:(low medium high xhigh max)'
                     elif [[ "$line[2]" == status ]]; then
                         _arguments \
                             '--json[emit a machine-readable board (hypothesis to verify)]'
@@ -121,7 +121,7 @@ _flow() {
                         local -a sub
                         sub=(
                             'create:design an epic'
-                            'run:open the /epic-run playbook window'
+                            'run:open the /flow-epic-run playbook window'
                             'status:render the live epic board (read-only)'
                             'bind:repoint or adopt a feature run.json binding'
                             'launch:atomically create + bind a feature'

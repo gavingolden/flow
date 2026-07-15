@@ -239,7 +239,7 @@ other phases' subsections.
 ```
 ### plan (latest: 2026-04-27T10:35:00Z, ok)
 - PRD: docs link or inline content
-- Tasks: bulleted list as designed in /product-planning
+- Tasks: bulleted list as designed in /flow-product-planning
 - PR draft: pr-description-draft.md path
 
 ### implement (latest: 2026-04-27T10:45:00Z, ok)

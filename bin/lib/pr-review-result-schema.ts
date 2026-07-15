@@ -1,15 +1,15 @@
 #!/usr/bin/env bun
 /**
- * Schema validator for the `/pr-review` wrapper-level result artifact at
+ * Schema validator for the `/flow-pr-review` wrapper-level result artifact at
  * `<worktree>/.flow-tmp/pr-review-result.json`.
  *
  * The schema is documented prose-only in
- * `skills/pipeline/pr-review/SKILL.md`'s `# Result artifact` section, with a
+ * `skills/pipeline/flow-pr-review/SKILL.md`'s `# Result artifact` section, with a
  * top-level-keys lint at `bin/skill-md-lint.test.ts`. This module is the
  * runtime counterpart: `/flow-pipeline` step 8 calls
  * `validatePrReviewResult(parsed)` to confirm shape before branching on
  * `.status`. It also exposes a CLI mode (`--validate <path>`) so the
- * `/pr-review` wrapper can pipe the artifact through this validator just
+ * `/flow-pr-review` wrapper can pipe the artifact through this validator just
  * before atomically writing to disk — that pre-write check is what keeps
  * a malformed artifact from ever landing where the supervisor expects a
  * well-formed JSON object.
@@ -18,7 +18,7 @@
  * three-valued `status` discriminator is the only enumerated field; the
  * arrays carry plain strings (canonical step labels) and the validator
  * checks they are arrays of strings without enumerating the labels here
- * — the labels live in the prose contract in pr-review/SKILL.md, and
+ * — the labels live in the prose contract in flow-pr-review/SKILL.md, and
  * encoding them here would couple the validator to step-renumbering
  * churn the prose is anchored to absorb.
  *

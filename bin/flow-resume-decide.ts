@@ -254,7 +254,7 @@ export function decide(inputs: Inputs): DecisionResult {
   // Gated feedback mode: `gated` is normally terminal, but when the pipeline
   // carries a one-shot `checkpoint.pending` marker AND a live worktree AND the
   // PR is still OPEN, resolve it to `gated-feedback` — a fresh session
-  // positioned to take a bug callout, route it through /coder, re-verify
+  // positioned to take a bug callout, route it through /flow-coder, re-verify
   // (step 6), and re-gate (step 9) — instead of the terminal no-op. This branch
   // MUST precede the TERMINAL_PHASE_SET short-circuit (gated is a terminal
   // phase) and self-populate ctx.pr/prState from inputs, because the general

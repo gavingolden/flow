@@ -303,7 +303,7 @@ still observes the stale review.
   follow-up', the retrigger is skipped — re-requesting Copilot would
   burn a paid credit on a review unlikely to surface findings. A
   follow-up counts as small when EITHER (a) every intervening commit
-  is a `/pr-review` fix-applier review-fix commit, detected by the
+  is a `/flow-pr-review` fix-applier review-fix commit, detected by the
   `(pr-review #N)` subject marker (`FIX_APPLIER_COMMIT_MARKER`); OR
   (b) total changed LOC (additions + deletions) is `<=
 SMALL_FOLLOWUP_MAX_LOC` (15) AND distinct files touched is `<=

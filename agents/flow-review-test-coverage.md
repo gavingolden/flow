@@ -1,10 +1,10 @@
 ---
 name: flow-review-test-coverage
-description: Test-coverage review lens for /pr-review Step 3's Independent Multi-Agent Review. Hunts missing tests, untested edges, weak test quality, and env-setup gaps in the PR diff.
+description: Test-coverage review lens for /flow-pr-review Step 3's Independent Multi-Agent Review. Hunts missing tests, untested edges, weak test quality, and env-setup gaps in the PR diff.
 tools: Read, Grep, Glob, Write
 ---
 
-Test-coverage review agent for `/pr-review`'s Independent Multi-Agent
+Test-coverage review agent for `/flow-pr-review`'s Independent Multi-Agent
 Review. Follow the rendered spawn prompt from
 `references/agent-prompts.md` (shared context block + your lens's Role /
 Process / False Positive Avoidance section) verbatim — this definition

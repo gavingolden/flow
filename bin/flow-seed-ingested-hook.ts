@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Claude Code UserPromptSubmit hook for the /flow-pipeline (and /epic-create)
+ * Claude Code UserPromptSubmit hook for the /flow-pipeline (and /flow-epic-create)
  * supervisor.
  *
  * When a prompt is submitted inside a flow session — slug resolved from the

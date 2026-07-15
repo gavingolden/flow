@@ -3,11 +3,11 @@
  *
  * `flow epic create "<prompt>"` mirrors `flow feature create`: it mints the epic id +
  * the literal epic directory (CLI-side, R1), spawns a per-pipeline tmux window
- * running the `/epic-create` supervisor skill, and writes initial epic state
+ * running the `/flow-epic-create` supervisor skill, and writes initial epic state
  * (`phase: "starting"`). The supervisor drives clarification → designer →
  * validate → commit → open design PR → `epic-design-pending-review` checkpoint.
  *
- * `flow epic create --resume <slug>` re-launches a crashed `/epic-create`
+ * `flow epic create --resume <slug>` re-launches a crashed `/flow-epic-create`
  * session in its existing tmux window (or recreates it if tmux died too) using
  * the epic resume seed prompt — full parity with `flow feature resume`.
  *
@@ -19,7 +19,7 @@
  * exist) never re-derives the path nor imports `bin/lib`.
  *
  * The orchestrator RUN phase: `run` opens a per-pipeline tmux window running
- * the `/epic-run` playbook supervisor (an LLM that reconciles the committed
+ * the `/flow-epic-run` playbook supervisor (an LLM that reconciles the committed
  * manifest against GitHub/git truth and takes one deliberate step at a time —
  * no tick loop, no judgment sub-agent). `bind` / `launch` are the safe-write
  * primitives the playbook actuates with (repoint a drifted binding; atomic
@@ -115,7 +115,7 @@ const WINDOW_CREATE_MAX_ATTEMPTS = 3;
 
 /**
  * Resolved absolute path to the product-planning skill, embedded (R1) in both
- * epic seeds so the spawned `/epic-create` supervisor can pass a concrete
+ * epic seeds so the spawned `/flow-epic-create` supervisor can pass a concrete
  * `SKILL_DIR` into its Task-spawned `MODE: epic` designer. The supervisor runs
  * cwd'd in a consumer worktree without `bin/lib`, so it cannot resolve this
  * itself — the CLI (flow's own installed code) resolves it symlink-aware via
@@ -125,7 +125,7 @@ const PRODUCT_PLANNING_SKILL_DIR = path.join(
   resolveFlowSource(),
   "skills",
   "pipeline",
-  "product-planning",
+  "flow-product-planning",
 );
 
 function launchWithRetry(
@@ -322,7 +322,7 @@ Options:
                         Claude Code model alias for the epic-design session (omit for the default)
 
 Mints an epic id from the prompt, opens a per-pipeline tmux window running
-the /epic-create supervisor skill (clarify → design → validate → open design
+the /flow-epic-create supervisor skill (clarify → design → validate → open design
 PR → review checkpoint), and writes initial epic state under
 .flow/epics/<slug>. --resume re-launches a crashed session in its window.`);
     return 0;
@@ -458,7 +458,7 @@ PR → review checkpoint), and writes initial epic state under
     createCommand(worktree, effort, settingsPath, sessionModel);
 
   // Persist-then-verify-then-delete-on-failure (mirrors feature.ts runFresh): write
-  // epic state(phase=starting) BEFORE the verified launch so the /epic-create
+  // epic state(phase=starting) BEFORE the verified launch so the /flow-epic-create
   // supervisor has a file to advance and the `consumed` predicate has a
   // baseline. The no-orphan guarantee is preserved by deleting this file on
   // EVERY launch-failure exit (launch !ok, Mode-2 vanish).
@@ -537,7 +537,7 @@ PR → review checkpoint), and writes initial epic state under
     return 2;
   }
 
-  // State was written up front and survived verification; the /epic-create
+  // State was written up front and survived verification; the /flow-epic-create
   // supervisor overwrites worktree + phase + pr at each transition from here.
   // First line is the machine-read contract token — raw, never colorized.
   console.log(`${FLOW_SESSION}:${slug}`);
@@ -806,7 +806,7 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
   }
 
   // The manifest is loaded FIRST (above) so a missing/invalid design surfaces
-  // the usage error before any window is spawned. Then open the /epic-run
+  // the usage error before any window is spawned. Then open the /flow-epic-run
   // playbook window — that is the only run path now (the deterministic tick
   // loop + judgment machinery are gone).
   return spawnEpicRunSupervisor(
@@ -819,7 +819,7 @@ function runEpicRun(rest: string[], options: EpicOptions): number {
 }
 
 /**
- * Open the `/epic-run` playbook supervisor in a per-pipeline tmux window.
+ * Open the `/flow-epic-run` playbook supervisor in a per-pipeline tmux window.
  * Mirrors `runCreate`'s launch scaffolding but keeps NO per-machine phase
  * machine — with `runnerPhase` gone, the launch uses `createWindowVerified`'s
  * default fail-closed never-consumed predicate: a dead pane still retries/fails
@@ -841,7 +841,7 @@ function spawnEpicRunSupervisor(
     console.error(
       `  attach with \`flow attach ${slug}\`, or drive the playbook directly`,
     );
-    console.error(`  in any existing session with \`/epic-run ${slug}\`.`);
+    console.error(`  in any existing session with \`/flow-epic-run ${slug}\`.`);
     return 2;
   }
 
@@ -1568,7 +1568,7 @@ function launchArgv(
 // The seed text is defined ONCE in these helpers and delivered ONLY via
 // send-keys by the verified launcher (no positional argv copy), so there is no
 // second definition to drift from. The literal EPIC_DIR is embedded (R1) so the
-// /epic-create supervisor + the MODE: epic designer consume it directly rather
+// /flow-epic-create supervisor + the MODE: epic designer consume it directly rather
 // than re-deriving the path via a bin/lib import they can't reach in a consumer
 // worktree.
 function epicCreateSeed(
@@ -1576,7 +1576,7 @@ function epicCreateSeed(
   epicDir: string,
   skillDir: string,
 ): string {
-  return `Use the /epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
+  return `Use the /flow-epic-create skill for: ${prompt}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
 }
 
 function epicResumeSeed(
@@ -1586,7 +1586,7 @@ function epicResumeSeed(
 ): string {
   // The supervisor parses this prefix to detect resume mode and walk its
   // `# Resume mode` decision via flow-epic-resume-decide.
-  return `Use the /epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
+  return `Use the /flow-epic-create skill in --resume mode for: ${slug}\n\nEPIC_DIR: ${epicDir}\n\nSKILL_DIR: ${skillDir}`;
 }
 
 /**
@@ -1625,14 +1625,14 @@ function buildLaunchCommand(
   return launchArgv(worktree, effort, settingsPath, model);
 }
 
-// The /epic-run supervisor's seed. Mirrors epicCreateSeed: the slug after
+// The /flow-epic-run supervisor's seed. Mirrors epicCreateSeed: the slug after
 // `for:` + the literal EPIC_DIR (R1) on its own line, so the spawned window
 // (cwd'd in a consumer worktree without bin/lib) consumes them directly. The
 // SKILL parses this prefix to enter the playbook. No AUTO_REDIRECT / MODEL_JUDGE
 // lines — the playbook has no tick loop, no judgment sub-agent, and no
 // autonomous redirect to gate.
 function epicRunSeed(slug: string, epicDir: string): string {
-  return `Use the /epic-run skill for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
+  return `Use the /flow-epic-run skill for: ${slug}\n\nEPIC_DIR: ${epicDir}`;
 }
 
 function createCommand(

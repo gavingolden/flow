@@ -106,19 +106,19 @@ color/theme); do not collapse facets into one representative step. An
 **exactly one** overall sign-off instead — the mechanical Visual Spec
 assertions already gate each facet, so per-facet human sign-offs would
 double-gate what the diff envelope asserts. See
-`skills/pipeline/pr-review/references/manual-test-rubric.md`'s "Subjective
+`skills/pipeline/flow-pr-review/references/manual-test-rubric.md`'s "Subjective
 checks" scoping for the canonical contract. The include-vs-exempt test is "would a reasonable
 person want to eyeball this before it ships?" — trivial tweaks (copy fix, padding
 nudge, icon swap) are exempt, so no subjective step is manufactured where none is
 warranted. Each such step carries a literal `SUBJECTIVE: ` prefix (uppercase,
 colon, single space) after the `- [ ] ` — a human-facing, greppable label. The
 auto-merge gate counts it as a plain unchecked `- [ ]` item (no gate-count
-change), but `/pr-review` never ticks, prose-promotes, or browser-validates a
+change), but `/flow-pr-review` never ticks, prose-promotes, or browser-validates a
 `SUBJECTIVE: ` item into a tick, and flags a non-trivial UI PR that has none.
 This closes a structural gap: a UI PR built entirely from auto-tickable
 enumerated visual-appearance assertions (alignment, focus-ring) would otherwise
 merge with zero human aesthetic sign-off. Defer to
-`skills/pipeline/pr-review/references/manual-test-rubric.md` ("Subjective checks")
+`skills/pipeline/flow-pr-review/references/manual-test-rubric.md` ("Subjective checks")
 for the canonical contract and a worked example.
 
 ### Browser-driven UI validation (optional, opt-in)
@@ -363,8 +363,8 @@ Each key is **tolerant by construction**: an absent key silently takes its defau
 **Optional `review.gemini` opt-in (cross-model PR reviewer).** Setting
 `{ "review": { "gemini": true } }` in `~/.flow/config.json` adds ONE additional
 cross-model reviewer (Gemini, via agy on your Google AI Ultra quota) to
-`/pr-review`'s multi-agent review, alongside the existing six Claude review
-agents. `/pr-review`'s six agents all run on the same Claude model family and
+`/flow-pr-review`'s multi-agent review, alongside the existing six Claude review
+agents. `/flow-pr-review`'s six agents all run on the same Claude model family and
 share that family's blind spots; a genuinely different model catches issues no
 role-specialized Claude lens does, at no Claude-credit cost. It is **config-only**
 (no `flow feature create` flag), the schema is an object (`review: { gemini: boolean }`,
@@ -449,8 +449,8 @@ project conventions that cannot be inferred from pattern-matching.
 
 | When you touch…                             | Read skill        |
 | ------------------------------------------- | ----------------- |
-| Test files                                  | `testing`         |
-| Refactoring / cleanup tasks                 | `refactoring`     |
+| Test files                                  | `flow-testing`    |
+| Refactoring / cleanup tasks                 | `flow-refactoring` |
 | <stack-specific files, e.g. `.svelte`>      | `<stack-skill>`   |
 | <database migrations>                       | `<database-skill>` |
 
@@ -663,7 +663,8 @@ functionality changes.
 
 New features and bug fixes should include tests. Don't leave coverage gaps for follow-up.
 Extract business logic into pure functions testable without UI rendering. For conventions,
-stubs, and component isolation — refer to the `testing` skill.
+stubs, and component isolation — refer to the `flow-testing-svelte` skill (generic
+test-writing/coverage guidance lives in `flow-testing`).
 
 ## Hardening
 

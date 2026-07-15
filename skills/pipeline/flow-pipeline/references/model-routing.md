@@ -35,17 +35,17 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 
 ## Precedence table (highest wins)
 
-| Spawn site                                         | state field          | precedence                                                                            |
-| -------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------- |
-| Step 3 Discovery (planning)                        | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
-| `/new-feature` Scout (implement)                   | `modelImplement`     | `config.models.scout // state.modelImplement // config.models.implement // inherited` |
-| `/coder` Edit-Applier (implement)                  | `modelImplement`     | `config.models.coder // state.modelImplement // config.models.implement // inherited` |
-| Step 6 Verify-Retry-Loop (verify)                  | `modelVerify`        | `state.modelVerify // config.models.verify // "sonnet"` **(NOT inherited)**           |
-| `/pr-review` Multi-Agent Review (review)           | `modelReview`        | `state.modelReview // config.models.review // inherited`                              |
-| `/pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**   |
-| `/pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`  | `state.modelConsolidator // config.models.consolidator // inherited`                  |
-| Step 10 Merge-Conflict Resolver (mergeResolver)    | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                |
-| `/epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
+| Spawn site                                              | state field          | precedence                                                                            |
+| ------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------------- |
+| Step 3 Discovery (planning)                             | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
+| `/flow-new-feature` Scout (implement)                   | `modelImplement`     | `config.models.scout // state.modelImplement // config.models.implement // inherited` |
+| `/flow-coder` Edit-Applier (implement)                  | `modelImplement`     | `config.models.coder // state.modelImplement // config.models.implement // inherited` |
+| Step 6 Verify-Retry-Loop (verify)                       | `modelVerify`        | `state.modelVerify // config.models.verify // "sonnet"` **(NOT inherited)**           |
+| `/flow-pr-review` Multi-Agent Review (review)           | `modelReview`        | `state.modelReview // config.models.review // inherited`                              |
+| `/flow-pr-review` Fix-Applier (fixApplier)              | `modelFixApplier`    | `state.modelFixApplier // config.models.fixApplier // "sonnet"` **(NOT inherited)**   |
+| `/flow-pr-review` Consolidator-Validator (consolidator) | `modelConsolidator`  | `state.modelConsolidator // config.models.consolidator // inherited`                  |
+| Step 10 Merge-Conflict Resolver (mergeResolver)         | `modelMergeResolver` | `state.modelMergeResolver // config.models.mergeResolver // inherited`                |
+| `/flow-epic-create` designer (planning)                 | `modelPlanning`      | `state.modelPlanning // config.models.planning // inherited`                          |
 
 ## Three deliberate asymmetries
 
@@ -58,7 +58,7 @@ so the sub-agent inherits the session model (the default Claude behaviour).
   `agents/flow-fix-applier.md` definition already pins to `effort: low` for the
   same reason. Letting the model inherit would silently spend the session model
   (e.g. Opus/Fable) on gate-run-and-commit work, so its final fallback is the
-  literal `sonnet`. Documented at the `/pr-review` Fix-Applier spawn site.
+  literal `sonnet`. Documented at the `/flow-pr-review` Fix-Applier spawn site.
 - **scout / coder are config-only fine-grain (no flags).** `--model-implement`
   is the one primary grain over implementation; `config.models.scout` /
   `config.models.coder` are optional finer overrides that layer **above**
@@ -66,7 +66,7 @@ so the sub-agent inherits the session model (the default Claude behaviour).
 
 ## The gatekeeper is pinned — no flag, no inherit
 
-The `/pr-review` Step 1.5 gatekeeper stays `model: "haiku"` by design (its
+The `/flow-pr-review` Step 1.5 gatekeeper stays `model: "haiku"` by design (its
 whole point is cheap cost-routing that short-circuits the expensive review
 fan-out). A `config.models.gatekeeper` key is **reachable but loudly
 discouraged** — overriding it defeats the deliberate cost-routing. Do **not**

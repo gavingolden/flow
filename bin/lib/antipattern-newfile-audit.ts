@@ -1,6 +1,6 @@
 /**
- * New-file anti-pattern audit: a pure check consumed by `/pr-review`'s
- * Step 9a (documented in `skills/pipeline/pr-review/SKILL.md`).
+ * New-file anti-pattern audit: a pure check consumed by `/flow-pr-review`'s
+ * Step 9a (documented in `skills/pipeline/flow-pr-review/SKILL.md`).
  *
  * An `anti_patterns_found` entry is meant for a pre-existing pattern in
  * surrounding code. A file the PR newly created has no surrounding code that

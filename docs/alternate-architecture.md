@@ -41,13 +41,13 @@ The designs are evaluated against this seven-item baseline:
 1. From a chat or issue, kick off planning for a feature; pause for
    approval.
 2. After approval: worktree + implement + PR — unattended.
-3. Wait for Copilot to finish reviewing the PR, _then_ run `/pr-review`.
-4. After `/pr-review`: auto-merge if low-risk, otherwise stop and surface.
+3. Wait for Copilot to finish reviewing the PR, _then_ run `/flow-pr-review`.
+4. After `/flow-pr-review`: auto-merge if low-risk, otherwise stop and surface.
 5. Run N pipelines in parallel without N attended terminals.
 6. At-a-glance status for all in-flight pipelines.
 7. One-click drilldown to logs / chat for any pipeline.
 
-Reuse the existing `/product-planning` and `/pr-review` skills as-is.
+Reuse the existing `/flow-product-planning` and `/flow-pr-review` skills as-is.
 
 ---
 
@@ -65,14 +65,14 @@ board _is_ the status board.
 
 1. User opens a GitHub Issue with a feature description, labels it
    `flow:plan`.
-2. Worker sees `flow:plan` → spawns `claude -p '/product-planning ...'`,
+2. Worker sees `flow:plan` → spawns `claude -p '/flow-product-planning ...'`,
    posts plan as an issue comment, swaps label to `flow:awaiting-approval`.
 3. User reacts ✅ on the comment (or comments `/approve`) → worker swaps
    to `flow:implement`, creates a worktree, runs implementation, opens a
    PR linked to the issue, swaps the PR to `flow:awaiting-copilot`.
 4. Worker polls Copilot review state. When Copilot is done, swap to
    `flow:review`.
-5. Worker runs `/pr-review` skill → posts findings as inline PR comments.
+5. Worker runs `/flow-pr-review` skill → posts findings as inline PR comments.
 6. If review confidence is high and findings are info-only, label
    `flow:auto-merge` and let `gh pr merge --auto --squash` handle it.
    Otherwise, label `flow:human-review` and notify the user (terminal
@@ -80,15 +80,15 @@ board _is_ the status board.
 
 **State machine** (labels are source of truth):
 
-| Label                    | Tick action                                                                                   |
-| ------------------------ | --------------------------------------------------------------------------------------------- |
-| `flow:plan`              | Run `/product-planning`, post plan, swap to `flow:awaiting-approval`.                         |
-| `flow:awaiting-approval` | Wait for ✅ reaction or `/approve` comment, swap to `flow:implement`.                         |
-| `flow:implement`         | Worktree + implementation subprocess + open PR, swap PR to `flow:awaiting-copilot`.           |
-| `flow:awaiting-copilot`  | Poll PR review state; when Copilot is done, swap to `flow:review`.                            |
-| `flow:review`            | Run `/pr-review`. If high-confidence + clean → `flow:auto-merge`, else → `flow:human-review`. |
-| `flow:auto-merge`        | `gh pr merge --auto --squash`. Done.                                                          |
-| `flow:human-review`      | Notify; terminal action.                                                                      |
+| Label                    | Tick action                                                                                        |
+| ------------------------ | -------------------------------------------------------------------------------------------------- |
+| `flow:plan`              | Run `/flow-product-planning`, post plan, swap to `flow:awaiting-approval`.                         |
+| `flow:awaiting-approval` | Wait for ✅ reaction or `/approve` comment, swap to `flow:implement`.                              |
+| `flow:implement`         | Worktree + implementation subprocess + open PR, swap PR to `flow:awaiting-copilot`.                |
+| `flow:awaiting-copilot`  | Poll PR review state; when Copilot is done, swap to `flow:review`.                                 |
+| `flow:review`            | Run `/flow-pr-review`. If high-confidence + clean → `flow:auto-merge`, else → `flow:human-review`. |
+| `flow:auto-merge`        | `gh pr merge --auto --squash`. Done.                                                               |
+| `flow:human-review`      | Notify; terminal action.                                                                           |
 
 **Implementation shape.** A single Bun script `flow-tick.ts` on a 60s
 launchd timer. Per-issue lock files at `.flow/locks/<issue>.lock` prevent
@@ -134,10 +134,10 @@ windows and finds them.
    named `csv-export`, starts Claude Code in it, sends initial prompt:
    _"Run the planning + implementation + review pipeline for this
    feature: …"_.
-2. Inside the window, the agent invokes `/product-planning`, prints the
+2. Inside the window, the agent invokes `/flow-product-planning`, prints the
    plan, _waits for the user to type 'approved' or to redirect_.
 3. User attaches (`tmux a -t flow:csv-export`), reads, approves, detaches.
-4. Agent implements, opens PR, polls Copilot in a loop, runs `/pr-review`
+4. Agent implements, opens PR, polls Copilot in a loop, runs `/flow-pr-review`
    when Copilot is done, decides merge vs. stop.
 5. Window persists with full scrollback either way.
 
@@ -182,12 +182,12 @@ to the supervisor, which forwards them via `SendMessage`.
 2. Supervisor calls `TaskCreate` with a canonical prompt: _"Run the full
    plan→implement→review pipeline; pause and ask before implementing."_
    The subagent creates the worktree itself.
-3. Subagent runs `/product-planning`, surfaces the plan, awaits a
+3. Subagent runs `/flow-product-planning`, surfaces the plan, awaits a
    message.
 4. User: _"approve csv-export"_ — supervisor calls `SendMessage` to the
    relevant task.
 5. Subagent implements, opens PR, polls Copilot in a loop, runs
-   `/pr-review`, either merges (if high-confidence + clean) or sends a
+   `/flow-pr-review`, either merges (if high-confidence + clean) or sends a
    `TaskUpdate` saying "human review needed."
 6. Supervisor surfaces status on demand: _"status of all flow tasks"_ →
    `TaskList` rendering.
@@ -209,7 +209,7 @@ invocation.
 
 **Critical constraint.** Sub-agents can't spawn sub-agents (one-level
 cap — the same constraint that drove the orchestrator's
-"no-LLM-in-orchestrator" design). The subagent must invoke `/pr-review`
+"no-LLM-in-orchestrator" design). The subagent must invoke `/flow-pr-review`
 as a _skill_ (in-process instructions), not as a sub-subagent. Skills
 work in-process so this is feasible, but worth verifying before
 committing.
@@ -217,7 +217,7 @@ committing.
 | Pros                                                                  | Cons                                                                      |
 | --------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | Almost zero new infrastructure; reuses Claude Code primitives         | Long-running supervisor session — context bloat over days/weeks is real   |
-| One chat surface for everything (kickoff, approve, status, drilldown) | Sub-agent depth cap requires `/pr-review` to run as in-process skill      |
+| One chat surface for everything (kickoff, approve, status, drilldown) | Sub-agent depth cap requires `/flow-pr-review` to run as in-process skill |
 | Trivial to extend (new pipeline = new prompt)                         | Hour-long pipelines bet on Claude Code's background-task durability       |
 | Polling Copilot = the subagent's own sleep+poll loop                  | Supervisor crash mid-day loses in-memory task state (PRs survive on disk) |
 
@@ -262,7 +262,7 @@ The discriminating questions:
 - **Replaces in all three:** the `flow-*` CLI verbs, the
   `.orchestrator/` state directory, the formal phase docs and gates
   concept, the cross-phase `task.md` contract.
-- **Reused in all three:** the `/product-planning` and `/pr-review`
+- **Reused in all three:** the `/flow-product-planning` and `/flow-pr-review`
   skills (called via `claude -p` headlessly or invoked in-process).
 - **Reused only in A:** the `flow install` symlink-distribution pattern
   for skills + scripts (orthogonal to the orchestrator and useful on
@@ -275,7 +275,7 @@ The discriminating questions:
   host as the worker location. Each has different durability /
   latency / cost trade-offs.
 - For Design A: aggressive vs. conservative auto-merge policy beyond
-  "high `/pr-review` confidence" — should CI green and Copilot approval
+  "high `/flow-pr-review` confidence" — should CI green and Copilot approval
   also be required?
 - For Design C: empirical durability of Claude Code background tasks
   across hour-scale runs is unverified.

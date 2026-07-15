@@ -24,7 +24,7 @@ gathering and refutation run as `agy` subprocesses, fanned out concurrently by
 `flow-delegate-fanout`.
 
 This is roadmap item **F1** for `flow-delegate`. Wiring it into
-`/product-planning` discovery (roadmap **F2** / issue #338) is **now done**:
+`/flow-product-planning` discovery (roadmap **F2** / issue #338) is **now done**:
 the discovery sub-agent gathers web-grounded evidence before planning by driving
 `flow-delegate-fanout` **directly via Bash** — a spawned Task sub-agent does **not**
 have the `Skill` tool, so it cannot load this skill in-process; it `Read`s this
@@ -108,9 +108,9 @@ delegate it. Write the angles down; they become the gather manifest.
 ## 1.5. Research-cache pre-check (host-wide — before the gather fan-out)
 
 Before paying for a fresh fan-out, check whether a prior identical `/flow-research`
-run already synthesized this exact question — mirroring `/product-planning`
+run already synthesized this exact question — mirroring `/flow-product-planning`
 discovery Step 1.5's cache pattern
-(`skills/pipeline/product-planning/references/discovery-instructions.md`). Compose
+(`skills/pipeline/flow-product-planning/references/discovery-instructions.md`). Compose
 the cache key from the **final refined (post-clarification) question** under a
 direct-invocation namespace prefix so the direct `/flow-research` keyspace never
 collides with discovery's bare-question keyspace, then read the host-wide cache by
@@ -320,7 +320,7 @@ Tier 2 fires **only when ALL three hold**:
   `~/.flow/config.json` key `research.deepResearchFallback`. A sub-agent / skill
   cannot import flow's `bin/lib` (it is not on PATH in a consumer worktree — see
   the F2 idiom at
-  `skills/pipeline/product-planning/references/discovery-instructions.md:53-59`),
+  `skills/pipeline/flow-product-planning/references/discovery-instructions.md:53-59`),
   so read the always-present global config via `jq`. **This INVERTS the F2
   default-OFF `== true` predicate — do NOT copy `== true`.** Absent file,
   malformed JSON, an absent/non-object `research`, or a missing

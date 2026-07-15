@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 /**
  * Structural lint for the F2 research pre-check budget wiring in
- * `skills/pipeline/product-planning/references/discovery-instructions.md`.
+ * `skills/pipeline/flow-product-planning/references/discovery-instructions.md`.
  *
  * Step 1.5 of that file reads four OPTIONAL `~/.flow/config.json` budget keys
  * (`research.maxCalls` / `research.timeout` / `research.model` /
@@ -31,14 +31,14 @@ const DISCOVERY_INSTRUCTIONS_PATH = path.resolve(
   "..",
   "skills",
   "pipeline",
-  "product-planning",
+  "flow-product-planning",
   "references",
   "discovery-instructions.md",
 );
 const content = fs.readFileSync(DISCOVERY_INSTRUCTIONS_PATH, "utf8");
 
 const FILE_LABEL =
-  "skills/pipeline/product-planning/references/discovery-instructions.md";
+  "skills/pipeline/flow-product-planning/references/discovery-instructions.md";
 
 // The forced (`flow feature create --research`) path runs bin/flow-research-run.ts, which
 // keeps its OWN copy of the model-variant pins + cross-model diversity-guard

@@ -1,0 +1,201 @@
+{
+  "skill_name": "flow-pr-review",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Review PR #146 — I want a fresh code review before asking anyone to look at it",
+      "expected_output": "Standalone review mode: spawns 6 agents, produces findings with conventional comments, posts review to PR, runs pre-commit checks, produces structured report.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "produced_structured_report",
+          "check": "report.md contains '## PR Review Report' and '### Summary' and '### Findings' and '### Pre-Commit Checks'"
+        },
+        {
+          "name": "conventional_comments_used",
+          "check": "findings.json entries use label field with values from: praise, nitpick, suggestion, issue, todo, question"
+        },
+        {
+          "name": "confidence_threshold_respected",
+          "check": "No entry in findings.json has confidence < 80 unless label is 'praise'"
+        },
+        {
+          "name": "at_least_one_praise",
+          "check": "findings.json contains at least one entry with label 'praise'"
+        },
+        {
+          "name": "review_mode_detected",
+          "check": "report.md contains 'Mode: Review' or similar indication of review mode"
+        },
+        {
+          "name": "pr_review_body_generated",
+          "check": "pr-review-body.md file exists and is non-empty"
+        },
+        {
+          "name": "multi_agent_coverage",
+          "check": "agent-findings/ directory contains 6 JSON files for the 6 agent types"
+        },
+        {
+          "name": "independent_review_performed",
+          "check": "Report shows independent review was performed"
+        },
+        {
+          "name": "disposition_summary_present",
+          "check": "report.md contains '### Disposition Summary' with Addressed and Deferred counts"
+        },
+        {
+          "name": "status_line_per_finding",
+          "check": "Every non-praise finding entry in report.md contains a 'Status:' line beginning with 'Addressed' or 'Deferred'"
+        },
+        {
+          "name": "deferred_findings_have_tracker",
+          "check": "For each Deferred finding in report.md, a tracker entry (a GitHub issue via flow-create-issue, or an external tracker URL) is referenced and was committed in this run — or, when the repo has no GitHub Issues surface, the deferral is surfaced loudly in the report with an empty tracker_entry_url — or 'No findings deferred' / 'All findings addressed in this run' is stated"
+        },
+        {
+          "name": "no_silent_skips",
+          "check": "Count of non-praise findings in findings.json equals count of Status-annotated finding entries in report.md"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Address the review comments on PR #145",
+      "expected_output": "Address mode: independent review first, retrospective, addresses each comment, replies, structured report.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "produced_structured_report",
+          "check": "report.md contains '## PR Review Report' and '### Review Comments' and '### Retrospective'"
+        },
+        {
+          "name": "conventional_comments_used",
+          "check": "findings.json entries use conventional comment labels"
+        },
+        {
+          "name": "at_least_one_praise",
+          "check": "findings.json contains at least one praise entry"
+        },
+        {
+          "name": "address_mode_detected",
+          "check": "report.md indicates address mode"
+        },
+        {
+          "name": "retrospective_included",
+          "check": "report.md contains '### Retrospective' with agent coverage stats"
+        },
+        {
+          "name": "all_comments_addressed",
+          "check": "comment-actions.md has an entry for each of the 7 review comments"
+        },
+        {
+          "name": "replies_generated",
+          "check": "replies.json exists with entries matching review comment IDs"
+        },
+        {
+          "name": "independent_before_comments",
+          "check": "Transcript shows independent review completed before reading comments"
+        },
+        {
+          "name": "multi_agent_coverage",
+          "check": "agent-findings/ contains 6 agent JSON files"
+        },
+        {
+          "name": "disposition_summary_present",
+          "check": "report.md contains '### Disposition Summary' with Addressed and Deferred counts"
+        },
+        {
+          "name": "status_line_per_finding",
+          "check": "Every non-praise finding entry in report.md contains a 'Status:' line beginning with 'Addressed' or 'Deferred'"
+        },
+        {
+          "name": "deferred_findings_have_tracker",
+          "check": "For each Deferred finding in report.md, a tracker entry (a GitHub issue via flow-create-issue, or an external tracker URL) is referenced and was committed in this run — or, when the repo has no GitHub Issues surface, the deferral is surfaced loudly in the report with an empty tracker_entry_url — or 'No findings deferred' / 'All findings addressed in this run' is stated"
+        },
+        {
+          "name": "no_silent_skips",
+          "check": "Count of non-praise findings in findings.json equals count of Status-annotated finding entries in report.md"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review PR #144 and address any comments",
+      "expected_output": "Address mode on very large PR. Size warning, handles 30 comments, full workflow.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "produced_structured_report",
+          "check": "report.md contains structured report sections"
+        },
+        {
+          "name": "conventional_comments_used",
+          "check": "Findings use conventional comment format"
+        },
+        {
+          "name": "at_least_one_praise",
+          "check": "At least one praise finding present"
+        },
+        {
+          "name": "size_warning_present",
+          "check": "Report or size-assessment.md flags PR as oversized (1000+ lines)"
+        },
+        {
+          "name": "ambiguous_prompt_handled",
+          "check": "Either asked for clarification or defaulted to address mode given existing comments"
+        },
+        {
+          "name": "retrospective_included",
+          "check": "Report contains retrospective section"
+        },
+        {
+          "name": "multi_agent_coverage",
+          "check": "agent-findings/ contains 6 agent JSON files"
+        },
+        {
+          "name": "independent_before_comments",
+          "check": "Independent review before reading comments"
+        },
+        {
+          "name": "disposition_summary_present",
+          "check": "report.md contains '### Disposition Summary' with Addressed and Deferred counts"
+        },
+        {
+          "name": "status_line_per_finding",
+          "check": "Every non-praise finding entry in report.md contains a 'Status:' line beginning with 'Addressed' or 'Deferred'"
+        },
+        {
+          "name": "manual_test_rubric_applied",
+          "check": "If PR introduces UI changes, report's PR Description Quality section references dark-mode and/or empty/error/loading-state coverage when the description omits them; if PR introduces a data provider, 'Upstream shape drift' coverage is referenced when missing"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Review PR #999 — synthetic fixture with an await-in-loop sequential pattern (e.g. `for (const item of items) { await processItem(item); }`) inside a new module, plus a package.json edit that deletes the top-level `engines` field. The PR is a standalone review with no prior comments.",
+      "expected_output": "Standalone review mode: spawns 6 agents including Performance and Supply-Chain; both agents fire content-bearing findings; produces conventional comments and structured report.",
+      "files": [],
+      "assertions": [
+        {
+          "name": "produced_structured_report",
+          "check": "report.md contains '## PR Review Report' and '### Summary' and '### Findings' and '### Pre-Commit Checks'"
+        },
+        {
+          "name": "conventional_comments_used",
+          "check": "findings.json entries use label field with values from: praise, nitpick, suggestion, issue, todo, question"
+        },
+        {
+          "name": "multi_agent_coverage",
+          "check": "agent-findings/ directory contains 6 JSON files for the 6 agent types"
+        },
+        {
+          "name": "performance_agent_fired",
+          "check": "performance.json contains at least one entry referencing 'await' or 'sequential'"
+        },
+        {
+          "name": "supply_chain_agent_fired",
+          "check": "supply-chain.json contains at least one entry referencing 'engines' (the deleted field) or another name from the rubric's closed set (bin|main|exports|types|engines|files)"
+        }
+      ]
+    }
+  ]
+}

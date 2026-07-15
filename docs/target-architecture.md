@@ -179,9 +179,9 @@ and the phase that closes it. The four axes the prior PRD marked
   as part of per-phase attribution; if that surfaces a residual, it routes to
   `p5-context-diet`.)
 - **Sub-agent isolation — "largely aligned":** the supervisor keeps most
-  diff-bearing work out of its own context by routing edits to `/coder` and the
+  diff-bearing work out of its own context by routing edits to `/flow-coder` and the
   nine Task-tool exemptions. Two residuals remain: (a) small in-process
-  supervisor edits **below the `/coder` routing threshold** still land their
+  supervisor edits **below the `/flow-coder` routing threshold** still land their
   diffs and tool_results in the supervisor's context, and (b) that threshold is
   prose-judged (≤1 file, ≤30 LOC, every file named), not mechanically enforced.
   → **Phase 5**: `p5-token-audit` measures the in-process edit-size
@@ -233,32 +233,32 @@ the PATH-bound schema validators. Always installed.
 
 **Skills**
 
-| Current dir                                | Target name             | Role                                                                       |
-| ------------------------------------------ | ----------------------- | -------------------------------------------------------------------------- |
-| `skills/pipeline/flow-pipeline`            | `flow-pipeline`         | pipeline supervisor                                                        |
-| `skills/pipeline/product-planning`         | `flow-product-planning` | PRD + discovery                                                            |
-| `skills/pipeline/new-feature`              | `flow-new-feature`      | feature implement + scout                                                  |
-| `skills/pipeline/verify`                   | `flow-verify`           | pre-commit verify loop                                                     |
-| `skills/pipeline/pr-review`                | `flow-pr-review`        | multi-agent review + fixes                                                 |
-| `skills/pipeline/coder`                    | `flow-coder`            | isolated edit-applier                                                      |
-| `skills/pipeline/epic-create`              | `flow-epic-create`      | epic-designer supervisor                                                   |
-| `skills/pipeline/epic-run`                 | `flow-epic-run`         | epic-orchestrator supervisor                                               |
-| `skills/universal/add-worktree`            | `flow-add-worktree`     | worktree scaffold                                                          |
-| `skills/universal/remove-worktree`         | `flow-remove-worktree`  | worktree teardown                                                          |
-| `skills/universal/refactoring`             | `flow-refactoring`      | behavior-preserving cleanup                                                |
-| `skills/universal/checkpoint`              | `flow-checkpoint`       | conversational-state flush                                                 |
-| `skills/universal/ui-ux`                   | `flow-ui-ux`            | stack-agnostic UI/UX judgment                                              |
-| `skills/universal/skill-creator`           | `flow-skill-creator`    | authoring new skills                                                       |
-| `skills/universal/testing` (generic split) | `flow-testing`          | framework-agnostic testing skill (the generic half of the `testing` split) |
+| Current dir                                     | Target name             | Role                                                                       |
+| ----------------------------------------------- | ----------------------- | -------------------------------------------------------------------------- |
+| `skills/pipeline/flow-pipeline`                 | `flow-pipeline`         | pipeline supervisor                                                        |
+| `skills/pipeline/flow-product-planning`         | `flow-product-planning` | PRD + discovery                                                            |
+| `skills/pipeline/flow-new-feature`              | `flow-new-feature`      | feature implement + scout                                                  |
+| `skills/pipeline/flow-verify`                   | `flow-verify`           | pre-commit verify loop                                                     |
+| `skills/pipeline/flow-pr-review`                | `flow-pr-review`        | multi-agent review + fixes                                                 |
+| `skills/pipeline/flow-coder`                    | `flow-coder`            | isolated edit-applier                                                      |
+| `skills/pipeline/flow-epic-create`              | `flow-epic-create`      | epic-designer supervisor                                                   |
+| `skills/pipeline/flow-epic-run`                 | `flow-epic-run`         | epic-orchestrator supervisor                                               |
+| `skills/universal/flow-add-worktree`            | `flow-add-worktree`     | worktree scaffold                                                          |
+| `skills/universal/flow-remove-worktree`         | `flow-remove-worktree`  | worktree teardown                                                          |
+| `skills/universal/flow-refactoring`             | `flow-refactoring`      | behavior-preserving cleanup                                                |
+| `skills/universal/flow-checkpoint`              | `flow-checkpoint`       | conversational-state flush                                                 |
+| `skills/universal/flow-ui-ux`                   | `flow-ui-ux`            | stack-agnostic UI/UX judgment                                              |
+| `skills/universal/flow-skill-creator`           | `flow-skill-creator`    | authoring new skills                                                       |
+| `skills/universal/flow-testing` (generic split) | `flow-testing`          | framework-agnostic testing skill (the generic half of the `testing` split) |
 
 > **`testing` split is a Phase-2 materialization — the Phase-1 registry
 > assigns the pre-split dir wholly to `core`.** The single current
-> `skills/universal/testing` directory appears in two rows above — `core`
+> `skills/universal/flow-testing` directory appears in two rows above — `core`
 > (`flow-testing`) and `stack-svelte` (`flow-testing-svelte`) — because those
 > rows describe the **post-split** target the `p2-flow-prefix-rename` sweep
 > produces (D11). Until that sweep lands, the one dir cannot map to two
 > modules, so **at Phase 1 the completeness lint (which scopes to current
-> `skills/*/` dirs) assigns the whole `skills/universal/testing` dir to
+> `skills/*/` dirs) assigns the whole `skills/universal/flow-testing` dir to
 > `core`**; the `stack-svelte` `flow-testing-svelte` row activates only once
 > the split materializes in Phase 2. This keeps the one-artifact-one-module
 > partition true at every phase: exactly one owner pre-split (`core`), exactly
@@ -314,28 +314,28 @@ promoted `agents/*.md` definitions.
 
 ### `stack-svelte`
 
-| Current dir                               | Target name           | Role                                                                            |
-| ----------------------------------------- | --------------------- | ------------------------------------------------------------------------------- |
-| `skills/stacks/svelte`                    | `flow-svelte`         | Svelte 5 / SvelteKit authoring + review                                         |
-| `skills/universal/testing` (svelte split) | `flow-testing-svelte` | Svelte/vitest/testing-library specifics (the stack half of the `testing` split) |
+| Current dir                                    | Target name           | Role                                                                            |
+| ---------------------------------------------- | --------------------- | ------------------------------------------------------------------------------- |
+| `skills/stacks/flow-svelte`                    | `flow-svelte`         | Svelte 5 / SvelteKit authoring + review                                         |
+| `skills/universal/flow-testing` (svelte split) | `flow-testing-svelte` | Svelte/vitest/testing-library specifics (the stack half of the `testing` split) |
 
 ### `stack-tailwind-shadcn`
 
-| Current dir                     | Target name            | Role                           |
-| ------------------------------- | ---------------------- | ------------------------------ |
-| `skills/stacks/tailwind-shadcn` | `flow-tailwind-shadcn` | Tailwind v4 / shadcn-svelte UI |
+| Current dir                          | Target name            | Role                           |
+| ------------------------------------ | ---------------------- | ------------------------------ |
+| `skills/stacks/flow-tailwind-shadcn` | `flow-tailwind-shadcn` | Tailwind v4 / shadcn-svelte UI |
 
 ### `stack-supabase`
 
-| Current dir                      | Target name             | Role                              |
-| -------------------------------- | ----------------------- | --------------------------------- |
-| `skills/stacks/supabase-project` | `flow-supabase-project` | project-specific Supabase adapter |
+| Current dir                           | Target name             | Role                              |
+| ------------------------------------- | ----------------------- | --------------------------------- |
+| `skills/stacks/flow-supabase-project` | `flow-supabase-project` | project-specific Supabase adapter |
 
 ### `stack-cloudflare-pages`
 
-| Current dir                      | Target name             | Role                                |
-| -------------------------------- | ----------------------- | ----------------------------------- |
-| `skills/stacks/cloudflare-pages` | `flow-cloudflare-pages` | Cloudflare Pages deploy conventions |
+| Current dir                           | Target name             | Role                                |
+| ------------------------------------- | ----------------------- | ----------------------------------- |
+| `skills/stacks/flow-cloudflare-pages` | `flow-cloudflare-pages` | Cloudflare Pages deploy conventions |
 
 ### `copilot`
 
@@ -437,7 +437,7 @@ consumed edge each phase-opening node reads from this doc.
 - **Nodes:** `p4-review-agents` (`agents/*.md` for the six review lenses, the
   gatekeeper, the consolidator-validator); `p4-pipeline-agents` (`agents/*.md`
   for scout, discovery — feature + epic modes, and the merge-conflict resolver;
-  the `/coder` edit-applier and `/epic-run` judgment agent are **evaluated**
+  the `/flow-coder` edit-applier and `/flow-epic-run` judgment agent are **evaluated**
   against the "is there a reusable pinned prompt + tool constraint worth the
   install-dependency cost?" criterion, not pre-committed).
 - **Exit:** every promoted role is a named definition; every promoted spawn

@@ -41,12 +41,12 @@ them.
 ## Open question 1 — slash commands inside `claude -p`
 
 **Resolution: dispatched.** The pre-flight probe confirmed that
-`claude -p "/product-planning <args>"` invokes the skill defined in
+`claude -p "/flow-product-planning <args>"` invokes the skill defined in
 `<cwd>/.claude/skills/product-planning/`. Verification used three signals
 in econ-data:
 
 1. `claude -p "What is your role…"` — generic "coding assistant" identity.
-2. `claude -p "/product-planning Reply with…"` — adopted the skill's
+2. `claude -p "/flow-product-planning Reply with…"` — adopted the skill's
    Product Manager persona verbatim.
 3. `claude -p "/totally-fake-skill-that-does-not-exist …"` — returned
    `Unknown command: /totally-fake-skill-that-does-not-exist` instead of
@@ -54,18 +54,18 @@ in econ-data:
 
 Therefore the plan phase ships the **best-case path** from m2-plan.md.
 `buildPlanPrompt` writes a wrapping prompt that includes the literal
-line `/product-planning <args>` followed by orchestrator-specific
+line `/flow-product-planning <args>` followed by orchestrator-specific
 instructions (output paths, non-interactive preamble). No SKILL.md
 inlining fallback is needed in M2.
 
 If a future target repo is missing the skill, `claude -p` will respond
-with `Unknown command: /product-planning` and the headless wrapper will
+with `Unknown command: /flow-product-planning` and the headless wrapper will
 treat it as an exit-zero with junk stdout. The plan phase's
 `summarizePlanOutputs` step then catches this — the expected files
 won't exist, the summary marks them MISSING, and a re-run with the
 failure log appended fires via `retryOnce`. (Future hardening: detect
 the "Unknown command" string and fail fast with `status: failed,
-reason: 'target repo missing /product-planning skill'`.)
+reason: 'target repo missing /flow-product-planning skill'`.)
 
 ## Open question 2 — mid-skill confirmations
 

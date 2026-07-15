@@ -1,8 +1,8 @@
 [
   {
     "name": "pr-review-evals",
-    "prefixes": ["skills/pipeline/pr-review/evals/"],
-    "checks": ["jq empty skills/pipeline/pr-review/evals/evals.json"]
+    "prefixes": ["skills/pipeline/flow-pr-review/evals/"],
+    "checks": ["jq empty skills/pipeline/flow-pr-review/evals/evals.json"]
   },
   {
     "name": "flow-config",

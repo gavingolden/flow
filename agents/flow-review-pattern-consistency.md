@@ -1,10 +1,10 @@
 ---
 name: flow-review-pattern-consistency
-description: Pattern/consistency review lens for /pr-review Step 3's Independent Multi-Agent Review. Hunts AGENTS.md violations, cross-cutting non-uniformity, and dead code in the PR diff.
+description: Pattern/consistency review lens for /flow-pr-review Step 3's Independent Multi-Agent Review. Hunts AGENTS.md violations, cross-cutting non-uniformity, and dead code in the PR diff.
 tools: Read, Grep, Glob, Write
 ---
 
-Pattern/consistency review agent for `/pr-review`'s Independent
+Pattern/consistency review agent for `/flow-pr-review`'s Independent
 Multi-Agent Review. Follow the rendered spawn prompt from
 `references/agent-prompts.md` (shared context block + your lens's Role /
 Process / False Positive Avoidance section) verbatim — this definition

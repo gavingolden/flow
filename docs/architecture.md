@@ -63,9 +63,9 @@ true context isolation by using OS-level processes.
    │ Script phases (Bun)  │  │ LLM phases (claude -p,     │
    │                      │  │  fresh ctx)                │
    │ • worktree           │  │ • plan      → /product-…   │
-   │ • ci-wait (poll)     │  │ • implement → /new-feature │
-   │ • gate (parse body)  │  │ • verify    → /verify      │
-   │ • merge              │  │ • review    → /pr-review   │
+   │ • ci-wait (poll)     │  │ • implement → /flow-new-feature │
+   │ • gate (parse body)  │  │ • verify    → /flow-verify      │
+   │ • merge              │  │ • review    → /flow-pr-review   │
    └──────────────────────┘  └────────────────────────────┘
                             │ all phases read/write
                             ▼
@@ -153,11 +153,11 @@ CLI emits the dollar amount pre-computed.
 | --- | --------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | 0   | triage    | Claude Code skill (`/flow add` or legacy `flow start`) | triage system prompt                                                                                                            | n/a — owned by user                                             |
 | 1   | worktree  | script (no LLM)                                        | `scripts/new-agent-worktree.ts` (target repo) + symlink `.orchestrator/` from main repo                                         | abort                                                           |
-| 2   | plan      | headless (in worktree)                                 | `/product-planning`                                                                                                             | retry once with error appended                                  |
-| 3   | implement | headless (in worktree)                                 | `/new-feature` (mode: `create` \| `fix`)                                                                                        | retry once                                                      |
-| 4   | verify    | headless (in worktree)                                 | `/verify`                                                                                                                       | retry up to 3x; then `needs-human`                              |
+| 2   | plan      | headless (in worktree)                                 | `/flow-product-planning`                                                                                                        | retry once with error appended                                  |
+| 3   | implement | headless (in worktree)                                 | `/flow-new-feature` (mode: `create` \| `fix`)                                                                                   | retry once                                                      |
+| 4   | verify    | headless (in worktree)                                 | `/flow-verify`                                                                                                                  | retry up to 3x; then `needs-human`                              |
 | 5   | ci-wait   | script                                                 | poll `gh pr checks` until terminal; collect bot reviews from a configurable list (default `["Copilot"]`, configurable per repo) | on red, loop back to implement(fix) with the failure log; cap 3 |
-| 6   | review    | headless                                               | `/pr-review` in fresh `claude -p` context, with bot reviews from phase 5 passed in as second-opinion artefacts                  | on critical findings, loop back to implement(fix); cap 2        |
+| 6   | review    | headless                                               | `/flow-pr-review` in fresh `claude -p` context, with bot reviews from phase 5 passed in as second-opinion artefacts             | on critical findings, loop back to implement(fix); cap 2        |
 | 7   | gate      | script                                                 | parse PR body's "Test Steps" section                                                                                            | n/a — outcome is the decision                                   |
 | 8   | merge     | script                                                 | `gh pr merge --squash --delete-branch` + remove worktree + archive task file                                                    | abort with clear status                                         |
 
@@ -182,7 +182,7 @@ branches, different working trees, but one shared task store.
 
 The review phase **never** continues from implement. The point of a
 self-review is a second look; an implementer-continued reviewer
-rationalises its own code. `/pr-review` reads the PR diff via `gh pr
+rationalises its own code. `/flow-pr-review` reads the PR diff via `gh pr
 diff` — that's the artifact it needs. Bot reviews collected by ci-wait
 are _also_ second opinions and get passed in as additional context.
 
@@ -233,8 +233,8 @@ The orchestrator just reads the artifact.
 We could build phases on top of the Claude Agent SDK in TypeScript
 directly. Reasons we don't, today:
 
-- The skills we're driving (`/product-planning`, `/new-feature`,
-  `/pr-review`, `/verify`) already exist as Claude Code slash commands
+- The skills we're driving (`/flow-product-planning`, `/flow-new-feature`,
+  `/flow-pr-review`, `/flow-verify`) already exist as Claude Code slash commands
   with mature prompt engineering. Re-implementing their behaviour
   through the SDK would be a multi-week detour with no functional gain.
 - `claude -p "<prompt>"` already gives us scoped tools (`--allowed-tools`),

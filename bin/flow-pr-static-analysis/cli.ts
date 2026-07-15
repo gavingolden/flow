@@ -2,7 +2,7 @@ import type { Args } from "./types";
 
 // --- CLI -------------------------------------------------------------------
 
-export const HELP_TEXT = `flow-pr-static-analysis — pre-digest static-analysis facts for /pr-review
+export const HELP_TEXT = `flow-pr-static-analysis — pre-digest static-analysis facts for /flow-pr-review
 
 Usage:
   flow-pr-static-analysis <PR> [options]

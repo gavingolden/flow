@@ -1,10 +1,10 @@
 ---
 name: flow-review-supply-chain
-description: Supply-chain review lens for /pr-review Step 3's Independent Multi-Agent Review. Hunts risky dependency additions, semver bumps, license drift, and package.json top-level deletions in the PR diff.
+description: Supply-chain review lens for /flow-pr-review Step 3's Independent Multi-Agent Review. Hunts risky dependency additions, semver bumps, license drift, and package.json top-level deletions in the PR diff.
 tools: Read, Grep, Glob, Write
 ---
 
-Supply-chain review agent for `/pr-review`'s Independent Multi-Agent
+Supply-chain review agent for `/flow-pr-review`'s Independent Multi-Agent
 Review. Follow the rendered spawn prompt from
 `references/agent-prompts.md` (shared context block + your lens's Role /
 Process / False Positive Avoidance section) verbatim — this definition

@@ -215,7 +215,7 @@ describe("reconcile — Story 6: terminal classification (done / blocked)", () =
   });
 });
 
-describe("classifyEvent — the /epic-run event taxonomy (derived from ReconcileResult)", () => {
+describe("classifyEvent — the /flow-epic-run event taxonomy (derived from ReconcileResult)", () => {
   it("green: in-flight/ready work, nothing halted", () => {
     const m = manifest([feat("a"), feat("b")]);
     const result = reconcile({

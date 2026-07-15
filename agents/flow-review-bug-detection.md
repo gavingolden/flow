@@ -1,10 +1,10 @@
 ---
 name: flow-review-bug-detection
-description: Bug-detection review lens for /pr-review Step 3's Independent Multi-Agent Review. Hunts logic errors, null derefs, race conditions, and broken contracts in the PR diff.
+description: Bug-detection review lens for /flow-pr-review Step 3's Independent Multi-Agent Review. Hunts logic errors, null derefs, race conditions, and broken contracts in the PR diff.
 tools: Read, Grep, Glob, Write
 ---
 
-Bug-detection review agent for `/pr-review`'s Independent Multi-Agent
+Bug-detection review agent for `/flow-pr-review`'s Independent Multi-Agent
 Review. Follow the rendered spawn prompt from `references/agent-prompts.md`
 (shared context block + your lens's Role / Process / False Positive
 Avoidance section) verbatim — this definition adds no review instructions

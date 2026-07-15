@@ -1,7 +1,7 @@
 # Phase 4 — verify
 
 The first M3 phase. Spawns a headless Claude session **inside the
-worktree** to invoke `/verify`, lets the skill self-heal failures
+worktree** to invoke `/flow-verify`, lets the skill self-heal failures
 in place, then runs `.flow/verify` itself as the deterministic
 ground-truth post-check. Up to three attempts before escalating to
 `needs-human`.
@@ -44,7 +44,7 @@ Status transitions:
 
 ## Wrapping prompt
 
-`/verify` runs against the worktree without any flow-specific context;
+`/flow-verify` runs against the worktree without any flow-specific context;
 the orchestrator wraps the slash-command invocation with a
 non-interactive preamble, the task path, the worktree, the branch, the
 PR number, and (on attempts 2/3) a `PRIOR ATTEMPT FAILED — failure
@@ -58,7 +58,7 @@ The phase wraps a verify-attempt callback in `retryN(fn, 3)`. Each
 attempt:
 
 1. Build the wrapping prompt (with prior-failure block on retries).
-2. `runHeadless` the `/verify` skill in the worktree (30-min timeout).
+2. `runHeadless` the `/flow-verify` skill in the worktree (30-min timeout).
 3. If the headless run exits non-zero, count the attempt as failed.
 4. Otherwise, run `runVerifyGate(worktree)` as ground truth. Gate-fail
    counts as a failed attempt — even if the skill self-reported

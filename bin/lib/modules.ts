@@ -4,8 +4,8 @@
  * is mandatory and is always folded into a selection (see
  * `resolveArtifactSet`); every other module is opt-in. This is the seam
  * artifact `docs/target-architecture.md`'s `## Module map` describes — rows
- * encode CURRENT (pre-`flow-`-rename) skill directory names, current
- * `agents/*.md` basenames, current PATH-bound helper extensionless
+ * encode the `flow-`-prefixed skill directory names (post-`p2-flow-prefix-rename`),
+ * current `agents/*.md` basenames, current PATH-bound helper extensionless
  * basenames, and validator invocation names (`flow-<name>`), so a row value
  * is directly a `sources.ts` `SourceEntry.displayName`.
  *
@@ -19,11 +19,10 @@
  *      allowlist (PATH-bound as `flow-epic-manifest-schema`), so it is a
  *      4th `core` validator row — omitting it would break `--all`
  *      byte-parity against live discovery.
- *   3. The pre-split `skills/universal/testing` dir maps wholly to `core`
- *      at Phase 1 — the doc's own note says the `stack-svelte`
- *      `flow-testing-svelte` row only activates once
- *      `p2-flow-prefix-rename` materializes the testing split, so
- *      `stack-svelte`'s `skills` here is `["svelte"]` only.
+ *   3. `p2-flow-prefix-rename` materialized the testing split: the generic
+ *      `skills/universal/flow-testing` dir is a `core` skill row, and the
+ *      Svelte-specific `skills/stacks/flow-testing-svelte` dir is a
+ *      `stack-svelte` skill row alongside `flow-svelte`.
  *
  * Pure data + pure functions only. No imports from install-machinery types
  * (`SourceEntry` et al.) and no side effects, so a later distribution re-cut
@@ -58,20 +57,20 @@ export const MODULES: ModuleDefinition[] = [
       "The pipeline supervisor, every skill it loads in-process, worktree/PR/state machinery, and the PATH-bound schema validators. Always installed.",
     skills: [
       "flow-pipeline",
-      "product-planning",
-      "new-feature",
-      "verify",
-      "pr-review",
-      "coder",
-      "epic-create",
-      "epic-run",
-      "add-worktree",
-      "remove-worktree",
-      "refactoring",
-      "checkpoint",
-      "ui-ux",
-      "skill-creator",
-      "testing",
+      "flow-product-planning",
+      "flow-new-feature",
+      "flow-verify",
+      "flow-pr-review",
+      "flow-coder",
+      "flow-epic-create",
+      "flow-epic-run",
+      "flow-add-worktree",
+      "flow-remove-worktree",
+      "flow-refactoring",
+      "flow-checkpoint",
+      "flow-ui-ux",
+      "flow-skill-creator",
+      "flow-testing",
     ],
     agents: [
       "flow-consolidator.md",
@@ -138,7 +137,7 @@ export const MODULES: ModuleDefinition[] = [
   {
     id: "stack-svelte",
     description: "Svelte 5 / SvelteKit authoring + review.",
-    skills: ["svelte"],
+    skills: ["flow-svelte", "flow-testing-svelte"],
     agents: [],
     helpers: [],
     validators: [],
@@ -146,7 +145,7 @@ export const MODULES: ModuleDefinition[] = [
   {
     id: "stack-tailwind-shadcn",
     description: "Tailwind v4 / shadcn-svelte UI.",
-    skills: ["tailwind-shadcn"],
+    skills: ["flow-tailwind-shadcn"],
     agents: [],
     helpers: [],
     validators: [],
@@ -154,7 +153,7 @@ export const MODULES: ModuleDefinition[] = [
   {
     id: "stack-supabase",
     description: "Project-specific Supabase adapter.",
-    skills: ["supabase-project"],
+    skills: ["flow-supabase-project"],
     agents: [],
     helpers: [],
     validators: [],
@@ -162,7 +161,7 @@ export const MODULES: ModuleDefinition[] = [
   {
     id: "stack-cloudflare-pages",
     description: "Cloudflare Pages deploy conventions.",
-    skills: ["cloudflare-pages"],
+    skills: ["flow-cloudflare-pages"],
     agents: [],
     helpers: [],
     validators: [],

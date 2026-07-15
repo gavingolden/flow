@@ -945,7 +945,7 @@ export function getChangedFilesForPush(
  * A dirty tree's working-tree diff is authoritative. On a clean tree that diff
  * is empty — and on a feature branch ahead of the default branch, an empty set
  * would vacuously pass (zero scopes → zero checks → exit 0), so the committed
- * work never gets verified. This is exactly the state `/verify` hits after the
+ * work never gets verified. This is exactly the state `/flow-verify` hits after the
  * implement step commits and pushes. Fall back to the merge-base diff so the
  * committed scopes are still detected. When HEAD is not ahead (clean tree on
  * the base branch) the `<base>..HEAD` range is empty, so this self-cancels to
@@ -1109,7 +1109,7 @@ export function stripAnsi(text: string): string {
 /**
  * Builds a bounded `FailureExcerpt` from a check's raw stdout+stderr. Used by
  * `--json` mode to produce predictable-size output for downstream consumers
- * (the `/flow-pipeline` supervisor and `/verify` sub-skill) instead of the
+ * (the `/flow-pipeline` supervisor and `/flow-verify` sub-skill) instead of the
  * uncapped raw output that `formatReport` indents inline.
  */
 export function buildFailureExcerpt(rawOutput: string): FailureExcerpt {
@@ -1196,7 +1196,7 @@ Options:
                      of the human-readable report. Failures include a
                      {firstErrorLine, firstErrorText, headExcerpt,
                      tailExcerpt, totalLines} excerpt capped at ~200 lines
-                     per check. Consumed by the /verify sub-skill and the
+                     per check. Consumed by the /flow-verify sub-skill and the
                      /flow-pipeline step 6 retry prompt.
   --help, -h         Show this help message
 

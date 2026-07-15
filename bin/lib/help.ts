@@ -132,12 +132,12 @@ Usage:
   flow epic done <slug> [--yes]
 
 Subcommands:
-  create "<prompt>"     design an epic — open a tmux window running /epic-create
+  create "<prompt>"     design an epic — open a tmux window running /flow-epic-create
                         (clarify → design → validate → open the design PR)
-  run <slug>            open the /epic-run playbook window: an LLM reconciles the
+  run <slug>            open the /flow-epic-run playbook window: an LLM reconciles the
                         committed manifest against GitHub/git truth and takes one
                         deliberate step at a time (no tick loop, no sub-agents).
-                        Also invocable directly as \`/epic-run <slug>\` in any
+                        Also invocable directly as \`/flow-epic-run <slug>\` in any
                         existing Claude session
   status <slug>         render the live board (read-only): per-feature status,
                         launched slug + PR + phase, and the current frontier.
@@ -164,9 +164,9 @@ Options (create):
                         feature planning knob). Precedence: --model-planning > config.models.planning > inherited
 
 Options (run):
-  --model <alias>       whole-session Claude model alias for the /epic-run supervisor session
+  --model <alias>       whole-session Claude model alias for the /flow-epic-run supervisor session
   --effort <low|medium|high|xhigh|max>
-                        Claude Code reasoning-effort level for the /epic-run supervisor session
+                        Claude Code reasoning-effort level for the /flow-epic-run supervisor session
 
 Options (launch):
   --model <opus|haiku|sonnet|fable>

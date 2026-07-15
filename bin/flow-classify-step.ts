@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Renders the /pr-review Step 12 "Automation-precedence audit" line.
+ * Renders the /flow-pr-review Step 12 "Automation-precedence audit" line.
  *
- * Why: skills/pipeline/pr-review/SKILL.md Step 12 currently asks the LLM
+ * Why: skills/pipeline/flow-pr-review/SKILL.md Step 12 currently asks the LLM
  * to construct the audit line inline from prose. That works until the
  * format spec drifts (or the slug → human-prose mapping does), at which
  * point the line becomes a silent contract violation noticed only by
@@ -16,7 +16,7 @@
  *
  * Each --reason flag appends one rubric category (insertion order
  * preserved); allowed slugs match the five categories in
- * skills/pipeline/pr-review/references/manual-test-rubric.md.
+ * skills/pipeline/flow-pr-review/references/manual-test-rubric.md.
  *
  * Exit codes:
  *   0 — line rendered to stdout

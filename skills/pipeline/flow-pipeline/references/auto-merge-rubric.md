@@ -9,15 +9,15 @@ which heading the gate keys on, what counts as "needs a human" vs.
 "clear to ship", what the gate does on missing vs. empty vs. populated.
 The supervisor's SKILL.md step 9 holds only the operational decision
 matrix (PR state × autoMerge opt-out × section verdict → action) and
-points back here for the parse contract. `/product-planning` and
-`/new-feature` PR-description templates also defer to this file for
+points back here for the parse contract. `/flow-product-planning` and
+`/flow-new-feature` PR-description templates also defer to this file for
 the canonical heading. The hand-author scaffold at
 `.github/PULL_REQUEST_TEMPLATE.md` mirrors the same contract.
 
 ## The contract: `## Test Steps`
 
-Every PR opened by `/new-feature` (and every PR-description draft from
-`/product-planning`) includes a `## Test Steps` section, **unconditionally**.
+Every PR opened by `/flow-new-feature` (and every PR-description draft from
+`/flow-product-planning`) includes a `## Test Steps` section, **unconditionally**.
 The heading must always be present — it doubles as the test plan for
 reviewers and as the gate signal. The section spans both automated
 verification (e.g. `npm run verify`) and manual smoke steps; one heading,
@@ -27,7 +27,7 @@ The gate does **not** look at whole-section emptiness. It looks at one
 question: are there any **unchecked `- [ ]` items** in the section?
 
 - **No unchecked items** (empty body, only prose, only `- [x]` items,
-  only `<details>` evidence blocks injected by `/pr-review`) — the
+  only `<details>` evidence blocks injected by `/flow-pr-review`) — the
   change is either pure-internal (refactor, infra, doc fix,
   generated-code regen) or every item the author asked for has already
   been verified. Either way, no human action remains.
@@ -51,7 +51,7 @@ ticked), it ships."
 ### Why bullet-driven instead of body-emptiness
 
 The gate used to fire on any non-empty content. That worked when nothing
-else wrote to the section. Once `/pr-review` started injecting `<details>`
+else wrote to the section. Once `/flow-pr-review` started injecting `<details>`
 evidence blocks (captured stdout/stderr from each runnable item), a
 naive "non-empty ⇒ gated" rule would always trip the gate — the
 evidence makes the section non-empty by design.
@@ -68,7 +68,7 @@ Two alternatives were considered and rejected:
   an action item?"
 
 Bullet-driven also aligns with the canonical convention. Every flow-emitted
-template (`/new-feature`, `/product-planning`, `.github/PULL_REQUEST_TEMPLATE.md`)
+template (`/flow-new-feature`, `/flow-product-planning`, `.github/PULL_REQUEST_TEMPLATE.md`)
 already mandates `- [ ]` items; pr-review's drafting rules in 11e mandate
 the same. The new gate just keys on the convention that was already in
 force.
@@ -85,7 +85,7 @@ and ends. On a `gated` verdict it must **not**:
   in particular, relabelling a **functional** manual check (a binary
   pass/fail observation: a popover opens, a button responds, a page
   renders) as **subjective UX** to wave it through is a prohibited move
-  (see `skills/pipeline/pr-review/references/manual-test-rubric.md`,
+  (see `skills/pipeline/flow-pr-review/references/manual-test-rubric.md`,
   "Genuinely manual" → functional vs subjective);
 - treat a "merge" / "ship it" instruction given _before_ the gate
   verdict was surfaced as authorisation to merge.

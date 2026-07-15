@@ -5,7 +5,7 @@
  * pure `decide()` / `run()`), with the designer / clarification / gh /
  * flow-open-pr STUBBED.
  *
- * The /epic-create supervisor itself is LLM prose, not callable code, so the
+ * The /flow-epic-create supervisor itself is LLM prose, not callable code, so the
  * "supervisor" here is a thin mechanical driver that performs the same
  * deterministic steps the SKILL.md prescribes — write artifacts at
  * `epicDirRelative(slug)`, run BOTH validators as the gate, open the design PR
@@ -216,7 +216,7 @@ function driveToCheckpoint(prompt: string): { phase: string; pr: number } {
 describe("F5 e2e — happy path", () => {
   it("writes both artifacts, both validators exit 0, PR opened exactly once, terminal epic-design-pending-review, no launch/merge", () => {
     const result = driveToCheckpoint(
-      "Use the /epic-create skill for: build the epic designer",
+      "Use the /flow-epic-create skill for: build the epic designer",
     );
 
     // Both artifacts exist at epicDirRelative(slug).
@@ -255,7 +255,7 @@ describe("F5 e2e — happy path", () => {
 describe("F5 e2e — redirect re-runs the designer + pushes to the SAME PR (no 2nd create)", () => {
   it("re-invokes the designer with the redirect text and does NOT fire a second pr create", () => {
     const first = driveToCheckpoint(
-      "Use the /epic-create skill for: build the epic designer",
+      "Use the /flow-epic-create skill for: build the epic designer",
     );
     expect(fx.prCreateCalls).toBe(1);
 
@@ -300,7 +300,7 @@ describe("F5 e2e — redirect re-runs the designer + pushes to the SAME PR (no 2
 describe("F5 e2e — approve reaches epic-approved, PR left OPEN, no merge / no launch", () => {
   it("transitions to epic-approved without invoking gh pr merge or launching a feature", () => {
     const result = driveToCheckpoint(
-      "Use the /epic-create skill for: build the epic designer",
+      "Use the /flow-epic-create skill for: build the epic designer",
     );
     expect(result.phase).toBe("epic-design-pending-review");
 
@@ -331,7 +331,7 @@ describe("F5 e2e — approve reaches epic-approved, PR left OPEN, no merge / no 
 describe("F5 e2e — cancel closes the PR + removes the worktree, phase cancelled", () => {
   it("fires gh pr close + flow-remove-worktree and writes phase cancelled", () => {
     const result = driveToCheckpoint(
-      "Use the /epic-create skill for: build the epic designer",
+      "Use the /flow-epic-create skill for: build the epic designer",
     );
 
     // Cancel: gh pr close, flow-remove-worktree, phase cancelled.

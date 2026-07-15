@@ -59,7 +59,7 @@ flow status [<task-id>]     # nice-to-have for M2; falls under M5 if it slips
 |                      |                                                         |
 | -------------------- | ------------------------------------------------------- |
 | **Type**             | headless Claude Code subprocess in the _target repo_    |
-| **Skill invoked**    | `/product-planning`                                     |
+| **Skill invoked**    | `/flow-product-planning`                                |
 | **Entry status**     | `triaged`                                               |
 | **Exit status (ok)** | `planned`                                               |
 | **On failure**       | retry once with the failure log appended; then `failed` |
@@ -102,7 +102,7 @@ export async function runPlanPhase(task: Task): Promise<PhaseResult> {
 
 - A pointer to the task file (so the skill can read the user prompt and
   clarifications itself rather than receiving them inline).
-- An invocation of `/product-planning` with the user's request as
+- An invocation of `/flow-product-planning` with the user's request as
   `$ARGUMENTS`.
 - An explicit instruction to write `pr-description-draft.md` and the
   PRD into a path the implement phase can find (suggested:
@@ -112,7 +112,7 @@ export async function runPlanPhase(task: Task): Promise<PhaseResult> {
 
 This is the first thing to verify in M2. Two paths:
 
-- **Best case:** `claude -p "/product-planning <args>"` invokes the
+- **Best case:** `claude -p "/flow-product-planning <args>"` invokes the
   skill in the target repo's `.claude/skills/product-planning/`.
   Confirmed: skill runs, output JSON parsed, done.
 - **Fallback:** read `<target-repo>/.claude/skills/product-planning/SKILL.md`
@@ -126,7 +126,7 @@ using in `phases/plan.md`.
 
 ### Open question 2 — mid-skill confirmations
 
-`/product-planning` asks the user "ready to proceed to task breakdown?"
+`/flow-product-planning` asks the user "ready to proceed to task breakdown?"
 in some flows. In headless mode that hangs.
 
 Mitigations, in order of preference:
@@ -225,7 +225,7 @@ the next phase needs. Configurable worktree commands land later (M5+).
 |                      |                                                     |
 | -------------------- | --------------------------------------------------- |
 | **Type**             | headless Claude Code subprocess in the _worktree_   |
-| **Skill invoked**    | `/new-feature`                                      |
+| **Skill invoked**    | `/flow-new-feature`                                 |
 | **Entry status**     | `worktree-ready`                                    |
 | **Exit status (ok)** | `pr-open`                                           |
 | **On failure**       | retry once with failure log appended; then `failed` |
@@ -239,13 +239,13 @@ spawned Claude session:
    either populated steps (UI / DB / external API / behaviour change)
    or empty (refactor / docs).
 
-(3) is new — `/new-feature` doesn't know about flow's auto-merge rule.
+(3) is new — `/flow-new-feature` doesn't know about flow's auto-merge rule.
 Two options for wiring it in:
 
 - **A) Wrapping prompt instructs the skill** to include the section
   with the right contents based on the diff. Preferred — no skill
   changes needed.
-- **B) Update `/new-feature` upstream** to always emit the section.
+- **B) Update `/flow-new-feature` upstream** to always emit the section.
   Cleaner long-term but requires a PR to econ-data.
 
 Use (A) for M2; revisit (B) when M4 lands and we see how reliable the
@@ -296,7 +296,7 @@ in the worktree and returns the first match.
 
 ### Wrapping prompt — the Test Steps rule
 
-Append something like this to the `/new-feature` invocation:
+Append something like this to the `/flow-new-feature` invocation:
 
 > When you write the PR description, include a `## Test Steps`
 > section. Populate it with concrete steps if any of these apply: a

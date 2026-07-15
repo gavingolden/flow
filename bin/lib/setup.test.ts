@@ -1984,21 +1984,21 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       expect(summary.blocked).toBe(0);
       const t = targets();
       // core: present.
-      expect(fs.existsSync(path.join(t.skillsDir, "coder"))).toBe(true);
+      expect(fs.existsSync(path.join(t.skillsDir, "flow-coder"))).toBe(true);
       // research: present (skill + a helper).
       expect(fs.existsSync(path.join(t.skillsDir, "flow-research"))).toBe(true);
       expect(fs.existsSync(path.join(t.binDir, "flow-delegate"))).toBe(true);
       // never-selected stack/copilot modules: absent.
-      expect(fs.existsSync(path.join(t.skillsDir, "svelte"))).toBe(false);
-      expect(fs.existsSync(path.join(t.skillsDir, "tailwind-shadcn"))).toBe(
-        false,
-      );
-      expect(fs.existsSync(path.join(t.skillsDir, "supabase-project"))).toBe(
-        false,
-      );
-      expect(fs.existsSync(path.join(t.skillsDir, "cloudflare-pages"))).toBe(
-        false,
-      );
+      expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(false);
+      expect(
+        fs.existsSync(path.join(t.skillsDir, "flow-tailwind-shadcn")),
+      ).toBe(false);
+      expect(
+        fs.existsSync(path.join(t.skillsDir, "flow-supabase-project")),
+      ).toBe(false);
+      expect(
+        fs.existsSync(path.join(t.skillsDir, "flow-cloudflare-pages")),
+      ).toBe(false);
       expect(fs.existsSync(path.join(t.binDir, "flow-request-copilot"))).toBe(
         false,
       );
@@ -2020,7 +2020,7 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
         quiet: true,
       });
       const t = targets();
-      expect(fs.existsSync(path.join(t.skillsDir, "svelte"))).toBe(true);
+      expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
 
       // A user-authored file living alongside the managed per-skill symlinks
       // — never recorded in any manifest, so the reap pass must leave it be.
@@ -2043,8 +2043,8 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       });
 
       expect(summary.removed).toBeGreaterThan(0);
-      expect(fs.existsSync(path.join(t.skillsDir, "svelte"))).toBe(false);
-      expect(fs.existsSync(path.join(t.skillsDir, "coder"))).toBe(true);
+      expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(false);
+      expect(fs.existsSync(path.join(t.skillsDir, "flow-coder"))).toBe(true);
       expect(fs.existsSync(plantedFile)).toBe(true);
       expect(fs.readFileSync(plantedFile, "utf8")).toBe(
         "not a flow artifact\n",
@@ -2099,7 +2099,7 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
         quiet: true,
         cachePath: path.join(homeDir, ".flow", "update-check.json"),
       });
-      expect(fs.existsSync(path.join(t.skillsDir, "svelte"))).toBe(true);
+      expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
     });
   });
 });

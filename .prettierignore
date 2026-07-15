@@ -21,4 +21,4 @@ skills/pipeline/flow-pipeline/SKILL.md
 AGENTS.md
 # Prettier re-pads a markdown table whose exact header skill-md-lint
 # anchors on ('| Status | Escalation tag |').
-skills/pipeline/pr-review/SKILL.md
+skills/pipeline/flow-pr-review/SKILL.md

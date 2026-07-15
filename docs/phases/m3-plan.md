@@ -29,9 +29,9 @@ Two cross-phase loops (ci→implement, review→implement) and one in-place loop
 
 These were asked in the triage. The plan resolves each here so implementation tasks don't re-litigate them.
 
-### `/pr-review` "critical" mapping
+### `/flow-pr-review` "critical" mapping
 
-`/pr-review` (in `skills/pipeline/pr-review/`) emits findings as JSON with `label`, `decoration`, and `confidence` fields. There is **no single "critical" label**. M3 defines critical as:
+`/flow-pr-review` (in `skills/pipeline/flow-pr-review/`) emits findings as JSON with `label`, `decoration`, and `confidence` fields. There is **no single "critical" label**. M3 defines critical as:
 
 ```
 (label == "issue" || label == "todo") && decoration == "blocking" && confidence >= 80
@@ -84,7 +84,7 @@ Increment in `writeTask` paths from each phase entry. Inner caps (verify's 3 in-
 
 **Keep verify as a separate phase.** Three reasons:
 
-1. **Belt-and-suspenders for LLM-claims-pass-but-didn't.** `/verify` inside implement runs in the LLM's tool window; nothing prevents the LLM from concluding "tests passed" when they didn't. Phase 4 re-runs the same command from outside the LLM context with deterministic exit-code checking.
+1. **Belt-and-suspenders for LLM-claims-pass-but-didn't.** `/flow-verify` inside implement runs in the LLM's tool window; nothing prevents the LLM from concluding "tests passed" when they didn't. Phase 4 re-runs the same command from outside the LLM context with deterministic exit-code checking.
 2. **Re-fires after fix-mode pushes.** `mode: "fix"` skips local verify (see below). Phase 4 is the first deterministic verification on every loop iteration after the initial pr-open.
 3. **Cheap.** Re-running `npm run verify` against an unchanged SHA is fast (most checkers cache); re-running against new commits is exactly when we need it.
 
@@ -94,23 +94,23 @@ Increment in `writeTask` paths from each phase entry. Inner caps (verify's 3 in-
 
 **Vitest.** Matches `skills/pipeline/testing` conventions (Vitest + Testing Library) and fits Node + tsc + tsx without needing a bundler. Set up in PR 1 with a single smoke test, then every subsequent PR lands its own tests.
 
-### `mode: "fix"` skill choice — push back on `/new-feature`
+### `mode: "fix"` skill choice — push back on `/flow-new-feature`
 
-The triage asked us to investigate whether `/new-feature` could double as a fix-mode skill. The answer is **no**, on three grounds the skill itself documents:
+The triage asked us to investigate whether `/flow-new-feature` could double as a fix-mode skill. The answer is **no**, on three grounds the skill itself documents:
 
-1. **`/new-feature`'s "When NOT to Use" explicitly excludes** "small bug fixes or single-line changes" and "adding tests to existing code".
+1. **`/flow-new-feature`'s "When NOT to Use" explicitly excludes** "small bug fixes or single-line changes" and "adding tests to existing code".
 2. **Its workflow requires upfront `it.todo()` test specs and a blocking user-approval gate** before any code is written. Headless fix mode has no user to approve, and a CI/review failure has no a-priori test list — the failing test already exists.
-3. **The mental model is wrong.** Fix mode receives concrete failure context (CI log / review finding) and must produce a minimal targeted patch. `/new-feature`'s critical-analysis phase (customer value, technical complexity, debt risk) is friction in this loop.
+3. **The mental model is wrong.** Fix mode receives concrete failure context (CI log / review finding) and must produce a minimal targeted patch. `/flow-new-feature`'s critical-analysis phase (customer value, technical complexity, debt risk) is friction in this loop.
 
 **Decision: introduce a `/fix` skill in `skills/pipeline/fix/`** (alongside `pr-review`, `verify`, `new-feature`). It reuses the `testing` skill's framework for any new test scaffolding it needs. Contract:
 
 - **Input arguments:** the task id and a failure-context block (truncated CI log or review findings).
-- **Workflow:** read the task file and the failure block → diagnose → make minimal targeted edits → run `/verify` (best-effort) → commit with a fix message → push. **Does not** create a PR (one already exists).
+- **Workflow:** read the task file and the failure block → diagnose → make minimal targeted edits → run `/flow-verify` (best-effort) → commit with a fix message → push. **Does not** create a PR (one already exists).
 - **No it.todo() approval gate.** The trigger is an existing failure; the skill's job is to make it pass.
 
 The `/fix` skill ships in flow's bundled skills directory. It is **not** part of flow's own source PRs but is a prerequisite for PR 6 (the first ci-loop-back caller). It can land in parallel with PRs 1–5; the M3 plan calls it out explicitly so the user can `flow start` a separate task to author it.
 
-The `/fix` skill is authored via a separate `flow start` task — it lives in `skills/pipeline/fix/` once shipped, is written from scratch (not forked from `/new-feature`, whose `it.todo()` user-approval gate would hang in headless mode), and is a prerequisite for PR 6 only.
+The `/fix` skill is authored via a separate `flow start` task — it lives in `skills/pipeline/fix/` once shipped, is written from scratch (not forked from `/flow-new-feature`, whose `it.todo()` user-approval gate would hang in headless mode), and is a prerequisite for PR 6 only.
 
 ## State machine deltas
 
@@ -146,7 +146,7 @@ The runner's `unfinishedStatuses` arrays for the new phases:
 |                        |                                                             |
 | ---------------------- | ----------------------------------------------------------- |
 | **Type**               | headless Claude Code subprocess in the _worktree_           |
-| **Skill invoked**      | `/verify`                                                   |
+| **Skill invoked**      | `/flow-verify`                                              |
 | **Entry status**       | `pr-open`                                                   |
 | **Mid-flight**         | `verifying`                                                 |
 | **Exit status (ok)**   | `verified`                                                  |
@@ -217,7 +217,7 @@ On red CI:
 |                            |                                                                      |
 | -------------------------- | -------------------------------------------------------------------- |
 | **Type**                   | headless Claude Code subprocess (in worktree)                        |
-| **Skill invoked**          | `/pr-review`                                                         |
+| **Skill invoked**          | `/flow-pr-review`                                                    |
 | **Entry status**           | `ci-passed`                                                          |
 | **Mid-flight**             | `reviewing`                                                          |
 | **Exit status (ok)**       | `gated`                                                              |
@@ -228,7 +228,7 @@ On red CI:
 
 ### Posting findings
 
-Per `feedback_pr_review_comment_style` (user memory): findings post as **individual inline comments**, not a formal review (`gh pr review` with `--request-changes`). Each finding becomes a `gh api` POST to `/repos/.../pulls/<pr>/comments`. The `/pr-review` skill already supports this output mode; M3 invokes it with the right flag (or wrapping prompt instruction, mirroring how `implement.ts` injects the Test Steps rule).
+Per `feedback_pr_review_comment_style` (user memory): findings post as **individual inline comments**, not a formal review (`gh pr review` with `--request-changes`). Each finding becomes a `gh api` POST to `/repos/.../pulls/<pr>/comments`. The `/flow-pr-review` skill already supports this output mode; M3 invokes it with the right flag (or wrapping prompt instruction, mirroring how `implement.ts` injects the Test Steps rule).
 
 ### Critical detection
 
@@ -238,7 +238,7 @@ After the skill exits, parse `## Phase outputs > review` for a fenced JSON block
 (label == "issue" || label == "todo") && decoration == "blocking" && confidence >= 80
 ```
 
-The `/pr-review` skill itself produces a markdown report — not a parseable JSON sidecar. To bridge this gap, the phase 6 wrapping prompt explicitly instructs the skill to also emit a JSON block under `## Phase outputs > review` with shape:
+The `/flow-pr-review` skill itself produces a markdown report — not a parseable JSON sidecar. To bridge this gap, the phase 6 wrapping prompt explicitly instructs the skill to also emit a JSON block under `## Phase outputs > review` with shape:
 
 ```json
 [
@@ -262,7 +262,7 @@ If count > 0: loop back. Truncate the critical findings (full body, not truncate
 
 ### Auto-reviewer findings as second-opinion
 
-If phase 5 collected bot findings, prepend them to the `/pr-review` prompt as context: _"Auto-reviewers also flagged the following — consider their findings while running your own review."_ This is the only cross-phase artefact phase 5 hands to phase 6.
+If phase 5 collected bot findings, prepend them to the `/flow-pr-review` prompt as context: _"Auto-reviewers also flagged the following — consider their findings while running your own review."_ This is the only cross-phase artefact phase 5 hands to phase 6.
 
 ## Implement re-entry — the `mode` parameter
 
@@ -284,8 +284,8 @@ export async function runImplementPhase(
 
 Behaviour:
 
-- **`mode: "create"`** (default): existing behaviour. Short-circuits on `task.pr != null`. Runs local `/verify` before `gh pr create` (Phase 3 amendment). Sets status `pr-open`, populates `pr` field.
-- **`mode: "fix"`**: requires `task.pr != null` (PR must already exist). **Skips local-verify gate** — phase 4 catches verify regressions. Invokes `/fix` (not `/new-feature`) with the failure context. After successful exit, transitions status to `pr-open` (re-using the same status; the phase log records the fix-iteration). Increments `phase_counts.implement`.
+- **`mode: "create"`** (default): existing behaviour. Short-circuits on `task.pr != null`. Runs local `/flow-verify` before `gh pr create` (Phase 3 amendment). Sets status `pr-open`, populates `pr` field.
+- **`mode: "fix"`**: requires `task.pr != null` (PR must already exist). **Skips local-verify gate** — phase 4 catches verify regressions. Invokes `/fix` (not `/flow-new-feature`) with the failure context. After successful exit, transitions status to `pr-open` (re-using the same status; the phase log records the fix-iteration). Increments `phase_counts.implement`.
 
 The runner does not call `runImplementPhase` directly with `mode: "fix"` — phase 5 (ci) and phase 6 (review) wrap the call when looping back. The runner's own dispatch always uses `mode: "create"` for status `worktree-ready` or `implementing` reached from `pr-open` for the first time.
 
@@ -385,7 +385,7 @@ src/
 │       ├── implement.ts                    # extend: mode parameter, fix-mode prompt builder
 │       ├── verify.ts                       # new
 │       ├── ci.ts                           # new — gh pr checks poller + auto-reviewer wait
-│       └── review.ts                       # new — /pr-review wrapper + critical-finding parser
+│       └── review.ts                       # new — /flow-pr-review wrapper + critical-finding parser
 ├── state/
 │   ├── phases.ts                           # add "verified", "ci-passed" to TASK_STATUSES + map
 │   └── task-file.ts                        # extend frontmatter: phase_counts, paused_at_phase;

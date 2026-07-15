@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Hunk-level intent-annotation trigger for /new-feature Step 5b.
+ * Hunk-level intent-annotation trigger for /flow-new-feature Step 5b.
  *
  * Reads `git diff -U0 <merge-base>...HEAD` against the resolved default
  * branch, parses hunks per file, evaluates three trigger rules, ranks the
@@ -17,7 +17,7 @@
  *     "overflowBullet": "- N additional hunks ..."
  *   }
  *
- * The candidates carry NO `body` field — the calling /new-feature agent
+ * The candidates carry NO `body` field — the calling /flow-new-feature agent
  * fills 1-2-sentence rationale bodies and pipes the constructed Finding[]
  * to flow-post-findings.
  *

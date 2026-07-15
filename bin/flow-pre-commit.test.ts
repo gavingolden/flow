@@ -181,9 +181,9 @@ describe(detectScopesFromFiles, () => {
   });
 
   it("should detect docs scope from a deeply-nested .md file", () => {
-    expect(detectScopesFromFiles(["skills/stacks/svelte/SKILL.md"])).toEqual([
-      "docs",
-    ]);
+    expect(
+      detectScopesFromFiles(["skills/stacks/flow-svelte/SKILL.md"]),
+    ).toEqual(["docs"]);
   });
 
   it("should detect both scripts and docs from a mixed change", () => {

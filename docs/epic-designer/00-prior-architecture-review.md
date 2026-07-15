@@ -12,7 +12,7 @@ The user proposes a new layer with two components: an "epic designer" (does syst
 
 **In scope (this review):**
 
-- A decision on the component decomposition (two components vs one-with-phases vs designer-as-enriched-`/product-planning`).
+- A decision on the component decomposition (two components vs one-with-phases vs designer-as-enriched-`/flow-product-planning`).
 - A name for the design component and a coherent verb namespace.
 - A complete enumeration of every human gate in the current pipeline, and for each: can an orchestrator pass it autonomously today, what is the minimal change to enable autonomy, and what _should_ stay human.
 - The orchestrator ↔ running-feature interaction model.
@@ -52,17 +52,17 @@ Given an epic run in autonomous mode, When a feature's PR is opened, Then — fo
 
 ## Architecture Decisions
 
-### A. The two-component split is half-right. Recommend ONE entry point with TWO phases; the "designer" is an enriched `/product-planning`, the "orchestrator" is `flow new` reused under a thin scheduler. (CHALLENGE to the user's framing.)
+### A. The two-component split is half-right. Recommend ONE entry point with TWO phases; the "designer" is an enriched `/flow-product-planning`, the "orchestrator" is `flow new` reused under a thin scheduler. (CHALLENGE to the user's framing.)
 
 The user prescribed two **separate** components: a designer that does "completely separate pipeline … does not do any part of the flow pipeline," and an orchestrator that runs the pipelines. Two observations cut against building two heavyweight components:
 
-1. **The "designer" is ~80% an enriched `/product-planning` run.** flow already has an Independent Discovery Subagent (`/product-planning`) that reads the codebase, makes architecture decisions, drafts a PRD, and emits a dependency-ordered task breakdown to `.flow-tmp/plan.md`. The user's designer wants the same outputs at a coarser grain (features instead of tasks, an inter-feature DAG instead of an intra-feature task order, plus system/flow diagrams). That is a _grain change and an output-format change to an existing capability_, not a new pipeline. Building a "completely separate" designer would duplicate discovery's codebase-reading, assumption-surfacing, and binary-framing machinery. **Recommend: the designer is `/product-planning` run at epic altitude, emitting an epic manifest (features + DAG) instead of (or in addition to) a task list.** This is the single biggest place the user's framing should change.
+1. **The "designer" is ~80% an enriched `/flow-product-planning` run.** flow already has an Independent Discovery Subagent (`/flow-product-planning`) that reads the codebase, makes architecture decisions, drafts a PRD, and emits a dependency-ordered task breakdown to `.flow-tmp/plan.md`. The user's designer wants the same outputs at a coarser grain (features instead of tasks, an inter-feature DAG instead of an intra-feature task order, plus system/flow diagrams). That is a _grain change and an output-format change to an existing capability_, not a new pipeline. Building a "completely separate" designer would duplicate discovery's codebase-reading, assumption-surfacing, and binary-framing machinery. **Recommend: the designer is `/flow-product-planning` run at epic altitude, emitting an epic manifest (features + DAG) instead of (or in addition to) a task list.** This is the single biggest place the user's framing should change.
 
 2. **The "orchestrator" is a thin scheduler around the existing `flow new`, plus a small amount of judgment.** The heavy lifting (worktree, plan, implement, verify, CI, review, gate, merge) is _already_ the `/flow-pipeline` supervisor, which the orchestrator does not reimplement — it launches. What the orchestrator adds is: read the manifest, compute the ready set (deterministic), launch ready features via `flow new` (deterministic), watch state files for completion (deterministic), and — only where judgment is genuinely needed — interpret a feature failure and decide whether to retry, redirect, or escalate the whole epic (LLM). So the orchestrator is **mostly a script with a thin LLM judgment layer**, not a second heavyweight supervisor. See Architecture Decision I.
 
-The Shape Up precedent (researched) reinforces this: Basecamp explicitly _disowns_ "the architect/taskmaster who splits the project into pieces for others to execute"; the whole shaped pitch goes to the building team, which discovers its own tasks. flow's pipeline already discovers its own tasks (via `/product-planning`/`/new-feature` per feature). So the orchestrator should hand each feature a coarse description and let the existing pipeline shape it — not micro-plan every feature up front.
+The Shape Up precedent (researched) reinforces this: Basecamp explicitly _disowns_ "the architect/taskmaster who splits the project into pieces for others to execute"; the whole shaped pitch goes to the building team, which discovers its own tasks. flow's pipeline already discovers its own tasks (via `/flow-product-planning`/`/flow-new-feature` per feature). So the orchestrator should hand each feature a coarse description and let the existing pipeline shape it — not micro-plan every feature up front.
 
-**The middle-ground decomposition (recommended):** one user-facing entry (`flow epic "<prompt>"`) that runs **two phases in sequence with an approval checkpoint between them** — Phase 1 = design (enriched `/product-planning` → epic manifest, surfaced for approval, exactly like today's `plan-pending-review`), Phase 2 = orchestrate (the scheduler launches features as the DAG unblocks). The sub-verbs (`flow epic design`, `flow epic run <id>`, `flow epic status <id>`) stay available for manual control. This collapses "two components" into "two phases of one component," reusing both `/product-planning` and `/flow-pipeline` wholesale.
+**The middle-ground decomposition (recommended):** one user-facing entry (`flow epic "<prompt>"`) that runs **two phases in sequence with an approval checkpoint between them** — Phase 1 = design (enriched `/flow-product-planning` → epic manifest, surfaced for approval, exactly like today's `plan-pending-review`), Phase 2 = orchestrate (the scheduler launches features as the DAG unblocks). The sub-verbs (`flow epic design`, `flow epic run <id>`, `flow epic status <id>`) stay available for manual control. This collapses "two components" into "two phases of one component," reusing both `/flow-product-planning` and `/flow-pipeline` wholesale.
 
 **A / middle / B trade-off recorded (binary the user posed — "manually invoke create then run, or run `flow epic` and delegate"):**
 
@@ -129,8 +129,8 @@ Three interaction models for the binary the user posed ("can/should the orchestr
 The user is right that artifacts matter more in an epic world (reviewing many PRs, possibly after the fact). But flow already has most of the machinery — the gap is smaller than "capture screenshots, thinking trail, decisions" implies:
 
 - **Decisions made / avoided / rejected alternatives:** _already captured._ `flow-pipeline-summary` renders a `## PIPELINE SNAPSHOT` (CHANGES / PHASES / FINDINGS / **FORECLOSED PATHS** = rejected alternatives + anti-patterns / FOLLOW-UP ISSUES / MANUAL STEPS), sourced from structured artifacts (fix-applier, consolidator, `phaseLog`), and on the MERGED path posts a _slimmed_ snapshot as a top-level PR comment. Subagent contracts already carry `rejected_alternatives` and `anti_patterns_found` (confirmed in fix-applier/consolidator/coder schemas). **Recommend: reuse this verbatim per feature; no new "thinking trail" machinery.**
-- **Intent / why a hunk exists:** _already captured._ `/new-feature` step 5b posts inline `**why:**` intent annotations on the diff; durable rationale lives in commit-body Why-sections and the PR `## Why`. **Reuse.**
-- **Test evidence:** _already captured._ `/pr-review` injects `<details>` evidence blocks (captured stdout) into `## Test Steps`. **Reuse.**
+- **Intent / why a hunk exists:** _already captured._ `/flow-new-feature` step 5b posts inline `**why:**` intent annotations on the diff; durable rationale lives in commit-body Why-sections and the PR `## Why`. **Reuse.**
+- **Test evidence:** _already captured._ `/flow-pr-review` injects `<details>` evidence blocks (captured stdout) into `## Test Steps`. **Reuse.**
 - **Screenshots:** the genuine gap. flow has no screenshot capture today. **Honest verdict: gold-plating for v1 unless the epic is UI-heavy.** Defer. If wanted later, it belongs in the feature pipeline (the thing that runs the app), surfaced via the existing PR-comment path — not in the epic layer.
 - **Cross-feature / epic-level artifacts** (the system design, flow diagrams, the DAG, design rationale): these do **not** belong in any single feature's PR — no single PR owns them. **Recommend: the epic manifest file is their container** (`design.md`/diagrams committed alongside the manifest, or referenced from it), and each feature PR back-links to the epic. This is the one genuinely-new artifact surface.
 
@@ -174,7 +174,7 @@ The user's pushback is correct: a purely deterministic orchestrator breaks the m
 - Deciding whether a `gated` feature blocks dependents or can be worked around.
 - Summarizing epic progress for the human in prose.
 - Answering the _epic-design checkpoint_ (the one human gate it interacts with) — and authoring features to be born auto-mergeable (Story 6).
-- Phase 1 design itself (this is `/product-planning` at epic altitude — already an LLM task).
+- Phase 1 design itself (this is `/flow-product-planning` at epic altitude — already an LLM task).
 
 **Refinement of the prior "LLM-free reconciler" recommendation:** the _reconciler_ (compute ready set, launch, watch) stays LLM-free — that part holds. What the user correctly identified is that _the layer above the reconciler_ (deciding what to do when a feature doesn't cleanly complete) needs an LLM. So: **LLM-free reconciler core, wrapped by a thin LLM orchestrator that is invoked only on events the reconciler flags as needs-judgment** (a feature terminal-failed; or the ready set is empty but the epic isn't done = a deadlock to diagnose). The LLM is _event-driven and short-lived per invocation_, not an hours-long resident — which also answers Decision J.
 
@@ -190,7 +190,7 @@ The user lifted the no-daemon constraint for this layer. Three options weighed:
 
 ## Technical Constraints
 
-- **Reuse, don't reimplement.** The epic layer calls `/product-planning` (design), `flow new` → `/flow-pipeline` (execution), `flow ls`/state files (observation), `flow-pipeline-summary` (artifacts). It adds a manifest schema, a DAG helper, a launcher, a watcher, an epic-status renderer, and a thin LLM orchestrator. It reimplements _none_ of the pipeline.
+- **Reuse, don't reimplement.** The epic layer calls `/flow-product-planning` (design), `flow new` → `/flow-pipeline` (execution), `flow ls`/state files (observation), `flow-pipeline-summary` (artifacts). It adds a manifest schema, a DAG helper, a launcher, a watcher, an epic-status renderer, and a thin LLM orchestrator. It reimplements _none_ of the pipeline.
 - **Bun + symlink distribution.** Every new helper is `#!/usr/bin/env bun`, `import.meta.main`-gated, with a `<name>.test.ts` next door, auto-picked-up by `flow setup`'s `discoverHelpers`.
 - **No new database** (AGENTS.md). Flat JSON manifest + existing state model; beads only ever behind an adapter, and not in v1 given the Dolt-vs-git-audit break.
 - **Inherit the gate doctrine.** The epic layer must not weaken `flow-gate-decide`/`flow-merge-guard`. A `gated` verdict stays terminal; gate overrides stay fresh-human-only. Autonomy = born-mergeable, never override.
@@ -200,9 +200,9 @@ The user lifted the no-daemon constraint for this layer. Three options weighed:
 
 ## Open Questions
 
-- **Designer-as-enriched-`/product-planning` vs separate component (Decision A).** I assumed the designer should be `/product-planning` at epic altitude emitting a manifest, _not_ a from-scratch second pipeline — because that reuses discovery's machinery and matches flow's "don't reimplement skills" doctrine. If you specifically want the designer to do things `/product-planning` structurally can't (e.g. interactive multi-round requirements elicitation with the user, long-running system-design exploration), that tilts back toward a separate component. **Confirm: enrich `/product-planning`, or build a distinct designer?**
+- **Designer-as-enriched-`/flow-product-planning` vs separate component (Decision A).** I assumed the designer should be `/flow-product-planning` at epic altitude emitting a manifest, _not_ a from-scratch second pipeline — because that reuses discovery's machinery and matches flow's "don't reimplement skills" doctrine. If you specifically want the designer to do things `/flow-product-planning` structurally can't (e.g. interactive multi-round requirements elicitation with the user, long-running system-design exploration), that tilts back toward a separate component. **Confirm: enrich `/flow-product-planning`, or build a distinct designer?**
 - **Autonomy ceiling (Decision C).** I assumed "born auto-mergeable, never override a gate" is the right ceiling, and that an orchestrator-overrides-gated path should **not** be built. If you actually want unattended merge of _consequential_ features (not just born-mergeable ones), that contradicts flow's gate-is-terminal doctrine and the industry default — I'd push back hard, but it's your call. **Confirm: born-mergeable-only, or do you want an autonomous-override path (not recommended)?**
-- **How does the designer decide which features are "low-blast-radius" / born-mergeable?** I assumed the design phase classifies each feature (the same automatable-vs-manual judgment `/product-planning` already applies to Test Steps), and only auto-mergeable-classified features get zero unchecked Test Steps. The classifier's accuracy is load-bearing for safe autonomy. **Confirm the classification approach, or treat all features as gated in v1 (safest).**
+- **How does the designer decide which features are "low-blast-radius" / born-mergeable?** I assumed the design phase classifies each feature (the same automatable-vs-manual judgment `/flow-product-planning` already applies to Test Steps), and only auto-mergeable-classified features get zero unchecked Test Steps. The classifier's accuracy is load-bearing for safe autonomy. **Confirm the classification approach, or treat all features as gated in v1 (safest).**
 - **Tracker evolution target (Decision H).** I assumed flat-manifest v1 → GH-Issues-projection v2, beads deferred behind the adapter due to the Dolt break. If git-auditability of the epic graph is not actually important to you, beads becomes more attractive sooner. **Confirm the v1 store and whether GH-Issues projection is the v2 target.**
 - **Daemon appetite (Decision J).** I assumed launchd-tick (or even opportunistic advancement) over a resident process. If you genuinely want a feature to launch _the instant_ its dependency merges (sub-minute latency) rather than on the next tick/status-check, that argues for a completion hook wired into the feature pipeline's MERGED path. **Confirm: tick/opportunistic is fine, or do you need instant launch-on-merge?**
 - **`flow new` rename.** I assumed _no_ rename (add a `feature` alias at most), since `flow new` is the documented surface. **Confirm you're OK keeping `flow new`.**
@@ -210,7 +210,7 @@ The user lifted the no-daemon constraint for this layer. Three options weighed:
 
 ## Recommendation
 
-**Reconsider scope.** Build the epic layer, but as **one entry point with two phases (design → checkpoint → run) that reuses `/product-planning` and `/flow-pipeline` wholesale**, not as two heavyweight components — and ship **Phase 1 (design → manifest + DAG) first** as the MVP, since it captures the biggest single chunk of value (decomposition quality) at the smallest cost. The named scope change: the "designer" collapses into an enriched `/product-planning`, and the "orchestrator" collapses into a thin LLM-judgment layer over a deterministic launch/watch reconciler. See the Open Question on designer-as-enriched-`/product-planning` for the one assumption most likely to change this verdict.
+**Reconsider scope.** Build the epic layer, but as **one entry point with two phases (design → checkpoint → run) that reuses `/flow-product-planning` and `/flow-pipeline` wholesale**, not as two heavyweight components — and ship **Phase 1 (design → manifest + DAG) first** as the MVP, since it captures the biggest single chunk of value (decomposition quality) at the smallest cost. The named scope change: the "designer" collapses into an enriched `/flow-product-planning`, and the "orchestrator" collapses into a thin LLM-judgment layer over a deterministic launch/watch reconciler. See the Open Question on designer-as-enriched-`/flow-product-planning` for the one assumption most likely to change this verdict.
 
 ## Plan risks
 
@@ -221,8 +221,8 @@ The user lifted the no-daemon constraint for this layer. Three options weighed:
 The user's prompt named BOTH prescribed methods (a specific two-component split: "epic designer" + "epic orchestrator", each with enumerated responsibilities) AND a quantitative-ish target embedded in the aspiration ("hopefully merges … fully autonomous"). The prescribed decomposition and the full-autonomy aspiration are in tension with flow's deliberately-non-overridable gates, so this section is warranted.
 
 - **Reading of prescribed methods:** starting points. The user explicitly framed this as exploratory ("assume I might be wrong," "needs a better name," "might take some testing," "weigh pros and cons," "do some research") and invited challenge. The two-component split is evidence of how the user is currently thinking, not a fixed spec.
-- **Plausibility estimate:** the two-component split is _over-built_ relative to the goal — evidence: `/product-planning` already does ~80% of the "designer," and `/flow-pipeline` already does 100% of the per-feature execution the "orchestrator" would otherwise reimplement (read from `skills/pipeline/product-planning/references/discovery-instructions.md` and `skills/pipeline/flow-pipeline/SKILL.md`). The full-autonomy aspiration is _unreachable as stated_ without weakening `flow-merge-guard`'s deliberate gate (read from `bin/flow-merge-guard.ts`: the merge path is mechanically unreachable on unchecked items absent a fresh _human_ override) — and weakening it is an anti-pattern the codebase has an entire incident-driven contract against (`auto-merge-rubric.md` "a gated verdict is terminal, not advisory").
-- **Recommended path:** relax target. The prescribed _methods_ (an epic layer above the pipeline) are correct and should be built; the _target_ of full unattended autonomy must be relaxed to "orchestrator does all the back-and-forth + features born auto-mergeable, human approves the epic decomposition and any gated/needs-human feature." What I'd "cut" from the literal prompt: (a) the second heavyweight component (fold the designer into `/product-planning`, the orchestrator into a thin scheduler), and (b) the full-autonomy ceiling (cap at born-mergeable; never override a gate). The user can accept the relaxed target or redirect — see the Open Questions on designer decomposition and autonomy ceiling.
+- **Plausibility estimate:** the two-component split is _over-built_ relative to the goal — evidence: `/flow-product-planning` already does ~80% of the "designer," and `/flow-pipeline` already does 100% of the per-feature execution the "orchestrator" would otherwise reimplement (read from `skills/pipeline/flow-product-planning/references/discovery-instructions.md` and `skills/pipeline/flow-pipeline/SKILL.md`). The full-autonomy aspiration is _unreachable as stated_ without weakening `flow-merge-guard`'s deliberate gate (read from `bin/flow-merge-guard.ts`: the merge path is mechanically unreachable on unchecked items absent a fresh _human_ override) — and weakening it is an anti-pattern the codebase has an entire incident-driven contract against (`auto-merge-rubric.md` "a gated verdict is terminal, not advisory").
+- **Recommended path:** relax target. The prescribed _methods_ (an epic layer above the pipeline) are correct and should be built; the _target_ of full unattended autonomy must be relaxed to "orchestrator does all the back-and-forth + features born auto-mergeable, human approves the epic decomposition and any gated/needs-human feature." What I'd "cut" from the literal prompt: (a) the second heavyweight component (fold the designer into `/flow-product-planning`, the orchestrator into a thin scheduler), and (b) the full-autonomy ceiling (cap at born-mergeable; never override a gate). The user can accept the relaxed target or redirect — see the Open Questions on designer decomposition and autonomy ceiling.
 
 # Candidate follow-up issues
 
@@ -252,7 +252,7 @@ Task-level DAG (within/across phases): T1→T2→T3→T4 (Phase 1); T4→T5→T6
 
 ### Task 1: Epic manifest schema + validator
 
-- **Skill:** `testing` (helper authoring; closest existing pattern is `bin/lib/*-schema.ts`)
+- **Skill:** `flow-testing` (helper authoring; closest existing pattern is `bin/lib/*-schema.ts`)
 - **Description:** Define the epic manifest shape (`~/.flow/epics/<epic-id>.json`: `{ epicId, prompt, features: [{ id, title, description, dependsOn: string[], status, launchedSlug? }], createdAt }`) and a validator helper. Mirror `agent-finding-schema.ts` / `coder-schema.ts`.
 - **Inputs:** none (greenfield).
 - **Outputs:** `bin/lib/epic-manifest-schema.ts` (+ symlinked validator if pipeline skills consume it by bare name), `<name>.test.ts`.
@@ -261,25 +261,25 @@ Task-level DAG (within/across phases): T1→T2→T3→T4 (Phase 1); T4→T5→T6
 
 ### Task 2: DAG ready-set + cycle-detection helper
 
-- **Skill:** `testing` (helper authoring)
+- **Skill:** `flow-testing` (helper authoring)
 - **Description:** `bin/flow-epic-dag.ts` — pure functions for Kahn's-algorithm ready-set (features whose `dependsOn` are all `status: complete` and which aren't complete), cycle detection (`--validate` exits non-zero on a cycle), and frontier recomputation. LLM-free.
 - **Inputs:** Task 1 (manifest shape).
 - **Outputs:** `bin/flow-epic-dag.ts`, `bin/flow-epic-dag.test.ts`.
 - **Acceptance criteria:** unit tests cover empty graph, linear chain, diamond, disconnected components, and cycle; `bun bin/flow-epic-dag.test.ts` passes.
 - **Effort:** small-medium. **Phase:** 1 (MVP). **Depends on:** T1.
 
-### Task 3: Epic design phase (enriched `/product-planning` at epic altitude)
+### Task 3: Epic design phase (enriched `/flow-product-planning` at epic altitude)
 
 - **Skill:** `product-planning` (reused/extended)
-- **Description:** Drive `/product-planning` to emit an _epic manifest_ (features + DAG) and design artifacts (`design.md`, optional diagrams) instead of a single-feature task list. A discovery-instructions extension + a manifest-emit step, not a new skill. Surface the manifest for approval at an `epic-design-pending-review` checkpoint (mirror `plan-pending-review`).
+- **Description:** Drive `/flow-product-planning` to emit an _epic manifest_ (features + DAG) and design artifacts (`design.md`, optional diagrams) instead of a single-feature task list. A discovery-instructions extension + a manifest-emit step, not a new skill. Surface the manifest for approval at an `epic-design-pending-review` checkpoint (mirror `plan-pending-review`).
 - **Inputs:** Tasks 1, 2.
-- **Outputs:** extended `/product-planning` discovery instructions; an epic-design checkpoint contract.
+- **Outputs:** extended `/flow-product-planning` discovery instructions; an epic-design checkpoint contract.
 - **Acceptance criteria:** running the design phase on a sample epic prompt produces a schema-valid manifest (T1 validator exits 0) whose DAG is acyclic (T2 `--validate` exits 0).
 - **Effort:** medium. **Phase:** 1 (MVP). **Depends on:** T1, T2.
 
 ### Task 4: `flow epic design` verb + epic state
 
-- **Skill:** `testing` (CLI wiring)
+- **Skill:** `flow-testing` (CLI wiring)
 - **Description:** Add `"epic"` to `bin/lib/verbs.ts`; `bin/lib/epic.ts` with `runEpicCli` dispatching `design`/`run`/`status`/`ls`; a case in `bin/flow`'s `runVerb`; `~/.flow/epics/<epic-id>.json` read/write (mirror `bin/lib/state.ts`); completion entries (the completion test enforces parity). `design` takes only a prompt, mints + prints the epic ID.
 - **Inputs:** Tasks 1, 3.
 - **Outputs:** `bin/lib/epic.ts`, `bin/lib/epic-state.ts`, edits to `bin/flow` + `bin/lib/verbs.ts` + completion files, tests.
@@ -288,7 +288,7 @@ Task-level DAG (within/across phases): T1→T2→T3→T4 (Phase 1); T4→T5→T6
 
 ### Task 5: Concurrency-capped launcher
 
-- **Skill:** `testing` (helper authoring)
+- **Skill:** `flow-testing` (helper authoring)
 - **Description:** Given a manifest + ready set, invoke `flow new` once per ready feature up to cap K (counting semaphore, reuse the `~/.flow/test-sem` pattern from `flow-pre-commit`); record each launched feature's slug back into the manifest.
 - **Inputs:** Tasks 2, 4.
 - **Outputs:** launcher logic in `bin/flow-epic-*.ts`, tests with a stubbed `flow new`.
@@ -297,7 +297,7 @@ Task-level DAG (within/across phases): T1→T2→T3→T4 (Phase 1); T4→T5→T6
 
 ### Task 6: State-file watcher / completion detector
 
-- **Skill:** `testing` (helper authoring)
+- **Skill:** `flow-testing` (helper authoring)
 - **Description:** Read each launched feature's `~/.flow/state/<slug>.json`; classify `merged` (→ mark feature complete, advance frontier), `gated`/`needs-human` (→ surface, don't advance dependents), running (→ no-op). Reuse the read-state pattern from `bin/lib/ls.ts` / `flow-resume-decide.ts`. **No tmux scraping.**
 - **Inputs:** Task 5.
 - **Outputs:** watcher logic + tests with stubbed state files.
@@ -306,7 +306,7 @@ Task-level DAG (within/across phases): T1→T2→T3→T4 (Phase 1); T4→T5→T6
 
 ### Task 7: `flow epic status` + `flow epic ls`
 
-- **Skill:** `testing` (CLI wiring)
+- **Skill:** `flow-testing` (CLI wiring)
 - **Description:** Join manifest + per-feature state files into a table grouped done/running/ready/blocked, with PR links. Build on `flow ls` rendering and `flow-pipeline-summary` for per-feature detail.
 - **Inputs:** Tasks 4, 6.
 - **Outputs:** `status`/`ls` subcommands in `bin/lib/epic.ts`, tests.
@@ -324,7 +324,7 @@ Task-level DAG (within/across phases): T1→T2→T3→T4 (Phase 1); T4→T5→T6
 
 ### Task 9: launchd stateless tick (optional unattended mode)
 
-- **Skill:** `testing` (helper + launchd plist)
+- **Skill:** `flow-testing` (helper + launchd plist)
 - **Description:** A launchd `StartCalendarInterval` plist that wakes a short-lived process to run one reconciler pass (recompute + launch newly-ready) and exit. Sleep-resilient; opt-in (mirror `FLOW_NOTIFY`-style opt-in). v1 alternative: opportunistic advancement on `flow epic status`.
 - **Inputs:** Task 8.
 - **Outputs:** plist template, install logic in `flow setup`, tests.

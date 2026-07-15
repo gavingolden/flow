@@ -825,7 +825,7 @@ describe("phase constants", () => {
   });
 
   it("includes the full epic-designer phase lifecycle", () => {
-    // /epic-create's lifecycle: starting → epic-designing → epic-validating →
+    // /flow-epic-create's lifecycle: starting → epic-designing → epic-validating →
     // epic-pr-open → epic-design-pending-review → {epic-approved | cancelled}.
     // The three epic step phases live in STEP_PHASES; the review checkpoint is
     // a pending phase (so flow-stop-guard permits ending the turn there);

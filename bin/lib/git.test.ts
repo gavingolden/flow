@@ -308,9 +308,9 @@ describe("changedInstallPaths", () => {
         match: matchArgs("-C", "/repo", "diff", "--name-only"),
         result: ok(
           [
-            "skills/pipeline/pr-review/SKILL.md",
-            "skills/pipeline/pr-review/references/x.md",
-            "skills/universal/refactoring/SKILL.md",
+            "skills/pipeline/flow-pr-review/SKILL.md",
+            "skills/pipeline/flow-pr-review/references/x.md",
+            "skills/universal/flow-refactoring/SKILL.md",
             "bin/flow-ci-wait.ts",
             "bin/flow-ci-wait.test.ts",
             "bin/lib/git.ts",
@@ -327,7 +327,7 @@ describe("changedInstallPaths", () => {
         afterSha: "e4f5g6h",
         spawn,
       }),
-    ).toEqual(["pr-review", "refactoring", "flow-ci-wait"]);
+    ).toEqual(["flow-pr-review", "flow-refactoring", "flow-ci-wait"]);
   });
 
   it("returns [] without throwing when SHAs are missing", () => {

@@ -118,11 +118,11 @@ const TOOL_CLASSES: ToolClass[] = [
 
 const SKILL_TO_PHASE: Record<string, Phase> = {
   "flow-pipeline": "supervisor",
-  "product-planning": "plan",
-  "new-feature": "implement",
-  coder: "implement",
-  verify: "verify",
-  "pr-review": "review",
+  "flow-product-planning": "plan",
+  "flow-new-feature": "implement",
+  "flow-coder": "implement",
+  "flow-verify": "verify",
+  "flow-pr-review": "review",
 };
 
 /** Anthropic ships no offline Claude tokenizer; this is a documented

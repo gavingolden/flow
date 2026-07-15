@@ -103,29 +103,29 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "worktree-create-failed":
     "Inspect the flow-new-worktree stderr in scrollback; check disk space, branch-name collisions, then flow feature resume <slug>",
   "plan-missing":
-    "Attach (flow attach <slug>); re-run /flow-pipeline with a more specific description, or invoke /product-planning manually in the worktree",
+    "Attach (flow attach <slug>); re-run /flow-pipeline with a more specific description, or invoke /flow-product-planning manually in the worktree",
   "pr-missing":
     "PR creation failed upstream — check gh auth status, branch protection, and network reachability, then flow feature resume <slug>",
   "scout-missing":
-    "Attach (flow attach <slug>); re-invoke /new-feature directly so the scout subagent runs again",
+    "Attach (flow attach <slug>); re-invoke /flow-new-feature directly so the scout subagent runs again",
   "approval-ambiguous":
     "Attach (flow attach <slug>); reply with one of approve / redirect <new direction> / cancel",
   "implement-failed":
-    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/ for skill output, then redirect /new-feature with a fix hint",
+    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/ for skill output, then redirect /flow-new-feature with a fix hint",
   "verify-exhausted":
-    "Attach (flow attach <slug>); redirect /verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log",
+    "Attach (flow attach <slug>); redirect /flow-verify with the failure hint from <worktree>/.flow-tmp/verify-failure-N.log",
   "ci-hang":
     "Attach (flow attach <slug>); inspect GitHub Actions for the stalled check, then flow feature resume <slug>",
   "pr-blocked":
     "Branch protection blocks the merge (failing required check, missing required review, CODEOWNERS, or linear-history) and waiting cannot clear it. Satisfy the protection rule on GitHub, then flow feature resume <slug>",
   "ci-fix-exhausted":
-    "Attach (flow attach <slug>); inspect the last CI failure log, then redirect /new-feature mode=fix with a targeted fix hint",
+    "Attach (flow attach <slug>); inspect the last CI failure log, then redirect /flow-new-feature mode=fix with a targeted fix hint",
   "review-fix-exhausted":
-    "Attach (flow attach <slug>); inspect the unresolved /pr-review findings on the PR, then redirect /new-feature mode=fix",
+    "Attach (flow attach <slug>); inspect the unresolved /flow-pr-review findings on the PR, then redirect /flow-new-feature mode=fix",
   "review-failed":
-    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/pr-review-result.json (if present), then re-invoke /pr-review <PR>",
+    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/pr-review-result.json (if present), then re-invoke /flow-pr-review <PR>",
   "review-partial":
-    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/pr-review-result.json's .missed_steps, then re-invoke /pr-review <PR> --resume-from <step>",
+    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/pr-review-result.json's .missed_steps, then re-invoke /flow-pr-review <PR> --resume-from <step>",
   "gh-error":
     "Attach (flow attach <slug>); check gh auth status and network reachability, then flow feature resume <slug>",
   "pr-closed-without-merge":
@@ -155,9 +155,9 @@ export const NEXT_ACTION_BY_REASON: Record<string, string> = {
   "flow-setup-upgrade-failed":
     "Run flow install --upgrade manually from the canonical install root and inspect its output",
   "fix-applier-missing-artifact":
-    "Inspect git log on the feature branch and the PR body's Local Follow-ups section before re-invoking /pr-review",
+    "Inspect git log on the feature branch and the PR body's Local Follow-ups section before re-invoking /flow-pr-review",
   "pr-review-missing-artifact":
-    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/ for partial state, then re-invoke /pr-review <PR>",
+    "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/ for partial state, then re-invoke /flow-pr-review <PR>",
   "coder-failed":
     "Attach (flow attach <slug>); inspect <worktree>/.flow-tmp/coder-result.json (if present), then re-invoke the caller skill",
   "smoketest-needs-creds":
