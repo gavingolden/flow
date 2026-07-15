@@ -112,6 +112,27 @@ describe("runModuleStatus --check-skill", () => {
     );
     expect(result.code).toBe(0);
   });
+
+  it("--json on a skill owned by a deselected module prints the owning module's skipEnvelope", () => {
+    const result = runModuleStatus(
+      ["--json", "--check-skill", "svelte"],
+      deselectedDeps,
+    );
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      ran: false,
+      skipReason: "stack-svelte-module-deselected",
+    });
+  });
+
+  it("--json on a skill owned by an active module prints {ran:true}", () => {
+    const result = runModuleStatus(
+      ["--json", "--check-skill", "svelte"],
+      fullDeps,
+    );
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ ran: true });
+  });
 });
 
 describe("runModuleStatus --summary", () => {

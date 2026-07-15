@@ -1366,7 +1366,6 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
     deps.readMergeState ?? (() => observeMergeState(parsed.pr, gh));
 
   const ciConfigured = readWorkflowsDir();
-  const requestedReviewers = fetchRequestedReviewers(parsed.pr, gh);
   // Two signals for "is Copilot expected to review?": the in-flight PR's
   // reviewRequests, and the repo's recent PR history. Org / repo-level
   // auto-review configurations don't populate reviewRequests, so a single
@@ -1383,15 +1382,20 @@ export async function run(argv: string[], deps: Deps = {}): Promise<number> {
   //
   // Same short-circuit for a deselected `copilot` module (`isCopilotModuleActive`):
   // a deselected module means `flow-request-copilot` never ran, so neither
-  // live signal below can be trusted — force false and skip both gh reads
-  // via `&&` short-circuit. Emitted once here (startup), never per-poll, so
-  // stdout's per-poll JSON stays clean.
+  // live signal below can be trusted — force false and skip both gh reads,
+  // including the upstream `fetchRequestedReviewers` call itself (gated
+  // below), via `&&` short-circuit. Emitted once here (startup), never
+  // per-poll, so stdout's per-poll JSON stays clean.
   const copilotModuleActive = isCopilotModuleActive();
-  if (!copilotModuleActive) {
+  if (!copilotModuleActive && !parsed.copilotNotRequested) {
     process.stderr.write(
       `${noticeLine("copilot")} — skipping Copilot review\n`,
     );
   }
+  const requestedReviewers =
+    copilotModuleActive && !parsed.copilotNotRequested
+      ? fetchRequestedReviewers(parsed.pr, gh)
+      : [];
   const copilotConfigured =
     copilotModuleActive &&
     !parsed.copilotNotRequested &&

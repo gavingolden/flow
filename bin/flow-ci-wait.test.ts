@@ -2318,13 +2318,13 @@ describe("run() integration", () => {
 
   it("--copilot-not-requested forces copilotConfigured=false even when historical fallback would say true (decline-collapse)", async () => {
     const clock = makeFakeClock();
-    // reviewRequests EMPTY (no explicit request) and readHistoricalBotReview
-    // returns true — without the flag this repo's history would keep
-    // copilotConfigured true and the declined PR would wait the 10-min
-    // Copilot timeout. With --copilot-not-requested the derivation is hard-
-    // forced false, so poll 1 (CI all-passed) exits proceed-to-review.
+    // --copilot-not-requested hard-forces the derivation false BEFORE the
+    // upstream fetchRequestedReviewers gh reads even fire (no reviewRequests
+    // step is queued here, so an unexpected gh call would fail the test),
+    // so without the flag this repo's history would keep copilotConfigured
+    // true and the declined PR would wait the 10-min Copilot timeout; with
+    // the flag poll 1 (CI all-passed) exits proceed-to-review instead.
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       { matches: isPrView, response: prViewResponse("OPEN", []) },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);
@@ -2350,15 +2350,16 @@ describe("run() integration", () => {
     expect(result.polls).toBe(1);
   });
 
-  it("a deselected copilot module collapses copilotConfigured to false, skips both live signals, and emits a one-shot notice on stderr", async () => {
+  it("a deselected copilot module collapses copilotConfigured to false, skips both live signals (including the upstream fetchRequestedReviewers gh reads), and emits a one-shot notice on stderr", async () => {
     const clock = makeFakeClock();
-    // reviewRequests EMPTY and readHistoricalBotReview would say true — but
     // isCopilotModuleActive:false must short-circuit BEFORE either signal is
-    // consulted (readHistoricalBotReview throws if invoked, proving the
-    // `&&` short-circuit skips it). CI all-passed on poll 1, so with
-    // copilotConfigured forced false the loop exits immediately.
+    // consulted, AND before the upstream fetchRequestedReviewers gh reads
+    // even fire — readHistoricalBotReview throws if invoked, and no
+    // reviewRequests step is queued here, so an unexpected gh call for
+    // either would fail the test, proving both are skipped. CI all-passed
+    // on poll 1, so with copilotConfigured forced false the loop exits
+    // immediately.
     const gh = makeGhSequence([
-      { matches: isReviewRequests, response: reviewRequestsResponse([]) },
       { matches: isPrView, response: prViewResponse("OPEN", []) },
       { matches: isPrChecks, response: prChecksResponse(ALL_PASSED) },
     ]);

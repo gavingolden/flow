@@ -200,8 +200,9 @@ describe("noticeLine", () => {
     const line = noticeLine("research");
     expect(line).toContain("research");
     expect(line).toContain(
-      MODULES.find((m) => m.id === "research")!.description,
+      MODULES.find((m) => m.id === "research")!.description.replace(/\.$/, ""),
     );
+    expect(line).not.toContain(".;");
     expect(line).toContain("flow install --modules research");
   });
 });

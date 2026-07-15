@@ -139,7 +139,8 @@ export function isSkillActive(skill: string, deps: Deps = {}): boolean {
 /** One-line, user-facing notice for a deselected module. */
 export function noticeLine(id: ModuleId): string {
   const def = MODULES.find((m) => m.id === id)!;
-  return `flow: ${id} module not installed (deselected) — ${def.description}; re-enable with 'flow install --modules ${id}'.`;
+  const description = def.description.replace(/\.$/, "");
+  return `flow: ${id} module not installed (deselected) — ${description}; re-enable with 'flow install --modules ${id}'.`;
 }
 
 /** The graceful-skip JSON envelope callers already emit for other skip reasons. */

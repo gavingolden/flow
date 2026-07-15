@@ -1605,12 +1605,17 @@ subsection below, treating the PR as declined (parallel to
 the same wait a layer deeper):
 
 ```bash
-flow-module-status --check copilot || COPILOT_MODULE_INACTIVE=1
+flow-module-status --check copilot >/dev/null 2>&1 || COPILOT_MODULE_INACTIVE=1
 ```
 
-When `$COPILOT_MODULE_INACTIVE` is set, the helper already emitted the
-named notice to stderr — skip straight to invoking `flow-ci-wait` below
-with `--copilot-not-requested`.
+Redirect the probe's own stderr away — `flow-ci-wait`'s own
+`isCopilotModuleActive` self-guard is the single canonical emitter of the
+deselected-copilot notice (it fires whether or not this precheck ran), so
+surfacing the notice here too would show the user the same line twice.
+When `$COPILOT_MODULE_INACTIVE` is set, note the skip quietly in the
+chat-summary prose (copilot not requested — module deselected) and skip
+straight to invoking `flow-ci-wait` below with `--copilot-not-requested`,
+which prints the one user-facing notice.
 
 **Copilot request decision (before the wait).** Copilot review is opt-in
 for non-trivial changes only. Decide whether to request it for this PR
