@@ -34,6 +34,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -52,6 +53,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -66,6 +68,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -83,6 +86,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -102,6 +106,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -121,6 +126,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -149,6 +155,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -157,7 +164,7 @@ describe("buildFeatureCreateArgs", () => {
       feat({ id: "pokedex-page", description: "Re-skin the pokedex page" }),
       EPIC_SLUG,
     );
-    expect(args.slice(-2)).toEqual(["--slug", "pokedex-page"]);
+    expect(args.slice(-3)).toEqual(["--slug", "pokedex-page", "--tmux"]);
     expect(args.slice(3, 5)).toEqual(["--epic", "my-epic/pokedex-page"]);
   });
 
@@ -166,7 +173,7 @@ describe("buildFeatureCreateArgs", () => {
       feat({ id: "Search Page", description: "Re-skin the search page" }),
       EPIC_SLUG,
     );
-    expect(args.slice(-2)).toEqual(["--slug", "search-page"]);
+    expect(args.slice(-3)).toEqual(["--slug", "search-page", "--tmux"]);
     expect(args.slice(3, 5)).toEqual(["--epic", "my-epic/Search Page"]);
   });
 
@@ -218,6 +225,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -234,6 +242,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -257,6 +266,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -276,6 +286,7 @@ describe("buildFeatureCreateArgs", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 });
@@ -298,6 +309,7 @@ describe("launchFeature", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
   });
 
@@ -356,6 +368,60 @@ describe("launchFeature", () => {
       "my-epic/schema",
       "--slug",
       "schema",
+      "--tmux",
     ]);
+  });
+});
+
+describe("launcher guard + deterministic --tmux append", () => {
+  it("buildFeatureCreateArgs always appends --tmux so the child launches under tmux", () => {
+    const args = buildFeatureCreateArgs(
+      {
+        id: "feature-a",
+        title: "Feature A",
+        description: "do a thing",
+        dependsOn: [],
+      },
+      "my-epic",
+    );
+    expect(args).toContain("--tmux");
+  });
+
+  it("launchFeature refuses with the named notice when tmux is off PATH (spawn never fires)", () => {
+    const spawn = vi.fn();
+    const r = launchFeature(
+      {
+        id: "feature-a",
+        title: "Feature A",
+        description: "do a thing",
+        dependsOn: [],
+      },
+      { spawn, epicSlug: "my-epic", tmuxOnPath: () => false },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain(
+        "epic orchestration requires the tmux launcher",
+      );
+    }
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("launchFeature proceeds when tmux is on PATH", () => {
+    const spawn = vi.fn(() => ({
+      status: 0,
+      stdout: "flow:feature-a\n",
+      stderr: "",
+    }));
+    const r = launchFeature(
+      {
+        id: "feature-a",
+        title: "Feature A",
+        description: "do a thing",
+        dependsOn: [],
+      },
+      { spawn, epicSlug: "my-epic", tmuxOnPath: () => true },
+    );
+    expect(r).toEqual({ ok: true, slug: "feature-a" });
   });
 });

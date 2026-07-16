@@ -235,15 +235,32 @@ describe("buildRows — liveness annotation ('(crashed)')", () => {
     expect(rows[0].annotation).toBe("");
   });
 
-  it("never consults liveness for a (no window) row — that branch is unchanged", async () => {
-    const spy = vi.spyOn(livenessModule, "livenessOf");
+  // Liveness-first verdict matrix: the file-signal verdict outranks window
+  // existence, so a live PLAIN pipeline (windowless by design) shows healthy.
+  it("windowless + alive ⇒ no annotation (a live plain pipeline is never reaped-looking)", async () => {
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("alive");
+    const rows = await buildRows(
+      [state({ slug: "plain-live", pid: 4242, procStartedAt: 1_700_000_000 })],
+      [],
+      NOW,
+    );
+    expect(rows[0].annotation).toBe("");
+  });
+
+  it("windowless + dead/stale ⇒ (crashed)", async () => {
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("dead");
     const rows = await buildRows(
       [state({ slug: "ghost", pid: 4242, procStartedAt: 1_700_000_000 })],
       [],
       NOW,
     );
+    expect(rows[0].annotation).toBe("(crashed)");
+  });
+
+  it("windowless + unknown (legacy state, no pid signal) ⇒ (no window)", async () => {
+    vi.spyOn(livenessModule, "livenessOf").mockReturnValue("unknown");
+    const rows = await buildRows([state({ slug: "ghost" })], [], NOW);
     expect(rows[0].annotation).toBe("(no window)");
-    expect(spy).not.toHaveBeenCalled();
   });
 });
 

@@ -1898,11 +1898,17 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       return prompt.startsWith("Install research");
     };
     await setup({ all: false, isTTY: true, confirm, configPath: configPath() });
-    expect(asked.length).toBe(6); // every optional (non-core) module, once
+    // Every optional (non-core) module once, plus the one launcher question.
+    expect(asked.length).toBe(7);
+    expect(
+      asked.filter((p) => p.includes("Use tmux as your pipeline launcher?")),
+    ).toHaveLength(1);
     const written = readConfig();
     expect(new Set(written.modules as string[])).toEqual(
       new Set(["core", "research"]),
     );
+    // The launcher answer (declined) is persisted alongside modules.
+    expect(written.launcher).toBe("plain");
   });
 
   it("(b) a recorded config selection re-links without invoking confirm", async () => {
@@ -1911,14 +1917,21 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       configPath(),
       JSON.stringify({ modules: ["core", "copilot"] }),
     );
-    const confirm = vi.fn(() => true);
+    const confirm = vi.fn((prompt: string) =>
+      prompt.includes("Use tmux as your pipeline launcher?"),
+    );
     await setup({ all: false, isTTY: true, confirm, configPath: configPath() });
-    expect(confirm).not.toHaveBeenCalled();
-    // Not re-persisted: the recorded file is untouched (still exactly what
-    // was seeded, modulo formatting — read back as the same ids).
+    // Only the launcher question fires — never a module re-ask.
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(String(confirm.mock.calls[0]![0])).toContain(
+      "Use tmux as your pipeline launcher?",
+    );
+    // Not re-persisted: the recorded module ids are untouched (still exactly
+    // what was seeded, modulo formatting — read back as the same ids).
     expect(new Set(readConfig().modules as string[])).toEqual(
       new Set(["core", "copilot"]),
     );
+    expect(readConfig().launcher).toBe("tmux");
   });
 
   it("(c) a non-TTY run with nothing recorded defaults to core, emits the one-line notice, and does not persist", async () => {
@@ -1939,6 +1952,57 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
       });
       const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(allLogs).toMatch(/module selection: defaulting to core only/);
+    } finally {
+      logSpy.mockRestore();
+    }
+    expect(fs.existsSync(configPath())).toBe(false);
+  });
+
+  it("launcher: a recorded config value never re-asks and is left untouched", async () => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(
+      configPath(),
+      JSON.stringify({ modules: ["core"], launcher: "tmux" }),
+    );
+    const confirm = vi.fn(() => false);
+    await setup({ all: false, isTTY: true, confirm, configPath: configPath() });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(readConfig().launcher).toBe("tmux");
+  });
+
+  it("launcher: --upgrade with nothing recorded never asks and persists nothing", async () => {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    fs.writeFileSync(configPath(), JSON.stringify({ modules: ["core"] }));
+    const confirm = vi.fn(() => true);
+    await setup({
+      all: false,
+      upgrade: true,
+      isTTY: true,
+      confirm,
+      configPath: configPath(),
+      cachePath: path.join(homeDir, ".flow", "update-check.json"),
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(readConfig().launcher).toBeUndefined();
+  });
+
+  it("launcher: non-TTY with nothing recorded defaults to plain, notices, persists nothing", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    try {
+      await runSetup({
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        skipPreflight: true,
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        isTTY: false,
+        configPath: configPath(),
+      });
+      const allLogs = logSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allLogs).toMatch(/launcher: defaulting to plain/);
     } finally {
       logSpy.mockRestore();
     }

@@ -64,6 +64,12 @@ import {
   type ReadConfigFile,
 } from "./modules-config";
 import { inactiveOptionalModules, type ModuleActivity } from "./module-status";
+import {
+  collectLauncherConfigWarnings,
+  readLauncherConfig,
+  resolveLauncherSelection,
+  writeLauncherConfig,
+} from "./launcher-config";
 
 const STOP_HOOK_COMMAND = "flow-stop-guard";
 const SESSION_START_HOOK_COMMAND = "flow-session-start-hook";
@@ -228,7 +234,7 @@ export async function runSetup(
     ? () => undefined
     : (msg: string) => console.log(msg);
 
-  if (!options.skipPreflight) preflight(targets);
+  if (!options.skipPreflight) preflight(targets, options);
 
   // Preflight-like timing so a broken node_modules surfaces fast — but
   // reported through the summary (set inside runUnderLock), never via
@@ -295,6 +301,33 @@ async function runUnderLock(
   );
   if (persistIds) {
     writeModuleSelection(persistIds, { configPath: options.configPath });
+  }
+
+  // Launcher backend Q&A (default-off). A recorded config value or an
+  // `--upgrade` run never re-asks; a non-TTY run with nothing recorded
+  // defaults to plain with a one-line notice and persists nothing.
+  const readCfg: ReadConfigFile | undefined = options.configPath
+    ? () => readConfigFileAt(options.configPath!)
+    : undefined;
+  for (const w of collectLauncherConfigWarnings(readCfg)) {
+    log(dim(`  ! launcher config: ${w}`));
+  }
+  const launcher = resolveLauncherSelection({
+    isTTY: options.upgrade
+      ? false
+      : (options.isTTY ?? process.stdin.isTTY === true),
+    confirm: options.confirm ?? confirmStdin,
+    read: readCfg,
+  });
+  if (launcher.shouldPersist) {
+    writeLauncherConfig(launcher.id, { configPath: options.configPath });
+  }
+  if (launcher.source === "default" && !options.upgrade) {
+    log(
+      dim(
+        "  i launcher: defaulting to plain — opt into tmux with `flow config launcher tmux`",
+      ),
+    );
   }
   const summary: SetupSummary = {
     created: 0,
@@ -565,15 +598,21 @@ export function validateJsonFiles(paths: string[]): {
   return { failures, errors };
 }
 
-function preflight(targets: InstallTargets): void {
-  if (!commandOnPath("tmux")) {
+function preflight(targets: InstallTargets, options: SetupOptions): void {
+  // tmux is no longer an install prerequisite — the plain launcher is the
+  // default backend. Warn (never fail) only when the RECORDED launcher is
+  // tmux and tmux is missing, since that recorded preference will degrade at
+  // launch time.
+  const read: ReadConfigFile | undefined = options.configPath
+    ? () => readConfigFileAt(options.configPath!)
+    : undefined;
+  if (readLauncherConfig(read) === "tmux" && !commandOnPath("tmux")) {
     console.error(
-      "error: tmux is not on PATH.\n" +
-        "  flow uses tmux for pipeline windows. Install it first:\n" +
+      "warning: your recorded launcher is tmux, but tmux is not on PATH.\n" +
+        "  pipelines will fall back to the plain launcher. Install tmux:\n" +
         "    macOS:  brew install tmux\n" +
         "    Linux:  apt install tmux  (or your distro's equivalent)",
     );
-    process.exit(1);
   }
   if (!pathContains(targets.binDir)) {
     console.error(

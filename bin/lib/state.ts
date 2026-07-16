@@ -192,6 +192,13 @@ export type PipelineState = {
    * behavior, same as `pid`.
    */
   procStartedAt?: number;
+  /**
+   * The launcher backend this pipeline was created under. `flow feature
+   * resume` reuses it (flag > state > config > default precedence).
+   * Optional-additive: absent ≡ a legacy tmux-era pipeline (no migration;
+   * AGENTS.md forbids back-compat shims).
+   */
+  launcher?: "plain" | "tmux";
   updatedAt: string;
 };
 
@@ -408,6 +415,12 @@ function isPipelineState(x: unknown): x is PipelineState {
     return false;
   if (o.pid !== undefined && typeof o.pid !== "number") return false;
   if (o.procStartedAt !== undefined && typeof o.procStartedAt !== "number")
+    return false;
+  if (
+    o.launcher !== undefined &&
+    o.launcher !== "plain" &&
+    o.launcher !== "tmux"
+  )
     return false;
   return true;
 }

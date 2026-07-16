@@ -99,7 +99,25 @@ vi.mock("./liveness", async () => {
   };
 });
 
-import { runNew, runFeatureCli, deriveWorktreePath } from "./feature";
+import {
+  runNew as runNewReal,
+  runFeatureCli as runFeatureCliReal,
+  deriveWorktreePath,
+  type FeatureOptions,
+} from "./feature";
+
+// The launcher backend now defaults to PLAIN (flag > state > config >
+// default); this file's specs exercise the tmux path, so the wrappers pin
+// `launcher: "tmux"` while letting individual specs override (the plain
+// dispatch + flag-parsing specs pass their own `launcher`/flags).
+const runNew = (input: string, options: FeatureOptions = {}) =>
+  runNewReal(input, { launcher: "tmux", tmuxOnPath: () => true, ...options });
+const runFeatureCli = (args: string[], options: FeatureOptions = {}) =>
+  runFeatureCliReal(args, {
+    launcher: "tmux",
+    tmuxOnPath: () => true,
+    ...options,
+  });
 import { writeState, PHASE_MODEL_FLAGS } from "./state";
 
 let stateDir!: string;
@@ -329,6 +347,7 @@ describe("runNew --resume", () => {
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
+      "FLOW_SLUG=crashed",
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "crashed"),
@@ -376,6 +395,8 @@ describe("runNew --resume", () => {
       ...before,
       pid: 4242,
       procStartedAt: FAKE_PROC_STARTED_AT,
+      // Additive: a tmux resume now also stamps the backend it ran under.
+      launcher: "tmux",
     });
   });
 
@@ -837,6 +858,7 @@ describe("runNew (fresh)", () => {
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
+      "FLOW_SLUG=csv-export",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "csv-export"),
@@ -1226,6 +1248,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
+      "FLOW_SLUG=do-thing",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
@@ -1257,6 +1280,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
+      "FLOW_SLUG=do-thing",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
@@ -1346,6 +1370,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
+      "FLOW_SLUG=saved-effort",
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-effort"),
@@ -1373,6 +1398,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
       expect(command).toEqual([
         "env",
         "FLOW_PIPELINE=1",
+        "FLOW_SLUG=do-thing",
         "claude",
         "--add-dir",
         deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
@@ -1404,6 +1430,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
+      "FLOW_SLUG=do-thing",
       "claude",
       "--add-dir",
       deriveWorktreePath(fs.realpathSync(repoDir), "do-thing"),
@@ -1703,6 +1730,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
+      "FLOW_SLUG=saved-model",
       "claude",
       "--add-dir",
       deriveWorktreePath(repoDir, "saved-model"),
@@ -1744,6 +1772,7 @@ describe("runFeatureCli (--help / -h short-circuit)", () => {
     expect(command).toEqual([
       "env",
       "FLOW_PIPELINE=1",
+      "FLOW_SLUG=suffixed-slug",
       "claude",
       "--add-dir",
       recordedWorktree,
@@ -2643,5 +2672,183 @@ describe("runFresh — --epic <epic-slug>/<feature-id> (Task 7 / Story 8)", () =
     expect(errors.join("\n")).toMatch(/invalid --epic/);
     expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
     expect(fs.readdirSync(stateDir)).toEqual([]);
+  });
+});
+
+describe("launcher backend dispatch (--tmux / --no-tmux / plain)", () => {
+  // The fake child stamps `seedIngestedAt` the moment it "starts" (mirroring
+  // the UserPromptSubmit hook), so plainLaunch's delete-on-fast-fail doesn't
+  // classify the instant fixture exit as a dead-on-arrival launch.
+  function fakePlainSpawn(exitCode = 0, pid = 777) {
+    const calls: Array<{
+      argv: string[];
+      cwd: string;
+      env: NodeJS.ProcessEnv;
+    }> = [];
+    const spawn = (
+      argv: string[],
+      o: { cwd: string; env: NodeJS.ProcessEnv },
+    ) => {
+      calls.push({ argv, cwd: o.cwd, env: o.env });
+      const slug = o.env.FLOW_SLUG!;
+      const raw = JSON.parse(
+        fs.readFileSync(path.join(stateDir, `${slug}.json`), "utf8"),
+      );
+      writeState(
+        { ...raw, seedIngestedAt: new Date().toISOString() },
+        stateDir,
+      );
+      return { pid, exited: Promise.resolve(exitCode) };
+    };
+    return { spawn, calls };
+  }
+
+  it("--tmux and --no-tmux are mutually exclusive on create (validate-before-state)", () => {
+    const code = runFeatureCliReal(
+      ["create", "--tmux", "--no-tmux", "do", "thing"],
+      { stateDir },
+    );
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/mutually exclusive/);
+    expect(fs.readdirSync(stateDir)).toEqual([]);
+  });
+
+  it("--tmux and --no-tmux are mutually exclusive on resume too", () => {
+    seedState("x");
+    const code = runFeatureCliReal(["resume", "x", "--tmux", "--no-tmux"], {
+      stateDir,
+    });
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/mutually exclusive/);
+  });
+
+  it("default (no flag, no config) dispatches create to the plain backend, never tmux", async () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const { spawn, calls } = fakePlainSpawn();
+    const code = await runFeatureCliReal(["create", "plain", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).not.toHaveBeenCalled();
+    expect(calls).toHaveLength(1);
+    // seed rides as the final positional; FLOW_SLUG set via env object
+    expect(calls[0]!.argv.at(-1)).toMatch(/pipeline-slug: plain-thing/);
+    expect(calls[0]!.env.FLOW_SLUG).toBe("plain-thing");
+    // contract line printed raw before handing over the terminal
+    expect(logs[0]).toBe("flow:plain-thing");
+  });
+
+  it("plain create refuses without a TTY (named notice), before spawning", async () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const { spawn, calls } = fakePlainSpawn();
+    const code = await runFeatureCliReal(["create", "no", "tty"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+      plainDeps: { spawn, isTTY: false },
+    });
+    expect(code).toBe(1);
+    expect(calls).toHaveLength(0);
+    expect(errors.join("\n")).toMatch(
+      /needs an interactive terminal — pass --tmux/,
+    );
+  });
+
+  it("collision refusal fires off the state-file signal even with tmux absent", () => {
+    seedState("busy-slug");
+    const code = runFeatureCliReal(["create", "--slug", "busy-slug", "desc"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+      tmuxOnPath: () => false,
+    });
+    expect(code).toBe(1);
+    expect(errors.join("\n")).toMatch(/already exists/);
+  });
+
+  it("--tmux on create dispatches to the verified tmux path and persists launcher: tmux", () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    freshWindowOk();
+    const code = runFeatureCliReal(["create", "--tmux", "tmux", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({}),
+      tmuxOnPath: () => true,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.createWindowVerified).toHaveBeenCalledTimes(1);
+    const state = JSON.parse(
+      fs.readFileSync(path.join(stateDir, "tmux-thing.json"), "utf8"),
+    );
+    expect(state.launcher).toBe("tmux");
+  });
+
+  it("a tmux-configured backend degrades to plain with the named notice when tmux is off PATH", async () => {
+    spawnSync("git", ["init", "-b", "main"], { cwd: repoDir });
+    const { spawn, calls } = fakePlainSpawn();
+    const code = await runFeatureCliReal(["create", "degrade", "thing"], {
+      stateDir,
+      cwd: repoDir,
+      readConfig: () => ({ launcher: "tmux" }),
+      tmuxOnPath: () => false,
+      plainDeps: { spawn, isTTY: true, pidStartEpoch: () => 1 },
+    });
+    expect(code).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(errors.join("\n")).toMatch(/falling back to the plain launcher/);
+  });
+
+  it("resume precedence: state.launcher wins over config", async () => {
+    // state recorded plain; config says tmux — resume must go plain.
+    writeState(
+      {
+        slug: "plain-recorded",
+        phase: "implementing",
+        repo: repoDir,
+        launcher: "plain",
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    const { spawn, calls } = fakePlainSpawn();
+    const code = await runFeatureCliReal(["resume", "plain-recorded"], {
+      stateDir,
+      readConfig: () => ({ launcher: "tmux" }),
+      tmuxOnPath: () => true,
+      plainDeps: {
+        spawn,
+        isTTY: true,
+        pidStartEpoch: () => 1,
+        liveness: { isAlive: () => false, pidStartEpoch: () => null },
+      },
+    });
+    expect(code).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(tmuxMock.respawnWindowVerified).not.toHaveBeenCalled();
+    expect(calls[0]!.argv.at(-1)).toMatch(/--resume mode/);
+  });
+
+  it("resume precedence: an explicit --tmux flag wins over a plain state.launcher", () => {
+    writeState(
+      {
+        slug: "flag-wins",
+        phase: "implementing",
+        repo: repoDir,
+        launcher: "plain",
+        updatedAt: new Date().toISOString(),
+      },
+      stateDir,
+    );
+    tmuxMock.windowExists.mockReturnValue(true);
+    const code = runFeatureCliReal(["resume", "flag-wins", "--tmux"], {
+      stateDir,
+      readConfig: () => ({}),
+      tmuxOnPath: () => true,
+    });
+    expect(code).toBe(0);
+    expect(tmuxMock.respawnWindowVerified).toHaveBeenCalledTimes(1);
   });
 });

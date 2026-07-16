@@ -34,6 +34,7 @@ import {
   type PipelineState,
 } from "./state";
 import { deleteTurnTracking } from "./stop-turn-tracking";
+import { plainTerminate } from "./launcher";
 import { dim } from "./color";
 
 const TERMINAL_PHASES = new Set(["merged", "cancelled"]);
@@ -42,6 +43,8 @@ export type DoneOptions = {
   merged?: boolean;
   orphans?: boolean;
   yes?: boolean;
+  /** plainTerminate seam (test only) — defaults to the real SIGTERM path. */
+  terminate?: typeof plainTerminate;
 };
 
 /**
@@ -171,8 +174,20 @@ export function runDone(
   if (hasWindow) {
     killWindow(name);
   } else {
-    console.warn(`  (no tmux window for '${name}' — state file existed alone)`);
-    warned = true;
+    // No window matched — a plain-launched pipeline lives as a bare process.
+    // plainTerminate SIGTERMs only on an `alive` liveness verdict, so a
+    // recycled PID or a legacy no-signal state is never signalled.
+    const state = readState(name);
+    const terminated =
+      state != null && (options.terminate ?? plainTerminate)(state).terminated;
+    if (terminated) {
+      console.log(dim(`  terminated plain-launcher process for '${name}'`));
+    } else {
+      console.warn(
+        `  (no tmux window for '${name}' — state file existed alone)`,
+      );
+      warned = true;
+    }
   }
   if (hasState) {
     deleteState(name);
@@ -272,7 +287,14 @@ function sweep(
 
   const windows = listWindows();
   for (const s of states) {
-    if (findWindowBySlug(windows, s.slug)) killWindow(s.slug);
+    if (findWindowBySlug(windows, s.slug)) {
+      killWindow(s.slug);
+    } else {
+      // Windowless (plain-launched, or the window already died): SIGTERM the
+      // recorded process, but only on an `alive` verdict — plainTerminate is
+      // recycled-PID-safe by construction.
+      (options.terminate ?? plainTerminate)(s);
+    }
     deleteState(s.slug);
     deleteTurnTracking(s.slug);
     console.log(`closed: ${s.slug}`);

@@ -29,11 +29,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { runUpdate } from "./flow-state-update";
-import { resolveSlugFromPane } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 import { type GitRunner, defaultGit } from "./lib/resume-probes";
 
 type Args = {
-  /** undefined when omitted — caller falls back to resolveSlugFromPane(). */
+  /** undefined when omitted — caller falls back to resolveSlugAmbient(). */
   slug?: string;
   bodyFile: string;
   title?: string;
@@ -220,7 +220,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const git = deps.git ?? defaultGit;
   const updater = deps.updater ?? runUpdate;
-  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
   const sessionId = deps.sessionId ?? process.env.CLAUDE_CODE_SESSION_ID;
 
   const parsed = parseArgs(argv);
