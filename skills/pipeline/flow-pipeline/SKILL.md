@@ -2681,7 +2681,7 @@ After each phase transition:
   `/flow-pr-review`'s "Independent Multi-Agent Review",
   `/flow-product-planning`'s "Independent Discovery Subagent",
   `/flow-new-feature`'s "Independent Scout Subagent",
-  `/flow-pr-review`'s "Independent Fix-Applier Subagent",
+  `/flow-pr-review`'s "Fix-Applier Subagent",
   step 10's "Merge-Conflict Resolver Subagent",
   `/flow-coder`'s "Independent Edit-Applier Subagent",
   `/flow-pr-review`'s "Independent Gatekeeper Subagent",

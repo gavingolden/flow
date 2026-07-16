@@ -931,8 +931,8 @@ describe("Task-tool exemption symmetry (AGENTS.md ↔ flow-pipeline/SKILL.md)", 
         "as one of the named Task-tool exemptions.",
     ).toBe(true);
     expect(
-      verificationSection.includes("Independent Fix-Applier Subagent"),
-      "flow-pipeline/SKILL.md Verification section must reference 'Independent Fix-Applier Subagent' " +
+      verificationSection.includes("Fix-Applier Subagent"),
+      "flow-pipeline/SKILL.md Verification section must reference 'Fix-Applier Subagent' " +
         "as one of the named Task-tool exemptions.",
     ).toBe(true);
     expect(
@@ -3361,12 +3361,72 @@ describe("pr-review include-by-reference structure", () => {
     // gains the fired-notice echo paragraph. Every existing spawn keeps its
     // per-spawn model: param and artifact path — new-contract prose, not
     // regrowth of previously-trimmed prose.
+    //
+    // Lowered 2025 → 1750 (p5-context-diet): the lean-body + lazy-reference
+    // pass trimmed the file 2,016 → 1,698 lines by moving procedural detail
+    // (escalation recipes, the deployment follow-up checklist, UI-validation
+    // execution detail) into topic-owning reference files and collapsing
+    // duplicated spawn-procedure prose. The lowered ceiling locks in this
+    // win with modest headroom rather than leaving the old, now-stale 2025
+    // budget as ~327 lines of silent regrowth room — the exact failure mode
+    // this diet fights.
     expect(
       lineCount,
-      `flow-pr-review/SKILL.md line count must stay under the post-review-agents ` +
-        `budget of 2025 lines. Material regrowth past this ceiling would ` +
+      `flow-pr-review/SKILL.md line count must stay under the post-diet ` +
+        `budget of 1750 lines. Material regrowth past this ceiling would ` +
         `indicate unrelated bloat creeping back in.`,
-    ).toBeLessThan(2025);
+    ).toBeLessThan(1750);
+  });
+
+  it("skills/pipeline/flow-pipeline/SKILL.md line count stays under the post-diet budget", () => {
+    const pipelineSkillPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-pipeline",
+      "SKILL.md",
+    );
+    const content = fs.readFileSync(pipelineSkillPath, "utf8");
+    const lineCount = content.split("\n").length;
+    // New lint (p5-context-diet): the supervisor body had regrown 236 lines
+    // since its #411 split before this diet trimmed it 2,986 → 2,700 lines
+    // by moving the Step 3 threading/backstop contracts to
+    // references/step3-threading.md. 2750 leaves modest headroom above the
+    // 2,700-line post-diet floor without reopening the zero-headroom gate
+    // tension this same PR's Test Steps hit at exactly 2,700 — regrowth
+    // past 2750 should be treated as bloat creeping back in, the failure
+    // mode this diet exists to prevent.
+    expect(
+      lineCount,
+      `flow-pipeline/SKILL.md line count must stay under the post-diet ` +
+        `budget of 2750 lines. Material regrowth past this ceiling would ` +
+        `indicate unrelated bloat creeping back in.`,
+    ).toBeLessThan(2750);
+  });
+
+  it("skills/pipeline/flow-new-feature/SKILL.md line count stays under the post-diet budget", () => {
+    const newFeatureSkillPath = path.resolve(
+      HERE,
+      "..",
+      "skills",
+      "pipeline",
+      "flow-new-feature",
+      "SKILL.md",
+    );
+    const content = fs.readFileSync(newFeatureSkillPath, "utf8");
+    const lineCount = content.split("\n").length;
+    // New lint (p5-context-diet): the Step 4b PR-description authoring
+    // rubric moved verbatim to references/pr-description-authoring.md,
+    // trimming the file 916 → 750 lines. 780 leaves modest headroom above
+    // the post-diet floor; regrowth past it should be treated as bloat
+    // creeping back in.
+    expect(
+      lineCount,
+      `flow-new-feature/SKILL.md line count must stay under the post-diet ` +
+        `budget of 780 lines. Material regrowth past this ceiling would ` +
+        `indicate unrelated bloat creeping back in.`,
+    ).toBeLessThan(780);
   });
 
   it("skills/pipeline/flow-pr-review/SKILL.md Result artifact section carries the exit-path table header", () => {

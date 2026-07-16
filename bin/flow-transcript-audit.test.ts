@@ -321,6 +321,18 @@ describe(estimateStaticCost, () => {
     expect(result.files[0].lines).toBe(3);
   });
 
+  it("reports zero lines/chars/estTokens for an empty file", async () => {
+    const file = path.join(tmpDir, "empty.md");
+    fs.writeFileSync(file, "");
+    const result = await estimateStaticCost([file]);
+    expect(result.files[0]).toEqual({
+      path: file,
+      lines: 0,
+      chars: 0,
+      estTokens: 0,
+    });
+  });
+
   it("throws on a missing/unreadable path (the CLI maps this to exit 2)", async () => {
     await expect(
       estimateStaticCost([path.join(tmpDir, "does-not-exist.md")]),

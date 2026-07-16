@@ -35,7 +35,7 @@ PLANNING_MODEL=$(jq -r '.modelPlanning // empty' ~/.flow/state/"$SLUG".json)
 ## Force-on threading (mandatory)
 
 BEFORE invoking `/flow-product-planning`, run `jq -r '.forceResearch //
-empty' ~/.flow/state/<slug>.json`. When the value is the literal `true`,
+empty' ~/.flow/state/"$SLUG".json`. When the value is the literal `true`,
 append a `RESEARCH: force-on (flow feature create --research)` marker
 line to the `/flow-product-planning` invocation through the same append
 channel that carries the inferred ultimate goal — drop it and a
@@ -74,7 +74,7 @@ launched from an epic. `.epic` is stored as an object
 `<slug>/<featureId>` token rather than emitting the raw JSON:
 
 ```bash
-jq -r '.epic | if type == "object" then "\(.slug)/\(.featureId)" else empty end' ~/.flow/state/<slug>.json
+jq -r '.epic | if type == "object" then "\(.slug)/\(.featureId)" else empty end' ~/.flow/state/"$SLUG".json
 ```
 
 When non-empty, append an `EPIC: <slug>/<featureId> (design at
@@ -154,8 +154,8 @@ silently — the exact drift an external reviewer caught in the econ-data
 run:
 
 ```bash
-flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
-LINT_RC=$?
+LINT_RC=0
+flow-candidate-issues --lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" || LINT_RC=$?
 ```
 
 Exit 1 signals drift (the stdout JSON's `references[]` names each
@@ -175,12 +175,10 @@ own self-check (`discovery-instructions.md`'s Verification checklist)
 was skipped:
 
 ```bash
+LINT_RC=0
 if command -v flow-plan-lint >/dev/null 2>&1; then
-  flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md"
-  LINT_RC=$?
-else
-  LINT_RC=0   # helper not on PATH — skip silently (tolerant), per the contract below
-fi
+  flow-plan-lint --plan-md-file "$WORKTREE/.flow-tmp/plan.md" || LINT_RC=$?
+fi   # helper not on PATH — skip silently (tolerant), per the contract below
 ```
 
 Exit 0 is clean; exit 1 prints one named miss per line on stdout —

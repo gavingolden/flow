@@ -240,8 +240,7 @@ this PR's diet.
 
 ```bash
 # 1. Materialize the pre-diet ("before") files from the merge-base commit
-#    (fd1e484, which already contains #446's flow- rename so before/after
-#    paths line up):
+#    (computed dynamically — do not hardcode a SHA here, it rots on rebase):
 MB=$(git merge-base origin/main HEAD)
 mkdir -p .flow-tmp/audit-before
 git show "$MB":AGENTS.md > .flow-tmp/audit-before/AGENTS.md
@@ -266,16 +265,20 @@ char-budget lint):**
 
 | File                                        | Before lines / chars / estTokens | After lines / chars / estTokens | Δ chars              |
 | ------------------------------------------- | -------------------------------- | ------------------------------- | -------------------- |
-| `AGENTS.md`                                 | 519 / 39,943 / 9,986             | 327 / 19,978 / 4,995            | **−19,965 (−50.0%)** |
-| `skills/pipeline/flow-pipeline/SKILL.md`    | 2,923 / 171,886 / 42,972         | 2,697 / 160,528 / 40,132        | **−11,358 (−6.6%)**  |
+| `AGENTS.md`                                 | 521 / 39,935 / 9,984             | 330 / 20,132 / 5,033            | **−19,803 (−49.6%)** |
+| `skills/pipeline/flow-pipeline/SKILL.md`    | 2,986 / 175,408 / 43,852         | 2,700 / 161,463 / 40,366        | **−13,945 (−7.9%)**  |
 | `skills/pipeline/flow-pr-review/SKILL.md`   | 2,016 / 119,165 / 29,792         | 1,698 / 100,708 / 25,177        | **−18,457 (−15.5%)** |
-| `skills/pipeline/flow-new-feature/SKILL.md` | 893 / 54,346 / 13,587            | 728 / 43,743 / 10,936           | **−10,603 (−19.5%)** |
-| **Total**                                   | 6,351 / 385,340 / 96,337         | 5,450 / 324,957 / 81,240        | **−60,383 (−15.7%)** |
+| `skills/pipeline/flow-new-feature/SKILL.md` | 916 / 56,142 / 14,036            | 750 / 45,536 / 11,384           | **−10,606 (−18.9%)** |
+| **Total**                                   | 6,439 / 390,650 / 97,664         | 5,478 / 327,839 / 81,960        | **−62,811 (−16.1%)** |
+
+(Re-measured at HEAD `3b578ac` against merge-base `5268c79`, post two
+rebases onto advancing `main`; the prior table reflected a pre-rebase
+snapshot and had drifted stale on both the before- and after-sides.)
 
 All four always-resident instruction surfaces `plan.md` named were dieted
-in this PR. `flow-pipeline/SKILL.md` lands at 2,697 lines (target ≤2,700),
+in this PR. `flow-pipeline/SKILL.md` lands at 2,700 lines (target ≤2,700),
 `flow-pr-review/SKILL.md` at 1,698 lines (target ≤1,700), and
-`flow-new-feature/SKILL.md` at 728 lines (target ≤750) — each inside its
+`flow-new-feature/SKILL.md` at 750 lines (target ≤750) — each inside its
 epic-ratified line target, with `flow-pr-review/SKILL.md` and
 `flow-new-feature/SKILL.md` landing with double-digit percentage margin
 to spare. The cuts used the same move-verbatim-and-point method
@@ -303,8 +306,8 @@ drift (one more skill, ~180 more tokens) predates this diet — it is not
 a side effect of `p5-context-diet`'s changes.
 
 **`AGENTS.md` line-target outcome.** The Roadmap's "~200-line guidance"
-was not met: the dieted file lands at 327 lines (39,943 → 19,978 chars,
-−50.0%, comfortably inside the tightened 24,000-char `CHAR_BUDGET`
+was not met: the dieted file lands at 330 lines (39,935 → 20,132 chars,
+−49.6%, comfortably inside the tightened 24,000-char `CHAR_BUDGET`
 lint). The char target was reachable; the line target was not, for a
 structural reason rather than an effort shortfall: `bin/skill-md-lint.test.ts`
 pins ~30 exact-phrase and cross-document anchors into `AGENTS.md`'s body
@@ -319,7 +322,7 @@ not exhaustive specifications." (the `<800 lines`-vs-prescribed-methods
 precedent, PR #170), a prescribed target that structural constraints
 make unreachable is a signal to say so plainly rather than either
 force-unwrapping lines (explicitly foreclosed — see the char co-target)
-or silently reporting success: 327 lines is the achieved floor for this
+or silently reporting success: 330 lines is the achieved floor for this
 anchor set, not a stopping point chosen for convenience.
 
 **Edit-routing verdict cross-reference:** see

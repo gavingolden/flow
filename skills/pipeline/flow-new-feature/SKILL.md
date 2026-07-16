@@ -578,14 +578,12 @@ Decide whether to delegate edits to `/flow-coder` based on the **hybrid threshol
    plus the worktree path (and `DESIGN_CONTEXT` when step 2 produced
    one — omit the line entirely otherwise):
 
-```
-
-/flow-coder
-EDIT_SET: [{...}, {...}]
-WORKTREE: <absolute path>
-DESIGN_CONTEXT: <optional — step 2's two-tier content, or omitted>
-
-```
+   ```
+   /flow-coder
+   EDIT_SET: [{...}, {...}]
+   WORKTREE: <absolute path>
+   DESIGN_CONTEXT: <optional — step 2's two-tier content, or omitted>
+   ```
 
 `/flow-coder` is itself a thin wrapper that spawns one **Independent
 Edit-Applier Subagent** via the Task tool (the sixth named Task-tool
@@ -597,10 +595,10 @@ writes the structured artifact at
 
 4. After `/flow-coder` returns, do a cheap existence check on the artifact:
 
-```bash
-test -s "$WORKTREE/.flow-tmp/coder-result.json" \
-  || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
-```
+   ```bash
+   test -s "$WORKTREE/.flow-tmp/coder-result.json" \
+     || { echo "NEEDS HUMAN: coder-failed" >&2; exit 1; }
+   ```
 
 On missing or empty artifact, surface the failure to the caller —
 the supervisor escalates `NEEDS HUMAN: coder-failed` rather than
