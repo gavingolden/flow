@@ -652,22 +652,22 @@ request as the argument:
 /flow-product-planning <verbatim user description>
 ```
 
-Fold the **ultimate goal** you inferred in step 1's goal-framing
-sub-step into this invocation as explicit context (append it after the
-verbatim request), so the isolated Discovery Subagent anchors the PRD
-Problem Statement on it instead of re-deriving from the surface request
-alone. Discovery still validates the supplied goal against the codebase
-and surfaces an Open Question if it disagrees rather than accepting it
-blindly — see `discovery-instructions.md` §3 ("User intent").
+Fold the **ultimate goal** you inferred in step 1's goal-framing sub-step
+into this invocation as explicit context (append it after the verbatim
+request) so the Discovery Subagent anchors the PRD Problem Statement on it;
+discovery still validates the goal against the codebase and surfaces an Open
+Question if it disagrees — see `discovery-instructions.md` §3 ("User intent").
 
 **Invocation threading.** Before invoking `/flow-product-planning`, thread up
 to four marker lines onto the same append channel as the inferred ultimate
-goal (see below) — full contract for each in
-[references/step3-threading.md](references/step3-threading.md):
+goal — full contract for each in
+[references/step3-threading.md](references/step3-threading.md); none add a
+new Task-tool exemption or spawn site (all are markers on the existing
+Discovery exemption, #2 in Hard rules):
 
-- **Per-phase model (planning) threading** — resolve `state.modelPlanning` /
-  `config.models.planning` (see [references/model-routing.md](references/model-routing.md))
-  and append `MODEL_PLANNING: <alias>` when non-empty.
+- **Per-phase model (planning) threading** — append `MODEL_PLANNING: <alias>`
+  when `state.modelPlanning` / `config.models.planning` resolves non-empty
+  ([references/model-routing.md](references/model-routing.md)).
 - **Force-on threading (mandatory)** — when `state.forceResearch == true`,
   append `RESEARCH: force-on (flow feature create --research)`.
 - **Revision-pass threading (on step-3 re-entry)** — when
@@ -676,26 +676,19 @@ goal (see below) — full contract for each in
 - **Epic-membership threading** — when `.epic` is set, append
   `EPIC: <slug>/<featureId> (design at .flow/epics/<slug>/design.md)`.
 
-None of these add a new Task-tool exemption or spawn site — they are all
-markers on the existing Discovery exemption (#2 in Hard rules).
-
 **Deterministic forced research (mandatory on the forced path).** The
 discovery subagent's own Step 1.5 was observed to skip the fan-out even when
-forced, so on the `forceResearch == true` path you MUST ALSO run
-the research yourself, BEFORE invoking `/flow-product-planning`. First probe
-the module — `flow-module-status --check research || RESEARCH_MODULE_INACTIVE=1`
-(a deselected `research` module means `flow-research-run` was pruned from
-PATH; when inactive the helper already emitted the named notice, so note the
-skip in the chat summary and proceed straight to `/flow-product-planning`,
-appending nothing — same "graceful skip never blocks planning" invariant as
-the agy-unavailable path). Otherwise run
-`flow-research-run --task "<verbatim user description>" --out
+forced, so on the `forceResearch == true` path you MUST ALSO run the research
+yourself BEFORE invoking `/flow-product-planning`: probe
+`flow-module-status --check research` (non-zero ⇒ module deselected, notice
+already emitted — note the skip and proceed to planning appending nothing),
+then run `flow-research-run --task "<verbatim user description>" --out
 "$WORKTREE/.flow-tmp/research-findings.md" --status-file
-"$WORKTREE/.flow-tmp/research-status.json"`, then fold non-empty findings
-into the invocation through the same channel, clearly labelled `RESEARCH
-FINDINGS (web-grounded, pre-run by supervisor — use as prior context, do NOT
-re-run the fan-out):`. This self-degrades to a graceful skip when agy is
-unavailable and NEVER blocks planning; full bash in
+"$WORKTREE/.flow-tmp/research-status.json"`, folding non-empty findings into
+the invocation through the same channel, clearly labelled `RESEARCH FINDINGS
+(web-grounded, pre-run by supervisor — use as prior context, do NOT re-run
+the fan-out):`. This self-degrades to a graceful skip when agy is unavailable
+and NEVER blocks planning; full bash in
 [references/step3-threading.md](references/step3-threading.md#deterministic-forced-research-mandatory-on-the-forced-path).
 
 `/flow-product-planning` is a thin wrapper that spawns one **Independent
@@ -762,12 +755,9 @@ split. Bash `flow-delegate` (AGY) fan-out, same mechanism as
 fan-out, not a tenth exemption"). Three-part gate: `review.gemini == true`
 in `~/.flow/config.json` (same key the Gemini lens uses), AND a non-empty
 `## Decision analysis` section in plan.md, AND
-`flow-module-status --check research` passing — the same `research`-module
-precheck as the forced-research block above (`flow-plan-review` is itself
-a `research` helper, so a deselected module means it isn't on PATH; the
-module check already emits its named notice on stderr). When **any** part
-fails, record the reason in the chat summary and skip this sub-step
-unchanged.
+`flow-module-status --check research` passing (`flow-plan-review` is a
+`research` helper; the check emits its own named notice); when **any** part
+fails, record the reason in the chat summary and skip this sub-step unchanged.
 
 When all three fire, run `flow-plan-review --plan-file
 "$WORKTREE/.flow-tmp/plan.md" --out "$WORKTREE/.flow-tmp/plan-review.md"`
@@ -1415,32 +1405,20 @@ Continue to step 7.
 
 **Phase:** `ci-wait`
 
-**Copilot-module precheck (before any of this).** A deselected `copilot`
-module means `flow-request-copilot` was never installed on PATH at all —
-probe first, and on a non-zero exit skip the entire request/classify
-subsection below, treating the PR as declined (parallel to
-`flow-ci-wait`'s own `isCopilotModuleActive` self-guard, which collapses
-the same wait a layer deeper):
-
-```bash
-flow-module-status --check copilot >/dev/null 2>&1 || COPILOT_MODULE_INACTIVE=1
-```
-
-Redirect the probe's own stderr away — `flow-ci-wait`'s own
-`isCopilotModuleActive` self-guard is the single canonical emitter of the
-deselected-copilot notice (it fires whether or not this precheck ran), so
-surfacing the notice here too would show the user the same line twice.
-When `$COPILOT_MODULE_INACTIVE` is set, note the skip quietly in the
-chat-summary prose (copilot not requested — module deselected) and skip
-straight to invoking `flow-ci-wait` below with `--copilot-not-requested`,
-which prints the one user-facing notice.
+**Copilot-module precheck (before any of this).** Probe
+`flow-module-status --check copilot >/dev/null 2>&1` — non-zero means the
+`copilot` module is deselected (`flow-request-copilot` never on PATH): skip
+the request/classify subsection below (PR treated as declined), note the
+skip quietly, and invoke `flow-ci-wait` below with `--copilot-not-requested`
+(its self-guard prints the one user-facing notice — hence the discarded
+stderr). Full rationale in
+[references/polling-protocol.md](references/polling-protocol.md#copilot-module-precheck).
 
 **Copilot request decision (before the wait).** Copilot review is opt-in
-for non-trivial changes only. Decide whether to request it for this PR
-*before* invoking `flow-ci-wait`, so a declined PR can collapse the bot
-wait. The decision combines the per-pipeline `copilotReview` override
-(from state.json) with `flow-request-copilot`'s deterministic glob
-classifier:
+for non-trivial changes only; decide *before* invoking `flow-ci-wait`, so a
+declined PR can collapse the bot wait. The decision combines the
+per-pipeline `copilotReview` override (from state.json) with
+`flow-request-copilot`'s deterministic glob classifier:
 
 ```bash
 OVERRIDE=$(jq -r '.copilotReview // "auto"' ~/.flow/state/"$SLUG".json)
@@ -1470,35 +1448,28 @@ VERDICT=$(gh pr diff "$PR" --name-only \
 REQUESTED=$(printf '%s' "$VERDICT" | jq -r '.requestCopilot')
 ```
 
-`flow-ci-wait` consolidates the entire poll loop (presence checks →
-cadence ramp → 20-min wall-clock cap → 10-min Copilot timeout →
-CI/Copilot/PR-state decision matrix) into a single Bash call that returns
-one JSON verdict on stdout. The full contract (terminal-state taxonomy,
-cadence ramp, lowercased Copilot login, `not configured` overrides, the
-Copilot timeout relative to the first ci-terminal poll) lives in
-`references/polling-protocol.md` and is unit-tested at
-`bin/flow-ci-wait.test.ts`. Per-iteration progress is written to stderr so
-the stdout JSON is cleanly capturable.
+`flow-ci-wait` consolidates the entire poll loop (presence checks → cadence
+ramp → 20-min wall-clock cap → 10-min Copilot timeout → CI/Copilot/PR-state
+decision matrix) into a single Bash call returning one JSON verdict on
+stdout (per-iteration progress goes to stderr). Full contract in
+`references/polling-protocol.md`, unit-tested at `bin/flow-ci-wait.test.ts`.
 
 Append `--copilot-not-requested` to the `flow-ci-wait` call only when no
-Copilot review is coming. **Two** signals trigger it: the request decision
-was to **decline** (`$REQUESTED` is `false` — a trivial PR or the
-`bots.copilotSkipWait` budget short-circuit); or the verdict reports
-`copilotRequestable:false` (Copilot isn't available on this repo). Read
+Copilot review is coming — **two** signals: the request decision was to
+**decline** (`$REQUESTED` is `false` — trivial PR or the
+`bots.copilotSkipWait` budget short-circuit), or the verdict reports
+`copilotRequestable:false` (Copilot unavailable on this repo). Read
 `$REQUESTABLE` via `jq` alongside `$REQUESTED`; the verdict's `declineKind`
-field (`skip-wait` for the `bots.copilotSkipWait` budget toggle vs
-`skip-request` for an explicit `--override never` or an unqualifying glob
-class) makes the decline reason machine-checkable instead of string-sniffing
-`reason`.
+field (`skip-wait` vs `skip-request`) makes the decline reason
+machine-checkable instead of string-sniffing `reason`.
 
 A `requestSkipReason` (auto-review already enabled, so the helper skipped
 the redundant request) **deliberately does NOT** append the flag — the
-auto-review will still post, so the supervisor keeps waiting and picks it
-up via the historical/author-match path (only a genuine decline or
-unavailability should collapse the wait). The flag hard-forces
+auto-review will still post, so the supervisor keeps waiting and picks it up
+via the historical/author-match path. The flag hard-forces
 `copilotConfigured=false`, bypassing both the in-flight `reviewRequests`
-check and the historical-PR fallback; `$SKIP_REASON` is logged only, never
-a driver. A forced request (`--override always`) never yields a
+check and the historical-PR fallback; `$SKIP_REASON` is logged only, never a
+driver. A forced request (`--override always`) never yields a
 `requestSkipReason` — the POST always fires (the #260 fix).
 
 Launch the call (run the Bash tool with `run_in_background: true`):
@@ -1509,10 +1480,8 @@ rm -f "$VERDICT_FILE"   # clear any stale verdict from a prior CI cycle
 REQUESTABLE=$(printf '%s' "$VERDICT" | jq -r '.copilotRequestable // empty')
 SKIP_REASON=$(printf '%s' "$VERDICT" | jq -r '.requestSkipReason // empty')  # logged only; does NOT drive the flag
 NOT_REQUESTED_FLAG=""
-# Only a genuine decline ($REQUESTED=false: trivial PR or bots.copilotSkipWait
-# budget) or genuine unavailability ($REQUESTABLE=false) collapses the wait.
-# An auto-review skip ($SKIP_REASON set) keeps the wait so the auto-posted
-# Copilot review is still picked up.
+# Only a genuine decline ($REQUESTED=false) or genuine unavailability
+# ($REQUESTABLE=false) collapses the wait; an auto-review skip keeps it.
 if [ "$REQUESTED" = "false" ] || [ "$REQUESTABLE" = "false" ]; then
   NOT_REQUESTED_FLAG="--copilot-not-requested"
 fi
