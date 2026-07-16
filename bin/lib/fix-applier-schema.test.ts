@@ -145,6 +145,20 @@ describe("validateFixApplierResult — happy paths", () => {
     const result = validateFixApplierResult(fixture);
     expect(result.ok).toBe(true);
   });
+
+  it("accepts an artifact WITH a top-level ui_screenshots string array", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.ui_screenshots = ["/abs/1.png", "/abs/2.png"];
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(true);
+  });
+
+  it("accepts an artifact WITHOUT ui_screenshots (field absent)", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    expect("ui_screenshots" in fixture).toBe(false);
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(true);
+  });
 });
 
 describe("validateFixApplierResult — required-key omissions", () => {
@@ -294,6 +308,36 @@ describe("validateFixApplierResult — wrong-type rejections", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.reason).toContain("introduced_by_this_pr");
+    }
+  });
+
+  it("rejects an artifact where ui_screenshots is not an array", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.ui_screenshots = "not-an-array";
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("ui_screenshots");
+    }
+  });
+
+  it("rejects an artifact where ui_screenshots contains a non-string/empty-string element", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.ui_screenshots = ["/abs/1.png", ""];
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("ui_screenshots");
+    }
+  });
+
+  it("rejects an artifact where ui_screenshots contains a non-string element", () => {
+    const fixture = structuredClone(VALID_FULL) as Record<string, unknown>;
+    fixture.ui_screenshots = ["/abs/1.png", 42];
+    const result = validateFixApplierResult(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("ui_screenshots");
     }
   });
 });

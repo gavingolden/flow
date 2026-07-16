@@ -1564,9 +1564,11 @@ VERIFY_STATUS=$(jq -r '.verify_status' "$ARTIFACT_PATH")
 **Unverified-UI signal (user-visible, either branch).** When the artifact
 carries `ui_smoke: skipped` with a non-empty `ui_smoke_reason` (a UI diff
 that did not get browser-validated — MCP absent, launch/creds unresolvable,
-or a not-meaningful surface), upsert a user-visible line into the PR body as
-a sibling to the `> [!CAUTION]` verify block — idempotent, edit-in-place, do
-not stack — so a skipped UI diff is never silent:
+a not-meaningful surface, or a browser run whose screenshot save-path
+cascade was fully denied: `screenshots-unwritable`), upsert a user-visible
+line into the PR body as a sibling to the `> [!CAUTION]` verify block —
+idempotent, edit-in-place, do not stack — so a skipped UI diff is never
+silent:
 
   ```bash
   UI_SMOKE=$(jq -r '.ui_smoke // empty' "$ARTIFACT_PATH")
@@ -1580,7 +1582,25 @@ not stack — so a skipped UI diff is never silent:
   ```
 
   The same reason also flows into the gate summary's `WHY`/`NEXT ACTION`
-  where relevant; no new gate-summary status is introduced.
+  where relevant; no new gate-summary status is introduced. Also echo the
+  same "UI changed; browser validation did not run — `$UI_REASON`" note to
+  the user in-session (a plain assistant-message line, not only the PR-body
+  upsert above) so the gap is visible without opening the PR.
+
+**Surface UI screenshots.** Whether or not the unverified-UI signal fired,
+print every screenshot path the browser pass captured and confirmed on
+disk, so the user can click straight through to the image without leaving
+the session:
+
+  ```bash
+  jq -r '.ui_screenshots[]?' "$ARTIFACT_PATH" | while IFS= read -r p; do
+    [ -f "$p" ] && printf '%s\n' "$p"
+  done
+  ```
+
+  Print each surviving absolute path bare — one per line, no bullet
+  marker, no trailing punctuation (trailing punctuation breaks the
+  terminal's click-target auto-detection) — all of them, no cap.
 
 - **`exhausted`** → after three failed outer attempts, escalate
   `NEEDS HUMAN: verify-exhausted`. Surface the artifact's
@@ -1819,6 +1839,20 @@ artifact to `<worktree>/.flow-tmp/fix-applier-result.json`; the
 wrapper reads it once and reuses the parsed object across its
 remaining steps. The supervisor never sees the per-finding fix
 prose, only `/flow-pr-review`'s brief return summary.
+
+**Surface UI screenshots (review-time).** `/flow-pr-review` Step 8c's
+browser pass (above) merges its captured screenshot paths into this same
+`fix-applier-result.json`'s `ui_screenshots[]` before this read, so mirror
+the same recipe used at step 6 against it:
+
+  ```bash
+  jq -r '.ui_screenshots[]?' "$WORKTREE/.flow-tmp/fix-applier-result.json" | while IFS= read -r p; do
+    [ -f "$p" ] && printf '%s\n' "$p"
+  done
+  ```
+
+  Print each surviving absolute path bare — one per line, no bullet
+  marker, no trailing punctuation — all of them, no cap.
 
 `/flow-pr-review` also spawns one **Independent Gatekeeper Subagent** via
 the Task tool (the seventh of the nine named Task-tool exemptions in

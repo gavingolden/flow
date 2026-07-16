@@ -234,6 +234,10 @@ MCP connection set), so a reload/restart is required to pick it up. For
 screenshot evidence to land in the worktree, the worktree should be a
 configured MCP workspace root; otherwise the capture falls back to the
 session cwd or is skipped — the a11y snapshot is the gate either way.
+Captured screenshots' clickable absolute paths now surface in the pipeline
+session at verify and review time, and a UI diff with no screenshot is
+surfaced as an explicit in-session validation gap rather than a silent
+omission.
 
 **Security.** The `chrome-devtools` MCP drives a real browser and can run
 arbitrary JS in the page context, so harden the setup: (1) point it at

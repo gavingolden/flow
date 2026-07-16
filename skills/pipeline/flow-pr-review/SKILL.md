@@ -1258,10 +1258,13 @@ envelope's `meta.viewports` — declared set or built-in default), applying the 
 geometry assertions automatically. The a11y `take_snapshot` is the primary evidence (injected
 via 8c.i's unchanged `flow-inject-evidence`), the screenshot supplementary and referenced by
 path. The full runnable-bucket procedure, the per-viewport capture loop, the captures
-contract, the **Screenshot save-path cascade**, the **`## UI traits to verify`** rubric, and
-the env-injected launch / clean teardown (the launched server(s) AND the per-pipeline isolated
+contract, the **Screenshot save-path cascade**, the **`## UI traits to verify`** rubric, the
+env-injected launch / clean teardown (the launched server(s) AND the per-pipeline isolated
 browser page/context this pass opened, on completion and on every error / early-exit) /
-self-improving-manifest persist-back behavior live in [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
+self-improving-manifest persist-back behavior, and the **wrapper-side merge-back** of every
+surviving screenshot path into `fix-applier-result.json`'s `ui_screenshots[]` — written between
+the Fix-Applier subagent's return and Step 9's single artifact read, so the `/flow-pipeline`
+supervisor can surface each path in the session — live in [references/ui-validation-evidence.md](references/ui-validation-evidence.md).
 When the `chrome-devtools` MCP is **absent or contended** — the guarded
 `ToolSearch query="select:mcp__chrome-devtools__navigate_page"` returns nothing
 (absent), or an attempted MCP call fails because its single Chrome profile is

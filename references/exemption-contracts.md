@@ -74,7 +74,10 @@ Fix-Applier Subagent" step, one fix-applier agent is spawned via the
 Task tool to handle the per-finding address loop plus pre-commit /
 commit / push. Artifact: `.flow-tmp/fix-applier-result.json` (typed
 fields `commits`, `deferred`, `rejected_alternatives`,
-`anti_patterns_found`, `summary`). The subagent invokes `/flow-verify`
+`anti_patterns_found`, `summary`, `ui_screenshots?` — optional array of
+absolute screenshot paths captured by the browser pass, for supervisor
+session surfacing; typically populated by `/flow-pr-review` Step 8c's
+post-spawn merge-back rather than by the subagent itself). The subagent invokes `/flow-verify`
 against the post-fix worktree _before returning_, so a fix's CI breakage
 surfaces in-context while the fix rationale is still live. Spawned as
 the named `agents/flow-fix-applier.md` definition (judgment role: no
@@ -173,7 +176,9 @@ each retry re-invokes `/flow-verify` and re-pastes the prior attempt's
 branch) and the UI-smoke pass. Artifact:
 `<worktree>/.flow-tmp/verify-loop-result.json` (typed fields `verify_status`
 (`pass` | `exhausted`), `attempts`, `config_authored`, `ui_smoke`,
-`ui_smoke_reason?`, `final_failure_excerpt?`, `rejected_alternatives`, `anti_patterns_found`,
+`ui_smoke_reason?`, `ui_screenshots?` — optional array of absolute
+screenshot paths captured by the browser pass, for supervisor session
+surfacing — `final_failure_excerpt?`, `rejected_alternatives`, `anti_patterns_found`,
 `summary`). The supervisor reads it once and branches: `pass` continues to step
 7; `exhausted` escalates `verify-exhausted` and writes the `> [!CAUTION]` PR-body
 block from `final_failure_excerpt`. A committing subagent is consistent with the
