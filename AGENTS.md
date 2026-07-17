@@ -49,7 +49,7 @@ an accuracy precondition; the rest are ordered by token-savings impact.
 Each bullet is the binding rule; full rationale, precedents, and recipes
 are at [references/output-style.md](references/output-style.md).
 
-- **Verify factual claims before emitting them.** Verify SHAs, paths, line numbers, URLs, PR/issue numbers, versions, env-var names, API surfaces, dates, counts, and CLI flags against their source before citing them — never from memory or a stale `Read`. PR #170 is a related precedent; see the reference for the per-category recipe.
+- **Verify factual claims before emitting them.** Verify SHAs, paths, line numbers, URLs, PR/issue numbers, versions, env-var names, API surfaces, dates, counts, and CLI flags against their source before citing them — never from memory or a stale `Read`. See the reference for the per-category recipe.
 - **Treat user prompts as evidence of intent, not exhaustive specifications.** When a prompt names prescribed methods AND a quantitative target, surface tensions between them in the artifact downstream consumers read, and proceed toward the stated goal rather than the literal reading that fails it. PR #170 is the canonical precedent (four prescribed trims landed, the `<800 lines` target missed, no tension surfaced).
 - **Consider the middle ground when a request is framed as a binary choice.** A binary framing ("A or B?") is evidence of how the user is thinking, not a constraint — name a middle-ground option and surface the trade-off in the artifact, then proceed with the best guess.
 - **Understand the ultimate goal behind the request, not just the literal ask.** Infer the goal in one line and proceed for ambiguous/high-blast-radius requests; run expert/trivial/time-critical requests literally. Never interrogate.
