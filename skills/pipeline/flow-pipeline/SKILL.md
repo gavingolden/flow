@@ -315,8 +315,10 @@ a model that has already chosen to stop, but a Stop hook fires
 
 Contract:
 
-- Reads `~/.flow/state/<slug>.json` (slug from the tmux window's
-  `@flow-slug` user option).
+- Reads `~/.flow/state/<slug>.json` (slug resolved env-first from the
+  `FLOW_SLUG` env var — set in the launch env by both launcher
+  backends — falling back to the tmux window's `@flow-slug` user
+  option).
 - Exits 2 with a stderr `DO NOT END THE TURN` reminder when phase
   is non-terminal-non-pending — the supervisor is mid-pipeline and
   must continue.
@@ -326,9 +328,9 @@ Contract:
   (`plan-pending-review`, `triaged-no-change`,
   `triage-pending-clarification`, `approval-pending-clarification`,
   `ci-wait-pending`, `checkpoint-pending-clear`).
-- Self-detects: exits 0 (no-op) outside tmux, in non-flow tmux
-  windows (no `@flow-slug` set), or when state.json is missing.
-  Safe to install in a global Stop hook list.
+- Self-detects: exits 0 (no-op) when no flow slug resolves (no
+  `FLOW_SLUG`, and no `@flow-slug` pane), or when state.json is
+  missing. Safe to install in a global Stop hook list.
 - Loop-break budget: a per-turn block counter persisted at
   `~/.flow/state/turns/<slug>.json` (a sibling subdirectory so `flow ls`
   ignores it). Legitimate pending exits do NOT consume it.
@@ -362,9 +364,11 @@ flow-notify --status <merged|gated|needs-human> \
 `--slug` is omitted because every slug-taking flow helper (`flow-notify`,
 `flow-state-update`, `flow-rename-window`, `flow-open-pr`,
 `flow-resume-decide`, `flow-gate-decide`, `flow-remove-worktree`)
-auto-resolves it from `$TMUX_PANE`'s durable `@flow-slug` window option
-(the per-Bash-call shell loses any `SLUG=…` between calls). Pass `--slug`
-explicitly only when invoking from outside the pipeline window.
+auto-resolves it env-first from the `FLOW_SLUG` env var (set in the
+launch env by both launcher backends), falling back to `$TMUX_PANE`'s
+durable `@flow-slug` window option (the per-Bash-call shell loses any
+`SLUG=…` between calls). Pass `--slug` explicitly only when invoking
+from outside the pipeline session.
 
 - darwin-only; non-mac hosts and unset `FLOW_NOTIFY` both no-op.
 - Backend: `terminal-notifier` preferred (click-through to

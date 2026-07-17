@@ -738,3 +738,76 @@ describe("runDoneCli (multi-slug)", () => {
     err.mockRestore();
   });
 });
+
+describe("plain-launcher termination (no tmux window matched)", () => {
+  it("runDone terminates a live plain pipeline and removes its state", () => {
+    readSyncMock.mockImplementation((_fd, buf) => {
+      const bytes = Buffer.from("y\n");
+      bytes.copy(buf as Buffer);
+      return bytes.length;
+    });
+    tmuxMock.windowExists.mockReturnValue(false);
+    const s = state({
+      slug: "plain-live",
+      phase: "implementing",
+      pid: 555,
+      procStartedAt: 1,
+    });
+    stateMock.readState.mockReturnValue(s);
+    const terminate = vi.fn(() => ({ terminated: true }));
+    const code = runDone("plain-live", { yes: true, terminate });
+    expect(code).toBe(0);
+    expect(terminate).toHaveBeenCalledWith(s);
+    expect(tmuxMock.killWindow).not.toHaveBeenCalled();
+    expect(stateMock.deleteState).toHaveBeenCalledWith("plain-live");
+  });
+
+  it("runDone leaves a recycled/dead pid unsignalled (terminate refuses) and still cleans state", () => {
+    tmuxMock.windowExists.mockReturnValue(false);
+    const s = state({
+      slug: "plain-dead",
+      phase: "implementing",
+      pid: 555,
+      procStartedAt: 1,
+    });
+    stateMock.readState.mockReturnValue(s);
+    const terminate = vi.fn(() => ({
+      terminated: false,
+      reason: "liveness: dead",
+    }));
+    const code = runDone("plain-dead", { yes: true, terminate });
+    expect(code).toBe(0);
+    expect(terminate).toHaveBeenCalledWith(s);
+    expect(stateMock.deleteState).toHaveBeenCalledWith("plain-dead");
+  });
+
+  it("runDone with a matched window keeps the killWindow path unchanged (terminate never consulted)", () => {
+    tmuxMock.windowExists.mockReturnValue(true);
+    stateMock.readState.mockReturnValue(
+      state({ slug: "windowed", phase: "implementing" }),
+    );
+    const terminate = vi.fn(() => ({ terminated: true }));
+    const code = runDone("windowed", { yes: true, terminate });
+    expect(code).toBe(0);
+    expect(tmuxMock.killWindow).toHaveBeenCalledWith("windowed");
+    expect(terminate).not.toHaveBeenCalled();
+  });
+
+  it("sweep terminates windowless states via the seam and kills windows for matched ones", () => {
+    const live = state({
+      slug: "plain-live",
+      phase: "merged",
+      pid: 5,
+      procStartedAt: 1,
+    });
+    const windowed = state({ slug: "windowed", phase: "merged" });
+    stateMock.listStates.mockReturnValue([live, windowed]);
+    tmuxMock.listWindows.mockReturnValue([window("windowed")]);
+    const terminate = vi.fn(() => ({ terminated: true }));
+    const code = runDone(undefined, { merged: true, yes: true, terminate });
+    expect(code).toBe(0);
+    expect(terminate).toHaveBeenCalledTimes(1);
+    expect(terminate).toHaveBeenCalledWith(live);
+    expect(tmuxMock.killWindow).toHaveBeenCalledWith("windowed");
+  });
+});

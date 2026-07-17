@@ -17,7 +17,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { resolveSlugFromPane } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 import { readState } from "./lib/state";
 import { detectDefaultBranch, SYMLINK_FILES } from "./lib/worktree-fs";
 import {
@@ -514,7 +514,7 @@ function main(): void {
   // Zero-arg path is the load-bearing supervisor case: `flow-remove-worktree`
   // from inside a flow tmux pane resolves the slug from `$TMUX_PANE`'s
   // `@flow-slug` option. Don't print help here — fall through to resolveInput().
-  const input = resolveInput(positional[0], () => resolveSlugFromPane());
+  const input = resolveInput(positional[0], () => resolveSlugAmbient());
   if (!input) {
     log.error("Missing required argument: worktree path or branch name.");
     log.info(

@@ -3,16 +3,17 @@
  * Claude Code UserPromptSubmit hook for the /flow-pipeline (and /flow-epic-create)
  * supervisor.
  *
- * When a prompt is submitted inside a flow session — slug resolved from the
- * tmux pane's `@flow-slug` user option, exactly like flow-stop-guard — this
+ * When a prompt is submitted inside a flow session — slug resolved env-first
+ * from `FLOW_SLUG`, falling back to the tmux pane's `@flow-slug` user option,
+ * exactly like flow-stop-guard — this
  * stamps `seedIngestedAt` onto `~/.flow/state/<slug>.json` the instant the
  * seed prompt is accepted. That marker is the launch-time confirmation the
  * launcher's `consumed()` predicate wants: success can latch the moment the
  * seed is ingested rather than waiting for the supervisor's first phase write.
  *
- * Self-detection: exits 0 cleanly when not in tmux, when the current window
- * has no `@flow-slug` option (a normal coding session), or when state.json is
- * missing — making it safe to register in a flow-scoped settings file passed
+ * Self-detection: exits 0 cleanly when no flow slug resolves (no `FLOW_SLUG`,
+ * and no pane carrying `@flow-slug` — a normal coding session), or when
+ * state.json is missing — making it safe to register in a flow-scoped settings file passed
  * to `claude --settings`. It writes ONLY the per-pipeline state file under
  * `~/.flow/state/`, never the user's global Claude Code settings; the marker is
  * idempotent (re-stamping a state that already carries it is a no-op, so it
@@ -20,6 +21,7 @@
  */
 
 import { spawnSync } from "node:child_process";
+import { resolveSlugFromEnv } from "./lib/session-identity";
 import {
   nowIso as defaultNowIso,
   readState,
@@ -28,6 +30,8 @@ import {
 } from "./lib/state";
 
 export type Deps = {
+  /** FLOW_SLUG env value (env-first ambient slug; both launcher backends set it). */
+  flowSlugEnv?: string | undefined;
   tmuxPane: string | undefined;
   showFlowSlug: (pane: string) => string;
   loadState: (slug: string) => PipelineState | null;
@@ -36,10 +40,15 @@ export type Deps = {
 };
 
 export function run(deps: Deps): number {
-  const pane = deps.tmuxPane;
-  if (!pane) return 0;
-
-  const slug = deps.showFlowSlug(pane).trim();
+  // Env-first slug resolution: FLOW_SLUG (shape-validated) wins; the tmux
+  // pane option is the fallback for tmux-launched sessions.
+  let slug =
+    resolveSlugFromEnv({ FLOW_SLUG: deps.flowSlugEnv } as NodeJS.ProcessEnv) ??
+    "";
+  if (slug.length === 0) {
+    const pane = deps.tmuxPane;
+    if (pane) slug = deps.showFlowSlug(pane).trim();
+  }
   if (slug.length === 0) return 0;
 
   const state = deps.loadState(slug);
@@ -66,6 +75,7 @@ export function defaultShowFlowSlug(pane: string): string {
 if (import.meta.main) {
   process.exit(
     run({
+      flowSlugEnv: process.env.FLOW_SLUG,
       tmuxPane: process.env.TMUX_PANE,
       showFlowSlug: defaultShowFlowSlug,
       loadState: (slug) => readState(slug),

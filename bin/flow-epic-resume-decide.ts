@@ -46,7 +46,7 @@
 
 import { readState, type PipelineState, TERMINAL_PHASES } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
-import { resolveSlugFromPane } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 import {
   probeWorktree,
   probePr,
@@ -274,7 +274,7 @@ export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const git = deps.git ?? defaultGit;
   const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
-  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {

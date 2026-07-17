@@ -50,11 +50,12 @@ import {
   type PipelineState,
 } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
-import { resolveSlugFromPane, setWindowPhase } from "./lib/tmux";
+import { setWindowPhase } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 import { BRANCH_MARKER_FILENAME } from "./lib/worktree-marker";
 
 type Args = {
-  /** undefined when omitted — runUpdate falls back to resolveSlugFromPane(). */
+  /** undefined when omitted — runUpdate falls back to resolveSlugAmbient(). */
   slug?: string;
   phase?: string;
   pr?: number;
@@ -249,7 +250,7 @@ export function applyUpdate(
 export type RunUpdateDeps = {
   /**
    * Slug fallback when the positional arg is omitted. Defaults to
-   * `resolveSlugFromPane()` against the real tmux. Tests inject a
+   * `resolveSlugAmbient()` against the real tmux. Tests inject a
    * stub.
    */
   resolveSlug?: () => string | null;
@@ -288,7 +289,7 @@ export function runUpdate(
     const raw = fs.readFileSync(0, "utf8");
     parsed.answer = raw.endsWith("\n") ? raw.slice(0, -1) : raw;
   }
-  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
   const slug = parsed.slug ?? resolveSlug();
   if (!slug) {
     console.error(

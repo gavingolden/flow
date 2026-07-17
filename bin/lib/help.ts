@@ -43,8 +43,8 @@ Usage:
                                         the three are mutually exclusive; absent any of them, an interactive
                                         terminal is asked once per optional module and a non-interactive run
                                         defaults to core only)
-  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
-                                        start a new pipeline in a tmux window
+  flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
+                                        start a new pipeline (plain launcher by default; --tmux opts into a tmux window)
                                         (--no-auto-merge stops at gated regardless of rubric;
                                         --wait-for-copilot forces the full 10-min Copilot wait
                                         even when auto-detect would skip;
@@ -63,6 +63,9 @@ Usage:
                                         show the resolved model + effort + source for every
                                         pipeline phase and fan-out sub-agent (--slug overlays a
                                         pipeline's per-run overrides; --json emits machine-readable rows)
+  flow config launcher [get | set <plain|tmux>]
+                                        get/set the recorded launcher backend (flow install
+                                        asks once on interactive installs)
   flow ls [--cost [--detail]]           list active pipelines (cost adds $ column; detail breaks it down by model)
   flow attach [<name>]                  attach to a pipeline window — single window only  (alias: a)
   flow done <name> [<name> ...]         close one or more pipeline windows
@@ -81,20 +84,24 @@ Shell completions install automatically into ~/.zshrc / ~/.bashrc /
 ~/.bash_profile via 'flow install' — opt out with --no-completions.`;
 
 export const HELP_TEXT: Record<string, string> = {
-  feature: `flow feature — start or resume a pipeline in a tmux window
+  feature: `flow feature — start or resume a pipeline
 
 Usage:
-  flow feature create [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
-  flow feature resume <name> [<name> ...] [--yes]
+  flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
+  flow feature resume <name> [<name> ...] [--yes] [--tmux|--no-tmux]
 
 Subcommands:
-  create <description>  start a new pipeline in a tmux window
+  create <description>  start a new pipeline. Default launcher is PLAIN (claude runs
+                        in your current terminal); opt into tmux with --tmux, the
+                        flow install question, or 'flow config launcher tmux'
   resume <name> [<name> ...]
                         resume one or more crashed pipelines in their existing windows;
                         resumes sequentially, and with >=2 names previews the list and
                         confirms once (each name spawns a Claude Code session)
 
 Options (create):
+  --tmux / --no-tmux    per-run launcher override (mutually exclusive). Precedence:
+                        flag > recorded state (resume) > config launcher > plain
   --no-auto-merge       stop at gated regardless of the auto-merge rubric
   --wait-for-copilot    force the full 10-min Copilot wait even when auto-detect would skip
   --research            force web-grounded discovery research on, bypassing the relevance gate
@@ -117,7 +124,9 @@ Options (create):
                         hard-fails if that slug's window already exists
 
 Options (resume):
-  --yes, -y             skip the multi-resume confirmation preview`,
+  --yes, -y             skip the multi-resume confirmation preview
+  --tmux / --no-tmux    per-run launcher override (default: the backend the
+                        pipeline was created under, then config, then plain)`,
 
   epic: `flow epic — design and run an epic
 
@@ -132,7 +141,9 @@ Usage:
   flow epic done <slug> [--yes]
 
 Subcommands:
-  create "<prompt>"     design an epic — open a tmux window running /flow-epic-create
+  create "<prompt>"     design an epic — open a tmux window running /flow-epic-create.
+                        Epic orchestration requires the tmux launcher: opt in with
+                        --tmux, the flow install question, or 'flow config launcher tmux'
                         (clarify → design → validate → open the design PR)
   run <slug>            open the /flow-epic-run playbook window: an LLM reconciles the
                         committed manifest against GitHub/git truth and takes one
@@ -190,6 +201,7 @@ Options (done):
 
 Usage:
   flow config models [--slug <name>] [--json]
+  flow config launcher [get | set <plain|tmux>]
 
 Subcommands:
   models                print the effective Claude model + reasoning effort for
@@ -199,6 +211,10 @@ Subcommands:
                         with a SOURCE column showing where each value resolved
                         from (per-run flag/state, global config, built-in
                         fallback, pinned, or inherited-session)
+
+  launcher              get/set the recorded launcher backend (plain or tmux).
+                        flow install asks once on interactive installs and
+                        records the answer here; set changes it later
 
 Options (models):
   --slug <name>         overlay a specific pipeline's ~/.flow/state/<name>.json
@@ -272,7 +288,12 @@ Options:
                          (absent all three, an interactive terminal is asked once per
                          optional module and a non-interactive run defaults to core only,
                          printing a one-line notice; the resolved selection persists to
-                         ~/.flow/config.json and --upgrade never re-asks)`,
+                         ~/.flow/config.json and --upgrade never re-asks)
+
+Interactive installs also ask ONE launcher question (default no): use tmux as
+the pipeline launcher? The answer persists to ~/.flow/config.json (launcher);
+change it later with 'flow config launcher <plain|tmux>'. Non-interactive
+installs and --upgrade never ask.`,
 
   completion: `flow completion — print a shell completion script to stdout
 

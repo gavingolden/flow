@@ -16,7 +16,7 @@
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
 import { git } from "./lib/git";
-import { resolveSlugFromPane } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 import { findAvailableSlot, toDirSuffix } from "./lib/worktree-slot";
 import { ensureFlowExcludes, writeBranchMarker } from "./lib/worktree-marker";
 import { installCommitHook } from "./lib/worktree-commit-hook";
@@ -40,7 +40,7 @@ export type RunNewWorktreeDeps = {
   /**
    * Slug fallback consulted when the positional arg is omitted, and
    * compared against the positional arg when both are present. Defaults
-   * to `resolveSlugFromPane()` against the real tmux. Tests inject a stub.
+   * to `resolveSlugAmbient()` against the real tmux. Tests inject a stub.
    */
   resolveSlug?: () => string | null;
 };
@@ -136,7 +136,7 @@ export function parseArgs(
   if (argv.includes("--help") || argv.includes("-h")) return { kind: "help" };
   const reuse = argv.includes("--reuse");
   const positional = argv.filter((a) => a !== "--reuse");
-  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
   const pick = pickBranchName(positional[0], resolveSlug());
   if (pick.kind === "error") {
     return {

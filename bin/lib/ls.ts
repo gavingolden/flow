@@ -176,15 +176,19 @@ export async function buildRows(
     const state = states[i];
     const window = findWindowBySlug(windows, state.slug);
     if (window) matchedWindowIds.add(window.id);
-    // A matched window doesn't guarantee a live supervisor — the file-signal
-    // liveness check catches a window whose owning process died/was recycled
-    // without the window itself closing. No window at all stays "(no window)"
-    // unconditionally (unchanged); liveness is consulted ONLY when a window
-    // IS matched, and only a dead/stale verdict overrides the healthy "".
-    let annotation: Row["annotation"] = window ? "" : "(no window)";
-    if (window) {
-      const verdict = livenessOf(state);
-      if (verdict === "dead" || verdict === "stale") annotation = "(crashed)";
+    // Liveness-first annotation: the file-signal verdict outranks window
+    // existence, so a live PLAIN pipeline (no tmux window by design) is
+    // never reaped-looking. `alive` ⇒ healthy "" (window or not);
+    // `dead`/`stale` ⇒ "(crashed)"; only `unknown` (no pid signal — a
+    // legacy tmux-era state) degrades to the window-existence check.
+    const verdict = livenessOf(state);
+    let annotation: Row["annotation"];
+    if (verdict === "alive") {
+      annotation = "";
+    } else if (verdict === "dead" || verdict === "stale") {
+      annotation = "(crashed)";
+    } else {
+      annotation = window ? "" : "(no window)";
     }
     rows.push({
       name: state.slug,

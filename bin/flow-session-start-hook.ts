@@ -8,17 +8,19 @@
  * freshly-cleared session auto-enter resume mode — the pipeline continues
  * instead of leaving a blank session.
  *
- * Delivery mechanism (the fix for the "doesn't auto-resume" bug). An earlier
- * version emitted the resume seed as SessionStart `additionalContext`, but
- * `additionalContext` is injected PASSIVELY — it never triggers an autonomous
- * assistant turn, so with no user message after `/clear` the supervisor never
- * entered resume mode and the pane sat blank. This hook instead delivers the
- * seed as a REAL user turn via `tmux send-keys` — the exact mechanism the
- * initial launch and `flow feature resume` already use (`bin/lib/tmux.ts`),
- * applying flow's own codified rule ("claude does not auto-run injected
- * content; deliver via send-keys", `bin/lib/feature.ts` `launchArgv`) to the
- * one path that skipped it. The seed text is the SAME string `flow feature
- * resume` sends, reused (not re-authored) from `flowPipelineResumeSeed`.
+ * Delivery mechanism, per launcher backend. TMUX: an earlier version emitted
+ * the resume seed as SessionStart `additionalContext`, but that is injected
+ * PASSIVELY — it never triggers an autonomous assistant turn, so with no user
+ * message after `/clear` the supervisor never entered resume mode and the
+ * pane sat blank; the tmux path therefore delivers the seed as a REAL user
+ * turn via `tmux send-keys` — the exact mechanism the initial launch and
+ * `flow feature resume` already use (`bin/lib/tmux.ts`). PLAIN (slug resolved
+ * via `FLOW_SLUG` with no tmux pane): there is no send-keys surface, so the
+ * hook DELIBERATELY falls back to emitting the seed as `additionalContext` —
+ * passive delivery is ACCEPTED here because the user is present at a
+ * foreground terminal and their next message carries the resume context in.
+ * The seed text is the SAME string `flow feature resume` sends, reused (not
+ * re-authored) from `flowPipelineResumeSeed`.
  *
  * The hook is synchronous and BLOCKS session start, so it must return promptly:
  * `run()` fires the delivery as a DETACHED, unref'd child (`dispatchResume`)
@@ -40,6 +42,7 @@
 import * as fs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { readState, TERMINAL_PHASE_SET, type PipelineState } from "./lib/state";
+import { resolveSlugFromEnv } from "./lib/session-identity";
 import { flowPipelineResumeSeed } from "./lib/feature";
 import { capturePaneBySlug, sendKeysBySlug } from "./lib/tmux";
 import { deliverSeed } from "./lib/seed-delivery";
@@ -48,8 +51,16 @@ import { markerPath } from "./flow-checkpoint";
 
 export type Deps = {
   readStdin: () => Promise<string>;
+  /** FLOW_SLUG env value (env-first ambient slug; both launcher backends set it). */
+  flowSlugEnv?: string | undefined;
   tmuxPane: string | undefined;
   showFlowSlug: (pane: string) => string;
+  /**
+   * Plain-mode delivery: emit the SessionStart hookSpecificOutput JSON
+   * carrying the resume seed as additionalContext. Default writes to stdout
+   * (the SessionStart hook contract); injected in tests.
+   */
+  emitContext: (context: string) => void;
   loadState: (slug: string) => PipelineState | null;
   markerExists: (worktree: string) => boolean;
   /**
@@ -71,10 +82,16 @@ export async function run(deps: Deps): Promise<number> {
     // A stdin read hiccup must never break session start; fall through.
   }
 
+  // Env-first slug resolution: FLOW_SLUG (shape-validated) wins; the tmux
+  // pane option is the fallback for tmux-launched sessions.
   const pane = deps.tmuxPane;
-  if (!pane) return 0;
-
-  const slug = deps.showFlowSlug(pane).trim();
+  let slug =
+    resolveSlugFromEnv({ FLOW_SLUG: deps.flowSlugEnv } as NodeJS.ProcessEnv) ??
+    "";
+  if (slug.length === 0) {
+    if (!pane) return 0;
+    slug = deps.showFlowSlug(pane).trim();
+  }
   if (slug.length === 0) return 0;
 
   const state = deps.loadState(slug);
@@ -92,11 +109,27 @@ export async function run(deps: Deps): Promise<number> {
   const worktree = state.worktree;
   if (!worktree || !deps.markerExists(worktree)) return 0;
 
-  // Emit path. Deliver the resume seed as a real user turn (send-keys), NOT as
-  // passive additionalContext. Fire-and-forget: dispatchResume returns at once
-  // (detached child), so the hook does not block session start.
+  // Emit path. TMUX: deliver the resume seed as a real user turn (send-keys),
+  // fire-and-forget — dispatchResume returns at once (detached child), so the
+  // hook does not block session start. PLAIN (env-resolved slug, no pane):
+  // no send-keys surface exists, so degrade to passive additionalContext —
+  // the deliberate plain-mode fallback (see the header comment).
+  if (!pane || state.launcher === "plain") {
+    deps.emitContext(flowPipelineResumeSeed(slug));
+    return 0;
+  }
   deps.dispatchResume(slug);
   return 0;
+}
+
+/** SessionStart hookSpecificOutput JSON for the plain-mode context emit. */
+export function sessionStartOutput(context: string): string {
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext: context,
+    },
+  });
 }
 
 /** Seams for the clear-aware resume-seed delivery, injected in unit tests. */
@@ -253,7 +286,11 @@ if (import.meta.main) {
   }
   run({
     readStdin: defaultReadStdin,
+    flowSlugEnv: process.env.FLOW_SLUG,
     tmuxPane: process.env.TMUX_PANE,
+    emitContext: (context) => {
+      process.stdout.write(sessionStartOutput(context) + "\n");
+    },
     showFlowSlug: defaultShowFlowSlug,
     loadState: (slug) => readState(slug),
     markerExists: (worktree) => {

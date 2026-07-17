@@ -38,7 +38,7 @@
 import { spawnSync } from "node:child_process";
 import { readState } from "./lib/state";
 import { FLOW_STATE_DIR } from "./lib/paths";
-import { resolveSlugFromPane } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 
 export type Decision =
   | "auto-merge"
@@ -273,7 +273,7 @@ export function parseArgs(argv: string[]): Args | { error: string } {
     return { error: `unknown flag: ${flag}` };
   }
   // --slug is optional: when omitted, the runner falls back to
-  // resolveSlugFromPane(). Keep parseArgs pure — don't shell out here.
+  // resolveSlugAmbient(). Keep parseArgs pure — don't shell out here.
   return { pr, slug };
 }
 
@@ -286,7 +286,7 @@ export type Deps = {
 export function run(argv: string[], deps: Deps = {}): number {
   const gh = deps.gh ?? defaultGh;
   const stateDir = deps.stateDir ?? FLOW_STATE_DIR;
-  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugFromPane());
+  const resolveSlug = deps.resolveSlug ?? (() => resolveSlugAmbient());
 
   const parsed = parseArgs(argv);
   if ("error" in parsed) {

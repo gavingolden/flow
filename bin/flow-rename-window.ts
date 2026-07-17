@@ -24,9 +24,9 @@ import {
   buildRenameArgs,
   findWindowBySlug,
   listWindows,
-  resolveSlugFromPane,
   type TmuxWindow,
 } from "./lib/tmux";
+import { resolveSlugAmbient } from "./lib/session-identity";
 
 const HELP_TEXT = `flow-rename-window — rename a pipeline's tmux window display title
 
@@ -140,7 +140,7 @@ export function run(argv: string[], deps?: Partial<Deps>): number {
     return 2;
   }
 
-  const resolveSlug = deps?.resolveSlug ?? (() => resolveSlugFromPane());
+  const resolveSlug = deps?.resolveSlug ?? (() => resolveSlugAmbient());
   const slug = parsed.slug ?? resolveSlug();
   if (!slug) {
     writeErr(
