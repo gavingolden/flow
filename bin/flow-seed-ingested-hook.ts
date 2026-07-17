@@ -21,7 +21,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { isValidSlug } from "./lib/slug";
+import { resolveSlugFromEnv } from "./lib/session-identity";
 import {
   nowIso as defaultNowIso,
   readState,
@@ -42,8 +42,9 @@ export type Deps = {
 export function run(deps: Deps): number {
   // Env-first slug resolution: FLOW_SLUG (shape-validated) wins; the tmux
   // pane option is the fallback for tmux-launched sessions.
-  const envSlug = deps.flowSlugEnv;
-  let slug = envSlug !== undefined && isValidSlug(envSlug) ? envSlug : "";
+  let slug =
+    resolveSlugFromEnv({ FLOW_SLUG: deps.flowSlugEnv } as NodeJS.ProcessEnv) ??
+    "";
   if (slug.length === 0) {
     const pane = deps.tmuxPane;
     if (pane) slug = deps.showFlowSlug(pane).trim();

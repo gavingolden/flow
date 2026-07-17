@@ -42,7 +42,7 @@
 import * as fs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { readState, TERMINAL_PHASE_SET, type PipelineState } from "./lib/state";
-import { isValidSlug } from "./lib/slug";
+import { resolveSlugFromEnv } from "./lib/session-identity";
 import { flowPipelineResumeSeed } from "./lib/feature";
 import { capturePaneBySlug, sendKeysBySlug } from "./lib/tmux";
 import { deliverSeed } from "./lib/seed-delivery";
@@ -85,8 +85,9 @@ export async function run(deps: Deps): Promise<number> {
   // Env-first slug resolution: FLOW_SLUG (shape-validated) wins; the tmux
   // pane option is the fallback for tmux-launched sessions.
   const pane = deps.tmuxPane;
-  const envSlug = deps.flowSlugEnv;
-  let slug = envSlug !== undefined && isValidSlug(envSlug) ? envSlug : "";
+  let slug =
+    resolveSlugFromEnv({ FLOW_SLUG: deps.flowSlugEnv } as NodeJS.ProcessEnv) ??
+    "";
   if (slug.length === 0) {
     if (!pane) return 0;
     slug = deps.showFlowSlug(pane).trim();
@@ -113,7 +114,7 @@ export async function run(deps: Deps): Promise<number> {
   // hook does not block session start. PLAIN (env-resolved slug, no pane):
   // no send-keys surface exists, so degrade to passive additionalContext —
   // the deliberate plain-mode fallback (see the header comment).
-  if (!pane) {
+  if (!pane || state.launcher === "plain") {
     deps.emitContext(flowPipelineResumeSeed(slug));
     return 0;
   }

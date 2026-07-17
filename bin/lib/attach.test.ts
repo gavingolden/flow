@@ -184,6 +184,7 @@ describe("plain-launcher hint (state exists, no tmux window)", () => {
       repo: "/r",
       pid: 4242,
       updatedAt: "2026-07-14T00:00:00Z",
+      launcher: "plain",
     });
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const code = runAttach("plain-pipe");
@@ -203,6 +204,7 @@ describe("plain-launcher hint (state exists, no tmux window)", () => {
       phase: "implementing",
       repo: "/r",
       updatedAt: "2026-07-14T00:00:00Z",
+      launcher: "plain",
     });
     const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const code = runAttach("plain-pipe");
@@ -210,6 +212,25 @@ describe("plain-launcher hint (state exists, no tmux window)", () => {
     expect(err.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
       "plain launcher",
     );
+    err.mockRestore();
+  });
+
+  it("falls through to the generic not-found error for a tmux-launched pipeline with no confirmed plain launcher", () => {
+    tmuxMock.sessionExists.mockReturnValue(true);
+    tmuxMock.findWindowBySlug.mockReturnValue(undefined);
+    stateMock.readState.mockReturnValue({
+      slug: "tmux-pipe",
+      phase: "implementing",
+      repo: "/r",
+      updatedAt: "2026-07-14T00:00:00Z",
+      launcher: "tmux",
+    });
+    const err = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const code = runAttach("tmux-pipe");
+    expect(code).toBe(1);
+    const out = err.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(out).not.toContain("plain launcher");
+    expect(out).toContain("not found in 'flow' session");
     err.mockRestore();
   });
 

@@ -441,10 +441,15 @@ PR → review checkpoint), and writes initial epic state under
     read: options.readConfig,
     tmuxOnPath: options.tmuxOnPath,
   });
-  if (backend.notice) console.error(dim(backend.notice));
   if (backend.id !== "tmux") {
+    // Don't print backend.notice here: when a tmux resolution degrades
+    // (tmux not on PATH), the notice claims "falling back to the plain
+    // launcher" — contradictory alongside the error below, since epic
+    // orchestration then refuses to proceed on the plain backend at all.
     console.error(
-      "flow epic: epic orchestration requires the tmux launcher — opt in with --tmux, the flow install Q&A, or 'flow config launcher tmux'",
+      backend.notice
+        ? "flow epic: epic orchestration requires the tmux launcher — tmux is not installed or not on PATH"
+        : "flow epic: epic orchestration requires the tmux launcher — opt in with --tmux, the flow install Q&A, or 'flow config launcher tmux'",
     );
     return 1;
   }

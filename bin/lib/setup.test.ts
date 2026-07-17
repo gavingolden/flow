@@ -1574,6 +1574,70 @@ describe("flow install", () => {
   });
 });
 
+describe("preflight tmux-on-PATH warning (hard-fail-to-warning flip)", () => {
+  it("installs cleanly with no error when no launcher is recorded and tmux is absent", async () => {
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const summary = await runSetup({
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath: path.join(homeDir, ".flow", "config.json"),
+        // No recorded launcher config: preflight's tmux check only fires
+        // when the recorded launcher is "tmux" — the exact regression this
+        // spec pins is a hard exit(1) firing regardless of that recording.
+        commandOnPath: () => false,
+        quiet: true,
+      });
+      expect(summary.blocked).toBe(0);
+      const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allErrors).not.toMatch(/tmux/);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("warns (never exits) when the recorded launcher is tmux and tmux is absent", async () => {
+    const configPath = path.join(homeDir, ".flow", "config.json");
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({ launcher: "tmux" }));
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    try {
+      const summary = await runSetup({
+        flowSource,
+        installRoot: flowSource,
+        targets: targets(),
+        manifestPath,
+        lockPath,
+        homeDir,
+        settingsPath: settingsPath(),
+        cachePath: path.join(homeDir, ".flow", "update-check.json"),
+        all: true,
+        isTTY: false,
+        configPath,
+        commandOnPath: () => false,
+        quiet: true,
+      });
+      expect(summary.blocked).toBe(0);
+      const allErrors = errorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(allErrors).toMatch(/warning: your recorded launcher is tmux/);
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+});
+
 describe("rebaseOntoInstallRoot / effectiveLinkSource", () => {
   const worktree = "/repo/flow-slug";
   const canonical = "/repo/flow";

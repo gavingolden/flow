@@ -182,10 +182,13 @@ export function launchFeature(
     tmuxOnPath: opts.tmuxOnPath,
   });
   if (backend.id !== "tmux") {
+    // The `flag: "tmux"` above means tmux is already the forced selection —
+    // if it didn't resolve, it's strictly because tmuxOnPath returned false.
+    // Don't suggest opt-in mechanisms the caller has already exercised.
     return {
       ok: false,
       error:
-        "flow epic: epic orchestration requires the tmux launcher — opt in with --tmux, the flow install Q&A, or 'flow config launcher tmux' (tmux is not on PATH)",
+        "flow epic: epic orchestration requires the tmux launcher — tmux is not installed or not on PATH",
     };
   }
   const spawn = opts.spawn ?? defaultSpawn;

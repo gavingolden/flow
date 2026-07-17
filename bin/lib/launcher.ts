@@ -81,6 +81,20 @@ async function runForeground(
     console.error(
       `flow feature ${verb}: the plain launcher needs an interactive terminal — pass --tmux or run from a terminal`,
     );
+    // Mirror the delete-on-fast-fail cleanup below: this guard fires before
+    // any spawn attempt, so a `create`-verb `starting` state written by
+    // runFresh would otherwise be orphaned (never reaches the fast-fail
+    // branch further down since we return before spawning at all).
+    if (verb === "create") {
+      const preSpawnState = readState(req.slug, req.stateDir);
+      if (
+        preSpawnState != null &&
+        preSpawnState.phase === "starting" &&
+        preSpawnState.seedIngestedAt == null
+      ) {
+        deleteState(req.slug, req.stateDir);
+      }
+    }
     return { status: "failed", exitCode: 1, stderr: "not a TTY" };
   }
 
@@ -90,10 +104,28 @@ async function runForeground(
   console.error(dim(PLAIN_IDLE_HINT));
 
   const spawn = deps.spawn ?? defaultSpawn;
-  const child = spawn([...req.command, req.seed], {
-    cwd: req.repo,
-    env: { ...process.env, FLOW_PIPELINE: "1", FLOW_SLUG: req.slug },
-  });
+  let child: { pid: number; exited: Promise<number> };
+  try {
+    child = spawn([...req.command, req.seed], {
+      cwd: req.repo,
+      env: { ...process.env, FLOW_PIPELINE: "1", FLOW_SLUG: req.slug },
+    });
+  } catch (e) {
+    console.error(
+      `flow feature ${verb}: failed to launch claude — check your Claude Code install and PATH`,
+    );
+    if (verb === "create") {
+      const preSpawnState = readState(req.slug, req.stateDir);
+      if (
+        preSpawnState != null &&
+        preSpawnState.phase === "starting" &&
+        preSpawnState.seedIngestedAt == null
+      ) {
+        deleteState(req.slug, req.stateDir);
+      }
+    }
+    return { status: "failed", exitCode: 1, stderr: String(e) };
+  }
 
   // Record the liveness file-signal immediately after spawn, folding into
   // the CURRENT on-disk state so a concurrent hook write is never clobbered.

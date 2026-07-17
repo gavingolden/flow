@@ -156,6 +156,66 @@ describe("plainLaunch", () => {
       "needs an interactive terminal",
     );
   });
+
+  it("deletes the orphaned starting-phase state when the TTY guard fires before any spawn", async () => {
+    seedState({ phase: "starting" });
+    const { spawn, calls } = fakeSpawn({ exitCode: 0 });
+    const result = await plainLaunch(
+      {
+        slug: "my-feature",
+        repo: "/repo",
+        command: ["claude"],
+        seed: "s",
+        stateDir,
+      },
+      { spawn, isTTY: false },
+    );
+    expect(result.status).toBe("failed");
+    expect(calls).toHaveLength(0);
+    // Regression: the TTY guard used to return before the delete-on-fast-fail
+    // cleanup ran, orphaning the `starting` state file (bug-detection finding
+    // on PR #457).
+    expect(readState("my-feature", stateDir)).toBeNull();
+  });
+
+  it("does not delete state on the TTY guard when seedIngestedAt is already stamped (not an orphan)", async () => {
+    seedState({ phase: "starting", seedIngestedAt: nowIso() });
+    const { spawn } = fakeSpawn({ exitCode: 0 });
+    await plainLaunch(
+      {
+        slug: "my-feature",
+        repo: "/repo",
+        command: ["claude"],
+        seed: "s",
+        stateDir,
+      },
+      { spawn, isTTY: false },
+    );
+    expect(readState("my-feature", stateDir)).not.toBeNull();
+  });
+
+  it("catches a synchronously-throwing spawn (claude not on PATH), reports an actionable error, and cleans up orphaned state", async () => {
+    seedState({ phase: "starting" });
+    const spawn = (): never => {
+      throw new Error("ENOENT: claude");
+    };
+    const result = await plainLaunch(
+      {
+        slug: "my-feature",
+        repo: "/repo",
+        command: ["claude"],
+        seed: "s",
+        stateDir,
+      },
+      { spawn, isTTY: true },
+    );
+    expect(result.status).toBe("failed");
+    expect(result.stderr).toContain("ENOENT: claude");
+    expect(errSpy.mock.calls.map((c) => String(c[0])).join("\n")).toContain(
+      "check your Claude Code install",
+    );
+    expect(readState("my-feature", stateDir)).toBeNull();
+  });
 });
 
 // Injected liveness probes: vitest runs under node (no Bun global), so the

@@ -56,4 +56,12 @@ describe("runConfigCli", () => {
     expect(code).toBe(0);
     expect(out.join("\n")).toMatch(/PHASE\s+MODEL\s+SOURCE\s+EFFORT/);
   });
+
+  it("routes `launcher` to runConfigLauncherCli", () => {
+    const code = runConfigCli(["launcher", "get"], {
+      read: reader({ launcher: "tmux" }),
+    });
+    expect(code).toBe(0);
+    expect(out.join("\n")).toMatch(/tmux/);
+  });
 });

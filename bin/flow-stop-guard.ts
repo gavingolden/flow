@@ -30,7 +30,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { isValidSlug } from "./lib/slug";
+import { resolveSlugFromEnv } from "./lib/session-identity";
 import {
   isLegitimateEndPhase,
   nowIso as defaultNowIso,
@@ -74,8 +74,9 @@ export async function run(deps: Deps): Promise<number> {
 
   // Env-first slug resolution: FLOW_SLUG (shape-validated) wins; only when
   // NO slug resolves from either source is this a non-flow session (exit 0).
-  const envSlug = deps.flowSlugEnv;
-  let slug = envSlug !== undefined && isValidSlug(envSlug) ? envSlug : "";
+  let slug =
+    resolveSlugFromEnv({ FLOW_SLUG: deps.flowSlugEnv } as NodeJS.ProcessEnv) ??
+    "";
   if (slug.length === 0) {
     const pane = deps.tmuxPane;
     if (pane) slug = deps.showFlowSlug(pane).trim();

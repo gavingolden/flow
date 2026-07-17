@@ -44,7 +44,12 @@ export function runAttach(name?: string): number {
   // hint (pid included) instead of the generic not-found error.
   const plainHint = (slug: string): number | null => {
     const state = readState(slug);
-    if (state == null) return null;
+    // Only claim "runs under the plain launcher" for pipelines this PR's
+    // recorded `launcher` field actually confirms as plain — a tmux-launched
+    // pipeline whose window died (or a legacy pre-launcher state file) has
+    // no such confirmation, so fall through to the generic not-found error
+    // rather than misreport it as plain.
+    if (state == null || state.launcher !== "plain") return null;
     console.error(plainAttachHint(state));
     return 1;
   };

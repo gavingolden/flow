@@ -201,6 +201,13 @@ export type SetupOptions = {
    * `modules-config.ts`'s own default).
    */
   configPath?: string;
+  /**
+   * `command -v <cmd>` probe seam for preflight's tmux-on-PATH check.
+   * Test-only override (mirrors the `tmuxOnPath` seam `feature.ts`/`epic.ts`
+   * thread through `resolveLauncherBackend`). Defaults to a real
+   * `command -v` shell-out.
+   */
+  commandOnPath?: (cmd: string) => boolean;
 };
 
 export type SetupSummary = {
@@ -606,7 +613,8 @@ function preflight(targets: InstallTargets, options: SetupOptions): void {
   const read: ReadConfigFile | undefined = options.configPath
     ? () => readConfigFileAt(options.configPath!)
     : undefined;
-  if (readLauncherConfig(read) === "tmux" && !commandOnPath("tmux")) {
+  const hasCommand = options.commandOnPath ?? commandOnPath;
+  if (readLauncherConfig(read) === "tmux" && !hasCommand("tmux")) {
     console.error(
       "warning: your recorded launcher is tmux, but tmux is not on PATH.\n" +
         "  pipelines will fall back to the plain launcher. Install tmux:\n" +

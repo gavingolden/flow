@@ -44,7 +44,7 @@ Usage:
                                         terminal is asked once per optional module and a non-interactive run
                                         defaults to core only)
   flow feature create [--tmux|--no-tmux] [--no-auto-merge] [--wait-for-copilot] [--research] [--copilot-review <auto|always|never>] [--effort <low|medium|high|xhigh|max>] [--model <opus|haiku|sonnet|fable>] [--model-<phase> <alias>] [--slug <slug>] <description>
-                                        start a new pipeline in a tmux window
+                                        start a new pipeline (plain launcher by default; --tmux opts into a tmux window)
                                         (--no-auto-merge stops at gated regardless of rubric;
                                         --wait-for-copilot forces the full 10-min Copilot wait
                                         even when auto-detect would skip;

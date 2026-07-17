@@ -437,6 +437,18 @@ describe("plain-mode additionalContext fallback (FLOW_SLUG, no pane)", () => {
     expect(emitted).toEqual([]);
   });
 
+  it("a plain-launched pipeline resumed from inside a tmux pane emits context, never send-keys (regression: TMUX_PANE inherited from the user's terminal used to route to dispatchResume against a nonexistent window)", async () => {
+    const { deps, dispatched, emitted } = makeDeps({
+      pane: "%1",
+      flowSlugEnv: "demo",
+      state: { ...fakeState("checkpoint-pending-clear"), launcher: "plain" },
+      markerExists: true,
+    });
+    expect(await run(deps)).toBe(0);
+    expect(dispatched).toEqual([]);
+    expect(emitted).toEqual([flowPipelineResumeSeed("demo")]);
+  });
+
   it("sessionStartOutput wraps the context in the SessionStart hookSpecificOutput shape", () => {
     expect(JSON.parse(sessionStartOutput("ctx"))).toEqual({
       hookSpecificOutput: {
