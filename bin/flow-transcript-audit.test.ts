@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   analyzeTranscripts,
   estimateFrontmatterCost,
+  estimateStaticCost,
   estimateTokens,
   resolveSessionJsonls,
 } from "./lib/transcript-audit";
@@ -289,6 +290,56 @@ describe(estimateFrontmatterCost, () => {
   });
 });
 
+describe(estimateStaticCost, () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "flow-ta-static-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("measures per-file lines/chars/estTokens and sums into totals", async () => {
+    const fileA = path.join(tmpDir, "a.md");
+    const fileB = path.join(tmpDir, "b.md");
+    fs.writeFileSync(fileA, "line one\nline two\n"); // 18 chars, 2 lines
+    fs.writeFileSync(fileB, "abcd\n"); // 5 chars, 1 line
+    const result = await estimateStaticCost([fileA, fileB]);
+    expect(result.files).toEqual([
+      { path: fileA, lines: 2, chars: 18, estTokens: 5 },
+      { path: fileB, lines: 1, chars: 5, estTokens: 2 },
+    ]);
+    expect(result.totals).toEqual({ lines: 3, chars: 23, estTokens: 7 });
+  });
+
+  it("counts a trailing line with no final newline", async () => {
+    const file = path.join(tmpDir, "no-trailing-newline.md");
+    fs.writeFileSync(file, "one\ntwo\nthree"); // no trailing \n, 3 lines
+    const result = await estimateStaticCost([file]);
+    expect(result.files[0].lines).toBe(3);
+  });
+
+  it("reports zero lines/chars/estTokens for an empty file", async () => {
+    const file = path.join(tmpDir, "empty.md");
+    fs.writeFileSync(file, "");
+    const result = await estimateStaticCost([file]);
+    expect(result.files[0]).toEqual({
+      path: file,
+      lines: 0,
+      chars: 0,
+      estTokens: 0,
+    });
+  });
+
+  it("throws on a missing/unreadable path (the CLI maps this to exit 2)", async () => {
+    await expect(
+      estimateStaticCost([path.join(tmpDir, "does-not-exist.md")]),
+    ).rejects.toThrow();
+  });
+});
+
 describe(parseArgs, () => {
   it("requires either a JSONL path or --slug", () => {
     const parsed = parseArgs([]);
@@ -346,6 +397,32 @@ describe(parseArgs, () => {
       error: "--format must be 'json' or 'md', got 'yaml'",
     });
   });
+
+  it("parses --static mode with one or more paths", () => {
+    expect(parseArgs(["--static", "a.md", "b.md"])).toEqual({
+      mode: "static",
+      paths: ["a.md", "b.md"],
+      format: "json",
+    });
+  });
+
+  it("rejects --static with no path arguments", () => {
+    expect(parseArgs(["--static"])).toEqual({
+      error: "--static requires at least one path argument",
+    });
+  });
+
+  it("rejects --static combined with --frontmatter", () => {
+    expect(parseArgs(["--static", "a.md", "--frontmatter", "skills"])).toEqual({
+      error: "--static cannot be combined with --frontmatter",
+    });
+  });
+
+  it("rejects --static combined with --slug/--repo", () => {
+    expect(parseArgs(["--static", "a.md", "--slug", "my-slug"])).toEqual({
+      error: "--static cannot be combined with --slug/--repo",
+    });
+  });
 });
 
 describe("run — CLI exit codes", () => {
@@ -374,6 +451,17 @@ describe("run — CLI exit codes", () => {
 
   it("exits 0 for --frontmatter mode over the repo's own skills directory", async () => {
     expect(await run(["--frontmatter", "skills", "--format", "md"])).toBe(0);
+  });
+
+  it("exits 0 for --static mode over the repo's own AGENTS.md, in both formats", async () => {
+    expect(await run(["--static", "AGENTS.md"])).toBe(0);
+    expect(await run(["--static", "AGENTS.md", "--format", "md"])).toBe(0);
+  });
+
+  it("exits 2 for --static mode on a missing path", async () => {
+    expect(
+      await run(["--static", "/tmp/does-not-exist-flow-transcript-audit.md"]),
+    ).toBe(2);
   });
 
   it("exits 2 with a clean message instead of a raw ENOENT stack trace for a nonexistent path", async () => {

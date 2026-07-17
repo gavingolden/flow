@@ -186,7 +186,10 @@ and the phase that closes it. The four axes the prior PRD marked
   prose-judged (≤1 file, ≤30 LOC, every file named), not mechanically enforced.
   → **Phase 5**: `p5-token-audit` measures the in-process edit-size
   distribution; `p5-context-diet` tightens the threshold or adopts a
-  hook-enforced mechanical edit cap if the data supports it.
+  hook-enforced mechanical edit cap if the data supports it. **Edit-routing
+  verdict (p5-context-diet):** measured, not tightened — see the Phase 5
+  roadmap node below and `docs/context-economy-audit.md` "In-process
+  edit-size distribution" for the full numbers and rationale.
 - **Model routing — "largely aligned":** flow threads per-phase `model:`
   correctly, and the **review surface is now closed**: `p4-review-agents`
   promoted 8 more roles to named `agents/*.md` definitions (the six
@@ -467,7 +470,14 @@ consumed edge each phase-opening node reads from this doc.
   installed skills); `p5-context-diet` (AGENTS.md diet toward the ~200-line
   guidance, further lean-body/lazy-reference SKILL.md splits, edit-threshold
   tightening or a mechanical edit-cap guard if the data supports it,
-  re-measured before/after delta).
+  re-measured before/after delta). **Edit-routing verdict:** in-process
+  edits measured at 14.4% of classed payload (36 calls; median 8, p90 63,
+  p99/max 100 LOC) — a real but secondary spend whose tail shows an
+  enforcement gap, not a mis-set value; per the audit's single-transcript
+  caveat (`docs/context-economy-audit.md` "In-process edit-size
+  distribution") the threshold value stays and the mechanical edit-cap
+  guard (AGY D4 alternative) is deferred pending #443's cross-pipeline
+  aggregation.
 - **Exit:** a measured per-phase token baseline and a before/after delta for
   each diet change, recorded in a committed report; structural lints stay
   green.

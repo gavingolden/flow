@@ -7,6 +7,7 @@
  * Usage:
  *   flow-transcript-audit analyze [<jsonl-path>...] [--slug <slug>] [--repo <path>] [--format json|md]
  *   flow-transcript-audit --frontmatter <skills-dir> [--format json|md]
+ *   flow-transcript-audit --static <path>... [--format json|md]
  *
  * `analyze` is the default mode — the literal `analyze` token is optional.
  * Either pass explicit JSONL path(s) or `--slug` (+ optional `--repo`,
@@ -26,15 +27,18 @@ import path from "node:path";
 import {
   analyzeTranscripts,
   estimateFrontmatterCost,
+  estimateStaticCost,
   resolveSessionJsonls,
   type AnalyzeOk,
   type FrontmatterEstimate,
+  type StaticCostEstimate,
 } from "./lib/transcript-audit";
 
 type Format = "json" | "md";
 
 type ParsedArgs =
   | { mode: "frontmatter"; dir: string; format: Format }
+  | { mode: "static"; paths: string[]; format: Format }
   | {
       mode: "analyze";
       jsonlPaths: string[];
@@ -46,7 +50,8 @@ type ParsedArgs =
 
 const USAGE =
   "usage: flow-transcript-audit [analyze] [<jsonl-path>...] [--slug <slug>] [--repo <path>] [--format json|md]\n" +
-  "       flow-transcript-audit --frontmatter <skills-dir> [--format json|md]";
+  "       flow-transcript-audit --frontmatter <skills-dir> [--format json|md]\n" +
+  "       flow-transcript-audit --static <path>... [--format json|md]";
 
 export function parseArgs(argv: string[]): ParsedArgs {
   let format: Format = "json";
@@ -54,6 +59,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   let frontmatterDir: string | undefined;
   let slug: string | undefined;
   let repo: string | undefined;
+  let staticMode = false;
+  const staticPaths: string[] = [];
   const jsonlPaths: string[] = [];
 
   for (let i = 0; i < argv.length; i++) {
@@ -74,6 +81,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
         frontmatterDir = value;
         continue;
       }
+      case "--static": {
+        staticMode = true;
+        continue;
+      }
       case "--slug": {
         const value = argv[++i];
         if (!value) return { error: "--slug requires a value" };
@@ -91,6 +102,17 @@ export function parseArgs(argv: string[]): ParsedArgs {
       default:
         rest.push(arg);
     }
+  }
+
+  if (staticMode) {
+    if (frontmatterDir !== undefined)
+      return { error: "--static cannot be combined with --frontmatter" };
+    if (slug !== undefined || repo !== undefined)
+      return { error: "--static cannot be combined with --slug/--repo" };
+    if (rest.length === 0)
+      return { error: "--static requires at least one path argument" };
+    staticPaths.push(...rest);
+    return { mode: "static", paths: staticPaths, format };
   }
 
   if (frontmatterDir !== undefined) {
@@ -173,6 +195,23 @@ function renderFrontmatterMd(result: FrontmatterEstimate): string {
   return lines.join("\n");
 }
 
+function renderStaticMd(result: StaticCostEstimate): string {
+  const lines: string[] = [];
+  lines.push(
+    "## Static cost estimate (per-file body size, ~4 chars/token — a floor, not a point estimate)",
+  );
+  lines.push("| path | lines | chars | estTokens |");
+  lines.push("| --- | --- | --- | --- |");
+  for (const f of result.files) {
+    lines.push(`| ${f.path} | ${f.lines} | ${f.chars} | ${f.estTokens} |`);
+  }
+  lines.push("");
+  lines.push(
+    `**Totals: ${result.totals.lines} lines, ${result.totals.chars} chars, ${result.totals.estTokens} estimated tokens**`,
+  );
+  return lines.join("\n");
+}
+
 export async function run(argv: string[]): Promise<number> {
   const parsed = parseArgs(argv);
   if ("error" in parsed) {
@@ -186,6 +225,16 @@ export async function run(argv: string[]): Promise<number> {
       process.stdout.write(
         (parsed.format === "md"
           ? renderFrontmatterMd(result)
+          : JSON.stringify(result, null, 2)) + "\n",
+      );
+      return 0;
+    }
+
+    if (parsed.mode === "static") {
+      const result = await estimateStaticCost(parsed.paths);
+      process.stdout.write(
+        (parsed.format === "md"
+          ? renderStaticMd(result)
           : JSON.stringify(result, null, 2)) + "\n",
       );
       return 0;

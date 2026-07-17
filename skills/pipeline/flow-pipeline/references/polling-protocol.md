@@ -117,6 +117,28 @@ The check is still filesystem-only — no API call. The answer is
 deterministic from disk given the worktree, and short-circuits on the
 first qualifying file.
 
+### Copilot-module precheck
+
+A deselected `copilot` module means `flow-request-copilot` was never
+installed on PATH at all — the supervisor probes first (Step 7's
+"Copilot-module precheck"), and on a non-zero exit skips the entire
+request/classify subsection, treating the PR as declined (parallel to
+`flow-ci-wait`'s own `isCopilotModuleActive` self-guard, which collapses
+the same wait a layer deeper):
+
+```bash
+flow-module-status --check copilot >/dev/null 2>&1 || COPILOT_MODULE_INACTIVE=1
+```
+
+Redirect the probe's own stderr away — `flow-ci-wait`'s own
+`isCopilotModuleActive` self-guard is the single canonical emitter of the
+deselected-copilot notice (it fires whether or not this precheck ran), so
+surfacing the notice here too would show the user the same line twice.
+When `$COPILOT_MODULE_INACTIVE` is set, the supervisor notes the skip
+quietly in the chat-summary prose (copilot not requested — module
+deselected) and skips straight to invoking `flow-ci-wait` with
+`--copilot-not-requested`, which prints the one user-facing notice.
+
 ### Copilot reviewer
 
 ```bash
