@@ -5,7 +5,7 @@ for the bail-out paths in `/flow-pr-review`'s wrapper. Each recipe writes
 `<worktree>/.flow-tmp/pr-review-result.json` with `status: "escalated"`
 and the per-tag `completed_steps[]` / `missed_steps[]` arrays the
 supervisor's branch-on-status logic reads at `/flow-pipeline` step 8.
-The six blocks are kept distinct (not templated) because the
+The eight blocks are kept distinct (not templated) because the
 per-tag arrays differ in load-bearing ways — see each recipe's intro
 for what fires it.
 
