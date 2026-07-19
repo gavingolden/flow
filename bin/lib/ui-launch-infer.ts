@@ -7,7 +7,10 @@
  * re-resolves the placeholder to a freshly-allocated free port each run via
  * `allocFreePort()` + `resolvePortPlaceholder()`.
  *
- * Internal import of `bin/flow-ui-validate.ts` only, NOT PATH-registered.
+ * Internal import of `bin/flow-ui-validate.ts` (launch inference + free-port
+ * resolution) and `bin/lib/ui-validation-schema.ts` (the `PORT_PLACEHOLDER`
+ * sentinel, for the bidirectional server/client {{PORT}}-consistency
+ * invariant) only, NOT PATH-registered.
  */
 
 import * as net from "node:net";

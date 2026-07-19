@@ -42,7 +42,12 @@ import type {
   Viewport,
 } from "./lib/ui-validation-schema";
 import { deriveRoutes } from "./lib/ui-route-infer";
-import { inferLaunch } from "./lib/ui-launch-infer";
+import {
+  inferLaunch,
+  allocFreePort,
+  resolvePortPlaceholder,
+  PORT_PLACEHOLDER,
+} from "./lib/ui-launch-infer";
 import { inferAuth } from "./lib/ui-auth-infer";
 
 // --- Types -----------------------------------------------------------------
@@ -104,6 +109,14 @@ export type UiValidateEnvelope = {
   /** Present in ASSEMBLE output: true iff every route passed. */
   ok?: boolean;
   evidence_paths?: string[];
+  /**
+   * Present in SKIP-DECISION ready output: `baseUrl`/`launch`/`loginUrl`/
+   * `disableAnimations`/`env`/`viewports`, plus an optional `port: number`
+   * emitted ONLY when a {{PORT}} sentinel in the manifest actually resolved
+   * to a freshly-allocated free port this run (a literal-port manifest never
+   * gets a `port` key — meta.launch/meta.baseUrl are byte-identical to the
+   * manifest in that case).
+   */
   meta?: Record<string, unknown>;
 };
 
@@ -157,6 +170,12 @@ export type Deps = {
    * Default to a plain `readFile` of the conventional path. */
   readPackageJson?: () => string | null;
   readEnvExample?: () => string | null;
+  /** Per-run free-port provider for the ready path's {{PORT}} resolution.
+   * Sync by design — the main() IIFE awaits `allocFreePort()` once and
+   * injects a closure over the resolved number, so `run()` itself stays
+   * synchronous (the test harness calls it synchronously). Called only when
+   * the manifest actually carries a {{PORT}} sentinel. */
+  allocPort?: () => number;
 };
 
 const DEFAULT_MANIFEST = ".flow/ui-validation.json";
@@ -665,6 +684,45 @@ export function run(argv: string[], deps: Deps = {}): number {
 
   // SKIP-DECISION ready output: manifest present + valid, MCP present. List
   // the normalized routes the skill should drive, then call ASSEMBLE.
+  //
+  // Per-run {{PORT}} resolution: when the manifest carries the sentinel
+  // anywhere on the server side (launch/env) — and it can ONLY carry it
+  // there if it also carries it in baseUrl, per the schema's bidirectional
+  // invariant — allocate one free port for this run and resolve every
+  // occurrence, so two concurrent pipelines never collide on a frozen port.
+  // A manifest with no sentinel is emitted verbatim, unchanged from before.
+  const needsPort = [
+    manifest.launch,
+    manifest.baseUrl,
+    ...Object.values(manifest.env ?? {}),
+  ].some((v) => v.includes(PORT_PLACEHOLDER));
+
+  let launch = manifest.launch;
+  let baseUrl = manifest.baseUrl;
+  let env = manifest.env ?? {};
+  let resolvedPort: number | undefined;
+  if (needsPort && deps.allocPort) {
+    resolvedPort = deps.allocPort();
+    launch = resolvePortPlaceholder(launch, resolvedPort);
+    baseUrl = resolvePortPlaceholder(baseUrl, resolvedPort);
+    env = Object.fromEntries(
+      Object.entries(env).map(([k, v]) => [
+        k,
+        resolvePortPlaceholder(v, resolvedPort as number),
+      ]),
+    );
+  }
+
+  const meta: Record<string, unknown> = {
+    baseUrl,
+    launch,
+    loginUrl: manifest.loginUrl ?? null,
+    disableAnimations: manifest.disableAnimations ?? false,
+    env,
+    viewports: manifest.viewports ?? DEFAULT_VIEWPORTS,
+  };
+  if (resolvedPort !== undefined) meta.port = resolvedPort;
+
   return emit({
     ran: true,
     loud: false,
@@ -672,17 +730,27 @@ export function run(argv: string[], deps: Deps = {}): number {
       path: r.path,
       expectSelectors: r.expectSelectors ?? [],
     })),
-    meta: {
-      baseUrl: manifest.baseUrl,
-      launch: manifest.launch,
-      loginUrl: manifest.loginUrl ?? null,
-      disableAnimations: manifest.disableAnimations ?? false,
-      env: manifest.env ?? {},
-      viewports: manifest.viewports ?? DEFAULT_VIEWPORTS,
-    },
+    meta,
   });
 }
 
 if (import.meta.main) {
-  process.exit(run(process.argv.slice(2)));
+  // allocFreePort is best-effort (binds :0, could race another process for
+  // the assigned port before the caller re-binds it): a rejection here must
+  // degrade to an ordinary downstream launch failure, never an unhandled
+  // top-level rejection. Falling back to no allocPort means a {{PORT}}-
+  // bearing manifest is emitted unresolved, which the launch step then fails
+  // on exactly like any other bad launch command.
+  let port: number | undefined;
+  try {
+    port = await allocFreePort();
+  } catch {
+    port = undefined;
+  }
+  process.exit(
+    run(
+      process.argv.slice(2),
+      port !== undefined ? { allocPort: () => port as number } : {},
+    ),
+  );
 }

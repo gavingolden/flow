@@ -337,6 +337,77 @@ describe("SKIP-DECISION — conditionally-loud matrix (Story 1)", () => {
   });
 });
 
+// --- SKIP-DECISION ready path: per-run {{PORT}} resolution ------------------
+
+describe("SKIP-DECISION — ready-path {{PORT}} resolution", () => {
+  const FIXED_PORT = 54321;
+
+  it("{{PORT}} in launch+baseUrl → both resolve to the allocated port, meta.port set", () => {
+    const manifest = JSON.stringify({
+      launch: "PORT={{PORT}} npm run dev",
+      baseUrl: "http://localhost:{{PORT}}",
+      routes: [{ path: "/" }],
+    });
+    const c = drive(
+      [],
+      { [MANIFEST_PATH]: manifest },
+      {
+        allocPort: () => FIXED_PORT,
+      },
+    );
+    expect(c.code).toBe(0);
+    const e = envelope(c);
+    const meta = e.meta as Record<string, unknown>;
+    expect(meta.launch).toBe(`PORT=${FIXED_PORT} npm run dev`);
+    expect(meta.baseUrl).toBe(`http://localhost:${FIXED_PORT}`);
+    expect(meta.port).toBe(FIXED_PORT);
+  });
+
+  it("an all-literal manifest never calls allocPort and emits meta byte-identical", () => {
+    let calls = 0;
+    const c = drive(
+      [],
+      { [MANIFEST_PATH]: VALID_MANIFEST },
+      {
+        allocPort: () => {
+          calls++;
+          return FIXED_PORT;
+        },
+      },
+    );
+    expect(c.code).toBe(0);
+    const e = envelope(c);
+    const meta = e.meta as Record<string, unknown>;
+    expect(meta.launch).toBe("npm run dev");
+    expect(meta.baseUrl).toBe("http://localhost:5173");
+    expect(meta.port).toBeUndefined();
+    expect(calls).toBe(0);
+  });
+
+  it("{{PORT}} in an env value resolves against the same allocated port", () => {
+    const manifest = JSON.stringify({
+      launch: "npm run dev",
+      baseUrl: "http://localhost:{{PORT}}",
+      env: { PORT: "{{PORT}}", VITE_API_URL: "http://localhost:{{PORT}}" },
+      routes: [{ path: "/" }],
+    });
+    const c = drive(
+      [],
+      { [MANIFEST_PATH]: manifest },
+      {
+        allocPort: () => FIXED_PORT,
+      },
+    );
+    const e = envelope(c);
+    const meta = e.meta as Record<string, unknown>;
+    expect(meta.env).toEqual({
+      PORT: String(FIXED_PORT),
+      VITE_API_URL: `http://localhost:${FIXED_PORT}`,
+    });
+    expect(meta.port).toBe(FIXED_PORT);
+  });
+});
+
 // --- Multi-viewport: meta.viewports surfacing -------------------------------
 
 describe("SKIP-DECISION — meta.viewports (multi-viewport)", () => {
