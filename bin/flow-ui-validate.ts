@@ -114,8 +114,9 @@ export type UiValidateEnvelope = {
    * `disableAnimations`/`env`/`viewports`, plus an optional `port: number`
    * emitted ONLY when a {{PORT}} sentinel in the manifest actually resolved
    * to a freshly-allocated free port this run (a literal-port manifest never
-   * gets a `port` key — meta.launch/meta.baseUrl are byte-identical to the
-   * manifest in that case).
+   * gets a `port` key — meta.launch/meta.baseUrl/meta.loginUrl are
+   * byte-identical to the manifest in that case). `loginUrl` is resolved
+   * against the same per-run port as launch/baseUrl/env when present.
    */
   meta?: Record<string, unknown>;
 };
@@ -694,29 +695,32 @@ export function run(argv: string[], deps: Deps = {}): number {
   const needsPort = [
     manifest.launch,
     manifest.baseUrl,
+    manifest.loginUrl,
     ...Object.values(manifest.env ?? {}),
-  ].some((v) => v.includes(PORT_PLACEHOLDER));
+  ]
+    .filter((v): v is string => typeof v === "string")
+    .some((v) => v.includes(PORT_PLACEHOLDER));
 
   let launch = manifest.launch;
   let baseUrl = manifest.baseUrl;
+  let loginUrl = manifest.loginUrl;
   let env = manifest.env ?? {};
   let resolvedPort: number | undefined;
   if (needsPort && deps.allocPort) {
-    resolvedPort = deps.allocPort();
-    launch = resolvePortPlaceholder(launch, resolvedPort);
-    baseUrl = resolvePortPlaceholder(baseUrl, resolvedPort);
+    const port = deps.allocPort();
+    resolvedPort = port;
+    launch = resolvePortPlaceholder(launch, port);
+    baseUrl = resolvePortPlaceholder(baseUrl, port);
+    if (loginUrl != null) loginUrl = resolvePortPlaceholder(loginUrl, port);
     env = Object.fromEntries(
-      Object.entries(env).map(([k, v]) => [
-        k,
-        resolvePortPlaceholder(v, resolvedPort as number),
-      ]),
+      Object.entries(env).map(([k, v]) => [k, resolvePortPlaceholder(v, port)]),
     );
   }
 
   const meta: Record<string, unknown> = {
     baseUrl,
     launch,
-    loginUrl: manifest.loginUrl ?? null,
+    loginUrl: loginUrl ?? null,
     disableAnimations: manifest.disableAnimations ?? false,
     env,
     viewports: manifest.viewports ?? DEFAULT_VIEWPORTS,

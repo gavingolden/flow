@@ -195,6 +195,19 @@ describe("validateUiValidationManifest — {{PORT}} bidirectional invariant", ()
     };
     expect(validateUiValidationManifest(fixture).ok).toBe(true);
   });
+
+  it("rejects a {{PORT}}-only loginUrl when launch/baseUrl/env are all-literal", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.launch = "npm run dev";
+    fixture.baseUrl = "http://localhost:5173";
+    fixture.loginUrl = "http://localhost:{{PORT}}/login";
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("{{PORT}}");
+  });
 });
 
 describe("validateUiValidationManifest — wrong-shape rejections", () => {

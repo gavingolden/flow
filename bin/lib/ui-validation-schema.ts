@@ -233,9 +233,11 @@ export function validateUiValidationManifest(
   }
 
   // Bidirectional {{PORT}} invariant: the sentinel must appear on BOTH the
-  // server side (launch, or any env value) and the client side (baseUrl), or
-  // NEITHER — a one-sided sentinel means the server picks a fresh port each
-  // run while baseUrl (or vice versa) still points at a frozen one.
+  // server side (launch, or any env value) and the client side (baseUrl,
+  // or loginUrl — a full-URL loginUrl is a client-side URL the browser
+  // navigates to, same class as baseUrl), or NEITHER — a one-sided sentinel
+  // means the server picks a fresh port each run while baseUrl/loginUrl (or
+  // vice versa) still points at a frozen one.
   const launchStr = parsed.launch as string;
   const baseUrlStr = parsed.baseUrl as string;
   const envRecord = isPlainObject(parsed.env)
@@ -244,12 +246,15 @@ export function validateUiValidationManifest(
   const serverHasPort =
     launchStr.includes(PORT_PLACEHOLDER) ||
     Object.values(envRecord).some((v) => v.includes(PORT_PLACEHOLDER));
-  const clientHasPort = baseUrlStr.includes(PORT_PLACEHOLDER);
+  const clientHasPort =
+    baseUrlStr.includes(PORT_PLACEHOLDER) ||
+    (typeof parsed.loginUrl === "string" &&
+      parsed.loginUrl.includes(PORT_PLACEHOLDER));
   if (serverHasPort !== clientHasPort) {
     return err(
       `'{{PORT}}' placeholder must be used consistently: the server side (launch/env) ${
         serverHasPort ? "contains" : "does not contain"
-      } it, but 'baseUrl' ${
+      } it, but the client side (baseUrl/loginUrl) ${
         clientHasPort ? "contains" : "does not contain"
       } it — use {{PORT}} on both sides for a dynamic per-run port, or a literal port on both sides`,
     );

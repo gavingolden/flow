@@ -406,6 +406,43 @@ describe("SKIP-DECISION — ready-path {{PORT}} resolution", () => {
     });
     expect(meta.port).toBe(FIXED_PORT);
   });
+
+  it("{{PORT}} in loginUrl resolves against the same allocated port as baseUrl", () => {
+    const manifest = JSON.stringify({
+      launch: "PORT={{PORT}} npm run dev",
+      baseUrl: "http://localhost:{{PORT}}",
+      loginUrl: "http://localhost:{{PORT}}/login",
+      routes: [{ path: "/" }],
+    });
+    const c = drive(
+      [],
+      { [MANIFEST_PATH]: manifest },
+      {
+        allocPort: () => FIXED_PORT,
+      },
+    );
+    expect(c.code).toBe(0);
+    const e = envelope(c);
+    const meta = e.meta as Record<string, unknown>;
+    expect(meta.baseUrl).toBe(`http://localhost:${FIXED_PORT}`);
+    expect(meta.loginUrl).toBe(`http://localhost:${FIXED_PORT}/login`);
+    expect(meta.port).toBe(FIXED_PORT);
+  });
+
+  it("needsPort true but no allocPort dep degrades: {{PORT}} left unresolved, meta.port undefined", () => {
+    const manifest = JSON.stringify({
+      launch: "PORT={{PORT}} npm run dev",
+      baseUrl: "http://localhost:{{PORT}}",
+      routes: [{ path: "/" }],
+    });
+    const c = drive([], { [MANIFEST_PATH]: manifest }, {});
+    expect(c.code).toBe(0);
+    const e = envelope(c);
+    const meta = e.meta as Record<string, unknown>;
+    expect(meta.launch).toBe("PORT={{PORT}} npm run dev");
+    expect(meta.baseUrl).toBe("http://localhost:{{PORT}}");
+    expect(meta.port).toBeUndefined();
+  });
 });
 
 // --- Multi-viewport: meta.viewports surfacing -------------------------------
