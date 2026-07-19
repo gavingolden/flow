@@ -61,7 +61,7 @@ Either path follows the same operational rhythm:
 ### When to vendor instead
 
 ```bash
-cp ~/.claude/skills/flow-cloudflare-pages/templates/prune-cf-deployments.ts <your-project>/scripts/
+cp ~/.flow/claude-home/.claude/skills/flow-cloudflare-pages/templates/prune-cf-deployments.ts <your-project>/scripts/
 
 # Preview deployments older than 30 days, dry-run first
 bun scripts/prune-cf-deployments.ts \

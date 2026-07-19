@@ -31,11 +31,14 @@ bun bin/flow install --core-only                         # core only, no prompt
 
 The resolved selection persists to `~/.flow/config.json`'s `modules` array, so `flow install --upgrade` never re-asks. To change your selection later, re-run `flow install` with one of the flags above — narrowing prunes the now-deselected symlinks, widening adds the new ones. Verify it worked by running `flow ls` (it should print an empty pipeline list, not "command not found"). The most common failure is `~/.local/bin` not being on your `PATH` — add it and open a fresh shell. Setup internals (symlink mechanics, shell completions, the Copilot escape hatch) live in [CONTRIBUTING.md](CONTRIBUTING.md).
 
+flow links its skills into a **standalone skills home** at `~/.flow/claude-home/.claude/skills/`, not the global `~/.claude/skills/`. A plain `claude` session anywhere on your machine therefore carries **zero** flow skills — only sessions launched with `claude --add-dir ~/.flow/claude-home` see them (bare `flow`, and every pipeline/epic seed session wire this in automatically). If you installed a pre-retarget version, one `flow install --upgrade` migrates your skills to the new home and removes the old `~/.claude/skills/` links; run it **with no active pipelines**, since removing a skill from a location a running session already loaded hot-unloads it mid-session (Claude Code live change detection). Agents stay at `~/.claude/agents/` and hooks in `~/.claude/settings.json` — those are unaffected.
+
 To come current, run `flow install --upgrade`: it self-pulls (fast-forwards your canonical checkout to `origin`) and reports what changed, so a non-contributor needs only that one command. flow also surfaces a non-blocking staleness notice at `flow ls` and `flow version` when your checkout is behind origin, naming the exact upgrade command to run. Opt out by setting `update.checkFor` to `"off"` in `~/.flow/config.json` (or exporting `FLOW_UPDATE_CHECK=off`). A reserved `update.autoUpgrade` flag (default off, not yet executing) is parsed for a future opt-in that upgrades automatically.
 
 ## Usage
 
 ```sh
+flow                             # (on a TTY) launch an interactive Claude session with flow skills loaded
 flow feature create "add CSV export"        # start a pipeline in a new tmux window
 flow ls                          # list active pipelines
 flow attach add-csv-export       # attach to a pipeline's window (alias: flow a)
@@ -43,6 +46,8 @@ flow attach                      # attach into the session and browse windows
 flow done add-csv-export         # close a finished pipeline's window
 flow done --merged               # sweep windows that reached a terminal state
 ```
+
+Bare `flow` on a terminal starts an interactive Claude session with your installed flow skills loaded (`claude --add-dir ~/.flow/claude-home`) — the way to get flow's skills in an ad-hoc session now that they no longer live in the global `~/.claude/skills/`. Run `flow help` (or `flow -h`) for the command reference; a non-interactive bare `flow` (a script, CI) prints that help instead of launching.
 
 By default a pipeline auto-merges its PR when the merge gate is clear; pass `flow feature create --no-auto-merge "<desc>"` to always stop at the gate for a manual merge.
 

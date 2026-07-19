@@ -26,7 +26,7 @@ A flow pipeline is one Claude Code chat session. Sub-skills (`/flow-product-plan
 
 `flow install` is the only install entry point. It:
 
-- Symlinks every skill from `skills/{pipeline,universal,stacks}/` into `~/.claude/skills/`, so every project sees the same skills with zero per-repo footprint.
+- Symlinks every selected skill from `skills/{pipeline,universal,stacks}/` into the standalone skills home at `~/.flow/claude-home/.claude/skills/` (not the global `~/.claude/skills/`), so a plain `claude` session carries zero flow skills — only `flow`-launched and pipeline/epic seed sessions (which pass `--add-dir ~/.flow/claude-home`) see them. A pre-retarget install migrates on the next `flow install --upgrade`.
 - Symlinks each helper under `bin/` (`flow-new-worktree`, `flow-remove-worktree`, `flow-pre-commit`, `flow-fetch-pr-review`, `flow-reply-pr-comments`, `flow-state-update`, and the rest) into `~/.local/bin/<name>` (extensionless, `*.test.ts` skipped). The two schema validators `flow-pr-review-result-schema` and `flow-agent-finding-schema` are sourced from `bin/lib/*-schema.ts` via an explicit allowlist and symlinked the same way.
 - Symlinks the `flow` wrapper itself into `~/.local/bin/flow` and records every symlink in `~/.flow/installed.json` so `flow install --upgrade` can reap orphans deterministically.
 - Verifies `tmux` is on `PATH` (a hard requirement) and that every declared runtime dependency resolves from the source root, warning if `~/.local/bin/` is missing from `PATH`.

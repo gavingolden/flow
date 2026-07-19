@@ -57,7 +57,25 @@ export const FLOW_LAUNCH_SETTINGS_PATH = path.join(
   "launch-settings.json",
 );
 
-export const CLAUDE_SKILLS_DIR = path.join(HOME, ".claude", "skills");
+/**
+ * Standalone skills home. flow links its skills under here instead of the
+ * global `~/.claude/skills/`, so a plain `claude` session carries zero flow
+ * skills; only sessions launched with `claude --add-dir ~/.flow/claude-home`
+ * (bare `flow`, plus every pipeline/epic seed) discover them.
+ *
+ * The home nests one level below `~/.flow` — the `--add-dir` grant is scoped
+ * to everything under the added directory, so pointing at `~/.flow` directly
+ * would expose `config.json`, every pipeline's `state/`, and
+ * `research-cache/` to a prompt-injected session. Nesting at
+ * `~/.flow/claude-home/` keeps the grant to the `.claude/` subtree only.
+ */
+export const FLOW_CLAUDE_HOME = path.join(FLOW_DIR, "claude-home");
+export const FLOW_CLAUDE_HOME_SKILLS_DIR = path.join(
+  FLOW_CLAUDE_HOME,
+  ".claude",
+  "skills",
+);
+
 export const CLAUDE_AGENTS_DIR = path.join(HOME, ".claude", "agents");
 export const CLAUDE_SETTINGS_PATH = path.join(HOME, ".claude", "settings.json");
 export const LOCAL_BIN_DIR = path.join(HOME, ".local", "bin");

@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import { runSetup, validateJsonFiles } from "./setup";
 import { runSetupCli } from "./setup-args";
-import { readManifest } from "./manifest";
+import { readManifest, writeManifest } from "./manifest";
 import { LockTimeoutError } from "./lock";
 import { removeIfManagedSymlink } from "./symlink";
 import { countStopHook } from "./settings-merge";
@@ -2409,5 +2409,282 @@ describe("module selection (--modules / --all / --core-only / TTY Q&A / prune)",
         logSpy.mockRestore();
       }
     });
+  });
+});
+
+describe("skills-home retarget + migration (Story 1)", () => {
+  // A new-style skills target that differs from the pre-retarget
+  // `<home>/.claude/skills` location, so the migration sweep engages.
+  function newStyleTargets() {
+    return {
+      skillsDir: path.join(
+        homeDir,
+        ".flow",
+        "claude-home",
+        ".claude",
+        "skills",
+      ),
+      agentsDir: path.join(homeDir, ".claude", "agents"),
+      binDir: path.join(homeDir, ".local", "bin"),
+      completionsDir: path.join(homeDir, ".flow", "completions"),
+    };
+  }
+
+  function oldSkillsDir() {
+    return path.join(homeDir, ".claude", "skills");
+  }
+
+  function runRetargeted(extra: Record<string, unknown> = {}) {
+    return runSetup({
+      flowSource,
+      installRoot: flowSource,
+      targets: newStyleTargets(),
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      all: true,
+      isTTY: false,
+      configPath: path.join(homeDir, ".flow", "config.json"),
+      quiet: true,
+      cachePath: path.join(homeDir, ".flow", "update-check.json"),
+      ...extra,
+    });
+  }
+
+  it("links selected skills under the new claude-home target", async () => {
+    await runRetargeted();
+    const skillsDir = newStyleTargets().skillsDir;
+    expect(fs.lstatSync(path.join(skillsDir, "alpha")).isSymbolicLink()).toBe(
+      true,
+    );
+    expect(fs.lstatSync(path.join(skillsDir, "gamma")).isSymbolicLink()).toBe(
+      true,
+    );
+  });
+
+  it("reaps a manifest-recorded old-location symlink and preserves a non-flow file", async () => {
+    // Seed a pre-retarget install: an old-location symlink into the flow tree
+    // plus a manifest record claiming it, and a real (non-flow) file alongside.
+    const old = oldSkillsDir();
+    fs.mkdirSync(old, { recursive: true });
+    const oldLink = path.join(old, "alpha");
+    fs.symlinkSync(
+      path.join(flowSource, "skills", "pipeline", "alpha"),
+      oldLink,
+    );
+    const userFile = path.join(old, "my-own-skill");
+    fs.mkdirSync(userFile, { recursive: true });
+    fs.writeFileSync(path.join(userFile, "SKILL.md"), "# mine\n");
+    writeManifest(
+      {
+        version: 1,
+        symlinks: [
+          {
+            source: path.join(flowSource, "skills", "pipeline", "alpha"),
+            target: oldLink,
+            kind: "skill",
+          },
+        ],
+      },
+      manifestPath,
+    );
+
+    await runRetargeted({ upgrade: true });
+
+    expect(fs.existsSync(oldLink)).toBe(false); // reaped
+    expect(fs.existsSync(path.join(userFile, "SKILL.md"))).toBe(true); // untouched
+    expect(
+      fs
+        .lstatSync(path.join(newStyleTargets().skillsDir, "alpha"))
+        .isSymbolicLink(),
+    ).toBe(true); // relinked at the new home
+  });
+
+  it("drift-sweeps a flow-owned old-location symlink with no manifest record, leaving a foreign symlink", async () => {
+    // No manifest record at all (a pre-manifest / drifted install). The sweep
+    // must still remove a flow-owned symlink at the old location while leaving
+    // a user's own symlink (target outside the flow tree) intact.
+    const old = oldSkillsDir();
+    fs.mkdirSync(old, { recursive: true });
+    const flowOwned = path.join(old, "beta");
+    fs.symlinkSync(
+      path.join(flowSource, "skills", "pipeline", "beta"),
+      flowOwned,
+    );
+    const externalTarget = path.join(scratch, "external-skill");
+    fs.mkdirSync(externalTarget, { recursive: true });
+    const foreign = path.join(old, "not-flow");
+    fs.symlinkSync(externalTarget, foreign);
+
+    await runRetargeted();
+
+    expect(fs.existsSync(flowOwned)).toBe(false); // swept (flow-owned)
+    expect(fs.lstatSync(foreign).isSymbolicLink()).toBe(true); // foreign preserved
+  });
+
+  it("drift-sweeps a DANGLING flow-owned old-location symlink, preserving a dangling foreign symlink", async () => {
+    // Exercises the `realpathSync(raw)` throws → `isPathUnder(raw, root)`
+    // fallback branch: the old-location link points into the flow tree but its
+    // target was since removed (a renamed/deleted skill), so realpath fails and
+    // ownership must be decided lexically off `raw`. The sweep must still remove
+    // it, while a dangling symlink whose target lies OUTSIDE the flow tree (a
+    // user's own, its target also gone) is preserved.
+    const old = oldSkillsDir();
+    fs.mkdirSync(old, { recursive: true });
+    const flowOwned = path.join(old, "beta");
+    fs.symlinkSync(
+      path.join(flowSource, "skills", "pipeline", "beta"),
+      flowOwned,
+    );
+    // Remove the source so the flow-owned link dangles → realpathSync throws.
+    fs.rmSync(path.join(flowSource, "skills", "pipeline", "beta"), {
+      recursive: true,
+      force: true,
+    });
+    // A foreign symlink whose target (outside the flow tree) never existed —
+    // dangling too, so realpathSync throws and the raw clause must NOT own it.
+    const foreign = path.join(old, "not-flow");
+    fs.symlinkSync(path.join(scratch, "external-gone"), foreign);
+
+    await runRetargeted();
+
+    expect(fs.existsSync(flowOwned)).toBe(false); // swept via the raw fallback
+    expect(fs.lstatSync(foreign).isSymbolicLink()).toBe(true); // foreign preserved
+  });
+});
+
+describe("gh#435 non-interactive --upgrade breadth preservation (Story 4)", () => {
+  const realFlowSource = resolveFlowSource();
+
+  function cfgPath() {
+    return path.join(homeDir, ".flow", "config.json");
+  }
+
+  it("a non-TTY --upgrade with a populated manifest and nothing recorded preserves breadth, not core-only, and does not persist", async () => {
+    const t = targets();
+    // First install the full set so a populated manifest exists on disk.
+    await runSetup({
+      flowSource: realFlowSource,
+      installRoot: realFlowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      all: true,
+      isTTY: false,
+      configPath: cfgPath(),
+      quiet: true,
+      cachePath: path.join(homeDir, ".flow", "update-check.json"),
+    });
+    // Clear the recorded selection --all persisted, so the next run has a
+    // populated manifest but nothing recorded — the gh#435 scenario.
+    fs.rmSync(cfgPath(), { force: true });
+    expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
+
+    const summary = await runSetup({
+      flowSource: realFlowSource,
+      installRoot: realFlowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      upgrade: true,
+      isTTY: false,
+      configPath: cfgPath(),
+      quiet: true,
+      cachePath: path.join(homeDir, ".flow", "update-check.json"),
+    });
+
+    // Breadth preserved — flow-svelte (a non-core stack skill) is still linked,
+    // NOT reaped down to core.
+    expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(true);
+    expect(fs.existsSync(path.join(t.skillsDir, "flow-pipeline"))).toBe(true);
+    expect(summary.blocked).toBe(0);
+    // Not persisted — the manifest-derived selection re-derives each run.
+    expect(fs.existsSync(cfgPath())).toBe(false);
+  });
+
+  it("a non-TTY install with an empty manifest and nothing recorded stays core-only", async () => {
+    const t = targets();
+    const summary = await runSetup({
+      flowSource: realFlowSource,
+      installRoot: realFlowSource,
+      targets: t,
+      skipPreflight: true,
+      manifestPath,
+      lockPath,
+      homeDir,
+      settingsPath: settingsPath(),
+      isTTY: false,
+      configPath: cfgPath(),
+      quiet: true,
+      cachePath: path.join(homeDir, ".flow", "update-check.json"),
+    });
+    // core skill present, non-core stack skill absent.
+    expect(fs.existsSync(path.join(t.skillsDir, "flow-pipeline"))).toBe(true);
+    expect(fs.existsSync(path.join(t.skillsDir, "flow-svelte"))).toBe(false);
+    expect(summary.blocked).toBe(0);
+  });
+});
+
+describe("gh#435 registry-unknown pass-through in discoverSelected (Story 4)", () => {
+  function buildSkillsTree(
+    root: string,
+    spec: { tier: string; name: string; withSkillMd?: boolean }[],
+  ) {
+    for (const s of spec) {
+      const dir = path.join(root, "skills", s.tier, s.name);
+      fs.mkdirSync(dir, { recursive: true });
+      if (s.withSkillMd !== false) {
+        fs.writeFileSync(path.join(dir, "SKILL.md"), `# ${s.name}\n`);
+      }
+    }
+  }
+
+  function skillNames(entries: { kind: string; displayName: string }[]) {
+    return entries.filter((e) => e.kind === "skill").map((e) => e.displayName);
+  }
+
+  it("passes through a registry-unknown skill under core-only while filtering a deselected known skill", async () => {
+    const src = path.join(scratch, "unknown-passthrough");
+    buildSkillsTree(src, [
+      { tier: "stacks", name: "flow-svelte" }, // registry-known (stack-svelte)
+      { tier: "pipeline", name: "my-worktree-skill" }, // registry-unknown
+    ]);
+    const names = skillNames(
+      await discoverSelected(src, src, ["core"], targets()),
+    );
+    expect(names).toContain("my-worktree-skill"); // passed through
+    expect(names).not.toContain("flow-svelte"); // deselected known — filtered
+  });
+
+  it("links a deselected known skill once its module is selected", async () => {
+    const src = path.join(scratch, "known-selected");
+    buildSkillsTree(src, [{ tier: "stacks", name: "flow-svelte" }]);
+    const names = skillNames(
+      await discoverSelected(src, src, ["core", "stack-svelte"], targets()),
+    );
+    expect(names).toContain("flow-svelte");
+  });
+
+  it("never links a stray skills/ directory with no SKILL.md, any selection (validity bound)", async () => {
+    const src = path.join(scratch, "stray-dir");
+    buildSkillsTree(src, [
+      { tier: "pipeline", name: "real-skill" },
+      { tier: "pipeline", name: "stray-scratch", withSkillMd: false },
+    ]);
+    for (const sel of [["core"], moduleIds()]) {
+      const names = skillNames(
+        await discoverSelected(src, src, sel, targets()),
+      );
+      expect(names).toContain("real-skill"); // valid unknown → passed through
+      expect(names).not.toContain("stray-scratch"); // no SKILL.md → never discovered
+    }
   });
 });

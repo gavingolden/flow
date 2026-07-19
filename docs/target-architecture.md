@@ -416,6 +416,33 @@ consumed edge each phase-opening node reads from this doc.
   end-to-end. Phase 2 intentionally breaks Phase 1's byte-identical guarantee
   (it retargets link locations and renames dirs) under its own gated criteria.
 
+#### Investigation record: agents/hooks under `--add-dir` (p2-standalone-skills-home, 2026-07-14)
+
+Web-grounded, cross-model-verified research (fetched 2026-07-14) resolved the
+epic's open question about what a `--add-dir <dir>` grant actually loads:
+
+- **Subagents in `<dir>/.claude/agents/` DO load** — now officially documented.
+  See Claude Code docs on additional directories
+  (code.claude.com/docs/en/permissions#additional-directories-grant-file-access-not-configuration,
+  the "Subagents in `.claude/agents/` — Yes" row) and subagent scope
+  (code.claude.com/docs/en/sub-agents#choose-the-subagent-scope). This
+  supersedes the epic design's "agents under `--add-dir` are undocumented"
+  premise.
+- **Hooks do NOT load from an added directory**, nor do slash commands or
+  output styles. `settings.json` loading from `--add-dir` is limited to
+  `enabledPlugins` / `extraKnownMarketplaces`; hooks load only from the cwd
+  `.claude/`, `~/.claude/settings.json`, and managed settings (same
+  permissions-page section).
+
+**Decision for this node (D-A):** agents stay global at `~/.claude/agents/`
+this node — moving flow's two agent definitions would stale the
+`[ -f ~/.claude/agents/<name>.md ]` fallback guards in `flow-pipeline`/`pr-review`
+for marginal gain, and Phase 4 (`p4-review-agents`, `p4-pipeline-agents`) can
+own a wholesale move with the guard sweep in one PR now that added-dir loading
+is documented. **Hooks stay global permanently** (the Stop / SessionStart
+hooks cannot load from an added dir, so `~/.claude/settings.json` is the only
+option regardless of phase).
+
 ### Phase 3 — plain-default runtime (tmux opt-in)
 
 - **Entry:** the Roadmap's Phase-3 spec — a crash-safe liveness signal (PID +

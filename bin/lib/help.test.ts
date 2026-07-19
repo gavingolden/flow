@@ -174,6 +174,11 @@ describe("HELP_TOP", () => {
     expect(HELP_TOP).toContain("flow help <verb>");
   });
 
+  it("documents bare `flow` launching an interactive skill-loaded session", () => {
+    expect(HELP_TOP).toContain("claude --add-dir ~/.flow/claude-home");
+    expect(HELP_TOP).toContain("run 'flow help' for this help");
+  });
+
   // Same flag-presence guard as above, applied to the top-level help block.
   it("documents --wait-for-copilot in the `flow feature create` synopsis", () => {
     expect(HELP_TOP).toContain("--wait-for-copilot");

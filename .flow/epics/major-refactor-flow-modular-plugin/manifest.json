@@ -72,7 +72,14 @@
         "autoMerge": false,
         "copilotReview": "auto",
         "effort": "high"
-      }
+      },
+      "learnings": [
+        "INVESTIGATION RESOLVED (2026-07-14, web-grounded cross-model): the description's open INVESTIGATION ITEM is answered. Subagents in an added dir's .claude/agents/ DO load — now officially documented (code.claude.com/docs/en/permissions#additional-directories-grant-file-access-not-configuration, the Subagents row; code.claude.com/docs/en/sub-agents#choose-the-subagent-scope). Hooks (and slash commands / output styles) do NOT load from an added dir; settings.json loading from --add-dir is limited to enabledPlugins/extraKnownMarketplaces. Recorded in docs/target-architecture.md under 'Investigation record: agents/hooks under --add-dir'.",
+        "DECISION (D-A): agents stay global at ~/.claude/agents/ this node (moving them would stale the [ -f ~/.claude/agents/<name>.md ] fallback guards in flow-pipeline/pr-review). Phase-4 nodes (p4-review-agents, p4-pipeline-agents) may now own a wholesale move WITH the guard sweep, since added-dir agent loading is documented. Hooks stay global PERMANENTLY — they cannot load from an added dir, so ~/.claude/settings.json is the only option regardless of phase.",
+        "DEFERRED (surfaced by discovery, NOT filed per user instruction 2026-07-14): (a) `flow` launcher passthrough args (e.g. `flow -- --resume`, `--model`) — needs its own arg-boundary design, separate from the ratified bare-launch ask. (b) session-scoped flow instructions via a claude-home CLAUDE.md behind CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1 (changelog-documented opt-in) — speculative until a concrete instruction need exists. Both remain untracked candidates for a Phase-4/later node to reconsider.",
+        "IN-SCOPE FIXES found during implementation: (1) registered the previously-unregistered flow-transcript-audit helper (merged in #431) into the core module — a pre-existing registry-completeness gap that gh#435's discoverSelected-vs-discoverAll set-equality lints were already red on at base. (2) added a SKILL.md validity gate to discoverSkills so the registry-unknown pass-through never links a stray non-skill directory (upholds the AGY-accepted pass-through validity bound; the plan assumed the gate existed but it did not).",
+        "IMPLEMENTATION NOTE (Task 5 seam): the seed/launcher argv uses the FLOW_CLAUDE_HOME import-time const directly rather than a call-time env-overridable seam. The path is a deterministic HOME derivation only ever passed as an argv string (nothing writes it), so — unlike the --settings file path which needs FLOW_LAUNCH_SETTINGS_PATH sandboxing — no test seam is required; the argv tests import the same const."
+      ]
     },
     {
       "id": "p2-flow-prefix-rename",

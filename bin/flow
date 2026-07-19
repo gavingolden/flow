@@ -19,7 +19,8 @@
 
 import { runAttachCli } from "./lib/attach";
 import { runCompletion } from "./lib/completion";
-import { printTopHelp, runHelpVerb } from "./lib/help";
+import { runHelpVerb } from "./lib/help";
+import { runLaunchCli } from "./lib/launch";
 import { runDoneCli } from "./lib/done";
 import { runEpicCli } from "./lib/epic";
 import { runConfigCli } from "./lib/config";
@@ -32,9 +33,12 @@ import { isVerb } from "./lib/verbs";
 async function main(): Promise<number> {
   const [, , verb, ...rest] = process.argv;
 
+  // Bare `flow` on a TTY launches an interactive skill-loaded session; a
+  // non-TTY bare `flow` (script/CI) falls back to printing the top help
+  // (handled inside runLaunchCli). Explicit `flow help` / `-h` still route
+  // through runVerb below.
   if (!verb) {
-    printTopHelp();
-    return 0;
+    return runLaunchCli();
   }
 
   if (isVerb(verb)) {

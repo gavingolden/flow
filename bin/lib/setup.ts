@@ -9,6 +9,7 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   CLAUDE_SETTINGS_PATH,
@@ -57,6 +58,7 @@ import { confirmStdin } from "./confirm";
 import { moduleForArtifactName, moduleIds } from "./modules";
 import {
   collectModuleConfigWarnings,
+  deriveSelectionFromManifest,
   readConfigFileAt,
   readModuleSelection,
   resolveModuleSelection,
@@ -201,6 +203,14 @@ export type SetupOptions = {
    * `modules-config.ts`'s own default).
    */
   configPath?: string;
+  /**
+   * Override the pre-retarget skills location swept for flow-owned symlinks
+   * during migration. Test-only (default:
+   * `<homeDir ?? os.homedir()>/.claude/skills`). The sweep is a no-op when
+   * this resolves to the same directory as `targets.skillsDir` — i.e. when
+   * flow is still linking into the old location, there is nothing to migrate.
+   */
+  oldSkillsDir?: string;
   /**
    * `command -v <cmd>` probe seam for preflight's tmux-on-PATH check.
    * Test-only override (mirrors the `tmuxOnPath` seam `feature.ts`/`epic.ts`
@@ -385,6 +395,21 @@ async function runUnderLock(
     log,
     installRoot,
   );
+  // Migration backstop for the ~/.claude/skills → ~/.flow/claude-home retarget:
+  // reapOrphans only removes MANIFEST-recorded old-location links. A drifted or
+  // pre-manifest install would strand its old-location symlinks forever, so
+  // sweep the old location directly for any flow-owned symlink (target resolves
+  // inside the flow source tree) — never a user file or a foreign symlink.
+  const oldSkillsDir =
+    options.oldSkillsDir ??
+    path.join(options.homeDir ?? os.homedir(), ".claude", "skills");
+  summary.removed += sweepOldSkillsLocation(
+    oldSkillsDir,
+    targets,
+    flowSource,
+    installRoot,
+    log,
+  );
   if (options.upgrade) {
     // Invalidate the update-check throttle cache so the next `flow ls` /
     // `flow version` re-fetches staleness instead of replaying the
@@ -552,14 +577,31 @@ async function resolveEntriesForRun(
     log(dim(`  ! module config: ${w}`));
   }
 
+  // gh#435: when nothing is recorded, derive the existing install's breadth
+  // from the manifest so a non-interactive `--upgrade` preserves it instead
+  // of collapsing to core. Empty/absent manifest → undefined → the resolver
+  // falls through to its TTY / core-default branches unchanged.
+  const manifest = readManifest(options.manifestPath);
+  const manifestIds =
+    manifest.symlinks.length > 0
+      ? deriveSelectionFromManifest(manifest)
+      : undefined;
+
   const selection = resolveModuleSelection({
     flagIds: options.modules,
+    manifestIds,
     isTTY: options.isTTY ?? process.stdin.isTTY === true,
     confirm: options.confirm ?? confirmStdin,
     read,
   });
 
-  if (selection.source === "default") {
+  if (selection.source === "manifest") {
+    log(
+      dim(
+        "  i module selection: preserving existing installed breadth (derived from ~/.flow/installed.json) — record a selection with --modules/--all to silence this",
+      ),
+    );
+  } else if (selection.source === "default") {
     log(
       dim(
         "  i module selection: defaulting to core only — pass --modules <csv>, --all, or run `flow install` interactively to select more",
@@ -659,6 +701,88 @@ function reapOrphans(
     }
   }
   return removed;
+}
+
+/**
+ * One-time migration sweep of the pre-retarget `~/.claude/skills/` location.
+ * Removes every direct child that is a flow-owned symlink — one whose target
+ * resolves inside the flow source tree (`flowSource` or `installRoot`) — so a
+ * drifted or pre-manifest install still migrates out of the old location. Real
+ * files and foreign symlinks (targets outside the flow tree) are never touched.
+ *
+ * No-op when `oldSkillsDir` resolves to the live `targets.skillsDir`: flow is
+ * still linking into that directory, so there is nothing to migrate. This guard
+ * is what keeps the sweep inert for a consumer who has not retargeted (and for
+ * the existing test fixtures, which point `targets.skillsDir` at
+ * `<home>/.claude/skills`).
+ */
+function sweepOldSkillsLocation(
+  oldSkillsDir: string,
+  targets: InstallTargets,
+  flowSource: string,
+  installRoot: string,
+  log: (msg: string) => void,
+): number {
+  if (path.resolve(oldSkillsDir) === path.resolve(targets.skillsDir)) return 0;
+  let dirents: fs.Dirent[];
+  try {
+    dirents = fs.readdirSync(oldSkillsDir, { withFileTypes: true });
+  } catch {
+    return 0; // old location absent — clean machine or already migrated
+  }
+  const flowRoots = [path.resolve(flowSource), path.resolve(installRoot)];
+  let removed = 0;
+  for (const dirent of dirents) {
+    if (!dirent.isSymbolicLink()) continue; // never touch a real file
+    if (
+      removeIfFlowOwnedSymlink(path.join(oldSkillsDir, dirent.name), flowRoots)
+    ) {
+      log(dim(`  - ${dirent.name}  (migrated out of ~/.claude/skills)`));
+      removed++;
+    }
+  }
+  return removed;
+}
+
+/**
+ * Removes `target` iff it is a symlink whose resolved target lives under one
+ * of `flowRoots` (flow-owned by construction). Returns true if removed. A
+ * symlink pointing outside the flow tree — a user's own — is preserved; a
+ * non-symlink is left to the `readlinkSync` failure path.
+ */
+function removeIfFlowOwnedSymlink(
+  target: string,
+  flowRoots: string[],
+): boolean {
+  let link: string;
+  try {
+    link = fs.readlinkSync(target);
+  } catch {
+    return false; // not a symlink / unreadable
+  }
+  const raw = path.resolve(path.dirname(target), link);
+  let resolved = raw;
+  try {
+    resolved = fs.realpathSync(raw);
+  } catch {
+    // Dangling link — keep `raw` for the ownership check below.
+  }
+  const owned = flowRoots.some(
+    (root) => isPathUnder(resolved, root) || isPathUnder(raw, root),
+  );
+  if (!owned) return false;
+  try {
+    fs.unlinkSync(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** True when `child` is `parent` itself or nested beneath it. */
+function isPathUnder(child: string, parent: string): boolean {
+  const rel = path.relative(parent, child);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
 }
 
 function mergeManifest(

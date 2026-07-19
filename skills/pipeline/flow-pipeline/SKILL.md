@@ -1177,12 +1177,18 @@ implement-failed`.
 **Phase:** `installing-skills`
 
 Sub-skills loaded by the supervisor in steps 6–8 (`/flow-verify`,
-`/flow-pr-review`) are read from `~/.claude/skills/` and `~/.claude/agents/`
-— populated by `flow install` (and `flow install --upgrade`) via symlink.
+`/flow-pr-review`) are read from `~/.flow/claude-home/.claude/skills/`
+(loaded into the supervisor session via the seed session's
+`--add-dir ~/.flow/claude-home`) and agents still from `~/.claude/agents/`
+— both populated by `flow install` (and `flow install --upgrade`) via symlink.
 A worktree that adds new files under `skills/` or `agents/` in step 5
 does not get those files symlinked automatically; the same supervisor
 session cannot use them downstream until `flow install --upgrade` runs.
-This step closes that gap.
+This step closes that gap. Note that a skill ADDED into the already-existing
+claude-home skills dir hot-reloads into the running session (Claude Code's
+live change detection), and the non-interactive `flow install --upgrade`
+below now preserves the existing installed breadth via the install manifest
+(gh#435) rather than collapsing to core — the invocation itself is unchanged.
 
 ```bash
 flow-state-update --phase installing-skills
@@ -1236,7 +1242,7 @@ reaped on the next `flow install --upgrade`.
 **Concurrency.** `flow install` wraps its symlink work in
 `~/.flow/setup.lock` (`bin/lib/lock.ts`), so parallel pipelines that
 both add skills/agents serialise here rather than racing on
-`~/.claude/skills/` and `~/.claude/agents/`. Do not add an ad-hoc
+`~/.flow/claude-home/.claude/skills/` and `~/.claude/agents/`. Do not add an ad-hoc
 lock at this call site.
 
 **End condition:** the helper exits 0. On non-zero exit (the verb

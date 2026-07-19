@@ -4,11 +4,13 @@ import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   collectModuleConfigWarnings,
+  deriveSelectionFromManifest,
   readModuleSelection,
   resolveModuleSelection,
   writeModuleSelection,
   type ReadConfigFile,
 } from "./modules-config";
+import type { SymlinkKind } from "./manifest";
 
 // Inject the config-read seam so the real ~/.flow/config.json is never
 // touched. Mirrors models-config.test.ts / copilot-config.test.ts's `reader`
@@ -220,5 +222,117 @@ describe("resolveModuleSelection", () => {
     expect(result.shouldPersist).toBe(false);
     expect(result.ids).toEqual(["core"]);
     expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("non-TTY with manifest-derived breadth and nothing recorded preserves breadth, does not persist, does not prompt (gh#435)", () => {
+    const confirm = vi.fn(() => true);
+    const result = resolveModuleSelection({
+      manifestIds: ["core", "stack-svelte", "research"],
+      isTTY: false,
+      confirm,
+      read: reader(undefined),
+    });
+    expect(result.source).toBe("manifest");
+    expect(result.shouldPersist).toBe(false);
+    expect(new Set(result.ids)).toEqual(
+      new Set(["core", "stack-svelte", "research"]),
+    );
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  it("a recorded config selection still wins over manifest-derived breadth", () => {
+    const result = resolveModuleSelection({
+      manifestIds: ["core", "stack-svelte", "research"],
+      isTTY: false,
+      confirm: vi.fn(() => true),
+      read: reader({ modules: ["core", "copilot"] }),
+    });
+    expect(result.source).toBe("config");
+    expect(new Set(result.ids)).toEqual(new Set(["core", "copilot"]));
+  });
+
+  it("an explicit flag still wins over manifest-derived breadth", () => {
+    const result = resolveModuleSelection({
+      flagIds: ["research"],
+      manifestIds: ["core", "stack-svelte", "stack-supabase"],
+      isTTY: false,
+      confirm: vi.fn(() => true),
+      read: reader(undefined),
+    });
+    expect(result.source).toBe("flag");
+    expect(new Set(result.ids)).toEqual(new Set(["core", "research"]));
+  });
+
+  it("an empty manifestIds falls through to the non-TTY core default", () => {
+    const result = resolveModuleSelection({
+      manifestIds: [],
+      isTTY: false,
+      confirm: vi.fn(() => true),
+      read: reader(undefined),
+    });
+    expect(result.source).toBe("default");
+    expect(result.ids).toEqual(["core"]);
+  });
+
+  it("TTY still prompts when nothing is recorded and no manifest is passed", () => {
+    const confirm = vi.fn(() => false);
+    const result = resolveModuleSelection({
+      isTTY: true,
+      confirm,
+      read: reader(undefined),
+    });
+    expect(result.source).toBe("prompt");
+    expect(confirm).toHaveBeenCalled();
+  });
+});
+
+describe("deriveSelectionFromManifest", () => {
+  const record = (target: string, kind: SymlinkKind = "skill") => ({
+    source: `/flow/${target}`,
+    target,
+    kind,
+  });
+
+  it("unions the owning modules of each recorded artifact, folding in core", () => {
+    const ids = deriveSelectionFromManifest({
+      version: 1,
+      symlinks: [
+        record("/home/.claude/skills/flow-svelte"),
+        record("/home/.claude/skills/flow-research"),
+        record("/home/.local/bin/flow-delegate", "bin"),
+      ],
+    });
+    expect(new Set(ids)).toEqual(new Set(["core", "stack-svelte", "research"]));
+  });
+
+  it("derives breadth from a pre-retarget manifest by basename, location-independent", () => {
+    const post = deriveSelectionFromManifest({
+      version: 1,
+      symlinks: [record("/home/.flow/claude-home/.claude/skills/flow-svelte")],
+    });
+    const pre = deriveSelectionFromManifest({
+      version: 1,
+      symlinks: [record("/home/.claude/skills/flow-svelte")],
+    });
+    expect(new Set(pre)).toEqual(new Set(post));
+    expect(new Set(pre)).toEqual(new Set(["core", "stack-svelte"]));
+  });
+
+  it("ignores records that map to no module (wrapper, completions, registry-unknown)", () => {
+    const ids = deriveSelectionFromManifest({
+      version: 1,
+      symlinks: [
+        record("/home/.local/bin/flow", "bin"),
+        record("/home/.flow/completions/flow.bash", "completion"),
+        record("/home/.local/bin/flow-transcript-audit", "bin"),
+      ],
+    });
+    expect(ids).toEqual(["core"]);
+  });
+
+  it("returns just core for an empty manifest", () => {
+    expect(deriveSelectionFromManifest({ version: 1, symlinks: [] })).toEqual([
+      "core",
+    ]);
   });
 });

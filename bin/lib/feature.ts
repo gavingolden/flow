@@ -51,7 +51,11 @@ import {
 import { sleepSync } from "./sleep";
 import { dim } from "./color";
 import { withTestSemaphore, resolveLaunchConcurrency } from "./lock";
-import { FLOW_LAUNCH_SEM_DIR, FLOW_LAUNCH_SETTINGS_PATH } from "./paths";
+import {
+  FLOW_CLAUDE_HOME,
+  FLOW_LAUNCH_SEM_DIR,
+  FLOW_LAUNCH_SETTINGS_PATH,
+} from "./paths";
 import { installBaseBranchGuard } from "./base-branch-guard";
 import { resolveLauncherBackend, type LauncherId } from "./launcher-config";
 import { plainLaunch, plainResume, type PlainLaunchDeps } from "./launcher";
@@ -1213,6 +1217,12 @@ function launchArgv(
  * path wraps it in the `env FLOW_PIPELINE=1 FLOW_SLUG=<slug>` argv prefix
  * (launchArgv above); the plain path passes it to `plainLaunch`, which sets
  * the same markers via a real env object on the spawned child.
+ *
+ * Two `--add-dir` entries, deterministic order (worktree first, skills home
+ * second): the worktree is the pipeline's working dir; the skills home
+ * (`~/.flow/claude-home`) is where flow's skills now live (no longer in the
+ * global `~/.claude/skills/`), so every launched session must add it to keep
+ * `/flow-pipeline` and the sub-skills it loads.
  */
 function claudeArgv(
   worktree: string,
@@ -1220,7 +1230,7 @@ function claudeArgv(
   settingsPath: string,
   model?: ModelAlias,
 ): string[] {
-  const base = ["claude", "--add-dir", worktree];
+  const base = ["claude", "--add-dir", worktree, "--add-dir", FLOW_CLAUDE_HOME];
   const withModel = model ? [...base, "--model", model] : base;
   const withEffort = effort ? [...withModel, "--effort", effort] : withModel;
   return [...withEffort, "--settings", settingsPath];

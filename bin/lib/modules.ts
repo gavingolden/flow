@@ -268,3 +268,15 @@ export function moduleForArtifactName(name: string): ModuleId | undefined {
   }
   return undefined;
 }
+
+/**
+ * Whether the registry claims `name` in any module. `false` for an artifact
+ * no row owns — an in-flight worktree skill/helper not yet in the canonical
+ * registry (gh#435 sub-case 1), the `flow` wrapper, or shell completions.
+ * `discoverSelected` passes such artifacts through its selection filter so a
+ * worktree-added skill still links pre-merge, while deselected KNOWN modules
+ * stay filtered.
+ */
+export function isRegistryKnownArtifact(name: string): boolean {
+  return moduleForArtifactName(name) !== undefined;
+}
