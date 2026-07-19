@@ -41,10 +41,10 @@ To come current, run `flow install --upgrade`: it self-pulls (fast-forwards your
 flow                             # (on a TTY) launch an interactive Claude session with flow skills loaded
 flow feature create "add CSV export"        # start a pipeline (runs in your terminal by default)
 flow ls                          # list active pipelines
-flow attach add-csv-export       # attach to a pipeline's window (alias: flow a)
-flow attach                      # attach into the session and browse windows
-flow done add-csv-export         # close a finished pipeline's window
-flow done --merged               # sweep windows that reached a terminal state
+flow attach add-csv-export       # tmux launcher: attach to a pipeline's window (alias: flow a)
+flow attach                      # tmux launcher: attach into the session and browse windows
+flow done add-csv-export         # close a finished pipeline (tmux: closes its window)
+flow done --merged               # sweep pipelines that reached a terminal state
 ```
 
 Bare `flow` on a terminal starts an interactive Claude session with your installed flow skills loaded (`claude --add-dir ~/.flow/claude-home`) — the way to get flow's skills in an ad-hoc session now that they no longer live in the global `~/.claude/skills/`. Run `flow help` (or `flow -h`) for the command reference; a non-interactive bare `flow` (a script, CI) prints that help instead of launching.
@@ -154,7 +154,7 @@ There are two distinct ways to come back to a pipeline, and which one you need d
 
 **Walk away and return.** Under the default plain launcher, the run holds your terminal — closing that terminal or losing the process means `flow feature resume <slug>` re-launches Claude Code from the state saved on disk (`~/.flow/state/<slug>.json` plus the worktree plus the PR) and picks up where it left off; nothing is lost because nothing but the process itself went away. Under the tmux launcher, you don't even need to resume: just detach (`Ctrl-b d`) and later `flow attach` to re-enter — the pipeline keeps running in its window the whole time.
 
-**Resume after a crash.** If the supervisor crashed or you closed the window, run `flow ls` to find the pipeline's slug, then `flow feature resume <slug>` to re-launch Claude Code into the same window and pick up exactly where it left off — it reads the saved phase, worktree, and PR and continues. It refuses if the pipeline is actually still running, telling you to attach instead.
+**Resume after a crash.** Run `flow ls` to find the pipeline's slug, then `flow feature resume <slug>` to re-launch Claude Code and pick up exactly where it left off — it reads the saved phase, worktree, and PR and continues. Under the default plain launcher this drops you straight into a fresh foreground session in your terminal; under the tmux launcher it re-launches into the pipeline's tmux window. Either way it refuses if the pipeline is actually still running: a live plain run holds a terminal that can't be reclaimed from here (run `flow done` on it first, then resume), and a live tmux run tells you to `flow attach` instead.
 
 **Reset context mid-run (`/flow-checkpoint` → `/clear` → auto-resume).** A long pipeline accumulates a large chat transcript, and the priciest tokens are spent late in a run against a near-full context. Because `flow feature resume` re-launches a _fresh_ Claude Code process (a cleared context) and rebuilds pipeline state entirely from disk, it already **is** the context-reset path — the only thing a fresh process drops is ad-hoc conversational state that never reached an artifact (an "approved with condition X" addendum, a mid-flight redirect). The `/flow-checkpoint` skill closes that gap: invoke `/flow-checkpoint` (or just say "checkpoint this") and the supervisor flushes that conversational state to `<worktree>/.flow-tmp/checkpoint.md` and tells you it is safe to `/clear`. After you type `/clear`, a `SessionStart` hook auto-resumes the pipeline in the fresh session and re-injects the checkpoint, so you don't have to run `flow feature resume` by hand. The auto-resume is gated on a one-shot marker `/flow-checkpoint` writes, so a `/clear` **without** a prior checkpoint clears normally (you keep the choice); Claude cannot invoke `/clear` itself, so that one keystroke stays yours. The supervisor also auto-checkpoints at the plan-approval → implementation hand-off — the highest-value place to reset before the heavy phases. The hook is registered by `flow install` and skippable with `flow install --no-hooks`.
 
