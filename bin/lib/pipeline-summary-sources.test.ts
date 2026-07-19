@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  renderComment,
   renderFindings,
   renderForeclosedPaths,
   renderPhases,
@@ -235,6 +236,54 @@ const fixApplierOneBadEntry = JSON.stringify({
     },
   ],
   summary: "s",
+});
+
+// A well-formed consolidator artifact whose one finding carries a lens-name
+// label ("consistency") instead of a real VALID_LABELS entry — the shape
+// `normalizeParsedFindings` is meant to coerce before validation runs.
+const consolidatorLensLabel = JSON.stringify({
+  consolidated_findings: [
+    {
+      file: "bin/lib/x.ts",
+      line: 10,
+      label: "consistency",
+      decoration: "non-blocking",
+      confidence: 0.8,
+      subject: "inconsistent naming",
+      body: "rename to match sibling functions",
+    },
+  ],
+  dropped_by_validation: [],
+  rejected_alternatives: ["kept the two lenses separate"],
+  anti_patterns_found: [],
+  summary: "s",
+});
+
+describe("renderFindings — consolidator lens-name label", () => {
+  it("renders real counts (not (unreadable)) for a lens-name-labelled finding", () => {
+    const findings = renderFindings({
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorLensLabel,
+      ciWaitRaw: "",
+    }).join("\n");
+    expect(findings).toContain("consolidator: 1 findings, 0 dropped");
+    expect(findings).not.toContain("consolidator: (unreadable)");
+  });
+});
+
+describe("renderComment DECISIONS — consolidator lens-name label", () => {
+  it("renders the real rejected decision (not dropped) for a lens-name-labelled finding", () => {
+    const comment = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorLensLabel,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    });
+    expect(comment).toContain("kept the two lenses separate");
+  });
 });
 
 describe("renderFindings — fix-applier resilience", () => {
