@@ -23,10 +23,10 @@ import { livenessOf, pidStartEpoch, type LivenessDeps } from "./liveness";
 import { dim } from "./color";
 
 export const PLAIN_IDLE_HINT =
-  "flow: if claude sits idle at the prompt, press Enter to start the pipeline";
+  "flow: this is the plain launcher (flow's default) — if claude sits idle at the prompt, press Enter to start the pipeline";
 
 export const PLAIN_RESUME_REFUSAL_NOTICE =
-  "flow feature resume: this pipeline is running under the plain launcher — a plain terminal cannot be reclaimed; `flow done` it first, then resume.";
+  "flow feature resume: this pipeline is already running under the plain launcher, and its terminal can't be reclaimed from here — run `flow done` on it first, then resume.";
 
 export type PlainLaunchDeps = {
   /**
@@ -79,7 +79,7 @@ async function runForeground(
     (process.stdin.isTTY === true && process.stdout.isTTY === true);
   if (!isTTY) {
     console.error(
-      `flow feature ${verb}: the plain launcher needs an interactive terminal — pass --tmux or run from a terminal`,
+      `flow feature ${verb}: the plain launcher (flow's default) needs an interactive terminal — pass --tmux to use the tmux launcher instead, or run from a terminal`,
     );
     // Mirror the delete-on-fast-fail cleanup below: this guard fires before
     // any spawn attempt, so a `create`-verb `starting` state written by
@@ -112,7 +112,7 @@ async function runForeground(
     });
   } catch (e) {
     console.error(
-      `flow feature ${verb}: failed to launch claude — check your Claude Code install and PATH`,
+      `flow feature ${verb}: failed to launch claude in this terminal — check your Claude Code install and PATH`,
     );
     if (verb === "create") {
       const preSpawnState = readState(req.slug, req.stateDir);
@@ -228,7 +228,7 @@ export function plainAttachHint(state: PipelineState): string {
   const pid = state.pid != null ? ` (pid ${state.pid})` : "";
   return (
     `flow attach: pipeline '${state.slug}' runs under the plain launcher${pid} — ` +
-    "attach is a tmux-launcher feature. The session lives in the terminal that launched it; " +
+    "attach is a tmux-launcher feature, so there's no window to jump into. The session lives in the terminal that launched it; " +
     `resume a crashed one with \`flow feature resume ${state.slug}\`.`
   );
 }

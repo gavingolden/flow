@@ -2,12 +2,13 @@
 
 `flow` has two responsibilities in one repo:
 
-1. A **tmux-driven multi-phase pipeline supervisor**. Each `flow feature create
-   "<description>"` opens a tmux window running Claude Code, and the
-   `/flow-pipeline` supervisor skill drives the full pipeline (triage →
-   plan → worktree → implement → verify → CI → review → gate → merge)
-   inside that one chat session. Sub-skills load in-process; helper
-   scripts under `bin/` are Bash tool calls.
+1. A **multi-phase pipeline supervisor**. Each `flow feature create
+   "<description>"` launches a Claude Code session — in the caller's
+   plain shell by default, or a tmux window when the tmux launcher is
+   opted into — and the `/flow-pipeline` supervisor skill drives the
+   full pipeline (triage → plan → worktree → implement → verify → CI →
+   review → gate → merge) inside that one chat session. Sub-skills load
+   in-process; helper scripts under `bin/` are Bash tool calls.
 2. A **curated skill library** at `skills/` plus the helper binaries at
    `bin/` they shell out to. Both are distributed by `flow install` (the
    global install). Skills are usable independent of the supervisor; the
@@ -27,11 +28,12 @@ Read it once at the start of a session.
 
 ## Current state
 
-The redesign from a Node orchestrator to a tmux-driven supervisor is
-complete: `src/`, the per-repo `flow install`, and the orchestrator-
-only skills (`flow-add`, `flow-approve`, `flow-revise`, `flow-watch`,
-`flow-status`) are deleted. The wrapper at `bin/flow` is Bun and
-dispatches verbs natively with no passthrough fallback.
+The redesign from a Node orchestrator to a plain-shell-default pipeline
+supervisor (tmux is now an opt-in launcher) is complete: `src/`, the
+per-repo `flow install`, and the orchestrator-only skills (`flow-add`,
+`flow-approve`, `flow-revise`, `flow-watch`, `flow-status`) are deleted.
+The wrapper at `bin/flow` is Bun and dispatches verbs natively with no
+passthrough fallback.
 
 ## Code conventions
 
@@ -167,12 +169,15 @@ workflow-enforceable.
 
 - The supervisor does not re-implement Claude Code skills in its own
   process. It hosts a skill library at `skills/` distributed via
-  `flow install`; `bin/flow` only routes verbs to helper scripts and tmux.
+  `flow install`; `bin/flow` only routes verbs to helper scripts and the
+  launcher (plain shell by default, tmux when opted into).
 - It is not a full SDLC tool. It hosts no web UI, Slack posts, Jira
   tickets, or permission management.
 - It is not a long-running daemon. Each `flow` invocation does one thing
   and exits. Per-pipeline state persists in `~/.flow/state/<slug>.json`
-  and the tmux window's scrollback.
+  plus the worktree plus the PR; under the tmux launcher, the window's
+  scrollback is a convenience for re-attaching, not the persistence
+  store.
 
 ## Consumer-repo notes
 
