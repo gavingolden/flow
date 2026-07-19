@@ -14,7 +14,7 @@
  *         "hunk_excerpt": "..." },
  *       ...
  *     ],
- *     "overflowBullet": "- N additional hunks ..."
+ *     "overflowNote": "> [!NOTE]\n> **Annotation coverage:** ..."
  *   }
  *
  * The candidates carry NO `body` field — the calling /flow-new-feature agent
@@ -147,7 +147,7 @@ export type Envelope = {
   candidates: Array<
     Omit<Candidate, "_matchedRule" | "_hunkLoc" | "_restructure">
   >;
-  overflowBullet?: string;
+  overflowNote?: string;
 };
 
 // --- Diff parsing ---
@@ -397,7 +397,7 @@ export function dedupPerFile(files: FileDiff[]): Candidate[] {
  * Rank candidates by (hunk LOC desc → restructure intensity desc → path
  * alphabetical → line ascending) and cap via the floor/ratio/ceiling formula
  * (see `computeCap`). Returns {kept, surplus} so the caller can format the
- * overflow bullet.
+ * overflow note.
  */
 export function rankAndCap(
   candidates: Candidate[],
@@ -424,7 +424,10 @@ export function rankAndCap(
 }
 
 export function overflowPointer(surplus: number): string {
-  return `- ${surplus} additional hunks exceeded the inline cap — see commit messages for details.`;
+  const hunkWord = surplus === 1 ? "hunk" : "hunks";
+  const verb = surplus === 1 ? "is" : "are";
+  const pronoun = surplus === 1 ? "its" : "their";
+  return `> [!NOTE]\n> **Annotation coverage:** ${surplus} diff ${hunkWord} beyond the inline self-review annotation cap ${verb} not annotated inline; ${pronoun} rationale lives in the commit messages.`;
 }
 
 /** Strips the internal `_*` fields before emitting on stdout. */
@@ -446,7 +449,7 @@ export function buildEnvelope(
   const all = dedupPerFile(files);
   const { kept, surplus } = rankAndCap(all, capConfig);
   const envelope: Envelope = { candidates: kept.map(stripInternal) };
-  if (surplus > 0) envelope.overflowBullet = overflowPointer(surplus);
+  if (surplus > 0) envelope.overflowNote = overflowPointer(surplus);
   return envelope;
 }
 
@@ -506,7 +509,7 @@ envelope on stdout:
       { "file": "...", "line": N, "end_line": M?, "side": "RIGHT"|"LEFT",
         "hunk_excerpt": "..." }
     ],
-    "overflowBullet": "- N additional hunks ..."  // present when capped
+    "overflowNote": "> [!NOTE]\\n> **Annotation coverage:** ..."  // present when capped
   }
 
 Trigger rules:
@@ -516,9 +519,9 @@ Trigger rules:
       (>= ${RULE_C_MIN_HUNK_LOC} LOC) only, per file
 
 Cap: floor ${ANNOTATION_FLOOR}, scaling to ~${Math.round(capConfig.ratio * 100)}% of matched hunks above
-the floor, ceiling ${capConfig.ceiling}; surplus rolls into overflowBullet for the calling
-agent to append under \`## Why\` in the PR body. Override ratio/ceiling
-machine-wide via a \`flowAnnotatePr\` object in ~/.flow/config.json.
+the floor, ceiling ${capConfig.ceiling}; surplus rolls into overflowNote for the calling
+agent to append as a self-contained callout at the END of the PR body. Override
+ratio/ceiling machine-wide via a \`flowAnnotatePr\` object in ~/.flow/config.json.
 
 The helper does NOT call gh — its only job is local diff + trigger eval +
 JSON emit. The PR number arg is accepted for symmetry with other helpers

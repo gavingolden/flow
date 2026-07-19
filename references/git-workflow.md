@@ -39,10 +39,13 @@ Review-time-scoped per-hunk rationale from `/flow-new-feature` Step 5b as
 inline PR-diff comments (`**why:** <1-2 sentences>` + `<!--
 flow-intent-v1 -->` suffix, disjoint from `/flow-pr-review`'s Conventional
 Comments vocab). Not in `git log`/`git blame` post-merge — durable
-rationale belongs in commit-body Why-sections + PR body's `## Why`. See
+rationale belongs in commit-body Why-sections + PR body's `## Why`, with
+the exception of surplus (capped-out) hunks: those are pointed at the
+commit messages via an `overflowNote` callout appended to the END of the
+PR body (outside `## Why`) rather than inlined under it. See
 `skills/pipeline/flow-new-feature/SKILL.md` Step 5b (rules a/b/c,
 per-file dedup, floor/ratio/ceiling scaling cap — `flowAnnotatePr`
-override in `~/.flow/config.json`, overflow bullet) and
+override in `~/.flow/config.json`, `overflowNote`) and
 `skills/pipeline/flow-pr-review/SKILL.md` Step 3 for `/flow-pr-review`'s
 `{{EXISTING_INTENT_COMMENTS}}` consumption.
 
