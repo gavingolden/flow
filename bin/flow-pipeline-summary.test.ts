@@ -699,6 +699,68 @@ describe("run — end-to-end", () => {
     expect(out).not.toContain("- Follow-ups: none");
   });
 
+  it("derives the real recap findingCount for a lens-name-labelled consolidator artifact", () => {
+    const reviewFile = write(
+      "pr-review-result.json",
+      '{"status":"clean","summary":"ok"}',
+    );
+    // A well-formed consolidator whose one finding carries a lens-name label
+    // ('consistency'). Before the deriveRecapScalars normalize fix, validation
+    // failed here and findingCount fell through to the fix-applier fallback,
+    // yielding a wrong recap count.
+    const consolidatorFile = write(
+      "consolidator-result.json",
+      JSON.stringify({
+        consolidated_findings: [
+          {
+            file: "bin/lib/x.ts",
+            line: 10,
+            label: "consistency",
+            decoration: "non-blocking",
+            confidence: 0.8,
+            subject: "inconsistent naming",
+            body: "rename to match sibling functions",
+          },
+        ],
+        dropped_by_validation: [],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "ok",
+      }),
+    );
+    // A fix-applier with 3 commits + 0 deferred would give findingCount=3 via
+    // the fallback — so a wrong count is observably distinct from the real 1.
+    const fixApplierFile = write(
+      "fix-applier-result.json",
+      JSON.stringify({
+        commits: [
+          { sha: "a", subject: "x" },
+          { sha: "b", subject: "y" },
+          { sha: "c", subject: "z" },
+        ],
+        deferred: [],
+        rejected_alternatives: [],
+        anti_patterns_found: [],
+        summary: "fixed",
+      }),
+    );
+    const out = captureStdout(() => {
+      run([
+        "--status",
+        "gated",
+        "--echo-prose",
+        "--pr-review-result",
+        reviewFile,
+        "--consolidator-result",
+        consolidatorFile,
+        "--fix-applier-result",
+        fixApplierFile,
+      ]);
+    });
+    expect(out).toContain("- Review: clean (1 findings)");
+    expect(out).not.toContain("(3 findings)");
+  });
+
   it("WITHOUT --echo-prose stdout is byte-for-byte unchanged (regression guard)", () => {
     const argv = ["--status", "merged"];
     const withFlag = captureStdout(() => run([...argv, "--echo-prose"]));

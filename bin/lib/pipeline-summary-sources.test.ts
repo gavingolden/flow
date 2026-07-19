@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  renderComment,
   renderFindings,
   renderForeclosedPaths,
   renderPhases,
@@ -235,6 +236,87 @@ const fixApplierOneBadEntry = JSON.stringify({
     },
   ],
   summary: "s",
+});
+
+// A well-formed consolidator artifact whose one finding carries a lens-name
+// label ("consistency") instead of a real VALID_LABELS entry — the shape
+// `normalizeParsedFindings` is meant to coerce before validation runs.
+const consolidatorLensLabel = JSON.stringify({
+  consolidated_findings: [
+    {
+      file: "bin/lib/x.ts",
+      line: 10,
+      label: "consistency",
+      decoration: "non-blocking",
+      confidence: 0.8,
+      subject: "inconsistent naming",
+      body: "rename to match sibling functions",
+    },
+  ],
+  dropped_by_validation: [],
+  rejected_alternatives: ["kept the two lenses separate"],
+  anti_patterns_found: [],
+  summary: "s",
+});
+
+describe("renderFindings — consolidator lens-name label", () => {
+  it("renders real counts (not (unreadable)) for a lens-name-labelled finding", () => {
+    const findings = renderFindings({
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorLensLabel,
+      ciWaitRaw: "",
+    }).join("\n");
+    expect(findings).toContain("consolidator: 1 findings, 0 dropped");
+    expect(findings).not.toContain("consolidator: (unreadable)");
+  });
+});
+
+describe("renderComment DECISIONS — consolidator lens-name label", () => {
+  it("renders the real rejected decision (not dropped) for a lens-name-labelled finding", () => {
+    const comment = renderComment({
+      prChangesRaw: "",
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorLensLabel,
+      ciWaitRaw: "",
+      filedIssuesRaw: "",
+    });
+    expect(comment).toContain("kept the two lenses separate");
+  });
+});
+
+// A genuinely-malformed consolidator artifact: a finding whose label is an
+// unknown token ("xyzzy") that is NOT a lens name, so normalizeParsedFindings
+// does not coerce it — validation must still fail and degrade to (unreadable).
+const consolidatorUnknownLabel = JSON.stringify({
+  consolidated_findings: [
+    {
+      file: "bin/lib/x.ts",
+      line: 10,
+      label: "xyzzy",
+      decoration: "non-blocking",
+      confidence: 0.8,
+      subject: "s",
+      body: "b",
+    },
+  ],
+  dropped_by_validation: [],
+  rejected_alternatives: ["kept the two lenses separate"],
+  anti_patterns_found: [],
+  summary: "s",
+});
+
+describe("renderFindings — genuinely-malformed consolidator still degrades", () => {
+  it("renders (unreadable) for an unknown (non-lens) label — normalization does not mask real malformation", () => {
+    const findings = renderFindings({
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorUnknownLabel,
+      ciWaitRaw: "",
+    }).join("\n");
+    expect(findings).toContain("consolidator: (unreadable)");
+  });
 });
 
 describe("renderFindings — fix-applier resilience", () => {
