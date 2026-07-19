@@ -52,7 +52,8 @@ manifest yet, meaningful UI diff), the helper has inferred
 `launch`/`baseUrl`/`routes`/`loginUrl` + credential env-var NAMES plus a
 `needs[]` — allocate a free port, resolve the `{{PORT}}` placeholder,
 empirically verify the inference (launch starts, routes render, login succeeds
-with VALUES resolved from the local `.env`/shell env at run time), and write the
+with VALUES resolved from the local `.env`/shell env at run time via the Login
+step in step 1 below), and write the
 verified NAMES/config back into `.flow/ui-validation.json` — storing names and
 non-secret config only — never a secret value — committing it into the reviewable
 PR diff before driving the bucket. The same `{{PORT}}` sentinel is now honored on
@@ -77,7 +78,36 @@ re-resolves the placeholder by hand on that path. Then, per visual item:
    — `new_page` with `isolatedContext` set to the pipeline slug (read from
    `@flow-slug` / `~/.flow/state/<slug>.json` / the worktree basename) so
    concurrent pipelines sharing one chrome-devtools MCP server do not share
-   cookies/storage. Then, **per route, loop over `meta.viewports`** (the
+   cookies/storage. **Login step (auth-gated apps).** When the manifest
+   declares `loginUrl` and `credentialEnvVars` and both VALUES resolve from
+   the process env, drive the login form BEFORE the per-route drive:
+   `navigate_page` to `loginUrl` → `take_snapshot` to locate the fields (a
+   transient working snapshot — never saved or injected as evidence): the
+   email field (hint: `input[type=email]` / `#email` / `input[name=email]`),
+   the password field (hint: `input[type=password]` / `#password`), and the
+   submit control (hint: `button[type=submit]` / the form's submit
+   control); if a cookie-consent/overlay covers the form, dismiss it first,
+   and handle a multi-step flow (email → Next → password) if present →
+   `fill` the located fields with the resolved user/pass VALUES → click the
+   submit control (or press Enter) →
+   `wait_for` the post-login redirect and confirm `loginOk`. The selector
+   heuristic is a starting hint, not a rigid script — use the snapshot to
+   locate the real fields. Read the VALUES from `process.env` at runtime;
+   **never persist or inject as review evidence a screenshot or saved
+   a11y snapshot of the credential-bearing login form — capture evidence
+   only on the post-auth gated route** (the form is simply never
+   captured — this is not because the password field is masked: the
+   email/username field renders in plaintext in both a screenshot and an
+   a11y snapshot, so masking is not the protection here, the unconditional
+   no-capture rule is). When
+   `credentialEnvVars` is declared but the VALUES are absent from the env,
+   take the existing `NEEDS HUMAN: smoketest-needs-creds` escalation
+   (autonomous path) rather than driving an unauthenticated pass.
+   **Committed artifacts reference credential NAMES only** — the manifest,
+   plan, commit messages, and PR bodies name the env vars, never a VALUE;
+   reading the manifest-named VALUES at runtime to drive this login is
+   sanctioned only for zero-risk seed/test accounts, and is not a license
+   to hand-type arbitrary or production passwords. Then, **per route, loop over `meta.viewports`** (the
    `flow-ui-validate` ready envelope carries the declared set or the built-in
    default `xs 320 / mobile 390 / tablet 768 / desktop 1280 / wide 1440`):
    `resize_page` to each viewport `width` × its `height` when declared, else a

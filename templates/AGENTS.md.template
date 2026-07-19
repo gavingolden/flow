@@ -227,6 +227,18 @@ The three-ingredient new-repo onboarding:
    data and document it under a "Local Testing Credentials" section in this
    file, so the review/verify passes can log in deterministically.
 
+**Committed artifacts reference credential NAMES only.** The manifest, plan,
+commit messages, and PR bodies reference credential env-var NAMES only —
+never a plaintext VALUE. A browser-driving sub-agent MAY resolve and use the
+manifest-named VALUES at runtime to drive the login form (`navigate` the
+`loginUrl` → locate and fill the email/password fields via the generic
+selector heuristic → submit), but the resolved VALUE must never be echoed
+into chat, logs, PR bodies, screenshots, or any captured evidence — a
+filled-form screenshot leaks it exactly as a committed file would, so
+capture evidence only on post-auth routes, never the login form. This is
+scoped to zero-risk seed/test accounts named in the manifest; it is not a
+license to hand-type arbitrary or production passwords.
+
 **Operational notes.** The `chrome-devtools` MCP must be connected at
 session start: a mid-session registration is invisible to the running
 session and any sub-agent it spawns (a fresh sub-agent shares the parent's
