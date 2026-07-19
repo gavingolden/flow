@@ -55,7 +55,11 @@ empirically verify the inference (launch starts, routes render, login succeeds
 with VALUES resolved from the local `.env`/shell env at run time), and write the
 verified NAMES/config back into `.flow/ui-validation.json` — storing names and
 non-secret config only — never a secret value — committing it into the reviewable
-PR diff before driving the bucket. Then, per visual item:
+PR diff before driving the bucket. The same `{{PORT}}` sentinel is now honored on
+the committed ready path too, not just bootstrap: a manifest that still carries
+`{{PORT}}` in `launch`/`baseUrl`/`env` gets it resolved to a fresh per-run free
+port by `flow-ui-validate` itself (`meta.port` records it), so Step 8c never
+re-resolves the placeholder by hand on that path. Then, per visual item:
 
 0. Before driving any route, read `meta.env` from the `flow-ui-validate` ready
    envelope and inject it into the launch subprocess's environment, then bring

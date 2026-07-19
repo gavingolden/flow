@@ -29,7 +29,14 @@
  * config only — never a secret value. `credentialEnvVars` carries the NAMES
  * of env vars (`TEST_USER_EMAIL`), resolved to VALUES from the local `.env`
  * or shell env at run time and never persisted here.
+ *
+ * `launch`/`baseUrl`/`env` values may carry the literal `{{PORT}}` sentinel
+ * in place of a concrete port; `bin/flow-ui-validate.ts`'s ready path resolves
+ * it to a freshly-allocated free port once per run, while a manifest with a
+ * literal port everywhere is used verbatim.
  */
+
+import { PORT_PLACEHOLDER } from "./ui-launch-infer";
 
 export type UiValidationRoute = {
   path: string;
@@ -223,6 +230,34 @@ export function validateUiValidationManifest(
       const v = validateViewport(parsed.viewports[i], i);
       if (!v.ok) return v;
     }
+  }
+
+  // Bidirectional {{PORT}} invariant: the sentinel must appear on BOTH the
+  // server side (launch, or any env value) and the client side (baseUrl,
+  // or loginUrl — a full-URL loginUrl is a client-side URL the browser
+  // navigates to, same class as baseUrl), or NEITHER — a one-sided sentinel
+  // means the server picks a fresh port each run while baseUrl/loginUrl (or
+  // vice versa) still points at a frozen one.
+  const launchStr = parsed.launch as string;
+  const baseUrlStr = parsed.baseUrl as string;
+  const envRecord = isPlainObject(parsed.env)
+    ? (parsed.env as Record<string, string>)
+    : {};
+  const serverHasPort =
+    launchStr.includes(PORT_PLACEHOLDER) ||
+    Object.values(envRecord).some((v) => v.includes(PORT_PLACEHOLDER));
+  const clientHasPort =
+    baseUrlStr.includes(PORT_PLACEHOLDER) ||
+    (typeof parsed.loginUrl === "string" &&
+      parsed.loginUrl.includes(PORT_PLACEHOLDER));
+  if (serverHasPort !== clientHasPort) {
+    return err(
+      `'{{PORT}}' placeholder must be used consistently: the server side (launch/env) ${
+        serverHasPort ? "contains" : "does not contain"
+      } it, but the client side (baseUrl/loginUrl) ${
+        clientHasPort ? "contains" : "does not contain"
+      } it — use {{PORT}} on both sides for a dynamic per-run port, or a literal port on both sides`,
+    );
   }
 
   return { ok: true, value: parsed as UiValidationManifest };

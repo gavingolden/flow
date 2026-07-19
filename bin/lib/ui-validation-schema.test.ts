@@ -141,6 +141,75 @@ describe("validateUiValidationManifest — happy paths", () => {
   });
 });
 
+describe("validateUiValidationManifest — {{PORT}} bidirectional invariant", () => {
+  it("accepts {{PORT}} in both launch and baseUrl", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.launch = "PORT={{PORT}} npm run dev";
+    fixture.baseUrl = "http://localhost:{{PORT}}";
+    expect(validateUiValidationManifest(fixture).ok).toBe(true);
+  });
+
+  it("accepts an env-only {{PORT}} (literal launch) paired with a {{PORT}} baseUrl", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.launch = "npm run dev";
+    fixture.baseUrl = "http://localhost:{{PORT}}";
+    fixture.env = { PORT: "{{PORT}}" };
+    expect(validateUiValidationManifest(fixture).ok).toBe(true);
+  });
+
+  it("rejects {{PORT}} in baseUrl when launch and env are all-literal", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.launch = "npm run dev";
+    fixture.baseUrl = "http://localhost:{{PORT}}";
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("{{PORT}}");
+  });
+
+  it("rejects {{PORT}} in launch when baseUrl is a literal port", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.launch = "PORT={{PORT}} npm run dev";
+    fixture.baseUrl = "http://localhost:5173";
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("{{PORT}}");
+  });
+
+  it("accepts an all-literal manifest (pokemon 5190 shape, no {{PORT}} anywhere)", () => {
+    const fixture = {
+      launch: "npm run dev",
+      baseUrl: "http://localhost:5190",
+      routes: [{ path: "/" }],
+    };
+    expect(validateUiValidationManifest(fixture).ok).toBe(true);
+  });
+
+  it("rejects a {{PORT}}-only loginUrl when launch/baseUrl/env are all-literal", () => {
+    const fixture = structuredClone(MINIMAL_MANIFEST) as Record<
+      string,
+      unknown
+    >;
+    fixture.launch = "npm run dev";
+    fixture.baseUrl = "http://localhost:5173";
+    fixture.loginUrl = "http://localhost:{{PORT}}/login";
+    const result = validateUiValidationManifest(fixture);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("{{PORT}}");
+  });
+});
+
 describe("validateUiValidationManifest — wrong-shape rejections", () => {
   it("rejects a non-object input", () => {
     expect(validateUiValidationManifest(null).ok).toBe(false);
