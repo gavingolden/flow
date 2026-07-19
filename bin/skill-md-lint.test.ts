@@ -1267,18 +1267,41 @@ describe("low-effort fan-out subagent_type wiring lint", () => {
     }
   });
 
-  it("flow-verify.md and flow-fix-applier.md retain the mcp__chrome-devtools__* grant (UI-running agents)", () => {
+  it("flow-verify.md and flow-fix-applier.md retain the mcp__chrome-devtools__* and ToolSearch grants (UI-running agents)", () => {
     for (const file of ["flow-verify.md", "flow-fix-applier.md"]) {
       const content = fs.readFileSync(
         path.resolve(HERE, "..", "agents", file),
         "utf8",
       );
+      for (const grant of ["ToolSearch", "mcp__chrome-devtools__*"]) {
+        expect(
+          content.includes(grant),
+          `agents/${file} must keep the '${grant}' grant in its tools: ` +
+            "frontmatter — the two sub-agents run the browser UI passes; dropping " +
+            "it silently re-breaks the browser gate (mcp-not-available).",
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("no agent other than flow-verify.md and flow-fix-applier.md carries the chrome-devtools MCP grant", () => {
+    const agentsDir = path.resolve(HERE, "..", "agents");
+    const otherAgentFiles = fs
+      .readdirSync(agentsDir)
+      .filter(
+        (file) =>
+          file.endsWith(".md") &&
+          file !== "flow-verify.md" &&
+          file !== "flow-fix-applier.md",
+      );
+    for (const file of otherAgentFiles) {
+      const content = fs.readFileSync(path.resolve(agentsDir, file), "utf8");
       expect(
-        content.includes("mcp__chrome-devtools__*"),
-        `agents/${file} must keep the chrome-devtools MCP grant in its tools: ` +
-          "frontmatter — the two sub-agents run the browser UI passes; dropping " +
-          "it silently re-breaks the browser gate (mcp-not-available).",
-      ).toBe(true);
+        content.includes("mcp__chrome-devtools"),
+        `agents/${file} must NOT carry the chrome-devtools MCP grant — only ` +
+          "flow-verify.md and flow-fix-applier.md run the browser UI passes; " +
+          "granting it elsewhere silently widens the browser blast radius.",
+      ).toBe(false);
     }
   });
 

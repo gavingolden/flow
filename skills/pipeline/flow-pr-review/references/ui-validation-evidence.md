@@ -77,20 +77,25 @@ PR diff before driving the bucket. Then, per visual item:
    cookies/storage. **Login step (auth-gated apps).** When the manifest
    declares `loginUrl` and `credentialEnvVars` and both VALUES resolve from
    the process env, drive the login form BEFORE the per-route drive:
-   `navigate_page` to `loginUrl` → `take_snapshot` to locate the email field
-   (hint: `input[type=email]` / `#email` / `input[name=email]`), the
-   password field (hint: `input[type=password]` / `#password`), and the
+   `navigate_page` to `loginUrl` → `take_snapshot` to locate the fields (a
+   transient working snapshot — never saved or injected as evidence): the
+   email field (hint: `input[type=email]` / `#email` / `input[name=email]`),
+   the password field (hint: `input[type=password]` / `#password`), and the
    submit control (hint: `button[type=submit]` / the form's submit
    control); if a cookie-consent/overlay covers the form, dismiss it first,
    and handle a multi-step flow (email → Next → password) if present →
-   `fill` the located fields with the resolved user/pass VALUES → submit →
+   `fill` the located fields with the resolved user/pass VALUES → click the
+   submit control (or press Enter) →
    `wait_for` the post-login redirect and confirm `loginOk`. The selector
    heuristic is a starting hint, not a rigid script — use the snapshot to
    locate the real fields. Read the VALUES from `process.env` at runtime;
-   **never capture evidence (screenshot/a11y snapshot) of the
-   credential-bearing login form — capture evidence only on the post-auth
-   gated route** (the password field is `type=password` so it renders no
-   plaintext, and post-auth routes carry no credential). When
+   **never persist or inject as review evidence a screenshot or saved
+   a11y snapshot of the credential-bearing login form — capture evidence
+   only on the post-auth gated route** (the form is simply never
+   captured — this is not because the password field is masked: the
+   email/username field renders in plaintext in both a screenshot and an
+   a11y snapshot, so masking is not the protection here, the unconditional
+   no-capture rule is). When
    `credentialEnvVars` is declared but the VALUES are absent from the env,
    take the existing `NEEDS HUMAN: smoketest-needs-creds` escalation
    (autonomous path) rather than driving an unauthenticated pass.
