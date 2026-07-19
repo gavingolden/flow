@@ -1,7 +1,7 @@
 ---
 name: flow-verify
 description: Mechanical pre-commit verify-retry loop for /flow-pipeline step 6. Runs flow-pre-commit / verify, re-pastes the failure JSON, and applies the named fix. Low reasoning effort — this work never needs deliberation.
-tools: Bash, Read, Edit, Write, Grep
+tools: Bash, Read, Edit, Write, Grep, ToolSearch, mcp__chrome-devtools__*
 effort: low
 ---
 
