@@ -286,6 +286,39 @@ describe("renderComment DECISIONS — consolidator lens-name label", () => {
   });
 });
 
+// A genuinely-malformed consolidator artifact: a finding whose label is an
+// unknown token ("xyzzy") that is NOT a lens name, so normalizeParsedFindings
+// does not coerce it — validation must still fail and degrade to (unreadable).
+const consolidatorUnknownLabel = JSON.stringify({
+  consolidated_findings: [
+    {
+      file: "bin/lib/x.ts",
+      line: 10,
+      label: "xyzzy",
+      decoration: "non-blocking",
+      confidence: 0.8,
+      subject: "s",
+      body: "b",
+    },
+  ],
+  dropped_by_validation: [],
+  rejected_alternatives: ["kept the two lenses separate"],
+  anti_patterns_found: [],
+  summary: "s",
+});
+
+describe("renderFindings — genuinely-malformed consolidator still degrades", () => {
+  it("renders (unreadable) for an unknown (non-lens) label — normalization does not mask real malformation", () => {
+    const findings = renderFindings({
+      prReviewRaw: "",
+      fixApplierRaw: "",
+      consolidatorRaw: consolidatorUnknownLabel,
+      ciWaitRaw: "",
+    }).join("\n");
+    expect(findings).toContain("consolidator: (unreadable)");
+  });
+});
+
 describe("renderFindings — fix-applier resilience", () => {
   const base = { prReviewRaw: "", consolidatorRaw: "", ciWaitRaw: "" };
 
