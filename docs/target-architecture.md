@@ -151,6 +151,9 @@ standalone-dir distribution, (c) module-filtered symlinks is chosen on
 evidence in Phase 6, and the module layer, standalone home, and graceful
 degradation all deliver value regardless of which wins.
 
+The verdict is now recorded: see "### ADR — distribution end-state verdict
+(p6-distribution-eval)" at the end of the Phase 6 section below.
+
 ---
 
 ## Gap analysis
@@ -524,7 +527,145 @@ option regardless of phase).
 - **Exit:** a recorded evidence-backed distribution verdict, and the winning
   mechanism delivered. `p6-distribution-impl` is the **first sanctioned break**
   of Phase 1's `--all` byte-parity guarantee, per the plugins-de-assumed
-  redirect: the mechanism is chosen on evidence, not assumed.
+  redirect: the mechanism is chosen on evidence, not assumed. The eval half
+  is **delivered** by the ADR below (`p6-distribution-eval`); the
+  implementation half (`p6-distribution-impl`) remains outstanding.
+
+### ADR — distribution end-state verdict (p6-distribution-eval)
+
+**Context.** The Phase-6 evaluation was due because the impl node was
+unplannable without a chosen mechanism, and it carried the biggest
+rework risk in the roadmap — three genuinely different distribution
+shapes (plugins/marketplace, launcher + standalone-home, filtered
+symlinks) with materially different supply-chain and per-repo-enablement
+properties. The evidence base: first-party Claude Code docs fetched
+2026-07-19 (`plugins-reference`, `plugin-marketplaces`), the CHANGELOG
+version-anchored against the local Claude Code build (**2.1.215**, also
+the latest CHANGELOG entry — current-version evidence, not stale), and a
+throwaway spike packaging flow's `stack-svelte` module as a plugin with a
+live in-session `PATH` observation. Nothing from the spike was committed.
+The sibling `p2-per-repo-activation-eval` input is recorded here as
+**pending, not blocking** — this verdict does not require its per-repo
+granularity conclusion, only reconciles with it in Contracted scope
+item 4 below.
+
+Two evidence surprises moved the candidate space since the epic was
+designed: **skills-directory plugins** — any folder under
+`~/.claude/skills/` or `<cwd>/.claude/skills/` with
+`.claude-plugin/plugin.json` loads as `<name>@skills-dir` **in place, with
+no marketplace and no cache copy** (verified,
+code.claude.com/docs/en/plugins-reference §Skills-directory plugins,
+fetched 2026-07-19) — and **npm as a native plugin source**
+(`source: "npm"`, verified, `plugin-marketplaces` §npm packages, fetched
+2026-07-19), meaning the "npm/Bun global package" alternative partially
+exists inside the plugin ecosystem already.
+
+The single most contested claim — whether plugins can manage PATH
+binaries at all — was spiked directly: a synthetic `bin/flow-spike-probe`
+inside a marketplace-installed plugin. `echo "$PATH"` inside the live
+session **confirmed** the plugin's cached `bin/` directory on `PATH`
+(first-party observed, not just documented; also VERIFIED against docs
+and CHANGELOG **v2.1.91**). Net verdict: the epic's "plugins cannot
+manage PATH binaries" premise is **refuted for the Bash-tool surface**
+and **stands for the user-shell surface** (the `flow` CLI itself, shell
+completions — no plugin mechanism claims either). One residue was not
+directly probed: bare-name invocation of a plugin binary in a **fresh**
+session (spawning a fresh `claude` session was out of contract for the
+spike) — mechanically implied by the live `PATH` observation but
+unverified; recorded as an open assumption below, not asserted as fact.
+
+| Criterion                                           | (a) plugins/marketplace                                                                                                                                                        | (b) launcher + standalone-home                                                                          | (c) filtered symlinks                                                    |
+| --------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------ | :----------------------------------------------------------------------- |
+| Supply-chain/security surface                       | Trust-the-git-repo; no signing/checksums anywhere in the marketplace doc (verified); sha-pinning available but opt-in                                                          | Local trust boundary only — no third-party registry; risk is the existing git-clone-and-symlink surface | Same local trust boundary as (b); no registry                            |
+| Cost/migration effort                               | Moving spec (breaking changes through 2.1.207, no `specVersion`); cache-copy isolation breaks flow's `bin/lib/*` shared imports across 50 helpers without per-plugin vendoring | Already shipped (Phase 2, D10) — zero incremental migration for the backbone                            | Moderate — new filtering logic, no packaging format change               |
+| Per-repo enablement                                 | Native `enabledPlugins` per settings scope (user/project/local/managed), `defaultEnabled: false` opt-in (v2.1.154+)                                                            | None today — the gap `p2-per-repo-activation-eval` is chartered to close                                | Achievable via symlink selection, but bespoke (no first-party primitive) |
+| Update/rollback story                               | Marketplace `ref`/`sha`/`version` pinning; independent per-source                                                                                                              | `git checkout` + `flow install --upgrade` re-materialization; single version store                      | Same as (b)                                                              |
+| Update atomicity / version-skew                     | Marketplace `autoUpdate` can advance the plugin surface independent of the shell-installed `flow` CLI — a split-state risk the epic's pre-mortem named explicitly              | Single checkout drives both surfaces together — no skew possible                                        | Same as (b)                                                              |
+| Helper-binary (Bash-tool) + user-shell CLI coverage | Bash-tool: plugin `bin/` reaches it (confirmed, claim 1/2). User-shell (`flow` CLI, completions): **not covered by any plugin mechanism** (verified by omission)               | Both surfaces covered today via `~/.local/bin` symlinks + launcher                                      | Both surfaces covered, same mechanism as (b)                             |
+| Ecosystem stability                                 | Young and moving (`bin/` shipped 2.1.91; reserved-name expansion 2.1.205; a project-settings read path removed at 2.1.207)                                                     | Stable — flow-owned, no external spec dependency                                                        | Stable — flow-owned                                                      |
+| Degradation-contract (D4) reuse                     | Would need a new skip-notice path for plugin-load failures                                                                                                                     | Reuses D4 as-is (already the launcher's mechanism)                                                      | Reuses D4 as-is                                                          |
+
+**Decision.** Winner: **(b) launcher + standalone-home distribution
+remains the backbone** — the git-clone canonical checkout, `flow install`
+symlinks, and the `flow` launcher (design.md D10) stay the mechanism for
+both the Bash-tool and user-shell surfaces, keeping the local trust
+boundary with no third-party registry. The hybrid named in the plan's
+middle-ground check is **adopted by name**, in its **skills-directory-plugin
+form**: `p6-distribution-impl` will materialize selected modules as
+skills-dir plugins (`.claude-plugin/plugin.json` per module, discovered
+in place under a skills directory — no marketplace, no cache copy) to
+gain auto-namespacing, native per-repo enablement (`enabledPlugins`),
+plugin `bin/` `PATH` coverage for session helpers, and the `plugin
+details` token-cost inventory the symlink install has no equivalent of.
+
+**Rejected by name:**
+
+- **Pure (a) marketplace/registry distribution** — the moving spec, the
+  registry trust surface (no signing/checksums), cache-copy isolation
+  breaking `bin/lib/*` shared imports across 50 helpers, and the
+  unclosed user-shell gap together make it non-viable as the sole
+  mechanism.
+- **npm/Bun global package** — exists natively as a plugin source
+  (claim 11) but adds npm-registry supply-chain surface and an
+  update-provenance split for zero reach benefit while flow has no
+  external users.
+- **Bare (c) status-quo-hardened symlinks** — forfeits the per-repo
+  enablement and collision-proof namespacing the epic values (D1/D2),
+  for no offsetting gain now that skills-dir plugins deliver both
+  without a registry.
+
+**Consequences.**
+
+- Three named assumptions are **unverified** and `p6-distribution-impl`
+  MUST settle them empirically before committing, with a fallback ladder
+  if refuted: (i) symlinked module directories are discovered as
+  skills-dir plugins the same way a plain directory is — if refuted,
+  fall back to a local-path marketplace install of the same module
+  layout; (ii) `bin/` `PATH` injection applies to `@skills-dir` plugins
+  the same way it was observed for marketplace-cache plugins (the spike
+  only probed the cache path) — if refuted, modules stay
+  symlink-materialized for helper coverage and the packaging layer is
+  revisited without touching the (b) backbone; (iii) per-repo
+  enable/disable semantics work identically for `@skills-dir` names as
+  for marketplace-installed names — if refuted, per-repo enablement
+  degrades to the existing symlink-selection mechanism.
+- **Update atomicity.** The git checkout is the single version store, so
+  the session surface and the CLI update together — no marketplace
+  `autoUpdate` skew is possible. Rollback is `git checkout <earlier ref>`
+  followed by `flow install --upgrade`.
+- This verdict authorizes the **sanctioned first break** of Phase 1's
+  `--all` byte-parity guarantee (see Phase-6 Exit above).
+- The degradation contract (D4, named skip-notices) and the standalone-
+  home `--add-dir` scoping (D10) are both preserved unchanged.
+- The marketplace exit stays open: `plugin.json` tolerates unrecognized
+  top-level fields (verified), so a `marketplace.json` could be layered
+  on later without re-architecting the skills-dir-plugin packaging.
+- **Drift risk:** the `bin/` `PATH` mechanism is young (shipped 2.1.91,
+  under a year old at eval time) — if `p6-distribution-impl` routes
+  helpers through it, the scope below includes a cheap drift-detection
+  check since a future release could change the mechanism with no CI
+  signal.
+
+#### Contracted scope: p6-distribution-impl
+
+1. Settle the three unverified assumptions above first, as spike-grade
+   probes recorded in the impl PR (not re-litigated as a planning
+   exercise).
+2. Extend `flow install` to emit `.claude-plugin/plugin.json` per
+   module and materialize selected modules as skills-dir plugins —
+   this is the sanctioned `--all` byte-parity break.
+3. Route session helpers through plugin `bin/` where assumption (ii) is
+   confirmed, retaining `~/.local/bin` PATH symlinks for user-shell
+   surfaces (`flow` CLI, completions) and as the degradation fallback
+   when it is refuted.
+4. Wire and document per-repo enablement for consumers, reconciled with
+   the `p2-per-repo-activation-eval` verdict when it lands (pending
+   input — this ADR does not block on it).
+5. Document the update/rollback story: git-checkout-as-version-store,
+   idempotent `flow install --upgrade` re-materialization.
+
+Non-goals for `p6-distribution-impl`: marketplace hosting, npm
+publishing, signing machinery.
 
 ---
 
