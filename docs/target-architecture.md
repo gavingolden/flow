@@ -151,8 +151,9 @@ standalone-dir distribution, (c) module-filtered symlinks is chosen on
 evidence in Phase 6, and the module layer, standalone home, and graceful
 degradation all deliver value regardless of which wins.
 
-The verdict is now recorded: see "### ADR — distribution end-state verdict
-(p6-distribution-eval)" at the end of the Phase 6 section below.
+The verdict is now recorded: see
+[ADR — distribution end-state verdict (p6-distribution-eval)](#adr--distribution-end-state-verdict-p6-distribution-eval)
+at the end of the Phase 6 section below.
 
 ---
 
@@ -531,7 +532,7 @@ option regardless of phase).
   is **delivered** by the ADR below (`p6-distribution-eval`); the
   implementation half (`p6-distribution-impl`) remains outstanding.
 
-### ADR — distribution end-state verdict (p6-distribution-eval)
+#### ADR — distribution end-state verdict (p6-distribution-eval)
 
 **Context.** The Phase-6 evaluation was due because the impl node was
 unplannable without a chosen mechanism, and it carried the biggest
@@ -574,16 +575,16 @@ session (spawning a fresh `claude` session was out of contract for the
 spike) — mechanically implied by the live `PATH` observation but
 unverified; recorded as an open assumption below, not asserted as fact.
 
-| Criterion                                           | (a) plugins/marketplace                                                                                                                                                        | (b) launcher + standalone-home                                                                          | (c) filtered symlinks                                                    |
-| --------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------ | :----------------------------------------------------------------------- |
-| Supply-chain/security surface                       | Trust-the-git-repo; no signing/checksums anywhere in the marketplace doc (verified); sha-pinning available but opt-in                                                          | Local trust boundary only — no third-party registry; risk is the existing git-clone-and-symlink surface | Same local trust boundary as (b); no registry                            |
-| Cost/migration effort                               | Moving spec (breaking changes through 2.1.207, no `specVersion`); cache-copy isolation breaks flow's `bin/lib/*` shared imports across 50 helpers without per-plugin vendoring | Already shipped (Phase 2, D10) — zero incremental migration for the backbone                            | Moderate — new filtering logic, no packaging format change               |
-| Per-repo enablement                                 | Native `enabledPlugins` per settings scope (user/project/local/managed), `defaultEnabled: false` opt-in (v2.1.154+)                                                            | None today — the gap `p2-per-repo-activation-eval` is chartered to close                                | Achievable via symlink selection, but bespoke (no first-party primitive) |
-| Update/rollback story                               | Marketplace `ref`/`sha`/`version` pinning; independent per-source                                                                                                              | `git checkout` + `flow install --upgrade` re-materialization; single version store                      | Same as (b)                                                              |
-| Update atomicity / version-skew                     | Marketplace `autoUpdate` can advance the plugin surface independent of the shell-installed `flow` CLI — a split-state risk the epic's pre-mortem named explicitly              | Single checkout drives both surfaces together — no skew possible                                        | Same as (b)                                                              |
-| Helper-binary (Bash-tool) + user-shell CLI coverage | Bash-tool: plugin `bin/` reaches it (confirmed, claim 1/2). User-shell (`flow` CLI, completions): **not covered by any plugin mechanism** (verified by omission)               | Both surfaces covered today via `~/.local/bin` symlinks + launcher                                      | Both surfaces covered, same mechanism as (b)                             |
-| Ecosystem stability                                 | Young and moving (`bin/` shipped 2.1.91; reserved-name expansion 2.1.205; a project-settings read path removed at 2.1.207)                                                     | Stable — flow-owned, no external spec dependency                                                        | Stable — flow-owned                                                      |
-| Degradation-contract (D4) reuse                     | Would need a new skip-notice path for plugin-load failures                                                                                                                     | Reuses D4 as-is (already the launcher's mechanism)                                                      | Reuses D4 as-is                                                          |
+| Criterion                                           | (a) plugins/marketplace                                                                                                                                                                          | (b) launcher + standalone-home                                                                          | (c) filtered symlinks                                                    |
+| --------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------ | :----------------------------------------------------------------------- |
+| Supply-chain/security surface                       | Trust-the-git-repo; no signing/checksums anywhere in the marketplace doc (verified); sha-pinning available but opt-in                                                                            | Local trust boundary only — no third-party registry; risk is the existing git-clone-and-symlink surface | Same local trust boundary as (b); no registry                            |
+| Cost/migration effort                               | Moving spec (breaking changes through 2.1.207, no `specVersion`); cache-copy isolation breaks flow's `bin/lib/*` shared imports across 50 helpers without per-plugin vendoring                   | Already shipped (Phase 2, D10) — zero incremental migration for the backbone                            | Moderate — new filtering logic, no packaging format change               |
+| Per-repo enablement                                 | Native `enabledPlugins` per settings scope (user/project/local/managed), `defaultEnabled: false` opt-in (v2.1.154+)                                                                              | None today — the gap `p2-per-repo-activation-eval` is chartered to close                                | Achievable via symlink selection, but bespoke (no first-party primitive) |
+| Update/rollback story                               | Marketplace `ref`/`sha`/`version` pinning; independent per-source                                                                                                                                | `git checkout` + `flow install --upgrade` re-materialization; single version store                      | Same as (b)                                                              |
+| Update atomicity / version-skew                     | Marketplace `autoUpdate` can advance the plugin surface independent of the shell-installed `flow` CLI — a split-state risk the epic's pre-mortem named explicitly                                | Single checkout drives both surfaces together — no skew possible                                        | Same as (b)                                                              |
+| Helper-binary (Bash-tool) + user-shell CLI coverage | Bash-tool: plugin `bin/` reaches it (confirmed by the spike's live PATH observation above). User-shell (`flow` CLI, completions): **not covered by any plugin mechanism** (verified by omission) | Both surfaces covered today via `~/.local/bin` symlinks + launcher                                      | Both surfaces covered, same mechanism as (b)                             |
+| Ecosystem stability                                 | Young and moving (`bin/` shipped 2.1.91; reserved-name expansion 2.1.205; a project-settings read path removed at 2.1.207)                                                                       | Stable — flow-owned, no external spec dependency                                                        | Stable — flow-owned                                                      |
+| Degradation-contract (D4) reuse                     | Would need a new skip-notice path for plugin-load failures                                                                                                                                       | Reuses D4 as-is (already the launcher's mechanism)                                                      | Reuses D4 as-is                                                          |
 
 **Decision.** Winner: **(b) launcher + standalone-home distribution
 remains the backbone** — the git-clone canonical checkout, `flow install`
@@ -606,11 +607,11 @@ details` token-cost inventory the symlink install has no equivalent of.
   unclosed user-shell gap together make it non-viable as the sole
   mechanism.
 - **npm/Bun global package** — exists natively as a plugin source
-  (claim 11) but adds npm-registry supply-chain surface and an
-  update-provenance split for zero reach benefit while flow has no
-  external users.
+  (the npm plugin source verified above) but adds npm-registry
+  supply-chain surface and an update-provenance split for zero reach
+  benefit while flow has no external users.
 - **Bare (c) status-quo-hardened symlinks** — forfeits the per-repo
-  enablement and collision-proof namespacing the epic values (D1/D2),
+  enablement and collision-proof namespacing the epic values (D3/D11),
   for no offsetting gain now that skills-dir plugins deliver both
   without a registry.
 
@@ -620,8 +621,13 @@ details` token-cost inventory the symlink install has no equivalent of.
   MUST settle them empirically before committing, with a fallback ladder
   if refuted: (i) symlinked module directories are discovered as
   skills-dir plugins the same way a plain directory is — if refuted,
-  fall back to a local-path marketplace install of the same module
-  layout; (ii) `bin/` `PATH` injection applies to `@skills-dir` plugins
+  fall back to **copying** the module directory in place under the
+  skills directory (plain directories are the verified-working
+  skills-dir case above) rather than a marketplace install, so the
+  fallback stays inside the same local trust boundary with no cache
+  copy, no per-plugin vendoring, and no second version store —
+  `flow install --upgrade` already re-materializes it; (ii) `bin/`
+  `PATH` injection applies to `@skills-dir` plugins
   the same way it was observed for marketplace-cache plugins (the spike
   only probed the cache path) — if refuted, modules stay
   symlink-materialized for helper coverage and the packaging layer is
@@ -635,8 +641,9 @@ details` token-cost inventory the symlink install has no equivalent of.
   followed by `flow install --upgrade`.
 - This verdict authorizes the **sanctioned first break** of Phase 1's
   `--all` byte-parity guarantee (see Phase-6 Exit above).
-- The degradation contract (D4, named skip-notices) and the standalone-
-  home `--add-dir` scoping (D10) are both preserved unchanged.
+- The degradation contract (D4, named skip-notices) and the
+  standalone-home `--add-dir` scoping (D10) are both preserved
+  unchanged.
 - The marketplace exit stays open: `plugin.json` tolerates unrecognized
   top-level fields (verified), so a `marketplace.json` could be layered
   on later without re-architecting the skills-dir-plugin packaging.
@@ -646,7 +653,7 @@ details` token-cost inventory the symlink install has no equivalent of.
   check since a future release could change the mechanism with no CI
   signal.
 
-#### Contracted scope: p6-distribution-impl
+##### Contracted scope: p6-distribution-impl
 
 1. Settle the three unverified assumptions above first, as spike-grade
    probes recorded in the impl PR (not re-litigated as a planning
